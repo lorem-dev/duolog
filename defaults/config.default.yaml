@@ -1,0 +1,142 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/lorem-dev/duolog/main/duolog-config.schema.json
+# duolog default rules. Lowest config layer; override per project in .duolog/config.yaml.
+# Evidence and sources: docs/research/2026-10-30-practices-and-models.md
+# Prices are USD per 1M tokens, read from vendor pages on 2026-10-30. They drive `duolog stats`
+# and `duolog doctor`, never routing. Routing is the `roles` table below.
+version: 1
+
+wire:
+  language: en          # tasks, answers and artifacts; only the lead talks in the user's language
+  max_summary_bytes: 200
+  max_line_bytes: 512
+
+limits:
+  max_effort: high      # above this the cost grows and DeepSWE scores for gpt-6.1-sol go down
+  manual_only_models: [fable, gpt-6-astra]   # refused unless --allow-manual-model is passed
+  max_live_sessions: 1  # per agent; one-shot `fresh` runs do not count
+  max_depth: 1          # a worker never delegates further
+
+models:
+  # Claude Code takes aliases, so these survive a new version.
+  fable:         {agent: claude, input: 10.00, cached: 0.25, output: 50.00}
+  opus:          {agent: claude, input: 4.00,  cached: 0.20, output: 20.00}
+  sonnet:        {agent: claude, input: 2.00,  cached: 0.10, output: 10.00}
+  haiku:         {agent: claude, input: 0.10,  cached: 0.01, output: 0.50, note: "x5 above a 100K token prompt"}
+  # Codex has no aliases. `duolog doctor` checks these against `codex debug models`.
+  gpt-6-astra:   {agent: codex,  input: 10.00, cached: 1.00, output: 50.00}
+  gpt-6.1-sol:   {agent: codex,  input: 2.00,  cached: 0.10, output: 10.00}
+  gpt-6.1-terra: {agent: codex,  input: 1.00,  cached: 0.05, output: 5.00}
+  gpt-6-luna:    {agent: codex,  input: 0.10,  cached: 0.01, output: 0.50}
+
+# context: minimal drops project instructions (about 8,400 Codex input tokens per call in a large repo)
+#          project keeps them; use it for anything that changes or judges code
+# session: fresh is a new run per task; resume continues the same thread and pays for its history
+roles:
+  plan:
+    use: {agent: claude, model: opus, effort: high}
+    fallback: {agent: codex, model: gpt-6.1-sol, effort: high}
+    sandbox: read-only
+    context: project
+    session: resume
+  implement:
+    use: {agent: codex, model: gpt-6.1-sol, effort: medium}
+    fallback: {agent: claude, model: sonnet, effort: medium}
+    sandbox: workspace-write
+    context: project
+    session: fresh
+  implement_complex:
+    use: {agent: codex, model: gpt-6.1-sol, effort: high}
+    fallback: {agent: claude, model: opus, effort: high}
+    sandbox: workspace-write
+    context: project
+    session: resume
+  mechanical:           # search, data gathering, repeated edits
+    use: {agent: codex, model: gpt-6-luna, effort: low}
+    fallback: {agent: claude, model: haiku, effort: low}
+    sandbox: workspace-write
+    context: minimal
+    session: fresh
+  tests:
+    use: {agent: codex, model: gpt-6.1-terra, effort: medium}
+    fallback: {agent: claude, model: sonnet, effort: medium}
+    sandbox: workspace-write
+    context: project
+    session: fresh
+  review_intermediate:
+    use: {agent: codex, model: gpt-6.1-terra, effort: medium}
+    fallback: {agent: claude, model: sonnet, effort: medium}
+    sandbox: read-only
+    context: project
+    session: fresh
+  review_final:
+    use: {agent: claude, model: opus, effort: high}
+    fallback: {agent: codex, model: gpt-6.1-sol, effort: high}
+    sandbox: read-only
+    context: project
+    session: fresh
+  debug_hard:
+    use: {agent: claude, model: opus, effort: high}
+    fallback: {agent: codex, model: gpt-6.1-sol, effort: high}
+    sandbox: workspace-write
+    context: project
+    session: resume
+  security_review:
+    use: {agent: claude, model: opus, effort: high}
+    fallback: {agent: codex, model: gpt-6.1-sol, effort: high}
+    sandbox: read-only
+    context: project
+    session: fresh
+  docs:
+    use: {agent: claude, model: sonnet, effort: medium}
+    fallback: {agent: codex, model: gpt-6.1-terra, effort: medium}
+    sandbox: workspace-write
+    context: minimal
+    session: fresh
+
+sessions:
+  resume_max_input_tokens: 60000   # above this, close the thread and start fresh with a task file
+  idle_close_minutes: 30
+
+# Decided by the duolog binary, not by a model, so an ordinary decision costs no tokens.
+# A worker never gets more than the lead's own settings allow (inherit_lead).
+policy:
+  inherit_lead: true
+  on_unmatched: ask
+  ask_timeout_seconds: 120
+  on_ask_timeout: deny
+  rules:
+    - {action: read,  match: "**", decision: allow}
+    - {action: read,  match: "{.env,.env.*,**/*.pem,**/*.key,**/secrets/**}", decision: deny}
+    - {action: write, match: ".duolog/**", decision: deny}
+    - {action: write, match: ".git/**", decision: deny}
+    - {action: write, match: "**", decision: allow, roles: [implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    - {action: exec,  match: "{go,cargo,npm,pnpm,uv,task,make} {test,lint,fmt,build,run}*", decision: allow}
+    - {action: exec,  match: "git {status,diff,log,show}*", decision: allow}
+    - {action: exec,  match: "git {push,reset --hard,clean,rebase}*", decision: deny}
+    - {action: exec,  match: "rm -rf *", decision: deny}
+    - {action: net,   match: "*", decision: ask}
+
+# `duolog sync --from claude|codex` picks the direction; hooks then keep the target up to date.
+# Skills and agents are always generated as plain files, never symlinks.
+sync:
+  auto: true            # PostToolUse and SessionStart hooks; does nothing until a direction is chosen
+  agents:
+    model_map:          # claude alias: codex model; the reverse direction inverts it
+      fable: gpt-6-astra
+      opus: gpt-6.1-sol
+      sonnet: gpt-6.1-terra
+      haiku: gpt-6-luna
+    default_effort: {fable: high, opus: high, sonnet: medium, haiku: low}
+    effort_map: {low: low, medium: medium, high: high, xhigh: xhigh, max: max}
+    codex_name: keep    # keep | underscore; task 1 of the plan decides the shipped default
+    drop_keys: [color]  # any other key with no counterpart refuses, so nothing is lost silently
+    overrides: {}       # per agent, e.g. architect: {model: gpt-6.1-sol, effort: medium}
+  skills:
+    drop_keys: []       # frontmatter keys to remove; unknown keys stay and print a warning
+
+# Variables spawned sessions inherit. Everything else is not passed on purpose.
+env_passthrough: [PATH, HOME, REX_SESSION]
+
+rex:
+  auto_install_mcp: true   # when REX_SESSION is set, register the duolog MCP server on SessionStart
+  capture_lines: 20        # a capture checks liveness only; answers are read from files

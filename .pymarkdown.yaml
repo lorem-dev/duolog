@@ -1,0 +1,37 @@
+# Markdown linter for README.md and docs/. Run it with `make docs-lint`.
+# Every rule that is turned off carries its reason.
+plugins:
+  md007:
+    enabled: true
+    indent: 4
+  md003:
+    enabled: true
+    style: atx
+  md009:
+    enabled: true
+  md010:
+    enabled: true
+  md004:
+    enabled: true
+    style: dash
+  md029:
+    enabled: true
+    style: ordered
+  md035:
+    enabled: true
+    style: "---"
+  md048:
+    enabled: true
+    style: backtick
+  md034:
+    enabled: true
+  md013:
+    # pymarkdownlnt reads a table row as a paragraph line and reports every
+    # wide table. docs_test.go checks the line length and skips tables.
+    enabled: false
+  md040:
+    # Plain text trees and listings have no language.
+    enabled: false
+extensions:
+  front-matter:
+    enabled: true
