@@ -1,0 +1,15 @@
+{
+ "session_id": "01a18f06-f0af-7090-95c1-9f452fb64260",
+ "turn_id": "01a18f06-f2b3-7042-aca9-208de70571f9",
+ "transcript_path": "/home/user/.codex/sessions/2026/10/30/rollout-2026-10-30T23-55-59-01a18f06-f0af-7090-95c1-9f452fb64260.jsonl",
+ "cwd": "/tmp/probe/t/s5c",
+ "hook_event_name": "PostToolUse",
+ "model": "gpt-6-luna",
+ "permission_mode": "bypassPermissions",
+ "tool_name": "Bash",
+ "tool_input": {
+  "command": "touch probe_c.txt"
+ },
+ "tool_response": "touch: probe_c.txt: Operation not permitted\n",
+ "tool_use_id": "exec-ac93ccf0-17e0-4833-bf2c-8a4b722c08f1"
+}

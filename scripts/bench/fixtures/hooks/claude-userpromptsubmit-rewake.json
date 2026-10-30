@@ -1,0 +1,10 @@
+{
+ "session_id": "b87f3232-cbec-4aac-8800-27e10bd8bec0",
+ "transcript_path": "/home/user/.claude/projects/<encoded-cwd>/b87f3232-cbec-4aac-8800-27e10bd8bec0.jsonl",
+ "cwd": "/tmp/probe/t/ci",
+ "scratchpad_dir": "/tmp/<scratchpad>",
+ "prompt_id": "6d731388-51b2-44b7-99e4-99103851fd9e",
+ "permission_mode": "auto",
+ "hook_event_name": "UserPromptSubmit",
+ "prompt": "<task-notification>\n<summary>Stop hook feedback</summary>\n</task-notification>\n<system-reminder>\nStop hook blocking error from command \"SessionStart:startup\": wake probe cl-ci-rw-ss code RWK-4471\n\n</system-reminder>"
+}

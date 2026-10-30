@@ -1,0 +1,22 @@
+[
+ {
+  "id": "clangd-lsp@claude-plugins-official",
+  "version": "1.0.0",
+  "scope": "user",
+  "enabled": true,
+  "installPath": "/home/user/.claude/plugins/cache/claude-plugins-official/clangd-lsp/1.0.0",
+  "installedAt": "2026-10-16T12:03:38.638Z",
+  "lastUpdated": "2026-10-16T12:03:38.638Z",
+  "projectEnabled": false
+ },
+ {
+  "id": "crit@crit",
+  "version": "1.8.14",
+  "scope": "user",
+  "enabled": true,
+  "installPath": "/home/user/.claude/plugins/cache/crit/crit/1.8.14",
+  "installedAt": "2026-10-14T19:01:42.217Z",
+  "lastUpdated": "2026-10-14T19:01:42.217Z",
+  "projectEnabled": false
+ }
+]

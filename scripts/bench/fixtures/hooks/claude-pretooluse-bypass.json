@@ -1,0 +1,18 @@
+{
+ "session_id": "58c7c166-8307-40ab-a656-c8d5328bd2d4",
+ "transcript_path": "/home/user/.claude/projects/<encoded-cwd>/58c7c166-8307-40ab-a656-c8d5328bd2d4.jsonl",
+ "cwd": "/tmp/probe/t/c4",
+ "prompt_id": "cbb45cb7-f656-496c-b031-3b311ce84cec",
+ "permission_mode": "bypassPermissions",
+ "agent_type": "probe-conv",
+ "effort": {
+  "level": "medium"
+ },
+ "hook_event_name": "PreToolUse",
+ "tool_name": "Bash",
+ "tool_input": {
+  "command": "touch agent_probe.txt",
+  "description": "Create agent_probe.txt in working directory"
+ },
+ "tool_use_id": "toolu_01VcFjZjqSqGty6aRX5u3Heu"
+}

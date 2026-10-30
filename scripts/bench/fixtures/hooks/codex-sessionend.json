@@ -1,0 +1,7 @@
+{
+ "session_id": "01a18f15-001b-7c80-8524-217586e6f337",
+ "transcript_path": "/home/user/.codex/sessions/2026/10/31/rollout-2026-10-31T00-11-20-01a18f15-001b-7c80-8524-217586e6f337.jsonl",
+ "cwd": "/tmp/probe/t/ce",
+ "hook_event_name": "SessionEnd",
+ "reason": "other"
+}

@@ -1,0 +1,14 @@
+{
+ "session_id": "01a18f0f-618d-71a2-baef-64c84be38a3b",
+ "turn_id": "01a18f0f-7300-7d40-982e-820fcabd4854",
+ "transcript_path": "/home/user/.codex/sessions/2026/10/31/rollout-2026-10-31T00-05-12-01a18f0f-618d-71a2-baef-64c84be38a3b.jsonl",
+ "cwd": "/tmp/probe/t/cxi",
+ "hook_event_name": "PreToolUse",
+ "model": "gpt-6-luna",
+ "permission_mode": "default",
+ "tool_name": "Bash",
+ "tool_input": {
+  "command": "touch allow_me.txt"
+ },
+ "tool_use_id": "exec-89b1b5c7-b902-4fa9-b0d0-083086c7e04a"
+}

@@ -1,0 +1,10 @@
+{
+ "session_id": "01a18f11-40c9-7b63-8cb7-518c0fedcb42",
+ "turn_id": "01a18f11-ec42-7f12-9095-06d5b6b1790a",
+ "transcript_path": "/home/user/.codex/sessions/2026/10/31/rollout-2026-10-31T00-07-15-01a18f11-40c9-7b63-8cb7-518c0fedcb42.jsonl",
+ "cwd": "/tmp/probe/t/cxd",
+ "hook_event_name": "UserPromptSubmit",
+ "model": "gpt-6-luna",
+ "permission_mode": "default",
+ "prompt": "Reply with the single word trusted."
+}

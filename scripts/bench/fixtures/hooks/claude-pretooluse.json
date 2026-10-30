@@ -1,0 +1,17 @@
+{
+ "session_id": "23f0d7e7-dad1-4adf-9718-5cf7eaa73966",
+ "transcript_path": "/home/user/.claude/projects/<encoded-cwd>/23f0d7e7-dad1-4adf-9718-5cf7eaa73966.jsonl",
+ "cwd": "/tmp/probe/t/c5c",
+ "prompt_id": "335abfdc-6f4b-4c0c-ba08-c85b7adc9cd0",
+ "permission_mode": "default",
+ "effort": {
+  "level": "low"
+ },
+ "hook_event_name": "PreToolUse",
+ "tool_name": "Bash",
+ "tool_input": {
+  "command": "touch probe.txt",
+  "description": "Create empty probe.txt file via touch"
+ },
+ "tool_use_id": "toolu_01GKcojA7o3oz8G76DVhEKes"
+}

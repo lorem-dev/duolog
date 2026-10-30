@@ -1,0 +1,61 @@
+{
+ "installed": [
+  {
+   "pluginId": "openai-templates@openai-curated-remote",
+   "name": "openai-templates",
+   "marketplaceName": "openai-curated-remote",
+   "version": "0.1.1",
+   "installed": true,
+   "enabled": true,
+   "source": {
+    "source": "remote",
+    "id": "plugin_connector_1p_2330815c823c8191941e5dc465bb899f"
+   },
+   "installPolicy": "INSTALLED_BY_DEFAULT",
+   "authPolicy": "ON_USE"
+  },
+  {
+   "pluginId": "sites@openai-curated-remote",
+   "name": "sites",
+   "marketplaceName": "openai-curated-remote",
+   "version": "1.1.2",
+   "installed": true,
+   "enabled": true,
+   "source": {
+    "source": "remote",
+    "id": "plugin_connector_1p_689987207de08191979cf68eca2941c6"
+   },
+   "installPolicy": "INSTALLED_BY_DEFAULT",
+   "authPolicy": "ON_USE"
+  },
+  {
+   "pluginId": "plugin-management@openai-curated-remote",
+   "name": "plugin-management",
+   "marketplaceName": "openai-curated-remote",
+   "version": "0.1.0",
+   "installed": true,
+   "enabled": true,
+   "source": {
+    "source": "remote",
+    "id": "plugin_connector_1p_b3438d6beb9081918fba3625bc988128"
+   },
+   "installPolicy": "INSTALLED_BY_DEFAULT",
+   "authPolicy": "ON_USE"
+  },
+  {
+   "pluginId": "work-pets@openai-curated-remote",
+   "name": "work-pets",
+   "marketplaceName": "openai-curated-remote",
+   "version": "0.1.6",
+   "installed": true,
+   "enabled": true,
+   "source": {
+    "source": "remote",
+    "id": "plugin_connector_1p_bccf6c8660c08191ae4470d9ae4877fa"
+   },
+   "installPolicy": "INSTALLED_BY_DEFAULT",
+   "authPolicy": "ON_USE"
+  }
+ ],
+ "available": []
+}

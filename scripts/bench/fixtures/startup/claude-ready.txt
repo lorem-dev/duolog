@@ -1,0 +1,9 @@
+ ▐▛███▛█   Claude Code v2.1.312
+▝▜██████▀  Haiku 5.5 with low effort · Claude Pro
+ ▝▝   ▝▝   /…/scratchpad/probe/t/ci
+
+────────────────────────────────────────────────────────────────
+❯ Try "how does <filepath> work?"
+────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts · ← 1 agent
+                                               ○ low · /effort

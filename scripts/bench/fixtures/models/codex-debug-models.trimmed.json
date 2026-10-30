@@ -1,0 +1,210 @@
+{
+ "top_level_keys": [
+  "models"
+ ],
+ "model_keys": [
+  "slug",
+  "display_name",
+  "description",
+  "default_reasoning_level",
+  "supported_reasoning_levels",
+  "shell_type",
+  "visibility",
+  "supported_in_api",
+  "priority",
+  "additional_speed_tiers",
+  "service_tiers",
+  "available_access_programs",
+  "availability_nux",
+  "upgrade",
+  "model_messages",
+  "include_skills_usage_instructions",
+  "include_plugin_usage_instructions",
+  "include_apps_usage_instructions",
+  "default_reasoning_summary",
+  "support_verbosity",
+  "default_verbosity",
+  "apply_patch_tool_type",
+  "web_search_tool_type",
+  "truncation_policy",
+  "supports_image_detail_original",
+  "context_window",
+  "max_context_window",
+  "comp_hash",
+  "effective_context_window_percent",
+  "experimental_supported_tools",
+  "input_modalities",
+  "supports_search_tool",
+  "supports_experimental_context",
+  "use_responses_lite",
+  "supports_reasoning_effort_updates",
+  "node_repl_auto_review_required",
+  "node_repl_disabled",
+  "tool_mode",
+  "multi_agent_version",
+  "multi_agent_reasoning_effort",
+  "base_instructions"
+ ],
+ "models": [
+  {
+   "slug": "gpt-6.1-sol",
+   "display_name": "GPT-6.1-Sol",
+   "visibility": "list",
+   "default_reasoning_level": "low",
+   "priority": 1,
+   "supported_reasoning_levels": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra"
+   ]
+  },
+  {
+   "slug": "gpt-6-astra",
+   "display_name": "GPT-6-Astra",
+   "visibility": "list",
+   "default_reasoning_level": "low",
+   "priority": 2,
+   "supported_reasoning_levels": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra"
+   ]
+  },
+  {
+   "slug": "gpt-6-chat-thinking",
+   "display_name": "GPT-6 Chat Thinking",
+   "visibility": "hide",
+   "default_reasoning_level": "medium",
+   "priority": 2,
+   "supported_reasoning_levels": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ]
+  },
+  {
+   "slug": "gpt-6.1-terra",
+   "display_name": "GPT-6.1 Terra",
+   "visibility": "list",
+   "default_reasoning_level": "low",
+   "priority": 3,
+   "supported_reasoning_levels": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra"
+   ]
+  },
+  {
+   "slug": "gpt-6-sol",
+   "display_name": "GPT-6-Sol",
+   "visibility": "list",
+   "default_reasoning_level": "medium",
+   "priority": 4,
+   "supported_reasoning_levels": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra"
+   ]
+  },
+  {
+   "slug": "gpt-reserve",
+   "display_name": "GPT-Reserve",
+   "visibility": "hide",
+   "default_reasoning_level": "medium",
+   "priority": 4,
+   "supported_reasoning_levels": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ]
+  },
+  {
+   "slug": "gpt-6-luna",
+   "display_name": "GPT-6-Luna",
+   "visibility": "list",
+   "default_reasoning_level": "medium",
+   "priority": 5,
+   "supported_reasoning_levels": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ]
+  },
+  {
+   "slug": "gpt-5.6-sol",
+   "display_name": "GPT-5.6-Sol",
+   "visibility": "list",
+   "default_reasoning_level": "low",
+   "priority": 6,
+   "supported_reasoning_levels": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra"
+   ]
+  },
+  {
+   "slug": "gpt-5.6-terra",
+   "display_name": "GPT-5.6-Terra",
+   "visibility": "list",
+   "default_reasoning_level": "medium",
+   "priority": 8,
+   "supported_reasoning_levels": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra"
+   ]
+  },
+  {
+   "slug": "gpt-5.6-luna",
+   "display_name": "GPT-5.6-Luna",
+   "visibility": "list",
+   "default_reasoning_level": "medium",
+   "priority": 9,
+   "supported_reasoning_levels": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ]
+  },
+  {
+   "slug": "codex-auto-review",
+   "display_name": "Codex Auto Review",
+   "visibility": "hide",
+   "default_reasoning_level": "medium",
+   "priority": 43,
+   "supported_reasoning_levels": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ]
+  }
+ ]
+}

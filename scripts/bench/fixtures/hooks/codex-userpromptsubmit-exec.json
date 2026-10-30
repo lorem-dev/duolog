@@ -1,0 +1,10 @@
+{
+ "session_id": "01a18f16-e5f1-7ba2-97e4-0db53142b6ed",
+ "turn_id": "01a18f16-e78d-72c1-90c3-e70c888df2ad",
+ "transcript_path": "/home/user/.codex/sessions/2026/10/31/rollout-2026-10-31T00-13-25-01a18f16-e5f1-7ba2-97e4-0db53142b6ed.jsonl",
+ "cwd": "/tmp/probe/t/s5a",
+ "hook_event_name": "UserPromptSubmit",
+ "model": "gpt-6-luna",
+ "permission_mode": "bypassPermissions",
+ "prompt": "Run the shell command: touch probe_x.txt . Then say done."
+}

@@ -1,0 +1,35 @@
+{
+ "claude_and_codex_pretooluse_deny_json": {
+  "hookSpecificOutput": {
+   "hookEventName": "PreToolUse",
+   "permissionDecision": "deny",
+   "permissionDecisionReason": "reason text"
+  }
+ },
+ "claude_and_codex_pretooluse_deny_exit": "exit code 2, reason on stderr",
+ "claude_and_codex_permissionrequest_deny": {
+  "hookSpecificOutput": {
+   "hookEventName": "PermissionRequest",
+   "decision": {
+    "behavior": "deny",
+    "message": "reason text"
+   }
+  }
+ },
+ "claude_and_codex_permissionrequest_allow": {
+  "hookSpecificOutput": {
+   "hookEventName": "PermissionRequest",
+   "decision": {
+    "behavior": "allow"
+   }
+  }
+ },
+ "claude_asyncrewake": {
+  "settings": {
+   "type": "command",
+   "command": "...",
+   "asyncRewake": true
+  },
+  "wake": "exit code 2, message on stderr"
+ }
+}
