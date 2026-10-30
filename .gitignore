@@ -1,0 +1,13 @@
+# Working notes for agents: the design, the plan and hand-over files.
+docs/superpowers/
+.superpowers/
+
+# Build output.
+/duolog
+/duolog.exe
+/dist/
+
+# duolog's own state, when this repository uses duolog.
+.duolog/*
+!.duolog/config.yaml
+!.duolog/sync.lock.json
