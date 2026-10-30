@@ -1,0 +1,60 @@
+{
+ "keys": [
+  "type",
+  "subtype",
+  "cwd",
+  "session_id",
+  "tools",
+  "mcp_servers",
+  "model",
+  "permissionMode",
+  "slash_commands",
+  "terminal_slash_commands",
+  "apiKeySource",
+  "claude_code_version",
+  "output_style",
+  "agents",
+  "skills",
+  "plugins",
+  "capabilities",
+  "analytics_disabled",
+  "product_feedback_disabled",
+  "uuid",
+  "memory_paths",
+  "original_cwd",
+  "additional_directories",
+  "messaging_socket_path",
+  "fast_mode_state",
+  "fast_mode_disabled_reason",
+  "per_turn_effort_active",
+  "view_mode"
+ ],
+ "model": "claude-haiku-5-5",
+ "permissionMode": "bypassPermissions",
+ "session_id": "00000000-0000-4000-8000-000000000030",
+ "plugins_sample": [
+  {
+   "name": "plannotator"
+  },
+  {
+   "name": "superpowers"
+  },
+  {
+   "name": "figma"
+  }
+ ],
+ "mcp_servers_sample": [
+  {
+   "name": "codegraph",
+   "status": "connected"
+  },
+  {
+   "name": "figma",
+   "status": "needs-auth"
+  },
+  {
+   "name": "unreal-editor",
+   "status": "failed"
+  }
+ ]
+}

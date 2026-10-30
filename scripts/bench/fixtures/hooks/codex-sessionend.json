@@ -1,0 +1,7 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000024",
+ "transcript_path": "/home/user/.codex/sessions/2026/10/31/rollout-2026-10-31T00-11-20-00000000-0000-4000-8000-000000000024.jsonl",
+ "cwd": "/tmp/probe/t/ce",
+ "hook_event_name": "SessionEnd",
+ "reason": "other"
+}

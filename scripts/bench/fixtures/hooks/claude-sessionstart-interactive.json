@@ -1,0 +1,9 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000040",
+ "transcript_path": "/home/user/.claude/projects/<encoded-cwd>/00000000-0000-4000-8000-000000000040.jsonl",
+ "cwd": "/tmp/probe/t/ci",
+ "scratchpad_dir": "/tmp/<scratchpad>",
+ "hook_event_name": "SessionStart",
+ "source": "startup",
+ "model": "claude-haiku-5-5"
+}

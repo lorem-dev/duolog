@@ -1,0 +1,9 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000011",
+ "transcript_path": "/home/user/.codex/sessions/2026/10/31/rollout-2026-10-31T00-08-03-00000000-0000-4000-8000-000000000011.jsonl",
+ "cwd": "/tmp/probe/t/cxd",
+ "hook_event_name": "SessionStart",
+ "model": "gpt-6-luna",
+ "permission_mode": "default",
+ "source": "startup"
+}

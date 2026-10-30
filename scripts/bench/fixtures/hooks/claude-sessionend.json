@@ -1,0 +1,8 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000033",
+ "transcript_path": "/home/user/.claude/projects/<encoded-cwd>/00000000-0000-4000-8000-000000000033.jsonl",
+ "cwd": "/tmp/probe/t/ce",
+ "scratchpad_dir": "/tmp/<scratchpad>",
+ "hook_event_name": "SessionEnd",
+ "reason": "other"
+}

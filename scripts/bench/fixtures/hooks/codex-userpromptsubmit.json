@@ -1,0 +1,10 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000009",
+ "turn_id": "00000000-0000-4000-8000-000000000010",
+ "transcript_path": "/home/user/.codex/sessions/2026/10/31/rollout-2026-10-31T00-07-15-00000000-0000-4000-8000-000000000009.jsonl",
+ "cwd": "/tmp/probe/t/cxd",
+ "hook_event_name": "UserPromptSubmit",
+ "model": "gpt-6-luna",
+ "permission_mode": "default",
+ "prompt": "Reply with the single word trusted."
+}

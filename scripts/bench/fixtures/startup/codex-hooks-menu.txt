@@ -1,0 +1,14 @@
+  Hooks
+  Lifecycle hooks from config and enabled plugins.
+  ⚠ 2 hooks need review before they can run.
+  Event               Active/Installed
+  PreToolUse          0/0
+  PermissionRequest   0/0
+  PostToolUse         0/0
+  PreCompact          0/0
+  PostCompact         0/0
+› SessionStart        1/2 !                                     
+  SessionEnd          0/0
+  UserPromptSubmit    0/1 !
+↓
+  t trust all · enter review · esc close                        

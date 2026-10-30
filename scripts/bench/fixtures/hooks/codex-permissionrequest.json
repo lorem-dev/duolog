@@ -1,0 +1,14 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000007",
+ "turn_id": "00000000-0000-4000-8000-000000000008",
+ "transcript_path": "/home/user/.codex/sessions/2026/10/31/rollout-2026-10-31T00-05-12-00000000-0000-4000-8000-000000000007.jsonl",
+ "cwd": "/tmp/probe/t/cxi",
+ "hook_event_name": "PermissionRequest",
+ "model": "gpt-6-luna",
+ "permission_mode": "default",
+ "tool_name": "Bash",
+ "tool_input": {
+  "command": "touch allow_me.txt",
+  "description": "May I create allow_me.txt in the workspace?"
+ }
+}

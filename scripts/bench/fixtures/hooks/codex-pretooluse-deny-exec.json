@@ -1,0 +1,14 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000025",
+ "turn_id": "00000000-0000-4000-8000-000000000026",
+ "transcript_path": "/home/user/.codex/sessions/2026/10/31/rollout-2026-10-31T00-13-25-00000000-0000-4000-8000-000000000025.jsonl",
+ "cwd": "/tmp/probe/t/s5a",
+ "hook_event_name": "PreToolUse",
+ "model": "gpt-6-luna",
+ "permission_mode": "bypassPermissions",
+ "tool_name": "Bash",
+ "tool_input": {
+  "command": "touch probe_x.txt"
+ },
+ "tool_use_id": "exec-00000000-0000-4000-8000-000000000042"
+}

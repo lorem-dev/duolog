@@ -1,0 +1,25 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000043",
+ "transcript_path": "/home/user/.claude/projects/<encoded-cwd>/00000000-0000-4000-8000-000000000043.jsonl",
+ "cwd": "/tmp/probe/t/c5d",
+ "prompt_id": "00000000-0000-4000-8000-000000000034",
+ "permission_mode": "default",
+ "effort": {
+  "level": "low"
+ },
+ "hook_event_name": "PostToolUse",
+ "tool_name": "Bash",
+ "tool_input": {
+  "command": "touch probe.txt",
+  "description": "Create empty probe.txt file via touch"
+ },
+ "tool_response": {
+  "stdout": "",
+  "stderr": "",
+  "interrupted": false,
+  "isImage": false,
+  "noOutputExpected": true
+ },
+ "tool_use_id": "toolu_017ZF2dRwzi2UccE4CY7REVM",
+ "duration_ms": 177
+}

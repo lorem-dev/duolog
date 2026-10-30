@@ -1,0 +1,15 @@
+{
+ "session_id": "00000000-0000-4000-8000-000000000003",
+ "turn_id": "00000000-0000-4000-8000-000000000004",
+ "transcript_path": "/home/user/.codex/sessions/2026/10/30/rollout-2026-10-30T23-55-59-00000000-0000-4000-8000-000000000003.jsonl",
+ "cwd": "/tmp/probe/t/s5c",
+ "hook_event_name": "PostToolUse",
+ "model": "gpt-6-luna",
+ "permission_mode": "bypassPermissions",
+ "tool_name": "Bash",
+ "tool_input": {
+  "command": "touch probe_c.txt"
+ },
+ "tool_response": "touch: probe_c.txt: Operation not permitted\n",
+ "tool_use_id": "exec-00000000-0000-4000-8000-000000000039"
+}
