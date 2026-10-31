@@ -20,6 +20,8 @@ type OutputChunk struct {
 // Scenario describes one fake invocation. Exit -1 terminates by a kill signal.
 // Writes happen after SleepMS, and relative paths are relative to the child cwd.
 type Scenario struct {
+	// Responses selects a scenario by the longest matching argument prefix.
+	Responses      map[string]Scenario
 	Output         []OutputChunk
 	Stdout, Stderr string
 	Exit           int

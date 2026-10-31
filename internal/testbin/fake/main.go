@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/testbin"
@@ -32,6 +33,27 @@ func run() error {
 		return err
 	}
 	args, _ := json.Marshal(os.Args[1:])
+	calls, err := os.OpenFile(path+".calls.ndjson", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	_, writeErr := calls.Write(append(args, '\n'))
+	closeErr := calls.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	command := strings.Join(os.Args[1:], " ")
+	longest := ""
+	selected := s
+	for prefix, response := range s.Responses {
+		if (command == prefix || strings.HasPrefix(command, prefix+" ")) && len(prefix) > len(longest) {
+			longest, selected = prefix, response
+		}
+	}
+	s = selected
 	env, _ := json.Marshal(os.Environ())
 	cwd, err := os.Getwd()
 	if err != nil {
