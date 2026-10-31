@@ -2,9 +2,11 @@
 package roster
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/session"
@@ -39,4 +41,20 @@ func Line(cfg *config.Config, lead string, reg *session.Registry) string {
 		parts = append(parts, name+"="+models.Normalize(target.Agent, target.Model))
 	}
 	return strings.Join(parts, " ")
+}
+
+// CapsNote says what the other agent lacks compared with the lead's agent and
+// whether it has duolog hooks. It is empty when there is nothing to say; an
+// unknown inventory is never reported as a difference.
+func CapsNote(lead, other capability.Inventory, otherHasDuolog bool) string {
+	var parts []string
+	if !lead.Unknown && !other.Unknown {
+		if n := len(capability.Diff(lead, other)); n > 0 {
+			parts = append(parts, fmt.Sprintf("%s lacks %d", other.Agent, n))
+		}
+	}
+	if !otherHasDuolog {
+		parts = append(parts, other.Agent+" has no duolog hooks: sandbox only")
+	}
+	return strings.Join(parts, "; ")
 }

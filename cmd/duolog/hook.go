@@ -14,6 +14,12 @@ type hookExit struct{ code int }
 
 func (e *hookExit) Error() string { return "hook wake" }
 
+// needsExit reports that the worker or the capability check needs the lead to
+// act. It is not a failure, so it has its own exit code.
+type needsExit struct{}
+
+func (e *needsExit) Error() string { return "needs lead" }
+
 func newHookCommand() *cobra.Command {
 	var agent string
 	cmd := &cobra.Command{Use: "hook <event>", Short: "Deliver messages to a lead hook", SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
@@ -63,6 +69,10 @@ func exitCode(err error) int {
 	var wake *hookExit
 	if errors.As(err, &wake) {
 		return wake.code
+	}
+	var needs *needsExit
+	if errors.As(err, &needs) {
+		return 3
 	}
 	return 1
 }

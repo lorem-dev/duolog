@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/trust"
@@ -70,6 +71,9 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 			continue
 		}
 		available[agent] = true
+		if !capability.HasDuolog(agent, root) {
+			add("warning", agent+" has no duolog hooks; its sessions get the sandbox only")
+		}
 		data, err := metadata(ctx, agent, "--version")
 		if err != nil {
 			add("warning", agent+" version: "+err.Error())

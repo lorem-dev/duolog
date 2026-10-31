@@ -11,6 +11,7 @@ import (
 
 func newDelegateCommand() *cobra.Command {
 	var taskPath, thread, lead string
+	var needs []string
 	var allowManual bool
 	cmd := &cobra.Command{Use: "delegate <role>", Short: "Delegate a task and print its answer", Args: cobra.ExactArgs(1), SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
 		root, err := projectRoot()
@@ -25,15 +26,19 @@ func newDelegateCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		ctx := delegate.WithOptions(cmd.Context(), delegate.Options{Lead: lead, AllowManualModel: allowManual})
+		ctx := delegate.WithOptions(cmd.Context(), delegate.Options{Lead: lead, AllowManualModel: allowManual, Needs: needs})
 		out, err := delegate.Run(ctx, cfg, s, args[0], taskPath, thread)
 		if out.Line != "" {
 			if _, writeErr := fmt.Fprintln(cmd.OutOrStdout(), out.Line); writeErr != nil {
 				return writeErr
 			}
 		}
+		if err == nil && len(out.Needs) > 0 {
+			return &needsExit{}
+		}
 		return err
 	}}
+	cmd.Flags().StringSliceVar(&needs, "needs", nil, "Capabilities the task relies on, as kind:name with kind skill, plugin or mcp")
 	cmd.Flags().StringVar(&taskPath, "task", "", "Task file to delegate")
 	cmd.Flags().StringVar(&thread, "thread", "", "Conversation thread to reuse")
 	cmd.Flags().StringVar(&lead, "lead", "", "Registered lead session ID (defaults to DUOLOG_LEAD)")

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/session"
 )
@@ -58,5 +59,29 @@ func TestRosterDoesNotRunAgents(t *testing.T) {
 	}
 	if _, err := os.Stat(reg.Dir); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRosterCountsDifferences(t *testing.T) {
+	cfg, reg := setup(t)
+	lead := capability.Inventory{Agent: "claude", Items: []capability.Item{{Kind: "skill", Name: "a"}, {Kind: "skill", Name: "b"}, {Kind: "mcp", Name: "c"}, {Kind: "mcp", Name: "shared"}}}
+	other := capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "shared"}, {Kind: "plugin", Name: "only-codex"}}}
+	note := CapsNote(lead, other, true)
+	if note != "codex lacks 3" {
+		t.Fatal(note)
+	}
+	full := Line(cfg, "lead", reg) + "\n" + note
+	if float64(len(strings.Fields(full)))*1.5 > 80 {
+		t.Fatal(full)
+	}
+	if CapsNote(lead, capability.Inventory{Agent: "codex", Unknown: true}, true) != "" {
+		t.Fatal("unknown inventory reported as a difference")
+	}
+}
+func TestRosterWarnsWhenDuologMissing(t *testing.T) {
+	inv := capability.Inventory{Agent: "claude"}
+	note := CapsNote(inv, capability.Inventory{Agent: "codex"}, false)
+	if !strings.Contains(note, "codex has no duolog hooks") || !strings.Contains(note, "sandbox only") {
+		t.Fatal(note)
 	}
 }
