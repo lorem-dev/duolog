@@ -1,9 +1,12 @@
 package runner
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/lorem-dev/duolog/internal/mode"
 )
@@ -26,7 +29,7 @@ func codexArgv(s Spec) []string {
 	if s.ThreadID == "" && !s.Persistent {
 		args = append(args, "--ephemeral")
 	}
-	args = append(args, "--output-schema", filepath.Join(s.TaskDir, "answer.schema.json"), "-o", filepath.Join(s.TaskDir, "answer.json"), "--json", taskInstruction)
+	args = append(args, "-o", filepath.Join(s.TaskDir, "answer.json"), "--json", taskInstruction)
 	return args
 }
 
@@ -51,4 +54,55 @@ func codexEvent(data []byte, result *Result) {
 		result.Usage.Cached += event.Usage.Cached
 		result.Usage.Output += event.Usage.Output
 	}
+}
+
+// codexAnswer reads the final message tolerantly: it takes the last JSON
+// object that has the four answer keys, fenced or not. When none parses the
+// result is not done, with the start of the message as the summary.
+func codexAnswer(message []byte, answerPath string, result Result) (Result, error) {
+	type answer struct {
+		Done    *bool    `json:"done"`
+		Summary *string  `json:"summary"`
+		Files   []string `json:"files"`
+		Needs   []string `json:"needs"`
+	}
+	var found *answer
+	for i := 0; i < len(message); i++ {
+		if message[i] != '{' {
+			continue
+		}
+		var parsed answer
+		decoder := json.NewDecoder(bytes.NewReader(message[i:]))
+		if decoder.Decode(&parsed) != nil {
+			continue
+		}
+		if parsed.Done == nil || parsed.Summary == nil || parsed.Files == nil || parsed.Needs == nil {
+			continue
+		}
+		found = &parsed
+		i += int(decoder.InputOffset()) - 1
+	}
+	if found == nil {
+		text := strings.Join(strings.Fields(string(message)), " ")
+		if len(text) > 200 {
+			text = strings.ToValidUTF8(text[:200], "")
+		}
+		result.Done = false
+		result.Summary = text
+		return result, fmt.Errorf("invalid answer: no JSON object with done, summary, files and needs in the final message; see %s", filepath.Join(filepath.Dir(answerPath), "stdout.log"))
+	}
+	clean, err := json.Marshal(struct {
+		Done    bool     `json:"done"`
+		Summary string   `json:"summary"`
+		Files   []string `json:"files"`
+		Needs   []string `json:"needs"`
+	}{*found.Done, *found.Summary, found.Files, found.Needs})
+	if err == nil {
+		err = os.WriteFile(answerPath, clean, 0600)
+	}
+	if err != nil {
+		return result, err
+	}
+	result.Done, result.Summary, result.Files, result.Needs = *found.Done, *found.Summary, found.Files, found.Needs
+	return result, nil
 }

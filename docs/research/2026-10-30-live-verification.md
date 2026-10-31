@@ -629,6 +629,49 @@ planted bug in `Sum137`. The third said that it could not review the file, so
 its tokens bought no review. The script does not save answers, so the quality of
 the other forms is NOT VERIFIED.
 
+## Live round 2: the cache, the skill, the Codex lead and the cost
+
+Measured on 2026-10-31 with codex-cli 0.165.0, `gpt-6-luna` at low effort and
+Claude `haiku` at low effort.
+
+**The cache result.** `codex exec --output-schema` loses the prompt cache. The
+probe is the saved
+[probe file](../../scripts/bench/fixtures/cache/output-schema-probe.txt).
+The same tiny task read 11520 cached input tokens without the flag and 0 with
+it, twice. Putting the answer rule at the end of the stdin block kept 11520
+cached. Turning off the update check also lifted the cache to 13696, which
+duolog already does. So duolog no longer passes `--output-schema` to Codex. It
+asks for one JSON object in plain text and reads the last valid object from the
+final message, fenced or not. Claude keeps `--json-schema`.
+
+**What the four live tests showed.**
+
+| Test | Result |
+|---|---|
+| `TestDelegateRoundTrip` | Pass. Cached 11520 of 14952 input tokens |
+| `TestSyncedSkillRunsInBoth` | Pass for Codex and Claude. The earlier Codex failure was a test defect: the test never trusted its temp folder, and Codex lists the project `.agents/skills` only for a trusted folder. One live run confirmed it (cached 41344 of 45535) |
+| `TestCodexLeadDelegatesToClaude` | Skipped with a documented limit. See below |
+| `TestInlineCostsLessThanReference` | Pass. Whole file inline 0.00137 USD against the saved whole-file reference 0.00238. The 16 lines inline 0.00049 against the saved range reference 0.00089 |
+
+**The Codex lead.** Codex runs a login shell and resets `PATH`, so the lead
+needs the full path to `duolog`. With the full path, a lead in the
+`workspace-write` sandbox does run `duolog delegate`, and `claude -p` starts.
+Claude then answers "Not logged in - Please run /login": the sandbox blocks the
+macOS Keychain. `codex sandbox claude auth status` shows `loggedIn: false` in
+the sandbox and `true` with `sandbox_mode="danger-full-access"`. Adding
+`~/.claude` to the writable roots did not help. With
+`--sandbox danger-full-access` the whole chain passed. A token in the
+environment was not tested.
+
+**Limit text.** This round hit no usage limit. The real texts we saved earlier
+are Claude: `You've hit your 5-hour limit, resets 3am (Europe/London) (error
+type rate_limit, HTTP 429)`, and Codex: `You've hit your usage limit. ... try
+again at 8:48 AM.` (see `scripts/bench/fixtures/limits/`).
+
+**One quality note.** The whole-file run named the right function but gave line
+824, not the real line near 1230. The cheaper form was not checked for answer
+quality beyond that.
+
 ## What these tests changed on the machine
 
 | Item | State after the runs |

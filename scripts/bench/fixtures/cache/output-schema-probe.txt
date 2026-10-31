@@ -1,0 +1,7 @@
+# codex-cli 0.165.0, gpt-6-luna, effort low, one temp git folder, 2026-10-31.
+baseline: input=14782 cached=11520
+schema 1: input=14804 cached=0
+schema 2: input=14804 cached=0
+update off: input=14782 cached=13696
+stdin block 1: input=14796 cached=11520
+stdin block 2: input=14796 cached=11520
