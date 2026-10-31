@@ -15,7 +15,7 @@ func newRootCommand() *cobra.Command {
 		Short:        "Coordinate Claude Code and Codex tasks",
 		SilenceUsage: true,
 	}
-	cmd.AddCommand(newConfigCommand())
+	cmd.AddCommand(newConfigCommand(), newRouteCommand())
 	return cmd
 }
 
