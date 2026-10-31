@@ -42,7 +42,7 @@ func sendTestMessage(t *testing.T, b *Bus, m Message) int64 {
 
 func readBusFile(t *testing.T, dir string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, "bus.jsonl"))
+	data, err := os.ReadFile(filepath.Join(dir, "bus.ndjson"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestSendAssignsSequentialN(t *testing.T) {
 func TestInboxReturnsExactStoredBytes(t *testing.T) {
 	b, dir := openTestBus(t)
 	stored := []byte("{ \"s\":\"<tag>&\", \"to\":\"reader\", \"n\":1, \"from\":\"writer\", \"extra\": true }\n")
-	if err := os.WriteFile(filepath.Join(dir, "bus.jsonl"), stored, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "bus.ndjson"), stored, 0600); err != nil {
 		t.Fatal(err)
 	}
 	lines, err := b.Inbox("reader")
@@ -99,7 +99,7 @@ func TestInboxReturnsOnlyNew(t *testing.T) {
 		t.Fatalf("first Inbox = %q, %v", lines, err)
 	}
 	// Corrupt the consumed prefix: the next call must seek past it.
-	f, err := os.OpenFile(filepath.Join(dir, "bus.jsonl"), os.O_WRONLY, 0600)
+	f, err := os.OpenFile(filepath.Join(dir, "bus.ndjson"), os.O_WRONLY, 0600)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestTornLineNotConsumed(t *testing.T) {
 	sendTestMessage(t, b, Message{From: "writer", To: "reader", S: "complete"})
 	complete := readBusFile(t, dir)
 	tail := []byte(`{"n":2,"from":"writer","to":"reader","s":"torn"}`)
-	if err := os.WriteFile(filepath.Join(dir, "bus.jsonl"), append(complete, tail...), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "bus.ndjson"), append(complete, tail...), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if lines, err := b.Inbox("reader"); err != nil || len(lines) != 1 {
@@ -238,7 +238,7 @@ func TestTornLineNotConsumed(t *testing.T) {
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatalf("cursor moved: %q -> %q, %v", before, after, err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "bus.jsonl"), append(append(complete, tail...), '\n'), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "bus.ndjson"), append(append(complete, tail...), '\n'), 0600); err != nil {
 		t.Fatal(err)
 	}
 	lines, err := b.Inbox("reader")
@@ -276,12 +276,12 @@ func TestSendRepairsTornTail(t *testing.T) {
 			for i := 0; i < completeCount; i++ {
 				sendTestMessage(t, b, Message{To: "reader", S: "complete"})
 			}
-			data, err := os.ReadFile(filepath.Join(dir, "bus.jsonl"))
+			data, err := os.ReadFile(filepath.Join(dir, "bus.ndjson"))
 			if err != nil && !os.IsNotExist(err) {
 				t.Fatal(err)
 			}
 			fragment := []byte(`{"n":3,"s":"` + strings.Repeat("x", 9000))
-			if err := os.WriteFile(filepath.Join(dir, "bus.jsonl"), append(data, fragment...), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, "bus.ndjson"), append(data, fragment...), 0600); err != nil {
 				t.Fatal(err)
 			}
 			if n := sendTestMessage(t, b, Message{To: "reader", S: "repaired"}); n != int64(completeCount+1) {

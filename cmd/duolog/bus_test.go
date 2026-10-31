@@ -30,7 +30,7 @@ func TestBusCommands(t *testing.T) {
 	if err != nil || output != "1\n" {
 		t.Fatalf("send = %q, %v", output, err)
 	}
-	stored, err := os.ReadFile(filepath.Join(root, ".duolog", "bus.jsonl"))
+	stored, err := os.ReadFile(filepath.Join(root, ".duolog", "bus.ndjson"))
 	if err != nil {
 		t.Fatal(err)
 	}

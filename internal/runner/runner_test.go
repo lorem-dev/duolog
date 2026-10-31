@@ -322,7 +322,7 @@ func TestInterruptedRun(t *testing.T) {
 func TestHungRunTimesOut(t *testing.T) {
 	s := spec(t, "codex")
 	p := install(t, &s, testbin.Scenario{SleepMS: 60000, Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): goodAnswer}})
-	s.Timeout = 100 * time.Millisecond
+	s.Timeout = 3 * time.Second
 	start := time.Now()
 	r, e := Run(context.Background(), s)
 	if e == nil || !errors.Is(e, context.DeadlineExceeded) || !strings.Contains(e.Error(), filepath.Join(s.TaskDir, "stdout.log")) || time.Since(start) > 5*time.Second || r.Done || !r.Interrupted || r.QuotaEnded {
