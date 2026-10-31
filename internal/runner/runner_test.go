@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -552,5 +553,45 @@ func TestCodexNoObjectGivesSummaryAndLogError(t *testing.T) {
 	}
 	if strings.Contains(r.Summary, "\n") || len(r.Summary) > 200 || !strings.HasPrefix(r.Summary, "I could not do it. long") {
 		t.Fatalf("summary %q", r.Summary)
+	}
+}
+
+func TestClaudeJSONResultLimitTriggersQuota(t *testing.T) {
+	s := spec(t, "claude")
+	install(t, &s, testbin.Scenario{Exit: 1, Stdout: `{"type":"result","is_error":true,"result":"You've hit your usage limit"}`})
+	got, err := Run(context.Background(), s)
+	if err == nil || !got.QuotaEnded {
+		t.Fatal(got, err)
+	}
+}
+
+func TestCancellationKillsDescendantHoldingOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("native Windows process-tree verification pending")
+	}
+	s := spec(t, "claude")
+	s.Timeout = 250 * time.Millisecond
+	fake := install(t, &s, testbin.Scenario{SpawnChild: true, SleepMS: 60000})
+	started := time.Now()
+	got, err := Run(context.Background(), s)
+	if err == nil || !got.Interrupted || time.Since(started) > 3*time.Second {
+		t.Fatal(got, err, time.Since(started))
+	}
+	pidData, pidErr := os.ReadFile(fake + ".child-pid")
+	if pidErr != nil {
+		t.Fatal("descendant never started", pidErr)
+	}
+	pid, err := strconv.Atoi(string(pidData))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if p, e := os.FindProcess(pid); e == nil {
+			_ = p.Kill()
+		}
+	})
+	time.Sleep(700 * time.Millisecond)
+	if _, err := os.Stat(fake + ".child-done"); !os.IsNotExist(err) {
+		t.Fatal("descendant survived cancellation", err)
 	}
 }

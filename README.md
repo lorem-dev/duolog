@@ -70,7 +70,8 @@ repository exists.
 ## What is not proven yet
 
 - The first release is unpublished. Nothing is on a package registry.
-- Windows is covered by CI unit tests only. We never ran the live tests there.
+- Windows has not been run. Treat it as unsupported until its CI matrix and
+  one real run pass; rules may not apply there.
 - Codex as the lead is not proven. In our checks its shell could not find
   `rex`, and we have not shown that it can start `claude -p`.
 - Most agent behavior behind the design is OBSERVED in a few runs, not

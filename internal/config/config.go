@@ -22,7 +22,7 @@ type Config struct {
 	Policy         Policy           `yaml:"policy" jsonschema_description:"Permission rules constrained by the lead; defaults ask for unmatched actions."`
 	Capabilities   Capabilities     `yaml:"capabilities" jsonschema_description:"Missing capability handling; defaults read skills and let the lead handle tools."`
 	Sync           Sync             `yaml:"sync" jsonschema_description:"Settings for generating agent and skill files; automatic sync defaults to true."`
-	EnvPassthrough []string         `yaml:"env_passthrough" jsonschema_description:"Environment variables passed to workers; defaults to PATH, HOME and USER (macOS finds the Claude login by USER)."`
+	EnvPassthrough []string         `yaml:"env_passthrough" jsonschema_description:"Environment variables passed to workers; defaults include native OS login, API keys and agent config directories."`
 	Rex            Rex              `yaml:"rex" jsonschema_description:"Terminal capture and startup settings; defaults to 20 lines and 120 seconds."`
 }
 
@@ -158,6 +158,7 @@ func Load(root string) (*Config, error) {
 			}
 		}
 	}
+	platformDefaults(&cfg)
 	return &cfg, nil
 }
 

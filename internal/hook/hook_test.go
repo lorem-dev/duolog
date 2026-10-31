@@ -472,7 +472,7 @@ func TestWakeStopsAfterSessionEnd(t *testing.T) {
 }
 func TestCodexSandboxModeMapping(t *testing.T) {
 	e, _, _ := setup(t, "codex")
-	for native, want := range map[string]mode.Mode{"read-only": mode.Plan, "workspace-write": mode.Ask, "danger-full-access": mode.Full} {
+	for native, want := range map[string]mode.Mode{"read-only": mode.Plan, "workspace-write": mode.Ask, "danger-full-access": mode.Ask} {
 		write(t, transcript(e), fmt.Sprintf("{\"type\":\"turn_context\",\"payload\":{\"sandbox_policy\":{\"type\":%q}}}\n", native))
 		s, err := session.ReadLeadState("codex", transcript(e))
 		if err != nil || s.Mode != want {
@@ -491,7 +491,9 @@ func TestLateHooksCannotRegisterEndedLead(t *testing.T) {
 		t.Run(agent, func(t *testing.T) {
 			e, r, _ := setup(t, agent)
 			SessionStart(context.Background(), e)
+			e.StartedAt = time.Now()
 			SessionEnd(context.Background(), e)
+			e.StartedAt = e.StartedAt.Add(-time.Second)
 			silent(t, Prompt(context.Background(), e))
 			silent(t, SessionStart(context.Background(), e))
 			if _, ok, err := r.Lead(id(e)); err != nil || ok {
@@ -667,5 +669,24 @@ func TestWorkerDoesNotSync(t *testing.T) {
 	got, _ := os.ReadFile(filepath.Join(e.Root, ".agents/skills/probe/references/b.md"))
 	if string(got) != "b1\n" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestHookKeepsKnownEffortWhenTranscriptHasNoObservation(t *testing.T) {
+	e, r, _ := setup(t, "claude")
+	SessionStart(context.Background(), e)
+	lead, ok, err := r.Lead(id(e))
+	if err != nil || !ok {
+		t.Fatal(lead, err)
+	}
+	lead.Effort = "low"
+	if err := r.RegisterLead(lead); err != nil {
+		t.Fatal(err)
+	}
+	write(t, transcript(e), "{}\n")
+	Prompt(context.Background(), e)
+	got, ok, err := r.Lead(id(e))
+	if err != nil || !ok || got.Effort != "low" {
+		t.Fatal(got, err)
 	}
 }

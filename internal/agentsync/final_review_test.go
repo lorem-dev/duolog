@@ -1,0 +1,134 @@
+package agentsync
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/testbin"
+)
+
+func TestConcurrentSyncKeepsOwnership(t *testing.T) {
+	root := newProject(t)
+	cfg := syncCfg(t)
+	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0644)
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rep, err := Run(root, cfg, Options{From: "claude"})
+			if err != nil || len(rep.Conflicts) > 0 {
+				t.Errorf("%+v %v", rep, err)
+			}
+		}()
+	}
+	wg.Wait()
+	rep, err := Run(root, cfg, Options{Check: true})
+	if err != nil || len(rep.Conflicts)+len(rep.Written)+len(rep.Removed) > 0 {
+		t.Fatal(rep, err)
+	}
+}
+
+func TestScanErrorNeverRemovesOwnedFiles(t *testing.T) {
+	root := newProject(t)
+	cfg := syncCfg(t)
+	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0644)
+	put(t, root, ".claude/skills/s/SKILL.md", "---\nname: s\ndescription: Skill.\n---\nDo work.\n", 0644)
+	if rep, err := Run(root, cfg, Options{From: "claude"}); err != nil || len(rep.Conflicts) > 0 {
+		t.Fatal(rep, err)
+	}
+	// ENOTDIR exercises real ReadDir failure even when tests run as root.
+	if err := os.RemoveAll(filepath.Join(root, ".claude", "agents")); err != nil {
+		t.Fatal(err)
+	}
+	put(t, root, ".claude/agents", "unreadable as a directory", 0644)
+	if err := os.RemoveAll(filepath.Join(root, ".claude", "skills")); err != nil {
+		t.Fatal(err)
+	}
+	put(t, root, ".claude/skills", "unreadable as a directory", 0644)
+	rep, err := Run(root, cfg, Options{})
+	if err != nil || len(rep.Conflicts) != 2 || len(rep.Removed) != 0 {
+		t.Fatal(rep, err)
+	}
+	for _, target := range []string{".codex/agents/a.toml", ".agents/skills/s/SKILL.md"} {
+		if !exists(root, target) {
+			t.Fatalf("deleted %s after scan failure", target)
+		}
+	}
+}
+
+func TestSameBytesHandPlacedFileNeverBecomesOwned(t *testing.T) {
+	root := newProject(t)
+	cfg := syncCfg(t)
+	put(t, root, ".claude/skills/s/SKILL.md", "---\nname: s\ndescription: Skill.\n---\nDo work.\n", 0644)
+	put(t, root, ".claude/skills/s/asset.txt", "same bytes", 0644)
+	put(t, root, ".agents/skills/s/asset.txt", "same bytes", 0644)
+	rep, err := Run(root, cfg, Options{From: "claude"})
+	if err != nil || len(rep.Conflicts) != 1 {
+		t.Fatal(rep, err)
+	}
+	lock := lockOf(t, root)
+	if _, owned := lock.Files[".agents/skills/s/asset.txt"]; owned {
+		t.Fatal("adopted hand-placed file")
+	}
+	if err := os.Remove(filepath.Join(root, ".claude/skills/s/asset.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(root, cfg, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, root, ".agents/skills/s/asset.txt"); got != "same bytes" {
+		t.Fatal(got)
+	}
+}
+
+func TestHookCatalogHasDeadlineAndRecovers(t *testing.T) {
+	root := newProject(t)
+	cfg := syncCfg(t)
+	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0644)
+	if rep, err := Run(root, cfg, Options{From: "claude"}); err != nil || len(rep.Conflicts) > 0 {
+		t.Fatal(rep, err)
+	}
+	put(t, root, ".claude/agents/a.md", agentMD("a", "sonnet"), 0644)
+	CatalogList = func(ctx context.Context) ([]models.Entry, string, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) > 2100*time.Millisecond {
+			t.Error("unbounded hook metadata")
+		}
+		panic("metadata panic")
+	}
+	// Command hook recovery is covered separately. The resolver's supplied
+	// context is checked through the actual SessionStart -> Run path here.
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("catalog fixture was not used")
+			}
+		}()
+		SessionStart(root, cfg)
+	}()
+	CatalogList = nil
+	fake := testbin.Install(t, "codex", testbin.Scenario{SleepMS: 60000})
+	_ = fake
+	started := time.Now()
+	line := SessionStart(root, cfg)
+	if time.Since(started) > 3*time.Second {
+		t.Fatal(line, time.Since(started))
+	}
+}
+
+func TestCheckDoesNotCreateMutexInUnsyncedProject(t *testing.T) {
+	root := newProject(t)
+	put(t, root, ".duolog/config.yaml", "version: 1\n", 0644)
+	if _, err := Run(root, syncCfg(t), Options{From: "claude", Check: true}); err != nil {
+		t.Fatal(err)
+	}
+	if exists(root, ".duolog/sync.lock") || exists(root, ".duolog/sync.lock.json") {
+		t.Fatal("check wrote state")
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/plugin"
 )
 
@@ -29,12 +30,7 @@ type Report struct {
 	Notes []string
 }
 
-const (
-	backupSuffix = ".duolog.bak"
-	// graceSeconds is added to policy.ask_timeout_seconds for gate hooks, so the
-	// host never kills a hook that is still waiting for the lead's answer.
-	graceSeconds = 30
-)
+const backupSuffix = ".duolog.bak"
 
 // edit is one planned file write. Nothing is written until every edit is built.
 type edit struct {
@@ -48,12 +44,7 @@ func Run(o Options) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	timeout := 0
-	if cfg, err := config.Load(o.Root); err != nil {
-		return Report{}, err
-	} else {
-		timeout = cfg.Policy.AskTimeoutSeconds + graceSeconds
-	}
+	timeout := 150
 	var edits []edit
 	var report Report
 	for _, agent := range agents {
@@ -69,7 +60,7 @@ func Run(o Options) (Report, error) {
 				}
 				edits = append(edits, edit{path, data})
 			}
-			report.Notes = append(report.Notes, "Claude: the "+pluginKey+" plugin is enabled, so its hooks and skill are used and none were installed here. The plugin hooks assume the default ask timeout; disable the plugin and re-run install to use a custom policy.ask_timeout_seconds.")
+			report.Notes = append(report.Notes, "Claude: the "+pluginKey+" plugin is enabled, so its hooks and skill are used and none were installed here. Gate waits are capped at 120 seconds.")
 			continue
 		}
 		hooks, err := HooksJSON(agent, runtime.GOOS, timeout)
@@ -87,6 +78,9 @@ func Run(o Options) (Report, error) {
 		edits = append(edits, edit{path, data}, edit{skillPath(base, agent), skill})
 	}
 	if o.Scope != "user" {
+		if _, err := store.Open(o.Root); err != nil {
+			return Report{}, err
+		}
 		path := filepath.Join(o.Root, ".duolog", "config.yaml")
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			edits = append(edits, edit{path, []byte("# yaml-language-server: $schema=" + config.SchemaURL + "\nversion: 1\n")})
@@ -290,7 +284,7 @@ func command(goos, agent, args string, gate bool) string {
 		}
 		return "where duolog >nul 2>nul & if errorlevel 1 (" + missing + ") else (duolog " + args + ")"
 	}
-	s := "if command -v duolog >/dev/null 2>&1; then duolog " + args + "; "
+	s := "if command -v duolog >/dev/null 2>&1; then exec duolog " + args + "; "
 	if gate {
 		s += `elif [ "${DUOLOG_DEPTH:-0}" -ge 1 ] 2>/dev/null; then exit 2; `
 	}
@@ -324,7 +318,7 @@ func isOurs(raw json.RawMessage) bool {
 		return false
 	}
 	for _, h := range g.Hooks {
-		if strings.Contains(h.Command, "duolog hook ") || strings.Contains(h.Command, "duolog gate ") {
+		if IsOurCommand(h.Command) {
 			return true
 		}
 	}
@@ -395,4 +389,9 @@ func mergeHooks(path string, ours []byte) ([]byte, error) {
 		top["hooks"] = raw
 	}
 	return encode(top)
+}
+
+// IsOurCommand shares handler recognition with trust and startup checks.
+func IsOurCommand(command string) bool {
+	return command == "duolog gate" || strings.Contains(command, "duolog hook ") || strings.Contains(command, "duolog gate ")
 }

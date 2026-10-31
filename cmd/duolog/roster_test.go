@@ -10,7 +10,7 @@ import (
 
 func TestRosterAliasesAndVersions(t *testing.T) {
 	isolatedRouteConfig(t)
-	t.Chdir(t.TempDir())
+	routeLead(t)
 	binary := testbin.Install(t, "codex", testbin.Scenario{Stdout: `{"models":[{"slug":"gpt-99-sol","visibility":"list"}]}`})
 	out, err := executeBusCommand(t, "roster")
 	if err != nil {

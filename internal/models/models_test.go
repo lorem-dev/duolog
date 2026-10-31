@@ -87,7 +87,7 @@ func TestResolveClaudeAliasUnchanged(t *testing.T) {
 	r := Resolver{List: func(context.Context) ([]Entry, string, error) { t.Fatal("list called"); return nil, "", nil }}
 	for _, name := range []string{"opus", "claude-opus-5-5"} {
 		got, err := r.Resolve(context.Background(), modelConfig(), config.Target{Agent: "claude", Model: name})
-		if err != nil || got != "opus" {
+		if err != nil || got != name {
 			t.Fatalf("got %q, %v", got, err)
 		}
 	}

@@ -107,6 +107,8 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	configureProcess(cmd)
+	cmd.WaitDelay = 2 * time.Second
 	cmd.Dir = s.Cwd
 	stdin := s.Stdin
 	if s.Route.Agent == "codex" {
@@ -222,12 +224,14 @@ func readLog(path, agent string, stderr bool, result *Result) error {
 			Type    string          `json:"type"`
 			Message string          `json:"message"`
 			Code    string          `json:"code"`
+			IsError bool            `json:"is_error"`
+			Result  string          `json:"result"`
 			Error   json.RawMessage `json:"error"`
 		}
-		failureEvent := json.Unmarshal(line, &event) == nil && (event.Type == "error" || event.Type == "turn.failed")
+		failureEvent := json.Unmarshal(line, &event) == nil && (event.Type == "error" || event.Type == "turn.failed" || agent == "claude" && event.Type == "result" && event.IsError)
 		text := ""
 		if failureEvent {
-			text = event.Message + " " + event.Code + " " + string(event.Error)
+			text = event.Message + " " + event.Code + " " + string(event.Error) + " " + event.Result
 		} else if stderr && result.ExitCode > 0 {
 			text = string(line)
 		}

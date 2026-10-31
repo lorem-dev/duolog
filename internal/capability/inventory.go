@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/project"
+	"github.com/lorem-dev/duolog/internal/trust"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -99,6 +101,19 @@ func Scan(ctx context.Context, agent, root string) (Inventory, error) {
 		inv.Unknown = true
 	}
 	inv.Items = normalize(items)
+	path := filepath.Join(project.StateRoot(root), ".duolog", "cache", "inventory-"+agent+".json")
+	if data, err := json.Marshal(inv); err == nil {
+		if os.MkdirAll(filepath.Dir(path), 0755) == nil {
+			if f, err := os.CreateTemp(filepath.Dir(path), ".inventory-*"); err == nil {
+				_, werr := f.Write(data)
+				cerr := f.Close()
+				if werr == nil && cerr == nil {
+					_ = os.Rename(f.Name(), path)
+				}
+				_ = os.Remove(f.Name())
+			}
+		}
+	}
 	return inv, nil
 }
 
@@ -176,7 +191,7 @@ func scanCodex(ctx context.Context, root, h string) ([]Item, []string) {
 	items = append(items, skillsIn(filepath.Join(h, ".agents", "skills"))...)
 	items = append(items, skillsIn(filepath.Join(root, ".agents", "skills"))...)
 	items = append(items, skillsIn(filepath.Join(root, ".codex", "skills"))...)
-	config := filepath.Join(h, ".codex", "config.toml")
+	config := filepath.Join(trust.CodexHome(h), "config.toml")
 	data, _ := os.ReadFile(config)
 	var parsed struct {
 		MCP map[string]struct {
@@ -322,7 +337,7 @@ func HasDuolog(agent, root string) bool {
 	case "claude":
 		files = []string{filepath.Join(h, ".claude", "settings.json"), filepath.Join(root, ".claude", "settings.json"), filepath.Join(root, ".claude", "settings.local.json"), filepath.Join(h, ".claude", "plugins", "installed_plugins.json")}
 	case "codex":
-		files = []string{filepath.Join(h, ".codex", "hooks.json"), filepath.Join(root, ".codex", "hooks.json"), filepath.Join(h, ".codex", "config.toml")}
+		files = []string{filepath.Join(trust.CodexHome(h), "hooks.json"), filepath.Join(root, ".codex", "hooks.json"), filepath.Join(trust.CodexHome(h), "config.toml")}
 	}
 	for _, f := range files {
 		if data, err := os.ReadFile(f); err == nil && strings.Contains(string(data), "duolog") {
@@ -330,4 +345,14 @@ func HasDuolog(agent, root string) bool {
 		}
 	}
 	return false
+}
+
+// Cached never invokes a program or refreshes a list on the lead hook path.
+func Cached(agent, root string) Inventory {
+	inv := Inventory{Agent: agent, Unknown: true}
+	var cached Inventory
+	if readJSON(filepath.Join(project.StateRoot(root), ".duolog", "cache", "inventory-"+agent+".json"), &cached) && cached.Agent == agent {
+		return cached
+	}
+	return inv
 }

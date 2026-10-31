@@ -15,16 +15,19 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/bus"
+	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/roster"
 	"github.com/lorem-dev/duolog/internal/session"
+	"github.com/lorem-dev/duolog/internal/store"
 )
 
 // Env makes hook stdin, environment and output explicit for embedded callers.
 // Root is the shared project root. Nil Environ uses the process environment.
 type Env struct {
 	Root, Agent string
+	WorkRoot    string
 	Input       []byte
 	Environ     []string
 	Stderr      io.Writer
@@ -86,7 +89,12 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 	dir := filepath.Join(e.Root, ".duolog")
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
-		return nil, nil
+		if !register || !capability.HasDuolog(e.Agent, e.Root) {
+			return nil, nil
+		}
+		if _, err := store.Open(e.Root); err != nil {
+			return nil, err
+		}
 	}
 	var h input
 	if json.Unmarshal(e.Input, &h) != nil || h.ID == "" {
@@ -118,13 +126,18 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 		if !interactive {
 			return nil, nil
 		}
-		lead = session.Lead{ID: h.ID, Target: config.Target{Agent: e.Agent}, Mode: mode.Ask, PID: os.Getppid()}
+		lead = session.Lead{ID: h.ID, Target: config.Target{Agent: e.Agent}, Mode: mode.Ask, PID: session.LeadPID()}
 	}
 	if h.TranscriptPath != "" {
 		lead.TranscriptPath = h.TranscriptPath
 	}
 	observed, _ := session.ReadLeadState(e.Agent, lead.TranscriptPath)
-	lead.Model, lead.Effort = observed.Model, observed.Effort
+	if observed.Model != "" {
+		lead.Model = observed.Model
+	}
+	if observed.Effort != "" {
+		lead.Effort = observed.Effort
+	}
 	if lead.Model == "" {
 		lead.Model = h.Model
 	}
@@ -190,7 +203,7 @@ func deliver(ctx context.Context, e Env, event string, register, includeRoster b
 			return Output{}
 		}
 		if includeRoster {
-			data = append([]byte(roster.Line(s.cfg, s.lead.ID, s.reg)+"\n"), data...)
+			data = append([]byte(roster.Line(s.cfg, s.lead.ID, s.reg)+roster.StartNote(e.Root, s.lead)+"\n"), data...)
 		}
 	}
 	if extra != nil {

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/lorem-dev/duolog/internal/mode"
@@ -11,7 +10,8 @@ import (
 )
 
 func newModeCommand() *cobra.Command {
-	return &cobra.Command{Use: "mode [plan|ask|edits|full]", Short: "Inspect or lower the lead permission mode", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	var leadFlag string
+	cmd := &cobra.Command{Use: "mode [plan|ask|edits|full]", Short: "Inspect or lower the lead permission mode", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if isWorker() {
 			return fmt.Errorf("workers cannot change the lead mode")
 		}
@@ -23,7 +23,11 @@ func newModeCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		id := session.CurrentLead(os.Environ())
+		lead, err := reg.ResolveLead(leadFlag)
+		if err != nil {
+			return err
+		}
+		id := lead.ID
 		if len(args) > 0 {
 			if err := reg.SetMode(id, mode.Mode(args[0])); err != nil {
 				return err
@@ -36,4 +40,6 @@ func newModeCommand() *cobra.Command {
 		_, err = fmt.Fprintln(cmd.OutOrStdout(), m)
 		return err
 	}}
+	cmd.Flags().StringVar(&leadFlag, "lead", "", "Registered lead session ID")
+	return cmd
 }

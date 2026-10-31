@@ -19,7 +19,14 @@ type OutputChunk struct {
 
 // Scenario describes one fake invocation. Exit -1 terminates by a kill signal.
 // Writes happen after SleepMS, and relative paths are relative to the child cwd.
+// HookCommand runs an actual generated hook inside the fake worker environment.
+type HookCommand struct{ Command, Input string }
+
 type Scenario struct {
+	SpawnChild bool
+	Hooks      []HookCommand
+	// Answer writes the Codex -o destination, discovered from real runner argv.
+	Answer string
 	// Responses selects a scenario by the longest matching argument prefix.
 	Responses map[string]Scenario
 	// Sequence replaces the scenario by call order: the nth call that selects

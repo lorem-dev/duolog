@@ -37,7 +37,7 @@ func agentArgv(route router.Route, m mode.Mode) []string {
 
 // agentEnv lists NAME=VALUE pairs for the pane. REX_ names never pass on: a
 // worker that learns the session could rename or rearrange the lead's terminal.
-func agentEnv(cfg *config.Config, agent, leadID string) []string {
+func agentEnv(cfg *config.Config, agent, leadID string, roles ...string) []string {
 	var pairs []string
 	for _, name := range cfg.EnvPassthrough {
 		if strings.HasPrefix(name, "DUOLOG_") || strings.HasPrefix(name, "REX_") {
@@ -50,7 +50,11 @@ func agentEnv(cfg *config.Config, agent, leadID string) []string {
 	if agent == "claude" {
 		pairs = append(pairs, "DISABLE_AUTOUPDATER=1")
 	}
-	return append(pairs, "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+leadID)
+	role := ""
+	if len(roles) > 0 {
+		role = roles[0]
+	}
+	return append(pairs, "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+leadID, "DUOLOG_ROLE="+role)
 }
 
 // launchArgv wraps a program so that it starts with env and without the Rex

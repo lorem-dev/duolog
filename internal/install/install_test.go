@@ -230,7 +230,7 @@ func TestHookTimeoutAboveAskTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := cfg.Policy.AskTimeoutSeconds + 30
+	want := min(cfg.Policy.AskTimeoutSeconds, 120) + 30
 	for _, rel := range []string{".claude/settings.json", ".codex/hooks.json"} {
 		var doc struct {
 			Hooks map[string][]struct {

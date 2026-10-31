@@ -1,7 +1,9 @@
 package roster
 
 import (
+	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -83,5 +85,31 @@ func TestRosterWarnsWhenDuologMissing(t *testing.T) {
 	note := CapsNote(inv, capability.Inventory{Agent: "codex"}, false)
 	if !strings.Contains(note, "codex has no duolog hooks") || !strings.Contains(note, "sandbox only") {
 		t.Fatal(note)
+	}
+}
+
+func TestStartNoteUsesOnlyCachedCapabilities(t *testing.T) {
+	_, reg := setup(t)
+	root := t.TempDir()
+	cache := filepath.Join(root, ".duolog", "cache")
+	if err := os.MkdirAll(cache, 0755); err != nil {
+		t.Fatal(err)
+	}
+	mine := capability.Inventory{Agent: "claude", Items: []capability.Item{{Kind: "skill", Name: "extra"}}}
+	other := capability.Inventory{Agent: "codex", Items: []capability.Item{}}
+	for _, inv := range []capability.Inventory{mine, other} {
+		data, _ := json.Marshal(inv)
+		if err := os.WriteFile(filepath.Join(cache, "inventory-"+inv.Agent+".json"), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// setup removed every executable from PATH; cached notes still work.
+	note := StartNote(root, session.Lead{ID: "lead", Target: config.Target{Agent: "claude"}})
+	if !strings.Contains(note, "caps=1") || !strings.Contains(note, "codex has no duolog hooks") {
+		t.Fatal(note)
+	}
+	line := Line(&config.Config{Roles: map[string]config.Role{"work": {Use: config.Target{Agent: "claude", Model: "sonnet", Effort: "low"}}}}, "lead", reg)
+	if !strings.Contains(line, "sonnet/low") {
+		t.Fatal(line)
 	}
 }

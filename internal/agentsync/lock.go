@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/lorem-dev/duolog/internal/project"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -32,6 +33,14 @@ type FileEntry struct {
 
 // LockPath returns the lock file of a project.
 func LockPath(root string) string {
+	stateRoot := project.StateRoot(root)
+	if stateRoot != filepath.Clean(root) {
+		canonical := filepath.Clean(root)
+		if real, err := filepath.EvalSymlinks(root); err == nil {
+			canonical = real
+		}
+		return filepath.Join(stateRoot, ".duolog", "worktrees", hashBytes([]byte(canonical))[:16], "sync.lock.json")
+	}
 	return filepath.Join(root, ".duolog", "sync.lock.json")
 }
 
@@ -40,6 +49,14 @@ func LoadLock(root string) (Lock, error) {
 	lock := Lock{Files: map[string]FileEntry{}}
 	data, err := os.ReadFile(LockPath(root))
 	if errors.Is(err, os.ErrNotExist) {
+		stateRoot := project.StateRoot(root)
+		if stateRoot != filepath.Clean(root) {
+			main, err := LoadLock(stateRoot)
+			if err != nil {
+				return Lock{}, err
+			}
+			lock.Direction = main.Direction
+		}
 		return lock, nil
 	}
 	if err != nil {

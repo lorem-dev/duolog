@@ -4,6 +4,7 @@ package task
 import (
 	"bytes"
 	"fmt"
+	"github.com/lorem-dev/duolog/internal/project"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -170,10 +171,23 @@ func (r Reference) Text(root string) ([]byte, error) {
 	return bytes.Join(lines[r.First-1:r.Last], nil), nil
 }
 
-func Inline(path, root string, maxBytes int) ([]byte, error) {
-	path, err := Resolve(root, path)
-	if err != nil {
-		return nil, err
+func Inline(path, root string, maxBytes int, allowRead ...func(string) bool) ([]byte, error) {
+	// The task copy can live in the shared state of another worktree. Its source
+	// is resolved by the caller; read references are still confined to work root.
+	var err error
+	if _, resolveErr := Resolve(root, path); resolveErr != nil {
+		shared := filepath.Join(project.StateRoot(root), ".duolog", "tasks")
+		// The copy path can use an OS alias of the shared state directory.
+		candidate := path
+		if canonical, e := filepath.EvalSymlinks(path); e == nil {
+			candidate = canonical
+		}
+		if canonical, e := filepath.EvalSymlinks(shared); e == nil {
+			shared = canonical
+		}
+		if _, err := Resolve(shared, candidate); err != nil {
+			return nil, resolveErr
+		}
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -183,12 +197,24 @@ func Inline(path, root string, maxBytes int) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	var refused []string
+	for _, ref := range refs {
+		if len(allowRead) > 0 && !allowRead[0](ref.Path) {
+			refused = append(refused, ref.Path)
+		}
+	}
+	if len(refused) > 0 {
+		data = []byte(Annotate(string(data), "Not inlined by read policy: "+strings.Join(refused, ", ")+". Keep these as references.\n"))
+	}
 	block := append([]byte("<stdin>\n"), data...)
 	suffix := []byte("\n</stdin>\n")
 	if len(block)+len(suffix) > maxBytes {
 		return nil, fmt.Errorf("task exceeds inline_max_bytes (%d)", maxBytes)
 	}
 	for _, ref := range refs {
+		if len(allowRead) > 0 && !allowRead[0](ref.Path) {
+			continue
+		}
 		if _, err := Resolve(root, ref.Path); err != nil {
 			return nil, err
 		}
@@ -207,4 +233,26 @@ func Inline(path, root string, maxBytes int) ([]byte, error) {
 		}
 	}
 	return append(block, suffix...), nil
+}
+
+// Annotate uses the same fence and heading rules as the task parser.
+func Annotate(text, lines string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	fence, offset := "", 0
+	for _, line := range strings.SplitAfter(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			marker := trimmed[:3]
+			if fence == "" {
+				fence = marker
+			} else if fence == marker {
+				fence = ""
+			}
+		}
+		offset += len(line)
+		if fence == "" && trimmed == "## Limits" {
+			return text[:offset] + lines + text[offset:]
+		}
+	}
+	return text
 }

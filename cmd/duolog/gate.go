@@ -30,11 +30,12 @@ func newGateCommand() *cobra.Command {
 		started := time.Now()
 		// A lead only records its live mode; it never receives a gate decision.
 		if !isWorker() {
+			defer func() { _ = recover() }()
 			root, err := projectRoot()
 			if err == nil {
 				data, readErr := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 4*1024*1024+1))
 				if readErr == nil && len(data) <= 4*1024*1024 {
-					hook.Observe(cmd.Context(), hook.Env{StartedAt: started, Root: root, Agent: agent, Input: data, Environ: os.Environ()})
+					hook.Observe(cmd.Context(), hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ()})
 				}
 			}
 			return nil
@@ -81,34 +82,26 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 	if len(data) > 4*1024*1024 {
 		return a, d, fmt.Errorf("hook input exceeds 4 MiB")
 	}
-	normalized, err := gate.Normalize(agent, data)
+	actions, err := gate.NormalizeAll(agent, data)
 	if err != nil {
 		return a, d, err
 	}
-	normalized.Role = a.Role
-	a = normalized
-	// Normalize uses the hook cwd; policy paths are relative to the project.
-	if (a.Kind == "read" || a.Kind == "write") && a.Target != "" {
-		var hook struct {
-			Cwd string `json:"cwd"`
-		}
-		if err := json.Unmarshal(data, &hook); err != nil {
-			return a, d, err
-		}
-		path := filepath.FromSlash(a.Target)
-		if !filepath.IsAbs(path) {
-			cwd := hook.Cwd
-			if cwd == "" {
-				cwd = root
-			}
-			path = filepath.Join(cwd, path)
-		}
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			return a, d, err
-		}
-		a.Target = filepath.ToSlash(relative)
+	var envelope struct {
+		Cwd  string `json:"cwd"`
+		Tool string `json:"tool_name"`
 	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return a, d, err
+	}
+	work := workRoot(root)
+	for i := range actions {
+		actions[i].Role = a.Role
+		action := &actions[i]
+		if (action.Kind == "read" || action.Kind == "write") && action.Target != "" {
+			action.Target = gate.RelativeTarget(work, envelope.Cwd, action.Target)
+		}
+	}
+	a = actions[0]
 	cfg, err := config.Load(root)
 	if err != nil {
 		return a, d, err
@@ -122,7 +115,7 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 		return a, d, err
 	}
 	d.Mode = m
-	rules, err := gate.ImportLead(root, lead.Agent)
+	rules, err := gate.ImportLead(work, lead.Agent)
 	if err != nil {
 		return a, d, err
 	}
@@ -149,13 +142,33 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 	} else {
 		rules.RoleSandbox = "read-only"
 	}
-	d = gate.Evaluate(cfg.Policy, rules, m, a)
+	// Bare native-tool denies remain enforceable even for normalized tools.
+	for _, rule := range rules.Deny {
+		if rule.Action == "unknown" && rule.Match == envelope.Tool {
+			return a, gate.Decision{Kind: gate.Deny, Mode: m, Reason: "denied by lead settings", Rule: "lead tool: " + envelope.Tool}, nil
+		}
+	}
+	d = gate.Decision{Kind: gate.Allow, Mode: m}
+	for _, action := range actions {
+		action.Role = a.Role
+		next := gate.Evaluate(cfg.Policy, rules, m, action)
+		if next.Kind == gate.Deny {
+			return action, next, nil
+		}
+		if d.Kind != gate.Ask {
+			a, d = action, next
+		}
+	}
 	if d.Kind == gate.Ask {
 		b, err := bus.Open(reg.Dir, cfg.Wire)
 		if err != nil {
 			return a, d, err
 		}
-		resolved := gate.Escalate(cmd.Context(), b, lead.ID, a, time.Duration(cfg.Policy.AskTimeoutSeconds)*time.Second)
+		if err := gate.LogRequest(&store.Store{Dir: reg.Dir}, a, d); err != nil {
+			return a, d, err
+		}
+		wait := gate.AskWait(cfg.Policy.AskTimeoutSeconds)
+		resolved := gate.Escalate(cmd.Context(), b, lead.ID, a, wait)
 		resolved.Mode = d.Mode
 		d = resolved
 	}
@@ -168,26 +181,29 @@ func newDecisionsCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		f, err := os.Open(filepath.Join(root, ".duolog/decisions.ndjson"))
-		if os.IsNotExist(err) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		decoder := json.NewDecoder(f)
-		for {
-			var row gate.Record
-			if err := decoder.Decode(&row); err == io.EOF {
-				return nil
-			} else if err != nil {
+		for _, name := range []string{"requests.ndjson", "decisions.ndjson"} {
+			f, err := os.Open(filepath.Join(root, ".duolog", name))
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil {
 				return err
 			}
-			label := map[string]string{gate.Allow: "Allow", gate.Deny: "Deny", gate.Ask: "Ask"}[row.Kind]
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s (mode %s; rule %s) Reason: %s\n", label, row.Action.Kind, row.Action.Target, row.Mode, row.Rule, row.Reason); err != nil {
-				return err
+			defer f.Close()
+			decoder := json.NewDecoder(f)
+			for {
+				var row gate.Record
+				if err := decoder.Decode(&row); err == io.EOF {
+					break
+				} else if err != nil {
+					return err
+				}
+				label := map[string]string{gate.Allow: "Allow", gate.Deny: "Deny", gate.Ask: "Ask"}[row.Kind]
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s (mode %s; rule %s) Reason: %s\n", label, row.Action.Kind, row.Action.Target, row.Mode, row.Rule, row.Reason); err != nil {
+					return err
+				}
 			}
 		}
+		return nil
 	}}
 }

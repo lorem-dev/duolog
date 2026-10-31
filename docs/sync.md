@@ -79,6 +79,16 @@ direction. Worker sessions never run sync.
   That is NOT VERIFIED. duolog passes the effort at run time.
 - We did not run sync on Windows.
 
+## How concurrent hooks share state
+
+Sync holds `.duolog/sync.lock` while reading ownership, generating files and
+saving the lock. A source scan error reports a conflict and prevents stale
+file removal. Matching bytes do not make a hand-placed file owned by duolog.
+
+Linked worktrees generate in their own checkout. Their ownership records live
+under the main checkout's `.duolog/worktrees/`, so edits in one tree do not
+change another tree's file hashes.
+
 ## Related pages
 
 - [Configuration](configuration.md): the `sync` section

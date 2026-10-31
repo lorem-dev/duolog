@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 
@@ -16,6 +15,7 @@ import (
 
 func newRosterCommand() *cobra.Command {
 	var versions bool
+	var leadFlag string
 	cmd := &cobra.Command{Use: "roster", Short: "Show role model aliases", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		root, err := projectRoot()
 		if err != nil {
@@ -29,16 +29,20 @@ func newRosterCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintln(cmd.OutOrStdout(), roster.Line(cfg, session.CurrentLead(os.Environ()), reg)); err != nil {
+		lead, err := reg.ResolveLead(leadFlag)
+		if err != nil {
 			return err
 		}
-		if leadSession, ok, _ := reg.Lead(session.CurrentLead(os.Environ())); ok {
+		if _, err := fmt.Fprintln(cmd.OutOrStdout(), roster.Line(cfg, lead.ID, reg)); err != nil {
+			return err
+		}
+		if leadSession, ok, _ := reg.Lead(lead.ID); ok {
 			other := "codex"
 			if leadSession.Agent == "codex" {
 				other = "claude"
 			}
-			mine, _ := capability.Scan(cmd.Context(), leadSession.Agent, root)
-			theirs, _ := capability.Scan(cmd.Context(), other, root)
+			mine := capability.Cached(leadSession.Agent, root)
+			theirs := capability.Cached(other, root)
 			if note := roster.CapsNote(mine, theirs, capability.HasDuolog(other, root)); note != "" {
 				if _, err := fmt.Fprintln(cmd.OutOrStdout(), note); err != nil {
 					return err
@@ -74,6 +78,7 @@ func newRosterCommand() *cobra.Command {
 		}
 		return nil
 	}}
+	cmd.Flags().StringVar(&leadFlag, "lead", "", "Registered lead session ID")
 	cmd.Flags().BoolVar(&versions, "versions", false, "Include resolved Codex versions and Claude price references")
 	return cmd
 }

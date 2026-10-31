@@ -63,6 +63,7 @@ type Registry struct {
 	LeadID string
 }
 type state struct {
+	Waiting      map[string]map[string]int       `json:"waiting,omitempty"`
 	Entries      []Entry                         `json:"entries"`
 	Leads        map[string]Lead                 `json:"leads"`
 	Unavailable  map[string]time.Time            `json:"unavailable"`
@@ -276,10 +277,11 @@ func (s *state) observeLead(o LeadObservation, started time.Time) (Lead, error) 
 		}
 		return current, nil
 	}
-	// Ended session IDs cannot be reused, including legacy boolean tombstones.
-	if s.Ended[o.ID] {
+	// A later observation can resume an ended native session.
+	if s.Ended[o.ID] && (times.EndedAt.IsZero() || !started.After(times.EndedAt)) {
 		return current, fmt.Errorf("lead %q has ended", o.ID)
 	}
+	delete(s.Ended, o.ID)
 	if !known {
 		current = Lead{ID: o.ID, Target: config.Target{Agent: o.Agent}, Mode: mode.Ask}
 	}

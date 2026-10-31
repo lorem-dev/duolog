@@ -125,6 +125,9 @@ func Resolve(ctx context.Context, cfg *config.Config, cacheDir string, target co
 
 func (r Resolver) Resolve(ctx context.Context, cfg *config.Config, target config.Target) (string, error) {
 	if target.Agent == "claude" {
+		if strings.HasPrefix(target.Model, "claude-") {
+			return target.Model, nil
+		}
 		return Normalize(target.Agent, target.Model), nil
 	}
 	if target.Agent != "codex" {
@@ -231,6 +234,7 @@ func (r Resolver) writeCache(c catalogCache) error {
 
 func metadata(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "codex", args...)
+	cmd.WaitDelay = 200 * time.Millisecond
 	cmd.Stdin = bytes.NewReader(nil)
 	return cmd.Output()
 }

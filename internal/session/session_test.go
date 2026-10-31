@@ -285,8 +285,11 @@ func TestLeadObservationCannotUndoSessionEnd(t *testing.T) {
 			if _, ok, err := r.Lead(o.ID); err != nil || ok {
 				t.Fatal("lead resurrected", err)
 			}
-			if err := r.RegisterLead(Lead{ID: o.ID}); err == nil {
-				t.Fatal("recreated an ended lead")
+			if _, err := r.ObserveLead(o, start.Add(3*time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok, err := r.Lead(o.ID); err != nil || !ok {
+				t.Fatal("later observation did not resume lead", err)
 			}
 			entries, err := r.Entries()
 			if err != nil || len(entries) != 1 || !entries[0].Closed {

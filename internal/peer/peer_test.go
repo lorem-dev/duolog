@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1222,8 +1223,8 @@ func TestLimitMarksAgentUnavailable(t *testing.T) {
 	if err != nil || len(r.named("split")) != before+1 {
 		t.Fatalf("%+v %v", next, err)
 	}
-	if argv := strings.Join(r.started(), " "); !strings.Contains(argv, "claude") || strings.Contains(argv, "codex") {
-		t.Fatalf("routed to the limited agent: %s", argv)
+	if argv := r.started(); !slices.Contains(argv, "claude") || slices.Contains(argv, "codex") {
+		t.Fatalf("routed to the limited agent: %q", argv)
 	}
 }
 

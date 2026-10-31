@@ -92,6 +92,15 @@ The lead's own settings are the ceiling:
 | `env_passthrough` | The only variables a worker inherits |
 | `rex` | Timeouts for live sessions. See [Rex](rex.md) |
 
+## What workers inherit
+
+The default environment includes PATH, HOME and USER, plus
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CODEX_HOME` and `CLAUDE_CONFIG_DIR`.
+Windows also keeps SYSTEMROOT, USERPROFILE, APPDATA, LOCALAPPDATA, TEMP, TMP,
+PATHEXT and COMSPEC. An explicit `env_passthrough` replaces these defaults.
+The worker always gets `DUOLOG_DEPTH=1`, its `DUOLOG_LEAD` and `DUOLOG_ROLE`.
+Codex trust reads `CODEX_HOME` when set.
+
 ## Related pages
 
 - [Getting started](getting-started.md): install and first task
