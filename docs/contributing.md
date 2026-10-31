@@ -78,6 +78,21 @@ make docs-lint
 | `pymarkdownlnt`, with the rules in `.pymarkdown.yaml` | Heading style, list style, trailing spaces, tabs, bare URLs |
 | `docs_test.go` | Characters that are not ASCII, long lines, a page with no first paragraph |
 
+## How branches work
+
+The repository uses three kinds of branch, so that `main` always holds what was
+released.
+
+| Branch | What it is for |
+|---|---|
+| `main` | Releases. Direct commits stop after the first release |
+| `develop` | Integration. Feature branches merge here |
+| `feature/<name>` | One piece of work, branched from `develop` |
+
+Before a release, `develop` merges to `main` through a pull request. After that,
+a workflow opens a pull request that merges `main` back into `develop`, so the
+two do not drift apart.
+
 ## What does not belong in the documentation
 
 - Status and meeting notes. They go out of date.
