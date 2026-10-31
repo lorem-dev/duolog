@@ -1,0 +1,11 @@
+{
+  "name": "duolog",
+  "plugins": [
+    {
+      "name": "duolog",
+      "source": {"source": "local", "path": "./plugin/codex"},
+      "policy": {"installation": "AVAILABLE"},
+      "category": "Productivity"
+    }
+  ]
+}

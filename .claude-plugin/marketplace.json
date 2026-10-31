@@ -1,0 +1,11 @@
+{
+  "name": "duolog",
+  "owner": {"name": "lorem-dev"},
+  "plugins": [
+    {
+      "name": "duolog",
+      "source": "./plugin/claude",
+      "description": "Hand work between Claude Code and Codex sessions."
+    }
+  ]
+}

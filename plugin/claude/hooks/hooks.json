@@ -1,0 +1,75 @@
+{
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v duolog >/dev/null 2>&1; then duolog gate --agent claude --event PermissionRequest; elif [ \"${DUOLOG_DEPTH:-0}\" -ge 1 ] 2>/dev/null; then exit 2; fi",
+            "timeout": 150
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v duolog >/dev/null 2>&1; then duolog hook PostToolUse --agent claude; fi"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v duolog >/dev/null 2>&1; then duolog gate --agent claude --event PreToolUse; elif [ \"${DUOLOG_DEPTH:-0}\" -ge 1 ] 2>/dev/null; then exit 2; fi",
+            "timeout": 150
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v duolog >/dev/null 2>&1; then duolog hook SessionEnd --agent claude; fi"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v duolog >/dev/null 2>&1; then duolog hook SessionStart --agent claude; fi"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v duolog >/dev/null 2>&1; then duolog hook wake --agent claude; fi",
+            "asyncRewake": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v duolog >/dev/null 2>&1; then duolog hook UserPromptSubmit --agent claude; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

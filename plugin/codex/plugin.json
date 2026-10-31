@@ -1,0 +1,7 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "duolog",
+  "version": "0.1.0",
+  "description": "Hand work between Claude Code and Codex sessions with small task files and short answers.",
+  "skills": "./skills/"
+}
