@@ -33,11 +33,14 @@ func newDecideCommand(kind string) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		leadID := leadFlag
-		if leadID == "" {
-			leadID = session.CurrentLead(os.Environ())
+		request, err := permissionRequest(b.Directory(), n)
+		if err != nil {
+			return err
 		}
-		lead, ok, err := reg.Lead(leadID)
+		if request.K != gate.Ask || request.From == "" {
+			return fmt.Errorf("request %d is not a permission request", n)
+		}
+		lead, ok, err := reg.LeadByAddress(request.To)
 		if err != nil {
 			return err
 		}
@@ -45,17 +48,13 @@ func newDecideCommand(kind string) *cobra.Command {
 			return fmt.Errorf("lead is unavailable or has ended")
 		}
 		address := session.Address(lead)
-		request, err := permissionRequest(b.Directory(), n)
-		if err != nil {
-			return err
-		}
-		if request.K != gate.Ask || request.To != address || request.From == "" {
-			return fmt.Errorf("request %d does not belong to this lead", n)
+		if leadFlag != "" && leadFlag != lead.ID && leadFlag != address {
+			return fmt.Errorf("request %d does not belong to lead %q", n, leadFlag)
 		}
 		_, err = b.Send(bus.Message{From: address, To: request.From, K: kind, Ref: strconv.FormatInt(n, 10), S: kind})
 		return err
 	}}
-	cmd.Flags().StringVar(&leadFlag, "lead", "", "Registered lead session ID (defaults to DUOLOG_LEAD)")
+	cmd.Flags().StringVar(&leadFlag, "lead", "", "Optional check: lead session ID or bus address that must own the request")
 	return cmd
 }
 

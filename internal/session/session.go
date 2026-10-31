@@ -306,6 +306,26 @@ func (r *Registry) Lead(id string) (Lead, bool, error) {
 	return l, ok, err
 }
 
+// LeadByAddress finds the registered lead whose bus address is address, then
+// applies the same liveness check as Lead.
+func (r *Registry) LeadByAddress(address string) (Lead, bool, error) {
+	var found Lead
+	var ok bool
+	err := r.access(false, func(s *state) error {
+		for _, l := range s.Leads {
+			if Address(l) == address {
+				found, ok = l, true
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil || !ok {
+		return Lead{}, false, err
+	}
+	return r.Lead(found.ID)
+}
+
 // EffectiveMode reads the live lead observation and the user's lower ceiling in
 // one snapshot. RegisterLead does not erase the explicit ceiling.
 func (r *Registry) EffectiveMode(id string) (Lead, mode.Mode, error) {
