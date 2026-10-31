@@ -63,13 +63,18 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	for _, part := range parts {
 		partAction := a
 		partAction.Target = part
+		baseAction := partAction
+		if a.Kind == "exec" {
+			baseAction.Target = basenameCommand(part)
+		}
+		// Preserve path-specific denies as well as basename command denies.
 		for _, rule := range lead.Deny {
-			if matches(rule, partAction) {
+			if matches(rule, partAction) || matches(rule, baseAction) {
 				return decision(Deny, "denied by lead settings", "lead: "+rule.Action+" "+rule.Match)
 			}
 		}
 		for _, rule := range p.Rules {
-			if rule.Decision == Deny && matches(rule, partAction) {
+			if rule.Decision == Deny && (matches(rule, partAction) || matches(rule, baseAction)) {
 				return decision(Deny, "denied by project policy", rule.Action+" "+rule.Match)
 			}
 		}
@@ -100,6 +105,9 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	for _, part := range parts {
 		partAction := a
 		partAction.Target = part
+		if a.Kind == "exec" {
+			partAction.Target = basenameCommand(part)
+		}
 		d := decision(p.OnUnmatched, "no matching policy rule", "on_unmatched")
 		for _, rule := range p.Rules {
 			if rule.Decision != Deny && matches(rule, partAction) {
@@ -241,6 +249,12 @@ func expandBraces(pattern string) []string {
 	return []string{pattern}
 }
 
+// basenameCommand receives a verified shell part with normalized whitespace.
+func basenameCommand(command string) string {
+	word, _, _ := strings.Cut(command, " ")
+	return filepath.Base(word) + command[len(word):]
+}
+
 // shellParts is deliberately conservative, not a shell interpreter. Quoted
 // separators remain arguments; substitutions and unsupported syntax need review.
 func shellParts(command string) ([]string, bool) {
@@ -260,8 +274,7 @@ func shellParts(command string) ([]string, bool) {
 			uncertain = true
 			return
 		}
-		words[0] = filepath.Base(word)
-		switch words[0] {
+		switch filepath.Base(word) {
 		case "command", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "cmd":
 			uncertain = true
 			return

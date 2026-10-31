@@ -155,6 +155,35 @@ func TestShellDenyBypasses(t *testing.T) {
 	}
 }
 
+func TestPathSpecificCommandDenies(t *testing.T) {
+	for _, inherited := range []bool{false, true} {
+		for _, pattern := range []string{"/usr/bin/git push", "/usr/bin/git push*", "git push*"} {
+			for _, command := range []string{
+				"/usr/bin/git push", "  /usr/bin/git\tpush  ",
+				"go test ./... && /usr/bin/git push",
+				"/usr/bin/git push || git status",
+				`git "status"; /usr/bin/git push`,
+			} {
+				t.Run("inherited="+strconv.FormatBool(inherited)+"/"+pattern+"/"+command, func(t *testing.T) {
+					p := config.Policy{OnUnmatched: Ask, Rules: []config.Rule{{Action: "exec", Match: "*", Decision: Allow}}}
+					lead := LeadRules{}
+					rule := config.Rule{Action: "exec", Match: pattern, Decision: Deny}
+					if inherited {
+						lead.Deny = []config.Rule{rule}
+					} else {
+						p.Rules = append(p.Rules, rule)
+					}
+					check(t, p, lead, mode.Full, Action{"exec", command, "implement"}, Deny)
+					// Path-specific denies must not block other executable paths.
+					if strings.HasPrefix(pattern, "/usr/bin/") {
+						check(t, p, lead, mode.Full, Action{"exec", "/opt/bin/git push", "implement"}, Allow)
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestPlainDefaultShellAllows(t *testing.T) {
 	p := policy(t)
 	for _, m := range []mode.Mode{mode.Ask, mode.Edits, mode.Full} {
