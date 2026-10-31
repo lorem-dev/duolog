@@ -474,3 +474,20 @@ func TestClaudeLeadingStdoutDiagnostics(t *testing.T) {
 		t.Fatal("log is missing stdout or stderr")
 	}
 }
+
+func TestRealCodexLimitText(t *testing.T) {
+	s := spec(t, "codex")
+	install(t, &s, testbin.Scenario{Exit: 1, Stdout: fixture(t, "limits/codex-usage.jsonl")})
+	before := time.Now()
+	r, e := Run(context.Background(), s)
+	if e == nil || !r.QuotaEnded || r.ResetAt.IsZero() {
+		t.Fatalf("%+v %v", r, e)
+	}
+	want := time.Date(before.Year(), before.Month(), before.Day(), 8, 48, 0, 0, before.Location())
+	if !want.After(before) {
+		want = want.AddDate(0, 0, 1)
+	}
+	if !r.ResetAt.Equal(want) {
+		t.Fatalf("%s want %s", r.ResetAt, want)
+	}
+}

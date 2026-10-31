@@ -16,7 +16,8 @@ import (
 )
 
 func newDecideCommand(kind string) *cobra.Command {
-	return &cobra.Command{Use: kind + " <n>", Short: "Answer a worker permission request", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	var leadFlag string
+	cmd := &cobra.Command{Use: kind + " <n>", Short: "Answer a worker permission request", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if isWorker() {
 			return fmt.Errorf("workers cannot answer permission requests")
 		}
@@ -32,7 +33,11 @@ func newDecideCommand(kind string) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		lead, ok, err := reg.Lead(session.CurrentLead(os.Environ()))
+		leadID := leadFlag
+		if leadID == "" {
+			leadID = session.CurrentLead(os.Environ())
+		}
+		lead, ok, err := reg.Lead(leadID)
 		if err != nil {
 			return err
 		}
@@ -50,6 +55,8 @@ func newDecideCommand(kind string) *cobra.Command {
 		_, err = b.Send(bus.Message{From: address, To: request.From, K: kind, Ref: strconv.FormatInt(n, 10), S: kind})
 		return err
 	}}
+	cmd.Flags().StringVar(&leadFlag, "lead", "", "Registered lead session ID (defaults to DUOLOG_LEAD)")
+	return cmd
 }
 
 // Read the request without advancing the lead's delivery cursor. Ignore a

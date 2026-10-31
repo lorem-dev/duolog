@@ -158,3 +158,27 @@ func TestAskHookLogsFinalOutcome(t *testing.T) {
 		})
 	}
 }
+
+func TestDecisionWithoutLeadEnvUsesFlag(t *testing.T) {
+	r, root := gateSetup(t, mode.Ask)
+	t.Setenv("DUOLOG_DEPTH", "")
+	t.Setenv("DUOLOG_LEAD", "")
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := bus.Open(r.Dir, cfg.Wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := b.Send(bus.Message{From: "codex/ask.test", To: "codex/lead.lead-1", K: "ask", S: "exec custom"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gateCommand(t, "", "allow", strconv.FormatInt(n, 10)); err == nil {
+		t.Fatal("accepted without a lead")
+	}
+	if _, err := gateCommand(t, "", "allow", "--lead", "lead-123456", strconv.FormatInt(n, 10)); err != nil {
+		t.Fatal(err)
+	}
+}
