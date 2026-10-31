@@ -506,3 +506,45 @@ func TestCodexNameUnderscore(t *testing.T) {
 		t.Fatal("want error")
 	}
 }
+
+func TestCodexDirectionIgnoresFlags(t *testing.T) {
+	opts := testOpts(t)
+	opts.Flags = map[string]string{"opus": "terra"}
+	src := []byte("name=\"a\"\ndescription=\"d\"\nmodel=\"gpt-6-sol\"\n")
+	a, err := ParseCodexAgent("y.toml", src, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Model != "opus" {
+		t.Fatalf("got %q want opus", a.Model)
+	}
+	if _, err := ParseCodexAgent("z.toml", []byte("name=\"a\"\ndescription=\"d\"\n"), opts); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOverrideEffortNotInMapRefused(t *testing.T) {
+	opts := testOpts(t)
+	opts.Config.Overrides = map[string]config.Target{"a": {Effort: "turbo"}}
+	_, err := ParseClaudeAgent("x.md", claudeSrc("a", "model: opus\n", "x\n"), opts)
+	if err == nil || !strings.Contains(err.Error(), "turbo") || !strings.Contains(err.Error(), "x.md") {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestPinnedModelLossyRoundTrip(t *testing.T) {
+	opts := testOpts(t)
+	src := []byte("name=\"a\"\ndescription=\"d\"\nmodel=\"gpt-5.6-sol\"\n")
+	claude, err := ParseCodexAgent("y.toml", src, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	md, err := RenderClaudeAgent(claude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back := toCodex(t, string(md), opts)
+	if back.Model != "gpt-6.1-sol" {
+		t.Fatalf("got %q: model returns as the family latest", back.Model)
+	}
+}
