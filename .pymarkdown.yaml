@@ -32,6 +32,9 @@ plugins:
   md040:
     # Plain text trees and listings have no language.
     enabled: false
+  md033:
+    # The README centres its title and badges, and Markdown cannot centre text.
+    allowed_elements: "h1,p"
 extensions:
   front-matter:
     enabled: true

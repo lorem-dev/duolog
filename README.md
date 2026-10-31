@@ -1,8 +1,22 @@
-# duolog
+<h1 align="center">
+  <img src="/assets/icon.png" width="24" alt="duolog icon">
+  duolog
+</h1>
 
+<p align="center">
+  <a href="https://github.com/lorem-dev/duolog/releases/latest"><img src="https://img.shields.io/github/v/release/lorem-dev/duolog?label=download" alt="Download"></a>
+  <a href="./docs/getting-started.md"><img src="https://img.shields.io/badge/docs-read-blue" alt="Documentation"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/lorem-dev/duolog" alt="License"></a>
+  <a href="https://github.com/lorem-dev/duolog/actions/workflows/ci.yml"><img src="https://github.com/lorem-dev/duolog/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
+
+<p align="center">
 duolog makes Claude Code and Codex work as a pair in one project. You choose
 which agent and model does each kind of work. The sessions talk through a
 small file bus, so they do not paste large context at each other.
+</p>
+
+---
 
 ## Install
 
@@ -45,24 +59,67 @@ $env:DUOLOG_INSTALL_DIR = "$env:LOCALAPPDATA\Programs\duolog"
 irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
 ```
 
-Install the Claude Code plugin:
+### How to install the plugins from the duolog marketplace
+
+Add this repository as a custom marketplace, then install the plugin from it.
+A marketplace is a Git repository that lists plugins. This repository is its
+own marketplace, named `duolog`. It is not in the official plugin directories
+yet, so each agent needs the address once. Install the binary first, because
+the plugins call it.
+
+In Claude Code, run these commands in a terminal:
 
 ```sh
 claude plugin marketplace add lorem-dev/duolog
 claude plugin install duolog@duolog
 ```
 
-Use `claude plugin install duolog@duolog --scope project` to share it with a
-project. The enabled Claude plugin supplies its hooks and skill on every OS;
-Claude does not need a separate hook install. If you run `duolog install`, it
-uses the enabled plugin and removes older duplicate native hooks.
+Or run the same steps inside a session:
 
-Install the Codex plugin:
+```text
+/plugin marketplace add lorem-dev/duolog
+/plugin install duolog@duolog
+```
+
+In Codex, run these commands in a terminal:
 
 ```sh
 codex plugin marketplace add lorem-dev/duolog
 codex plugin add duolog@duolog
 ```
+
+Start a new session after the install, so that the agent loads the plugin. In
+`duolog@duolog`, the first word is the plugin and the second is the marketplace.
+
+The address can take other forms. Claude Code clones `lorem-dev/duolog` over
+SSH, so use the HTTPS form if you have no SSH key for GitHub.
+
+| Address | When to use it |
+|---|---|
+| `lorem-dev/duolog` | The normal case |
+| `https://github.com/lorem-dev/duolog.git` | You have no SSH key for GitHub |
+| `./path/to/duolog` | You test a local copy of this repository |
+
+Use these commands to update or remove the plugin:
+
+| Task | Claude Code | Codex |
+|---|---|---|
+| See what is installed | `claude plugin list` | `codex plugin list` |
+| Get the new marketplace list | `claude plugin marketplace update duolog` | `codex plugin marketplace upgrade duolog` |
+| Update the plugin | `claude plugin update duolog@duolog` | `codex plugin add duolog@duolog` |
+| Remove the plugin | `claude plugin uninstall duolog@duolog` | `codex plugin remove duolog@duolog` |
+| Remove the marketplace | `claude plugin marketplace remove duolog` | `codex plugin marketplace remove duolog` |
+
+To share the Claude Code plugin with a project, add `--scope project` to both
+Claude Code commands. They write the marketplace and the plugin to
+`.claude/settings.json`. Commit that file, so that other people get the same
+setup.
+
+The enabled Claude plugin supplies its hooks and skill on every OS. Claude does
+not need a separate hook install. If you run `duolog install`, it uses the
+enabled plugin and removes older duplicate native hooks.
+
+### How to install the hooks
 
 Install hooks for one project or for all your projects:
 

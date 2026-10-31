@@ -44,8 +44,8 @@ Every page starts with one short paragraph that says what the page is about.
 Headings are sentences, not labels. `How a worker asks for permission` is better
 than `Permissions`.
 
-Lines have at most 80 characters. Tables and fenced code blocks are exempt,
-because you cannot wrap them without breaking them.
+Lines have at most 80 characters. Tables, fenced code blocks and the badge links
+in `README.md` are exempt, because you cannot wrap them without breaking them.
 
 Every page ends with a section named `Related pages`, unless it has none.
 
