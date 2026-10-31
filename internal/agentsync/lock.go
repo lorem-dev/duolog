@@ -58,6 +58,24 @@ func LoadLock(root string) (Lock, error) {
 				return Lock{}, err
 			}
 			lock.Direction = main.Direction
+			// Files committed with this checkout stay owned on the first sync here.
+			committed, err := os.ReadFile(filepath.Join(root, ".duolog", "sync.lock.json"))
+			if errors.Is(err, os.ErrNotExist) {
+				return lock, nil
+			}
+			if err != nil {
+				return Lock{}, err
+			}
+			var tracked Lock
+			if err := json.Unmarshal(committed, &tracked); err != nil {
+				return Lock{}, fmt.Errorf("%s: %w", filepath.Join(root, ".duolog", "sync.lock.json"), err)
+			}
+			if tracked.Files != nil {
+				lock.Files = tracked.Files
+			}
+			if tracked.Direction != "" {
+				lock.Direction = tracked.Direction
+			}
 		}
 		return lock, nil
 	}

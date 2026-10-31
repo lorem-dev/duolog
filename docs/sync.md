@@ -91,7 +91,9 @@ file removal. Matching bytes do not make a hand-placed file owned by duolog.
 
 Linked worktrees generate in their own checkout. Their ownership records live
 under the main checkout's `.duolog/worktrees/`, so edits in one tree do not
-change another tree's file hashes.
+change another tree's file hashes. The first sync in a linked worktree starts
+from the `.duolog/sync.lock.json` in that checkout, so generated files that
+the repo commits stay owned by duolog.
 
 ## Related pages
 
