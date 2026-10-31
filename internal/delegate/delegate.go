@@ -471,3 +471,8 @@ func changes(before, after map[string]string) []string {
 	sort.Strings(names)
 	return names
 }
+
+// Snapshot and Changes expose the working-tree comparison to live peer sessions,
+// which report unfinished work the same way a one-off worker does.
+func Snapshot(root string) (map[string]string, error)  { return snapshot(root) }
+func Changes(before, after map[string]string) []string { return changes(before, after) }

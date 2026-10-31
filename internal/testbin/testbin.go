@@ -21,7 +21,10 @@ type OutputChunk struct {
 // Writes happen after SleepMS, and relative paths are relative to the child cwd.
 type Scenario struct {
 	// Responses selects a scenario by the longest matching argument prefix.
-	Responses      map[string]Scenario
+	Responses map[string]Scenario
+	// Sequence replaces the scenario by call order: the nth call that selects
+	// this scenario uses Sequence[n], and the last entry repeats.
+	Sequence       []Scenario
 	Output         []OutputChunk
 	Stdout, Stderr string
 	Exit           int

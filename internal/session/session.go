@@ -41,11 +41,21 @@ type leadObservationTimes struct {
 
 type Entry struct {
 	ID, Lead, Agent, Role, Thread, ThreadID string
-	BlockID                                 string
-	PID                                     int
-	Input                                   int64
-	UpdatedAt                               time.Time
-	Closed                                  bool
+	// Block is the Rex pane of a live peer session; it is empty for threads
+	// that only exist in the agent. Doctor and peer commands join on it.
+	Block string
+	PID   int
+	Input int64
+	// Task is the task file a live peer was sent and has not finished. Base is
+	// the working tree before that task, as path to Git status.
+	Task string
+	Base map[string]string
+	// Mode is the lead mode the peer was started under. Asked is the last
+	// question already sent to the lead, so one question makes one message.
+	Mode      mode.Mode
+	Asked     string
+	UpdatedAt time.Time
+	Closed    bool
 }
 type Registry struct {
 	Dir string
