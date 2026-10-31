@@ -173,16 +173,21 @@ func MapModel(cfg config.AgentSync, name, model, effort, from string, flags map[
 	if err := checkBijective(forward); err != nil {
 		return "", "", err
 	}
+	if from == "codex" {
+		// Flags pick a Claude alias -> Codex alias, so they apply only from
+		// Claude to Codex. Merging them here would break the inverse map.
+		// A pinned Codex model returns as the latest of its family: the pin
+		// is lost on a round trip through Claude (lossy by design).
+		return mapToClaude(cfg, forward, model, effort)
+	}
+	merged := make(map[string]string, len(forward)+len(flags))
+	for k, v := range forward {
+		merged[k] = v
+	}
 	for k, v := range flags {
-		forward[k] = v
+		merged[k] = v
 	}
-	if from == "claude" {
-		return mapToCodex(cfg, forward, flags, name, model, effort)
-	}
-	if err := checkBijective(forward); err != nil {
-		return "", "", err
-	}
-	return mapToClaude(cfg, forward, model, effort)
+	return mapToCodex(cfg, merged, flags, name, model, effort)
 }
 
 func checkBijective(m map[string]string) error {
@@ -212,6 +217,9 @@ func mapToCodex(cfg config.AgentSync, forward, flags map[string]string, name, mo
 		}
 	}
 	if override := cfg.Overrides[name].Effort; override != "" {
+		if !knownEffort(cfg.EffortMap, override) {
+			return "", "", fmt.Errorf("effort %q (override for %s) is not in effort_map", override, name)
+		}
 		return alias, override, nil
 	}
 	if effort == "" {
