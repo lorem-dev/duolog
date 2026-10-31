@@ -498,12 +498,17 @@ func TestPeerGetsDepthAndLeadEnv(t *testing.T) {
 	t.Setenv("REX_BLOCK", "block:lead")
 	r.open("implement")
 	argv := r.started()
-	if argv[0] != "env" || !contains(argv, "DUOLOG_DEPTH=1") || !contains(argv, "DUOLOG_LEAD=lead-1") {
+	if !contains(argv, "DUOLOG_DEPTH=1") || !contains(argv, "DUOLOG_LEAD=lead-1") {
 		t.Fatal(argv)
 	}
 	// A worker must not learn where the lead's terminal is.
 	joined := strings.Join(argv, " ")
-	if !strings.Contains(joined, "-u REX_SESSION") || !strings.Contains(joined, "-u REX_BLOCK") {
+	if runtime.GOOS == "windows" {
+		exe, err := os.Executable()
+		if err != nil || argv[0] != exe || argv[1] != "peer" || argv[2] != "launch" || !contains(argv, "--") {
+			t.Fatal(argv, err)
+		}
+	} else if argv[0] != "env" || !strings.Contains(joined, "-u REX_SESSION") || !strings.Contains(joined, "-u REX_BLOCK") {
 		t.Fatal(joined)
 	}
 	for _, w := range argv {

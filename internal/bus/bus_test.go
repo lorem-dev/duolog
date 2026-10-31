@@ -284,6 +284,12 @@ func TestSendRepairsTornTail(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "bus.ndjson"), append(data, fragment...), 0600); err != nil {
 				t.Fatal(err)
 			}
+			// A reader may still hold the file open while Send repairs its tail.
+			reader, err := os.Open(filepath.Join(dir, "bus.ndjson"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reader.Close()
 			if n := sendTestMessage(t, b, Message{To: "reader", S: "repaired"}); n != int64(completeCount+1) {
 				t.Fatalf("N = %d", n)
 			}

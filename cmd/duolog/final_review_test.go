@@ -15,6 +15,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/install"
+	"github.com/lorem-dev/duolog/internal/pathutil"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
@@ -165,15 +166,15 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 				}
 				fake := testbin.Install(t, workerAgent, scenario)
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-				cmd := exec.CommandContext(ctx, binary, "delegate", tc.role, "--task", "task.md")
+				cmd := testbin.CommandContext(ctx, binary, "delegate", tc.role, "--task", "task.md")
 				cmd.Env = append(os.Environ(), "PATH="+strings.ReplaceAll(os.Getenv("PATH"), binDir+string(os.PathListSeparator), ""))
 				output, runErr := cmd.CombinedOutput()
 				cancel()
 				if tc.want == "" && runErr != nil {
-					t.Fatalf("delegate: %s %v", output, runErr)
+					t.Fatalf("delegate: %s %v\n%s", output, runErr, delegateLogs(t, root))
 				}
 				if tc.want != "" && (cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != 3) {
-					t.Fatalf("needs exit: %s %v", output, runErr)
+					t.Fatalf("needs exit: %s %v\n%s", output, runErr, delegateLogs(t, root))
 				}
 				env, _ := os.ReadFile(fake + ".env.json")
 				var workerPairs []string
@@ -184,7 +185,8 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 				for _, pair := range workerPairs {
 					if strings.HasPrefix(pair, "PATH=") {
 						foundPath = true
-						if strings.TrimPrefix(pair, "PATH=") != binDir && !strings.HasPrefix(pair, "PATH="+binDir+string(os.PathListSeparator)) {
+						first := strings.SplitN(strings.TrimPrefix(pair, "PATH="), string(os.PathListSeparator), 2)[0]
+						if pathutil.Clean(pathutil.Resolved(first)) != pathutil.Clean(pathutil.Resolved(binDir)) {
 							t.Fatal("worker PATH does not start with executable directory", pair)
 						}
 					}
@@ -351,4 +353,19 @@ func TestDelegateInterruptReportsAndStopsDescendant(t *testing.T) {
 	if _, err := os.Stat(fake + ".child-done"); !os.IsNotExist(err) {
 		t.Fatal("worker descendant outlived interrupted delegate", err)
 	}
+}
+
+// A failed delegate often has no console output; retain the actual worker logs.
+func delegateLogs(t *testing.T, root string) string {
+	t.Helper()
+	var logs strings.Builder
+	paths, err := filepath.Glob(filepath.Join(root, ".duolog", "tasks", "*", "*.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		fmt.Fprintf(&logs, "%s (%v):\n%s\n", path, err, data)
+	}
+	return logs.String()
 }

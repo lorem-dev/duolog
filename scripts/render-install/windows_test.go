@@ -27,6 +27,15 @@ func TestWindowsInstaller(t *testing.T) {
 			if err != nil {
 				t.Fatal("CI must provide Windows PowerShell 5.1 and pwsh:", err)
 			}
+			if shell == "powershell" {
+				pwsh, err := exec.LookPath("pwsh")
+				if err != nil {
+					t.Fatal(err)
+				}
+				// Reproduce pwsh -> Go -> powershell.exe module-path inheritance.
+				// The installer must load 5.1 built-ins even with Core modules first.
+				t.Setenv("PSModulePath", filepath.Join(filepath.Dir(pwsh), "Modules")+string(os.PathListSeparator)+os.Getenv("PSModulePath"))
+			}
 			for _, scenario := range []string{"good", "tampered", "pinned", "update", "tampered-existing", "missing-checksum", "bad-zip", "missing-binary"} {
 				t.Run(scenario, func(t *testing.T) {
 					dir := t.TempDir()

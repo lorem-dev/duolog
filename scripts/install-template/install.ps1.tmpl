@@ -2,6 +2,12 @@
 # Supports Windows PowerShell 5.1 and PowerShell 7 (pwsh).
 & {
     $ErrorActionPreference = 'Stop'
+    # A native intermediary (for example Go) can inherit pwsh's module path.
+    # Load this edition's built-ins explicitly before invoking any cmdlets.
+    if ($PSVersionTable.PSEdition -eq 'Desktop') {
+        Import-Module ([IO.Path]::Combine($PSHOME, 'Modules\Microsoft.PowerShell.Utility'))
+        Import-Module ([IO.Path]::Combine($PSHOME, 'Modules\Microsoft.PowerShell.Management'))
+    }
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     $base = 'https://github.com/{{.Owner}}/{{.Repo}}'
     # Internal test seam; not an installation option.
@@ -66,7 +72,9 @@
         $target = Join-Path $installDir '{{.BinaryName}}.exe'
         # Replace atomically: a failed replacement leaves the old file intact.
         if (Test-Path -LiteralPath $target) {
-            [IO.File]::Replace($staged, $target, $null)
+            # PowerShell coerces $null to an empty string for this overload.
+            # NullString passes a real null, retaining atomic replacement.
+            [IO.File]::Replace($staged, $target, [NullString]::Value)
         } else {
             [IO.File]::Move($staged, $target)
         }

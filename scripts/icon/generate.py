@@ -1,3 +1,4 @@
+#!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
 # dependencies = ["resvg-py", "pillow"]
@@ -92,8 +93,8 @@ def small_png(size: int) -> bytes:
 root = sys.argv[1]
 for d in (f"{root}/assets", f"{root}/plugin/claude/.claude-plugin"):
     os.makedirs(d, exist_ok=True)
-    with open(f"{d}/icon.svg", "w", encoding="utf-8") as f:
-        f.write(svg)
-    with open(f"{d}/icon.png", "wb") as f:
-        f.write(small_png(256))
+    with open(f"{d}/icon.svg", "w", encoding="utf-8") as svg_file:
+        svg_file.write(svg)
+    with open(f"{d}/icon.png", "wb") as png_file:
+        png_file.write(small_png(256))
 print("ok")

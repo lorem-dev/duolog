@@ -2,12 +2,14 @@ package install
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
@@ -31,10 +33,15 @@ func TestWindowsHookShells(t *testing.T) {
 						for _, h := range g.Hooks {
 							command := h.CommandWindows
 							process := func() *exec.Cmd {
+								cmd := testbin.HookProcess(command)
 								if shell == "bash" {
-									return testbin.GitBashProcess(command)
+									cmd = testbin.GitBashProcess(command)
 								}
-								return testbin.HookProcess(command)
+								ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+								t.Cleanup(cancel)
+								bounded := testbin.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
+								bounded.SysProcAttr = cmd.SysProcAttr
+								return bounded
 							}
 							for _, depth := range []string{"0", "1"} {
 								t.Setenv("DUOLOG_DEPTH", depth)

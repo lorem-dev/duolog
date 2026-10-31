@@ -28,21 +28,10 @@ func RelativeTarget(root, cwd, target string) string {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(cwd, path)
 	}
-	root, path = resolvedPath(root), resolvedPath(path)
+	root, path = pathutil.Resolved(root), pathutil.Resolved(path)
 	relative, err := filepath.Rel(root, path)
 	if err != nil {
 		return pathutil.Clean(path)
 	}
 	return pathutil.Clean(relative)
-}
-
-func resolvedPath(path string) string {
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		return resolved
-	}
-	parent := filepath.Dir(path)
-	if parent == path {
-		return path
-	}
-	return filepath.Join(resolvedPath(parent), filepath.Base(path))
 }

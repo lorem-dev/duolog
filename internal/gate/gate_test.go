@@ -395,3 +395,12 @@ func BenchmarkGate(b *testing.B) {
 		}
 	}
 }
+
+func TestClaudeAbsoluteDriveSelectors(t *testing.T) {
+	for _, selector := range []string{`C:/Project/restricted/**`, `/C:/Project/restricted/**`, `//C:/Project/restricted/**`, `//C/Project/restricted/**`} {
+		got, err := claudePathPattern(selector, `C:/Project`, `C:/Users/me`, `C:/Project`)
+		if err != nil || got != "restricted/**" {
+			t.Fatalf("%s: %q %v", selector, got, err)
+		}
+	}
+}

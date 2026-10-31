@@ -93,3 +93,20 @@ func volume(s string) string {
 }
 
 func Native(s string) string { return filepath.FromSlash(Slashes(s)) }
+
+// Resolved expands filesystem aliases (including Windows 8.3 names) in the
+// existing prefix, preserving a nonexistent suffix such as a new file or glob.
+// Foreign Windows paths remain lexical on POSIX hosts.
+func Resolved(name string) string {
+	if runtime.GOOS != "windows" && Windows(name) {
+		return name
+	}
+	if resolved, err := filepath.EvalSymlinks(name); err == nil {
+		return resolved
+	}
+	parent := filepath.Dir(name)
+	if parent == name {
+		return name
+	}
+	return filepath.Join(Resolved(parent), filepath.Base(name))
+}

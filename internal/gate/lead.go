@@ -131,6 +131,9 @@ func claudePathPattern(pattern, root, home, base string) (string, error) {
 	switch {
 	case len(pattern) > 1 && pattern[1] == ':':
 		path = pattern
+	case len(pattern) >= 4 && pattern[0] == '/' && pattern[2] == ':' && pattern[3] == '/':
+		// Native drive paths can carry Claude's extra absolute-path slash.
+		path = filepath.FromSlash(pattern[1:])
 	case strings.HasPrefix(pattern, "//"):
 		path = filepath.FromSlash(strings.TrimPrefix(pattern, "/"))
 		if runtime.GOOS == "windows" || pathutil.Windows(root) {
@@ -148,7 +151,7 @@ func claudePathPattern(pattern, root, home, base string) (string, error) {
 	default:
 		path = filepath.Join(root, filepath.FromSlash(pattern))
 	}
-	relative, err := pathutil.Relative(root, path)
+	relative, err := pathutil.Relative(pathutil.Resolved(root), pathutil.Resolved(path))
 	if err != nil {
 		return pathutil.Clean(path), nil
 	}

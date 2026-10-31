@@ -132,7 +132,11 @@ func TestDoctorListsPanesOfEndedLead(t *testing.T) {
 func TestDoctorFlagsMissingBinary(t *testing.T) {
 	cfg, opts, _ := setup(t)
 	t.Setenv("PATH", t.TempDir())
-	contains(t, findings(t, cfg, opts), "codex", "claude", "missing", "Rex unavailable")
+	notice := "Rex unavailable"
+	if runtime.GOOS == "windows" {
+		notice = "Live sessions are not available on Windows; use duolog delegate."
+	}
+	contains(t, findings(t, cfg, opts), "codex binary missing", "claude binary missing", notice)
 }
 func TestDoctorFlagsUnsupportedEffort(t *testing.T) {
 	cfg, opts, _ := setup(t)

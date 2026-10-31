@@ -81,7 +81,7 @@ func (b *Bus) Send(m Message) (int64, error) {
 		return 0, err
 	}
 	defer lock.Close()
-	f, err := os.OpenFile(filepath.Join(b.dir, "bus.ndjson"), os.O_CREATE|os.O_APPEND|os.O_RDWR, 0600)
+	f, err := os.OpenFile(filepath.Join(b.dir, "bus.ndjson"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return 0, err
 	}
@@ -104,7 +104,11 @@ func (b *Bus) Send(m Message) (int64, error) {
 	if line.Len() > b.wire.MaxLineBytes {
 		return 0, ErrTooLong
 	}
-	// O_APPEND and a single Write keep the encoded line together under the lock.
+	// Windows append-only handles cannot truncate a torn tail. Use a writable
+	// handle and seek under bus.lock, which serializes repair and append.
+	if _, err := f.Seek(0, io.SeekEnd); err != nil {
+		return 0, err
+	}
 	written, err := f.Write(line.Bytes())
 	if err != nil {
 		return 0, err
