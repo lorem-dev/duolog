@@ -37,6 +37,23 @@ type Inventory struct {
 	Agent   string `json:"agent"`
 	Items   []Item `json:"items"`
 	Unknown bool   `json:"unknown,omitempty"`
+	// UnknownKinds lists kinds whose list is known to be incomplete, for
+	// example mcp for Claude (connectors and plugin-provided servers are not
+	// in any file).
+	UnknownKinds []string `json:"unknown_kinds,omitempty"`
+}
+
+// KindUnknown reports whether nothing may be claimed as absent for kind.
+func (inv Inventory) KindUnknown(kind string) bool {
+	if inv.Unknown {
+		return true
+	}
+	for _, k := range inv.UnknownKinds {
+		if k == kind {
+			return true
+		}
+	}
+	return false
 }
 
 // Home replaces the user home directory when set; tests use it.
@@ -66,10 +83,18 @@ func Scan(ctx context.Context, agent, root string) (Inventory, error) {
 	switch agent {
 	case "claude":
 		items = scanClaude(root, h)
+		inv.UnknownKinds = []string{KindMCP}
 	case "codex":
 		var known bool
 		items, known = scanCodex(ctx, root, h)
 		inv.Unknown = !known
+		for _, it := range items {
+			// Plugins may bring skills and MCP servers that no file lists.
+			if it.Kind == KindPlugin {
+				inv.UnknownKinds = []string{KindSkill, KindMCP}
+				break
+			}
+		}
 	default:
 		inv.Unknown = true
 	}
@@ -113,7 +138,7 @@ func scanClaude(root, h string) []Item {
 	readJSON(filepath.Join(root, ".mcp.json"), &project)
 	readJSON(filepath.Join(h, ".claude.json"), &user)
 	// Only the keys are used: the values hold env and headers.
-	for _, set := range []map[string]json.RawMessage{project.MCP, user.MCP, user.Projects[root].MCP} {
+	for _, set := range []map[string]json.RawMessage{project.MCP, user.MCP, user.Projects[root].MCP, user.Projects[filepath.ToSlash(root)].MCP} {
 		for name := range set {
 			items = append(items, Item{Kind: KindMCP, Name: name})
 		}
@@ -237,7 +262,7 @@ func normalize(items []Item) []Item {
 func Diff(a, b Inventory) []Item {
 	out := []Item{}
 	for _, it := range a.Items {
-		if _, ok := find(b, it.Kind, it.Name); !ok {
+		if _, ok := find(b, it.Kind, it.Name); !ok && !b.KindUnknown(it.Kind) {
 			out = append(out, it)
 		}
 	}

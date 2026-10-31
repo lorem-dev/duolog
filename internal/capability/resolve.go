@@ -50,7 +50,15 @@ func Resolve(target, source Inventory, needs []string, cfg config.Capabilities) 
 			out = append(out, Resolution{Need: need, Action: ActionPresent})
 			continue
 		}
+		if target.KindUnknown(kind) {
+			out = append(out, Resolution{Need: need, Action: ActionPresent, Hint: NeedsLine})
+			continue
+		}
 		item, ok := find(source, kind, name)
+		if !ok && source.KindUnknown(kind) {
+			out = append(out, Resolution{Need: need, Action: ActionPresent, Hint: NeedsLine})
+			continue
+		}
 		if !ok {
 			out = append(out, Resolution{Need: need, Action: ActionRefuse, Hint: hint(cfg, kind, name, need+" is missing in "+target.Agent+" and "+source.Agent)})
 			continue

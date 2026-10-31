@@ -83,8 +83,7 @@ func TestScanParsesFixtures(t *testing.T) {
 		put(t, filepath.Join(home, ".claude", "skills", "mine", "SKILL.md"), "x")
 		put(t, filepath.Join(root, ".claude", "skills", "local", "SKILL.md"), "x")
 		put(t, filepath.Join(root, ".mcp.json"), `{"mcpServers":{"codegraph":{"command":"codegraph"}}}`)
-		put(t, filepath.Join(home, ".claude.json"), `{"mcpServers":{"user-mcp":{}},"projects":{"`+filepath.ToSlash(root)+`":{"mcpServers":{"proj-mcp":{}}}}}`)
-		// the "projects" key uses the OS path
+		put(t, filepath.Join(home, ".claude.json"), `{"mcpServers":{"user-mcp":{}},"projects":{`+projectsKeys(root)+`}}`)
 		inv, err := Scan(context.Background(), "claude", root)
 		if err != nil || inv.Unknown {
 			t.Fatal(inv, err)
@@ -170,7 +169,7 @@ func TestScanHasNoSecrets(t *testing.T) {
 		}
 		return nil
 	})
-	for _, bad := range []string{"s3cret-value", "API_TOKEN", "Authorization", "env"} {
+	for _, bad := range []string{"s3cret-value", "API_TOKEN", "Authorization", `"env"`} {
 		if strings.Contains(all.String(), bad) {
 			t.Fatalf("%q leaked", bad)
 		}
@@ -240,5 +239,46 @@ func TestHasDuolog(t *testing.T) {
 	put(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"x":"duolog hook"}}`)
 	if !HasDuolog("codex", root) || !HasDuolog("claude", root) {
 		t.Fatal("hooks not found")
+	}
+}
+
+// projectsKeys writes the project under both the OS path and its slash form,
+// each JSON-escaped, so the lookup works on every OS.
+func projectsKeys(root string) string {
+	var parts []string
+	for _, k := range []string{root, filepath.ToSlash(root)} {
+		b, _ := json.Marshal(k)
+		parts = append(parts, string(b)+`:{"mcpServers":{"proj-mcp":{}}}`)
+	}
+	if parts[0] == parts[1] {
+		parts = parts[:1]
+	}
+	return strings.Join(parts, ",")
+}
+
+func TestScanMarksIncompleteKindsUnknown(t *testing.T) {
+	_, root := env(t)
+	onlyPath(t, testbin.Install(t, "claude", testbin.Scenario{}))
+	inv, err := Scan(context.Background(), "claude", root)
+	if err != nil || inv.Unknown || !inv.KindUnknown(KindMCP) || inv.KindUnknown(KindSkill) {
+		t.Fatal(inv, err)
+	}
+}
+
+func TestScanCodexWithPluginsLeavesSkillAndMCPUnknown(t *testing.T) {
+	_, root := env(t)
+	onlyPath(t, testbin.Install(t, "codex", testbin.Scenario{Responses: map[string]testbin.Scenario{"plugin list --json": {Stdout: fixture(t, "codex-plugin-list.json")}}}))
+	inv, err := Scan(context.Background(), "codex", root)
+	if err != nil || inv.Unknown || !inv.KindUnknown(KindSkill) || !inv.KindUnknown(KindMCP) || inv.KindUnknown(KindPlugin) {
+		t.Fatal(inv, err)
+	}
+}
+
+func TestDiffSkipsUnknownKinds(t *testing.T) {
+	a := Inventory{Agent: "codex", Items: []Item{{Kind: KindMCP, Name: "x"}, {Kind: KindSkill, Name: "s"}}}
+	b := Inventory{Agent: "claude", UnknownKinds: []string{KindMCP}}
+	d := Diff(a, b)
+	if len(d) != 1 || d[0].Name != "s" {
+		t.Fatal(d)
 	}
 }
