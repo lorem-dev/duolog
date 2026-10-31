@@ -131,10 +131,19 @@ jobs:
       - name: Install shellcheck for the release hooks
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+      # A snapshot skips the step that loads the release body, so build as a release
+      # and publish nothing. The tag stays on this runner: this job cannot push.
+      - name: Tag this commit on the runner
+        run: |
+          version=$(sed -n 's/^var version = "\(.*\)"/\1/p' cmd/duolog/main.go)
+          git tag -f "v$version"
+          echo "TAG=v$version" >> "$GITHUB_ENV"
       - name: Write the release body from CHANGES.md
-        run: uv run scripts/version/version.py notes "v$(sed -n 's/^var version = "\(.*\)"/\1/p' cmd/duolog/main.go)" -o .release/notes.md
+        run: uv run scripts/version/version.py notes "$TAG" -o .release/notes.md
       - name: Dry run of the release
         uses: goreleaser/goreleaser-action@v6
         with:
           version: '~> v2'
-          args: release --snapshot --clean --release-notes=.release/notes.md
+          args: release --clean --skip=publish,announce,validate --release-notes=.release/notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

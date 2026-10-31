@@ -43,3 +43,9 @@ jobs:
           args: release --clean --release-notes=.release/notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # An empty body is not an error to GoReleaser, and v1.0.0 published with one, so
+      # read back what the release page really says.
+      - name: The published body is the CHANGES.md section
+        run: test "$(gh release view "$GITHUB_REF_NAME" --json body --jq .body | tr -d '\r')" = "$(cat .release/notes.md)"
+        env:
+          GH_TOKEN: ${{ github.token }}

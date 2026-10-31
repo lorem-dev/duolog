@@ -131,6 +131,12 @@ def test_notes_write_the_release_body_to_a_file(root: Path) -> None:
     assert out.read_text() == "### Added\n\n- `duolog first` exists.\n"
 
 
+def test_notes_join_a_wrapped_bullet_into_one_line(root: Path) -> None:
+    text = (root / "CHANGES.md").read_text().replace("- `duolog first` exists.", "- `duolog first` exists\n  on two lines.\n- Another.")
+    (root / "CHANGES.md").write_text(text)
+    assert run(root, "notes", "v1.0.0")[1] == "### Added\n\n- `duolog first` exists on two lines.\n- Another.\n"
+
+
 def development_with(*lines: str) -> str:
     entries = "\n".join(lines)
     return f"# Changes\n\n## Development\n\n### Added\n\n{entries}\n\n## 1.0.0\n\n### Added\n\n- `x` exists.\n"

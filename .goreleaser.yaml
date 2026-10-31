@@ -43,10 +43,9 @@ checksum:
     - glob: .release/install.sh
     - glob: .release/install.ps1
 
-# The release body comes from CHANGES.md: see --release-notes in the workflow.
-changelog:
-  disable: true
-
+# The release body comes from CHANGES.md: --release-notes in the workflow. Keep the
+# changelog enabled, because disabling it also skips that flag and leaves the body
+# empty.
 release:
   # A tag such as v1.2.3-rc.1 must not become the release that installers call latest.
   prerelease: auto
