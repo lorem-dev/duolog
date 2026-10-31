@@ -124,8 +124,8 @@ func switched(root string, old Lock) Lock {
 	next := Lock{Files: map[string]FileEntry{}}
 	for key, e := range old.Files {
 		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(e.Source)))
-		if err != nil {
-			continue
+		if err != nil || hashBytes(data) != e.SourceHash {
+			continue // missing or edited since the last sync: not ours to overwrite
 		}
 		next.Files[e.Source] = FileEntry{Source: key, TargetHash: hashBytes(data)}
 	}
@@ -194,6 +194,10 @@ func (r *runner) apply(lock *Lock, u unit) {
 	want := hashBytes(u.content)
 	u.entry.Source, u.entry.TargetHash = u.src, want
 	path := r.abs(u.target)
+	if !r.within(path) {
+		r.rep.Conflicts = append(r.rep.Conflicts, fmt.Sprintf("%s: outside the generated folders; not written (source %s)", u.target, u.src))
+		return
+	}
 	info, lerr := os.Lstat(path)
 	exists := lerr == nil
 	if exists && !info.Mode().IsRegular() {
@@ -242,6 +246,17 @@ func (r *runner) apply(lock *Lock, u unit) {
 		return
 	}
 	lock.Files[u.target] = u.entry
+}
+
+// within reports whether path stays under the generated agents or skills folder.
+func (r *runner) within(path string) bool {
+	path = filepath.Clean(path)
+	for _, base := range []string{r.abs(r.to.agents), r.abs(r.to.skills)} {
+		if strings.HasPrefix(path, filepath.Clean(base)+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *runner) removeStale(lock *Lock, produced map[string]string, failed map[string]bool) {

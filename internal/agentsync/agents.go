@@ -4,6 +4,7 @@ package agentsync
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -131,6 +132,9 @@ func commonFields(fields map[string]string, modelKey, effortKey string) (name, d
 	name, desc = fields["name"], fields["description"]
 	if strings.TrimSpace(name) == "" {
 		return "", "", "", "", errors.New("name is missing or empty")
+	}
+	if name != filepath.Base(name) || strings.ContainsAny(name, `/\:`) || strings.HasPrefix(name, ".") {
+		return "", "", "", "", fmt.Errorf("name %q is not a plain file name", name)
 	}
 	if strings.TrimSpace(desc) == "" {
 		return "", "", "", "", errors.New("description is missing or empty")
