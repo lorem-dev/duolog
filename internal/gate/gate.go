@@ -85,13 +85,13 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 			return decision(Deny, "role "+a.Role+" cannot write", "role sandbox")
 		}
 	}
-	if m == mode.Plan && a.Kind != "read" {
-		return decision(Deny, "plan mode permits only reads", "mode plan")
-	}
 	// apply_patch and other writes without a verified target cannot be allowed,
 	// including in full mode.
 	if a.Target == "" || uncertain {
 		return decision(Ask, "tool target or shell syntax requires approval", "unverified action")
+	}
+	if m == mode.Plan && a.Kind != "read" {
+		return decision(Deny, "plan mode permits only reads", "mode plan")
 	}
 	if a.Kind == "write" && m == mode.Ask {
 		return decision(Ask, "ask mode requires approval for writes", "mode ask")
@@ -248,6 +248,26 @@ func shellParts(command string) ([]string, bool) {
 	start := 0
 	var quote byte
 	escaped, uncertain := false, false
+	appendPart := func(part string) {
+		words := strings.Fields(part)
+		// Only literal words can be matched safely without interpreting a shell.
+		if len(words) == 0 || strings.ContainsAny(part, "'\"\\$`<>()") {
+			uncertain = true
+			return
+		}
+		word := words[0]
+		if strings.ContainsAny(word, "=*?[]{}~") {
+			uncertain = true
+			return
+		}
+		words[0] = filepath.Base(word)
+		switch words[0] {
+		case "command", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "cmd":
+			uncertain = true
+			return
+		}
+		parts = append(parts, strings.Join(words, " "))
+	}
 	for i := 0; i < len(command); i++ {
 		c := command[i]
 		if escaped {
@@ -281,21 +301,12 @@ func shellParts(command string) ([]string, bool) {
 		if c != '&' && c != '|' && c != ';' && c != '\n' {
 			continue
 		}
-		part := strings.TrimSpace(command[start:i])
-		if part == "" {
-			uncertain = true
-		} else {
-			parts = append(parts, strings.Join(strings.Fields(part), " "))
-		}
+		appendPart(command[start:i])
 		if (c == '&' || c == '|') && i+1 < len(command) && command[i+1] == c {
 			i++
 		}
 		start = i + 1
 	}
-	if part := strings.TrimSpace(command[start:]); part != "" {
-		parts = append(parts, strings.Join(strings.Fields(part), " "))
-	} else {
-		uncertain = true
-	}
+	appendPart(command[start:])
 	return parts, uncertain || escaped || quote != 0
 }

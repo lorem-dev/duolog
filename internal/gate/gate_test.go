@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -108,7 +109,63 @@ func TestCompoundShellCommand(t *testing.T) {
 		check(t, p, LeadRules{}, mode.Full, Action{"exec", target, "implement"}, Ask)
 	}
 	check(t, p, LeadRules{}, mode.Edits, Action{"exec", "go test ./... && git status", "implement"}, Allow)
-	check(t, p, LeadRules{}, mode.Edits, Action{"exec", `go test -run 'a|b' ./...`, "implement"}, Allow)
+	check(t, p, LeadRules{}, mode.Edits, Action{"exec", `go test -run 'a|b' ./...`, "implement"}, Ask)
+}
+
+func TestShellDenyBypasses(t *testing.T) {
+	p := policy(t)
+	for _, inherited := range []bool{false, true} {
+		shellPolicy := p
+		lead := LeadRules{}
+		if inherited {
+			lead.Deny = []config.Rule{{Action: "exec", Match: "git push*", Decision: Deny}}
+			shellPolicy.Rules = nil
+			for _, rule := range p.Rules {
+				if rule.Action != "exec" || rule.Decision != Deny {
+					shellPolicy.Rules = append(shellPolicy.Rules, rule)
+				}
+			}
+		}
+		for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
+			for _, tc := range []struct{ command, want string }{
+				{`git "push"`, Ask}, {`git 'push'`, Ask}, {`git $'push'`, Ask},
+				{`git $operation`, Ask}, {`git ${operation}`, Ask},
+				{"git `echo push`", Ask}, {`git $(echo push)`, Ask},
+				{`g\it push`, Ask}, {`FOO=1 git push`, Ask},
+				{`/usr/bin/git push`, Deny},
+				{`go test ./... > /tmp/duolog-out`, Ask},
+				{`go test ./... > ../duolog-out`, Ask},
+				{`go test ./... && git "push"`, Ask},
+				{`git "status" && /usr/bin/git push`, Deny},
+				{`/usr/bin/g*t push`, Ask}, {`gi? push`, Ask}, {`[g]it push`, Ask},
+				{`go test -run "Test.*" ./...`, Ask},
+			} {
+				t.Run(string(m)+"/"+tc.command+"/inherited="+strconv.FormatBool(inherited), func(t *testing.T) {
+					check(t, shellPolicy, lead, m, Action{"exec", tc.command, "implement"}, tc.want)
+				})
+			}
+			for _, wrapper := range []string{"command", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "cmd"} {
+				for _, prefix := range []string{"", "/usr/bin/"} {
+					command := prefix + wrapper + ` -c "git push"`
+					check(t, shellPolicy, lead, m, Action{"exec", command, "implement"}, Ask)
+					check(t, shellPolicy, lead, m, Action{"exec", prefix + wrapper + " git push", "implement"}, Ask)
+				}
+			}
+		}
+	}
+}
+
+func TestPlainDefaultShellAllows(t *testing.T) {
+	p := policy(t)
+	for _, m := range []mode.Mode{mode.Ask, mode.Edits, mode.Full} {
+		for _, command := range []string{
+			"go test ./...", "cargo test", "npm run test", "pnpm lint", "uv run test",
+			"task build", "make fmt", "git status", "git diff", "git log", "git show",
+			"/usr/bin/git status", "go test ./... && git status",
+		} {
+			check(t, p, LeadRules{}, m, Action{"exec", command, "implement"}, Allow)
+		}
+	}
 }
 func TestEveryAutoDecisionLogged(t *testing.T) {
 	p := policy(t)
@@ -183,6 +240,60 @@ func TestImportClaudeProjectAndUserDenies(t *testing.T) {
 	writeSetting(t, filepath.Join(root, ".claude/settings.json"), `{"permissions":{"deny":"invalid"}}`)
 	if _, err := ImportLead(root, "claude"); err == nil {
 		t.Fatal("malformed settings accepted")
+	}
+}
+
+func TestImportClaudePathSelectorBases(t *testing.T) {
+	p := policy(t)
+	home := os.Getenv("HOME")
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "restricted")
+	for _, source := range []string{
+		filepath.Join(home, ".claude/settings.json"),
+		filepath.Join(root, ".claude/settings.json"),
+		filepath.Join(root, ".claude/settings.local.json"),
+	} {
+		t.Run(source, func(t *testing.T) {
+			base := root
+			if source == filepath.Join(home, ".claude/settings.json") {
+				base = filepath.Join(home, ".claude")
+			}
+			for _, tc := range []struct{ selector, path string }{
+				{"/restricted/**", filepath.Join(base, "restricted", "file.txt")},
+				{"~/restricted/**", filepath.Join(home, "restricted", "file.txt")},
+				{"/" + filepath.ToSlash(outside) + "/**", filepath.Join(outside, "file.txt")},
+				{"./restricted/**", filepath.Join(root, "restricted", "file.txt")},
+				{"restricted/**", filepath.Join(root, "restricted", "file.txt")},
+			} {
+				for _, tool := range []string{"Read", "Edit"} {
+					entry := tool + "(" + tc.selector + ")"
+					data, err := json.Marshal(map[string]any{"permissions": map[string]any{"deny": []string{entry}}})
+					if err != nil {
+						t.Fatal(err)
+					}
+					writeSetting(t, source, string(data))
+					lead, err := ImportLead(root, "claude")
+					if err != nil {
+						t.Fatal(err)
+					}
+					target, err := filepath.Rel(root, tc.path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					kind := "read"
+					if tool == "Edit" {
+						kind = "write"
+					}
+					t.Run(entry, func(t *testing.T) {
+						check(t, p, lead, mode.Full, Action{kind, filepath.ToSlash(target), "implement"}, Deny)
+						check(t, p, lead, mode.Full, Action{kind, "public/file.txt", "implement"}, Allow)
+					})
+				}
+			}
+			if err := os.Remove(source); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 func TestImportCodexLimits(t *testing.T) {
