@@ -184,6 +184,15 @@ func mergeLayer(dst *yaml.Node, data []byte, source string) error {
 	if len(node.Content) == 0 {
 		return nil
 	}
+	// Resolve aliases and YAML merge keys using the decoder's precedence rules.
+	// Validation and layer merging must see the same effective fields as decoding.
+	var effective any
+	if err := node.Content[0].Decode(&effective); err != nil {
+		return fmt.Errorf("%s: %w", source, err)
+	}
+	if err := node.Content[0].Encode(effective); err != nil {
+		return fmt.Errorf("%s: %w", source, err)
+	}
 	if err := validateEnums(node.Content[0], reflect.TypeFor[Config](), "config"); err != nil {
 		return fmt.Errorf("%s: %w", source, err)
 	}
@@ -217,11 +226,14 @@ func mergeMapping(dst, src *yaml.Node) {
 	}
 }
 
-// Read enum tags from the same types reflected into the public schema.
+// Reject nulls and read enum tags from the types reflected into the public schema.
 // Walk only explicitly supplied fields so partial override layers are valid.
 func validateEnums(node *yaml.Node, typ reflect.Type, path string) error {
 	if node.Kind == yaml.AliasNode {
 		return validateEnums(node.Alias, typ, path)
+	}
+	if node.Tag == "!!null" {
+		return fmt.Errorf("%s: null is not allowed", path)
 	}
 	switch typ.Kind() {
 	case reflect.Struct:
