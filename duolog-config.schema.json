@@ -114,7 +114,7 @@
             "type": "string"
           },
           "type": "array",
-          "description": "Environment variables passed to workers; defaults to PATH, HOME and USER (macOS finds the Claude login by USER)."
+          "description": "Environment variables passed to workers; defaults include native OS login, API keys and agent config directories."
         },
         "rex": {
           "$ref": "#/$defs/Rex",

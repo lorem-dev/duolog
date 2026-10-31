@@ -89,6 +89,9 @@ func newHarness(t *testing.T) *harness {
 	h.task("- a.go")
 	put(t, filepath.Join(h.root, "a.go"), strings.Repeat("line\n", 50))
 	h.trust(true)
+	if err := h.reg.RegisterLead(session.Lead{ID: "lead-123456", Target: config.Target{Agent: "codex", Model: "lead-model"}, Mode: mode.Ask}); err != nil {
+		t.Fatal(err)
+	}
 	oldRun, oldResolve := runWorker, resolveModel
 	t.Cleanup(func() { runWorker = oldRun; resolveModel = oldResolve })
 	runWorker = func(_ context.Context, s runner.Spec) (runner.Result, error) {
@@ -202,7 +205,7 @@ func TestFreshRunsAreNotRegistered(t *testing.T) {
 	if _, e := h.run("implement"); e != nil {
 		t.Fatal(e)
 	}
-	if x, ok, err := h.reg.Lookup("", "codex", "implement", "topic"); err != nil || ok {
+	if x, ok, err := h.reg.Lookup("lead-123456", "codex", "implement", "topic"); err != nil || ok {
 		t.Fatal(x, err)
 	}
 	if !strings.Contains(strings.Join(runner.Argv(h.calls[0]), " "), "--ephemeral") {
@@ -562,7 +565,7 @@ func TestUsageAppended(t *testing.T) {
 		}
 	}
 }
-func TestBusGetsTaskAndAnswerLines(t *testing.T) {
+func TestBusGetsTaskButDoesNotRepeatStdoutAnswer(t *testing.T) {
 	h := newHarness(t)
 	h.lead("claude", mode.Edits, "high")
 	o, e := h.run("implement")
@@ -571,7 +574,7 @@ func TestBusGetsTaskAndAnswerLines(t *testing.T) {
 	}
 	text := read(t, filepath.Join(h.s.Dir, "bus.ndjson"))
 	lines := strings.Split(strings.TrimSpace(text), "\n")
-	if len(lines) != 2 {
+	if len(lines) != 1 {
 		t.Fatal(text)
 	}
 	for i, line := range lines {
@@ -601,7 +604,7 @@ func TestFakeBinaryReceivesInlineAndEnv(t *testing.T) {
 	if e != nil || !o.Result.Done {
 		t.Fatal(o, e)
 	}
-	if !strings.Contains(read(t, fake+".stdin"), "line\n") || !strings.Contains(read(t, fake+".env.json"), "DUOLOG_DEPTH=1") || !strings.Contains(read(t, fake+".args.json"), "medium") {
+	if !strings.Contains(read(t, fake+".stdin"), "line\n") || !strings.Contains(read(t, fake+".env.json"), "DUOLOG_DEPTH=1") || !strings.Contains(read(t, fake+".env.json"), "DUOLOG_ROLE=review_final") || !strings.Contains(read(t, fake+".args.json"), "medium") {
 		t.Fatal("fake input mismatch")
 	}
 }
@@ -634,7 +637,7 @@ func TestResumeLimitsLiveWorkers(t *testing.T) {
 	if _, e := h.run("plan"); e != nil {
 		t.Fatal(e)
 	}
-	if _, ok, err := h.reg.Lookup("", "claude", "plan", "other"); err != nil || ok {
+	if _, ok, err := h.reg.Lookup("lead-123456", "claude", "plan", "other"); err != nil || ok {
 		t.Fatal("live worker cap ignored", err)
 	}
 }
@@ -650,16 +653,15 @@ func TestCodexResumeFirstRunPersists(t *testing.T) {
 		t.Fatal("initial resumable Codex run is ephemeral")
 	}
 }
-func TestNoLeadUsesAskWithoutEffortCap(t *testing.T) {
+func TestUnregisteredLeadRefusesWorker(t *testing.T) {
 	h := newHarness(t)
 	t.Setenv("DUOLOG_LEAD", "unregistered")
-	if _, e := h.run("implement_complex"); e != nil {
-		t.Fatal(e)
+	if _, err := h.run("implement_complex"); err == nil {
+		t.Fatal("unregistered lead accepted")
 	}
-	if h.calls[0].Mode != mode.Ask || h.calls[0].Route.Effort != "high" || h.calls[0].Route.EffortCapped {
-		t.Fatal(h.calls[0])
-	}
+	h.requireCalls(0)
 }
+
 func TestFallbackFailureNamesBothAgents(t *testing.T) {
 	h := newHarness(t)
 	h.limited()
@@ -684,7 +686,7 @@ func TestResumeWithoutRepeatedSessionIDStillTracksUsage(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	entry, ok, err := h.reg.Lookup("", "claude", "plan", "topic")
+	entry, ok, err := h.reg.Lookup("lead-123456", "claude", "plan", "topic")
 	if err != nil || !ok || entry.Input != 20 || entry.ThreadID != "worker-id" {
 		t.Fatal(entry, ok)
 	}
@@ -923,8 +925,8 @@ func TestReadOnlyDelegationSkipsChangeDetection(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.requireCalls(1)
-	if _, err := os.Stat(fake + ".args.json"); !os.IsNotExist(err) {
-		t.Fatalf("read-only delegation invoked Git: %v", err)
+	if data, err := os.ReadFile(fake + ".calls.ndjson"); err == nil && strings.Contains(string(data), `"status"`) {
+		t.Fatal("read-only delegation invoked git status")
 	}
 }
 

@@ -38,7 +38,7 @@ func Line(cfg *config.Config, lead string, reg *session.Registry) string {
 	sort.Strings(names)
 	for _, name := range names {
 		target := cfg.Roles[name].Use
-		parts = append(parts, name+"="+models.Normalize(target.Agent, target.Model))
+		parts = append(parts, name+"="+models.Normalize(target.Agent, target.Model)+"/"+target.Effort)
 	}
 	return strings.Join(parts, " ")
 }
@@ -57,4 +57,22 @@ func CapsNote(lead, other capability.Inventory, otherHasDuolog bool) string {
 		parts = append(parts, other.Agent+" has no duolog hooks: sandbox only")
 	}
 	return strings.Join(parts, "; ")
+}
+
+// StartNote uses persisted capability lists only; SessionStart never scans.
+func StartNote(root string, lead session.Lead) string {
+	other := "codex"
+	if lead.Agent == "codex" {
+		other = "claude"
+	}
+	mine, theirs := capability.Cached(lead.Agent, root), capability.Cached(other, root)
+	count := "unknown"
+	if !mine.Unknown && !theirs.Unknown {
+		count = fmt.Sprint(len(capability.Diff(mine, theirs)))
+	}
+	note := "; caps=" + count
+	if !capability.HasDuolog(other, root) {
+		note += "; " + other + " has no duolog hooks: sandbox only"
+	}
+	return note
 }

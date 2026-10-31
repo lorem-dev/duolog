@@ -15,12 +15,15 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"crypto/sha256"
 	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
@@ -119,7 +122,17 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	if err != nil {
 		return out, err
 	}
-	source, err := task.Resolve(root, taskPath)
+	root = project.CurrentWorkRoot(root)
+	lookup := taskPath
+	if !filepath.IsAbs(lookup) {
+		if cwd, e := os.Getwd(); e == nil {
+			candidate := filepath.Join(cwd, lookup)
+			if _, e := os.Stat(candidate); e == nil {
+				lookup = candidate
+			}
+		}
+	}
+	source, err := task.Resolve(root, lookup)
 	if err != nil {
 		return out, err
 	}
@@ -149,14 +162,11 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	if err != nil {
 		return out, err
 	}
-	leadID := opts.Lead
-	if leadID == "" {
-		leadID = session.CurrentLead(os.Environ())
-	}
-	lead, hasLead, err := reg.Lead(leadID)
+	lead, err := reg.ResolveLead(opts.Lead)
 	if err != nil {
 		return out, err
 	}
+	leadID, hasLead := lead.ID, true
 	var leadTarget *config.Target
 	leadAgent := ""
 	leadMode := mode.Ask
@@ -164,7 +174,12 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	if hasLead {
 		if lead.TranscriptPath != "" {
 			observed, _ := readLeadState(lead.Agent, lead.TranscriptPath)
-			lead.Model, lead.Effort = observed.Model, observed.Effort
+			if observed.Model != "" {
+				lead.Model = observed.Model
+			}
+			if observed.Effort != "" {
+				lead.Effort = observed.Effort
+			}
 			if lead.Agent == "codex" {
 				if observed.Mode != "" {
 					lead.Mode = observed.Mode
@@ -191,6 +206,10 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		leadID = ""
 	}
 	reg.LeadID = leadID
+	leadRules, err := gate.ImportLead(root, lead.Agent)
+	if err != nil {
+		return out, fmt.Errorf("lead permissions: %w", err)
+	}
 	b, err := bus.Open(s.Dir, cfg.Wire)
 	if err != nil {
 		return out, err
@@ -210,10 +229,8 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		if out.Line == "" && err != nil {
 			out.Line = oneLine(fmt.Sprintf("role %s: %v", role, err))
 		}
-		if out.Line != "" {
-			if sendErr := send(worker, address, "answer", out.Line, ref); sendErr != nil {
-				err = errors.Join(err, sendErr)
-			}
+		if len(out.Line) > 512 {
+			out.Line = short(out.Line, 200) + " ... [cut; answer=.duolog/" + filepath.ToSlash(filepath.Join("tasks", filepath.Base(dir), "answer.json")) + "]"
 		}
 	}()
 	unavailable, err := reg.Unavailable()
@@ -318,6 +335,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			return out, trustErr
 		}
 		warning = ""
+		if route.Agent == "claude" && !state.Installed {
+			warning = "; Claude has no duolog hooks: rules are off; sandbox only"
+		}
 		if !state.Trusted {
 			if route.Sandbox != "read-only" {
 				return out, fmt.Errorf("Codex hooks untrusted; open /hooks before running write role %s", role)
@@ -327,7 +347,16 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		if !folder {
 			warning += "; folder trust missing"
 		}
-		inline, inlineErr := task.Inline(copyPath, root, cfg.Wire.InlineMaxBytes)
+		readRules := leadRules
+		readRules.RoleSandbox = route.Sandbox
+		inline, inlineErr := task.Inline(copyPath, root, cfg.Wire.InlineMaxBytes, func(path string) bool {
+			if filepath.IsAbs(path) {
+				if rel, err := filepath.Rel(root, path); err == nil {
+					path = rel
+				}
+			}
+			return gate.Evaluate(cfg.Policy, readRules, leadMode, gate.Action{Kind: "read", Target: filepath.ToSlash(path), Role: role}).Kind == gate.Allow
+		})
 		if inlineErr != nil {
 			return out, inlineErr
 		}
@@ -340,7 +369,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			}
 		} else {
 			route.Model = model
-			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: append(append([]byte{}, inline...), []byte("\n"+capability.NeedsLine+"\n")...), Env: workerEnv(cfg.EnvPassthrough, leadID), Persistent: route.Session == "resume"}
+			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: append(append([]byte{}, inline...), []byte("\n"+capability.NeedsLine+"\nIf the gate says the lead is waiting for foreground delegate, stop and return done false with the required decision in needs.\n")...), Env: workerEnv(cfg.EnvPassthrough, leadID, role), Persistent: route.Session == "resume"}
 			if route.Sandbox == "read-only" {
 				spec.Mode = mode.Plan
 			}
@@ -374,12 +403,22 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					return out, snapErr
 				}
 			}
-			out.Result, err = runWorker(ctx, spec)
+			token := filepath.Base(dir)
+			if err = reg.SetWaiting(leadID, token, os.Getpid()); err != nil {
+				return out, err
+			}
+			out.Result, err = func() (runner.Result, error) {
+				defer reg.SetWaiting(leadID, token, 0)
+				return runWorker(ctx, spec)
+			}()
 			if usageErr := appendUsage(s.Dir, role, route, out.Result); usageErr != nil {
 				return out, errors.Join(err, usageErr)
 			}
 			if out.Result.Interrupted {
 				out.Line = "role " + role + " interrupted"
+				if sendErr := send(worker, address, "status", out.Line, ref); sendErr != nil {
+					err = errors.Join(err, sendErr)
+				}
 				if err == nil {
 					err = fmt.Errorf("worker interrupted")
 				}
@@ -454,23 +493,27 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 
 // annotate puts lines at the start of the Limits section.
 func annotate(text, lines string) string {
-	return strings.Replace(strings.ReplaceAll(text, "\r\n", "\n"), "## Limits\n", "## Limits\n"+lines, 1)
+	return task.Annotate(text, lines)
 }
 func missingBinary(err error) bool {
 	var pathErr *os.PathError
 	return errors.Is(err, exec.ErrNotFound) || (errors.As(err, &pathErr) && pathErr.Op == "fork/exec" && errors.Is(err, os.ErrNotExist))
 }
-func workerEnv(names []string, leadID string) []string {
+func workerEnv(names []string, leadID string, roles ...string) []string {
 	var env []string
 	for _, name := range names {
-		if name == "DUOLOG_DEPTH" || name == "DUOLOG_LEAD" {
+		if strings.HasPrefix(name, "DUOLOG_") || strings.HasPrefix(name, "REX_") {
 			continue
 		}
 		if value, ok := os.LookupEnv(name); ok {
 			env = append(env, name+"="+value)
 		}
 	}
-	return append(env, "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+leadID)
+	role := ""
+	if len(roles) > 0 {
+		role = roles[0]
+	}
+	return append(env, "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+leadID, "DUOLOG_ROLE="+role)
 }
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 func short(s string, n int) string {
@@ -525,7 +568,8 @@ func snapshot(root string) (map[string]string, error) {
 			continue
 		}
 		status, path := record[:2], record[3:]
-		result[path] = status
+		data, _ := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
+		result[path] = fmt.Sprintf("%s %x", status, sha256.Sum256(data))
 		if strings.ContainsAny(status, "RC") && i+1 < len(records) {
 			i++
 			result[string(records[i])] = status + " -> " + path

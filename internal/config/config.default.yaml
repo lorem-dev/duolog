@@ -113,12 +113,13 @@ policy:
   on_ask_timeout: deny
   rules:
     - {action: read,  match: "**", decision: allow}
-    - {action: read,  match: "{.env,.env.*,**/*.pem,**/*.key,**/secrets/**}", decision: deny}
+    - {action: read,  match: "{**/.env,**/.env.*,**/*.pem,**/*.key,**/secrets/**}", decision: deny}
     - {action: write, match: ".duolog/**", decision: deny}
     - {action: write, match: ".git/**", decision: deny}
     - {action: write, match: "**", decision: allow, roles: [implement, implement_complex, mechanical, tests, docs, debug_hard]}
-    - {action: exec,  match: "{go,cargo,npm,pnpm,uv,task,make} {test,lint,fmt,build,run}*", decision: allow}
+    - {action: exec,  match: "{go,cargo,npm,pnpm,uv,task,make} {test,lint,fmt,build,run}*", decision: allow, roles: [implement, implement_complex, mechanical, tests, docs, debug_hard]}
     - {action: exec,  match: "git {status,diff,log,show}*", decision: allow}
+    - {action: exec,  match: "{cat,head,tail,ls,pwd,wc,rg,grep,find}*", decision: allow}
     - {action: exec,  match: "git {push,reset --hard,clean,rebase}*", decision: deny}
     - {action: exec,  match: "rm -rf *", decision: deny}
     - {action: net,   match: "*", decision: ask}
@@ -150,7 +151,7 @@ sync:
     drop_keys: []       # frontmatter keys to remove; other keys stay
 
 # Variables spawned sessions inherit. Everything else is not passed on purpose.
-env_passthrough: [PATH, HOME, USER]
+# Defaults come from the OS and include native login and CLI config variables.
 
 rex:
   capture_lines: 20         # a capture checks state only; answers are read from files

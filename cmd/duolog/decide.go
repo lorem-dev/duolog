@@ -48,8 +48,12 @@ func newDecideCommand(kind string) *cobra.Command {
 			return fmt.Errorf("lead is unavailable or has ended")
 		}
 		address := session.Address(lead)
-		if leadFlag != "" && leadFlag != lead.ID && leadFlag != address {
-			return fmt.Errorf("request %d does not belong to lead %q", n, leadFlag)
+		caller, err := reg.ResolveLead(leadFlag)
+		if err != nil {
+			return err
+		}
+		if caller.ID != lead.ID {
+			return fmt.Errorf("request %d does not belong to lead %q", n, caller.ID)
 		}
 		_, err = b.Send(bus.Message{From: address, To: request.From, K: kind, Ref: strconv.FormatInt(n, 10), S: kind})
 		return err

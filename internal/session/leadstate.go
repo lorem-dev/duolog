@@ -19,7 +19,7 @@ type LeadState struct {
 	Mode                          mode.Mode
 }
 
-// ReadLeadState reads at most the final 64 KiB. Missing files and malformed or
+// ReadLeadState searches backwards from 64 KiB to at most the final 4 MiB. Missing files and malformed or
 // incomplete records are ordinary unknown observations, not hook failures.
 func ReadLeadState(agent, transcriptPath string) (LeadState, error) {
 	var state LeadState
@@ -40,21 +40,37 @@ func readLeadState(agent string, f io.ReadSeeker) (LeadState, error) {
 	if err != nil {
 		return state, nil
 	}
-	start := max(int64(0), size-64*1024)
-	if _, err = f.Seek(start, io.SeekStart); err != nil {
-		return state, nil
-	}
-	data, err := io.ReadAll(io.LimitReader(f, 64*1024))
-	if err != nil {
-		return state, nil
-	}
-	if start > 0 {
-		if i := bytes.IndexByte(data, '\n'); i >= 0 {
-			data = data[i+1:]
-		} else {
+	var data []byte
+	var scanned int64
+	for window := int64(64 * 1024); ; window *= 4 {
+		window = min(window, size, 4*1024*1024)
+		start := size - window
+		if _, err := f.Seek(start, io.SeekStart); err != nil {
+			return state, nil
+		}
+		prefix, err := io.ReadAll(io.LimitReader(f, window-scanned))
+		if err != nil {
+			return state, nil
+		}
+		data = append(prefix, data...)
+		scanned = window
+		complete := data
+		if start > 0 {
+			if i := bytes.IndexByte(complete, '\n'); i >= 0 {
+				complete = complete[i+1:]
+			} else {
+				complete = nil
+			}
+		}
+		state = parseLeadState(agent, complete)
+		if state.Model != "" || state.Mode != "" || window == size || window == 4*1024*1024 {
 			return state, nil
 		}
 	}
+}
+
+func parseLeadState(agent string, data []byte) LeadState {
+	var state LeadState
 	var nullEffort bool
 	for _, line := range bytes.SplitAfter(data, []byte{'\n'}) {
 		if len(line) == 0 || line[len(line)-1] != '\n' {
@@ -91,14 +107,17 @@ func readLeadState(agent string, f io.ReadSeeker) (LeadState, error) {
 			case "workspace-write":
 				state.Mode = mode.Ask
 			case "danger-full-access":
-				state.Mode = mode.Full
+				state.Mode = mode.Ask
+				if record.Payload.Approval == "never" {
+					state.Mode = mode.Full
+				}
 			}
 		}
 	}
 	if agent == "codex" && nullEffort && state.Model != "" {
 		state.Effort = defaultEffort(state.Model)
 	}
-	return state, nil
+	return state
 }
 
 func defaultEffort(model string) string {

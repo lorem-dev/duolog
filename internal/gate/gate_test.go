@@ -128,14 +128,14 @@ func TestShellDenyBypasses(t *testing.T) {
 		}
 		for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
 			for _, tc := range []struct{ command, want string }{
-				{`git "push"`, Ask}, {`git 'push'`, Ask}, {`git $'push'`, Ask},
+				{`git "push"`, Deny}, {`git 'push'`, Deny}, {`git $'push'`, Ask},
 				{`git $operation`, Ask}, {`git ${operation}`, Ask},
 				{"git `echo push`", Ask}, {`git $(echo push)`, Ask},
-				{`g\it push`, Ask}, {`FOO=1 git push`, Ask},
+				{`g\it push`, Deny}, {`FOO=1 git push`, Ask},
 				{`/usr/bin/git push`, Deny},
 				{`go test ./... > /tmp/duolog-out`, Ask},
 				{`go test ./... > ../duolog-out`, Ask},
-				{`go test ./... && git "push"`, Ask},
+				{`go test ./... && git "push"`, Deny},
 				{`git "status" && /usr/bin/git push`, Deny},
 				{`/usr/bin/g*t push`, Ask}, {`gi? push`, Ask}, {`[g]it push`, Ask},
 				{`go test -run "Test.*" ./...`, Ask},
@@ -190,7 +190,7 @@ func TestPlainDefaultShellAllows(t *testing.T) {
 		for _, command := range []string{
 			"go test ./...", "cargo test", "npm run test", "pnpm lint", "uv run test",
 			"task build", "make fmt", "git status", "git diff", "git log", "git show",
-			"/usr/bin/git status", "go test ./... && git status",
+			"go test ./... && git status",
 		} {
 			check(t, p, LeadRules{}, m, Action{"exec", command, "implement"}, Allow)
 		}

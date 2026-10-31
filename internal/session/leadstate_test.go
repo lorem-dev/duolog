@@ -36,8 +36,8 @@ func TestReadsOnlyTranscriptTail(t *testing.T) {
 	if err != nil || state.Model != "" || state.Effort != "" {
 		t.Fatal(state, err)
 	}
-	if reader.bytesRead == 0 || reader.bytesRead > 64*1024 {
-		t.Fatalf("read %d bytes; budget is 65536", reader.bytesRead)
+	if reader.bytesRead == 0 || reader.bytesRead > 4*1024*1024 {
+		t.Fatalf("read %d bytes; budget is 4194304", reader.bytesRead)
 	}
 	reader.bytesRead = 0
 	if _, err := f.Seek(0, io.SeekEnd); err != nil {

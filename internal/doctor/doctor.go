@@ -13,6 +13,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/trust"
 )
@@ -42,6 +43,9 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 	defer cancel()
 	var out []Finding
 	add := func(level, message string) { out = append(out, Finding{level, message}) }
+	if time.Duration(cfg.Policy.AskTimeoutSeconds)*time.Second > gate.MaxAskWait {
+		add("warning", "policy.ask_timeout_seconds exceeds the safe hook budget; waits are capped at 120 seconds")
+	}
 	root := opts.Root
 	if root == "" {
 		var err error

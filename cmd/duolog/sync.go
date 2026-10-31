@@ -42,7 +42,7 @@ func newSyncCommand() *cobra.Command {
 				return err
 			}
 		}
-		rep, err := agentsync.Run(root, cfg.Sync, o)
+		rep, err := agentsync.Run(workRoot(root), cfg.Sync, o)
 		if err != nil {
 			return err
 		}

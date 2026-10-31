@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/trust"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -34,7 +36,7 @@ func ImportLead(root, agent string) (LeadRules, error) {
 	if agent == "claude" {
 		paths = []string{filepath.Join(home, ".claude/settings.json"), filepath.Join(root, ".claude/settings.json"), filepath.Join(root, ".claude/settings.local.json")}
 	} else {
-		paths = []string{filepath.Join(home, ".codex/config.toml"), filepath.Join(root, ".codex/config.toml")}
+		paths = []string{filepath.Join(trust.CodexHome(home), "config.toml"), filepath.Join(root, ".codex/config.toml")}
 	}
 	for _, path := range paths {
 		data, err := os.ReadFile(path)
@@ -126,6 +128,14 @@ func claudePathPattern(pattern, root, home, base string) (string, error) {
 	switch {
 	case strings.HasPrefix(pattern, "//"):
 		path = filepath.FromSlash(strings.TrimPrefix(pattern, "/"))
+		if runtime.GOOS == "windows" {
+			rest := strings.TrimPrefix(pattern, "//")
+			if len(rest) > 1 && rest[1] == '/' {
+				path = filepath.FromSlash(rest[:1] + ":" + rest[1:])
+			} else if len(rest) > 1 && rest[1] == ':' {
+				path = filepath.FromSlash(rest)
+			}
+		}
 	case strings.HasPrefix(pattern, "~/"):
 		path = filepath.Join(home, filepath.FromSlash(strings.TrimPrefix(pattern, "~/")))
 	case strings.HasPrefix(pattern, "/"):
@@ -135,7 +145,7 @@ func claudePathPattern(pattern, root, home, base string) (string, error) {
 	}
 	relative, err := filepath.Rel(root, path)
 	if err != nil {
-		return "", fmt.Errorf("cannot rebase lead path pattern %q: %w", pattern, err)
+		return filepath.ToSlash(path), nil
 	}
 	return filepath.ToSlash(relative), nil
 }
@@ -171,9 +181,10 @@ func claudeDeny(entry string) (config.Rule, error) {
 	case "Agent", "Task":
 		kind = "spawn"
 	default:
-		// An unknown deny cannot be translated safely into another vendor's
-		// permissions; refuse the settings instead of silently losing it.
-		return config.Rule{}, fmt.Errorf("unsupported lead deny rule %q", entry)
+		if hasPattern {
+			return config.Rule{}, fmt.Errorf("unsupported lead deny rule %q", entry)
+		}
+		kind, pattern = "unknown", tool
 	}
 	if pattern == "" {
 		return config.Rule{}, fmt.Errorf("empty deny rule %q", entry)

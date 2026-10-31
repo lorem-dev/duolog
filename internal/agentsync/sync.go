@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/gofrs/flock"
+	"github.com/lorem-dev/duolog/internal/project"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	toml "github.com/pelletier/go-toml/v2"
 
@@ -67,16 +70,32 @@ type unit struct {
 }
 
 type runner struct {
-	root     string
-	cfg      config.Sync
-	o        Options
-	from, to dirs
-	fromSide string
-	rep      Report
+	root       string
+	cfg        config.Sync
+	o          Options
+	from, to   dirs
+	fromSide   string
+	scanFailed bool
+	rep        Report
 }
 
 // Run converts agents and skills from the source side to the target side.
 func Run(root string, cfg config.Sync, o Options) (Report, error) {
+	mutexPath := filepath.Join(project.StateRoot(root), ".duolog", "sync.lock")
+	if _, err := os.Stat(mutexPath); err == nil || !o.DryRun && !o.Check {
+		if err := os.MkdirAll(filepath.Dir(mutexPath), 0755); err != nil {
+			return Report{}, err
+		}
+		mutex := flock.New(mutexPath)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		locked, err := mutex.TryLockContext(ctx, 20*time.Millisecond)
+		if err != nil || !locked {
+			mutex.Close()
+			return Report{}, fmt.Errorf("sync lock unavailable: %v", err)
+		}
+		defer mutex.Close()
+	}
 	lock, err := LoadLock(root)
 	if err != nil {
 		return Report{}, err
@@ -187,7 +206,9 @@ func (r *runner) sync(lock *Lock) {
 		produced[u.target] = u.src
 		r.apply(lock, u)
 	}
-	r.removeStale(lock, produced, failed)
+	if !r.scanFailed {
+		r.removeStale(lock, produced, failed)
+	}
 }
 
 func (r *runner) apply(lock *Lock, u unit) {
@@ -214,6 +235,9 @@ func (r *runner) apply(lock *Lock, u unit) {
 	}
 	old, owned := lock.Files[u.target]
 	switch {
+	case exists && !owned:
+		r.rep.Conflicts = append(r.rep.Conflicts, fmt.Sprintf("%s: written by hand, not by duolog; left as is (source %s)", u.target, u.src))
+		return
 	case exists && hashBytes(cur) == want:
 		if r.o.Check && u.agent {
 			if err := parsesAsAgent(u.target, cur); err != nil {
@@ -222,9 +246,6 @@ func (r *runner) apply(lock *Lock, u unit) {
 			}
 		}
 		lock.Files[u.target] = u.entry
-		return
-	case exists && !owned:
-		r.rep.Conflicts = append(r.rep.Conflicts, fmt.Sprintf("%s: written by hand, not by duolog; left as is (source %s)", u.target, u.src))
 		return
 	case exists && hashBytes(cur) != old.TargetHash && !r.o.Force:
 		msg := fmt.Sprintf("%s: edited by hand since the last sync; left as is, edit the source %s or use --force", u.target, u.src)
@@ -251,6 +272,14 @@ func (r *runner) apply(lock *Lock, u unit) {
 // within reports whether path stays under the generated agents or skills folder.
 func (r *runner) within(path string) bool {
 	path = filepath.Clean(path)
+	for parent := filepath.Dir(path); ; parent = filepath.Dir(parent) {
+		if info, err := os.Lstat(parent); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return false
+		}
+		if parent == r.root || parent == filepath.Dir(parent) {
+			break
+		}
+	}
 	for _, base := range []string{r.abs(r.to.agents), r.abs(r.to.skills)} {
 		if strings.HasPrefix(path, filepath.Clean(base)+string(filepath.Separator)) {
 			return true
@@ -274,6 +303,10 @@ func (r *runner) removeStale(lock *Lock, produced map[string]string, failed map[
 			continue
 		}
 		path := r.abs(key)
+		if !r.within(path) {
+			r.rep.Conflicts = append(r.rep.Conflicts, key+": unsafe target parent; not removed")
+			continue
+		}
 		data, err := os.ReadFile(path)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
@@ -316,7 +349,11 @@ func (r *runner) agentUnits() []unit {
 	if r.fromSide == "codex" {
 		ext = ".toml"
 	}
-	entries, _ := os.ReadDir(r.abs(r.from.agents))
+	entries, err := os.ReadDir(r.abs(r.from.agents))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		r.scanError(r.from.agents, err)
+		return nil
+	}
 	var units []unit
 	var resolve func(string) (string, error)
 	for _, e := range entries {
@@ -380,7 +417,9 @@ func (r *runner) resolver() func(string) (string, error) {
 			return name, nil
 		}
 		cfg := &config.Config{Models: map[string]config.Model{alias: {Family: alias}}}
-		name, err := resolver.Resolve(context.Background(), cfg, config.Target{Agent: "codex", Model: alias})
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		name, err := resolver.Resolve(ctx, cfg, config.Target{Agent: "codex", Model: alias})
 		if err != nil {
 			return "", err
 		}
@@ -393,19 +432,42 @@ func (r *runner) resolver() func(string) (string, error) {
 const ownSkill = "duolog"
 
 func (r *runner) skillUnits() []unit {
-	entries, _ := os.ReadDir(r.abs(r.from.skills))
+	entries, err := os.ReadDir(r.abs(r.from.skills))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		r.scanError(r.from.skills, err)
+		return nil
+	}
 	var units []unit
 	for _, e := range entries {
 		base := r.from.skills + "/" + e.Name()
+		if e.Type()&os.ModeSymlink != 0 {
+			r.rep.Warnings = append(r.rep.Warnings, base+": symlink source skipped")
+			continue
+		}
 		// duolog installs its own skill on both sides; it is never synced.
 		if !e.IsDir() || e.Name() == ownSkill || !r.inScope(base) {
 			continue
 		}
+		if e.Type()&os.ModeSymlink != 0 {
+			r.rep.Warnings = append(r.rep.Warnings, base+": symlink source skipped")
+			continue
+		}
 		if _, err := os.Stat(r.abs(base + "/SKILL.md")); err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				r.scanError(base, err)
+			}
 			continue
 		}
 		_ = filepath.WalkDir(r.abs(base), func(path string, d fs.DirEntry, err error) error {
-			if err != nil || !d.Type().IsRegular() {
+			if err != nil {
+				r.scanError(path, err)
+				return err
+			}
+			if d.Type()&os.ModeSymlink != 0 {
+				r.rep.Warnings = append(r.rep.Warnings, path+": symlink source skipped")
+				return nil
+			}
+			if !d.Type().IsRegular() {
 				return nil
 			}
 			rel, _ := filepath.Rel(r.root, path)
@@ -526,4 +588,9 @@ func line(rep Report, err error) string {
 		return fmt.Sprintf("duolog sync: %s (and %d more; run duolog sync)", rep.Conflicts[0], len(rep.Conflicts)-1)
 	}
 	return ""
+}
+
+func (r *runner) scanError(path string, err error) {
+	r.scanFailed = true
+	r.rep.Conflicts = append(r.rep.Conflicts, fmt.Sprintf("%s: source scan failed; no stale files removed: %v", path, err))
 }

@@ -1,10 +1,10 @@
 package main
 
 import (
+	"context"
+	"github.com/lorem-dev/duolog/internal/project"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
+	"os/signal"
 
 	"github.com/spf13/cobra"
 )
@@ -26,21 +26,15 @@ func projectRoot() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command("git", "rev-parse", "--git-common-dir")
-	cmd.Dir = cwd
-	output, err := cmd.Output()
-	if err != nil {
-		return cwd, nil
-	}
-	common := strings.TrimSpace(string(output))
-	if !filepath.IsAbs(common) {
-		common = filepath.Join(cwd, common)
-	}
-	return filepath.Dir(filepath.Clean(common)), nil
+	return project.StateRoot(cwd), nil
 }
 
 func main() {
-	if err := newRootCommand().Execute(); err != nil {
+	ctx, cancel := signal.NotifyContext(context.Background(), terminationSignals()...)
+	defer cancel()
+	if err := newRootCommand().ExecuteContext(ctx); err != nil {
 		os.Exit(exitCode(err))
 	}
 }
+
+func workRoot(fallback string) string { return project.CurrentWorkRoot(fallback) }

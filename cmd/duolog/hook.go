@@ -23,6 +23,7 @@ func (e *needsExit) Error() string { return "needs lead" }
 func newHookCommand() *cobra.Command {
 	var agent string
 	cmd := &cobra.Command{Use: "hook <event>", Short: "Deliver messages to a lead hook", SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
+		defer func() { _ = recover() }()
 		started := time.Now()
 		// Hook failures must never fail the user's session or print diagnostics.
 		if len(args) != 1 {
@@ -36,7 +37,7 @@ func newHookCommand() *cobra.Command {
 		if err != nil || len(data) > 4*1024*1024 {
 			return nil
 		}
-		env := hook.Env{StartedAt: started, Root: root, Agent: agent, Input: data, Environ: os.Environ(), Stderr: cmd.ErrOrStderr()}
+		env := hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ(), Stderr: cmd.ErrOrStderr()}
 		var out hook.Output
 		switch args[0] {
 		case "SessionStart", "session-start":

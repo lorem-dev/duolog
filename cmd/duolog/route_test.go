@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/session"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +23,7 @@ func isolatedRouteConfig(t *testing.T) {
 }
 func TestRouteJSON(t *testing.T) {
 	isolatedRouteConfig(t)
+	routeLead(t)
 	cmd := newRootCommand()
 	var output bytes.Buffer
 	cmd.SetOut(&output)
@@ -39,6 +43,7 @@ func TestRouteJSON(t *testing.T) {
 }
 func TestRouteTextAndErrors(t *testing.T) {
 	isolatedRouteConfig(t)
+	routeLead(t)
 	for _, tc := range []struct {
 		args []string
 		want string
@@ -68,6 +73,7 @@ func TestRouteTextAndErrors(t *testing.T) {
 }
 func TestRouteManualModelFlag(t *testing.T) {
 	isolatedRouteConfig(t)
+	routeLead(t)
 	// A user layer avoids changing the shared project configuration.
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -94,4 +100,25 @@ func TestRouteManualModelFlag(t *testing.T) {
 			t.Fatalf("allow=%v: %v", allow, err)
 		}
 	}
+}
+
+func routeLead(t *testing.T) {
+	t.Helper()
+	t.Chdir(t.TempDir())
+	t.Setenv("DUOLOG_LEAD", "")
+	reg, err := session.Open(filepath.Join(mustGetwd(t), ".duolog"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.RegisterLead(session.Lead{ID: "route-lead", Target: config.Target{Agent: "claude", Model: "haiku"}, Mode: mode.Full, PID: os.Getpid()}); err != nil {
+		t.Fatal(err)
+	}
+}
+func mustGetwd(t *testing.T) string {
+	t.Helper()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cwd
 }

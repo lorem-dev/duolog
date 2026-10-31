@@ -2,11 +2,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +17,12 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--duolog-test-child" {
+		time.Sleep(600 * time.Millisecond)
+		_ = os.WriteFile(os.Args[2]+".child-done", []byte("survived"), 0600)
+		time.Sleep(time.Minute)
+		return
+	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
@@ -76,6 +85,43 @@ func run() error {
 	for suffix, content := range map[string][]byte{".args.json": args, ".env.json": env, ".cwd": []byte(cwd), ".stdin": stdin} {
 		if err := os.WriteFile(path+suffix, content, 0600); err != nil {
 			return err
+		}
+	}
+	if s.SpawnChild {
+		child := exec.Command(path, "--duolog-test-child", path)
+		child.Stdout, child.Stderr = os.Stdout, os.Stderr
+		if err := child.Start(); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path+".child-pid", []byte(strconv.Itoa(child.Process.Pid)), 0600); err != nil {
+			return err
+		}
+	}
+	for i, hook := range s.Hooks {
+		cmd := exec.Command("sh", "-c", hook.Command)
+		cmd.Stdin = strings.NewReader(hook.Input)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		err := cmd.Run()
+		code := 0
+		if err != nil {
+			code = cmd.ProcessState.ExitCode()
+		}
+		result, _ := json.Marshal(struct {
+			Stdout, Stderr string
+			Code           int
+		}{stdout.String(), stderr.String(), code})
+		if err := os.WriteFile(fmt.Sprintf("%s.hook-%d.json", path, i), result, 0600); err != nil {
+			return err
+		}
+	}
+	if s.Answer != "" {
+		for i, arg := range os.Args {
+			if arg == "-o" && i+1 < len(os.Args) {
+				if err := os.WriteFile(os.Args[i+1], []byte(s.Answer), 0600); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	for _, chunk := range s.Output {

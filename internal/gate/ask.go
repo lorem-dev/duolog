@@ -40,21 +40,21 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout ti
 	if err != nil || !alive {
 		return deny("ask lead is unavailable or has ended")
 	}
+	if waiting, err := reg.IsWaiting(lead); err != nil {
+		return deny("cannot read lead wait state")
+	} else if waiting {
+		return deny("lead is waiting for foreground delegate; return done false with needs, then re-run after the lead decides")
+	}
 	address := session.Address(l)
 	from := "duolog/ask." + rand.Text()
-	summary := strings.Join(strings.Fields(a.Kind+" "+a.Target), " ")
-	// Send is authoritative for both configured byte limits and JSON escaping.
-	// Retry only size failures; a failed Send never appends a message.
-	for len(summary) > 200 {
-		summary = shorterSummary(summary)
-	}
+	fullSummary := strings.Join(strings.Fields(a.Kind+" "+a.Target), " ")
 	var n int64
-	for {
+	for budget := 200; ; budget-- {
+		summary := askSummary(fullSummary, budget)
 		n, err = b.Send(bus.Message{From: from, To: address, K: Ask, S: summary})
-		if !errors.Is(err, bus.ErrTooLong) || summary == "" {
+		if !errors.Is(err, bus.ErrTooLong) || budget == 0 {
 			break
 		}
-		summary = shorterSummary(summary)
 	}
 	if err != nil {
 		return deny("cannot send ask: " + err.Error())
@@ -90,7 +90,33 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout ti
 	}
 }
 
-func shorterSummary(s string) string {
-	_, size := utf8.DecodeLastRuneInString(s)
-	return s[:len(s)-size]
+// AskSummary visibly preserves both ends and points to the complete action.
+func AskSummary(text string) string { return askSummary(strings.Join(strings.Fields(text), " "), 200) }
+
+func askSummary(text string, budget int) string {
+	if len(text) <= budget {
+		return text
+	}
+	marker := " ... [cut; duolog decisions] ... "
+	if budget < len(marker)+2 {
+		marker = " [cut] "
+	}
+	if budget <= len(marker) {
+		return marker[:max(0, budget)]
+	}
+	head := (budget - len(marker)) / 2
+	tail := len(text) - (budget - len(marker) - head)
+	for head > 0 && !utf8.RuneStart(text[head]) {
+		head--
+	}
+	for tail < len(text) && !utf8.RuneStart(text[tail]) {
+		tail++
+	}
+	return text[:head] + marker + text[tail:]
 }
+
+// MaxAskWait fits below the 150-second timeout of every shipped gate hook.
+const MaxAskWait = 120 * time.Second
+
+// AskWait clamps project settings to the shipped hook budget.
+func AskWait(seconds int) time.Duration { return min(time.Duration(seconds)*time.Second, MaxAskWait) }

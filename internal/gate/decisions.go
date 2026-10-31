@@ -16,14 +16,19 @@ type Record struct {
 	Decision
 }
 
-func Log(s *store.Store, a Action, d Decision) error {
+func Log(s *store.Store, a Action, d Decision) error { return logAt(s, a, d, "decisions.ndjson") }
+
+// LogRequest preserves the full pending action before waiting for a decision.
+func LogRequest(s *store.Store, a Action, d Decision) error { return logAt(s, a, d, "requests.ndjson") }
+
+func logAt(s *store.Store, a Action, d Decision, name string) error {
 	lock := flock.New(filepath.Join(s.Dir, "decisions.lock"))
 	if err := lock.Lock(); err != nil {
 		_ = lock.Close()
 		return err
 	}
 	defer lock.Close()
-	f, err := os.OpenFile(filepath.Join(s.Dir, "decisions.ndjson"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	f, err := os.OpenFile(filepath.Join(s.Dir, name), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return err
 	}

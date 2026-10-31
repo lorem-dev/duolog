@@ -3,10 +3,14 @@
 package peer
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/lorem-dev/duolog/internal/project"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -115,7 +119,9 @@ type leadInfo struct {
 	address string
 }
 
-func setup(ctx context.Context) (*env, error) {
+func setup(ctx context.Context) (*env, error) { return setupFor(ctx, true) }
+
+func setupFor(ctx context.Context, requireLead bool) (*env, error) {
 	if depth, _ := strconv.Atoi(os.Getenv("DUOLOG_DEPTH")); depth >= 1 {
 		return nil, fmt.Errorf("workers cannot open or control peer sessions (DUOLOG_DEPTH=%d)", depth)
 	}
@@ -153,9 +159,14 @@ func setup(ctx context.Context) (*env, error) {
 		return nil, err
 	}
 	leadID := opts.Lead
-	if leadID == "" {
-		leadID = session.CurrentLead(os.Environ())
+	if requireLead {
+		lead, err := reg.ResolveLead(opts.Lead)
+		if err != nil {
+			return nil, err
+		}
+		leadID = lead.ID
 	}
+	root = project.CurrentWorkRoot(root)
 	client.Dir = root
 	return &env{opts: opts, root: root, dir: s.Dir, cfg: cfg, reg: reg, bus: b, rex: client, leadID: leadID}, nil
 }
@@ -272,7 +283,7 @@ func Open(ctx context.Context, role string) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	argv := launchArgv(runtime.GOOS, exe, agentEnv(e.cfg, route.Agent, lead.id), agentArgv(route, lead.mode))
+	argv := launchArgv(runtime.GOOS, exe, agentEnv(e.cfg, route.Agent, lead.id, role), agentArgv(route, lead.mode))
 	client := e.rex
 	client.Label = route.Agent + "-" + role
 	block, err := client.Split(ctx, argv)
@@ -354,6 +365,11 @@ func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Ent
 	var idle, stuck int
 	worked := false
 	for {
+		if question, err := pendingAsk(e.dir, e.address(e.leadID)); err != nil {
+			return Entry{}, err
+		} else if question != "" {
+			return Entry{ID: entry.ID, State: Question, Question: question}, nil
+		}
 		state, screen, err := e.observe(ctx, entry)
 		if err != nil {
 			return Entry{ID: entry.ID, State: last}, err
@@ -876,7 +892,7 @@ func pick(options []Option, choice string) (int, error) {
 // Close closes the pane and the record. The id may be a pane ID, which is what
 // doctor prints. A pane that is already gone is not an error, and files stay.
 func Close(ctx context.Context, id string) error {
-	e, err := setup(ctx)
+	e, err := setupFor(ctx, false)
 	if err != nil {
 		return err
 	}
@@ -891,4 +907,42 @@ func Close(ctx context.Context, id string) error {
 		}
 	}
 	return closeErr
+}
+
+// pendingAsk never advances the delivery cursor; the lead hook still receives
+// the request. Replies are matched by ref so answered requests do not stop wait.
+func pendingAsk(dir, address string) (string, error) {
+	f, err := os.Open(filepath.Join(dir, "bus.ndjson"))
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	pending := map[string]string{}
+	reader := bufio.NewReader(f)
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		var m bus.Message
+		if err := json.Unmarshal(line, &m); err != nil {
+			return "", err
+		}
+		if m.K == "ask" && m.To == address && strings.HasPrefix(m.From, "duolog/ask.") {
+			pending[strconv.FormatInt(m.N, 10)] = fmt.Sprintf("ask %d: %s", m.N, m.S)
+		}
+		if (m.K == "allow" || m.K == "deny") && m.From == address {
+			delete(pending, m.Ref)
+		}
+	}
+	for _, question := range pending {
+		return question, nil
+	}
+	return "", nil
 }

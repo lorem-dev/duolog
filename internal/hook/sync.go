@@ -8,6 +8,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/agentsync"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/gate"
 )
 
 // syncConfig returns the sync settings, or false when this hook must not sync:
@@ -32,7 +33,7 @@ func syncStart(e Env) string {
 	if !ok {
 		return ""
 	}
-	return agentsync.SessionStart(e.Root, cfg)
+	return agentsync.SessionStart(workRoot(e), cfg)
 }
 
 // syncTool rebuilds what the tool call touched. It reads the paths from a
@@ -44,7 +45,7 @@ func syncTool(e Env) string {
 	}
 	var lines []string
 	for _, path := range touchedPaths(e.Input) {
-		if line := agentsync.Hook(e.Root, cfg, path); line != "" && !contains(lines, line) {
+		if line := agentsync.Hook(workRoot(e), cfg, path); line != "" && !contains(lines, line) {
 			lines = append(lines, line)
 		}
 	}
@@ -84,12 +85,13 @@ func touchedPaths(input []byte) []string {
 	if s, ok := h.Tool.Command.(string); ok {
 		text += "\n" + s
 	}
-	for _, line := range strings.Split(text, "\n") {
-		for _, prefix := range []string{"*** Add File: ", "*** Update File: ", "*** Delete File: ", "*** Move to: "} {
-			if p, ok := strings.CutPrefix(strings.TrimSpace(line), prefix); ok && p != "" {
-				paths = append(paths, p)
-			}
-		}
-	}
+	paths = append(paths, gate.PatchPaths(text)...)
 	return paths
+}
+
+func workRoot(e Env) string {
+	if e.WorkRoot != "" {
+		return e.WorkRoot
+	}
+	return e.Root
 }

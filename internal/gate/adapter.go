@@ -16,10 +16,13 @@ func Normalize(agent string, input []byte) (Action, error) {
 		Tool  string `json:"tool_name"`
 		Cwd   string `json:"cwd"`
 		Input struct {
-			Command string `json:"command"`
-			Path    string `json:"file_path"`
-			URL     string `json:"url"`
-			Query   string `json:"query"`
+			Command    string `json:"command"`
+			Path       string `json:"file_path"`
+			SearchPath string `json:"path"`
+			Notebook   string `json:"notebook_path"`
+			Patch      string `json:"patch"`
+			URL        string `json:"url"`
+			Query      string `json:"query"`
 		} `json:"tool_input"`
 	}
 	if err := json.Unmarshal(input, &hook); err != nil {
@@ -34,10 +37,19 @@ func Normalize(agent string, input []byte) (Action, error) {
 	switch hook.Tool {
 	case "Bash":
 		a.Kind, a.Target = "exec", strings.TrimSpace(hook.Input.Command)
-	case "Read", "Write", "Edit", "MultiEdit":
+	case "Read", "Grep", "Glob", "LS", "Write", "Edit", "MultiEdit", "NotebookEdit":
 		a.Kind = "write"
-		if hook.Tool == "Read" {
+		if hook.Tool == "Read" || hook.Tool == "Grep" || hook.Tool == "Glob" || hook.Tool == "LS" {
 			a.Kind = "read"
+		}
+		if hook.Input.Path == "" {
+			hook.Input.Path = hook.Input.SearchPath
+		}
+		if hook.Input.Path == "" {
+			hook.Input.Path = hook.Input.Notebook
+		}
+		if hook.Input.Path == "" && a.Kind == "read" && hook.Tool != "Read" {
+			hook.Input.Path = "."
 		}
 		if hook.Input.Path != "" {
 			a.Target = cleanPath(hook.Input.Path)
@@ -48,9 +60,13 @@ func Normalize(agent string, input []byte) (Action, error) {
 			}
 		}
 	case "apply_patch":
-		// Its hook name and target representation were not verified. An empty
-		// target records a write but always requires approval.
 		a.Kind = "write"
+		paths := PatchPaths(hook.Input.Patch + "\n" + hook.Input.Command)
+		if len(paths) == 1 {
+			a.Target = cleanPath(paths[0])
+		}
+	case "TodoWrite", "Skill":
+		a.Kind, a.Target = "internal", hook.Tool
 	case "StructuredOutput":
 		// Claude's own tool for returning the schema answer; without it a worker
 		// cannot finish and delegate reports "unexpected EOF".
@@ -96,4 +112,41 @@ func Render(agent, event string, d Decision) []byte {
 	}
 	data, _ := json.Marshal(map[string]any{"hookSpecificOutput": output})
 	return append(data, '\n')
+}
+
+// PatchPaths covers every modified path, including both sides of a move.
+// The apply_patch hook name remains unverified in the saved live evidence.
+func PatchPaths(patch string) []string {
+	var paths []string
+	for _, line := range strings.Split(patch, "\n") {
+		for _, prefix := range []string{"*** Add File: ", "*** Update File: ", "*** Delete File: ", "*** Move to: "} {
+			if path, ok := strings.CutPrefix(strings.TrimSpace(line), prefix); ok && path != "" {
+				paths = append(paths, path)
+			}
+		}
+	}
+	return paths
+}
+
+func NormalizeAll(agent string, input []byte) ([]Action, error) {
+	a, err := Normalize(agent, input)
+	if err != nil {
+		return nil, err
+	}
+	var h struct {
+		Tool  string                          `json:"tool_name"`
+		Input struct{ Patch, Command string } `json:"tool_input"`
+	}
+	if json.Unmarshal(input, &h) != nil || h.Tool != "apply_patch" {
+		return []Action{a}, nil
+	}
+	paths := PatchPaths(h.Input.Patch + "\n" + h.Input.Command)
+	if len(paths) == 0 {
+		return []Action{a}, nil
+	}
+	actions := make([]Action, 0, len(paths))
+	for _, path := range paths {
+		actions = append(actions, Action{Kind: "write", Target: cleanPath(path)})
+	}
+	return actions, nil
 }

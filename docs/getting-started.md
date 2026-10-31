@@ -46,7 +46,8 @@ The command writes these files and prints each path:
 | `.duolog/config.yaml` | A starter config, only if none exists |
 
 Use `--agent claude` or `--agent codex` to install for one agent. Use
-`--scope user` to install in your home folder for all projects.
+`--scope user` to install in your home folder for all projects. SessionStart
+then creates `.duolog/` in a new project and registers its lead.
 
 If a file already exists and changes, duolog first copies it to
 `<file>.duolog.bak`. `duolog uninstall` removes only the hook entries and the
@@ -98,6 +99,20 @@ Send the task to a role:
 duolog delegate review_intermediate --task task.md
 ```
 
+The command finds its lead from `--lead`, then `DUOLOG_LEAD`, then a registered
+ancestor, then the only live lead in the project. With none or several, it
+refuses. The SessionStart line gives the ID for `--lead` when needed. `route`,
+`mode`, `roster` and `peer` use the same choice.
+
+Use a long shell-tool timeout for delegate; split tasks beyond the host's
+limit. An ask denies at once while the lead waits on delegate. The worker
+returns `done: false` with `needs`. Decide, adjust the task or permitted
+policy/mode, and re-run. See [Permissions](permissions.md).
+
+In linked worktrees, tasks, edits and sync use the current checkout. Relative
+task lookup checks the current directory first, then the checkout root.
+Sessions and other `.duolog/` state remain in the main checkout.
+
 The command prints one line:
 
 ```text
@@ -127,7 +142,7 @@ estimates, not a bill.
 ## Known limits
 
 - The first release is unpublished. There is no download.
-- We did not run duolog on Windows. CI runs the unit tests there.
+- Windows has not been run. Its CI matrix needs a green run before merge.
 - Codex as the lead is not proven. See [Rex](rex.md).
 - Most agent behavior in the research page is OBSERVED, not VERIFIED. Read
   [the live verification](research/2026-10-30-live-verification.md) before you

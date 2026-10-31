@@ -51,6 +51,7 @@ func TestCodexToolNames(t *testing.T) {
 		if err != nil || a.Kind != tc.kind {
 			t.Fatal(a, err)
 		}
+		a.Role = "implement"
 		d := Evaluate(p, LeadRules{}, mode.Full, a)
 		if d.Kind != tc.want {
 			t.Fatal(tc.tool, d)
