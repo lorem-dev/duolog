@@ -184,15 +184,13 @@ func mergeLayer(dst *yaml.Node, data []byte, source string) error {
 	if len(node.Content) == 0 {
 		return nil
 	}
-	// Resolve aliases and YAML merge keys using the decoder's precedence rules.
-	// Validation and layer merging must see the same effective fields as decoding.
-	var effective any
-	if err := node.Content[0].Decode(&effective); err != nil {
+	// Resolve structure without decoding scalars into Go values: string fields
+	// must retain spellings such as 012 and 2020-01-01.
+	effective, err := resolveYAMLNode(node.Content[0], make(map[*yaml.Node]bool))
+	if err != nil {
 		return fmt.Errorf("%s: %w", source, err)
 	}
-	if err := node.Content[0].Encode(effective); err != nil {
-		return fmt.Errorf("%s: %w", source, err)
-	}
+	node.Content[0] = effective
 	if err := validateEnums(node.Content[0], reflect.TypeFor[Config](), "config"); err != nil {
 		return fmt.Errorf("%s: %w", source, err)
 	}
@@ -202,6 +200,65 @@ func mergeLayer(dst *yaml.Node, data []byte, source string) error {
 		mergeMapping(dst.Content[0], node.Content[0])
 	}
 	return nil
+}
+
+// Expand aliases into independent nodes and flatten YAML merge keys. Explicit
+// keys win over merged keys, and earlier maps in a merge sequence win over later
+// maps. Copies prevent layer merging from mutating another use of an anchor.
+func resolveYAMLNode(node *yaml.Node, active map[*yaml.Node]bool) (*yaml.Node, error) {
+	if active[node] {
+		return nil, fmt.Errorf("line %d: recursive YAML alias", node.Line)
+	}
+	active[node] = true
+	defer delete(active, node)
+	if node.Kind == yaml.AliasNode {
+		return resolveYAMLNode(node.Alias, active)
+	}
+	resolved := *node
+	resolved.Anchor = ""
+	resolved.Content = nil
+	for _, child := range node.Content {
+		value, err := resolveYAMLNode(child, active)
+		if err != nil {
+			return nil, err
+		}
+		resolved.Content = append(resolved.Content, value)
+	}
+	if resolved.Kind != yaml.MappingNode {
+		return &resolved, nil
+	}
+	entries := resolved.Content
+	resolved.Content = nil
+	seen := make(map[string]bool)
+	for i := 0; i < len(entries); i += 2 {
+		key := entries[i]
+		if key.Tag != "!!merge" {
+			seen[key.Value] = true
+			resolved.Content = append(resolved.Content, key, entries[i+1])
+		}
+	}
+	for i := 0; i < len(entries); i += 2 {
+		if entries[i].Tag != "!!merge" {
+			continue
+		}
+		maps := []*yaml.Node{entries[i+1]}
+		if maps[0].Kind == yaml.SequenceNode {
+			maps = maps[0].Content
+		}
+		for _, mapping := range maps {
+			if mapping.Kind != yaml.MappingNode {
+				return nil, fmt.Errorf("line %d: YAML merge requires a mapping", mapping.Line)
+			}
+			for j := 0; j < len(mapping.Content); j += 2 {
+				key := mapping.Content[j]
+				if !seen[key.Value] {
+					seen[key.Value] = true
+					resolved.Content = append(resolved.Content, key, mapping.Content[j+1])
+				}
+			}
+		}
+	}
+	return &resolved, nil
 }
 
 // Mapping entries merge recursively; scalar and sequence values replace their layer.

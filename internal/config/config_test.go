@@ -231,3 +231,27 @@ func TestRejectNullOverrides(t *testing.T) {
 		})
 	}
 }
+
+func TestStringScalarsPreserveOriginalValues(t *testing.T) {
+	for _, scalar := range []string{"012", "2020-01-01", "1e3", "0x10", "true"} {
+		for name, contents := range map[string]string{
+			"direct":                "wire: {language: " + scalar + "}\n",
+			"alias":                 "capabilities: {hints: {value: &value " + scalar + "}}\nwire: {language: *value}\n",
+			"merge":                 "wire: {<<: {language: " + scalar + "}}\n",
+			"nested merge sequence": "wire: {<<: [{<<: {language: " + scalar + "}}, {language: ignored}]}\n",
+		} {
+			t.Run(scalar+"/"+name, func(t *testing.T) {
+				root := isolatedRoot(t)
+				writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "wire: {language: project}\n")
+				writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), contents)
+				cfg, err := Load(root)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if cfg.Wire.Language != scalar {
+					t.Fatalf("language = %q, want original scalar %q", cfg.Wire.Language, scalar)
+				}
+			})
+		}
+	}
+}
