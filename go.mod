@@ -3,6 +3,7 @@ module github.com/lorem-dev/duolog
 go 1.25.9
 
 require (
+	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/gofrs/flock v0.13.1
 	github.com/invopop/jsonschema v0.14.0
 	github.com/pelletier/go-toml/v2 v2.2.4

@@ -3,6 +3,7 @@ package session
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -35,6 +36,7 @@ type state struct {
 	Leads       map[string]Lead      `json:"leads"`
 	Unavailable map[string]time.Time `json:"unavailable"`
 	LimitOwners map[string]string    `json:"limit_owners,omitempty"`
+	ModeLimits  map[string]mode.Mode `json:"mode_limits,omitempty"`
 }
 
 func Open(dir string) (*Registry, error) {
@@ -71,6 +73,9 @@ func (r *Registry) access(write bool, fn func(*state) error) error {
 	}
 	if s.LimitOwners == nil {
 		s.LimitOwners = make(map[string]string)
+	}
+	if s.ModeLimits == nil {
+		s.ModeLimits = make(map[string]mode.Mode)
 	}
 	if err = fn(&s); err != nil || !write {
 		return err
@@ -148,6 +153,7 @@ func (r *Registry) Close(id string) error {
 	return r.access(true, func(s *state) error {
 		if _, ok := s.Leads[id]; ok {
 			delete(s.Leads, id)
+			delete(s.ModeLimits, id)
 			for agent, owner := range s.LimitOwners {
 				if owner == id && s.Unavailable[agent].IsZero() {
 					delete(s.Unavailable, agent)
@@ -194,6 +200,45 @@ func (r *Registry) Lead(id string) (Lead, bool, error) {
 	var ok bool
 	err := r.access(false, func(s *state) error { l, ok = s.Leads[id]; return nil })
 	return l, ok, err
+}
+
+// EffectiveMode reads the live lead observation and the user's lower ceiling in
+// one snapshot. RegisterLead does not erase the explicit ceiling.
+func (r *Registry) EffectiveMode(id string) (Lead, mode.Mode, error) {
+	var lead Lead
+	var effective mode.Mode
+	err := r.access(false, func(s *state) error {
+		var ok bool
+		lead, ok = s.Leads[id]
+		if !ok {
+			return fmt.Errorf("lead %q is not registered", id)
+		}
+		effective = mode.Lower(lead.Mode, lead.Mode)
+		if ceiling, ok := s.ModeLimits[id]; ok {
+			effective = mode.Lower(effective, ceiling)
+		}
+		return nil
+	})
+	return lead, effective, err
+}
+
+func (r *Registry) SetMode(id string, requested mode.Mode) error {
+	switch requested {
+	case mode.Plan, mode.Ask, mode.Edits, mode.Full:
+	default:
+		return fmt.Errorf("unknown mode %q", requested)
+	}
+	return r.access(true, func(s *state) error {
+		lead, ok := s.Leads[id]
+		if !ok {
+			return fmt.Errorf("lead %q is not registered", id)
+		}
+		if mode.Lower(lead.Mode, requested) != requested {
+			return fmt.Errorf("cannot set mode %s above lead mode %s", requested, lead.Mode)
+		}
+		s.ModeLimits[id] = requested
+		return nil
+	})
 }
 func CurrentLead(env []string) string {
 	for _, v := range env {
