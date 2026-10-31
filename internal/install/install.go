@@ -57,11 +57,25 @@ func Run(o Options) (Report, error) {
 	var edits []edit
 	var report Report
 	for _, agent := range agents {
+		path := hooksPath(base, agent)
+		if agent == "claude" && pluginEnabled(base, o.Home) {
+			// The plugin already registers these hooks and the skill; a second
+			// copy in settings.json would run every gate twice. Drop any copy an
+			// earlier install left behind.
+			if _, err := os.Stat(path); err == nil {
+				data, err := mergeHooks(path, nil)
+				if err != nil {
+					return Report{}, err
+				}
+				edits = append(edits, edit{path, data})
+			}
+			report.Notes = append(report.Notes, "Claude: the "+pluginKey+" plugin is enabled, so its hooks and skill are used and none were installed here. The plugin hooks assume the default ask timeout; disable the plugin and re-run install to use a custom policy.ask_timeout_seconds.")
+			continue
+		}
 		hooks, err := HooksJSON(agent, runtime.GOOS, timeout)
 		if err != nil {
 			return Report{}, err
 		}
-		path := hooksPath(base, agent)
 		data, err := mergeHooks(path, hooks)
 		if err != nil {
 			return Report{}, err
@@ -128,6 +142,30 @@ func Remove(o Options) error {
 		_ = os.Remove(filepath.Dir(skill)) // only succeeds when empty
 	}
 	return nil
+}
+
+// pluginKey is the enabledPlugins key of the duolog Claude plugin.
+const pluginKey = "duolog@duolog"
+
+// pluginEnabled reports whether the duolog plugin is switched on in the
+// settings.json under any of dirs (the target base and the user home).
+func pluginEnabled(dirs ...string) bool {
+	for _, dir := range dirs {
+		if dir == "" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
+		if err != nil {
+			continue
+		}
+		var doc struct {
+			Enabled map[string]bool `json:"enabledPlugins"`
+		}
+		if json.Unmarshal(data, &doc) == nil && doc.Enabled[pluginKey] {
+			return true
+		}
+	}
+	return false
 }
 
 func resolve(o Options) (agents []string, base string, err error) {
@@ -218,14 +256,14 @@ type event struct {
 // in seconds for Claude; Codex hooks.json also takes seconds.
 func events(agent, goos string, timeout int) []event {
 	hook := func(name string) group {
-		return group{[]handler{{Type: "command", Command: command(goos, "hook "+name+" --agent "+agent, false)}}}
+		return group{[]handler{{Type: "command", Command: command(goos, agent, "hook "+name+" --agent "+agent, false)}}}
 	}
 	gate := func(name string) group {
-		return group{[]handler{{Type: "command", Command: command(goos, "gate --agent "+agent+" --event "+name, true), Timeout: timeout}}}
+		return group{[]handler{{Type: "command", Command: command(goos, agent, "gate --agent "+agent+" --event "+name, true), Timeout: timeout}}}
 	}
 	start := []group{hook("SessionStart")}
 	if agent == "claude" {
-		wake := group{[]handler{{Type: "command", Command: command(goos, "hook wake --agent claude", false), AsyncRewake: true}}}
+		wake := group{[]handler{{Type: "command", Command: command(goos, agent, "hook wake --agent claude", false), AsyncRewake: true}}}
 		start = append(start, wake)
 	}
 	return []event{
@@ -241,13 +279,16 @@ func events(agent, goos string, timeout int) []event {
 // command wraps a duolog call in a small per-OS guard. A missing binary must
 // not block the lead, so the guard exits 0. A gate fails closed for a worker:
 // with DUOLOG_DEPTH of 1 or more and no binary, it exits 2 to block the call.
-func command(goos, args string, gate bool) string {
-	if goos == "windows" {
-		s := "where duolog >nul 2>nul && duolog " + args
+// Claude Code runs hook commands through Git Bash on Windows, so Claude always
+// gets the POSIX form; only Codex on Windows gets the cmd.exe form. The cmd
+// form is an explicit if/else, so a real exit code of duolog is never masked.
+func command(goos, agent, args string, gate bool) string {
+	if goos == "windows" && agent != "claude" {
+		missing := "exit /b 0"
 		if gate {
-			s += ` || if defined DUOLOG_DEPTH if not "%DUOLOG_DEPTH%"=="0" exit /b 2`
+			missing = `if defined DUOLOG_DEPTH (if not "%DUOLOG_DEPTH%"=="0" exit /b 2) else (exit /b 0)`
 		}
-		return s
+		return "where duolog >nul 2>nul & if errorlevel 1 (" + missing + ") else (duolog " + args + ")"
 	}
 	s := "if command -v duolog >/dev/null 2>&1; then duolog " + args + "; "
 	if gate {
