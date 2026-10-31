@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/agentsync"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
@@ -586,5 +587,85 @@ func TestSessionEndBeforeInitialRegistration(t *testing.T) {
 				t.Fatal("initial hook survived SessionEnd", err)
 			}
 		})
+	}
+}
+
+func syncProject(t *testing.T, agent string) Env {
+	t.Helper()
+	e, _, _ := setup(t, agent)
+	for rel, data := range map[string]string{
+		".claude/skills/probe/SKILL.md":        "---\nname: probe\ndescription: d\n---\nv1\n",
+		".claude/skills/probe/references/b.md": "b1\n",
+	} {
+		path := filepath.Join(e.Root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		write(t, path, data)
+	}
+	if _, err := agentsync.Run(e.Root, defaults(t).Sync, agentsync.Options{From: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+func TestPostToolRebuildsEditedSkill(t *testing.T) {
+	e := syncProject(t, "claude")
+	path := filepath.Join(e.Root, ".claude/skills/probe/references/b.md")
+	write(t, path, "b2\n")
+	e = change(t, e, "tool_input", map[string]any{"file_path": path})
+	silent(t, PostTool(context.Background(), e))
+	got, _ := os.ReadFile(filepath.Join(e.Root, ".agents/skills/probe/references/b.md"))
+	if string(got) != "b2\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestPostToolTellsAgentAboutEditedTarget(t *testing.T) {
+	e := syncProject(t, "claude")
+	path := filepath.Join(e.Root, ".agents/skills/probe/references/b.md")
+	write(t, path, "hand\n")
+	e = change(t, e, "tool_input", map[string]any{"file_path": path})
+	msg := content(t, PostTool(context.Background(), e), "PostToolUse")
+	if !strings.Contains(msg, ".claude/skills/probe/references/b.md") {
+		t.Fatalf("got %q", msg)
+	}
+}
+
+func TestPostToolReadsCodexPatchPaths(t *testing.T) {
+	e := syncProject(t, "codex")
+	write(t, filepath.Join(e.Root, ".claude/skills/probe/references/b.md"), "b3\n")
+	patch := "*** Begin Patch\n*** Update File: .claude/skills/probe/references/b.md\n*** End Patch\n"
+	e = change(t, e, "tool_input", map[string]any{"command": patch})
+	silent(t, PostTool(context.Background(), e))
+	got, _ := os.ReadFile(filepath.Join(e.Root, ".agents/skills/probe/references/b.md"))
+	if string(got) != "b3\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestSessionStartSyncsShellEditsSilently(t *testing.T) {
+	e := syncProject(t, "claude")
+	write(t, filepath.Join(e.Root, ".claude/skills/probe/references/b.md"), "b4\n")
+	msg := content(t, SessionStart(context.Background(), e), "SessionStart")
+	if strings.Contains(msg, "duolog sync") {
+		t.Fatalf("not silent: %q", msg)
+	}
+	got, _ := os.ReadFile(filepath.Join(e.Root, ".agents/skills/probe/references/b.md"))
+	if string(got) != "b4\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestWorkerDoesNotSync(t *testing.T) {
+	e := syncProject(t, "claude")
+	path := filepath.Join(e.Root, ".claude/skills/probe/references/b.md")
+	write(t, path, "b5\n")
+	e.Environ = append(e.Environ, "DUOLOG_DEPTH=1")
+	e = change(t, e, "tool_input", map[string]any{"file_path": path})
+	silent(t, PostTool(context.Background(), e))
+	got, _ := os.ReadFile(filepath.Join(e.Root, ".agents/skills/probe/references/b.md"))
+	if string(got) != "b1\n" {
+		t.Fatalf("got %q", got)
 	}
 }
