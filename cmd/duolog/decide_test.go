@@ -159,6 +159,26 @@ func TestAskHookLogsFinalOutcome(t *testing.T) {
 	}
 }
 
+func TestDecisionRefusesEndedLead(t *testing.T) {
+	r, root := gateSetup(t, mode.Ask)
+	t.Setenv("DUOLOG_DEPTH", "")
+	cfg, _ := config.Load(root)
+	b, err := bus.Open(r.Dir, cfg.Wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := b.Send(bus.Message{From: "codex/ask.test", To: "codex/lead.lead-1", K: "ask", S: "exec custom"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Close("lead-123456"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gateCommand(t, "", "allow", strconv.FormatInt(n, 10)); err == nil {
+		t.Fatal("answered for an ended lead")
+	}
+}
+
 func TestDecisionWithoutLeadEnvUsesFlag(t *testing.T) {
 	r, root := gateSetup(t, mode.Ask)
 	t.Setenv("DUOLOG_DEPTH", "")
@@ -171,14 +191,23 @@ func TestDecisionWithoutLeadEnvUsesFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := b.Send(bus.Message{From: "codex/ask.test", To: "codex/lead.lead-1", K: "ask", S: "exec custom"})
-	if err != nil {
+	send := func() string {
+		n, err := b.Send(bus.Message{From: "codex/ask.test", To: "codex/lead.lead-1", K: "ask", S: "exec custom"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strconv.FormatInt(n, 10)
+	}
+	if _, err := gateCommand(t, "", "allow", send()); err != nil {
+		t.Fatalf("no flag, no env: %v", err)
+	}
+	if _, err := gateCommand(t, "", "deny", "--lead", "codex/lead.lead-1", send()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := gateCommand(t, "", "allow", strconv.FormatInt(n, 10)); err == nil {
-		t.Fatal("accepted without a lead")
-	}
-	if _, err := gateCommand(t, "", "allow", "--lead", "lead-123456", strconv.FormatInt(n, 10)); err != nil {
+	if _, err := gateCommand(t, "", "allow", "--lead", "lead-123456", send()); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := gateCommand(t, "", "allow", "--lead", "other-lead", send()); err == nil {
+		t.Fatal("accepted a mismatched --lead")
 	}
 }
