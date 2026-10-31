@@ -2,10 +2,11 @@
 docs/superpowers/
 .superpowers/
 
-# Build output.
+# Build output and caches.
 /duolog
 /duolog.exe
 /dist/
+/.cache/
 
 # duolog's own state, when this repository uses duolog.
 .duolog/*

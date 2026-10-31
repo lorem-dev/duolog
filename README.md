@@ -15,7 +15,10 @@ a cheap file bus, so they do not paste large context at each other.
 | Avoid extra sessions | Reuses a live session and runs independent tasks once |
 | Control the second session | The binary allows or denies its actions, so a normal decision costs no tokens |
 | Keep one source for agents and skills | Generates one agent's files from the other's, in the direction you choose |
-| Work in the Rex terminal | Installs an MCP server, so one agent can open the other beside it |
+| Work in the Rex terminal | Lets one agent open the other beside it, with the Rex command line |
+| Stay on the newest models | Keeps only model aliases in the config and finds the newest version when it runs |
+| Handle a plugin that only one agent has | Tells the second session what to do, or asks the lead to do that part |
+| Keep working when a provider's limit ends | Moves the work to the lead's provider, with no new session |
 
 ## How you will use it
 
