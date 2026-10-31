@@ -95,9 +95,13 @@ func askReply(t *testing.T, kind, from string, unknown bool, want string) {
 		t.Fatalf("invalid reply was accepted: %+v", d)
 	}
 }
+// askSendWait outlasts a slow runner's setup: Escalate sends nothing once its
+// deadline has passed, and these tests read the ask it sent.
+const askSendWait = time.Second
+
 func TestAskSendsOneLine(t *testing.T) {
 	b, _, dir := askSetup(t)
-	d := Escalate(context.Background(), b, "first-123456", Action{Kind: "exec", Target: strings.Repeat("界\n\"", 400), Role: "implement"}, 20*time.Millisecond)
+	d := Escalate(context.Background(), b, "first-123456", Action{Kind: "exec", Target: strings.Repeat("界\n\"", 400), Role: "implement"}, askSendWait)
 	ms := askMessages(t, dir)
 	if d.Kind != Deny || len(ms) != 1 {
 		t.Fatal(d, ms)
@@ -129,7 +133,7 @@ func TestTimeoutDenies(t *testing.T) {
 }
 func TestAskGoesToSpawningLead(t *testing.T) {
 	b, _, dir := askSetup(t)
-	Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, time.Millisecond)
+	Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, askSendWait)
 	ms := askMessages(t, dir)
 	if len(ms) != 1 || ms[0].To != "codex/lead.first-" {
 		t.Fatal(ms)
@@ -171,7 +175,7 @@ func TestAskHonorsSmallerWireLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	Escalate(context.Background(), b, "first-123456", Action{Kind: "exec", Target: strings.Repeat("\"", 500), Role: "implement"}, time.Millisecond)
+	Escalate(context.Background(), b, "first-123456", Action{Kind: "exec", Target: strings.Repeat("\"", 500), Role: "implement"}, askSendWait)
 	data, err := os.ReadFile(filepath.Join(dir, "bus.ndjson"))
 	if err != nil {
 		t.Fatal(err)
