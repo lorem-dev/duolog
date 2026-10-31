@@ -208,3 +208,22 @@ func TestGateReadsLeadTranscriptAtDecisionTime(t *testing.T) {
 		t.Fatal(out)
 	}
 }
+
+// One answer covers a whole patch, so the question and its log name every path.
+func TestMultiPathPatchAsksAboutEveryPath(t *testing.T) {
+	_, root := gateSetup(t, mode.Ask)
+	patch := "*** Begin Patch\n*** Update File: a.go\n*** Update File: ../../home/.zshrc\n*** End Patch"
+	data, _ := json.Marshal(map[string]any{"tool_name": "apply_patch", "cwd": root, "tool_input": map[string]string{"patch": patch}})
+	if _, err := gateCommand(t, string(data), "gate", "--agent", "codex", "--event", "PreToolUse"); err != nil {
+		t.Fatal(err)
+	}
+	logged, err := os.ReadFile(filepath.Join(root, ".duolog", "requests.ndjson"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"a.go", "home/.zshrc"} {
+		if !bytes.Contains(logged, []byte(path)) {
+			t.Fatalf("%s missing from request log: %s", path, logged)
+		}
+	}
+}
