@@ -147,7 +147,7 @@ sync:
     drop_keys: [color]  # any other key with no counterpart refuses, so nothing is lost silently
     overrides: {}       # per agent, e.g. architect: {model: sol, effort: medium}
   skills:
-    drop_keys: []       # frontmatter keys to remove; unknown keys stay and print a warning
+    drop_keys: []       # frontmatter keys to remove; other keys stay
 
 # Variables spawned sessions inherit. Everything else is not passed on purpose.
 env_passthrough: [PATH, HOME]

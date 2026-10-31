@@ -180,31 +180,34 @@ func render(agent, event string, data []byte) Output {
 	encoded, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": event, "additionalContext": string(data)}})
 	return Output{Stdout: append(encoded, '\n')}
 }
-func deliver(ctx context.Context, e Env, event string, register, includeRoster bool, started time.Time) Output {
+func deliver(ctx context.Context, e Env, event string, register, includeRoster bool, started time.Time, extra func() string) Output {
 	if ctx.Err() != nil {
 		return Output{}
 	}
-	s, err := prepare(e, register, started)
-	if err != nil || s == nil {
-		return Output{}
+	var data []byte
+	if s, err := prepare(e, register, started); err == nil && s != nil {
+		if data, err = receive(s); err != nil {
+			return Output{}
+		}
+		if includeRoster {
+			data = append([]byte(roster.Line(s.cfg, s.lead.ID, s.reg)+"\n"), data...)
+		}
 	}
-	data, err := receive(s)
-	if err != nil {
-		return Output{}
-	}
-	if includeRoster {
-		data = append([]byte(roster.Line(s.cfg, s.lead.ID, s.reg)+"\n"), data...)
+	if extra != nil {
+		if line := extra(); line != "" {
+			data = append(data, []byte(line+"\n")...)
+		}
 	}
 	return render(e.Agent, event, data)
 }
 func SessionStart(ctx context.Context, e Env) Output {
-	return deliver(ctx, e, "SessionStart", true, true, startTime(e))
+	return deliver(ctx, e, "SessionStart", true, true, startTime(e), func() string { return syncStart(e) })
 }
 func Prompt(ctx context.Context, e Env) Output {
-	return deliver(ctx, e, "UserPromptSubmit", e.Agent == "codex", false, startTime(e))
+	return deliver(ctx, e, "UserPromptSubmit", e.Agent == "codex", false, startTime(e), nil)
 }
 func PostTool(ctx context.Context, e Env) Output {
-	return deliver(ctx, e, "PostToolUse", false, false, startTime(e))
+	return deliver(ctx, e, "PostToolUse", false, false, startTime(e), func() string { return syncTool(e) })
 }
 
 // Observe records lead permission changes on hooks which have no delivery
