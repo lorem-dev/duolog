@@ -28,6 +28,9 @@ type Env struct {
 	Input       []byte
 	Environ     []string
 	Stderr      io.Writer
+	// StartedAt is captured by the command before it reads hook stdin.
+	// Embedded callers may omit it; the hook then captures its own start time.
+	StartedAt time.Time
 }
 
 type Output struct {
@@ -68,8 +71,15 @@ func worker(e Env) bool {
 	return depth >= 1
 }
 
+func startTime(e Env) time.Time {
+	if !e.StartedAt.IsZero() {
+		return e.StartedAt
+	}
+	return time.Now()
+}
+
 // prepare refuses uninitialized projects before any library can create state.
-func prepare(e Env, register bool) (*state, error) {
+func prepare(e Env, register bool, started time.Time) (*state, error) {
 	if worker(e) || (e.Agent != "claude" && e.Agent != "codex") {
 		return nil, nil
 	}
@@ -110,7 +120,6 @@ func prepare(e Env, register bool) (*state, error) {
 		}
 		lead = session.Lead{ID: h.ID, Target: config.Target{Agent: e.Agent}, Mode: mode.Ask, PID: os.Getppid()}
 	}
-	before := lead
 	if h.TranscriptPath != "" {
 		lead.TranscriptPath = h.TranscriptPath
 	}
@@ -126,11 +135,17 @@ func prepare(e Env, register bool) (*state, error) {
 	} else if observed.Mode != "" {
 		lead.Mode = observed.Mode
 	}
-	if known {
-		lead, err = reg.UpdateLead(before, lead)
-	} else {
-		lead, err = reg.StartLead(lead)
+	o := session.LeadObservation{ID: h.ID, Agent: e.Agent, Model: &lead.Model, Effort: &lead.Effort}
+	if h.TranscriptPath != "" {
+		o.TranscriptPath = &h.TranscriptPath
 	}
+	if !known {
+		o.PID = &lead.PID
+	}
+	if !known || (e.Agent == "claude" && h.PermissionMode != "") || (e.Agent == "codex" && observed.Mode != "") {
+		o.Mode = &lead.Mode
+	}
+	lead, err = reg.ObserveLead(o, started)
 	if err != nil {
 		return nil, err
 	}
@@ -165,11 +180,11 @@ func render(agent, event string, data []byte) Output {
 	encoded, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": event, "additionalContext": string(data)}})
 	return Output{Stdout: append(encoded, '\n')}
 }
-func deliver(ctx context.Context, e Env, event string, register, includeRoster bool) Output {
+func deliver(ctx context.Context, e Env, event string, register, includeRoster bool, started time.Time) Output {
 	if ctx.Err() != nil {
 		return Output{}
 	}
-	s, err := prepare(e, register)
+	s, err := prepare(e, register, started)
 	if err != nil || s == nil {
 		return Output{}
 	}
@@ -183,23 +198,27 @@ func deliver(ctx context.Context, e Env, event string, register, includeRoster b
 	return render(e.Agent, event, data)
 }
 func SessionStart(ctx context.Context, e Env) Output {
-	return deliver(ctx, e, "SessionStart", true, true)
+	return deliver(ctx, e, "SessionStart", true, true, startTime(e))
 }
 func Prompt(ctx context.Context, e Env) Output {
-	return deliver(ctx, e, "UserPromptSubmit", e.Agent == "codex", false)
+	return deliver(ctx, e, "UserPromptSubmit", e.Agent == "codex", false, startTime(e))
 }
-func PostTool(ctx context.Context, e Env) Output { return deliver(ctx, e, "PostToolUse", false, false) }
+func PostTool(ctx context.Context, e Env) Output {
+	return deliver(ctx, e, "PostToolUse", false, false, startTime(e))
+}
 
 // Observe records lead permission changes on hooks which have no delivery
 // output, including PreToolUse and PermissionRequest handled by the gate.
 func Observe(ctx context.Context, e Env) Output {
+	started := startTime(e)
 	if ctx.Err() == nil {
-		_, _ = prepare(e, false)
+		_, _ = prepare(e, false, started)
 	}
 	return Output{}
 }
 func SessionEnd(ctx context.Context, e Env) Output {
-	if ctx.Err() != nil || worker(e) {
+	started := startTime(e)
+	if ctx.Err() != nil || worker(e) || (e.Agent != "claude" && e.Agent != "codex") {
 		return Output{}
 	}
 	if info, err := os.Stat(filepath.Join(e.Root, ".duolog")); err != nil || !info.IsDir() {
@@ -213,18 +232,17 @@ func SessionEnd(ctx context.Context, e Env) Output {
 	if err != nil {
 		return Output{}
 	}
-	if lead, ok, err := reg.Lead(h.ID); err == nil && ok && lead.Agent == e.Agent {
-		_ = reg.Close(h.ID)
-	}
+	_, _ = reg.ObserveLead(session.LeadObservation{ID: h.ID, Agent: e.Agent, Ended: true}, started)
 	return Output{}
 }
 
 // Wake consumes the same inbox cursor as Prompt before waking Claude, so the
 // UserPromptSubmit caused by asyncRewake cannot deliver a line a second time.
 func Wake(ctx context.Context, e Env) int {
+	started := startTime(e)
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	s, err := prepare(e, false)
+	s, err := prepare(e, false, started)
 	if err != nil || s == nil {
 		return 0
 	}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/hook"
 	"github.com/spf13/cobra"
@@ -16,6 +17,7 @@ func (e *hookExit) Error() string { return "hook wake" }
 func newHookCommand() *cobra.Command {
 	var agent string
 	cmd := &cobra.Command{Use: "hook <event>", Short: "Deliver messages to a lead hook", SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
+		started := time.Now()
 		// Hook failures must never fail the user's session or print diagnostics.
 		if len(args) != 1 {
 			return nil
@@ -28,7 +30,7 @@ func newHookCommand() *cobra.Command {
 		if err != nil || len(data) > 4*1024*1024 {
 			return nil
 		}
-		env := hook.Env{Root: root, Agent: agent, Input: data, Environ: os.Environ(), Stderr: cmd.ErrOrStderr()}
+		env := hook.Env{StartedAt: started, Root: root, Agent: agent, Input: data, Environ: os.Environ(), Stderr: cmd.ErrOrStderr()}
 		var out hook.Output
 		switch args[0] {
 		case "SessionStart", "session-start":

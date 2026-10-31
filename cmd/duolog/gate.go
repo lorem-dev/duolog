@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/gate"
@@ -25,13 +26,14 @@ func isWorker() bool {
 func newGateCommand() *cobra.Command {
 	var agent, event string
 	cmd := &cobra.Command{Use: "gate", Short: "Decide a worker hook request", SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
+		started := time.Now()
 		// A lead only records its live mode; it never receives a gate decision.
 		if !isWorker() {
 			root, err := projectRoot()
 			if err == nil {
 				data, readErr := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 4*1024*1024+1))
 				if readErr == nil && len(data) <= 4*1024*1024 {
-					hook.Observe(cmd.Context(), hook.Env{Root: root, Agent: agent, Input: data, Environ: os.Environ()})
+					hook.Observe(cmd.Context(), hook.Env{StartedAt: started, Root: root, Agent: agent, Input: data, Environ: os.Environ()})
 				}
 			}
 			return nil
@@ -44,7 +46,7 @@ func newGateCommand() *cobra.Command {
 			s, err = store.Open(root)
 		}
 		if err == nil {
-			a, d, err = evaluateHook(cmd, root, agent, event)
+			a, d, err = evaluateHook(cmd, root, agent, event, started)
 		}
 		if err != nil {
 			d.Kind, d.Reason, d.Rule = gate.Deny, "gate failed closed: "+err.Error(), "gate setup"
@@ -65,7 +67,7 @@ func newGateCommand() *cobra.Command {
 	return cmd
 }
 
-func evaluateHook(cmd *cobra.Command, root, agent, event string) (gate.Action, gate.Decision, error) {
+func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Time) (gate.Action, gate.Decision, error) {
 	a := gate.Action{Kind: "unknown", Role: os.Getenv("DUOLOG_ROLE")}
 	d := gate.Decision{Mode: mode.Ask}
 	if event != "PreToolUse" && event != "PermissionRequest" {
@@ -114,7 +116,7 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string) (gate.Action, g
 	if err != nil {
 		return a, d, err
 	}
-	lead, m, err := gate.LeadMode(reg, session.CurrentLead(os.Environ()))
+	lead, m, err := gate.LeadMode(reg, session.CurrentLead(os.Environ()), started)
 	if err != nil {
 		return a, d, err
 	}

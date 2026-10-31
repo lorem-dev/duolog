@@ -22,6 +22,23 @@ type Lead struct {
 	TranscriptPath string
 	PID            int
 }
+
+// LeadObservation contains only fields actually read by a caller. Nil means
+// unobserved; a pointer to an empty string records an explicitly unknown value.
+// Callers capture the time before reading stdin, the registry or a transcript.
+type LeadObservation struct {
+	ID, Agent                     string
+	Model, Effort, TranscriptPath *string
+	Mode                          *mode.Mode
+	PID                           *int
+	Ended                         bool
+}
+
+type leadObservationTimes struct {
+	Agent, Model, Effort, Mode, TranscriptPath, PID time.Time
+	EndedAt                                         time.Time
+}
+
 type Entry struct {
 	ID, Lead, Agent, Role, Thread, ThreadID string
 	BlockID                                 string
@@ -36,12 +53,13 @@ type Registry struct {
 	LeadID string
 }
 type state struct {
-	Entries     []Entry              `json:"entries"`
-	Leads       map[string]Lead      `json:"leads"`
-	Unavailable map[string]time.Time `json:"unavailable"`
-	LimitOwners map[string]string    `json:"limit_owners,omitempty"`
-	ModeLimits  map[string]mode.Mode `json:"mode_limits,omitempty"`
-	Ended       map[string]bool      `json:"ended,omitempty"`
+	Entries      []Entry                         `json:"entries"`
+	Leads        map[string]Lead                 `json:"leads"`
+	Unavailable  map[string]time.Time            `json:"unavailable"`
+	LimitOwners  map[string]string               `json:"limit_owners,omitempty"`
+	ModeLimits   map[string]mode.Mode            `json:"mode_limits,omitempty"`
+	Ended        map[string]bool                 `json:"ended,omitempty"`
+	Observations map[string]leadObservationTimes `json:"observations,omitempty"`
 }
 
 func Open(dir string) (*Registry, error) {
@@ -81,6 +99,9 @@ func (r *Registry) access(write bool, fn func(*state) error) error {
 	}
 	if s.Ended == nil {
 		s.Ended = make(map[string]bool)
+	}
+	if s.Observations == nil {
+		s.Observations = make(map[string]leadObservationTimes)
 	}
 	if s.ModeLimits == nil {
 		s.ModeLimits = make(map[string]mode.Mode)
@@ -158,16 +179,11 @@ func (r *Registry) RecordLimited(e Entry, limit int) error {
 	})
 }
 func (r *Registry) Close(id string) error {
+	started := time.Now()
 	return r.access(true, func(s *state) error {
-		if _, ok := s.Leads[id]; ok {
-			s.Ended[id] = true
-			delete(s.Leads, id)
-			delete(s.ModeLimits, id)
-			for agent, owner := range s.LimitOwners {
-				if owner == id && s.Unavailable[agent].IsZero() {
-					delete(s.Unavailable, agent)
-					delete(s.LimitOwners, agent)
-				}
+		if lead, ok := s.Leads[id]; ok {
+			if _, err := s.observeLead(LeadObservation{ID: id, Agent: lead.Agent, Ended: true}, started); err != nil {
+				return err
 			}
 		}
 		for i := range s.Entries {
@@ -202,62 +218,81 @@ func (r *Registry) MarkUnavailable(agent string, until time.Time) error {
 	})
 }
 func (r *Registry) RegisterLead(l Lead) error {
-	return r.access(true, func(s *state) error {
-		if s.Ended[l.ID] {
-			return fmt.Errorf("lead %q has ended", l.ID)
-		}
-		s.Leads[l.ID] = l
-		return nil
-	})
+	_, err := r.ObserveLead(LeadObservation{
+		ID: l.ID, Agent: l.Agent, Model: &l.Model, Effort: &l.Effort,
+		Mode: &l.Mode, TranscriptPath: &l.TranscriptPath, PID: &l.PID,
+	}, time.Now())
+	return err
 }
 
-// StartLead registers a new session without replacing an entry another hook
-// created while this hook was reading the transcript.
-func (r *Registry) StartLead(l Lead) (Lead, error) {
+// ObserveLead applies observations in start-time order under the registry lock,
+// including initial registration and SessionEnd for a previously unknown lead.
+func (r *Registry) ObserveLead(o LeadObservation, started time.Time) (Lead, error) {
+	var lead Lead
 	err := r.access(true, func(s *state) error {
-		if s.Ended[l.ID] {
-			return fmt.Errorf("lead %q has ended", l.ID)
-		}
-		if current, ok := s.Leads[l.ID]; ok {
-			l = current
-		} else {
-			s.Leads[l.ID] = l
-		}
-		return nil
+		var err error
+		lead, err = s.observeLead(o, started)
+		return err
 	})
-	return l, err
+	return lead, err
 }
 
-// UpdateLead merges changed observations into the current entry under its lock.
-// A field changed by another hook since before was read wins over this snapshot.
-// Removed leads are never recreated. The returned lead is the merged snapshot.
-func (r *Registry) UpdateLead(before, after Lead) (Lead, error) {
-	var current Lead
-	err := r.access(true, func(s *state) error {
-		var ok bool
-		current, ok = s.Leads[before.ID]
-		if !ok {
-			return fmt.Errorf("lead %q is not registered", before.ID)
+// observeLead is the single lead mutation path; access holds the registry lock.
+func (s *state) observeLead(o LeadObservation, started time.Time) (Lead, error) {
+	current, known := s.Leads[o.ID]
+	times := s.Observations[o.ID]
+	if o.Ended && known && current.Agent != o.Agent {
+		return current, fmt.Errorf("lead agent changed")
+	}
+	if !times.EndedAt.IsZero() && started.Before(times.EndedAt) {
+		return current, fmt.Errorf("lead %q has ended", o.ID)
+	}
+	if o.Ended {
+		times.EndedAt = started
+		s.Observations[o.ID] = times
+		s.Ended[o.ID] = true
+		delete(s.Leads, o.ID)
+		delete(s.ModeLimits, o.ID)
+		for agent, owner := range s.LimitOwners {
+			if owner == o.ID && s.Unavailable[agent].IsZero() {
+				delete(s.Unavailable, agent)
+				delete(s.LimitOwners, agent)
+			}
 		}
-		if current.Agent != before.Agent {
-			return fmt.Errorf("lead agent changed")
+		for i := range s.Entries {
+			if s.Entries[i].Lead == o.ID {
+				s.Entries[i].Closed = true
+			}
 		}
-		if after.Model != before.Model && current.Model == before.Model {
-			current.Model = after.Model
+		return current, nil
+	}
+	// Ended session IDs cannot be reused, including legacy boolean tombstones.
+	if s.Ended[o.ID] {
+		return current, fmt.Errorf("lead %q has ended", o.ID)
+	}
+	if !known {
+		current = Lead{ID: o.ID, Target: config.Target{Agent: o.Agent}, Mode: mode.Ask}
+	}
+	observeField(&current.Agent, &times.Agent, &o.Agent, started)
+	observeField(&current.Model, &times.Model, o.Model, started)
+	observeField(&current.Effort, &times.Effort, o.Effort, started)
+	observeField(&current.TranscriptPath, &times.TranscriptPath, o.TranscriptPath, started)
+	observeField(&current.PID, &times.PID, o.PID, started)
+	if o.Mode != nil && !started.Before(times.Mode) {
+		next := *o.Mode
+		if started.Equal(times.Mode) {
+			next = mode.Lower(current.Mode, next)
 		}
-		if after.Effort != before.Effort && current.Effort == before.Effort {
-			current.Effort = after.Effort
-		}
-		if after.Mode != before.Mode && current.Mode == before.Mode {
-			current.Mode = after.Mode
-		}
-		if after.TranscriptPath != before.TranscriptPath && current.TranscriptPath == before.TranscriptPath {
-			current.TranscriptPath = after.TranscriptPath
-		}
-		s.Leads[before.ID] = current
-		return nil
-	})
-	return current, err
+		current.Mode, times.Mode = next, started
+	}
+	s.Leads[o.ID], s.Observations[o.ID] = current, times
+	return current, nil
+}
+
+func observeField[T any](current *T, observedAt *time.Time, value *T, started time.Time) {
+	if value != nil && !started.Before(*observedAt) {
+		*current, *observedAt = *value, started
+	}
 }
 
 func (r *Registry) Lead(id string) (Lead, bool, error) {

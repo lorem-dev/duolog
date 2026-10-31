@@ -499,3 +499,53 @@ func TestLateHooksCannotRegisterEndedLead(t *testing.T) {
 		})
 	}
 }
+
+func TestHookObservationStartTimeOrdersModes(t *testing.T) {
+	for _, newerFirst := range []bool{false, true} {
+		t.Run(fmt.Sprint(newerFirst), func(t *testing.T) {
+			e, r, _ := setup(t, "claude")
+			older := change(t, e, "permission_mode", "full")
+			older.StartedAt = time.Unix(100, 0)
+			newer := change(t, e, "permission_mode", "plan")
+			newer.StartedAt = older.StartedAt.Add(time.Second)
+			if newerFirst {
+				SessionStart(context.Background(), newer)
+				SessionStart(context.Background(), older)
+			} else {
+				SessionStart(context.Background(), older)
+				SessionStart(context.Background(), newer)
+			}
+			if l := lead(t, r, e); l.Mode != mode.Plan {
+				t.Fatal("lost newer hook mode", l)
+			}
+			// Repeating plan must advance its observation time as well.
+			newer.StartedAt = newer.StartedAt.Add(2 * time.Second)
+			silent(t, Observe(context.Background(), newer))
+			older.StartedAt = newer.StartedAt.Add(-time.Second)
+			silent(t, Observe(context.Background(), older))
+			if l := lead(t, r, e); l.Mode != mode.Plan {
+				t.Fatal("unchanged restrictive hook was overwritten", l)
+			}
+		})
+	}
+}
+
+func TestSessionEndBeforeInitialRegistration(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		t.Run(agent, func(t *testing.T) {
+			e, r, _ := setup(t, agent)
+			e.StartedAt = time.Unix(100, 0)
+			ended := e
+			ended.StartedAt = e.StartedAt.Add(time.Second)
+			silent(t, SessionEnd(context.Background(), ended))
+			// This hook started before SessionEnd, then completed registration.
+			silent(t, SessionStart(context.Background(), e))
+			if agent == "codex" {
+				silent(t, Prompt(context.Background(), e))
+			}
+			if _, ok, err := r.Lead(id(e)); err != nil || ok {
+				t.Fatal("initial hook survived SessionEnd", err)
+			}
+		})
+	}
+}

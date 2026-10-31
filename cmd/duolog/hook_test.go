@@ -3,12 +3,15 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/session"
 )
 
@@ -94,5 +97,60 @@ func TestHookCLIWakeExitTwoAndStderr(t *testing.T) {
 	err = cmd.Execute()
 	if err == nil || exitCode(err) != 2 || out.Len() != 0 || stderr.String() != raw {
 		t.Fatal(out.String(), stderr.String(), err)
+	}
+}
+
+type hookInputReader struct {
+	io.Reader
+	beforeRead func()
+}
+
+func (r *hookInputReader) Read(p []byte) (int, error) {
+	if r.beforeRead != nil {
+		before := r.beforeRead
+		r.beforeRead = nil
+		before()
+	}
+	return r.Reader.Read(p)
+}
+
+func TestLeadCommandsCaptureTimeBeforeStdin(t *testing.T) {
+	for _, args := range [][]string{
+		{"hook", "SessionStart", "--agent", "claude"},
+		{"gate", "--agent", "claude", "--event", "PreToolUse"},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			isolatedRouteConfig(t)
+			t.Setenv("DUOLOG_DEPTH", "")
+			t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+			root := t.TempDir()
+			t.Chdir(root)
+			reg, err := session.Open(filepath.Join(root, ".duolog"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := newRootCommand()
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			cmd.SetArgs(args)
+			cmd.SetIn(&hookInputReader{
+				Reader: strings.NewReader(`{"session_id":"lead","permission_mode":"full"}`),
+				beforeRead: func() {
+					// A newer restrictive hook finishes while the older command
+					// is reading stdin, before it has read the registry.
+					plan := mode.Plan
+					if _, err := reg.ObserveLead(session.LeadObservation{ID: "lead", Agent: "claude", Mode: &plan}, time.Now()); err != nil {
+						t.Fatal(err)
+					}
+				},
+			})
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			lead, ok, err := reg.Lead("lead")
+			if err != nil || !ok || lead.Mode != mode.Plan {
+				t.Fatal("lost observation during stdin read", lead, ok, err)
+			}
+		})
 	}
 }

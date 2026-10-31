@@ -169,96 +169,137 @@ func TestRegistryReadErrorsAreReturned(t *testing.T) {
 	}
 }
 
-func TestLeadObservationsPreserveConcurrentChanges(t *testing.T) {
-	for _, changedMode := range []bool{false, true} {
-		t.Run(fmt.Sprint(changedMode), func(t *testing.T) {
+// Chosen start times simulate completion order without sleeps or goroutines.
+func TestInitialLeadObservationsAreOrdered(t *testing.T) {
+	for _, newerFirst := range []bool{false, true} {
+		t.Run(fmt.Sprint(newerFirst), func(t *testing.T) {
 			r := registry(t)
-			before := Lead{ID: "lead", Target: config.Target{Agent: "claude", Model: "opus", Effort: "high"}, Mode: mode.Full}
-			if err := r.RegisterLead(before); err != nil {
-				t.Fatal(err)
+			older := mode.Full
+			newer := mode.Plan
+			observations := []LeadObservation{
+				{ID: "lead", Agent: "claude", Mode: &older},
+				{ID: "lead", Agent: "claude", Mode: &newer},
 			}
-			// The decision and hook both read before. Complete the restrictive hook
-			// first, then allow the older decision to finish its transcript read.
-			hookDone := make(chan error, 1)
-			go func() {
-				other, err := Open(r.Dir)
-				if err == nil {
-					newer := before
-					newer.Mode, newer.PID = mode.Plan, os.Getpid()
-					err = other.RegisterLead(newer)
+			start := time.Unix(100, 0)
+			order := []int{0, 1}
+			if newerFirst {
+				order = []int{1, 0}
+			}
+			for _, i := range order {
+				if _, err := r.ObserveLead(observations[i], start.Add(time.Duration(i)*time.Second)); err != nil {
+					t.Fatal(err)
 				}
-				hookDone <- err
-			}()
-			if err := <-hookDone; err != nil {
-				t.Fatal(err)
 			}
-			observed := before
-			observed.Effort = "low"
-			if changedMode {
-				observed.Mode = mode.Ask
+			_, effective, err := r.EffectiveMode("lead")
+			if err != nil || effective != mode.Plan {
+				t.Fatal("lost newer initial mode", effective, err)
 			}
-			got, err := r.UpdateLead(before, observed)
-			if err != nil {
-				t.Fatal(err)
+		})
+	}
+}
+
+func TestUnchangedLeadObservationAdvancesTime(t *testing.T) {
+	r := registry(t)
+	start := time.Unix(100, 0)
+	plan, full := mode.Plan, mode.Full
+	model, effort, path, pid := "opus", "low", "new.jsonl", os.Getpid()
+	// The newest observation repeats the original values. A stale observation
+	// completing afterwards must not replace any of them, even after reopening.
+	for _, at := range []time.Time{start, start.Add(2 * time.Second)} {
+		if _, err := r.ObserveLead(LeadObservation{ID: "lead", Agent: "claude", Mode: &plan, Model: &model, Effort: &effort, TranscriptPath: &path, PID: &pid}, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, err := Open(r.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldModel, oldEffort, oldPath, oldPID := "sonnet", "high", "old.jsonl", 0
+	got, err := r.ObserveLead(LeadObservation{ID: "lead", Agent: "claude", Mode: &full, Model: &oldModel, Effort: &oldEffort, TranscriptPath: &oldPath, PID: &oldPID}, start.Add(time.Second))
+	if err != nil || got.Mode != plan || got.Model != model || got.Effort != effort || got.TranscriptPath != path || got.PID != pid {
+		t.Fatal("unchanged observations lost their ordering", got, err)
+	}
+	// A genuinely later observation must still be able to widen permissions.
+	got, err = r.ObserveLead(LeadObservation{ID: "lead", Agent: "claude", Mode: &full}, start.Add(3*time.Second))
+	if err != nil || got.Mode != full {
+		t.Fatal(got, err)
+	}
+}
+
+func TestLeadObservationsOrderEachFieldIndependently(t *testing.T) {
+	r := registry(t)
+	start := time.Unix(100, 0)
+	full, plan, low, pid := mode.Full, mode.Plan, "low", os.Getpid()
+	if _, err := r.ObserveLead(LeadObservation{ID: "lead", Agent: "claude", Mode: &full}, start); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.ObserveLead(LeadObservation{ID: "lead", Agent: "claude", Mode: &plan, PID: &pid}, start.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.ObserveLead(LeadObservation{ID: "lead", Agent: "claude", Mode: &full, Effort: &low}, start.Add(time.Second))
+	if err != nil || got.Mode != plan || got.Effort != low || got.PID != pid {
+		t.Fatal("lost independent observations", got, err)
+	}
+}
+
+func TestEqualLeadObservationTimesKeepLowerMode(t *testing.T) {
+	for _, modes := range [][]mode.Mode{{mode.Plan, mode.Full}, {mode.Full, mode.Plan}} {
+		t.Run(fmt.Sprint(modes), func(t *testing.T) {
+			r := registry(t)
+			for _, m := range modes {
+				if _, err := r.ObserveLead(LeadObservation{ID: "lead", Agent: "claude", Mode: &m}, time.Unix(100, 0)); err != nil {
+					t.Fatal(err)
+				}
 			}
-			if got.Mode != mode.Plan || got.Effort != "low" || got.PID != os.Getpid() {
-				t.Fatalf("lost concurrent fields: %+v", got)
-			}
-			stored, effective, err := r.EffectiveMode(before.ID)
-			if err != nil || stored != got || effective != mode.Plan {
-				t.Fatal(stored, effective, err)
+			_, effective, err := r.EffectiveMode("lead")
+			if err != nil || effective != mode.Plan {
+				t.Fatal(effective, err)
 			}
 		})
 	}
 }
 
 func TestLeadObservationCannotUndoSessionEnd(t *testing.T) {
-	r := registry(t)
-	before := Lead{ID: "ended", Target: config.Target{Agent: "codex"}, Mode: mode.Full}
-	if err := r.RegisterLead(before); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.Record(Entry{ID: "worker", Lead: before.ID}); err != nil {
-		t.Fatal(err)
-	}
-	ended := make(chan error, 1)
-	go func() { ended <- r.Close(before.ID) }()
-	if err := <-ended; err != nil {
-		t.Fatal(err)
-	}
-	after := before
-	after.Mode = mode.Ask
-	if _, err := r.UpdateLead(before, after); err == nil {
-		t.Fatal("updated an ended lead")
-	}
-	if err := r.RegisterLead(after); err == nil {
-		t.Fatal("recreated an ended lead")
-	}
-	if _, ok, err := r.Lead(before.ID); err != nil || ok {
-		t.Fatal("lead resurrected", err)
-	}
-	entries, err := r.Entries()
-	if err != nil || len(entries) != 1 || !entries[0].Closed {
-		t.Fatal(entries, err)
-	}
-}
-
-func TestStartingLeadPreservesConcurrentRegistration(t *testing.T) {
-	r := registry(t)
-	newer := Lead{ID: "lead", Target: config.Target{Agent: "claude"}, Mode: mode.Plan}
-	if err := r.RegisterLead(newer); err != nil {
-		t.Fatal(err)
-	}
-	older := newer
-	older.Mode = mode.Full
-	got, err := r.StartLead(older)
-	if err != nil || got != newer {
-		t.Fatal(got, err)
-	}
-	if err := r.Close(newer.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.StartLead(older); err == nil {
-		t.Fatal("started an ended lead")
+	for _, registered := range []bool{false, true} {
+		t.Run(fmt.Sprint(registered), func(t *testing.T) {
+			r := registry(t)
+			start := time.Unix(100, 0)
+			full := mode.Full
+			o := LeadObservation{ID: "ended", Agent: "codex", Mode: &full}
+			if registered {
+				if _, err := r.ObserveLead(o, start); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := r.Record(Entry{ID: "worker", Lead: o.ID}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := r.ObserveLead(LeadObservation{ID: o.ID, Agent: o.Agent, Ended: true}, start.Add(2*time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			// Simulate an initial hook paused before registration, or a decision
+			// paused before applying observations, finishing after SessionEnd.
+			if _, err := r.ObserveLead(o, start.Add(time.Second)); err == nil {
+				t.Fatal("accepted an observation from before SessionEnd")
+			}
+			if _, ok, err := r.Lead(o.ID); err != nil || ok {
+				t.Fatal("lead resurrected", err)
+			}
+			if err := r.RegisterLead(Lead{ID: o.ID}); err == nil {
+				t.Fatal("recreated an ended lead")
+			}
+			entries, err := r.Entries()
+			if err != nil || len(entries) != 1 || !entries[0].Closed {
+				t.Fatal(entries, err)
+			}
+			if err := r.access(false, func(s *state) error {
+				if !s.Observations[o.ID].EndedAt.Equal(start.Add(2 * time.Second)) {
+					t.Error("missing SessionEnd tombstone")
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
