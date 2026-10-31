@@ -93,6 +93,7 @@ func place(cfg *config.Config, taskPath, root string, route router.Route) (Place
 }
 
 func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath, thread string) (out Outcome, err error) {
+	started := time.Now()
 	defer func() {
 		if out.Line == "" && err != nil {
 			out.Line = oneLine(fmt.Sprintf("role %s: %v", role, err))
@@ -149,7 +150,6 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	address := "duolog/lead"
 	if hasLead {
 		if lead.TranscriptPath != "" {
-			before := lead
 			observed, _ := readLeadState(lead.Agent, lead.TranscriptPath)
 			lead.Model, lead.Effort = observed.Model, observed.Effort
 			if lead.Agent == "codex" {
@@ -159,7 +159,11 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					lead.Mode = mode.Lower(lead.Mode, mode.Ask)
 				}
 			}
-			if lead, err = reg.UpdateLead(before, lead); err != nil {
+			o := session.LeadObservation{ID: lead.ID, Agent: lead.Agent, Model: &lead.Model, Effort: &lead.Effort}
+			if lead.Agent == "codex" {
+				o.Mode = &lead.Mode
+			}
+			if lead, err = reg.ObserveLead(o, started); err != nil {
 				return out, err
 			}
 		}
