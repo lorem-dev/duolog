@@ -71,6 +71,16 @@ func ImportLead(root, agent string) (LeadRules, error) {
 				if err != nil {
 					return rules, fmt.Errorf("%s: %w", path, err)
 				}
+				if (rule.Action == "read" || rule.Action == "write") && strings.Contains(entry, "(") {
+					base := root
+					if path == filepath.Join(home, ".claude/settings.json") {
+						base = filepath.Dir(path)
+					}
+					rule.Match, err = claudePathPattern(rule.Match, root, home, base)
+					if err != nil {
+						return rules, fmt.Errorf("%s: %w", path, err)
+					}
+				}
 				rules.Deny = append(rules.Deny, rule)
 			}
 		} else {
@@ -105,6 +115,29 @@ func ImportLead(root, agent string) (LeadRules, error) {
 		}
 	}
 	return rules, nil
+}
+
+// Claude anchors // at the filesystem root, ~/ at home and / at the settings
+// source (the project root for project/local settings, ~/.claude for user
+// settings). Other paths use the project working directory. Hook targets use
+// project-relative paths, including ../ for files outside the project.
+func claudePathPattern(pattern, root, home, base string) (string, error) {
+	var path string
+	switch {
+	case strings.HasPrefix(pattern, "//"):
+		path = filepath.FromSlash(strings.TrimPrefix(pattern, "/"))
+	case strings.HasPrefix(pattern, "~/"):
+		path = filepath.Join(home, filepath.FromSlash(strings.TrimPrefix(pattern, "~/")))
+	case strings.HasPrefix(pattern, "/"):
+		path = filepath.Join(base, filepath.FromSlash(strings.TrimPrefix(pattern, "/")))
+	default:
+		path = filepath.Join(root, filepath.FromSlash(pattern))
+	}
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return "", fmt.Errorf("cannot rebase lead path pattern %q: %w", pattern, err)
+	}
+	return filepath.ToSlash(relative), nil
 }
 
 func claudeDeny(entry string) (config.Rule, error) {
