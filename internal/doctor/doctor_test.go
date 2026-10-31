@@ -15,7 +15,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
-const catalog = `{"models":[{"slug":"gpt-6.1-sol","visibility":"list","supported_reasoning_levels":[{"reasoning_effort":"low"},{"reasoning_effort":"medium"},{"reasoning_effort":"high"}]},{"slug":"gpt-6-luna","visibility":"list","supported_reasoning_levels":[{"reasoning_effort":"low"}]}]}`
+const catalog = `{"models":[{"slug":"gpt-6.1-sol","visibility":"list","supported_reasoning_levels":[{"effort":"low","description":"d"},{"effort":"medium","description":"d"},{"effort":"high","description":"d"}]},{"slug":"gpt-6-luna","visibility":"list","supported_reasoning_levels":[{"effort":"low","description":"d"}]}]}`
 
 func setup(t *testing.T) (*config.Config, Options, string) {
 	t.Helper()
@@ -203,8 +203,8 @@ func TestDoctorReportsTrustAndRexWithoutCallingRex(t *testing.T) {
 	contains(t, findings(t, cfg, opts), "hooks approved=false", "folder trusted=false", "changed after review cannot be detected", "Codex itself will skip", "Rex unavailable")
 }
 
-// The retained catalog fixture uses string effort levels. Accept it as well as
-// detailed entries from catalog builds that attach descriptions to each level.
+// The retained catalog fixture has the shape of real `codex debug models`:
+// each level is an object with an "effort" key. The default roles must pass.
 func TestDoctorReadsSavedCatalogFixture(t *testing.T) {
 	cfg, opts, codex := setup(t)
 	fixture, err := os.ReadFile("../../scripts/bench/fixtures/models/codex-debug-models.trimmed.json")

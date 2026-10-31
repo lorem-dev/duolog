@@ -32,6 +32,8 @@ type Options struct {
 	Root     string
 	Registry *session.Registry
 	Panes    []Pane
+	// RexBin is the located rex executable. Doctor never runs it.
+	RexBin string
 }
 
 func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
@@ -59,7 +61,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 	}
 	add("info", fmt.Sprintf("Codex hooks approved=%t folder trusted=%t", hooks.Trusted, folder))
 	add("warning", "Hooks changed after review cannot be detected here; Codex itself will skip changed hooks. Review /hooks.")
-	if _, err := exec.LookPath("rex"); err != nil {
+	if opts.RexBin == "" {
 		add("warning", "Rex unavailable; pane connectivity cannot be checked")
 	}
 	var baseline map[string]string

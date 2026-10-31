@@ -62,10 +62,8 @@ Sync does not overwrite a target that you edited by hand. It prints `refused:`
 and exits with code 1. Fix the source, or use `--force` if you want the
 generated version.
 
-After `duolog install --scope project`, a run of `duolog sync --from claude`
-refuses `.agents/skills/duolog/SKILL.md`. Install wrote that file, and sync
-sees it as hand-written. The file is correct as it is. We did not find a
-setting that stops the message.
+Sync never reads or writes the `duolog` skill folder on either side, because
+`duolog install` owns it.
 
 ## How hooks run sync
 

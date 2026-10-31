@@ -53,12 +53,30 @@
    "default_reasoning_level": "low",
    "priority": 1,
    "supported_reasoning_levels": [
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max",
-    "ultra"
+    {
+     "effort": "low",
+     "description": "Fast responses with lighter reasoning"
+    },
+    {
+     "effort": "medium",
+     "description": "Balances speed and reasoning depth for everyday tasks"
+    },
+    {
+     "effort": "high",
+     "description": "Greater reasoning depth for complex problems"
+    },
+    {
+     "effort": "xhigh",
+     "description": "Extra high reasoning depth for complex problems"
+    },
+    {
+     "effort": "max",
+     "description": "Maximum reasoning depth for the hardest problems"
+    },
+    {
+     "effort": "ultra",
+     "description": "Maximum reasoning with automatic task delegation"
+    }
    ]
   },
   {
@@ -68,12 +86,30 @@
    "default_reasoning_level": "low",
    "priority": 2,
    "supported_reasoning_levels": [
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max",
-    "ultra"
+    {
+     "effort": "low",
+     "description": "Fast responses with lighter reasoning"
+    },
+    {
+     "effort": "medium",
+     "description": "Balances speed and reasoning depth for everyday tasks"
+    },
+    {
+     "effort": "high",
+     "description": "Greater reasoning depth for complex problems"
+    },
+    {
+     "effort": "xhigh",
+     "description": "Extra high reasoning depth for complex problems"
+    },
+    {
+     "effort": "max",
+     "description": "Maximum reasoning depth for the hardest problems"
+    },
+    {
+     "effort": "ultra",
+     "description": "Maximum reasoning with automatic task delegation"
+    }
    ]
   },
   {
@@ -83,11 +119,26 @@
    "default_reasoning_level": "medium",
    "priority": 2,
    "supported_reasoning_levels": [
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max"
+    {
+     "effort": "low",
+     "description": "Fast responses with lighter reasoning"
+    },
+    {
+     "effort": "medium",
+     "description": "Balances speed and reasoning depth for everyday tasks"
+    },
+    {
+     "effort": "high",
+     "description": "Greater reasoning depth for complex problems"
+    },
+    {
+     "effort": "xhigh",
+     "description": "Extra high reasoning depth for complex problems"
+    },
+    {
+     "effort": "max",
+     "description": "Maximum reasoning depth for the hardest problems"
+    }
    ]
   },
   {
@@ -97,12 +148,30 @@
    "default_reasoning_level": "low",
    "priority": 3,
    "supported_reasoning_levels": [
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max",
-    "ultra"
+    {
+     "effort": "low",
+     "description": "Fast responses with lighter reasoning"
+    },
+    {
+     "effort": "medium",
+     "description": "Balances speed and reasoning depth for everyday tasks"
+    },
+    {
+     "effort": "high",
+     "description": "Greater reasoning depth for complex problems"
+    },
+    {
+     "effort": "xhigh",
+     "description": "Extra high reasoning depth for complex problems"
+    },
+    {
+     "effort": "max",
+     "description": "Maximum reasoning depth for the hardest problems"
+    },
+    {
+     "effort": "ultra",
+     "description": "Maximum reasoning with automatic task delegation"
+    }
    ]
   },
   {
@@ -112,12 +181,30 @@
    "default_reasoning_level": "medium",
    "priority": 4,
    "supported_reasoning_levels": [
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max",
-    "ultra"
+    {
+     "effort": "low",
+     "description": "Fast responses with lighter reasoning"
+    },
+    {
+     "effort": "medium",
+     "description": "Balances speed and reasoning depth for everyday tasks"
+    },
+    {
+     "effort": "high",
+     "description": "Greater reasoning depth for complex problems"
+    },
+    {
+     "effort": "xhigh",
+     "description": "Extra high reasoning depth for complex problems"
+    },
+    {
+     "effort": "max",
+     "description": "Maximum reasoning depth for the hardest problems"
+    },
+    {
+     "effort": "ultra",
+     "description": "Maximum reasoning with automatic task delegation"
+    }
    ]
   },
   {
@@ -127,11 +214,26 @@
    "default_reasoning_level": "medium",
    "priority": 4,
    "supported_reasoning_levels": [
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max"
+    {
+     "effort": "low",
+     "description": "Fast responses with lighter reasoning"
+    },
+    {
+     "effort": "medium",
+     "description": "Balances speed and reasoning depth for everyday tasks"
+    },
+    {
+     "effort": "high",
+     "description": "Greater reasoning depth for complex problems"
+    },
+    {
+     "effort": "xhigh",
+     "description": "Extra high reasoning depth for complex problems"
+    },
+    {
+     "effort": "max",
+     "description": "Maximum reasoning depth for the hardest problems"
+    }
    ]
   },
   {
@@ -141,11 +243,26 @@
    "default_reasoning_level": "medium",
    "priority": 5,
    "supported_reasoning_levels": [
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max"
+    {
+     "effort": "low",
+     "description": "Fast responses with lighter reasoning"
+    },
+    {
+     "effort": "medium",
+     "description": "Balances speed and reasoning depth for everyday tasks"
+    },
+    {
+     "effort": "high",
+     "description": "Greater reasoning depth for complex problems"
+    },
+    {
+     "effort": "xhigh",
+     "description": "Extra high reasoning depth for complex problems"
+    },
+    {
+     "effort": "max",
+     "description": "Maximum reasoning depth for the hardest problems"
+    }
    ]
   },
   {
@@ -155,12 +272,30 @@
    "default_reasoning_level": "low",
    "priority": 6,
    "supported_reasoning_levels": [
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max",
-    "ultra"
+    {
+     "effort": "low",
+     "description": "Fast responses with lighter reasoning"
+    },
+    {
+     "effort": "medium",
+     "description": "Balances speed and reasoning depth for everyday tasks"
+    },
+    {
+     "effort": "high",
+     "description": "Greater reasoning depth for complex problems"
+    },
+    {
+     "effort": "xhigh",
+     "description": "Extra high reasoning depth for complex problems"
+    },
+    {
+     "effort": "max",
+     "description": "Maximum reasoning depth for the hardest problems"
+    },
+    {
+     "effort": "ultra",
+     "description": "Maximum reasoning with automatic task delegation"
+    }
    ]
   },
   {
@@ -170,12 +305,30 @@
    "default_reasoning_level": "medium",
    "priority": 8,
    "supported_reasoning_levels": [
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max",
-    "ultra"
+    {
+     "effort": "low",
+     "description": "Fast responses with lighter reasoning"
+    },
+    {
+     "effort": "medium",
+     "description": "Balances speed and reasoning depth for everyday tasks"
+    },
+    {
+     "effort": "high",
+     "description": "Greater reasoning depth for complex problems"
+    },
+    {
+     "effort": "xhigh",
+     "description": "Extra high reasoning depth for complex problems"
+    },
+    {
+     "effort": "max",
+     "description": "Maximum reasoning depth for the hardest problems"
+    },
+    {
+     "effort": "ultra",
+     "description": "Maximum reasoning with automatic task delegation"
+    }
    ]
   },
   {
@@ -185,11 +338,26 @@
    "default_reasoning_level": "medium",
    "priority": 9,
    "supported_reasoning_levels": [
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max"
+    {
+     "effort": "low",
+     "description": "Fast responses with lighter reasoning"
+    },
+    {
+     "effort": "medium",
+     "description": "Balances speed and reasoning depth for everyday tasks"
+    },
+    {
+     "effort": "high",
+     "description": "Greater reasoning depth for complex problems"
+    },
+    {
+     "effort": "xhigh",
+     "description": "Extra high reasoning depth for complex problems"
+    },
+    {
+     "effort": "max",
+     "description": "Maximum reasoning depth for the hardest problems"
+    }
    ]
   },
   {
@@ -199,11 +367,26 @@
    "default_reasoning_level": "medium",
    "priority": 43,
    "supported_reasoning_levels": [
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max"
+    {
+     "effort": "low",
+     "description": "Fast responses with lighter reasoning"
+    },
+    {
+     "effort": "medium",
+     "description": "Balances speed and reasoning depth for everyday tasks"
+    },
+    {
+     "effort": "high",
+     "description": "Greater reasoning depth for complex problems"
+    },
+    {
+     "effort": "xhigh",
+     "description": "Extra high reasoning depth for complex problems"
+    },
+    {
+     "effort": "max",
+     "description": "Maximum reasoning depth for the hardest problems"
+    }
    ]
   }
  ]
