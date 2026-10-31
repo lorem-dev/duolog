@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
@@ -32,6 +33,14 @@ func newSendCommand() *cobra.Command {
 		Short: "Send a message on the project bus",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if m.K == "allow" || m.K == "deny" {
+				return fmt.Errorf("kind %q is reserved for duolog %s", m.K, m.K)
+			}
+			if isWorker() {
+				if _, name, ok := strings.Cut(m.From, "/"); ok && strings.HasPrefix(name, "lead.") {
+					return fmt.Errorf("workers cannot send as a lead address")
+				}
+			}
 			b, err := openBus()
 			if err != nil {
 				return err

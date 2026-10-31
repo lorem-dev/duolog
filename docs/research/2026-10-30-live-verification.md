@@ -449,6 +449,8 @@ a login failure and a quota end did not occur.
 limit`. The limit itself ended this work. An Agent subagent failed with the text
 in `scripts/bench/fixtures/limits/claude-5h.txt`, with error type `rate_limit`
 and HTTP 429. Whether `claude -p` prints the same text is NOT VERIFIED.
+Codex printed `hit your usage limit` in an `error` and a `turn.failed` event,
+with `try again at 8:48 AM` (see `limits/codex-usage.jsonl`).
 
 ## How duolog can list capabilities with no model call
 

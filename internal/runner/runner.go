@@ -218,7 +218,7 @@ func readLog(path, agent string, stderr bool, result *Result) error {
 			Code    string          `json:"code"`
 			Error   json.RawMessage `json:"error"`
 		}
-		failureEvent := json.Unmarshal(line, &event) == nil && event.Type == "error"
+		failureEvent := json.Unmarshal(line, &event) == nil && (event.Type == "error" || event.Type == "turn.failed")
 		text := ""
 		if failureEvent {
 			text = event.Message + " " + event.Code + " " + string(event.Error)
@@ -230,6 +230,8 @@ func readLog(path, agent string, stderr bool, result *Result) error {
 		if quotaFailure(text) {
 			result.QuotaEnded = true
 			if reset := resetTime(text, time.Now()); !reset.IsZero() {
+				result.ResetAt = reset
+			} else if reset := codexResetTime(text, time.Now()); !reset.IsZero() {
 				result.ResetAt = reset
 			}
 		}
@@ -273,6 +275,30 @@ func resetTime(text string, now time.Time) time.Time {
 	}
 	local := now.In(loc)
 	reset := time.Date(local.Year(), local.Month(), local.Day(), hour, 0, 0, 0, loc)
+	if !reset.After(now) {
+		reset = reset.AddDate(0, 0, 1)
+	}
+	return reset
+}
+
+var codexResetPattern = regexp.MustCompile(`(?i)try again at ([0-9]{1,2}):([0-9]{2}) ?(am|pm)`)
+
+// codexResetTime parses "try again at 8:48 AM" as the next such local time.
+func codexResetTime(text string, now time.Time) time.Time {
+	match := codexResetPattern.FindStringSubmatch(text)
+	if match == nil {
+		return time.Time{}
+	}
+	hour, _ := strconv.Atoi(match[1])
+	minute, _ := strconv.Atoi(match[2])
+	if hour < 1 || hour > 12 || minute > 59 {
+		return time.Time{}
+	}
+	hour %= 12
+	if strings.EqualFold(match[3], "pm") {
+		hour += 12
+	}
+	reset := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
 	if !reset.After(now) {
 		reset = reset.AddDate(0, 0, 1)
 	}

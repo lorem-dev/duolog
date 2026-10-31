@@ -70,3 +70,21 @@ func TestBusCommandArguments(t *testing.T) {
 		}
 	}
 }
+
+func TestSendRefusesForgedDecisions(t *testing.T) {
+	isolatedRouteConfig(t)
+	t.Chdir(t.TempDir())
+	t.Setenv("DUOLOG_DEPTH", "")
+	for _, kind := range []string{"allow", "deny"} {
+		if _, err := executeBusCommand(t, "send", "--from", "codex/lead.abcdef", "--to", "duolog/ask.x", "--kind", kind, "--ref", "1", "x"); err == nil {
+			t.Fatalf("send accepted kind %s", kind)
+		}
+	}
+	t.Setenv("DUOLOG_DEPTH", "1")
+	if _, err := executeBusCommand(t, "send", "--from", "codex/lead.abcdef", "--to", "x", "--kind", "status", "x"); err == nil {
+		t.Fatal("worker sent as lead")
+	}
+	if _, err := executeBusCommand(t, "send", "--from", "codex/worker", "--to", "x", "--kind", "status", "x"); err != nil {
+		t.Fatal(err)
+	}
+}
