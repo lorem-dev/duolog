@@ -12,6 +12,7 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -39,7 +40,10 @@ jobs:
       - name: Vet the end-to-end tests (do not run them)
         run: go vet -tags=e2e ./test/e2e/
       - name: Unit and native generated-command tests
-        run: go test ${{ matrix.race }} ./...
+        timeout-minutes: 4
+        # A healthy package takes under a minute on every runner. The timeout
+        # names the test that hangs and prints its stack.
+        run: go test ${{ matrix.race }} -timeout 2m ./...
       - name: Schema is current
         run: go test . -run '^TestSchemaFileIsCurrent$'
       - name: Third-party notices are current
@@ -95,6 +99,7 @@ jobs:
   cross-build:
     name: cross-build (all release targets)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6

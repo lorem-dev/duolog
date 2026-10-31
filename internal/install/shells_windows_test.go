@@ -37,7 +37,7 @@ func TestWindowsHookShells(t *testing.T) {
 								if shell == "bash" {
 									cmd = testbin.GitBashProcess(command)
 								}
-								ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+								ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 								t.Cleanup(cancel)
 								bounded := testbin.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
 								bounded.SysProcAttr = cmd.SysProcAttr
@@ -47,7 +47,9 @@ func TestWindowsHookShells(t *testing.T) {
 								t.Setenv("DUOLOG_DEPTH", depth)
 								cmd := process()
 								cmd.Env = append(os.Environ(), "PATH="+filepath.Join(os.Getenv("SYSTEMROOT"), "System32")+";"+filepath.Join(os.Getenv("SYSTEMROOT"), "System32", "WindowsPowerShell", "v1.0"))
+								started := time.Now()
 								out, err := cmd.CombinedOutput()
+								t.Logf("missing %s depth=%s took %s", event, depth, time.Since(started))
 								got := 0
 								if err != nil {
 									if cmd.ProcessState == nil {
@@ -66,7 +68,9 @@ func TestWindowsHookShells(t *testing.T) {
 							fake := testbin.Install(t, "duolog", testbin.Scenario{Exit: 7, Stdout: "hello"})
 							cmd := process()
 							cmd.Stdin = strings.NewReader("{\"text\":\"stdin\"}\n")
+							started := time.Now()
 							out, err := cmd.CombinedOutput()
+							t.Logf("present %s took %s", event, time.Since(started))
 							if err == nil || cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != 7 || string(out) != "hello" {
 								t.Fatalf("present %s: %v %q", event, err, out)
 							}

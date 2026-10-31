@@ -13,6 +13,7 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
@@ -22,7 +23,8 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Test suite
-        run: go test ./...
+        timeout-minutes: 4
+        run: go test -timeout 2m ./...
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       # GoReleaser includes both installers in release assets and checksums.
