@@ -22,7 +22,7 @@ jobs:
       - name: Keep line endings as they are in Git
         run: git config --global core.autocrlf false
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
