@@ -104,13 +104,21 @@ func TestRepoRefReportsStale(t *testing.T) {
 
 func TestRefOutsideRootRefused(t *testing.T) {
 	s, root, path := fixture(t, "hello\n")
-	for _, p := range []string{"../../etc/passwd", `..\..\etc\passwd`, path, "C:/outside", `C:\outside`, "C:outside", `\\server\share\file`, "//server/share/file"} {
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	writeSource(t, outside, "hello\n")
+	relative, err := filepath.Rel(root, outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{relative, strings.ReplaceAll(relative, "/", `\`), path, "C:/outside", `C:\outside`, "C:outside", `\\server\share\file`, "//server/share/file"} {
 		t.Run(p, func(t *testing.T) {
 			if _, err := RepoRef(root, p); err == nil {
 				t.Error("RepoRef accepted outside path")
 			}
-			if _, _, err := Read(s, root, p+"@abc"); err == nil {
-				t.Error("Read accepted outside path")
+			// The valid hash and range must reach the path containment check,
+			// including for drive-qualified paths containing a colon.
+			if _, _, err := Read(s, root, p+"@ce013625:1-1"); err == nil || !strings.Contains(err.Error(), "project root") {
+				t.Errorf("Read must reject path containment: %v", err)
 			}
 		})
 	}
