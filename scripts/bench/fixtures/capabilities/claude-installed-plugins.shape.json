@@ -1,0 +1,1 @@
+{"version": "<number>", "plugins": {"<name>@<marketplace>": [{"scope": "user", "installPath": "<path>", "version": "<version>", "installedAt": "<time>", "lastUpdated": "<time>", "gitCommitSha": "<sha>"}]}}

@@ -10,7 +10,7 @@ Read these first. Tasks 9 to 13, 15 and 16 must change for them.
 
 | What the design says | What we measured | What it means |
 |---|---|---|
-| A reference is cheaper than content on the bus | A reference to a whole file cost 1.9 times the content. `resume` cost the most. Only a reference to a narrow range was cheaper | Put small files in the task. Use a reference with a line range. Do not expect `resume` to save tokens |
+| A reference is cheaper than content on the bus | A reference to a whole file cost 1.9 times the content. `resume` cost the most. Only a reference to a narrow range was cheaper, and 1 of its 3 runs gave no review | Put small files in the task. Use a reference with a line range. Do not expect `resume` to save tokens |
 | `PermissionRequest` works under one-off runs | It never fires under `codex exec`. The approval policy stays `never` | Under `codex exec`, the gate has only `PreToolUse` and the sandbox |
 | Hooks protect the worker | `codex exec` silently skips a hook that has no trust. The command ran and nothing warned us | A gate on an untrusted hook is off. duolog must check trust before it relies on the hook |
 | `.codex/agents` may not load | It loads, under `codex exec` too, but only in a trusted folder. Without trust, the tool has no `agent_type` field | Agent conversion stays. duolog must check folder trust and must not fall back in silence |
@@ -71,7 +71,7 @@ binary at version 0.166.0. It was already there before these runs.
 | R4 | SessionEnd fires when the pane closes, Claude | VERIFIED YES |
 | R5 | SessionEnd fires when the pane closes, Codex | VERIFIED NO |
 | B1 | A whole-file reference is cheaper than content | VERIFIED NO |
-| B2 | A narrow-range reference is cheaper than content | VERIFIED YES, in dollars only |
+| B2 | A narrow-range reference is cheaper than content | VERIFIED YES in dollars, but 1 of 3 runs gave no review |
 | B3 | `resume` is cheaper than a new task | VERIFIED NO |
 | W1 | Behavior on Windows | NOT VERIFIED |
 
@@ -87,8 +87,8 @@ All probes ran in a new temp folder. `$PROBE` below stands for that folder.
 
 ## Codex loads agent files only in a trusted folder
 
-The answer is yes, in `codex exec` and in the interactive program. The file
-must be in a trusted folder. Both `probe-agent` and `probe_agent` work.
+The answer is yes, in `codex exec` and in the interactive program. The file must
+be in a trusted folder. Both `probe-agent` and `probe_agent` work.
 
 ```bash
 # $PROBE/t is a git root with a [projects."$PROBE/t"] trust entry.
@@ -115,8 +115,8 @@ message and no tool call opens the file. The interactive program gave the same
 result for both names in one session: `ZEBRA-QUILL-7341` and `MANGO-TULIP-5582`.
 
 What this does not rule out: the test does not show that every key in the file
-works. We checked only `name`, `description`, `model`,
-`model_reasoning_effort` and `developer_instructions`.
+works. We checked only `name`, `description`, `model`, `model_reasoning_effort`
+and `developer_instructions`.
 
 | Condition | `spawn_agent` tool | Result |
 |---|---|---|
@@ -130,17 +130,18 @@ underscores, and the tool refuses a hyphen there.
 
 Trust needs an exact folder or the git root. A `[projects]` entry on a parent
 folder did nothing when the child was its own git root. The interactive program
-offers only two choices for an untrusted folder, so it cannot run there:
-`1. Trust and continue` or `2. Quit`.
+offers only two choices for an untrusted folder, so it cannot run there: `1.
+Trust and continue` or `2. Quit`.
 
 `spawn_agent` defaults to `fork_turns: all`. The child then gets the parent's
 history, as its record shows. To send only the task, a lead must pass `none`.
 
 ## Extra SKILL.md keys do no harm
 
-Neither agent refused or warned about these keys: `allowed-tools`,
-`disable-model-invocation`, `argument-hint`, `user-invocable`, `model`, `hooks`
-and an unknown key.
+Neither agent refused or warned about the keys we gave it. Codex got
+`allowed-tools`, `disable-model-invocation`, `argument-hint`, `user-invocable`,
+`model`, `hooks` and an unknown key. Claude got `allowed-tools`,
+`disable-model-invocation` and an unknown key.
 
 ```bash
 codex debug prompt-input -c project_doc_max_bytes=0 "x" </dev/null
@@ -151,7 +152,7 @@ claude -p /probe-skill --model haiku --effort low --verbose \
 
 | Check | Trusted Codex | Untrusted Codex | Claude |
 |---|---|---|---|
-| The skill is listed for the model | Yes | Yes | Yes |
+| The skill is listed | Yes, in the prompt | Yes, in the prompt | Yes, in the init event |
 | Calling it returned `COPPER-LATCH-6650` | Yes, no tool call | Yes, no tool call | Yes |
 
 **What this means.** `sync.skills.drop_keys` is not needed to avoid errors. But
@@ -221,8 +222,8 @@ the refusal.
 did not run. `touch` created the file, the exit code was 0, and the output had
 no warning. The run had `PreToolUse` deny in `.codex/hooks.json`.
 
-**`bypassPermissions`.** A `PreToolUse` deny still blocked Bash in
-`claude -p --permission-mode bypassPermissions`.
+**`bypassPermissions`.** A `PreToolUse` deny still blocked Bash in `claude -p
+--permission-mode bypassPermissions`.
 
 **Tool names in Codex hooks.** A shell command is `Bash`, also when the model
 calls it from inside the `exec` code tool. `spawn_agent` is
@@ -234,8 +235,8 @@ calls it from inside the `exec` code tool. `spawn_agent` is
 
 ## Codex hooks run in a main session after one trust step
 
-The answer is yes. In a Codex session with no bypass flag, project hooks did
-not run until we trusted them. Then `UserPromptSubmit` and, in the next session,
+The answer is yes. In a Codex session with no bypass flag, project hooks did not
+run until we trusted them. Then `UserPromptSubmit` and, in the next session,
 `SessionStart` fired.
 
 The trust step happens either in the startup screen `Hooks need review` or with
@@ -312,33 +313,34 @@ when the run's effort was `low`.
 
 - Claude: `medium` for Haiku 5.5, in the hook and on screen, live and in `-p`.
   We did not measure it for Opus or Sonnet.
-- Codex: `turn_context.effort` is `null` with `--ignore-user-config`. The model's
-  default comes from `default_reasoning_level` in `codex debug models`, such as
-  `medium` for `gpt-6-luna`. We did not see the value the server used.
+- Codex: `turn_context.effort` is `null` with `--ignore-user-config`. The
+  model's default comes from `default_reasoning_level` in `codex debug models`,
+  such as `medium` for `gpt-6-luna`. We did not see the value the server used.
 
-**The model after a change.** Codex shows it in later hooks. Claude shows it only
-in the transcript, as `message.model`: `claude-haiku-5-5`, then
+**The model after a change.** Codex shows it in later hooks. Claude shows it
+only in the transcript, as `message.model`: `claude-haiku-5-5`, then
 `claude-sonnet-5-5`.
 
-**Warning.** Claude `/effort` and `/model` wrote to user settings, as the incident
-below shows. In Codex, the `/model` menu has `enter default` and `s session`. We
-used `s`, and `config.toml` did not change. Other Codex choices are NOT VERIFIED.
+**Warning.** Claude `/effort` and `/model` wrote to user settings, as the
+incident below shows. In Codex, the `/model` menu has `enter default` and `s
+session`. We used `s`, and `config.toml` did not change. Other Codex choices are
+NOT VERIFIED.
 
 ## How the permission mode shows in hooks
 
 | Agent | Values seen in `permission_mode` | How to set at startup | A later hook after a change |
 |---|---|---|---|
 | Claude | `default`, `auto`, `acceptEdits`, `bypassPermissions` | `--permission-mode <mode>` | Yes: `default`, then `acceptEdits` after `shift+tab` |
-| Codex | `default` (approval `on-request`), `bypassPermissions` (approval `never`) | `-s <mode>`, `-a <policy>` | No: it stayed `default` |
+| Codex | `default` (approval `on-request`), `bypassPermissions` (approval `never`) | `-s <mode>`, `-a <policy>`. The help also lists `--approve-for-me`, which we did not run | No: it stayed `default` |
 
-A new Claude session with no setting started in `auto`. In that mode, `touch` ran
-with no `PermissionRequest`. So this hook does not fire for every action.
+A new Claude session with no setting started in `auto`. In that mode, `touch`
+ran with no `PermissionRequest`. So this hook does not fire for every action.
 
 The Codex `permission_mode` does not show the sandbox. After `/permissions`,
 these fields changed in the `turn_context` lines of the transcript:
 `sandbox_policy.type`, `approval_policy`, `approvals_reviewer` (for example
-`auto_review`) and `active_permission_profile.id`. We did not select
-`Full Access`, or the other `-a` policies, so their values are NOT VERIFIED.
+`auto_review`) and `active_permission_profile.id`. We did not select `Full
+Access`, or the other `-a` policies, so their values are NOT VERIFIED.
 
 ## What can ask a question at startup
 
@@ -359,7 +361,7 @@ have no baseline, and U1 and U2 stay open. We saw only this:
 | Setting | What we saw |
 |---|---|
 | `-c check_for_update_on_startup=false` | No "unrecognized" warning. No update screen. `~/.codex/version.json` kept its time |
-| The same key in `.codex/config.toml` | Same, and Codex stays on the shared server |
+| The same key in `.codex/config.toml` | Same, and no embedded-mode warning |
 | `DISABLE_AUTOUPDATER=1` | Debug log: `AutoUpdaterWrapper: Installation type: package-manager`. It says nothing about this variable |
 
 **Any `-c` has a cost in a live session.** Codex warns: `Running without the
@@ -370,8 +372,10 @@ shared background server: command-line configuration overrides (-c, --enable,
 this includes untrusted folders. We cannot prove this for every case. An update,
 a login failure and a quota end did not occur.
 
-**Quota text.** Claude printed this, and the parser can use it:
-`You've used 98% of your 5-hour limit`. We did not reach the limit itself.
+**Quota text.** A live Claude screen printed `You've used 98% of your 5-hour
+limit`. The limit itself ended this work. An Agent subagent failed with the text
+in `scripts/bench/fixtures/limits/claude-5h.txt`, with error type `rate_limit`
+and HTTP 429. Whether `claude -p` prints the same text is NOT VERIFIED.
 
 ## How duolog can list capabilities with no model call
 
@@ -382,10 +386,13 @@ None of these commands calls a model. Samples are in
 |---|---|---|
 | Claude | `claude plugin list --json` | Has `id`, `version`, `scope`, `enabled`, `installPath` |
 | Claude | `claude mcp list` | Text. It connects to each server first, so it is slow |
-| Claude | `~/.claude/plugins/installed_plugins.json` | File exists. Format not sampled |
+| Claude | `~/.claude/plugins/installed_plugins.json` | `plugins` maps each `name@marketplace` to a list of installs |
+| Claude | `enabledPlugins` in `~/.claude/settings.json` | An object. We did not sample its values |
 | Codex | `codex plugin list --json` | About 1.7 KB. Plain `codex plugin list` printed 1.8 MB of catalog |
 | Codex | `codex mcp list --json` | Has `env` and `env_vars`. Remove them before logging |
+| Codex | `[mcp_servers.<name>]` in `~/.codex/config.toml` | The same servers as `codex mcp list` on this machine |
 | Codex | `~/.agents/skills/`, `.agents/skills/` | Folders of skills |
+| Claude | `~/.claude/skills/`, `.claude/skills/`, and the `skills` list in the `-p` init event | The init event needs a model call |
 
 **Under one-off runs.** The `claude -p` init event in `--output-format
 stream-json --verbose` lists `plugins`, `mcp_servers` and `skills`, with status
@@ -394,8 +401,8 @@ The user's `codegraph` server was not in the session record, and it may load on
 demand. So M4 stays open.
 
 **Claude skills from Codex.** Under `codex exec -s read-only`, `head` read a
-SKILL.md at an absolute path under `~/.claude/plugins/cache`. It printed
-`name: figma-code-connect`.
+SKILL.md at an absolute path under `~/.claude/plugins/cache`. It printed `name:
+figma-code-connect`.
 
 ## How to map a model id to its alias
 
@@ -409,15 +416,16 @@ SKILL.md at an absolute path under `~/.claude/plugins/cache`. It printed
 | Codex transcript | `turn_context.model` | `gpt-6-luna` |
 
 `claude --model opus` reported `claude-opus-5-5`, the screen said `Opus 5.5`,
-and that is the newest Opus in our price table. We cannot prove that it picks the
-newest when a new one appears. A rule that the alias is the part between
+and that is the newest Opus in our price table. We cannot prove that it picks
+the newest when a new one appears. A rule that the alias is the part between
 `claude-` and the version fits all three ids we saw.
 
 `codex debug models` calls no model. It printed the same bytes under
 `sandbox-exec` with the network denied, so it needs no network. This also means
-it can be out of date. The top level is `{"models":[...]}` with 11 models.
-Each has `slug`, `visibility` (`list` or `hide`), `default_reasoning_level` and
-`supported_reasoning_levels`. See `fixtures/models/`, which holds a trimmed copy.
+it can be out of date. The top level is `{"models":[...]}` with 11 models. Each
+has `slug`, `visibility` (`list` or `hide`), `default_reasoning_level` and
+`supported_reasoning_levels`. See `fixtures/models/`, which holds a trimmed
+copy.
 
 ## What Rex does for a closed pane and an exited program
 
@@ -432,9 +440,10 @@ block there. The `rex split --json` field for the new block is `block_ids[0]`.
 | `rex send` | Exit 3, same error | Exit 0, **the text goes nowhere** |
 | `rex wait` | Exit 3, `block, window, or session target "<id>" not found` | Exit 3, `exit status 3`. With `--json`: `{"exit_code":3,"error":"exit status 3"}` |
 
-`rex wait` exits with the program's code, so exit 3 alone is ambiguous. Use
-`rex block inspect` first. A block looked the same with and without
-`--keep-open`, 2 seconds after the exit.
+`rex wait` exits with the program's code, so exit 3 alone is ambiguous. Use `rex
+block inspect` first. A block looked the same with and without `--keep-open`, 2
+seconds after the exit. The block without `--keep-open` was still there minutes
+later, until we closed it.
 
 | SessionEnd | Claude | Codex |
 |---|---|---|
@@ -442,18 +451,19 @@ block there. The `rex split --json` field for the new block is `block_ids[0]`.
 | `/quit` | Not tested | Fires, `"reason":"other"` |
 
 **Timing.** `rex send` followed at once by `rex send-key enter` lost the Enter
-once in Codex, for a long prompt. A wait of 0.7 seconds fixed this in every later
-send. `peer_send` needs a wait and a check.
+once in Codex, for a long prompt. A wait of 0.7 seconds fixed this in every
+later send. `peer_send` needs a wait and a check.
 
 **Other Rex problems.**
 
 - `rex` was not found in the Codex shell, and `REX_BIN_DIR` was not on its PATH.
 - `codex sandbox -- rex whoami --json` exited 4: `connecting to Rex server ...
-  failed to WebSocket dial`. Other sandbox modes and escalated commands are
-  NOT VERIFIED.
-- The user-level Rex hook told a Codex probe to rename the Rex session. The rename
-  failed because `rex` was not found. Under a working `rex`, a worker would rename
-  the user's session. Tasks must plan for this.
+  failed to WebSocket dial`. Other sandbox modes and escalated commands are NOT
+  VERIFIED.
+- A Codex probe tried to rename the Rex session, and nobody asked it to. It
+  failed because `rex` was not found. We did not prove the cause. A user-level
+  Rex hook and skill exist on this machine. With a working `rex`, a worker might
+  rename the user's session, so tasks must plan for this.
 
 ## MCP checks were dropped
 
@@ -464,8 +474,8 @@ So we did not test M1 or M2.
 
 Each row uses `gpt-6-luna`, effort `low`, 3 repeats, from `turn.completed` in
 `--json`. The file has 2,000 lines and 28,663 bytes, and it adds about 8,700
-tokens. The money column uses the prices on the
-[practices page](2026-10-30-practices-and-models.md).
+tokens. The money column uses the prices on the [practices
+page](2026-10-30-practices-and-models.md).
 
 | Form | Input tokens, each run | Mean input | Mean cached | Mean output | Mean USD |
 |---|---|---|---|---|---|
@@ -480,30 +490,38 @@ tokens. The money column uses the prices on the
 uv run --no-project python scripts/bench/handoff_bench.py <empty-temp-dir>
 ```
 
-**Why a reference costs more.** `input_tokens` adds up all model calls in a turn.
-In one run, the seven calls summed exactly to the reported 134,953. Each command
-sends about 15,000 tokens again, mostly from cache. The reference runs used 4 or
-5 commands, and the model read other things than the file first. All forms found
-the planted bug in the runs we read.
+**Why a reference costs more.** `input_tokens` adds up all model calls in a
+turn. In one run, the seven calls summed exactly to the reported 134,953. Each
+model call sends the whole context again, mostly from cache. The whole-file
+reference runs used 4 or 5 commands. In the range run whose text we read first,
+the model said it would read project guidance first.
 
 **Thresholds, from these numbers.**
 
 | Choice | Result |
 |---|---|
 | Content or whole-file reference | Content was cheaper at this size. The reader pays for the file in both |
-| Content or narrow reference | The reference wins above about 5,000 tokens of file, about 1,100 lines here |
+| Content or narrow reference | The reference wins above about 5,000 tokens of file, about 1,100 lines here. This is weak, because 1 of 3 range runs failed |
 | `resume` or a new task | `resume` lost. The second turn cost more than a new task with content |
 | Hand over or do it yourself, lead on Opus | Cheaper above about 100 tokens of file |
 | Hand over or do it yourself, lead on Sonnet | Cheaper above about 200 tokens of file |
 | Hand over or do it yourself, lead on Haiku or Luna | Never cheaper, by price alone |
 
-The last three use `0.00038 / (lead input price - 0.10 per million)`. They ignore
-output, the answer and the lead's cache. They are rough limits, not promises.
+The last three use `0.00038 / (lead input price - 0.10 per million)`. They
+ignore output, the answer and the lead's cache. They are rough limits, not
+promises.
 
-**What this does not rule out.** The file repeats itself, so a real file may have
-more tokens per line. Three repeats are few, and cache hits changed between runs.
-We used the first form of a `task.md`, and a stricter one could need fewer
-commands. The range test was added to the requested three forms.
+**What this does not rule out.** The file repeats itself, so a real file may
+have more tokens per line. Three repeats are few, and cache hits changed between
+runs. We used the first form of a `task.md`, and a stricter one could need fewer
+commands. The range test was added to the requested three forms, and a shell
+loop ran it. The script has this form now, but we did not run that version
+again.
+
+**The answers.** We kept the answers only for the range runs. Two found the
+planted bug in `Sum137`. The third said that it could not review the file, so
+its tokens bought no review. The script does not save answers, so the quality of
+the other forms is NOT VERIFIED.
 
 ## What these tests changed on the machine
 
@@ -514,6 +532,7 @@ commands. The range test was added to the requested three forms.
 | `~/.claude/settings.json` | See below. The SHA-1 matches the value from before the runs |
 | `~/.codex/sessions` | We removed the probe session files. `codex delete` needs `--force`, so rows may stay in the Codex state database |
 | `~/.claude.json`, `~/.claude/history.jsonl` | Still mention the temp folder or probe prompts. We left them, because live sessions rewrite them |
+| Claude 5-hour limit | 91% at the first warning, 98% later. The limit then stopped this work until it reset |
 
 **The incident.** We sent `/effort high` and `/model sonnet` to a probe Claude.
 The run had `--setting-sources project,local`, and Claude still wrote to
@@ -526,4 +545,5 @@ could have used Sonnet. We edited those two lines back and checked the SHA-1
 
 - [Practices and models](2026-10-30-practices-and-models.md): the earlier
   evidence and the prices
-- [The bench script](../../scripts/bench/handoff_bench.py): the token measurement
+- [The bench script](../../scripts/bench/handoff_bench.py): the token
+  measurement
