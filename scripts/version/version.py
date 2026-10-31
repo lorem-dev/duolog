@@ -177,6 +177,11 @@ def section_body(text: str, version: str) -> str:
     return ""
 
 
+def release_body(section: str) -> str:
+    """Join each wrapped bullet into one line: GitHub shows a line break in a release."""
+    return re.sub(r"\n  +", " ", section)
+
+
 def promoted(text: str, version: str) -> str:
     """Turn the Development entries into a version section under a fresh Development."""
     newline = "\r\n" if "\r\n" in text else "\n"
@@ -252,6 +257,7 @@ def notes(root: Path, tag: str, output: Path | None) -> None:
     if not body:
         click.echo(f"{CHANGES}: has no entries for version {version}", err=True)
         sys.exit(1)
+    body = release_body(body)
     if output is None:
         click.echo(body)
     else:
