@@ -29,6 +29,9 @@ func gateSetup(t *testing.T, m mode.Mode) (*session.Registry, string) {
 	if err = r.RegisterLead(session.Lead{ID: "lead-123456", Target: config.Target{Agent: "codex"}, Mode: m}); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(root, ".duolog/config.yaml"), []byte("policy:\n  ask_timeout_seconds: 1\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	return r, root
 }
 func gateCommand(t *testing.T, input string, args ...string) (string, error) {
@@ -145,7 +148,7 @@ func TestGateLogsWithoutExtraStdout(t *testing.T) {
 		t.Fatal(string(data))
 	}
 	out, err := gateCommand(t, "", "decisions")
-	if err != nil || !strings.Contains(out, "Allow") || !strings.Contains(out, "Deny") || !strings.Contains(out, "Ask") || !strings.Contains(out, "Reason") {
+	if err != nil || !strings.Contains(out, "Allow") || !strings.Contains(out, "Deny") || !strings.Contains(out, "ask timeout") || !strings.Contains(out, "Reason") {
 		t.Fatal(out, err)
 	}
 }

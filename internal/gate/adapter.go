@@ -69,8 +69,8 @@ func Normalize(agent string, input []byte) (Action, error) {
 	return a, nil
 }
 
-// Render only emits decisions in formats observed to be honored. Ask is a
-// refusal for now; a later task will connect it to the lead's question flow.
+// Render only emits decisions in formats observed to be honored. An unresolved
+// Ask fails closed; hook callers resolve it through Escalate before rendering.
 func Render(agent, event string, d Decision) []byte {
 	if d.Kind == Allow && event == "PreToolUse" {
 		return nil

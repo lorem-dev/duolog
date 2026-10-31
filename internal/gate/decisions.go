@@ -10,8 +10,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
-// Record keeps the policy outcome (including Ask) independently of its hook
-// rendering, which currently refuses an action that needs a question.
+// Record keeps the final permission outcome independently of its hook rendering.
 type Record struct {
 	Action Action `json:"action"`
 	Decision
