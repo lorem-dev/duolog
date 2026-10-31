@@ -1,6 +1,10 @@
 {
   "name": "duolog",
-  "owner": {"name": "lorem-dev"},
+  "description": "Plugins that pair Claude Code and Codex in one project.",
+  "owner": {
+    "name": "Lorem Dev",
+    "url": "https://github.com/lorem-dev"
+  },
   "plugins": [
     {
       "name": "duolog",

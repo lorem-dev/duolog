@@ -104,6 +104,11 @@ func Scan(ctx context.Context, agent, root string) (Inventory, error) {
 	}
 	inv.Items = normalize(items)
 	path := filepath.Join(project.StateRoot(root), ".duolog", "cache", "inventory-"+agent+".json")
+	// An uninitialized project gets no cache, so that a read-only command does not
+	// create .duolog/ with no .gitignore, which hooks would then treat as set up.
+	if _, statErr := os.Stat(filepath.Join(project.StateRoot(root), ".duolog", ".gitignore")); statErr != nil {
+		return inv, nil
+	}
 	if data, err := json.Marshal(inv); err == nil {
 		if os.MkdirAll(filepath.Dir(path), 0755) == nil {
 			if f, err := os.CreateTemp(filepath.Dir(path), ".inventory-*"); err == nil {
