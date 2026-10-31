@@ -219,3 +219,14 @@ func (r *Registry) ClearUnavailable(agent string) error {
 		return nil
 	})
 }
+
+// Entries returns a snapshot including closed entries so surviving panes can be
+// associated with their leads after Close has marked their entries closed.
+func (r *Registry) Entries() ([]Entry, error) {
+	var entries []Entry
+	err := r.access(false, func(s *state) error {
+		entries = append(entries, s.Entries...)
+		return nil
+	})
+	return entries, err
+}

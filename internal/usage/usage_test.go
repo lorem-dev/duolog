@@ -79,3 +79,18 @@ func TestStatsUsesProjectPrices(t *testing.T) {
 		t.Fatal(table)
 	}
 }
+
+func TestStatsClaudeAliasHasUnknownActualVersion(t *testing.T) {
+	path := logFile(t, `{"role":"review_final","agent":"claude","model":"opus","effort":"high","effort_capped":false,"input":1000000,"cached":0,"output":0}`+"\n")
+	table, err := Summarize(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(table.Rows) != 1 || table.Rows[0].Model != "opus" || table.Total != 4 {
+		t.Fatalf("%+v", table)
+	}
+	warning := strings.Join(table.Warnings, "\n")
+	if !strings.Contains(warning, "prices for claude-opus-5-5") || !strings.Contains(warning, "actual version unknown") || strings.Contains(warning, "version that ran was opus") {
+		t.Fatal(warning)
+	}
+}

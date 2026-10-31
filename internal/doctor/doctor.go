@@ -60,8 +60,6 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 	add("warning", "Hooks changed after review cannot be detected here; Codex itself will skip changed hooks. Review /hooks.")
 	if _, err := exec.LookPath("rex"); err != nil {
 		add("warning", "Rex unavailable; pane connectivity cannot be checked")
-	} else {
-		add("info", "Rex binary available; pane connectivity not checked")
 	}
 	var baseline map[string]string
 	_ = json.Unmarshal([]byte(FixtureVersions), &baseline)
