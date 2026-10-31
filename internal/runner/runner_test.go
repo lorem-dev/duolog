@@ -413,3 +413,64 @@ func TestClaudeStderrDoesNotCorruptResult(t *testing.T) {
 		})
 	}
 }
+
+func TestQuotaFailureChannels(t *testing.T) {
+	for _, agent := range []string{"codex", "claude"} {
+		for _, tc := range []struct {
+			name, stdout, stderr string
+			exit                 int
+			quota                bool
+		}{
+			{name: "tool output on failure", exit: 1, stdout: `{"type":"item.completed","item":{"type":"command_execution","aggregated_output":"usage limit resets 3am (Europe/London)"}}`},
+			{name: "model answer on failure", exit: 1, stdout: `{"type":"item.completed","item":{"type":"agent_message","text":"usage limit resets 3am (Europe/London)"}}`},
+			{name: "plain stdout on failure", exit: 1, stdout: "usage limit"},
+			{name: "broad rate limit text", exit: 1, stderr: "panic in rate limiter"},
+			{name: "successful diagnostic", stderr: "quota exceeded"},
+			{name: "http status", exit: 1, stderr: "HTTP 429", quota: true},
+			{name: "quota exceeded", exit: 1, stderr: "quota exceeded", quota: true},
+			{name: "quota code", exit: 1, stderr: "insufficient_quota", quota: true},
+			{name: "rate code", exit: 1, stderr: "rate_limit", quota: true},
+			{name: "stdout error event", stdout: `{"type":"error","message":"usage limit resets 3am (Europe/London)"}`, quota: true},
+			{name: "nested error event", exit: 1, stdout: `{"type":"error","error":{"code":"insufficient_quota","message":"quota exceeded"}}`, quota: true},
+			{name: "stderr error event", stderr: `{"type":"error","message":"HTTP 429"}`, quota: true},
+		} {
+			t.Run(agent+"/"+tc.name, func(t *testing.T) {
+				s := spec(t, agent)
+				install(t, &s, testbin.Scenario{Exit: tc.exit, Stdout: tc.stdout, Stderr: tc.stderr})
+				r, _ := Run(context.Background(), s)
+				if r.QuotaEnded != tc.quota || !tc.quota && !r.ResetAt.IsZero() {
+					t.Fatalf("quota=%v, want %v; result: %+v", r.QuotaEnded, tc.quota, r)
+				}
+				if tc.name == "stdout error event" && r.ResetAt.IsZero() {
+					t.Fatal("error event reset time missing")
+				}
+			})
+		}
+	}
+}
+
+func TestClaudeLeadingStdoutDiagnostics(t *testing.T) {
+	s := spec(t, "claude")
+	var output any
+	if err := json.Unmarshal([]byte(`{"session_id":"session-123","usage":{"input_tokens":7},"structured_output":`+goodAnswer+`}`), &output); err != nil {
+		t.Fatal(err)
+	}
+	pretty, err := json.MarshalIndent(output, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics := "Startup warning: using project settings\n\nConnecting to services...\n"
+	install(t, &s, testbin.Scenario{Stdout: diagnostics + string(pretty), Stderr: "stderr diagnostic\n"})
+	r, err := Run(context.Background(), s)
+	if err != nil || !r.Done || r.SessionID != "session-123" || r.Usage.Input != 7 || r.Summary != "Implemented." {
+		t.Fatalf("%+v %v", r, err)
+	}
+	var answer any
+	if err := json.Unmarshal(read(t, filepath.Join(s.TaskDir, "answer.json")), &answer); err != nil || !reflect.DeepEqual(answer, output.(map[string]any)["structured_output"]) {
+		t.Fatalf("saved answer: %v, %v", answer, err)
+	}
+	log := string(read(t, filepath.Join(s.TaskDir, "stdout.log")))
+	if !strings.Contains(log, diagnostics) || !strings.Contains(log, string(pretty)) || !strings.Contains(log, "stderr diagnostic") {
+		t.Fatal("log is missing stdout or stderr")
+	}
+}

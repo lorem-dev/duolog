@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"io"
@@ -39,6 +40,20 @@ func claudeResult(path string, result *Result) (json.RawMessage, error) {
 	}
 	defer file.Close()
 	// Only stdout is decoded; stderr is retained separately in stdout.log.
+	// Startup diagnostics can precede the JSON object. Preserve the first JSON
+	// line and the remaining stream so pretty-printed results still decode.
+	reader := bufio.NewReader(file)
+	var first []byte
+	for {
+		line, readErr := reader.ReadBytes('\n')
+		if bytes.HasPrefix(bytes.TrimSpace(line), []byte("{")) {
+			first = line
+			break
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+	}
 	var output struct {
 		SessionID  string          `json:"session_id"`
 		Structured json.RawMessage `json:"structured_output"`
@@ -49,7 +64,7 @@ func claudeResult(path string, result *Result) (json.RawMessage, error) {
 			Output   int64 `json:"output_tokens"`
 		} `json:"usage"`
 	}
-	if err := json.NewDecoder(file).Decode(&output); err != nil {
+	if err := json.NewDecoder(io.MultiReader(bytes.NewReader(first), reader)).Decode(&output); err != nil {
 		return nil, err
 	}
 	result.SessionID = output.SessionID

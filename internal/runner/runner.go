@@ -110,19 +110,21 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = s.Cwd
 	cmd.Stdin = bytes.NewReader(s.Stdin)
-	cmd.Stdout = log
-	cmd.Stderr = log
-	// Claude emits one JSON result on stdout. Keep a separate disk capture so
-	// stderr diagnostics cannot be mistaken for, or interleaved into, that JSON.
-	stdoutPath := filepath.Join(s.TaskDir, "claude.stdout.json")
-	if s.Route.Agent == "claude" {
-		stdout, openErr := os.OpenFile(stdoutPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+	// Keep separate disk captures for parsing results and failure signals.
+	// Both streams are also retained in the combined diagnostic log.
+	stdoutPath := filepath.Join(s.TaskDir, s.Route.Agent+".stdout.json")
+	stderrPath := filepath.Join(s.TaskDir, "stderr.log")
+	for _, stream := range []struct {
+		path string
+		dest *io.Writer
+	}{{stdoutPath, &cmd.Stdout}, {stderrPath, &cmd.Stderr}} {
+		capture, openErr := os.OpenFile(stream.path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 		if openErr != nil {
 			log.Close()
 			return result, openErr
 		}
-		defer stdout.Close()
-		cmd.Stdout = io.MultiWriter(log, stdout)
+		defer capture.Close()
+		*stream.dest = io.MultiWriter(log, capture)
 	}
 	cmd.Env = append([]string{}, s.Env...)
 	if s.Route.Agent == "claude" {
@@ -146,7 +148,10 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 		}
 		return result, runErr
 	}
-	if err = readLog(logPath, s.Route.Agent, &result); err != nil {
+	if err = readLog(stdoutPath, s.Route.Agent, false, &result); err != nil {
+		return result, err
+	}
+	if err = readLog(stderrPath, s.Route.Agent, true, &result); err != nil {
 		return result, err
 	}
 	if runErr != nil {
@@ -194,7 +199,7 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	return result, nil
 }
 
-func readLog(path, agent string, result *Result) error {
+func readLog(path, agent string, stderr bool, result *Result) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
@@ -203,15 +208,27 @@ func readLog(path, agent string, result *Result) error {
 	reader := bufio.NewReader(file)
 	for {
 		line, readErr := reader.ReadBytes('\n')
-		if agent == "codex" {
+		if agent == "codex" && !stderr {
 			codexEvent(line, result)
 		}
-		text := strings.ToLower(string(line))
-		// Successful model answers and tool output may discuss quota limits.
-		// Text alone is not a failure signal: require a nonzero process exit.
-		if result.ExitCode > 0 && (strings.Contains(text, "usage limit") || strings.Contains(text, "hit your") && strings.Contains(text, "limit") || strings.Contains(text, "rate_limit") || strings.Contains(text, "rate limit")) {
+		var event struct {
+			Type    string          `json:"type"`
+			Message string          `json:"message"`
+			Code    string          `json:"code"`
+			Error   json.RawMessage `json:"error"`
+		}
+		failureEvent := json.Unmarshal(line, &event) == nil && event.Type == "error"
+		text := ""
+		if failureEvent {
+			text = event.Message + " " + event.Code + " " + string(event.Error)
+		} else if stderr && result.ExitCode > 0 {
+			text = string(line)
+		}
+		// Ordinary stdout can contain tool output or model answers about quotas.
+		// Only stderr on failure or an explicit error event is authoritative.
+		if quotaFailure(text) {
 			result.QuotaEnded = true
-			if reset := resetTime(string(line), time.Now()); !reset.IsZero() {
+			if reset := resetTime(text, time.Now()); !reset.IsZero() {
 				result.ResetAt = reset
 			}
 		}
@@ -222,6 +239,16 @@ func readLog(path, agent string, result *Result) error {
 			return readErr
 		}
 	}
+}
+
+func quotaFailure(text string) bool {
+	text = strings.ToLower(text)
+	for _, phrase := range []string{"hit your", "usage limit", "rate_limit", "http 429", "quota exceeded", "insufficient_quota"} {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 var resetPattern = regexp.MustCompile(`resets ([0-9]{1,2})(am|pm) \(([^)]+)\)`)
