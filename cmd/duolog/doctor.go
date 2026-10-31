@@ -2,26 +2,36 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 
-	"github.com/lorem-dev/duolog/internal/trust"
+	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/doctor"
+	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/spf13/cobra"
 )
 
 func newDoctorCommand() *cobra.Command {
-	return &cobra.Command{Use: "doctor", Short: "Report Codex folder and hook trust", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	var probe bool
+	cmd := &cobra.Command{Use: "doctor", Short: "Report agent health, trust and availability", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		root, err := projectRoot()
 		if err != nil {
 			return err
 		}
-		hooks, err := trust.Hooks("codex", root)
+		cfg, err := config.Load(root)
 		if err != nil {
 			return err
 		}
-		folder, err := trust.Folder("codex", root)
+		reg, err := session.Open(filepath.Join(root, ".duolog"))
 		if err != nil {
 			return err
 		}
-		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Codex hooks approved=%t folder trusted=%t\nHooks changed after review cannot be detected here; Codex itself will skip changed hooks. Review /hooks.\n", hooks.Trusted, folder)
-		return err
+		for _, finding := range doctor.Run(cmd.Context(), cfg, doctor.Options{Root: root, Registry: reg, Probe: probe}) {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", finding.Level, finding.Message); err != nil {
+				return err
+			}
+		}
+		return nil
 	}}
+	cmd.Flags().BoolVar(&probe, "probe", false, "Make a minimal model call from an empty temporary folder")
+	return cmd
 }

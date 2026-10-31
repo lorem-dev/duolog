@@ -210,3 +210,12 @@ func Address(l Lead) string {
 	}
 	return l.Agent + "/lead." + id
 }
+
+// ClearUnavailable clears a provider limit only after a successful health probe.
+func (r *Registry) ClearUnavailable(agent string) error {
+	return r.access(true, func(s *state) error {
+		delete(s.Unavailable, agent)
+		delete(s.LimitOwners, agent)
+		return nil
+	})
+}
