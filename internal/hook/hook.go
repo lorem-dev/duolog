@@ -110,6 +110,7 @@ func prepare(e Env, register bool) (*state, error) {
 		}
 		lead = session.Lead{ID: h.ID, Target: config.Target{Agent: e.Agent}, Mode: mode.Ask, PID: os.Getppid()}
 	}
+	before := lead
 	if h.TranscriptPath != "" {
 		lead.TranscriptPath = h.TranscriptPath
 	}
@@ -125,7 +126,12 @@ func prepare(e Env, register bool) (*state, error) {
 	} else if observed.Mode != "" {
 		lead.Mode = observed.Mode
 	}
-	if err = reg.RegisterLead(lead); err != nil {
+	if known {
+		lead, err = reg.UpdateLead(before, lead)
+	} else {
+		lead, err = reg.StartLead(lead)
+	}
+	if err != nil {
 		return nil, err
 	}
 	b, err := bus.Open(dir, cfg.Wire)

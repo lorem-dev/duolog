@@ -41,6 +41,7 @@ type state struct {
 	Unavailable map[string]time.Time `json:"unavailable"`
 	LimitOwners map[string]string    `json:"limit_owners,omitempty"`
 	ModeLimits  map[string]mode.Mode `json:"mode_limits,omitempty"`
+	Ended       map[string]bool      `json:"ended,omitempty"`
 }
 
 func Open(dir string) (*Registry, error) {
@@ -77,6 +78,9 @@ func (r *Registry) access(write bool, fn func(*state) error) error {
 	}
 	if s.LimitOwners == nil {
 		s.LimitOwners = make(map[string]string)
+	}
+	if s.Ended == nil {
+		s.Ended = make(map[string]bool)
 	}
 	if s.ModeLimits == nil {
 		s.ModeLimits = make(map[string]mode.Mode)
@@ -156,6 +160,7 @@ func (r *Registry) RecordLimited(e Entry, limit int) error {
 func (r *Registry) Close(id string) error {
 	return r.access(true, func(s *state) error {
 		if _, ok := s.Leads[id]; ok {
+			s.Ended[id] = true
 			delete(s.Leads, id)
 			delete(s.ModeLimits, id)
 			for agent, owner := range s.LimitOwners {
@@ -197,8 +202,64 @@ func (r *Registry) MarkUnavailable(agent string, until time.Time) error {
 	})
 }
 func (r *Registry) RegisterLead(l Lead) error {
-	return r.access(true, func(s *state) error { s.Leads[l.ID] = l; return nil })
+	return r.access(true, func(s *state) error {
+		if s.Ended[l.ID] {
+			return fmt.Errorf("lead %q has ended", l.ID)
+		}
+		s.Leads[l.ID] = l
+		return nil
+	})
 }
+
+// StartLead registers a new session without replacing an entry another hook
+// created while this hook was reading the transcript.
+func (r *Registry) StartLead(l Lead) (Lead, error) {
+	err := r.access(true, func(s *state) error {
+		if s.Ended[l.ID] {
+			return fmt.Errorf("lead %q has ended", l.ID)
+		}
+		if current, ok := s.Leads[l.ID]; ok {
+			l = current
+		} else {
+			s.Leads[l.ID] = l
+		}
+		return nil
+	})
+	return l, err
+}
+
+// UpdateLead merges changed observations into the current entry under its lock.
+// A field changed by another hook since before was read wins over this snapshot.
+// Removed leads are never recreated. The returned lead is the merged snapshot.
+func (r *Registry) UpdateLead(before, after Lead) (Lead, error) {
+	var current Lead
+	err := r.access(true, func(s *state) error {
+		var ok bool
+		current, ok = s.Leads[before.ID]
+		if !ok {
+			return fmt.Errorf("lead %q is not registered", before.ID)
+		}
+		if current.Agent != before.Agent {
+			return fmt.Errorf("lead agent changed")
+		}
+		if after.Model != before.Model && current.Model == before.Model {
+			current.Model = after.Model
+		}
+		if after.Effort != before.Effort && current.Effort == before.Effort {
+			current.Effort = after.Effort
+		}
+		if after.Mode != before.Mode && current.Mode == before.Mode {
+			current.Mode = after.Mode
+		}
+		if after.TranscriptPath != before.TranscriptPath && current.TranscriptPath == before.TranscriptPath {
+			current.TranscriptPath = after.TranscriptPath
+		}
+		s.Leads[before.ID] = current
+		return nil
+	})
+	return current, err
+}
+
 func (r *Registry) Lead(id string) (Lead, bool, error) {
 	var l Lead
 	var ok bool

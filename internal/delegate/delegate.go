@@ -57,6 +57,7 @@ func WithOptions(ctx context.Context, opts Options) context.Context {
 
 var runWorker = runner.Run
 var resolveModel = models.Resolve
+var readLeadState = session.ReadLeadState
 
 func Place(cfg *config.Config, taskPath string, route router.Route) (Placement, error) {
 	root, err := os.Getwd()
@@ -148,7 +149,8 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	address := "duolog/lead"
 	if hasLead {
 		if lead.TranscriptPath != "" {
-			observed, _ := session.ReadLeadState(lead.Agent, lead.TranscriptPath)
+			before := lead
+			observed, _ := readLeadState(lead.Agent, lead.TranscriptPath)
 			lead.Model, lead.Effort = observed.Model, observed.Effort
 			if lead.Agent == "codex" {
 				if observed.Mode != "" {
@@ -157,11 +159,11 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					lead.Mode = mode.Lower(lead.Mode, mode.Ask)
 				}
 			}
-			if err = reg.RegisterLead(lead); err != nil {
+			if lead, err = reg.UpdateLead(before, lead); err != nil {
 				return out, err
 			}
 		}
-		_, leadMode, err = reg.EffectiveMode(leadID)
+		lead, leadMode, err = reg.EffectiveMode(leadID)
 		if err != nil {
 			return out, err
 		}

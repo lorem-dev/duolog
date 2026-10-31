@@ -947,3 +947,48 @@ func TestDelegateReadsLeadTranscriptAtDecisionTime(t *testing.T) {
 		t.Fatal(h.calls[0].Route)
 	}
 }
+
+func TestDecisionPreservesHookChangesDuringTranscriptRead(t *testing.T) {
+	for _, ended := range []bool{false, true} {
+		t.Run(fmt.Sprint(ended), func(t *testing.T) {
+			h := newHarness(t)
+			h.lead("claude", mode.Full, "high")
+			before, _, err := h.reg.Lead("lead-123456")
+			if err != nil {
+				t.Fatal(err)
+			}
+			before.TranscriptPath = filepath.Join(h.root, "lead.jsonl")
+			put(t, before.TranscriptPath, "{\"type\":\"assistant\",\"message\":{\"model\":\"opus\"},\"effort\":\"low\"}\n")
+			if err := h.reg.RegisterLead(before); err != nil {
+				t.Fatal(err)
+			}
+			originalRead := readLeadState
+			t.Cleanup(func() { readLeadState = originalRead })
+			readLeadState = func(agent, path string) (session.LeadState, error) {
+				observed, err := originalRead(agent, path)
+				// Complete a hook after the decision took its registry snapshot,
+				// but before it applies the transcript observation.
+				if ended {
+					if err := h.reg.Close(before.ID); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					newer := before
+					newer.Mode = mode.Plan
+					if err := h.reg.RegisterLead(newer); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return observed, err
+			}
+			if _, err := h.run("implement"); err == nil {
+				t.Fatal("stale decision allowed write worker")
+			}
+			h.requireCalls(0)
+			got, ok, err := h.reg.Lead(before.ID)
+			if err != nil || ok == ended || (!ended && got.Mode != mode.Plan) {
+				t.Fatal(got, ok, err)
+			}
+		})
+	}
+}
