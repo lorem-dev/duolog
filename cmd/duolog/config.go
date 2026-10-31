@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog"
 	"github.com/spf13/cobra"
 )
 
@@ -12,11 +12,7 @@ func newConfigCommand() *cobra.Command {
 		Short: "Print the JSON schema for configuration files",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			schema, err := config.Schema()
-			if err != nil {
-				return err
-			}
-			_, err = cmd.OutOrStdout().Write(schema)
+			_, err := cmd.OutOrStdout().Write(duolog.ConfigSchema)
 			return err
 		},
 	})

@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = []
+# ///
 """Check saved evidence only; do not start agents or collect measurements."""
 
 import csv
@@ -6,16 +10,16 @@ import json
 from collections import defaultdict
 from pathlib import Path
 from statistics import mean
-
+from typing import Any
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
 
-def load_json(relative):
+def load_json(relative: str) -> Any:
     return json.loads((FIXTURES / relative).read_text())
 
 
-def main():
+def main() -> None:
     starts = sorted((FIXTURES / "hooks").glob("*-sessionstart-*.json"))
     assert len(starts) == 4
     for path in starts:
@@ -51,7 +55,7 @@ def main():
     print("M3 server statuses: " + json.dumps(servers, sort_keys=True))
     print("M3: discovery only; this sample contains no execution result")
 
-    groups = defaultdict(list)
+    groups: defaultdict[str, list[dict[str, str]]] = defaultdict(list)
     with (FIXTURES / "results/handoff-bench.csv").open(newline="") as source:
         for row in csv.DictReader(source):
             groups[row["form"]].append(row)

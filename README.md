@@ -78,6 +78,10 @@ repository exists.
   VERIFIED. The [live verification][lv] lists each answer with its label.
 - The cost targets are not measured yet. See [Budgets](docs/budgets.md).
 
+## License
+
+duolog uses the [Apache License 2.0](LICENSE).
+
 ## Related pages
 
 - [Getting started](docs/getting-started.md): build, install and send a task

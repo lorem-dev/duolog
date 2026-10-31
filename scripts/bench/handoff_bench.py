@@ -1,7 +1,11 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = []
+# ///
 """Measure the input tokens of three ways to hand a review to Codex.
 
-Run: uv run --no-project python scripts/bench/handoff_bench.py <empty-temp-dir>
+Run: uv run scripts/bench/handoff_bench.py <empty-temp-dir>
 Forms: "content" (file in the prompt), "ref" (task.md plus a path), "ref-range" (task.md plus 16 lines),
 "resume" (a second turn in a session that already reviewed the file).
 It uses gpt-6-luna at effort low, 3 repeats, and data from `codex exec --json`.
@@ -11,6 +15,7 @@ import json
 import pathlib
 import subprocess
 import sys
+from typing import Any, cast
 
 MODEL = "gpt-6-luna"
 REPEATS = 3
@@ -20,7 +25,7 @@ BASE = ["codex", "exec", "--json", "--skip-git-repo-check", "--ignore-user-confi
         "-c", "project_doc_max_bytes=0", "-s", "read-only"]
 
 
-def source_file(lines=2000):
+def source_file(lines: int = 2000) -> str:
     out = ["package probe", ""]
     n = 0
     while len(out) < lines:
@@ -32,10 +37,12 @@ def source_file(lines=2000):
     return "\n".join(out[:lines]) + "\n"
 
 
-def run(args, cwd):
-    p = subprocess.run(args, cwd=cwd, stdin=subprocess.DEVNULL, capture_output=True,
+def run(args: list[str], cwd: pathlib.Path) -> tuple[int, str | None, dict[str, Any], int]:
+    p = subprocess.run(args, check=False, cwd=cwd, stdin=subprocess.DEVNULL, capture_output=True,
                        text=True, timeout=300)
-    thread, usage, commands = None, None, 0
+    thread: str | None = None
+    usage: dict[str, Any] | None = None
+    commands = 0
     for line in p.stdout.splitlines():
         try:
             e = json.loads(line)
@@ -50,22 +57,24 @@ def run(args, cwd):
     return p.returncode, thread, usage or {}, commands
 
 
-def main(root):
-    root = pathlib.Path(root)
+def main(root: str) -> None:
+    root_path = pathlib.Path(root)
     text = source_file()
-    (root / "target.go").write_text(text)
-    (root / "task.md").write_text(
+    (root_path / "target.go").write_text(text)
+    (root_path / "task.md").write_text(
         "# Goal\n" + QUESTION + "\n\n# Read\ntarget.go\n\n# Write\nNothing.\n\n"
         "# Limits\nDo not change files.\n\n# Check\nName the function and line.\n")
-    (root / "task-range.md").write_text(
+    (root_path / "task-range.md").write_text(
         "# Goal\nReview for bugs. Answer in at most 3 lines.\n\n"
         "# Read\ntarget.go lines 1225-1240 only. Use sed -n. Read nothing else.\n\n"
         "# Write\nNothing.\n\n# Limits\nDo not change files.\n\n"
         "# Check\nName the function and line.\n")
-    rows = []
-    threads = []
+    rows: list[dict[str, Any]] = []
+    threads: list[str | None] = []
 
-    def record(form, rep, res):
+    def record(
+        form: str, rep: int, res: tuple[int, str | None, dict[str, Any], int]
+    ) -> None:
         rc, thread, u, commands = res
         threads.append(thread)
         rows.append({"form": form, "rep": rep, "rc": rc, "thread": thread, "commands": commands,
@@ -74,18 +83,18 @@ def main(root):
         print(rows[-1], flush=True)
 
     for rep in range(1, REPEATS + 1):
-        record("empty", rep, run(BASE + ["Reply with the word ok."], root))
-        record("content", rep, run(BASE + [QUESTION + "\n\n```go\n" + text + "```\n"], root))
-        record("ref", rep, run(BASE + ["Do the task in task.md."], root))
-        record("ref-range", rep, run(BASE + ["Do the task in task-range.md."], root))
-        first = run(BASE + ["Do the task in task.md."], root)
+        record("empty", rep, run(BASE + ["Reply with the word ok."], root_path))
+        record("content", rep, run(BASE + [QUESTION + "\n\n```go\n" + text + "```\n"], root_path))
+        record("ref", rep, run(BASE + ["Do the task in task.md."], root_path))
+        record("ref-range", rep, run(BASE + ["Do the task in task-range.md."], root_path))
+        first = run(BASE + ["Do the task in task.md."], root_path)
         record("resume-first", rep, first)
         again = ["codex", "exec", "resume", "--json", "--skip-git-repo-check",
                  "--ignore-user-config", "-m", MODEL, "-c", "model_reasoning_effort=low",
-                 "-c", "project_doc_max_bytes=0", first[1],
+                 "-c", "project_doc_max_bytes=0", cast(str, first[1]),
                  "The file did not change. Review it again and answer in at most 3 lines."]
-        record("resume-second", rep, run(again, root))
-    with open(root / "results.csv", "w", newline="") as f:
+        record("resume-second", rep, run(again, root_path))
+    with open(root_path / "results.csv", "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0]))
         w.writeheader()
         w.writerows(rows)

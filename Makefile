@@ -1,4 +1,4 @@
-.PHONY: build test vet docs-lint schema schema-write
+.PHONY: build test vet docs-lint schema schema-write third-party third-party-check
 
 build:
 	go build ./cmd/duolog
@@ -14,7 +14,13 @@ docs-lint:
 	go test -run TestDocs .
 
 schema:
-	@go test ./internal/config/ -run '^TestSchemaFileIsCurrent$$' > /dev/null || { echo 'Schema check failed; run make schema-write' >&2; exit 1; }
+	@go test . -run '^TestSchemaFileIsCurrent$$' > /dev/null || { echo 'Schema check failed; run make schema-write' >&2; exit 1; }
 
 schema-write:
-	go run ./cmd/duolog config schema > duolog-config.schema.json
+	go run ./scripts/schemagen > duolog-config.schema.json
+
+third-party:
+	go run ./scripts/thirdparty
+
+third-party-check:
+	go run ./scripts/thirdparty -check
