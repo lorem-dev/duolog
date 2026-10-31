@@ -92,12 +92,6 @@ The lead's own settings are the ceiling:
 | `env_passthrough` | The only variables a worker inherits |
 | `rex` | Timeouts for live sessions. See [Rex](rex.md) |
 
-## Known limits
-
-`duolog doctor` compares each role's effort with the Codex model catalog on
-your machine. In our checks it warned for most default Codex roles. Treat
-those warnings as a prompt to look, not as proof that the effort fails.
-
 ## Related pages
 
 - [Getting started](getting-started.md): install and first task

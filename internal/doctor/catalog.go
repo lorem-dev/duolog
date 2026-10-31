@@ -32,7 +32,8 @@ type catalogEntry struct {
 	Levels []effortLevel `json:"supported_reasoning_levels"`
 }
 
-// Saved trimmed catalogs use strings; full catalogs may attach descriptions.
+// Real `codex debug models` gives objects with an "effort" key and a
+// description. A bare string is also accepted.
 type effortLevel struct{ Effort string }
 
 func (level *effortLevel) UnmarshalJSON(data []byte) error {
@@ -40,7 +41,7 @@ func (level *effortLevel) UnmarshalJSON(data []byte) error {
 		return json.Unmarshal(data, &level.Effort)
 	}
 	var entry struct {
-		Effort string `json:"reasoning_effort"`
+		Effort string `json:"effort"`
 	}
 	if err := json.Unmarshal(data, &entry); err != nil {
 		return err

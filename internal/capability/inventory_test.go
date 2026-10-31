@@ -128,8 +128,10 @@ func TestScanAvoidsSlowAndHugeCommands(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := os.Stat(claude + ".args.json"); !os.IsNotExist(err) {
-		t.Fatal("claude was run; MCP lists come from files")
+	var cargs []string
+	cdata, cerr := os.ReadFile(claude + ".args.json")
+	if cerr != nil || json.Unmarshal(cdata, &cargs) != nil || strings.Join(cargs, " ") != "plugin list --json" {
+		t.Fatalf("claude args %q %v; only the plugin list may run", cdata, cerr)
 	}
 	var args []string
 	data, err := os.ReadFile(codex + ".args.json")
@@ -281,4 +283,29 @@ func TestDiffSkipsUnknownKinds(t *testing.T) {
 	if len(d) != 1 || d[0].Name != "s" {
 		t.Fatal(d)
 	}
+}
+
+func TestClaudePluginsFromRealList(t *testing.T) {
+	home, root := env(t)
+	onlyPath(t, testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{"plugin list --json": {Stdout: fixture(t, "claude-plugin-list.json")}}}))
+	inv, err := Scan(context.Background(), "claude", root)
+	if err != nil || inv.Unknown || inv.KindUnknown(KindPlugin) || inv.KindUnknown(KindSkill) {
+		t.Fatal(inv, err)
+	}
+	got := strings.Join(names(inv), " ")
+	if !strings.Contains(got, "plugin:clangd-lsp") || !strings.Contains(got, "plugin:crit") {
+		t.Fatal(got)
+	}
+	_ = home
+}
+
+func TestCodexPluginFailureKeepsOtherKindsKnown(t *testing.T) {
+	home, root := env(t)
+	onlyPath(t, testbin.Install(t, "codex", testbin.Scenario{Responses: map[string]testbin.Scenario{"plugin list --json": {Stdout: "not json"}}}))
+	put(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.codegraph]\ncommand = \"x\"\n")
+	inv, err := Scan(context.Background(), "codex", root)
+	if err != nil || inv.Unknown || !inv.KindUnknown(KindPlugin) || inv.KindUnknown(KindMCP) {
+		t.Fatal(inv, err)
+	}
+	requireItems(t, inv, "mcp:codegraph")
 }

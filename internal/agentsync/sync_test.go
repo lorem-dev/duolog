@@ -517,3 +517,20 @@ func TestSwitchDirectionKeepsEditedOldSource(t *testing.T) {
 		t.Fatalf("%+v", rep)
 	}
 }
+
+func TestOwnInstalledSkillIsNotSynced(t *testing.T) {
+	root := newProject(t)
+	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
+	put(t, root, ".claude/skills/duolog/SKILL.md", "---\nname: duolog\ndescription: d\n---\nclaude copy\n", 0o644)
+	put(t, root, ".agents/skills/duolog/SKILL.md", "---\nname: duolog\ndescription: d\n---\ncodex copy\n", 0o644)
+	put(t, root, ".claude/skills/mine/SKILL.md", "---\nname: mine\ndescription: d\n---\nx\n", 0o644)
+	for _, from := range []string{"claude", "codex"} {
+		rep, err := Run(root, syncCfg(t), Options{From: from, SwitchDirection: true})
+		if err != nil || len(rep.Conflicts) != 0 {
+			t.Fatalf("%s: %+v %v", from, rep, err)
+		}
+		if !strings.Contains(read(t, root, ".agents/skills/duolog/SKILL.md"), "codex copy") || !strings.Contains(read(t, root, ".claude/skills/duolog/SKILL.md"), "claude copy") {
+			t.Fatalf("%s: own skill was touched", from)
+		}
+	}
+}

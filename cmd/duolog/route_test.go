@@ -15,6 +15,8 @@ func isolatedRouteConfig(t *testing.T) {
 	t.Setenv("HOME", dir)
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("APPDATA", dir)
+	t.Setenv("REX_BIN_DIR", "")
+	t.Setenv("REX_SESSION", "")
 }
 func TestRouteJSON(t *testing.T) {
 	isolatedRouteConfig(t)

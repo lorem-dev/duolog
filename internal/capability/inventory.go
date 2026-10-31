@@ -82,16 +82,16 @@ func Scan(ctx context.Context, agent, root string) (Inventory, error) {
 	var items []Item
 	switch agent {
 	case "claude":
-		items = scanClaude(root, h)
+		items = scanClaude(ctx, root, h)
 		inv.UnknownKinds = []string{KindMCP}
 	case "codex":
-		var known bool
-		items, known = scanCodex(ctx, root, h)
-		inv.Unknown = !known
+		var unknown []string
+		items, unknown = scanCodex(ctx, root, h)
+		inv.UnknownKinds = unknown
 		for _, it := range items {
 			// Plugins may bring skills and MCP servers that no file lists.
 			if it.Kind == KindPlugin {
-				inv.UnknownKinds = []string{KindSkill, KindMCP}
+				inv.UnknownKinds = append(inv.UnknownKinds, KindSkill, KindMCP)
 				break
 			}
 		}
@@ -102,29 +102,42 @@ func Scan(ctx context.Context, agent, root string) (Inventory, error) {
 	return inv, nil
 }
 
-func scanClaude(root, h string) []Item {
+func scanClaude(ctx context.Context, root, h string) []Item {
 	var items []Item
 	items = append(items, skillsIn(filepath.Join(h, ".claude", "skills"))...)
 	items = append(items, skillsIn(filepath.Join(root, ".claude", "skills"))...)
-	var installed struct {
-		Plugins map[string][]struct {
-			InstallPath string `json:"installPath"`
-		} `json:"plugins"`
-	}
 	var settings struct {
 		Enabled map[string]bool `json:"enabledPlugins"`
 	}
-	readJSON(filepath.Join(h, ".claude", "plugins", "installed_plugins.json"), &installed)
 	readJSON(filepath.Join(h, ".claude", "settings.json"), &settings)
-	for id, installs := range installed.Plugins {
-		if on, ok := settings.Enabled[id]; ok && !on {
+	type plugin struct {
+		ID          string `json:"id"`
+		Enabled     *bool  `json:"enabled"`
+		InstallPath string `json:"installPath"`
+	}
+	var plugins []plugin
+	if !claudePluginList(ctx, &plugins) {
+		var installed struct {
+			Plugins map[string][]struct {
+				InstallPath string `json:"installPath"`
+			} `json:"plugins"`
+		}
+		readJSON(filepath.Join(h, ".claude", "plugins", "installed_plugins.json"), &installed)
+		plugins = nil
+		for id, installs := range installed.Plugins {
+			for _, in := range installs {
+				on, ok := settings.Enabled[id]
+				plugins = append(plugins, plugin{ID: id, Enabled: boolPtr(!ok || on), InstallPath: in.InstallPath})
+			}
+		}
+	}
+	for _, p := range plugins {
+		if p.Enabled != nil && !*p.Enabled {
 			continue
 		}
-		items = append(items, Item{Kind: KindPlugin, Name: strings.SplitN(id, "@", 2)[0]})
-		for _, in := range installs {
-			if in.InstallPath != "" {
-				items = append(items, skillsIn(filepath.Join(in.InstallPath, "skills"))...)
-			}
+		items = append(items, Item{Kind: KindPlugin, Name: strings.SplitN(p.ID, "@", 2)[0]})
+		if p.InstallPath != "" {
+			items = append(items, skillsIn(filepath.Join(p.InstallPath, "skills"))...)
 		}
 	}
 	type servers struct {
@@ -146,7 +159,19 @@ func scanClaude(root, h string) []Item {
 	return items
 }
 
-func scanCodex(ctx context.Context, root, h string) ([]Item, bool) {
+func boolPtr(b bool) *bool { return &b }
+
+// claudePluginList runs `claude plugin list --json`, which needs no model.
+func claudePluginList(ctx context.Context, into any) bool {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "claude", "plugin", "list", "--json")
+	cmd.Stdin = strings.NewReader("")
+	out, err := cmd.Output()
+	return err == nil && json.Unmarshal(out, into) == nil
+}
+
+func scanCodex(ctx context.Context, root, h string) ([]Item, []string) {
 	var items []Item
 	items = append(items, skillsIn(filepath.Join(h, ".agents", "skills"))...)
 	items = append(items, skillsIn(filepath.Join(root, ".agents", "skills"))...)
@@ -158,8 +183,9 @@ func scanCodex(ctx context.Context, root, h string) ([]Item, bool) {
 			Enabled *bool `toml:"enabled"`
 		} `toml:"mcp_servers"`
 	}
+	var unknown []string
 	if err := toml.Unmarshal(data, &parsed); err != nil {
-		return items, false
+		unknown = append(unknown, KindMCP)
 	}
 	for name, server := range parsed.MCP {
 		if server.Enabled == nil || *server.Enabled {
@@ -167,7 +193,10 @@ func scanCodex(ctx context.Context, root, h string) ([]Item, bool) {
 		}
 	}
 	plugins, ok := cachedPlugins(ctx, root, data)
-	return append(items, plugins...), ok
+	if !ok {
+		unknown = append(unknown, KindPlugin)
+	}
+	return append(items, plugins...), unknown
 }
 
 type cacheFile struct {

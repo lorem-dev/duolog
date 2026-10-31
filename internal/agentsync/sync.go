@@ -389,12 +389,16 @@ func (r *runner) resolver() func(string) (string, error) {
 	}
 }
 
+// ownSkill is the folder name of the skill that `duolog install` writes.
+const ownSkill = "duolog"
+
 func (r *runner) skillUnits() []unit {
 	entries, _ := os.ReadDir(r.abs(r.from.skills))
 	var units []unit
 	for _, e := range entries {
 		base := r.from.skills + "/" + e.Name()
-		if !e.IsDir() || !r.inScope(base) {
+		// duolog installs its own skill on both sides; it is never synced.
+		if !e.IsDir() || e.Name() == ownSkill || !r.inScope(base) {
 			continue
 		}
 		if _, err := os.Stat(r.abs(base + "/SKILL.md")); err != nil {

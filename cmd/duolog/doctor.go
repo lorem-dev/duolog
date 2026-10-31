@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/doctor"
+	"github.com/lorem-dev/duolog/internal/rex"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/spf13/cobra"
 )
@@ -32,8 +34,9 @@ func newDoctorCommand() *cobra.Command {
 		}
 		opts := doctor.Options{Root: root, Registry: reg, Probe: probe}
 		var inventoryFindings []doctor.Finding
-		if _, err := exec.LookPath("rex"); err == nil {
-			opts.Panes, err = doctorPanes(cmd.Context(), reg)
+		if bin, ok := rex.Locate(os.Getenv("REX_BIN_DIR"), rex.BundleGlobs()); ok {
+			opts.RexBin = bin
+			opts.Panes, err = doctorPanes(cmd.Context(), bin, os.Getenv("REX_SESSION"), reg)
 			if err != nil {
 				inventoryFindings = append(inventoryFindings, doctor.Finding{Level: "warning", Message: "Rex pane inventory unavailable: " + err.Error()})
 			} else {
@@ -54,10 +57,14 @@ func newDoctorCommand() *cobra.Command {
 // doctorPanes joins the live Rex inventory to persisted session ownership. Only
 // the pane recorded in Entry.Block is used; entry IDs, thread IDs and unrelated
 // Rex blocks are ignored.
-func doctorPanes(ctx context.Context, reg *session.Registry) ([]doctor.Pane, error) {
+func doctorPanes(ctx context.Context, bin, rexSession string, reg *session.Registry) ([]doctor.Pane, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "rex", "block", "ls", "--json")
+	args := []string{"block", "ls"}
+	if rexSession != "" {
+		args = append(args, "-s", rexSession)
+	}
+	cmd := exec.CommandContext(ctx, bin, append(args, "--json")...)
 	cmd.Stdin = strings.NewReader("")
 	data, err := cmd.Output()
 	if err != nil {
@@ -65,7 +72,8 @@ func doctorPanes(ctx context.Context, reg *session.Registry) ([]doctor.Pane, err
 	}
 	var inventory struct {
 		Blocks []struct {
-			ID string `json:"id"`
+			ID       string `json:"block_id"`
+			LegacyID string `json:"id"`
 		} `json:"blocks"`
 	}
 	if err := json.Unmarshal(data, &inventory); err != nil {
@@ -86,6 +94,9 @@ func doctorPanes(ctx context.Context, reg *session.Registry) ([]doctor.Pane, err
 	}
 	var panes []doctor.Pane
 	for _, block := range inventory.Blocks {
+		if block.ID == "" {
+			block.ID = block.LegacyID
+		}
 		if lead := owners[block.ID]; block.ID != "" && lead != "" {
 			panes = append(panes, doctor.Pane{ID: block.ID, Lead: lead})
 		}

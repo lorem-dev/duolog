@@ -31,7 +31,7 @@ func TestDoctorProbeFlag(t *testing.T) {
 	t.Chdir(t.TempDir())
 	codex := testbin.Install(t, "codex", testbin.Scenario{Responses: map[string]testbin.Scenario{
 		"--version":    {Stdout: "codex-cli 0.165.0"},
-		"debug models": {Stdout: `{"models":[{"slug":"gpt-6-luna","visibility":"list","supported_reasoning_levels":["low"]}]}`},
+		"debug models": {Stdout: `{"models":[{"slug":"gpt-6-luna","visibility":"list","supported_reasoning_levels":[{"effort":"low","description":"d"}]}]}`},
 		"exec":         {Writes: map[string]string{"answer.json": "ok"}},
 	}})
 	claude := testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{
@@ -79,9 +79,12 @@ func TestDoctorUsesRexInventoryAndLeadState(t *testing.T) {
 		t.Fatal(err)
 	}
 	rex := testbin.Install(t, "rex", testbin.Scenario{Exit: 2, Responses: map[string]testbin.Scenario{
-		"block ls --json": {Stdout: `{"blocks":[{"id":"block:orphan-a"},{"id":"block:orphan-b"},{"id":"block:live"},{"id":"block:unrelated"},{"id":"block:trap"}]}`},
+		"block ls -s session:s1 --json": {Stdout: `{"blocks":[{"block_id":"block:orphan-a","label":"shell"},{"block_id":"block:orphan-b"},{"block_id":"block:live"},{"block_id":"block:unrelated"},{"block_id":"block:trap"}]}`},
 	}})
-	t.Setenv("PATH", filepath.Dir(rex))
+	// Rex is not in PATH, as in a real Rex session; REX_BIN_DIR finds it.
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("REX_BIN_DIR", filepath.Dir(rex))
+	t.Setenv("REX_SESSION", "session:s1")
 	out, err := executeBusCommand(t, "doctor")
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +100,7 @@ func TestDoctorUsesRexInventoryAndLeadState(t *testing.T) {
 		}
 	}
 	calls, err := os.ReadFile(rex + ".calls.ndjson")
-	if err != nil || string(calls) != "[\"block\",\"ls\",\"--json\"]\n" {
+	if err != nil || string(calls) != "[\"block\",\"ls\",\"-s\",\"session:s1\",\"--json\"]\n" {
 		t.Fatalf("calls=%s err=%v", calls, err)
 	}
 }
@@ -113,6 +116,8 @@ func TestDoctorRexInventoryUnavailable(t *testing.T) {
 			t.Chdir(t.TempDir())
 			rex := testbin.Install(t, "rex", scenario)
 			t.Setenv("PATH", filepath.Dir(rex))
+			t.Setenv("REX_BIN_DIR", "")
+			t.Setenv("REX_SESSION", "")
 			out, err := executeBusCommand(t, "doctor")
 			if err != nil {
 				t.Fatal(err)
