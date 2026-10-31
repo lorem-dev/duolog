@@ -187,3 +187,21 @@ func TestGateRebasesPathsFromHookCwd(t *testing.T) {
 		}
 	}
 }
+
+func TestGateReadsLeadTranscriptAtDecisionTime(t *testing.T) {
+	r, root := gateSetup(t, mode.Full)
+	l, _, err := r.Lead("lead-123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.TranscriptPath = filepath.Join(root, "lead.jsonl")
+	if err = r.RegisterLead(l); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(l.TranscriptPath, []byte("{\"type\":\"turn_context\",\"payload\":{\"sandbox_policy\":{\"type\":\"read-only\"}}}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if out := runGate(t, "go test ./..."); !strings.Contains(out, `"permissionDecision":"deny"`) || !strings.Contains(out, "plan") {
+		t.Fatal(out)
+	}
+}

@@ -168,12 +168,19 @@ func previousNewline(f *os.File, end int64) (int64, error) {
 
 // Inbox returns stored lines, including their newline, without re-encoding JSON.
 func (b *Bus) Inbox(reader string) ([][]byte, error) {
+	lines, _, err := b.InboxLimited(reader, 0)
+	return lines, err
+}
+
+// InboxLimited consumes at most limit matching lines. Remaining messages stay
+// unread for duolog inbox. A nonpositive limit reads the entire inbox.
+func (b *Bus) InboxLimited(reader string, limit int) ([][]byte, bool, error) {
 	if reader == "" || reader == "." || reader == ".." {
-		return nil, fmt.Errorf("invalid reader address %q", reader)
+		return nil, false, fmt.Errorf("invalid reader address %q", reader)
 	}
 	lock, err := b.lock()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer lock.Close()
 	cursor := filepath.Join(b.dir, "cursors", url.PathEscape(reader))
@@ -182,45 +189,52 @@ func (b *Bus) Inbox(reader string) ([][]byte, error) {
 	if err == nil {
 		offset, err = strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
 		if err != nil || offset < 0 {
-			return nil, fmt.Errorf("invalid cursor for %q: %q", reader, data)
+			return nil, false, fmt.Errorf("invalid cursor for %q: %q", reader, data)
 		}
 	} else if !os.IsNotExist(err) {
-		return nil, err
+		return nil, false, err
 	}
 	f, err := os.Open(filepath.Join(b.dir, "bus.ndjson"))
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer f.Close()
 	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	input := bufio.NewReader(f)
 	var lines [][]byte
+	var more bool
 	for {
 		line, err := input.ReadBytes('\n')
 		if err == io.EOF {
 			break // The incomplete tail is not consumed, even if it is valid JSON.
 		}
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		var address struct {
 			From string `json:"from"`
 			To   string `json:"to"`
 		}
 		if err := json.Unmarshal(line, &address); err != nil {
-			return nil, fmt.Errorf("bus line at %d: %w", offset, err)
+			return nil, false, fmt.Errorf("bus line at %d: %w", offset, err)
 		}
-		offset += int64(len(line))
-		if address.From != reader && (address.To == reader || address.To == "*") {
-			lines = append(lines, line)
+		matches := address.From != reader && (address.To == reader || address.To == "*")
+		if matches && limit > 0 && len(lines) >= limit {
+			more = true
+		}
+		if !more {
+			offset += int64(len(line))
+			if matches {
+				lines = append(lines, line)
+			}
 		}
 	}
 	if err := writeCursor(cursor, offset); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return lines, nil
+	return lines, more, nil
 }
 
 func writeCursor(path string, offset int64) error {

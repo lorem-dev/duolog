@@ -15,7 +15,7 @@ func newRootCommand() *cobra.Command {
 		Short:        "Coordinate Claude Code and Codex tasks",
 		SilenceUsage: true,
 	}
-	cmd.AddCommand(newConfigCommand(), newRouteCommand(), newSendCommand(), newInboxCommand(), newPutCommand(), newRefCommand(), newReadCommand(), newDelegateCommand(), newDoctorCommand(), newRosterCommand(), newStatsCommand(), newGateCommand(), newModeCommand(), newDecisionsCommand())
+	cmd.AddCommand(newConfigCommand(), newRouteCommand(), newSendCommand(), newInboxCommand(), newPutCommand(), newRefCommand(), newReadCommand(), newDelegateCommand(), newDoctorCommand(), newRosterCommand(), newStatsCommand(), newGateCommand(), newModeCommand(), newDecisionsCommand(), newHookCommand())
 	return cmd
 }
 
@@ -41,6 +41,6 @@ func projectRoot() (string, error) {
 
 func main() {
 	if err := newRootCommand().Execute(); err != nil {
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
 }
