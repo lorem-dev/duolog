@@ -55,6 +55,9 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	if a.Kind == "spawn" {
 		return decision(Deny, "workers cannot delegate", "worker depth")
 	}
+	if a.Kind == "answer" {
+		return decision(Allow, "returns the worker answer", "answer tool")
+	}
 	parts := []string{a.Target}
 	uncertain := false
 	if a.Kind == "exec" {

@@ -150,7 +150,7 @@ sync:
     drop_keys: []       # frontmatter keys to remove; other keys stay
 
 # Variables spawned sessions inherit. Everything else is not passed on purpose.
-env_passthrough: [PATH, HOME]
+env_passthrough: [PATH, HOME, USER]
 
 rex:
   capture_lines: 20         # a capture checks state only; answers are read from files

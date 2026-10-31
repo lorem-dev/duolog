@@ -51,6 +51,10 @@ func Normalize(agent string, input []byte) (Action, error) {
 		// Its hook name and target representation were not verified. An empty
 		// target records a write but always requires approval.
 		a.Kind = "write"
+	case "StructuredOutput":
+		// Claude's own tool for returning the schema answer; without it a worker
+		// cannot finish and delegate reports "unexpected EOF".
+		a.Kind, a.Target = "answer", hook.Tool
 	case "Task", "Agent", "collaborationspawn_agent", "spawn_agent":
 		a.Kind, a.Target = "spawn", hook.Tool
 	case "WebFetch", "WebSearch":
