@@ -104,7 +104,7 @@ func TestAliveCapturesLimitedLines(t *testing.T) {
 	}
 	c := install(t, testbin.Scenario{Responses: map[string]testbin.Scenario{
 		"block inspect": {Stdout: `{"block":{}}`},
-		"wait":          {Exit: 1, Stderr: "timed out"},
+		"wait":          {Exit: 1, Stderr: "Error: wait timed out after 500ms: context deadline exceeded"},
 		"capture":       {Stdout: screen.String()},
 	}})
 	alive, err := c.Alive(context.Background(), "block:p", 5)
@@ -131,7 +131,7 @@ func TestProbeTellsClosedFromExitedFromRunning(t *testing.T) {
 		s    map[string]testbin.Scenario
 		want Presence
 	}{
-		{"running", map[string]testbin.Scenario{"block inspect": {Stdout: "{}"}, "wait": {Exit: 1, Stderr: "timed out"}}, Running},
+		{"running", map[string]testbin.Scenario{"block inspect": {Stdout: "{}"}, "wait": {Exit: 1, Stderr: "Error: wait timed out after 500ms: context deadline exceeded"}}, Running},
 		{"exited", map[string]testbin.Scenario{"block inspect": {Stdout: "{}"}, "wait": {Exit: 3, Stdout: `{"exit_code": 3, "error": "exit status 3"}`}}, Exited},
 		{"exited zero", map[string]testbin.Scenario{"block inspect": {Stdout: "{}"}, "wait": {Stdout: `{"exit_code": 0}`}}, Exited},
 		{"closed", map[string]testbin.Scenario{"block inspect": {Exit: 3, Stderr: `block target "block:p" not found`}}, Gone},
@@ -146,6 +146,27 @@ func TestProbeTellsClosedFromExitedFromRunning(t *testing.T) {
 			}
 			alive, err := c.Alive(context.Background(), "block:p", 5)
 			if err != nil || alive != (tc.want == Running) {
+				t.Fatalf("alive=%v err=%v", alive, err)
+			}
+		})
+	}
+}
+
+func TestProbeRefusesUnknownWaitResults(t *testing.T) {
+	for name, wait := range map[string]testbin.Scenario{
+		"usage error":   {Exit: 2, Stderr: "Error: unknown flag: --for\nUsage: rex wait"},
+		"odd exit":      {Exit: 5, Stderr: "boom"},
+		"exit 1 no msg": {Exit: 1, Stderr: "something else"},
+		"changed json":  {Exit: 0, Stdout: `{"status":"done"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := install(t, testbin.Scenario{Responses: map[string]testbin.Scenario{"block inspect": {Stdout: "{}"}, "wait": wait}})
+			got, err := c.Probe(context.Background(), "block:p")
+			var e *Error
+			if !errors.As(err, &e) || got == Running {
+				t.Fatalf("got %v err=%v", got, err)
+			}
+			if alive, err := c.Alive(context.Background(), "block:p", 5); err == nil || alive {
 				t.Fatalf("alive=%v err=%v", alive, err)
 			}
 		})

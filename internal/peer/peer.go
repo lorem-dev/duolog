@@ -23,6 +23,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/rex"
 	"github.com/lorem-dev/duolog/internal/router"
+	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/task"
@@ -243,6 +244,9 @@ func Open(ctx context.Context, role string) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
+	if lead.mode == mode.Plan && route.Sandbox != "read-only" {
+		return Entry{}, fmt.Errorf("mode plan refuses write role %s", role)
+	}
 	if route.InLead {
 		here := delegate.Placement{Where: "subagent", Model: route.Model, Effort: route.Effort}
 		return Entry{State: Limited, Note: strings.TrimSpace(here.String())}, nil
@@ -371,7 +375,7 @@ func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Ent
 			}
 			return Entry{ID: entry.ID, State: Question, Question: screen.Question}, nil
 		case Limited:
-			line, err := e.runHere(entry, entry.Task)
+			line, err := e.runHere(entry, entry.Task, screen.Text)
 			return Entry{ID: entry.ID, State: Limited, Note: line}, err
 		case Ready:
 			if startup || entry.Task == "" {
@@ -507,7 +511,7 @@ func (e *env) endLine(entry session.Entry, state State) (string, error) {
 
 // runHere turns a provider limit into the line the lead acts on. The pane stays
 // open and nothing is sent or opened.
-func (e *env) runHere(entry session.Entry, taskPath string) (string, error) {
+func (e *env) runHere(entry session.Entry, taskPath, screenText string) (string, error) {
 	lead, err := e.lead(time.Now())
 	if err != nil {
 		return "", err
@@ -516,7 +520,13 @@ func (e *env) runHere(entry session.Entry, taskPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	unavailable[entry.Agent] = true
+	if !unavailable[entry.Agent] {
+		// A zero time ends with the lead when the screen names no reset.
+		if err := e.reg.MarkUnavailable(entry.Agent, runner.ResetTime(screenText, time.Now())); err != nil {
+			return "", err
+		}
+		unavailable[entry.Agent] = true
+	}
 	route, err := router.Resolve(e.cfg, entry.Role, unavailable, router.Options{Lead: lead.target, AllowManualModel: e.opts.AllowManualModel})
 	if err != nil {
 		return "", err
@@ -604,7 +614,7 @@ func (e *env) settle(ctx context.Context, entry session.Entry, taskPath string) 
 			}
 			return fmt.Errorf("%s (the pane is closed)", line)
 		case Limited:
-			line, err := e.runHere(entry, taskPath)
+			line, err := e.runHere(entry, taskPath, s.Text)
 			if err != nil {
 				return err
 			}
@@ -706,7 +716,7 @@ func Status(ctx context.Context, id string) (Report, error) {
 			return st, err
 		}
 	case Limited:
-		if st.Line, err = e.runHere(entry, entry.Task); err != nil {
+		if st.Line, err = e.runHere(entry, entry.Task, screen.Text); err != nil {
 			return st, err
 		}
 	}

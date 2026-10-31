@@ -304,3 +304,12 @@ func codexResetTime(text string, now time.Time) time.Time {
 	}
 	return reset
 }
+
+// ResetTime parses the time a provider limit message says the quota returns,
+// for either agent. It returns the zero time when the text names none.
+func ResetTime(text string, now time.Time) time.Time {
+	if reset := resetTime(text, now); !reset.IsZero() {
+		return reset
+	}
+	return codexResetTime(text, now)
+}

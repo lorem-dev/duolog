@@ -41,6 +41,8 @@ type Screen struct {
 	Composer bool
 	Input    string
 	Empty    bool
+	// Text is the cleaned screen, kept to read a limit message.
+	Text string
 }
 
 const (
@@ -73,7 +75,7 @@ func Classify(agent string, screen []byte) (State, string) {
 // shapes, and an unrecognized screen is Starting.
 func Parse(agent string, raw []byte) Screen {
 	lines := screenLines(raw)
-	s := Screen{State: Starting}
+	s := Screen{State: Starting, Text: strings.Join(lines, "\n")}
 	for _, line := range lines {
 		if workingRe.MatchString(line) {
 			s.Working = true
