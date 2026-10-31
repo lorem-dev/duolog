@@ -4,6 +4,12 @@ version: 2
 
 project_name: duolog
 
+# Hooks run after --clean removes dist, before assets and checksums are built.
+before:
+  hooks:
+    - make install-script
+    - shellcheck dist/install.sh
+
 builds:
   - id: duolog
     main: ./cmd/duolog
@@ -13,7 +19,7 @@ builds:
     goos: [darwin, linux, windows]
     goarch: [amd64, arm64]
     ldflags:
-      - -s -w
+      - -s -w -X main.version={{ .Version }}
 
 archives:
   - id: duolog
@@ -30,11 +36,13 @@ archives:
 
 checksum:
   name_template: checksums.txt
-  # The schema is an extra release file. This line puts it in the checksums.
+  # Include the schema and installer in the checksums.
   extra_files:
     - glob: duolog-config.schema.json
+    - glob: dist/install.sh
 
 release:
-  # The schema is attached to the release page.
+  # Attach the schema and installer to the release page.
   extra_files:
     - glob: duolog-config.schema.json
+    - glob: dist/install.sh

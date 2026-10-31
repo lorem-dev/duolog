@@ -14,6 +14,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/trust"
 )
@@ -54,6 +55,18 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 			add("error", err.Error())
 			return out
 		}
+	}
+	for _, path := range install.InstructionPaths(root) {
+		data, err := os.ReadFile(path)
+		present := false
+		if err == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				if strings.TrimSuffix(line, "\r") == install.InstallOffer {
+					present = true
+				}
+			}
+		}
+		add("info", fmt.Sprintf("duolog install offer in %s: present=%t", path, present))
 	}
 	folder, err := trust.Folder("codex", root)
 	if err != nil {

@@ -1,13 +1,44 @@
 # duolog
 
+Install the binary with one command, then set up this project:
+
+```sh
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh
+duolog install --scope project
+```
+
+The download link works after the first release. The script verifies SHA-256
+checksums and installs to `~/.local/bin`. Run it again to update. It warns if
+that directory is missing from `PATH` and never edits your shell profile.
+
+Pin a release or choose another directory:
+
+```sh
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v0.1.0
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | DUOLOG_INSTALL_DIR="$HOME/bin" sh
+```
+
+`DUOLOG_VERSION` also pins a release; `--dir` also sets the directory. Use
+`--via-go` to print the source install command. The script supports Linux and
+macOS on amd64 and arm64. On other platforms, including Windows, it prints
+`go install github.com/lorem-dev/duolog/cmd/duolog@<version>` and exits with
+an error.
+
+Project setup adds one marked line near the top of `AGENTS.md` and the Claude
+instruction file. If the project has `.duolog/config.yaml` but a new machine
+has no duolog on `PATH`, that line asks the agent to offer the install command.
+The agent must get your agreement before running it. User setup does not add
+this line. Uninstall removes the line and keeps your other instructions.
+
 duolog makes Claude Code and Codex work as a pair in one project. You choose
 which agent and model does each kind of work. The two sessions then talk through
 a cheap file bus, so they do not paste large context at each other.
 
 **Status.** The code exists and its unit tests pass. The first release is
-unpublished: there is no download yet, so you build the binary from source with
-`make build`. We did not run duolog on Windows. Codex as the lead is not
-proven. Read [the known limits](#what-is-not-proven-yet) before you rely on it.
+unpublished; the install link above works after it is published. You can
+build from source now with `make build`. We did not run duolog on Windows.
+Codex as the lead is not proven. Read
+[the known limits](#what-is-not-proven-yet) before you rely on it.
 
 ## What duolog does
 

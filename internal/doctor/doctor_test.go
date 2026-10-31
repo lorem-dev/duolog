@@ -3,6 +3,7 @@ package doctor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
@@ -244,5 +246,30 @@ func TestDoctorFlagsMissingDuolog(t *testing.T) {
 	got = findings(t, cfg, opts)
 	if strings.Contains(got, "codex has no duolog hooks") || !strings.Contains(got, "claude has no duolog hooks") {
 		t.Fatal(got)
+	}
+}
+
+func TestInstallOfferIsInfoOnly(t *testing.T) {
+	cfg, opts, _ := setup(t)
+	for _, present := range []bool{false, true} {
+		if present {
+			for _, path := range install.InstructionPaths(opts.Root) {
+				if err := os.WriteFile(path, []byte(install.InstallOffer+"\n"), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		count := 0
+		for _, finding := range Run(context.Background(), cfg, opts) {
+			if strings.Contains(finding.Message, "duolog install offer") {
+				count++
+				if finding.Level != "info" || !strings.Contains(finding.Message, fmt.Sprintf("present=%t", present)) {
+					t.Fatalf("%+v", finding)
+				}
+			}
+		}
+		if count != 2 {
+			t.Fatalf("got %d offer findings", count)
+		}
 	}
 }
