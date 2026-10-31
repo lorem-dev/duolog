@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"math"
 	"os"
 
 	"github.com/lorem-dev/duolog/internal/mode"
@@ -40,21 +41,10 @@ func claudeResult(path string, result *Result) (json.RawMessage, error) {
 	}
 	defer file.Close()
 	// Only stdout is decoded; stderr is retained separately in stdout.log.
-	// Startup diagnostics can precede the JSON object. Preserve the first JSON
-	// line and the remaining stream so pretty-printed results still decode.
+	// Try each object-starting line independently so malformed diagnostics do
+	// not hide the result, while multiline JSON remains decodable.
 	reader := bufio.NewReader(file)
-	var first []byte
-	for {
-		line, readErr := reader.ReadBytes('\n')
-		if bytes.HasPrefix(bytes.TrimSpace(line), []byte("{")) {
-			first = line
-			break
-		}
-		if readErr != nil {
-			return nil, readErr
-		}
-	}
-	var output struct {
+	type claudeOutput struct {
 		SessionID  string          `json:"session_id"`
 		Structured json.RawMessage `json:"structured_output"`
 		Usage      struct {
@@ -64,8 +54,25 @@ func claudeResult(path string, result *Result) (json.RawMessage, error) {
 			Output   int64 `json:"output_tokens"`
 		} `json:"usage"`
 	}
-	if err := json.NewDecoder(io.MultiReader(bytes.NewReader(first), reader)).Decode(&output); err != nil {
-		return nil, err
+	var output claudeOutput
+	var offset int64
+	var decodeErr error
+	for {
+		line, readErr := reader.ReadBytes('\n')
+		if bytes.HasPrefix(bytes.TrimSpace(line), []byte("{")) {
+			output = claudeOutput{}
+			decodeErr = json.NewDecoder(io.NewSectionReader(file, offset, math.MaxInt64-offset)).Decode(&output)
+			if decodeErr == nil {
+				break
+			}
+		}
+		offset += int64(len(line))
+		if readErr != nil {
+			if decodeErr != nil {
+				return nil, decodeErr
+			}
+			return nil, readErr
+		}
 	}
 	result.SessionID = output.SessionID
 	// Claude reports uncached, cache creation and cache reads separately; Input
