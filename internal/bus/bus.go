@@ -41,6 +41,9 @@ func Open(dir string, w config.Wire) (*Bus, error) {
 	if w.MaxSummaryBytes <= 0 || w.MaxLineBytes <= 0 {
 		return nil, fmt.Errorf("wire byte limits must be positive")
 	}
+	if w.MaxSummaryBytes > 200 || w.MaxLineBytes > 512 {
+		return nil, fmt.Errorf("wire byte limits must not exceed 200 summary bytes and 512 line bytes")
+	}
 	if err := os.MkdirAll(filepath.Join(dir, "cursors"), 0755); err != nil {
 		return nil, err
 	}

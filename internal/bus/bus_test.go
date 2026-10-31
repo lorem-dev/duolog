@@ -314,6 +314,22 @@ func TestCursorForSlashedAddress(t *testing.T) {
 	}
 }
 
+func TestOpenRejectsLimitsAboveProtocolMaxima(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		wire config.Wire
+	}{
+		{"summary", config.Wire{MaxSummaryBytes: 201, MaxLineBytes: 512}},
+		{"line", config.Wire{MaxSummaryBytes: 200, MaxLineBytes: 513}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := Open(t.TempDir(), tc.wire); err == nil {
+				t.Fatalf("Open accepted limits above protocol maxima: %+v", tc.wire)
+			}
+		})
+	}
+}
+
 func TestWireLimits(t *testing.T) {
 	b, err := Open(t.TempDir(), config.Wire{MaxSummaryBytes: 3, MaxLineBytes: 150})
 	if err != nil {
