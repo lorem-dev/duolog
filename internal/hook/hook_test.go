@@ -530,6 +530,45 @@ func TestHookObservationStartTimeOrdersModes(t *testing.T) {
 	}
 }
 
+func TestInitialHookWithoutModePreservesObservedMode(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		for _, newerFirst := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/newerFirst=%t", agent, newerFirst), func(t *testing.T) {
+				e, r, _ := setup(t, agent)
+				older := change(t, e, "permission_mode", "plan")
+				older.StartedAt = time.Unix(100, 0)
+				newer := change(t, e, "permission_mode", nil)
+				newer.StartedAt = older.StartedAt.Add(time.Second)
+				// Separate transcripts retain each hook's observation regardless
+				// of the order in which the hooks finish.
+				if agent == "codex" {
+					header := "{\"type\":\"session_meta\",\"payload\":{\"originator\":\"codex-tui\"}}\n"
+					write(t, transcript(older), header+"{\"type\":\"turn_context\",\"payload\":{\"sandbox_policy\":{\"type\":\"read-only\"}}}\n")
+					path := filepath.Join(e.Root, "no-mode.jsonl")
+					write(t, path, header)
+					newer = change(t, newer, "transcript_path", path)
+				}
+				first, second := older, newer
+				if newerFirst {
+					first, second = newer, older
+				}
+				SessionStart(context.Background(), first)
+				want := mode.Plan
+				if newerFirst {
+					want = mode.Ask
+				}
+				if l := lead(t, r, e); l.Mode != want {
+					t.Fatalf("first registration mode = %s, want %s", l.Mode, want)
+				}
+				SessionStart(context.Background(), second)
+				if l := lead(t, r, e); l.Mode != mode.Plan {
+					t.Fatalf("unobserved mode displaced plan: %s", l.Mode)
+				}
+			})
+		}
+	}
+}
+
 func TestSessionEndBeforeInitialRegistration(t *testing.T) {
 	for _, agent := range []string{"claude", "codex"} {
 		t.Run(agent, func(t *testing.T) {

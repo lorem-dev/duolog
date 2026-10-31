@@ -142,7 +142,7 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 	if !known {
 		o.PID = &lead.PID
 	}
-	if !known || (e.Agent == "claude" && h.PermissionMode != "") || (e.Agent == "codex" && observed.Mode != "") {
+	if (e.Agent == "claude" && h.PermissionMode != "") || (e.Agent == "codex" && observed.Mode != "") {
 		o.Mode = &lead.Mode
 	}
 	lead, err = reg.ObserveLead(o, started)
