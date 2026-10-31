@@ -99,3 +99,21 @@ func TestParseNeed(t *testing.T) {
 		t.Fatal(k, n, err)
 	}
 }
+
+func TestKindUnknownClaimsNothing(t *testing.T) {
+	claude := Inventory{Agent: "claude", UnknownKinds: []string{KindMCP}, Items: lead.Items}
+	// Claude as target: an MCP not found in files may still exist.
+	r := one(t, claude, Inventory{Agent: "codex", Items: []Item{{Kind: "mcp", Name: "figma"}}}, "mcp:figma", defaults())
+	if r.Action != ActionPresent || r.Hint != NeedsLine {
+		t.Fatal(r)
+	}
+	// Claude as source: a connector it has but no file lists is not "missing in both".
+	r = one(t, worker, claude, "mcp:claude-ai-figma", defaults())
+	if r.Action != ActionPresent || r.Hint != NeedsLine {
+		t.Fatal(r)
+	}
+	// A known kind still resolves normally.
+	if r := one(t, worker, claude, "skill:nope", defaults()); r.Action != ActionRefuse {
+		t.Fatal(r)
+	}
+}
