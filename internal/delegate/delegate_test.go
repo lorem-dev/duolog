@@ -117,6 +117,7 @@ func (h *harness) task(refs string) {
 	put(h.t, h.path, "# Task: example\n\n## Goal\nDo work.\n\n## Read\n"+refs+"\n\n## Write\n- a.go\n\n## Limits\nStay focused.\n\n## Check\ngo test ./...\n")
 }
 func (h *harness) trust(trusted bool) {
+	put(h.t, filepath.Join(h.root, ".codex", "hooks.json"), `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"duolog gate"}]}]}}`)
 	s := fmt.Sprintf("[projects.%q]\ntrust_level = \"trusted\"\n", h.root)
 	if trusted {
 		s += fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = \"fixture-hash\"\n", filepath.Join(h.root, ".codex", "hooks.json")+":PreToolUse:0:0")
@@ -200,8 +201,8 @@ func TestFreshRunsAreNotRegistered(t *testing.T) {
 	if _, e := h.run("implement"); e != nil {
 		t.Fatal(e)
 	}
-	if x, ok := h.reg.Lookup("", "codex", "implement", "topic"); ok {
-		t.Fatal(x)
+	if x, ok, err := h.reg.Lookup("", "codex", "implement", "topic"); err != nil || ok {
+		t.Fatal(x, err)
 	}
 	if !strings.Contains(strings.Join(runner.Argv(h.calls[0]), " "), "--ephemeral") {
 		t.Fatal("fresh persisted")
@@ -315,18 +316,28 @@ func TestLeadToldAboutMove(t *testing.T) {
 	if _, e := h.run("implement"); e != nil {
 		t.Fatal(e)
 	}
-	text := read(t, filepath.Join(h.s.Dir, "bus.ndjson"))
-	for _, s := range []string{"implement", "codex", "claude", "sonnet", "medium"} {
-		if !strings.Contains(text, s) {
-			t.Fatal(text)
+	var moves []bus.Message
+	for _, line := range strings.Split(strings.TrimSpace(read(t, filepath.Join(h.s.Dir, "bus.ndjson"))), "\n") {
+		var msg bus.Message
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			t.Fatal(err)
+		}
+		if msg.K == "status" {
+			moves = append(moves, msg)
 		}
 	}
-	if strings.Count(text, "moved") != 1 {
-		t.Fatal(text)
+	if len(moves) != 1 {
+		t.Fatalf("move messages: %+v", moves)
 	}
+	msg := moves[0]
+	if msg.S != "role implement moved from codex to claude model=sonnet effort=medium" || msg.To != "claude/lead.lead-1" || msg.Th != "topic" {
+		t.Fatalf("move: %+v", msg)
+	}
+
 }
 func TestPartialWorkNoted(t *testing.T) {
 	h := newHarness(t)
+	h.gitRepo()
 	h.limited()
 	h.change = "partial.go"
 	if _, e := h.run("implement"); e != nil {
@@ -347,6 +358,7 @@ func TestPartialWorkNoted(t *testing.T) {
 }
 func TestNoNoteWithoutChanges(t *testing.T) {
 	h := newHarness(t)
+	h.gitRepo()
 	h.limited()
 	if _, e := h.run("implement"); e != nil {
 		t.Fatal(e)
@@ -418,22 +430,22 @@ func TestChildGetsDepthEnv(t *testing.T) {
 }
 func TestRunnerGetsConcreteCodexModel(t *testing.T) {
 	h := newHarness(t)
-	if _, e := h.run("review_intermediate"); e != nil {
-		t.Fatal(e)
+	fake := h.fakeWorker("codex")
+	if _, err := h.run("review_intermediate"); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(runner.Argv(h.calls[0]), " "), "-m gpt-6.1-terra") {
-		t.Fatal(h.calls)
-	}
+	requireArgPair(t, fake, "-m", "gpt-6.1-terra")
 }
+
 func TestRunnerGetsClaudeAlias(t *testing.T) {
 	h := newHarness(t)
-	if _, e := h.run("review_final"); e != nil {
-		t.Fatal(e)
+	fake := h.fakeWorker("claude")
+	if _, err := h.run("review_final"); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(runner.Argv(h.calls[0]), " "), "--model opus") {
-		t.Fatal(h.calls)
-	}
+	requireArgPair(t, fake, "--model", "opus")
 }
+
 func TestRunnerGetsLeadMode(t *testing.T) {
 	h := newHarness(t)
 	h.lead("claude", mode.Edits, "high")
@@ -483,13 +495,13 @@ func TestChildGetsLeadEnv(t *testing.T) {
 func TestRunnerGetsLeadCappedEffort(t *testing.T) {
 	h := newHarness(t)
 	h.lead("claude", mode.Edits, "medium")
-	if _, e := h.run("implement_complex"); e != nil {
-		t.Fatal(e)
+	fake := h.fakeWorker("codex")
+	if _, err := h.run("implement_complex"); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(runner.Argv(h.calls[0]), " "), `model_reasoning_effort="medium"`) {
-		t.Fatal(h.calls)
-	}
+	requireArgPair(t, fake, "-c", "model_reasoning_effort=\"medium\"")
 }
+
 func TestUsageRecordsCappedEffort(t *testing.T) {
 	h := newHarness(t)
 	h.lead("claude", mode.Edits, "medium")
@@ -621,8 +633,8 @@ func TestResumeLimitsLiveWorkers(t *testing.T) {
 	if _, e := h.run("plan"); e != nil {
 		t.Fatal(e)
 	}
-	if _, ok := h.reg.Lookup("", "claude", "plan", "other"); ok {
-		t.Fatal("live worker cap ignored")
+	if _, ok, err := h.reg.Lookup("", "claude", "plan", "other"); err != nil || ok {
+		t.Fatal("live worker cap ignored", err)
 	}
 }
 func TestCodexResumeFirstRunPersists(t *testing.T) {
@@ -671,13 +683,14 @@ func TestResumeWithoutRepeatedSessionIDStillTracksUsage(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	entry, ok := h.reg.Lookup("", "claude", "plan", "topic")
-	if !ok || entry.Input != 20 || entry.ThreadID != "worker-id" {
+	entry, ok, err := h.reg.Lookup("", "claude", "plan", "topic")
+	if err != nil || !ok || entry.Input != 20 || entry.ThreadID != "worker-id" {
 		t.Fatal(entry, ok)
 	}
 }
 func TestPartialWorkWithCRLFTask(t *testing.T) {
 	h := newHarness(t)
+	h.gitRepo()
 	put(t, h.path, strings.ReplaceAll(read(t, h.path), "\n", "\r\n"))
 	h.limited()
 	h.change = "partial.go"
@@ -692,6 +705,7 @@ func TestPartialWorkWithCRLFTask(t *testing.T) {
 
 func TestPartialWorkPlacementUsesAnnotatedCopy(t *testing.T) {
 	h := newHarness(t)
+	h.gitRepo()
 	h.lead("claude", mode.Edits, "high")
 	h.limited()
 	h.change = "partial.go"
@@ -702,5 +716,213 @@ func TestPartialWorkPlacementUsesAnnotatedCopy(t *testing.T) {
 	}
 	if !strings.Contains(read(t, o.RunHere.Task), "partial.go") {
 		t.Fatal("lead did not receive partial-work note")
+	}
+}
+
+func TestAnswerFieldsStayOnOneLine(t *testing.T) {
+	h := newHarness(t)
+	h.results = []runner.Result{{Done: true, Summary: "Done\r\nnow", Files: []string{"a\nb.go", "c\rd.go"}, Needs: []string{"help\nplease"}}}
+	out, err := h.run("implement")
+	if err != nil || strings.ContainsAny(out.Line, "\r\n") {
+		t.Fatalf("line=%q err=%v", out.Line, err)
+	}
+	if !strings.Contains(out.Line, "a b.go,c d.go") {
+		t.Fatal(out.Line)
+	}
+}
+
+// gitRepo constructs an empty repository without Git state-changing commands.
+func (h *harness) gitRepo() {
+	h.t.Helper()
+	for _, dir := range []string{"objects", "refs/heads"} {
+		if err := os.MkdirAll(filepath.Join(h.root, ".git", dir), 0755); err != nil {
+			h.t.Fatal(err)
+		}
+	}
+	put(h.t, filepath.Join(h.root, ".git", "HEAD"), "ref: refs/heads/main\n")
+	put(h.t, filepath.Join(h.root, ".git", "config"), "[core]\nrepositoryformatversion = 0\nbare = false\n")
+}
+func (h *harness) fakeWorker(agent string) string {
+	h.t.Helper()
+	answer := `{"done":true,"summary":"Finished.","files":["a.go"],"needs":[]}`
+	scenario := testbin.Scenario{Stdout: `{"structured_output":` + answer + `}`}
+	if agent == "codex" {
+		scenario = testbin.Scenario{}
+	}
+	fake := testbin.Install(h.t, agent, scenario)
+	runWorker = func(ctx context.Context, spec runner.Spec) (runner.Result, error) {
+		if agent == "codex" {
+			scenario.Writes = map[string]string{filepath.Join(spec.TaskDir, "answer.json"): answer}
+			data, err := json.Marshal(scenario)
+			if err != nil {
+				h.t.Fatal(err)
+			}
+			put(h.t, fake+".json", string(data))
+		}
+		return runner.Run(ctx, spec)
+	}
+	return fake
+}
+func requireArgPair(t *testing.T, fake, flag, value string) {
+	t.Helper()
+	var argv []string
+	if err := json.Unmarshal([]byte(read(t, fake+".args.json")), &argv); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i+1 < len(argv); i++ {
+		if argv[i] == flag && argv[i+1] == value {
+			return
+		}
+	}
+	t.Fatalf("missing %q %q in launched argv: %q", flag, value, argv)
+}
+func TestRegistryDamageStopsDelegation(t *testing.T) {
+	for _, damage := range []string{"corrupt", "unreadable", "resume lookup"} {
+		t.Run(damage, func(t *testing.T) {
+			h := newHarness(t)
+			h.lead("claude", mode.Plan, "medium")
+			role := "implement"
+			switch damage {
+			case "corrupt":
+				put(t, filepath.Join(h.s.Dir, "sessions.json"), "{")
+			case "unreadable":
+				if err := os.Remove(filepath.Join(h.s.Dir, "sessions.json")); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(filepath.Join(h.s.Dir, "sessions.json"), 0700); err != nil {
+					t.Fatal(err)
+				}
+			case "resume lookup":
+				role = "review_final"
+				h.lead("codex", mode.Edits, "medium")
+				r := h.cfg.Roles[role]
+				r.Session = "resume"
+				h.cfg.Roles[role] = r
+				old := resolveModel
+				resolveModel = func(ctx context.Context, cfg *config.Config, dir string, target config.Target) (string, error) {
+					put(t, filepath.Join(h.s.Dir, "sessions.json"), "{")
+					return old(ctx, cfg, dir, target)
+				}
+			}
+			out, err := h.run(role)
+			h.requireCalls(0)
+			if err == nil || out.Line == "" {
+				t.Fatalf("out=%+v err=%v", out, err)
+			}
+			if strings.Contains(out.Line, "mode plan") {
+				t.Fatal("routing occurred before registry error")
+			}
+		})
+	}
+}
+func TestDelegationIgnoresUnrelatedInaccessibleFile(t *testing.T) {
+	for _, repository := range []bool{false, true} {
+		t.Run(fmt.Sprint(repository), func(t *testing.T) {
+			h := newHarness(t)
+			if repository {
+				h.gitRepo()
+			}
+			put(t, filepath.Join(h.root, ".gitignore"), "dependency/\n")
+			p := filepath.Join(h.root, "dependency", "unreadable")
+			put(t, p, "unrelated")
+			if err := os.Chmod(p, 0000); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(p, 0600) })
+			if _, err := os.ReadFile(p); err == nil {
+				t.Skip("filesystem does not enforce unreadable permissions")
+			}
+			if _, err := h.run("implement"); err != nil {
+				t.Fatal(err)
+			}
+			h.requireCalls(1)
+		})
+	}
+}
+func TestNonRepositorySkipsPartialWorkNote(t *testing.T) {
+	h := newHarness(t)
+	h.limited()
+	h.change = "partial.go"
+	if _, err := h.run("implement"); err != nil {
+		t.Fatal(err)
+	}
+	h.requireCalls(2)
+	if strings.Contains(string(h.calls[1].Stdin), "Partial work") {
+		t.Fatal("partial-work note outside Git repository")
+	}
+}
+
+func TestGitSnapshotUsesStatusAndExcludesUnrelatedPaths(t *testing.T) {
+	h := newHarness(t)
+	h.gitRepo()
+	put(t, filepath.Join(h.root, ".gitignore"), "dependency/\nbuild/\n")
+	before, err := snapshot(h.root)
+	if err != nil || before == nil {
+		t.Fatalf("before=%v err=%v", before, err)
+	}
+	put(t, filepath.Join(h.root, "dependency", "large"), strings.Repeat("x", 1<<20))
+	put(t, filepath.Join(h.root, "build", "output"), "build")
+	put(t, filepath.Join(h.s.Dir, "worker-output"), "internal")
+	put(t, filepath.Join(h.root, "partial.go"), "partial")
+	after, err := snapshot(h.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(changes(before, after), ","); got != "partial.go" {
+		t.Fatalf("changed=%q", got)
+	}
+}
+
+func TestGitSnapshotParsesRenamesAndUnusualNames(t *testing.T) {
+	h := newHarness(t)
+	fake := testbin.Install(t, "git", testbin.Scenario{Stdout: "R  new name.go\x00old name.go\x00?? line\nbreak.go\x00 D deleted.go\x00"})
+	got, err := snapshot(h.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"new name.go", "old name.go", "line\nbreak.go", "deleted.go"} {
+		if _, ok := got[path]; !ok {
+			t.Fatalf("missing %q in %v", path, got)
+		}
+	}
+	requireArgPair(t, fake, "status", "--porcelain=v1")
+	var argv []string
+	if err := json.Unmarshal([]byte(read(t, fake+".args.json")), &argv); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"--no-optional-locks", "-z", "--untracked-files=all", ":(exclude).duolog"} {
+		found := false
+		for _, arg := range argv {
+			if arg == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("missing %q in %q", want, argv)
+		}
+	}
+}
+
+func TestMissingHookRefusesWriteDespiteStoredApproval(t *testing.T) {
+	h := newHarness(t)
+	if err := os.Remove(filepath.Join(h.root, ".codex", "hooks.json")); err != nil {
+		t.Fatal(err)
+	}
+	out, err := h.run("implement")
+	h.requireCalls(0)
+	if err == nil || !strings.Contains(out.Line, "/hooks") {
+		t.Fatal(out, err)
+	}
+}
+
+func TestReadOnlyDelegationSkipsChangeDetection(t *testing.T) {
+	h := newHarness(t)
+	fake := testbin.Install(t, "git", testbin.Scenario{})
+	if _, err := h.run("review_intermediate"); err != nil {
+		t.Fatal(err)
+	}
+	h.requireCalls(1)
+	if _, err := os.Stat(fake + ".args.json"); !os.IsNotExist(err) {
+		t.Fatalf("read-only delegation invoked Git: %v", err)
 	}
 }

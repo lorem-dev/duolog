@@ -2,12 +2,11 @@
 package delegate
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -140,7 +139,10 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	if leadID == "" {
 		leadID = session.CurrentLead(os.Environ())
 	}
-	lead, hasLead := reg.Lead(leadID)
+	lead, hasLead, err := reg.Lead(leadID)
+	if err != nil {
+		return out, err
+	}
 	var leadTarget *config.Target
 	leadMode := mode.Ask
 	address := "duolog/lead"
@@ -177,7 +179,10 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			}
 		}
 	}()
-	unavailable := reg.Unavailable()
+	unavailable, err := reg.Unavailable()
+	if err != nil {
+		return out, err
+	}
 	priorAgent := ""
 	placementTask := taskPath
 	for attempt := 0; attempt < 2; attempt++ {
@@ -247,7 +252,10 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			}
 			var entry *session.Entry
 			if route.Session == "resume" {
-				entry, _ = reg.Lookup(leadID, route.Agent, role, thread)
+				entry, _, err = reg.Lookup(leadID, route.Agent, role, thread)
+				if err != nil {
+					return out, err
+				}
 				if entry != nil {
 					over := entry.Input > int64(cfg.Sessions.ResumeMaxInputTokens)
 					idle := cfg.Sessions.IdleCloseMinutes > 0 && time.Since(entry.UpdatedAt) > time.Duration(cfg.Sessions.IdleCloseMinutes)*time.Minute
@@ -264,9 +272,13 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			if err = send(address, worker, "task", "role "+role+" task="+ref, ref); err != nil {
 				return out, err
 			}
-			before, snapErr := snapshot(root)
-			if snapErr != nil {
-				return out, snapErr
+			var before map[string]string
+			if route.Sandbox != "read-only" {
+				var snapErr error
+				before, snapErr = snapshot(root)
+				if snapErr != nil {
+					return out, snapErr
+				}
 			}
 			out.Result, err = runWorker(ctx, spec)
 			if usageErr := appendUsage(s.Dir, role, route, out.Result); usageErr != nil {
@@ -294,7 +306,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 						return out, err
 					}
 				}
-				out.Line = fmt.Sprintf("done=%t summary=%s files=%s%s", out.Result.Done, oneLine(out.Result.Summary), strings.Join(out.Result.Files, ","), warning)
+				out.Line = oneLine(fmt.Sprintf("done=%t summary=%s files=%s%s", out.Result.Done, out.Result.Summary, strings.Join(out.Result.Files, ","), warning))
 				return out, nil
 			}
 			if out.Result.QuotaEnded {
@@ -309,9 +321,13 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				if err == nil {
 					err = fmt.Errorf("quota ended")
 				}
-				after, snapErr := snapshot(root)
-				if snapErr != nil {
-					return out, errors.Join(err, snapErr)
+				var after map[string]string
+				if before != nil {
+					var snapErr error
+					after, snapErr = snapshot(root)
+					if snapErr != nil {
+						return out, errors.Join(err, snapErr)
+					}
 				}
 				changed := changes(before, after)
 				if len(changed) > 0 {
@@ -389,38 +405,38 @@ func appendUsage(dir, role string, route router.Route, result runner.Result) err
 	writeErr := json.NewEncoder(f).Encode(usageRecord{role, route.Agent, route.Model, route.Effort, route.EffortCapped, result.Usage.Input, result.Usage.Cached, result.Usage.Output})
 	return errors.Join(writeErr, f.Close())
 }
-func snapshot(root string) (map[string][32]byte, error) {
-	result := make(map[string][32]byte)
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+
+// snapshot asks Git for relevant working-tree paths without reading project files.
+// Outside a repository (or when Git is unavailable), partial-work notes are skipped.
+func snapshot(root string) (map[string]string, error) {
+	cmd := exec.Command("git", "--no-optional-locks", "-C", root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules", "--", ".", ":(exclude).duolog")
+	data, err := cmd.Output()
+	if err != nil {
+		return nil, nil
+	}
+	result := make(map[string]string)
+	records := bytes.Split(data, []byte{0})
+	for i := 0; i < len(records); i++ {
+		record := string(records[i])
+		if len(record) < 4 {
+			continue
 		}
-		if d.IsDir() {
-			if d.Name() == ".git" || d.Name() == ".duolog" {
-				return filepath.SkipDir
-			}
-			return nil
+		status, path := record[:2], record[3:]
+		result[path] = status
+		if strings.ContainsAny(status, "RC") && i+1 < len(records) {
+			i++
+			result[string(records[i])] = status + " -> " + path
 		}
-		if !d.Type().IsRegular() {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		result[filepath.ToSlash(rel)] = sha256.Sum256(data)
-		return nil
-	})
-	return result, err
+	}
+	return result, nil
 }
-func changes(before, after map[string][32]byte) []string {
+func changes(before, after map[string]string) []string {
+	if before == nil || after == nil {
+		return nil
+	}
 	var names []string
-	for path, hash := range after {
-		if old, ok := before[path]; !ok || old != hash {
+	for path, status := range after {
+		if old, ok := before[path]; !ok || old != status {
 			names = append(names, path)
 		}
 	}
