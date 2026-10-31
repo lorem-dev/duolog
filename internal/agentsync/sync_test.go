@@ -472,3 +472,48 @@ func TestSessionStartCatchesShellEdits(t *testing.T) {
 		t.Fatal("not rebuilt")
 	}
 }
+
+func TestAgentNameWithPathIsRefused(t *testing.T) {
+	for _, name := range []string{"../../x", "a/b", ".hidden", `a\b`} {
+		root := newProject(t)
+		put(t, root, ".claude/agents/a.md", agentMD(name, "opus"), 0o644)
+		rep, err := Run(root, syncCfg(t), Options{From: "claude"})
+		if err != nil || len(rep.Conflicts) != 1 || !strings.Contains(rep.Conflicts[0], "plain file name") {
+			t.Fatalf("%q: %v %+v", name, err, rep)
+		}
+		if len(rep.Written) != 0 || exists(root, ".codex") || exists(filepath.Dir(root), "x.toml") {
+			t.Fatalf("%q: wrote %+v", name, rep.Written)
+		}
+		if len(lockOf(t, root).Files) != 0 {
+			t.Fatalf("%q: lock owns files", name)
+		}
+	}
+}
+
+func TestApplyRefusesTargetOutsideGeneratedFolder(t *testing.T) {
+	root := newProject(t)
+	r := &runner{root: root, to: sideDirs("codex")}
+	if r.within(filepath.Join(root, ".codex", "agents", "..", "..", "x.toml")) || !r.within(filepath.Join(root, ".codex", "agents", "a.toml")) {
+		t.Fatal("within is wrong")
+	}
+}
+
+func TestSwitchDirectionKeepsEditedOldSource(t *testing.T) {
+	root := newProject(t)
+	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
+	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	edited := agentMD("a", "opus") + "My own edit.\n"
+	put(t, root, ".claude/agents/a.md", edited, 0o644)
+	rep, err := Run(root, syncCfg(t), Options{From: "codex", SwitchDirection: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read(t, root, ".claude/agents/a.md") != edited {
+		t.Fatal("edit lost")
+	}
+	if len(rep.Conflicts) != 1 || !strings.Contains(rep.Conflicts[0], "written by hand") {
+		t.Fatalf("%+v", rep)
+	}
+}
