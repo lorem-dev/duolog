@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/roster"
@@ -30,6 +31,19 @@ func newRosterCommand() *cobra.Command {
 		}
 		if _, err := fmt.Fprintln(cmd.OutOrStdout(), roster.Line(cfg, session.CurrentLead(os.Environ()), reg)); err != nil {
 			return err
+		}
+		if leadSession, ok, _ := reg.Lead(session.CurrentLead(os.Environ())); ok {
+			other := "codex"
+			if leadSession.Agent == "codex" {
+				other = "claude"
+			}
+			mine, _ := capability.Scan(cmd.Context(), leadSession.Agent, root)
+			theirs, _ := capability.Scan(cmd.Context(), other, root)
+			if note := roster.CapsNote(mine, theirs, capability.HasDuolog(other, root)); note != "" {
+				if _, err := fmt.Fprintln(cmd.OutOrStdout(), note); err != nil {
+					return err
+				}
+			}
 		}
 		if !versions {
 			return nil

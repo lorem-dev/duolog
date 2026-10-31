@@ -17,6 +17,7 @@ import (
 
 	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/bus"
+	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/models"
@@ -32,6 +33,9 @@ type Outcome struct {
 	Result  runner.Result
 	RunHere *Placement
 	Line    string
+	// Needs names the tools the worker or the capability check asked the lead
+	// for. It is not a failure: the caller gives it a separate exit code.
+	Needs []string
 }
 type Placement struct {
 	Where               string
@@ -48,6 +52,8 @@ func (p Placement) String() string {
 type Options struct {
 	Lead             string
 	AllowManualModel bool
+	// Needs lists "kind:name" capabilities the task relies on.
+	Needs []string
 }
 type optionsKey struct{}
 
@@ -58,6 +64,7 @@ func WithOptions(ctx context.Context, opts Options) context.Context {
 var runWorker = runner.Run
 var resolveModel = models.Resolve
 var readLeadState = session.ReadLeadState
+var scanCapabilities = capability.Scan
 
 func Place(cfg *config.Config, taskPath string, route router.Route) (Placement, error) {
 	root, err := os.Getwd()
@@ -102,6 +109,12 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	if depth := os.Getenv("DUOLOG_DEPTH"); depth != "" && depth != "0" {
 		return out, fmt.Errorf("nested delegation refused (DUOLOG_DEPTH=%s)", depth)
 	}
+	opts, _ := ctx.Value(optionsKey{}).(Options)
+	for _, need := range opts.Needs {
+		if _, _, err = capability.ParseNeed(need); err != nil {
+			return out, err
+		}
+	}
 	root, err := filepath.Abs(filepath.Dir(s.Dir))
 	if err != nil {
 		return out, err
@@ -136,7 +149,6 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	if err != nil {
 		return out, err
 	}
-	opts, _ := ctx.Value(optionsKey{}).(Options)
 	leadID := opts.Lead
 	if leadID == "" {
 		leadID = session.CurrentLead(os.Environ())
@@ -146,6 +158,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		return out, err
 	}
 	var leadTarget *config.Target
+	leadAgent := ""
 	leadMode := mode.Ask
 	address := "duolog/lead"
 	if hasLead {
@@ -172,6 +185,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			return out, err
 		}
 		leadTarget = &lead.Target
+		leadAgent = lead.Agent
 		address = session.Address(lead)
 	} else {
 		leadID = ""
@@ -208,6 +222,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	}
 	priorAgent := ""
 	placementTask := taskPath
+	capNotes := ""
 	for attempt := 0; attempt < 2; attempt++ {
 		route, routeErr := router.Resolve(cfg, role, unavailable, router.Options{Lead: leadTarget, AllowManualModel: opts.AllowManualModel})
 		if routeErr != nil {
@@ -237,6 +252,62 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			out.RunHere = &p
 			out.Line = p.String()
 			return out, nil
+		}
+		capNotes = ""
+		if len(opts.Needs) > 0 {
+			target, scanErr := scanCapabilities(ctx, route.Agent, root)
+			if scanErr != nil {
+				return out, scanErr
+			}
+			lead := capability.Inventory{Agent: leadAgent, Unknown: true}
+			if leadAgent != "" {
+				if lead, scanErr = scanCapabilities(ctx, leadAgent, root); scanErr != nil {
+					return out, scanErr
+				}
+			}
+			var notes, lacking []string
+			reroute := false
+			for _, r := range capability.Resolve(target, lead, opts.Needs, cfg.Capabilities) {
+				switch r.Action {
+				case capability.ActionRefuse:
+					out.Line = oneLine("role " + role + ": " + r.Hint)
+					return out, fmt.Errorf("capability %s missing: %s", r.Need, r.Hint)
+				case capability.ActionLeadFirst:
+					lacking = append(lacking, r.Need)
+					notes = append(notes, r.Hint)
+				case capability.ActionReroute:
+					reroute = true
+					notes = append(notes, r.Hint)
+				default:
+					if r.Hint != "" {
+						notes = append(notes, r.Hint)
+					}
+				}
+			}
+			if len(lacking) > 0 {
+				out.Needs = lacking
+				out.Line = oneLine("role " + role + " waits for lead: " + strings.Join(notes, " "))
+				return out, nil
+			}
+			if reroute {
+				if attempt == 1 {
+					return out, fmt.Errorf("capabilities missing on both routes: %s", strings.Join(notes, " "))
+				}
+				priorAgent = route.Agent
+				unavailable[route.Agent] = true
+				continue
+			}
+			for _, n := range notes {
+				capNotes += n + "\n"
+			}
+			if capNotes != "" {
+				if err = os.WriteFile(copyPath, []byte(annotate(string(original), capNotes)), 0600); err != nil {
+					return out, err
+				}
+				if err = task.Validate(copyPath); err != nil {
+					return out, err
+				}
+			}
 		}
 		state, trustErr := trust.Hooks(route.Agent, root)
 		if trustErr != nil {
@@ -269,7 +340,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			}
 		} else {
 			route.Model = model
-			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Stdin: inline, Env: workerEnv(cfg.EnvPassthrough, leadID), Persistent: route.Session == "resume"}
+			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: append(append([]byte{}, inline...), []byte("\n"+capability.NeedsLine+"\n")...), Env: workerEnv(cfg.EnvPassthrough, leadID), Persistent: route.Session == "resume"}
 			if route.Sandbox == "read-only" {
 				spec.Mode = mode.Plan
 			}
@@ -329,7 +400,12 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 						return out, err
 					}
 				}
-				out.Line = oneLine(fmt.Sprintf("done=%t summary=%s files=%s%s", out.Result.Done, out.Result.Summary, strings.Join(out.Result.Files, ","), warning))
+				needs := ""
+				if len(out.Result.Needs) > 0 {
+					out.Needs = out.Result.Needs
+					needs = " needs=" + strings.Join(out.Result.Needs, ",")
+				}
+				out.Line = oneLine(fmt.Sprintf("done=%t%s summary=%s files=%s%s", out.Result.Done, needs, out.Result.Summary, strings.Join(out.Result.Files, ","), warning))
 				return out, nil
 			}
 			if out.Result.QuotaEnded {
@@ -355,7 +431,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				changed := changes(before, after)
 				if len(changed) > 0 {
 					note := "Partial work from " + route.Agent + ": " + strings.Join(changed, ", ") + ". Inspect these files before continuing.\n"
-					updated := strings.Replace(strings.ReplaceAll(string(original), "\r\n", "\n"), "## Limits\n", "## Limits\n"+note, 1)
+					updated := annotate(string(original), capNotes+note)
 					if writeErr := os.WriteFile(copyPath, []byte(updated), 0600); writeErr != nil {
 						return out, writeErr
 					}
@@ -376,6 +452,10 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	return out, firstFailure
 }
 
+// annotate puts lines at the start of the Limits section.
+func annotate(text, lines string) string {
+	return strings.Replace(strings.ReplaceAll(text, "\r\n", "\n"), "## Limits\n", "## Limits\n"+lines, 1)
+}
 func missingBinary(err error) bool {
 	var pathErr *os.PathError
 	return errors.Is(err, exec.ErrNotFound) || (errors.As(err, &pathErr) && pathErr.Op == "fork/exec" && errors.Is(err, os.ErrNotExist))

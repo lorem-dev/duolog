@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/bus"
+	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/models"
@@ -990,5 +991,121 @@ func TestDecisionPreservesHookChangesDuringTranscriptRead(t *testing.T) {
 				t.Fatal(got, ok, err)
 			}
 		})
+	}
+}
+
+// Capability checks use fixed inventories instead of real agents.
+func (h *harness) inventories(target, lead capability.Inventory) {
+	h.t.Helper()
+	old := scanCapabilities
+	h.t.Cleanup(func() { scanCapabilities = old })
+	scanCapabilities = func(_ context.Context, agent, _ string) (capability.Inventory, error) {
+		if agent == target.Agent {
+			return target, nil
+		}
+		return lead, nil
+	}
+}
+func (h *harness) runNeeds(role string, needs ...string) (Outcome, error) {
+	h.t.Helper()
+	ctx := WithOptions(context.Background(), Options{Needs: needs})
+	return Run(ctx, h.cfg, h.s, role, h.path, "topic")
+}
+
+var skillSource = capability.Item{Kind: "skill", Name: "figma-use", Source: "/abs/figma-use/SKILL.md"}
+
+func TestNeedsAppendedToLimits(t *testing.T) {
+	h := newHarness(t)
+	h.lead("claude", mode.Edits, "high")
+	h.inventories(capability.Inventory{Agent: "codex"}, capability.Inventory{Agent: "claude", Items: []capability.Item{skillSource}})
+	before := read(t, h.path)
+	if _, e := h.runNeeds("implement", "skill:figma-use"); e != nil {
+		t.Fatal(e)
+	}
+	h.requireCalls(1)
+	if h.calls[0].Route.Agent != "codex" {
+		t.Fatal(h.calls[0].Route.Agent)
+	}
+	copyPath := filepath.Join(h.calls[0].TaskDir, "task.md")
+	text := read(t, copyPath)
+	if !strings.Contains(text, "## Limits\nSkill figma-use is not installed here. Read /abs/figma-use/SKILL.md") || !strings.Contains(string(h.calls[0].Stdin), "/abs/figma-use/SKILL.md") {
+		t.Fatal(text, string(h.calls[0].Stdin))
+	}
+	if e := task.Validate(copyPath); e != nil {
+		t.Fatal(e)
+	}
+	if read(t, h.path) != before {
+		t.Fatal("source task changed")
+	}
+}
+func TestLeadFirstStartsNothing(t *testing.T) {
+	h := newHarness(t)
+	h.lead("claude", mode.Edits, "high")
+	h.inventories(capability.Inventory{Agent: "codex"}, capability.Inventory{Agent: "claude", Items: []capability.Item{{Kind: "mcp", Name: "codegraph"}}})
+	o, e := h.runNeeds("implement", "mcp:codegraph")
+	h.requireCalls(0)
+	if e != nil || strings.Count(o.Line, "\n") != 0 || o.Line == "" || len(o.Needs) != 1 || o.Needs[0] != "mcp:codegraph" || !strings.Contains(o.Line, "artifact in Read") {
+		t.Fatal(o, e)
+	}
+}
+func TestRerouteRunsOtherAgent(t *testing.T) {
+	h := newHarness(t)
+	h.lead("claude", mode.Edits, "low")
+	h.cfg.Capabilities.OnMissing.MCP = "reroute"
+	h.inventories(capability.Inventory{Agent: "codex"}, capability.Inventory{Agent: "claude", Items: []capability.Item{{Kind: "mcp", Name: "codegraph"}}})
+	o, e := h.runNeeds("implement", "mcp:codegraph")
+	// The other agent is the lead's own, so the work is handed back to the lead,
+	// at the effort the lead allows.
+	h.requireCalls(0)
+	if e != nil || o.RunHere == nil || o.RunHere.Effort != "low" {
+		t.Fatal(o, e)
+	}
+}
+func TestMissingEverywhereRefuses(t *testing.T) {
+	h := newHarness(t)
+	h.lead("claude", mode.Edits, "high")
+	h.inventories(capability.Inventory{Agent: "codex"}, capability.Inventory{Agent: "claude"})
+	o, e := h.runNeeds("implement", "skill:nope")
+	h.requireCalls(0)
+	if e == nil || !strings.Contains(o.Line, "skill:nope") {
+		t.Fatal(o, e)
+	}
+}
+func TestUnknownInventoryStartsWithNeedsLine(t *testing.T) {
+	h := newHarness(t)
+	h.lead("claude", mode.Edits, "high")
+	h.inventories(capability.Inventory{Agent: "codex", Unknown: true}, capability.Inventory{Agent: "claude"})
+	if _, e := h.runNeeds("implement", "mcp:codegraph"); e != nil {
+		t.Fatal(e)
+	}
+	h.requireCalls(1)
+	if !strings.Contains(read(t, filepath.Join(h.calls[0].TaskDir, "task.md")), capability.NeedsLine) {
+		t.Fatal("needs line missing")
+	}
+}
+func TestEveryPromptTellsHowToAskForATool(t *testing.T) {
+	h := newHarness(t)
+	if _, e := h.run("implement"); e != nil {
+		t.Fatal(e)
+	}
+	h.requireCalls(1)
+	if s := string(h.calls[0].Stdin); !strings.Contains(s, "done false") || !strings.Contains(s, "needs") {
+		t.Fatal(s)
+	}
+}
+func TestNeedsInAnswerReachLead(t *testing.T) {
+	h := newHarness(t)
+	h.results = []runner.Result{{Done: false, Summary: "Stopped.", Files: []string{}, Needs: []string{"figma", "codegraph"}}}
+	o, e := h.run("implement")
+	if e != nil || strings.Count(o.Line, "\n") != 0 || !strings.Contains(o.Line, "needs=figma,codegraph") || len(o.Needs) != 2 {
+		t.Fatal(o, e)
+	}
+}
+func TestUnknownNeedFormatRefused(t *testing.T) {
+	h := newHarness(t)
+	o, e := h.runNeeds("implement", "figma")
+	h.requireCalls(0)
+	if e == nil || !strings.Contains(e.Error(), "skill, plugin, mcp") || o.Line == "" {
+		t.Fatal(o, e)
 	}
 }

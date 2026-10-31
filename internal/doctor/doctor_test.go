@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/testbin"
@@ -223,6 +224,25 @@ func TestDoctorReadsSavedCatalogFixture(t *testing.T) {
 	}
 	got := findings(t, cfg, opts)
 	if strings.Contains(got, "Codex catalog:") || strings.Contains(got, "does not support effort") || strings.Contains(got, "has no visible model") {
+		t.Fatal(got)
+	}
+}
+
+func TestDoctorFlagsMissingDuolog(t *testing.T) {
+	cfg, opts, _ := setup(t)
+	old := capability.Home
+	capability.Home = os.Getenv("HOME")
+	t.Cleanup(func() { capability.Home = old })
+	got := findings(t, cfg, opts)
+	contains(t, got, "claude has no duolog hooks", "codex has no duolog hooks")
+	if err := os.MkdirAll(filepath.Join(opts.Root, ".codex"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(opts.Root, ".codex", "hooks.json"), []byte(`{"command":"duolog gate"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got = findings(t, cfg, opts)
+	if strings.Contains(got, "codex has no duolog hooks") || !strings.Contains(got, "claude has no duolog hooks") {
 		t.Fatal(got)
 	}
 }
