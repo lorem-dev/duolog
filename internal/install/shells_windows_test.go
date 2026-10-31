@@ -16,12 +16,16 @@ import (
 
 // Codex overrides run through CreateProcess and Git Bash.
 func TestWindowsHookShells(t *testing.T) {
-	// The first start of a shell on a fresh runner is the runner's cost, not the
-	// guard's: x64 Git Bash under emulation on Windows ARM took over 10 seconds.
-	for _, shell := range []*exec.Cmd{testbin.GitBashProcess("exit 0"), testbin.HookProcess("exit 0")} {
+	// The first start on a fresh runner is the runner's cost, not the guard's. On
+	// Windows ARM, PowerShell started from Git Bash took 13 seconds the first time
+	// and 0.9 seconds after that, with the same empty command.
+	bare := `powershell -NoProfile -NonInteractive -Command "exit 0"`
+	for _, shell := range []*exec.Cmd{testbin.GitBashProcess(bare), testbin.HookProcess("exit 0")} {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		started := time.Now()
-		if err := testbin.CommandContext(ctx, shell.Path, shell.Args[1:]...).Run(); err != nil {
+		warm := testbin.CommandContext(ctx, shell.Path, shell.Args[1:]...)
+		warm.Env = append(os.Environ(), "PATH="+filepath.Join(os.Getenv("SYSTEMROOT"), "System32")+";"+filepath.Join(os.Getenv("SYSTEMROOT"), "System32", "WindowsPowerShell", "v1.0"))
+		if err := warm.Run(); err != nil {
 			t.Fatal(err)
 		}
 		t.Logf("%s first start took %s", shell.Path, time.Since(started))
