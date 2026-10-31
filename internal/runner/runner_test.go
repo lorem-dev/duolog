@@ -132,9 +132,17 @@ func TestStdoutGoesToLogFile(t *testing.T) {
 	if e != nil || !r.Done || r.Summary != "Implemented." {
 		t.Fatalf("%+v %v", r, e)
 	}
+	// The two streams are copied concurrently, so stderr can land inside stdout
+	// in the combined log. No byte may be lost, and each capture stays whole.
 	log := string(read(t, filepath.Join(s.TaskDir, "stdout.log")))
-	if !strings.Contains(log, out) || !strings.Contains(log, "diagnostic") {
+	if strings.Count(log, "x") != 1024*1024 || !strings.Contains(log, "diagnostic") {
 		t.Fatal("output missing")
+	}
+	if string(read(t, filepath.Join(s.TaskDir, "codex.stdout.json"))) != out {
+		t.Fatal("stdout capture is not whole")
+	}
+	if string(read(t, filepath.Join(s.TaskDir, "stderr.log"))) != "diagnostic\n" {
+		t.Fatal("stderr capture is not whole")
 	}
 	b, _ := json.Marshal(r)
 	if len(b) > 1024 {
