@@ -52,7 +52,8 @@ func newDoctorCommand() *cobra.Command {
 }
 
 // doctorPanes joins the live Rex inventory to persisted session ownership. Only
-// exact block IDs are used; thread IDs and unrelated Rex blocks are ignored.
+// the pane recorded in Entry.Block is used; entry IDs, thread IDs and unrelated
+// Rex blocks are ignored.
 func doctorPanes(ctx context.Context, reg *session.Registry) ([]doctor.Pane, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -79,8 +80,8 @@ func doctorPanes(ctx context.Context, reg *session.Registry) ([]doctor.Pane, err
 	}
 	owners := make(map[string]string)
 	for _, entry := range entries {
-		if entry.Lead != "" {
-			owners[entry.ID] = entry.Lead
+		if entry.Lead != "" && entry.Block != "" {
+			owners[entry.Block] = entry.Lead
 		}
 	}
 	var panes []doctor.Pane

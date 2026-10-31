@@ -310,10 +310,10 @@ func DeliverIdle(ctx context.Context, entry session.Entry, line []byte) error {
 		}
 		return run("codex", "queue", "--thread", entry.ThreadID, string(line))
 	}
-	if entry.Agent != "claude" || entry.BlockID == "" {
+	if entry.Agent != "claude" || entry.Block == "" {
 		return fmt.Errorf("missing Claude pane")
 	}
-	if err := run("rex", "send", "--block", entry.BlockID, string(line)); err != nil {
+	if err := run("rex", "send", "--block", entry.Block, string(line)); err != nil {
 		return err
 	}
 	timer := time.NewTimer(700 * time.Millisecond)
@@ -323,5 +323,5 @@ func DeliverIdle(ctx context.Context, entry session.Entry, line []byte) error {
 		return ctx.Err()
 	case <-timer.C:
 	}
-	return run("rex", "send-key", "--block", entry.BlockID, "enter")
+	return run("rex", "send-key", "--block", entry.Block, "enter")
 }

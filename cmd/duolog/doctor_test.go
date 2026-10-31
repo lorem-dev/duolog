@@ -64,10 +64,12 @@ func TestDoctorUsesRexInventoryAndLeadState(t *testing.T) {
 		}
 	}
 	for _, e := range []session.Entry{
-		{ID: "block:orphan-a", Lead: "ended"},
-		{ID: "block:orphan-b", Lead: "ended"},
-		{ID: "block:gone", Lead: "ended"},
-		{ID: "block:live", Lead: "live"},
+		{ID: "peer-a", Block: "block:orphan-a", Lead: "ended"},
+		{ID: "peer-b", Block: "block:orphan-b", Lead: "ended"},
+		{ID: "peer-gone", Block: "block:gone", Lead: "ended"},
+		{ID: "peer-live", Block: "block:live", Lead: "live"},
+		// An ID that looks like a block must not be taken for one: only Block counts.
+		{ID: "block:trap", Lead: "ended"},
 	} {
 		if err := reg.Record(e); err != nil {
 			t.Fatal(err)
@@ -77,7 +79,7 @@ func TestDoctorUsesRexInventoryAndLeadState(t *testing.T) {
 		t.Fatal(err)
 	}
 	rex := testbin.Install(t, "rex", testbin.Scenario{Exit: 2, Responses: map[string]testbin.Scenario{
-		"block ls --json": {Stdout: `{"blocks":[{"id":"block:orphan-a"},{"id":"block:orphan-b"},{"id":"block:live"},{"id":"block:unrelated"}]}`},
+		"block ls --json": {Stdout: `{"blocks":[{"id":"block:orphan-a"},{"id":"block:orphan-b"},{"id":"block:live"},{"id":"block:unrelated"},{"id":"block:trap"}]}`},
 	}})
 	t.Setenv("PATH", filepath.Dir(rex))
 	out, err := executeBusCommand(t, "doctor")
@@ -89,7 +91,7 @@ func TestDoctorUsesRexInventoryAndLeadState(t *testing.T) {
 			t.Fatal(out)
 		}
 	}
-	for _, id := range []string{"block:live", "block:gone", "block:unrelated"} {
+	for _, id := range []string{"block:live", "block:gone", "block:unrelated", "block:trap"} {
 		if strings.Contains(out, "duolog peer close "+id) {
 			t.Fatal(out)
 		}
