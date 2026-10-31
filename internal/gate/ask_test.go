@@ -95,6 +95,7 @@ func askReply(t *testing.T, kind, from string, unknown bool, want string) {
 		t.Fatalf("invalid reply was accepted: %+v", d)
 	}
 }
+
 // askSendWait outlasts a slow runner's setup: Escalate sends nothing once its
 // deadline has passed, and these tests read the ask it sent.
 const askSendWait = time.Second

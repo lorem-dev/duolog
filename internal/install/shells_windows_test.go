@@ -16,6 +16,17 @@ import (
 
 // Codex overrides run through CreateProcess and Git Bash.
 func TestWindowsHookShells(t *testing.T) {
+	// The first start of a shell on a fresh runner is the runner's cost, not the
+	// guard's: x64 Git Bash under emulation on Windows ARM took over 10 seconds.
+	for _, shell := range []*exec.Cmd{testbin.GitBashProcess("exit 0"), testbin.HookProcess("exit 0")} {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		started := time.Now()
+		if err := testbin.CommandContext(ctx, shell.Path, shell.Args[1:]...).Run(); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("%s first start took %s", shell.Path, time.Since(started))
+		cancel()
+	}
 	for _, shell := range []string{"bash", "powershell"} {
 		for _, agent := range []string{"codex"} {
 			t.Run(shell+"/"+agent, func(t *testing.T) {
