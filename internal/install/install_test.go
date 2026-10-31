@@ -2,9 +2,11 @@ package install
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -365,19 +367,147 @@ func TestManifests(t *testing.T) {
 }
 
 func TestGuards(t *testing.T) {
-	posix := regexp.MustCompile(`command -v duolog >/dev/null 2>&1`)
-	win := "where duolog >nul 2>nul"
-	for _, goos := range []string{"linux", "windows"} {
-		data, err := HooksJSON("claude", goos, 150)
+	posix := "command -v duolog >/dev/null 2>&1"
+	cmd := "where duolog >nul 2>nul"
+	for _, tc := range []struct{ agent, goos, want, not string }{
+		{"claude", "linux", posix, cmd},
+		{"claude", "windows", posix, cmd}, // Claude uses Git Bash on Windows
+		{"codex", "linux", posix, cmd},
+		{"codex", "windows", cmd, posix},
+	} {
+		data, err := HooksJSON(tc.agent, tc.goos, 150)
 		if err != nil {
 			t.Fatal(err)
 		}
 		s := string(data)
-		if goos == "linux" && !posix.MatchString(s) || goos == "windows" && !strings.Contains(s, win) {
-			t.Errorf("%s: guard missing:\n%s", goos, s)
+		if !strings.Contains(s, tc.want) || strings.Contains(s, tc.not) {
+			t.Errorf("%s/%s: wrong guard form:\n%s", tc.agent, tc.goos, s)
 		}
-		if !strings.Contains(s, "exit") {
-			t.Errorf("%s: worker fail-closed missing", goos)
+	}
+}
+
+func TestWindowsCmdForm(t *testing.T) {
+	gate := command("windows", "codex", "gate --agent codex --event PreToolUse", true)
+	for _, want := range []string{"if errorlevel 1 (", `"%DUOLOG_DEPTH%"=="0"`, "exit /b 2", ") else (duolog gate"} {
+		if !strings.Contains(gate, want) {
+			t.Errorf("gate cmd form lacks %q: %s", want, gate)
 		}
+	}
+	if strings.Contains(gate, "||") || strings.Contains(gate, "&&") {
+		t.Errorf("gate cmd form must not mask duolog's exit code: %s", gate)
+	}
+	hook := command("windows", "codex", "hook SessionStart --agent codex", false)
+	if !strings.Contains(hook, "exit /b 0") {
+		t.Errorf("non-gate cmd hook must exit 0 when duolog is missing: %s", hook)
+	}
+}
+
+// hookCommands returns the command of every hook for one event.
+func hookCommands(t *testing.T, agent, event string) []string {
+	t.Helper()
+	data, err := HooksJSON(agent, runtime.GOOS, 150)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, g := range doc.Hooks[event] {
+		for _, h := range g.Hooks {
+			out = append(out, h.Command)
+		}
+	}
+	return out
+}
+
+// exitCode runs a generated hook command with sh and a PATH that has no duolog.
+func exitCode(t *testing.T, command string, env ...string) int {
+	t.Helper()
+	empty := t.TempDir()
+	c := exec.Command("/bin/sh", "-c", command)
+	c.Env = append([]string{"PATH=" + empty + ":/usr/bin:/bin"}, env...)
+	err := c.Run()
+	if err == nil {
+		return 0
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode()
+	}
+	t.Fatal(err)
+	return -1
+}
+
+func TestGuardsRunFailClosed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("runs the POSIX form")
+	}
+	if _, err := exec.LookPath("duolog"); err == nil {
+		t.Skip("a real duolog is on PATH")
+	}
+	for _, agent := range []string{"claude", "codex"} {
+		for _, event := range []string{"PreToolUse", "PermissionRequest"} {
+			cmds := hookCommands(t, agent, event)
+			if len(cmds) != 1 {
+				t.Fatalf("%s %s: %d commands", agent, event, len(cmds))
+			}
+			for _, tc := range []struct {
+				env  []string
+				want int
+			}{
+				{[]string{"DUOLOG_DEPTH=1"}, 2},
+				{[]string{"DUOLOG_DEPTH=3"}, 2},
+				{nil, 0},
+				{[]string{"DUOLOG_DEPTH=0"}, 0},
+				{[]string{"DUOLOG_DEPTH=junk"}, 0},
+			} {
+				if got := exitCode(t, cmds[0], tc.env...); got != tc.want {
+					t.Errorf("%s %s env %v: exit %d, want %d", agent, event, tc.env, got, tc.want)
+				}
+			}
+		}
+		for _, event := range []string{"SessionStart", "SessionEnd", "UserPromptSubmit", "PostToolUse"} {
+			for _, c := range hookCommands(t, agent, event) {
+				if got := exitCode(t, c, "DUOLOG_DEPTH=1"); got != 0 {
+					t.Errorf("%s %s with a worker depth: exit %d, want 0", agent, event, got)
+				}
+			}
+		}
+	}
+}
+
+func TestClaudePluginEnabledSkipsHooks(t *testing.T) {
+	home, root := setup(t)
+	write(t, filepath.Join(home, ".claude/settings.json"), `{"enabledPlugins":{"duolog@duolog":true}}`)
+	r := run(t, Options{Scope: "project", Agent: "claude", Home: home, Root: root})
+	if _, err := os.Stat(filepath.Join(root, ".claude/settings.json")); err == nil {
+		t.Error("hooks were written although the plugin is enabled")
+	}
+	if len(r.Notes) == 0 || !strings.Contains(r.Notes[0], "plugin") {
+		t.Errorf("no note about the plugin: %v", r.Notes)
+	}
+	// Codex has no plugin route here and still gets its hooks.
+	run(t, Options{Scope: "project", Agent: "codex", Home: home, Root: root})
+	if _, err := os.Stat(filepath.Join(root, ".codex/hooks.json")); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestClaudePluginEnabledInTargetRemovesOldHooks(t *testing.T) {
+	home, root := setup(t)
+	run(t, Options{Scope: "project", Agent: "claude", Home: home, Root: root})
+	path := filepath.Join(root, ".claude/settings.json")
+	write(t, path, strings.Replace(read(t, path), "{", `{"enabledPlugins":{"duolog@duolog":true},`, 1))
+	run(t, Options{Scope: "project", Agent: "claude", Home: home, Root: root})
+	if s := read(t, path); strings.Contains(s, "duolog gate") || !strings.Contains(s, "enabledPlugins") {
+		t.Errorf("old hooks should go and foreign keys stay:\n%s", s)
 	}
 }
