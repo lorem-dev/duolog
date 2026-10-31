@@ -45,8 +45,8 @@ duolog delegate review_intermediate --task task.md
 
 Planning and the final review use Opus, because a mistake costs the most there.
 Routine work uses cheaper Codex models. The rules are in
-[defaults/config.default.yaml](defaults/config.default.yaml), and a project can
-change any of them.
+[internal/config/config.default.yaml](internal/config/config.default.yaml).
+A project can change any of them.
 
 ## How your editor checks the config
 

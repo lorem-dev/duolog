@@ -1,0 +1,431 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/lorem-dev/duolog/main/duolog-config.schema.json",
+  "$ref": "#/$defs/Config",
+  "$defs": {
+    "AgentSync": {
+      "properties": {
+        "model_map": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "Claude-to-Codex alias mapping; defaults map fable, opus, sonnet and haiku to astra, sol, terra and luna."
+        },
+        "default_effort": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "Effort per Claude alias when absent; defaults to high for fable and opus, medium for sonnet, low for haiku."
+        },
+        "effort_map": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "Effort translation between agents; defaults preserve levels except ultra becomes max."
+        },
+        "codex_name": {
+          "type": "string",
+          "description": "Agent naming strategy, keep or underscore; defaults to keep."
+        },
+        "drop_keys": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Agent frontmatter keys explicitly discarded; defaults to color."
+        },
+        "overrides": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Target"
+          },
+          "type": "object",
+          "description": "Per-agent model and effort overrides; defaults to an empty map."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Capabilities": {
+      "properties": {
+        "on_missing": {
+          "$ref": "#/$defs/MissingCapabilities",
+          "description": "Fallback for each missing capability kind; defaults to read_source for skills and lead_first for tools."
+        },
+        "hints": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "One-line guidance keyed by capability name; defaults to an empty map."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Config": {
+      "properties": {
+        "version": {
+          "type": "integer",
+          "description": "Configuration format version; defaults to 1."
+        },
+        "wire": {
+          "$ref": "#/$defs/Wire",
+          "description": "Task and message encoding and size limits; defaults suit the file bus."
+        },
+        "limits": {
+          "$ref": "#/$defs/Limits",
+          "description": "Worker delegation limits; defaults permit one worker per agent."
+        },
+        "models": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Model"
+          },
+          "type": "object",
+          "description": "Model aliases and price metadata; defaults include the eight vendor families."
+        },
+        "roles": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Role"
+          },
+          "type": "object",
+          "description": "Named task routes; overrides merge by role and field into the ten defaults."
+        },
+        "sessions": {
+          "$ref": "#/$defs/Sessions",
+          "description": "Thread lifetime limits; defaults close large or idle threads."
+        },
+        "policy": {
+          "$ref": "#/$defs/Policy",
+          "description": "Permission rules constrained by the lead; defaults ask for unmatched actions."
+        },
+        "capabilities": {
+          "$ref": "#/$defs/Capabilities",
+          "description": "Missing capability handling; defaults read skills and let the lead handle tools."
+        },
+        "sync": {
+          "$ref": "#/$defs/Sync",
+          "description": "Settings for generating agent and skill files; automatic sync defaults to true."
+        },
+        "env_passthrough": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Environment variables passed to workers; defaults to PATH and HOME."
+        },
+        "rex": {
+          "$ref": "#/$defs/Rex",
+          "description": "Terminal capture and startup settings; defaults to 20 lines and 120 seconds."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Limits": {
+      "properties": {
+        "manual_only_models": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Model aliases requiring explicit manual permission; defaults to fable and astra."
+        },
+        "max_live_sessions": {
+          "type": "integer",
+          "description": "Maximum live resumable sessions per agent; defaults to 1 and excludes fresh runs."
+        },
+        "max_depth": {
+          "type": "integer",
+          "description": "Maximum delegation depth; defaults to 1 so workers cannot delegate."
+        },
+        "self_max_read_files": {
+          "type": "integer",
+          "description": "Maximum files for work handled by the lead on a provider limit; defaults to 3."
+        },
+        "self_max_read_lines": {
+          "type": "integer",
+          "description": "Maximum lines for work handled by the lead on a provider limit; defaults to 200."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "MissingCapabilities": {
+      "properties": {
+        "skill": {
+          "type": "string",
+          "description": "Handling for a missing skill; defaults to read_source to read its SKILL.md."
+        },
+        "mcp": {
+          "type": "string",
+          "description": "Handling for a missing MCP server; defaults to lead_first."
+        },
+        "plugin": {
+          "type": "string",
+          "description": "Handling for a missing plugin; defaults to lead_first."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Model": {
+      "properties": {
+        "agent": {
+          "type": "string",
+          "enum": [
+            "claude",
+            "codex"
+          ],
+          "description": "Vendor agent for this alias; defaults to claude or codex according to the family."
+        },
+        "family": {
+          "type": "string",
+          "description": "Codex model family used to resolve the newest visible version; absent for Claude aliases."
+        },
+        "priced_for": {
+          "type": "string",
+          "description": "Version whose prices are recorded; used for estimates, never for routing."
+        },
+        "input": {
+          "type": "number",
+          "description": "Input price in USD per million tokens; defaults to the recorded vendor price."
+        },
+        "cached": {
+          "type": "number",
+          "description": "Cached input price in USD per million tokens; defaults to the recorded vendor price."
+        },
+        "output": {
+          "type": "number",
+          "description": "Output price in USD per million tokens; defaults to the recorded vendor price."
+        },
+        "note": {
+          "type": "string",
+          "description": "Optional price caveat shown with estimates; empty unless the vendor has a special rate."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Policy": {
+      "properties": {
+        "inherit_lead": {
+          "type": "boolean",
+          "description": "Constrain worker permissions to the lead settings; defaults to true."
+        },
+        "on_unmatched": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "deny",
+            "ask"
+          ],
+          "description": "Decision for an action with no matching rule; defaults to ask."
+        },
+        "ask_timeout_seconds": {
+          "type": "integer",
+          "description": "Seconds to wait for a permission answer; defaults to 120."
+        },
+        "on_ask_timeout": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "deny",
+            "ask"
+          ],
+          "description": "Decision when the permission prompt times out; defaults to deny."
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/Rule"
+          },
+          "type": "array",
+          "description": "Permission rules for actions and paths; defaults allow routine work and deny sensitive operations."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Rex": {
+      "properties": {
+        "capture_lines": {
+          "type": "integer",
+          "description": "Terminal lines captured to inspect state; defaults to 20. Answers are read from files."
+        },
+        "start_timeout_seconds": {
+          "type": "integer",
+          "description": "Seconds to wait for terminal startup; defaults to 120."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Role": {
+      "properties": {
+        "use": {
+          "$ref": "#/$defs/Target",
+          "description": "Preferred agent, model and effort; defaults depend on the role."
+        },
+        "fallback": {
+          "$ref": "#/$defs/Target",
+          "description": "Alternative target when the preferred agent is unavailable; defaults use the other vendor."
+        },
+        "sandbox": {
+          "type": "string",
+          "enum": [
+            "read-only",
+            "workspace-write"
+          ],
+          "description": "Maximum file access for the role; defaults to read-only for reviews and workspace-write for edits."
+        },
+        "context": {
+          "type": "string",
+          "enum": [
+            "minimal",
+            "project"
+          ],
+          "description": "Project instruction scope; defaults to project for code work and minimal for small tasks."
+        },
+        "session": {
+          "type": "string",
+          "enum": [
+            "fresh",
+            "resume"
+          ],
+          "description": "Thread reuse policy; defaults to fresh except plan and debug_hard, which resume."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Rule": {
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "Action type matched by this rule, such as read, write, exec or net."
+        },
+        "match": {
+          "type": "string",
+          "description": "Glob expression selecting paths or commands; ** matches all paths."
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "deny",
+            "ask"
+          ],
+          "description": "Permission result for a matching rule; deny takes precedence over allow."
+        },
+        "roles": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Roles to which the rule applies; an omitted list applies to every role."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Sessions": {
+      "properties": {
+        "resume_max_input_tokens": {
+          "type": "integer",
+          "description": "Cumulative input tokens before starting a new thread; defaults to 150000."
+        },
+        "idle_close_minutes": {
+          "type": "integer",
+          "description": "Minutes of inactivity before closing a thread; defaults to 30."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "SkillSync": {
+      "properties": {
+        "drop_keys": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Skill frontmatter keys explicitly discarded; defaults to an empty list."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Sync": {
+      "properties": {
+        "auto": {
+          "type": "boolean",
+          "description": "Update generated files from hooks after choosing a direction; defaults to true."
+        },
+        "agents": {
+          "$ref": "#/$defs/AgentSync",
+          "description": "Model, effort and frontmatter translation for agent files; defaults map vendor families."
+        },
+        "skills": {
+          "$ref": "#/$defs/SkillSync",
+          "description": "Frontmatter translation for skill files; defaults preserve all keys."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Target": {
+      "properties": {
+        "agent": {
+          "type": "string",
+          "enum": [
+            "claude",
+            "codex"
+          ],
+          "description": "Agent that runs this target; the default depends on the role."
+        },
+        "model": {
+          "type": "string",
+          "description": "Model alias from models, or a deliberate gpt- or claude- version pin; defaults by role."
+        },
+        "effort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "description": "Requested reasoning effort; defaults by role and is capped by the lead when routed."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Wire": {
+      "properties": {
+        "language": {
+          "type": "string",
+          "description": "Language for tasks, answers and artifacts; defaults to en."
+        },
+        "max_summary_bytes": {
+          "type": "integer",
+          "description": "Maximum summary size in bytes; defaults to 200."
+        },
+        "max_line_bytes": {
+          "type": "integer",
+          "description": "Maximum bus message size in bytes; defaults to 512."
+        },
+        "inline_max_bytes": {
+          "type": "integer",
+          "description": "Maximum task and Read file bytes sent inline to worker stdin; defaults to 65536."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    }
+  }
+}

@@ -1,8 +1,8 @@
 # Practices and models on 2026-10-30
 
-This page gives the evidence behind `defaults/config.default.yaml`. Each section
-says how far you can trust its data, because many benchmark numbers come from
-vendor charts or from one blog.
+This page gives the evidence behind `internal/config/config.default.yaml`.
+Each section says how far you can trust its data, because many benchmark
+numbers come from vendor charts or from one blog.
 
 ## What the models cost
 
@@ -96,30 +96,32 @@ The same session found these problems:
 
 ## Sources
 
-- [Claude pricing](https://platform.claude.com/docs/en/about-claude/pricing)
-- [OpenAI API pricing](https://developers.openai.com/api/docs/pricing)
-- [Codex pricing](https://learn.chatgpt.com/docs/pricing)
-- [Codex plugins](https://developers.openai.com/codex/plugins/build)
-- [Codex hooks](https://learn.chatgpt.com/docs/hooks)
-- [Codex app server](https://learn.chatgpt.com/docs/app-server)
-- [Claude Code plugins](https://code.claude.com/docs/en/plugins/reference)
-- [Claude Code plugin install](https://code.claude.com/docs/en/plugins/install)
-- [Claude Code hooks](https://code.claude.com/docs/en/hooks)
-- [Claude Code channels](https://code.claude.com/docs/en/channels)
-- [When Does a Second Model Help?](https://www.opentrain.ai/papers/when-does-a-second-model-help-cross-model-review-in-llm-verification--arxiv-2610.01471/)
-- [Greptile on model inversion](https://greptile.com/blog/model-inversion)
-- [Opus 5.5 and GPT-6.1 Sol, CodingFleet](https://codingfleet.com/blog/claude-opus-5-5-vs-gpt-6-1-sol/)
-- [GPT-6.1 Sol benchmarks, Vellum](https://www.vellum.ai/blog/gpt-6-1-sol-benchmarks-explained)
-- [GPT-6.1 Sol for coding, MyClaw](https://myclaw.ai/blog/gpt-6-1-sol-for-coding)
-- [GPT-6.1 Sol and Opus 5.5, DataCamp](https://www.datacamp.com/blog/gpt-6-1-sol-vs-opus-5-5)
-- [GPT-6 Sol and Luna, Kingy AI](https://kingy.ai/blog/gpt-6-sol-luna-specs-benchmarks-pricing-comparison/)
-- [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc)
-- [cc-plugin-codex](https://github.com/kelven1217/cc-plugin-codex)
-- [mcp_agent_mail](https://github.com/Dicklesworthstone/mcp_agent_mail)
-- [Multi-agent hand-overs](https://dev.to/gabrielanhaia/multi-agent-handoffs-the-protocol-that-stops-context-loss-3ea1)
-- [Handoff Debt](https://arxiv.org/pdf/2606.02875)
+| Source |
+|---|
+| [Claude pricing](https://platform.claude.com/docs/en/about-claude/pricing) |
+| [OpenAI API pricing](https://developers.openai.com/api/docs/pricing) |
+| [Codex pricing](https://learn.chatgpt.com/docs/pricing) |
+| [Codex plugins](https://developers.openai.com/codex/plugins/build) |
+| [Codex hooks](https://learn.chatgpt.com/docs/hooks) |
+| [Codex app server](https://learn.chatgpt.com/docs/app-server) |
+| [Claude Code plugins](https://code.claude.com/docs/en/plugins/reference) |
+| [Claude Code plugin install](https://code.claude.com/docs/en/plugins/install) |
+| [Claude Code hooks](https://code.claude.com/docs/en/hooks) |
+| [Claude Code channels](https://code.claude.com/docs/en/channels) |
+| [When Does a Second Model Help?](https://www.opentrain.ai/papers/when-does-a-second-model-help-cross-model-review-in-llm-verification--arxiv-2610.01471/) |
+| [Greptile on model inversion](https://greptile.com/blog/model-inversion) |
+| [Opus 5.5 and GPT-6.1 Sol, CodingFleet](https://codingfleet.com/blog/claude-opus-5-5-vs-gpt-6-1-sol/) |
+| [GPT-6.1 Sol benchmarks, Vellum](https://www.vellum.ai/blog/gpt-6-1-sol-benchmarks-explained) |
+| [GPT-6.1 Sol for coding, MyClaw](https://myclaw.ai/blog/gpt-6-1-sol-for-coding) |
+| [GPT-6.1 Sol and Opus 5.5, DataCamp](https://www.datacamp.com/blog/gpt-6-1-sol-vs-opus-5-5) |
+| [GPT-6 Sol and Luna, Kingy AI](https://kingy.ai/blog/gpt-6-sol-luna-specs-benchmarks-pricing-comparison/) |
+| [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) |
+| [cc-plugin-codex](https://github.com/kelven1217/cc-plugin-codex) |
+| [mcp_agent_mail](https://github.com/Dicklesworthstone/mcp_agent_mail) |
+| [Multi-agent hand-overs](https://dev.to/gabrielanhaia/multi-agent-handoffs-the-protocol-that-stops-context-loss-3ea1) |
+| [Handoff Debt](https://arxiv.org/pdf/2606.02875) |
 
 ## Related pages
 
-- [The default rules](../../defaults/config.default.yaml): the config this
-  evidence supports
+- [The default rules](../../internal/config/config.default.yaml): the config
+  this evidence supports
