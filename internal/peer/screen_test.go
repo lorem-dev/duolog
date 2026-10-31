@@ -33,7 +33,7 @@ func TestClassifyFixtures(t *testing.T) {
 		{"claude-usage-limit-line.txt", "claude", Starting, nil},
 		{"codex-ready.txt", "codex", Ready, nil},
 		{"codex-trust-folder.txt", "codex", Question, []string{"Trust this folder?", "Trust and continue", "Quit"}},
-		{"codex-trust-live.txt", "codex", Question, []string{"/Users/donat/lorem/duolog", "Trust this folder?", "Trust and continue"}},
+		{"codex-trust-live.txt", "codex", Question, []string{"/Users/user/lorem/duolog", "Trust this folder?", "Trust and continue"}},
 		{"codex-hooks-review.txt", "codex", Question, []string{"Hooks need review", "Review hooks", "Trust all and continue"}},
 		{"codex-hooks-menu.txt", "codex", Question, []string{"Hooks"}},
 		{"codex-new-worktree-dialog.txt", "codex", Question, []string{"Where should the new conversation run?", "Use current Git worktree", "Create new Git worktree"}},
