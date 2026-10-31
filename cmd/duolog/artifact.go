@@ -101,5 +101,5 @@ func repositoryRoot() (string, error) {
 	if err != nil {
 		return cwd, nil
 	}
-	return strings.TrimSpace(string(output)), nil
+	return strings.TrimSuffix(string(output), "\n"), nil
 }

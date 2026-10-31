@@ -18,7 +18,7 @@ func TestArtifactCommandsInLinkedWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 	mainRoot := filepath.Join(base, "main")
-	linkedRoot := filepath.Join(base, "linked")
+	linkedRoot := filepath.Join(base, "linked ")
 	common := filepath.Join(mainRoot, ".git")
 	worktreeGit := filepath.Join(common, "worktrees", "linked")
 	for _, dir := range []string{filepath.Join(common, "objects"), filepath.Join(common, "refs"), worktreeGit, filepath.Join(linkedRoot, "sub")} {
