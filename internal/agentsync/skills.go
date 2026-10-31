@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"slices"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // convertSkill rewrites the frontmatter of a SKILL.md and leaves the body

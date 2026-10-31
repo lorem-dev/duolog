@@ -98,3 +98,11 @@ two do not drift apart.
 - Status and meeting notes. They go out of date.
 - Plans and design notes. These go in `docs/superpowers/`, which git ignores.
 - Code that goes out of date. Link to the source file instead.
+
+Python scripts carry a uv header and type annotations.
+
+## How to add a dependency
+
+Prefer the Go standard library. Explain why each new module is needed in the
+pull request. Run `make third-party` and commit the updated license table.
+Each new module must pass the license check in `make third-party-check`.

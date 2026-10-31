@@ -100,7 +100,7 @@ Run this from the repository root. It reads fixtures only. It does not start
 an agent, call Rex, change settings or collect new measurements.
 
 ```bash
-python3 scripts/bench/probes/check_saved_evidence.py
+uv run scripts/bench/probes/check_saved_evidence.py
 ```
 
 It checks E1 to E3, M3 discovery and the B1 to B3 cost comparisons. The prices
@@ -578,7 +578,7 @@ It starts agents and spends tokens; it was not run during this correction.
 
 ```bash
 bench_root=$(mktemp -d)
-uv run --no-project python scripts/bench/handoff_bench.py "$bench_root"
+uv run scripts/bench/handoff_bench.py "$bench_root"
 ```
 
 The script records usage and command counts, not review answers. Its range
