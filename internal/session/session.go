@@ -94,7 +94,7 @@ func (r *Registry) access(write bool, fn func(*state) error) error {
 	}
 	return os.Rename(f.Name(), path)
 }
-func (r *Registry) Lookup(lead, agent, role, thread string) (*Entry, bool) {
+func (r *Registry) Lookup(lead, agent, role, thread string) (*Entry, bool, error) {
 	var found *Entry
 	err := r.access(false, func(s *state) error {
 		for i := len(s.Entries) - 1; i >= 0; i-- {
@@ -106,7 +106,7 @@ func (r *Registry) Lookup(lead, agent, role, thread string) (*Entry, bool) {
 		}
 		return nil
 	})
-	return found, err == nil && found != nil
+	return found, found != nil, err
 }
 func (r *Registry) Record(e Entry) error {
 	return r.RecordLimited(e, 0)
@@ -163,9 +163,9 @@ func (r *Registry) Close(id string) error {
 		return nil
 	})
 }
-func (r *Registry) Unavailable() map[string]bool {
+func (r *Registry) Unavailable() (map[string]bool, error) {
 	u := make(map[string]bool)
-	_ = r.access(false, func(s *state) error {
+	err := r.access(false, func(s *state) error {
 		for agent, until := range s.Unavailable {
 			if until.IsZero() || time.Now().Before(until) {
 				u[agent] = true
@@ -173,7 +173,7 @@ func (r *Registry) Unavailable() map[string]bool {
 		}
 		return nil
 	})
-	return u
+	return u, err
 }
 func (r *Registry) MarkUnavailable(agent string, until time.Time) error {
 	return r.access(true, func(s *state) error {
@@ -189,11 +189,11 @@ func (r *Registry) MarkUnavailable(agent string, until time.Time) error {
 func (r *Registry) RegisterLead(l Lead) error {
 	return r.access(true, func(s *state) error { s.Leads[l.ID] = l; return nil })
 }
-func (r *Registry) Lead(id string) (Lead, bool) {
+func (r *Registry) Lead(id string) (Lead, bool, error) {
 	var l Lead
 	var ok bool
 	err := r.access(false, func(s *state) error { l, ok = s.Leads[id]; return nil })
-	return l, ok && err == nil
+	return l, ok, err
 }
 func CurrentLead(env []string) string {
 	for _, v := range env {

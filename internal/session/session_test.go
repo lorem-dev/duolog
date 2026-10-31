@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -27,15 +28,15 @@ func TestTwoLeadsKeepSeparateWorkers(t *testing.T) {
 		}
 	}
 	for _, lead := range []string{"a", "b"} {
-		x, ok := r.Lookup(lead, "codex", "plan", "topic")
-		if !ok || x.ThreadID != lead {
+		x, ok, err := r.Lookup(lead, "codex", "plan", "topic")
+		if err != nil || !ok || x.ThreadID != lead {
 			t.Fatal(x, ok)
 		}
 	}
 	if e := r.Close("a"); e != nil {
 		t.Fatal(e)
 	}
-	if _, ok := r.Lookup("a", "codex", "plan", "topic"); ok {
+	if _, ok, err := r.Lookup("a", "codex", "plan", "topic"); err != nil || ok {
 		t.Fatal("closed found")
 	}
 }
@@ -46,7 +47,10 @@ func TestUnavailableEndsAtReset(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	u := r.Unavailable()
+	u, err := r.Unavailable()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if u["codex"] || !u["claude"] {
 		t.Fatal(u)
 	}
@@ -57,8 +61,8 @@ func TestLeadRegistration(t *testing.T) {
 	if e := r.RegisterLead(l); e != nil {
 		t.Fatal(e)
 	}
-	got, ok := r.Lead(l.ID)
-	if !ok || got != l || Address(got) != "codex/lead.abcdef" {
+	got, ok, err := r.Lead(l.ID)
+	if err != nil || !ok || got != l || Address(got) != "codex/lead.abcdef" {
 		t.Fatal(got, ok)
 	}
 	if CurrentLead([]string{"OTHER=x", "DUOLOG_LEAD=abcdef123"}) != l.ID {
@@ -90,7 +94,7 @@ func TestConcurrentRecordsAreAtomic(t *testing.T) {
 		t.Fatal(e)
 	}
 	for i := 0; i < 12; i++ {
-		if _, ok := r.Lookup(fmt.Sprint(i), "claude", "plan", "t"); !ok {
+		if _, ok, err := r.Lookup(fmt.Sprint(i), "claude", "plan", "t"); err != nil || !ok {
 			t.Fatal(i)
 		}
 	}
@@ -108,16 +112,59 @@ func TestUnavailableWithoutResetEndsWithLead(t *testing.T) {
 	if e := r.MarkUnavailable("claude", time.Now().Add(time.Hour)); e != nil {
 		t.Fatal(e)
 	}
-	if !r.Unavailable()["codex"] {
+	u, err := r.Unavailable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !u["codex"] {
 		t.Fatal("limit not retained for current session")
 	}
 	if e := r.Close("lead-a"); e != nil {
 		t.Fatal(e)
 	}
-	if r.Unavailable()["codex"] || !r.Unavailable()["claude"] {
-		t.Fatal(r.Unavailable())
+	u, err = r.Unavailable()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, ok := r.Lead("lead-a"); ok {
+	if u["codex"] || !u["claude"] {
+		t.Fatal(u)
+	}
+	if _, ok, err := r.Lead("lead-a"); err != nil || ok {
 		t.Fatal("closed lead still registered")
+	}
+}
+
+func TestRegistryReadErrorsAreReturned(t *testing.T) {
+	for _, damage := range []string{"corrupt", "unreadable", "lock"} {
+		t.Run(damage, func(t *testing.T) {
+			r := registry(t)
+			switch damage {
+			case "corrupt":
+				if err := os.WriteFile(filepath.Join(r.Dir, "sessions.json"), []byte("{"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			case "unreadable":
+				if err := os.Mkdir(filepath.Join(r.Dir, "sessions.json"), 0700); err != nil {
+					t.Fatal(err)
+				}
+			case "lock":
+				// A regular file as the parent guarantees a lock-open error on every OS.
+				p := filepath.Join(t.TempDir(), "not-a-directory")
+				if err := os.WriteFile(p, nil, 0600); err != nil {
+					t.Fatal(err)
+				}
+				r.Dir = p
+
+			}
+			if _, _, err := r.Lookup("lead", "codex", "implement", "thread"); err == nil {
+				t.Error("Lookup swallowed registry error")
+			}
+			if _, _, err := r.Lead("lead"); err == nil {
+				t.Error("Lead swallowed registry error")
+			}
+			if _, err := r.Unavailable(); err == nil {
+				t.Error("Unavailable swallowed registry error")
+			}
+		})
 	}
 }

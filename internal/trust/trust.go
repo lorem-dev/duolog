@@ -2,8 +2,11 @@
 package trust
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -66,6 +69,37 @@ func Hooks(agent, root string) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
-	key := filepath.Join(root, ".codex", "hooks.json") + ":PreToolUse:0:0"
-	return State{Trusted: s.Hooks.State[key].TrustedHash != ""}, nil
+	path := filepath.Join(root, ".codex", "hooks.json")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return State{}, nil
+	}
+	if err != nil {
+		return State{}, err
+	}
+	var definition struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Type    string `json:"type"`
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(data, &definition); err != nil {
+		return State{}, err
+	}
+	for i, group := range definition.Hooks["PreToolUse"] {
+		for j, hook := range group.Hooks {
+			if hook.Type != "command" || strings.TrimSpace(hook.Command) != "duolog gate" {
+				continue
+			}
+			key := fmt.Sprintf("%s:PreToolUse:%d:%d", path, i, j)
+			// Codex's hash algorithm is unknown here. Changes after review cannot
+			// be detected from this state; Codex itself will skip a changed hook.
+			if s.Hooks.State[key].TrustedHash != "" {
+				return State{Trusted: true}, nil
+			}
+		}
+	}
+	return State{}, nil
 }
