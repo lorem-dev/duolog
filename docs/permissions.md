@@ -74,6 +74,26 @@ The gate is a hook. The command is `duolog gate --agent <agent> --event
 <event>`, for `PreToolUse` and `PermissionRequest`. If the `duolog` binary is
 missing, the Claude hook still refuses the call for a worker.
 
+## A Codex lead that starts a Claude worker
+
+A Codex lead runs `duolog delegate` through its shell tool. Two things matter,
+and both were measured on 2026-10-31 with Codex 0.165.0 (see the
+[live verification](research/2026-10-30-live-verification.md)):
+
+1. Codex runs a login shell and resets `PATH`. A bare `duolog` gave
+   "command not found". Give the lead the full path to the binary.
+2. In the `workspace-write` sandbox, `duolog` runs and starts `claude -p`, but
+   Claude cannot read its login and answers "Not logged in". Under macOS the
+   login lives in the Keychain, which the sandbox blocks. `codex sandbox claude
+   auth status` shows `loggedIn: false` there and `true` with
+   `sandbox_mode="danger-full-access"`. Adding `~/.claude` to the writable
+   roots did not help. So the lead must run with `--sandbox danger-full-access`
+   to delegate to Claude. A token passed in the environment may also work; we
+   did not test it.
+
+A Codex worker started by a Claude lead needs none of this. Claude starts it
+outside any Codex sandbox.
+
 ## Known limits
 
 These come from the research page and are OBSERVED, not VERIFIED:

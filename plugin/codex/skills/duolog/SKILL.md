@@ -14,6 +14,10 @@ Delegate when a task is self-contained and its result fits in a few lines. Do sm
 3. Run `duolog delegate <role> --task task.md`.
 4. The answer is one summary line plus a file list. Open the files you need, by range.
 
+## Running duolog from Codex
+
+Codex runs a login shell that resets `PATH`, so a bare `duolog` can fail with "command not found". Run the binary by its full path (`command -v duolog` in your own terminal prints it). To start a Claude worker (`claude -p`), the Codex session must run with `--sandbox danger-full-access`: in `workspace-write`, `claude -p` starts but cannot read its login and says "Not logged in". A Codex worker needs no extra permission.
+
 ## When duolog says `run here`
 
 - `run here: self`: do the task yourself in this session. Read only the listed ranges.

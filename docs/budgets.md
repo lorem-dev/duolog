@@ -17,6 +17,16 @@ Code enforces the first target: the bus refuses a longer line. The other
 three need a live session, so they stay "not measured yet" until someone runs
 them.
 
+No live run gave a number for these four targets, so they stay as they are.
+The live run of 2026-10-31 did measure the cost of a handoff (`gpt-6-luna`, low
+effort, estimated USD per run):
+
+| What | Measured |
+|---|---|
+| Whole file inline (2000 lines) | 0.00137 USD, against 0.00238 for the saved whole-file reference |
+| 16 lines inline | 0.00049 USD, against 0.00089 for the saved range reference |
+| Prompt cache of a small delegate run | 11520 of 14952 input tokens cached |
+
 ## How to measure
 
 The live tests print the usage of each run from `.duolog/usage.ndjson`.

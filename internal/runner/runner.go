@@ -23,6 +23,7 @@ import (
 )
 
 const taskInstruction = "Do the task in the stdin block."
+const codexAnswerInstruction = "Reply with only one JSON object with the keys done, summary, files and needs. done is true or false, summary is a string, files and needs are arrays of strings."
 const defaultTimeout = 30 * time.Minute
 const answerSchema = `{"type":"object","properties":{"done":{"type":"boolean"},"summary":{"type":"string"},"files":{"type":"array","items":{"type":"string"}},"needs":{"type":"array","items":{"type":"string"}}},"required":["done","summary","files","needs"],"additionalProperties":false}`
 
@@ -95,9 +96,6 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	if s.Route.Model == "" {
 		return result, fmt.Errorf("missing model")
 	}
-	if err = os.WriteFile(filepath.Join(s.TaskDir, "answer.schema.json"), []byte(answerSchema), 0600); err != nil {
-		return result, err
-	}
 	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if err != nil {
 		return result, err
@@ -110,7 +108,12 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = s.Cwd
-	cmd.Stdin = bytes.NewReader(s.Stdin)
+	stdin := s.Stdin
+	if s.Route.Agent == "codex" {
+		// --output-schema loses the prompt cache, so Codex is asked in plain text.
+		stdin = append(append([]byte{}, s.Stdin...), []byte("\n"+codexAnswerInstruction+"\n")...)
+	}
+	cmd.Stdin = bytes.NewReader(stdin)
 	// Keep separate disk captures for parsing results and failure signals.
 	// Both streams are also retained in the combined diagnostic log.
 	stdoutPath := filepath.Join(s.TaskDir, s.Route.Agent+".stdout.json")
@@ -174,6 +177,9 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	answer, err := os.ReadFile(answerPath)
 	if err != nil {
 		return result, err
+	}
+	if s.Route.Agent == "codex" {
+		return codexAnswer(answer, answerPath, result)
 	}
 	var parsed struct {
 		Done    *bool    `json:"done"`

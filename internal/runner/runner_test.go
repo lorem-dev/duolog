@@ -46,7 +46,7 @@ func containsArgs(t *testing.T, got []string, want ...string) {
 func TestCodexArgvMinimal(t *testing.T) {
 	s := spec(t, "codex")
 	a := Argv(s)
-	containsArgs(t, a, "codex", "exec", "-m", "gpt-6-luna", `model_reasoning_effort="low"`, "project_doc_max_bytes=0", "-s", "read-only", "--ephemeral", "--output-schema", "-o", "--json", "Do the task in the stdin block.")
+	containsArgs(t, a, "codex", "exec", "-m", "gpt-6-luna", `model_reasoning_effort="low"`, "project_doc_max_bytes=0", "-s", "read-only", "--ephemeral", "-o", "--json", "Do the task in the stdin block.")
 }
 func TestCodexArgvProjectContext(t *testing.T) {
 	s := spec(t, "codex")
@@ -75,7 +75,7 @@ func TestCodexArgvResume(t *testing.T) {
 			if i >= len(a) || a[i] != "read-only" {
 				t.Fatalf("missing sandbox value: %v", a)
 			}
-		case "-m", "-c", "--output-schema", "-o":
+		case "-m", "-c", "-o":
 			i++
 			if i >= len(a) {
 				t.Fatalf("missing option value: %v", a)
@@ -262,7 +262,7 @@ func TestStdinCarriesPrompt(t *testing.T) {
 			if _, e := Run(context.Background(), s); e != nil {
 				t.Fatal(e)
 			}
-			if string(read(t, p+".stdin")) != string(block) {
+			if got := string(read(t, p+".stdin")); got != string(block) && got != string(block)+"\n"+codexAnswerInstruction+"\n" {
 				t.Fatal("stdin changed")
 			}
 			a := string(read(t, p+".args.json"))
@@ -489,5 +489,68 @@ func TestRealCodexLimitText(t *testing.T) {
 	}
 	if !r.ResetAt.Equal(want) {
 		t.Fatalf("%s want %s", r.ResetAt, want)
+	}
+}
+
+func TestCodexArgvHasNoOutputSchema(t *testing.T) {
+	for _, thread := range []string{"", "thread-1"} {
+		s := spec(t, "codex")
+		s.ThreadID = thread
+		for _, a := range Argv(s) {
+			if a == "--output-schema" {
+				t.Fatalf("argv holds --output-schema: %v", Argv(s))
+			}
+		}
+	}
+	containsArgs(t, Argv(spec(t, "claude")), "--json-schema")
+}
+
+func TestCodexStdinEndsWithAnswerInstruction(t *testing.T) {
+	s := spec(t, "codex")
+	p := install(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): goodAnswer}})
+	if _, e := Run(context.Background(), s); e != nil {
+		t.Fatal(e)
+	}
+	got := string(read(t, p+".stdin"))
+	if !strings.HasPrefix(got, string(s.Stdin)) || !strings.HasSuffix(strings.TrimSpace(got), codexAnswerInstruction) {
+		t.Fatalf("stdin: %q", got)
+	}
+}
+
+func TestCodexTolerantAnswer(t *testing.T) {
+	last := `{"done":true,"summary":"second","files":["b"],"needs":[]}`
+	cases := []struct {
+		name, message, summary string
+		done                   bool
+	}{
+		{"plain", goodAnswer, "Implemented.", true},
+		{"fenced", "Here it is:\n```json\n" + goodAnswer + "\n```\n", "Implemented.", true},
+		{"prose around", "Result " + goodAnswer + " thanks", "Implemented.", true},
+		{"last valid wins", `{"done":false,"summary":"first","files":[],"needs":[]} then ` + last, "second", true},
+		{"invalid later object ignored", last + ` {"done":true}`, "second", true},
+		{"braces in summary", `{"done":true,"summary":"a } { b","files":[],"needs":[]}`, "a } { b", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := spec(t, "codex")
+			install(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): c.message}})
+			r, e := Run(context.Background(), s)
+			if e != nil || r.Done != c.done || r.Summary != c.summary {
+				t.Fatalf("%+v %v", r, e)
+			}
+		})
+	}
+}
+
+func TestCodexNoObjectGivesSummaryAndLogError(t *testing.T) {
+	s := spec(t, "codex")
+	message := "I could not do it.\n" + strings.Repeat("long ", 100)
+	install(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): message}})
+	r, e := Run(context.Background(), s)
+	if e == nil || r.Done || !strings.Contains(e.Error(), filepath.Join(s.TaskDir, "stdout.log")) {
+		t.Fatalf("%+v %v", r, e)
+	}
+	if strings.Contains(r.Summary, "\n") || len(r.Summary) > 200 || !strings.HasPrefix(r.Summary, "I could not do it. long") {
+		t.Fatalf("summary %q", r.Summary)
 	}
 }
