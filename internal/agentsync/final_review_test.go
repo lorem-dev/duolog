@@ -2,6 +2,8 @@ package agentsync
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -59,6 +61,19 @@ func TestScanErrorNeverRemovesOwnedFiles(t *testing.T) {
 		if !exists(root, target) {
 			t.Fatalf("deleted %s after scan failure", target)
 		}
+	}
+}
+
+func TestReadSourceDirReportsAFileInTheWay(t *testing.T) {
+	root := t.TempDir()
+	put(t, root, "file", "not a directory", 0644)
+	for _, path := range []string{"file", "file/below"} {
+		if _, err := readSourceDir(filepath.Join(root, path)); err == nil || errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("%s: %v", path, err)
+		}
+	}
+	if _, err := readSourceDir(filepath.Join(root, "missing", "below")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
 	}
 }
 

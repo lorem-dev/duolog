@@ -358,12 +358,34 @@ func (r *runner) pruneEmpty(dir string) {
 	}
 }
 
+// readSourceDir treats a file in the way as a scan failure. Windows reports it
+// as "path not found", which would otherwise read as a deleted source and
+// remove the files generated from it.
+func readSourceDir(path string) ([]os.DirEntry, error) {
+	entries, err := os.ReadDir(path)
+	if !errors.Is(err, fs.ErrNotExist) {
+		return entries, err
+	}
+	for dir := path; ; dir = filepath.Dir(dir) {
+		info, statErr := os.Stat(dir)
+		if statErr == nil {
+			if !info.IsDir() {
+				return nil, fmt.Errorf("%s is not a directory", dir)
+			}
+			return nil, err
+		}
+		if dir == filepath.Dir(dir) {
+			return nil, err
+		}
+	}
+}
+
 func (r *runner) agentUnits() []unit {
 	ext := ".md"
 	if r.fromSide == "codex" {
 		ext = ".toml"
 	}
-	entries, err := os.ReadDir(r.abs(r.from.agents))
+	entries, err := readSourceDir(r.abs(r.from.agents))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		r.scanError(r.from.agents, err)
 		return nil
@@ -446,7 +468,7 @@ func (r *runner) resolver() func(string) (string, error) {
 const ownSkill = "duolog"
 
 func (r *runner) skillUnits() []unit {
-	entries, err := os.ReadDir(r.abs(r.from.skills))
+	entries, err := readSourceDir(r.abs(r.from.skills))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		r.scanError(r.from.skills, err)
 		return nil
