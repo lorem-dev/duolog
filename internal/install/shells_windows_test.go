@@ -102,18 +102,33 @@ func TestWindowsGuardNeedsNoModuleSearch(t *testing.T) {
 	for _, name := range []string{"PATH", "SYSTEMROOT", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "PATHEXT", "COMSPEC"} {
 		env = append(env, name+"="+os.Getenv(name))
 	}
-	command := testbin.HookProcess(doc.Hooks["PreToolUse"][0].Hooks[0].CommandWindows)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	cmd := testbin.CommandContext(ctx, command.Path, command.Args[1:]...)
-	cmd.SysProcAttr = command.SysProcAttr
-	cmd.Env = append(env, "DUOLOG_DEPTH=1")
-	started := time.Now()
-	err = cmd.Run()
-	if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != 7 {
-		t.Fatal(err)
-	}
-	if took := time.Since(started); took > 10*time.Second {
-		t.Fatalf("guard took %s", took)
+	system := "PATH=" + filepath.Join(os.Getenv("SYSTEMROOT"), "System32") + ";" + filepath.Join(os.Getenv("SYSTEMROOT"), "System32", "WindowsPowerShell", "v1.0")
+	for _, tc := range []struct {
+		name string
+		path string
+		want int
+	}{
+		{"present", "PATH=" + os.Getenv("PATH"), 7},
+		// Get-Command took 24 seconds here, on x64 and on ARM.
+		{"missing", system, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			command := testbin.HookProcess(doc.Hooks["PreToolUse"][0].Hooks[0].CommandWindows)
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			cmd := testbin.CommandContext(ctx, command.Path, command.Args[1:]...)
+			cmd.SysProcAttr = command.SysProcAttr
+			cmd.Env = append(append([]string{}, env...), tc.path, "DUOLOG_DEPTH=1")
+			started := time.Now()
+			err := cmd.Run()
+			took := time.Since(started)
+			t.Logf("guard took %s", took)
+			if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != tc.want {
+				t.Fatal(err)
+			}
+			if took > 5*time.Second {
+				t.Fatalf("guard took %s", took)
+			}
+		})
 	}
 }

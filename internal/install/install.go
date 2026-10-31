@@ -335,12 +335,16 @@ func command(goos, args string, gate bool) string {
 	return s + "fi"
 }
 
-// powershellGuard reads the exit code without a module cmdlet: Get-Variable
-// loads Microsoft.PowerShell.Utility, which took 18 to 30 seconds per hook in a
-// worker environment without PSModulePath. [char]36 is the dollar sign, which
-// an outer shell would otherwise expand.
+// powershellGuard finds duolog with where.exe and reads the exit code without a
+// module cmdlet. Measured on hosted Windows runners, x64 and ARM: PowerShell
+// starts in 0.2 seconds, but Get-Command for a missing program searches every
+// module for 24 seconds, and Get-Variable took 18 to 30 seconds in a worker
+// environment without PSModulePath. Every Codex tool call runs this guard.
+// [char]36 is the dollar sign, which an outer shell would otherwise expand, and
+// $PATH:duolog keeps where.exe out of the current directory.
 func powershellGuard(args string, gate bool) string {
-	s := "if (Get-Command duolog -CommandType Application -ErrorAction SilentlyContinue) { duolog " + args + "; exit [int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] }; "
+	lastExit := "[int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0]"
+	s := "& ([Environment]::SystemDirectory + '\\where.exe') /Q ([char]36 + 'PATH:duolog'); if (" + lastExit + " -eq 0) { duolog " + args + "; exit " + lastExit + " }; "
 	if gate {
 		s += "if ([Environment]::GetEnvironmentVariable('DUOLOG_DEPTH') -match '^0*[1-9][0-9]*$') { exit 2 }; "
 	}

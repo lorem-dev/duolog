@@ -133,6 +133,21 @@ func TestSkillsCheckBinaryAndRules(t *testing.T) {
 	}
 }
 
+func TestWindowsGuardAvoidsCommandDiscovery(t *testing.T) {
+	data, err := HooksJSON("codex", "windows", 150)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, slow := range []string{"Get-Command", "Get-Variable", "Test-Path"} {
+		if strings.Contains(string(data), slow) {
+			t.Errorf("%s searches modules for 24 seconds on every Codex tool call", slow)
+		}
+	}
+	if !strings.Contains(string(data), "where.exe") {
+		t.Error("guard no longer finds duolog with where.exe")
+	}
+}
+
 func TestReinstallUpgradesOlderClaudeHooks(t *testing.T) {
 	for _, command := range []string{
 		"if command -v duolog >/dev/null 2>&1; then exec duolog gate --agent claude --event PreToolUse; fi",
