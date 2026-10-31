@@ -149,10 +149,13 @@ func hooksAt(path string, s settings) (State, error) {
 			// Codex's hash algorithm is unknown here. Changes after review cannot
 			// be detected from this state; Codex itself will skip a changed hook.
 			for approved, state := range s.Hooks.State {
-				approvedPath, suffix, ok := strings.Cut(approved, ":PreToolUse:")
-				if ok && suffix == fmt.Sprintf("%d:%d", i, j) && state.TrustedHash != "" &&
-					pathutil.Clean(pathutil.Resolved(approvedPath)) == pathutil.Clean(pathutil.Resolved(path)) {
-					return State{Trusted: true, Installed: true}, nil
+				// Codex stores the snake_case event name; hooks.json uses PascalCase.
+				for _, event := range []string{":pre_tool_use:", ":PreToolUse:"} {
+					approvedPath, suffix, ok := strings.Cut(approved, event)
+					if ok && suffix == fmt.Sprintf("%d:%d", i, j) && state.TrustedHash != "" &&
+						pathutil.Clean(pathutil.Resolved(approvedPath)) == pathutil.Clean(pathutil.Resolved(path)) {
+						return State{Trusted: true, Installed: true}, nil
+					}
 				}
 			}
 		}

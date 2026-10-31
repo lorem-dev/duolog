@@ -48,6 +48,33 @@ func TestHookTrustMatchesProject(t *testing.T) {
 		t.Fatal(s, e)
 	}
 }
+
+// Codex writes approvals with snake_case event names, as in
+// "/path/hooks.json:session_start:0:0".
+func TestHookTrustReadsCodexEventSpelling(t *testing.T) {
+	root := t.TempDir()
+	hook := `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"duolog gate"}]}]}}`
+	path := filepath.Join(root, ".codex", "hooks.json")
+	for _, tc := range []struct {
+		name, event string
+		want        bool
+	}{
+		{"real spelling", "pre_tool_use", true},
+		{"documented spelling", "PreToolUse", true},
+		{"other event", "session_start", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			key := path + ":" + tc.event + ":0:0"
+			fixture(t, fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = \"invented-hash\"\n", key))
+			writeHook(t, root, hook)
+			s, e := Hooks("codex", root)
+			if e != nil || s.Trusted != tc.want {
+				t.Fatal(s, e)
+			}
+		})
+	}
+}
+
 func TestClaudeSkipsTrust(t *testing.T) {
 	fixture(t, "invalid TOML [")
 	root := t.TempDir()
