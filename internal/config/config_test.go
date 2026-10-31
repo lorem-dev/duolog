@@ -157,3 +157,77 @@ func TestAllEffortsAccepted(t *testing.T) {
 		})
 	}
 }
+
+func TestRejectMergedInvalidEnums(t *testing.T) {
+	for name, contents := range map[string]string{
+		"inline rule":    "policy:\n  rules:\n    - <<: {decision: invalid}\n",
+		"alias rule":     "capabilities:\n  hints: &rule {decision: invalid}\npolicy:\n  rules:\n    - <<: *rule\n",
+		"merge sequence": "policy:\n  rules:\n    - <<: [{decision: invalid}, {decision: allow}]\n",
+		"nested merge":   "roles:\n  plan:\n    <<: {use: {<<: {effort: invalid}}}\n",
+		"map entry":      "models:\n  sol:\n    <<: {agent: invalid}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := isolatedRoot(t)
+			path := filepath.Join(root, ".duolog", "config.yaml")
+			writeConfig(t, path, contents)
+			if _, err := Load(root); err == nil || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "invalid") {
+				t.Fatalf("want invalid enum error naming file, got %v", err)
+			}
+		})
+	}
+}
+
+func TestYAMLMergePrecedence(t *testing.T) {
+	root := isolatedRoot(t)
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), `policy:
+  rules:
+    - &rule {decision: allow, action: read}
+    - <<: *rule
+      decision: deny
+    - <<: [{decision: ask}, {decision: invalid}]
+roles:
+  plan:
+    use:
+      <<: {effort: invalid}
+      effort: low
+`)
+	writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), "roles:\n  plan:\n    use:\n      <<: {effort: medium}\n")
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Policy.Rules[1].Decision != "deny" || cfg.Policy.Rules[1].Action != "read" || cfg.Policy.Rules[2].Decision != "ask" {
+		t.Fatalf("YAML merge precedence lost: %+v", cfg.Policy.Rules)
+	}
+	if cfg.Roles["plan"].Use.Effort != "medium" || cfg.Roles["plan"].Use.Model != "opus" {
+		t.Fatalf("merged override lost inherited fields: %+v", cfg.Roles["plan"].Use)
+	}
+}
+
+func TestRejectNullOverrides(t *testing.T) {
+	for name, contents := range map[string]string{
+		"root":          "null\n",
+		"policy":        "policy: null\n",
+		"boolean":       "policy: {inherit_lead: null}\n",
+		"integer":       "policy: {ask_timeout_seconds: ~}\n",
+		"string":        "wire: {language: null}\n",
+		"enum":          "policy: {on_unmatched: null}\n",
+		"slice":         "policy: {rules: null}\n",
+		"rule":          "policy: {rules: [null]}\n",
+		"slice element": "env_passthrough: [null]\n",
+		"map":           "models: null\n",
+		"map entry":     "models: {sol: null}\n",
+		"role target":   "roles: {plan: {use: null}}\n",
+		"merged null":   "policy: {<<: {inherit_lead: null}}\n",
+		"aliased null":  "capabilities: {hints: {first: &empty null, second: *empty}}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := isolatedRoot(t)
+			path := filepath.Join(root, ".duolog", "config.yaml")
+			writeConfig(t, path, contents)
+			if _, err := Load(root); err == nil || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "null") {
+				t.Fatalf("want null error naming file, got %v", err)
+			}
+		})
+	}
+}
