@@ -247,11 +247,17 @@ func TestPeerLaunchSetsEnvWithoutRex(t *testing.T) {
 	program := testbin.Install(t, "agent", testbin.Scenario{})
 	t.Setenv("REX_SESSION", "sess")
 	t.Setenv("REX_BLOCK", "block:lead")
-	t.Setenv("KEEP_ME", "kept")
-	t.Setenv("OVERRIDE_ME", "old")
-	_, err := executeBusCommand(t, "peer", "launch", "DUOLOG_DEPTH=1", "DUOLOG_LEAD=lead-1", "OVERRIDE_ME=new", "--", program, "-m", "x")
-	if err != nil {
+	t.Setenv("UNLISTED_SECRET", "secret")
+	t.Setenv("TERM", "xterm")
+	file := filepath.Join(t.TempDir(), "env.json")
+	if err := os.WriteFile(file, []byte(`["DUOLOG_DEPTH=1","DUOLOG_LEAD=lead-1","API_KEY=listed"]`), 0o600); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := executeBusCommand(t, "peer", "launch", "--env-file", file, "--", program, "-m", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatal("the launcher left the variables on disk", err)
 	}
 	var env []string
 	data, err := os.ReadFile(program + ".env.json")
@@ -263,8 +269,11 @@ func TestPeerLaunchSetsEnvWithoutRex(t *testing.T) {
 		name, value, _ := strings.Cut(pair, "=")
 		have[name] = value
 	}
-	if have["DUOLOG_DEPTH"] != "1" || have["DUOLOG_LEAD"] != "lead-1" || have["OVERRIDE_ME"] != "new" || have["KEEP_ME"] != "kept" {
+	if have["DUOLOG_DEPTH"] != "1" || have["DUOLOG_LEAD"] != "lead-1" || have["API_KEY"] != "listed" || have["TERM"] != "xterm" {
 		t.Fatalf("%v", have)
+	}
+	if _, ok := have["UNLISTED_SECRET"]; ok {
+		t.Fatal("a variable outside env_passthrough reached the program")
 	}
 	if _, ok := have["REX_SESSION"]; ok {
 		t.Fatal("REX_SESSION reached the program")
@@ -276,7 +285,7 @@ func TestPeerLaunchSetsEnvWithoutRex(t *testing.T) {
 	if string(args) != `["-m","x"]` {
 		t.Fatalf("%s", args)
 	}
-	if _, err := executeBusCommand(t, "peer", "launch", "A=b"); err == nil {
+	if _, err := executeBusCommand(t, "peer", "launch", "--env-file", file); err == nil {
 		t.Fatal("launch without a program")
 	}
 }

@@ -212,9 +212,9 @@ func TestRejectNullOverrides(t *testing.T) {
 	for name, contents := range map[string]string{
 		"root":          "null\n",
 		"policy":        "policy: null\n",
-		"boolean":       "policy: {inherit_lead: null}\n",
+		"boolean":       "policy: {on_unmatched: null}\n",
 		"integer":       "policy: {ask_timeout_seconds: ~}\n",
-		"string":        "wire: {language: null}\n",
+		"string":        "policy: {on_unmatched: null}\n",
 		"enum":          "policy: {on_unmatched: null}\n",
 		"slice":         "policy: {rules: null}\n",
 		"rule":          "policy: {rules: [null]}\n",
@@ -222,7 +222,7 @@ func TestRejectNullOverrides(t *testing.T) {
 		"map":           "models: null\n",
 		"map entry":     "models: {sol: null}\n",
 		"role target":   "roles: {plan: {use: null}}\n",
-		"merged null":   "policy: {<<: {inherit_lead: null}}\n",
+		"merged null":   "policy: {<<: {on_unmatched: null}}\n",
 		"aliased null":  "capabilities: {hints: {first: &empty null, second: *empty}}\n",
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -239,21 +239,21 @@ func TestRejectNullOverrides(t *testing.T) {
 func TestStringScalarsPreserveOriginalValues(t *testing.T) {
 	for _, scalar := range []string{"012", "2020-01-01", "1e3", "0x10", "true"} {
 		for name, contents := range map[string]string{
-			"direct":                "wire: {language: " + scalar + "}\n",
-			"alias":                 "capabilities: {hints: {value: &value " + scalar + "}}\nwire: {language: *value}\n",
-			"merge":                 "wire: {<<: {language: " + scalar + "}}\n",
-			"nested merge sequence": "wire: {<<: [{<<: {language: " + scalar + "}}, {language: ignored}]}\n",
+			"direct":                "capabilities: {hints: {note: " + scalar + "}}\n",
+			"alias":                 "capabilities: {hints: {value: &value " + scalar + ", note: *value}}\n",
+			"merge":                 "capabilities: {hints: {<<: {note: " + scalar + "}}}\n",
+			"nested merge sequence": "capabilities: {hints: {<<: [{<<: {note: " + scalar + "}}, {note: ignored}]}}\n",
 		} {
 			t.Run(scalar+"/"+name, func(t *testing.T) {
 				root := isolatedRoot(t)
-				writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "wire: {language: project}\n")
+				writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "capabilities: {hints: {note: project}}\n")
 				writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), contents)
 				cfg, err := Load(root)
 				if err != nil {
 					t.Fatal(err)
 				}
-				if cfg.Wire.Language != scalar {
-					t.Fatalf("language = %q, want original scalar %q", cfg.Wire.Language, scalar)
+				if got := cfg.Capabilities.Hints["note"]; got != scalar {
+					t.Fatalf("note = %q, want original scalar %q", got, scalar)
 				}
 			})
 		}
@@ -280,5 +280,39 @@ func TestCRLFConfig(t *testing.T) {
 	cfg, err := Load(root)
 	if err != nil || cfg.Policy.OnUnmatched != "deny" {
 		t.Fatal(cfg, err)
+	}
+}
+
+func TestProjectRulesCannotDropDefaultDenies(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", home)
+	t.Setenv("APPDATA", home)
+	if err := os.MkdirAll(filepath.Join(root, ".duolog"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	project := "policy:\n  rules:\n    - {action: exec, match: \"pytest *\", decision: allow, roles: [tests]}\n"
+	if err := os.WriteFile(filepath.Join(root, ".duolog", "config.yaml"), []byte(project), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Policy.Rules[0].Match != "pytest *" {
+		t.Fatalf("project rule lost: %+v", cfg.Policy.Rules[0])
+	}
+	found := map[string]bool{}
+	for _, rule := range cfg.Policy.Rules {
+		if rule.Decision == "deny" {
+			found[rule.Match] = true
+		}
+	}
+	for _, want := range []string{"{**/.duolog/**,**/.git/**}", "git {push,reset --hard,clean,rebase}*", "rm -rf *"} {
+		if !found[want] {
+			t.Errorf("default deny %q was dropped", want)
+		}
 	}
 }

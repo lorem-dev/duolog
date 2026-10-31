@@ -156,6 +156,11 @@ func switched(root string, old Lock) Lock {
 		if err != nil || hashBytes(data) != e.SourceHash {
 			continue // missing or edited since the last sync: not ours to overwrite
 		}
+		// With no generated copy, the new run has nothing to rebuild this source
+		// from. It stays as a hand-written file instead of being removed as stale.
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(key))); err != nil {
+			continue
+		}
 		next.Files[e.Source] = FileEntry{Source: key, TargetHash: hashBytes(data)}
 	}
 	return next
@@ -482,10 +487,6 @@ func (r *runner) skillUnits() []unit {
 		}
 		// duolog installs its own skill on both sides; it is never synced.
 		if !e.IsDir() || e.Name() == ownSkill || !r.inScope(base) {
-			continue
-		}
-		if e.Type()&os.ModeSymlink != 0 {
-			r.rep.Warnings = append(r.rep.Warnings, base+": symlink source skipped")
 			continue
 		}
 		if _, err := os.Stat(r.abs(base + "/SKILL.md")); err != nil {

@@ -184,3 +184,14 @@ func TestEffortScale(t *testing.T) {
 		}
 	}
 }
+
+func TestRoleWithNoEffortTakesTheLeadEffort(t *testing.T) {
+	cfg := defaults(t)
+	role := cfg.Roles["docs"]
+	role.Use.Effort = ""
+	cfg.Roles["docs"] = role
+	got, err := Resolve(cfg, "docs", nil, Options{Lead: &config.Target{Agent: "claude", Model: "opus", Effort: "low"}})
+	if err != nil || got.Effort != "low" {
+		t.Fatal(got, err)
+	}
+}

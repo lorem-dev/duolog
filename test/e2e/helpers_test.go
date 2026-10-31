@@ -136,21 +136,27 @@ func (p *project) registerLead() {
 	if err != nil {
 		p.t.Fatal(err)
 	}
-	data, err := install.HooksJSON("claude", runtime.GOOS, 150)
+	data, err := install.HooksJSON("claude", 150)
 	if err != nil {
 		p.t.Fatal(err)
 	}
 	var doc struct {
-		Hooks map[string][]struct{ Hooks []struct{ Command string } }
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Command string
+				Args    []string
+			}
+		}
 	}
 	if err := json.Unmarshal(data, &doc); err != nil {
 		p.t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	// Run the exact installed guard. Its exec must leave this test process as
-	// the live parent of duolog, rather than registering a short-lived shell.
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", doc.Hooks["SessionStart"][0].Hooks[0].Command)
+	// Run the exact installed hook. The shell's exec finds it on the test's PATH and
+	// leaves this test process as the live parent of duolog.
+	hook := doc.Hooks["SessionStart"][0].Hooks[0]
+	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", "exec "+hook.Command+" "+strings.Join(hook.Args, " "))
 	cmd.Dir = p.dir
 	cmd.Env = append(env(), "CLAUDE_CODE_ENTRYPOINT=cli")
 	cmd.Stdin = bytes.NewReader(stdin)

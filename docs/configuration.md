@@ -6,7 +6,9 @@ does, and how to check a role. The defaults are in
 
 ## Where duolog reads the config
 
-duolog merges four layers. A later layer changes only the fields it names.
+duolog merges four layers. A later layer changes only the fields it names. A
+list, such as `policy.rules`, is one field, so a later list replaces the earlier
+one. The default deny rules stay in every case.
 
 | Order | File | Use |
 |---|---|---|
@@ -82,8 +84,8 @@ The lead's own settings are the ceiling:
 
 | Section | What it sets |
 |---|---|
-| `wire` | The language of tasks, the bus line limits and the inline size |
-| `limits` | Live sessions, depth, and the size of a task the lead may do itself |
+| `wire` | The bus line limits and the inline size |
+| `limits` | Live sessions and the size of a task the lead may do itself |
 | `models` | The agent and the prices for each alias. Prices drive `duolog stats` |
 | `sessions` | When a resumed thread closes |
 | `policy` | The rules for worker actions. See [Permissions](permissions.md) |

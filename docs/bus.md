@@ -61,8 +61,11 @@ once, followed by `More messages: duolog inbox --reader <address>`. At
 session start the lead also gets a short roster line with its roles.
 
 Claude Code can wake an idle session with a hook that has `asyncRewake`. This
-was OBSERVED, not VERIFIED. The Codex lead has no wake hook. A Codex lead sees
-mail on its next prompt.
+was OBSERVED, not VERIFIED. The hook starts with the session and watches for one
+minute, so a later message waits for the next prompt or for `duolog peer wait`,
+which also reports a question. A worker's question to an idle lead that is doing
+neither is denied after its wait. The Codex lead has no wake hook. A Codex lead
+sees mail on its next prompt.
 
 ## Known limits
 

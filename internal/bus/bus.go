@@ -207,6 +207,13 @@ func (b *Bus) InboxLimited(reader string, limit int) ([][]byte, bool, error) {
 		return nil, false, err
 	}
 	defer f.Close()
+	// A cursor past the end means someone replaced the file. Waiting for it to grow
+	// would hide every new message until then.
+	if info, err := f.Stat(); err != nil {
+		return nil, false, err
+	} else if offset > info.Size() {
+		offset = 0
+	}
 	if _, err := f.Seek(offset, io.SeekStart); err != nil {
 		return nil, false, err
 	}

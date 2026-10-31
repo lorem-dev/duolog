@@ -27,11 +27,12 @@ worker is enough.
 
 Each command prints one line, such as `<id> <state>: <question or note>`. The
 lead reads the question and decides. duolog never answers a question for the
-lead. The answer comes back on the [bus](bus.md), and the lead reads only
-that line, not the pane.
+lead.
 
-duolog reads the pane only to learn its state. It takes the content of
-answers from files, not from the screen.
+`duolog peer wait` reports the state, not the result. `task finished` means the
+session went idle. The peer's answer stays in its pane, and in any files it
+wrote. duolog reads the pane only to learn its state. When the lead needs the
+answer as data, use `duolog delegate`, which returns it and records its spend.
 
 ## Why the lead must answer every question
 
@@ -77,9 +78,9 @@ With Claude as the lead:
 - [ ] If the line shows a question, answer it with `duolog peer answer`,
   giving the session id and the option.
 - [ ] Write a task file and run `duolog peer send <id> task.md`.
-- [ ] Run `duolog peer wait <id>`. The answer appears on the bus.
+- [ ] Run `duolog peer wait <id>`. It prints `task finished` when the session
+  goes idle, and the answer is in the pane.
 - [ ] Check that the lead's context got one line, not the whole answer.
-- [ ] Run `duolog stats` and check that it shows the spend.
 - [ ] Run `duolog peer close <id>`.
 
 With Codex as the lead, repeat every step with the roles swapped. Open a Claude

@@ -116,6 +116,41 @@ func TestOppositeDirectionRefused(t *testing.T) {
 	}
 }
 
+func TestSwitchDirectionKeepsOldSourcesWithNoGeneratedCopy(t *testing.T) {
+	root := newProject(t)
+	put(t, root, ".claude/skills/foo/SKILL.md", "---\nname: foo\ndescription: Skill.\n---\nDo work.\n", 0o644)
+	put(t, root, ".claude/skills/foo/run.sh", "echo hi\n", 0o755)
+	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(root, ".agents", "skills", "foo")); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(root, syncCfg(t), Options{From: "codex", SwitchDirection: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{".claude/skills/foo/SKILL.md", ".claude/skills/foo/run.sh"} {
+		if !exists(root, name) {
+			t.Fatalf("%s was deleted: %+v", name, rep)
+		}
+	}
+}
+
+func TestSwitchDirectionKeepsOneGeneratedComment(t *testing.T) {
+	root := newProject(t)
+	put(t, root, ".claude/skills/foo/SKILL.md", "---\nname: foo\ndescription: Skill.\n---\nDo work.\n", 0o644)
+	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(root, syncCfg(t), Options{From: "codex", SwitchDirection: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, root, ".claude/skills/foo/SKILL.md"); strings.Count(got, generatedComment) != 1 {
+		t.Fatal(got)
+	}
+}
+
 func TestSwitchDirectionRebuildsOldSources(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)

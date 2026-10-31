@@ -90,9 +90,7 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout ti
 	}
 }
 
-// AskSummary visibly preserves both ends and points to the complete action.
-func AskSummary(text string) string { return askSummary(strings.Join(strings.Fields(text), " "), 200) }
-
+// askSummary visibly preserves both ends and points to the complete action.
 func askSummary(text string, budget int) string {
 	if len(text) <= budget {
 		return text
@@ -117,6 +115,13 @@ func askSummary(text string, budget int) string {
 
 // MaxAskWait fits below the 150-second timeout of every shipped gate hook.
 const MaxAskWait = 120 * time.Second
+
+// AskExpired reports that no gate can still be waiting for this ask, whether it
+// timed out or its worker was killed.
+func AskExpired(sent string) bool {
+	at, err := time.Parse(time.RFC3339Nano, sent)
+	return err == nil && time.Since(at) > MaxAskWait+30*time.Second
+}
 
 // AskWait clamps project settings to the shipped hook budget.
 func AskWait(seconds int) time.Duration { return min(time.Duration(seconds)*time.Second, MaxAskWait) }

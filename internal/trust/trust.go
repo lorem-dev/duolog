@@ -70,30 +70,9 @@ func Hooks(agent, root string) (State, error) {
 		if err != nil {
 			return State{}, err
 		}
-		installed := false
-		for _, path := range []string{filepath.Join(root, ".claude", "settings.json"), filepath.Join(trusthome.Claude(home), "settings.json")} {
-			data, err := os.ReadFile(path)
-			if err != nil {
-				continue
-			}
-			var doc struct {
-				Hooks map[string][]struct {
-					Hooks []struct {
-						Command        string `json:"command"`
-						CommandWindows string `json:"commandWindows"`
-					} `json:"hooks"`
-				} `json:"hooks"`
-				Plugins map[string]bool `json:"enabledPlugins"`
-			}
-			if json.Unmarshal(data, &doc) != nil {
-				continue
-			}
-			installed = installed || doc.Plugins["duolog@duolog"]
-			for _, group := range doc.Hooks["PreToolUse"] {
-				for _, h := range group.Hooks {
-					installed = installed || install.IsOurCommand(h.Command)
-				}
-			}
+		installed := install.PluginEnabled(root, home)
+		for _, path := range install.ClaudeSettingsFiles(root, home) {
+			installed = installed || install.HasGate(path)
 		}
 		return State{Trusted: true, Installed: installed}, nil
 	}
@@ -130,20 +109,17 @@ func hooksAt(path string, s settings) (State, error) {
 		return State{}, err
 	}
 	var definition struct {
-		Hooks map[string][]struct {
-			Hooks []struct {
-				Type           string `json:"type"`
-				Command        string `json:"command"`
-				CommandWindows string `json:"commandWindows"`
-			} `json:"hooks"`
-		} `json:"hooks"`
+		Hooks map[string][]install.HookGroup `json:"hooks"`
 	}
 	if err := json.Unmarshal(data, &definition); err != nil {
 		return State{}, err
 	}
 	for i, group := range definition.Hooks["PreToolUse"] {
+		if !group.CoversEveryTool() {
+			continue
+		}
 		for j, hook := range group.Hooks {
-			if hook.Type != "command" || !(install.IsOurCommand(hook.Command) || install.IsOurCommand(hook.CommandWindows)) {
+			if hook.Type != "command" || !group.IsGate(j) {
 				continue
 			}
 			// Codex's hash algorithm is unknown here. Changes after review cannot

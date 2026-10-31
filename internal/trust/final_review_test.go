@@ -29,7 +29,7 @@ func TestGeneratedHooksTrustedAtBothScopesAndCodexHome(t *testing.T) {
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				t.Fatal(err)
 			}
-			data, err := install.HooksJSON("codex", "linux", 150)
+			data, err := install.HooksJSON("codex", 150)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -64,7 +64,7 @@ func TestClaudeRecognizesGeneratedAndOlderHooks(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		t.Fatal(err)
 	}
-	generated, err := install.HooksJSON("claude", "windows", 150)
+	generated, err := install.HooksJSON("claude", 150)
 	if err != nil {
 		t.Fatal(err)
 	}

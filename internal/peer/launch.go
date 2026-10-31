@@ -1,8 +1,8 @@
 package peer
 
 import (
+	"encoding/json"
 	"os"
-	"strings"
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
@@ -39,15 +39,7 @@ func agentArgv(route router.Route, m mode.Mode) []string {
 // agentEnv lists NAME=VALUE pairs for the pane. REX_ names never pass on: a
 // worker that learns the session could rename or rearrange the lead's terminal.
 func agentEnv(cfg *config.Config, agent, leadID string, roles ...string) []string {
-	var pairs []string
-	for _, name := range cfg.EnvPassthrough {
-		if strings.EqualFold(name, "PATH") || strings.HasPrefix(name, "DUOLOG_") || strings.HasPrefix(name, "REX_") {
-			continue
-		}
-		if value, ok := os.LookupEnv(name); ok {
-			pairs = append(pairs, name+"="+value)
-		}
-	}
+	pairs := workerenv.Passthrough(cfg.EnvPassthrough)
 	if agent == "claude" {
 		pairs = append(pairs, "DISABLE_AUTOUPDATER=1")
 	}
@@ -58,15 +50,32 @@ func agentEnv(cfg *config.Config, agent, leadID string, roles ...string) []strin
 	return append(pairs, workerenv.Path(), "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+leadID, "DUOLOG_ROLE="+role)
 }
 
-// launchArgv wraps a program so that it starts with env and without the Rex
-// variables, and needs no shell. Rex starts it directly (--shell=none). Where
-// env exists the wrapper is env; Windows has none, so duolog itself sets the
-// variables and starts the program (duolog peer launch).
-func launchArgv(goos, exe string, env, program []string) []string {
-	if goos == "windows" {
-		argv := append([]string{exe, "peer", "launch"}, env...)
-		return append(append(argv, "--"), program...)
+// writeEnvFile stores the pane's variables for duolog peer launch, which deletes
+// the file as it reads it. They do not go on the rex command line: that holds API
+// keys, and any local user can read a command line.
+func writeEnvFile(dir string, pairs []string) (string, error) {
+	data, err := json.Marshal(pairs)
+	if err != nil {
+		return "", err
 	}
-	argv := append([]string{"env", "-u", "REX_SESSION", "-u", "REX_BLOCK"}, env...)
-	return append(argv, program...)
+	f, err := os.CreateTemp(dir, ".peer-env-*.json")
+	if err != nil {
+		return "", err
+	}
+	_, writeErr := f.Write(data)
+	closeErr := f.Close()
+	if writeErr == nil {
+		writeErr = closeErr
+	}
+	if writeErr != nil {
+		_ = os.Remove(f.Name())
+		return "", writeErr
+	}
+	return f.Name(), nil
+}
+
+// launchArgv starts a program through duolog, which gives it exactly the listed
+// variables. Rex starts it directly (--shell=none).
+func launchArgv(exe, envFile string, program []string) []string {
+	return append([]string{exe, "peer", "launch", "--env-file", envFile, "--"}, program...)
 }

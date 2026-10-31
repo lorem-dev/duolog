@@ -44,6 +44,14 @@ jobs:
         # A healthy package takes under a minute on every runner. The timeout
         # names the test that hangs and prints its stack.
         run: go test ${{ matrix.race }} -timeout 2m ./...
+      - name: Every place states the same version, and CHANGES.md keeps its limits
+        run: uv run scripts/version/version.py check
+      - name: Version tool tests
+        if: matrix.os == 'ubuntu-latest'
+        run: uv run --no-project --python 3.12 --with click --with pytest python -m pytest scripts/version/tests -q -p no:cacheprovider
+      - name: Generated skill copies are current
+        if: matrix.os == 'ubuntu-latest'
+        run: go run ./cmd/duolog sync --check
       - name: Schema is current
         run: go test . -run '^TestSchemaFileIsCurrent$'
       - name: Third-party notices are current
@@ -70,7 +78,7 @@ jobs:
           $tokens = $null
           $parseErrors = $null
           [System.Management.Automation.Language.Parser]::ParseFile(
-            (Join-Path $PWD 'dist/install.ps1'), [ref]$tokens, [ref]$parseErrors) > $null
+            (Join-Path $PWD '.release/install.ps1'), [ref]$tokens, [ref]$parseErrors) > $null
           if ($parseErrors.Count) { $parseErrors; exit 1 }
       - name: Parse installer with pwsh
         if: runner.os == 'Windows'
@@ -79,14 +87,14 @@ jobs:
           $tokens = $null
           $parseErrors = $null
           [System.Management.Automation.Language.Parser]::ParseFile(
-            (Join-Path $PWD 'dist/install.ps1'), [ref]$tokens, [ref]$parseErrors) > $null
+            (Join-Path $PWD '.release/install.ps1'), [ref]$tokens, [ref]$parseErrors) > $null
           if ($parseErrors.Count) { $parseErrors; exit 1 }
       - name: Shellcheck release installer
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y shellcheck
-          shellcheck -S error dist/install.sh
+          shellcheck -S error .release/install.sh
       - name: Run POSIX installer test with dash
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -99,9 +107,11 @@ jobs:
   cross-build:
     name: cross-build (all release targets)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -117,3 +127,14 @@ jobs:
                 -o "$RUNNER_TEMP/duolog-$target_os-$target_arch" ./cmd/duolog
             done
           done
+      # A config check does not find a release that cannot run, so run it.
+      - name: Install shellcheck for the release hooks
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+      - name: Write the release body from CHANGES.md
+        run: uv run scripts/version/version.py notes "v$(sed -n 's/^var version = "\(.*\)"/\1/p' cmd/duolog/main.go)" -o .release/notes.md
+      - name: Dry run of the release
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: '~> v2'
+          args: release --snapshot --clean --release-notes=.release/notes.md

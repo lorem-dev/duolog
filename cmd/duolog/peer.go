@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -142,45 +144,48 @@ func newPeerCommand() *cobra.Command {
 	return root
 }
 
-// newPeerLaunchCommand starts a program with extra variables and without the
-// Rex ones. Windows has no env command, so a pane there runs this instead.
+// newPeerLaunchCommand starts a peer's program with exactly the variables in its
+// file, plus what a terminal program needs from the pane. It deletes the file first.
 func newPeerLaunchCommand() *cobra.Command {
-	return &cobra.Command{Use: "launch NAME=VALUE... -- program [args...]", Short: "Start a program for a peer pane", Hidden: true, DisableFlagParsing: true, RunE: func(cmd *cobra.Command, args []string) error {
-		split := -1
-		for i, a := range args {
-			if a == "--" {
-				split = i
-				break
-			}
+	var envFile string
+	cmd := &cobra.Command{Use: "launch --env-file FILE -- program [args...]", Short: "Start a program for a peer pane", Hidden: true, Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		data, err := os.ReadFile(envFile)
+		if err != nil {
+			return err
 		}
-		if split < 0 || split == len(args)-1 {
-			return errors.New("usage: duolog peer launch NAME=VALUE... -- program [args...]")
+		if err := os.Remove(envFile); err != nil {
+			return err
 		}
-		set := args[:split]
-		child := exec.CommandContext(cmd.Context(), args[split+1], args[split+2:]...)
+		var set []string
+		if err := json.Unmarshal(data, &set); err != nil {
+			return fmt.Errorf("%s: %w", envFile, err)
+		}
+		child := exec.CommandContext(cmd.Context(), args[0], args[1:]...)
 		child.Env = launchEnv(os.Environ(), set)
 		child.Stdin, child.Stdout, child.Stderr = os.Stdin, os.Stdout, os.Stderr
-		err := child.Run()
+		err = child.Run()
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
 			return &hookExit{code: exit.ExitCode()}
 		}
 		return err
 	}}
+	cmd.Flags().StringVar(&envFile, "env-file", "", "File that holds the variables, as a JSON list of NAME=VALUE")
+	_ = cmd.MarkFlagRequired("env-file")
+	return cmd
 }
 
-// launchEnv drops REX_SESSION and REX_BLOCK and any name that is set again.
+// launchEnv keeps what a terminal program needs from the pane and adds the listed
+// variables. env_passthrough is the only other way in, as for a one-shot worker.
 func launchEnv(base, set []string) []string {
-	skip := map[string]bool{"REX_SESSION": true, "REX_BLOCK": true}
-	for _, pair := range set {
-		name, _, _ := strings.Cut(pair, "=")
-		skip[name] = true
-	}
 	var env []string
 	for _, pair := range base {
-		if name, _, _ := strings.Cut(pair, "="); !skip[name] {
+		name, _, _ := strings.Cut(pair, "=")
+		if slices.Contains(paneVariables, name) || strings.HasPrefix(name, "LC_") {
 			env = append(env, pair)
 		}
 	}
 	return append(env, set...)
 }
+
+var paneVariables = []string{"TERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "COLORTERM", "COLUMNS", "LINES", "LANG", "LANGUAGE", "TMPDIR", "TZ", "SHELL"}

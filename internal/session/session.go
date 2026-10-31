@@ -158,26 +158,56 @@ func (r *Registry) Record(e Entry) error {
 	return r.RecordLimited(e, 0)
 }
 
-// RecordLimited retains at most limit reusable workers for this lead and agent.
-// A nonpositive limit leaves the registry unbounded.
+// Update changes one entry inside the registry lock, so that two changes to
+// different fields of an entry cannot overwrite each other.
+func (r *Registry) Update(id string, change func(*Entry)) (Entry, error) {
+	var updated Entry
+	err := r.access(true, func(s *state) error {
+		for i := range s.Entries {
+			if s.Entries[i].ID == id {
+				change(&s.Entries[i])
+				s.Entries[i].UpdatedAt = time.Now()
+				updated = s.Entries[i]
+				return nil
+			}
+		}
+		return fmt.Errorf("unknown session %q", id)
+	})
+	return updated, err
+}
+
+// RecordLimited retains at most limit sessions for this lead and agent, and a
+// nonpositive limit leaves the registry unbounded. A stored thread that is over the
+// limit is closed, because it costs nothing to reopen. A pane is still running, and
+// nothing here can stop it, so a pane is never closed to make room: a new pane over
+// the limit is refused, which also settles two opens that overlap.
 func (r *Registry) RecordLimited(e Entry, limit int) error {
 	if e.UpdatedAt.IsZero() {
 		e.UpdatedAt = time.Now()
 	}
 	return r.access(true, func(s *state) error {
 		if limit > 0 {
-			var active []int
+			var threads []int
+			panes := 0
 			for i, x := range s.Entries {
-				if !x.Closed && x.ID != e.ID && x.Lead == e.Lead && x.Agent == e.Agent {
-					active = append(active, i)
+				if x.Closed || x.ID == e.ID || x.Lead != e.Lead || x.Agent != e.Agent {
+					continue
+				}
+				if x.Block != "" {
+					panes++
+				} else {
+					threads = append(threads, i)
 				}
 			}
-			sort.Slice(active, func(i, j int) bool {
-				return s.Entries[active[i]].UpdatedAt.Before(s.Entries[active[j]].UpdatedAt)
+			if e.Block != "" && panes >= limit {
+				return fmt.Errorf("max_live_sessions is %d and %s has %d open panes", limit, e.Agent, panes)
+			}
+			sort.Slice(threads, func(i, j int) bool {
+				return s.Entries[threads[i]].UpdatedAt.Before(s.Entries[threads[j]].UpdatedAt)
 			})
-			for len(active) >= limit {
-				s.Entries[active[0]].Closed = true
-				active = active[1:]
+			for len(threads) > 0 && len(threads)+panes >= limit {
+				s.Entries[threads[0]].Closed = true
+				threads = threads[1:]
 			}
 		}
 		for i, x := range s.Entries {

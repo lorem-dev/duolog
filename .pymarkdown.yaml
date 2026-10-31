@@ -35,6 +35,10 @@ plugins:
   md033:
     # The README centres its title and badges, and Markdown cannot centre text.
     allowed_elements: "h1,p"
+  md041:
+    # The README shows its icon above the title. docs_test.go still requires a
+    # title on every page.
+    enabled: false
 extensions:
   front-matter:
     enabled: true

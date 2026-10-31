@@ -115,6 +115,41 @@ Windows arm64 job runs without the race detector, which Go does not support.
 The cross-build job compiles all six release targets. These checks do not run
 real agents.
 
+## How to write the changelog
+
+`CHANGES.md` tells a person whether to upgrade, and the GitHub release shows the
+section of that version. Add an entry to `## Development` in the change that
+causes it. The limits are hard, because a changelog is scanned, not read:
+
+| Limit | Value |
+|---|---|
+| Bullets in one version section | 15 |
+| Characters in one bullet | 160 |
+| Lines in one bullet | 2 |
+| Characters in one line | 80 |
+
+Use one level of bullets, and only the headings `Added`, `Changed`, `Fixed`,
+`Removed` and `Security`. A fix for a bug that no release had needs no entry.
+The comment at the top of the file has the full rules, and CI fails when one
+breaks.
+
+## How to change the version
+
+Use `scripts/version/version.py`, because the version appears in several files.
+The `bump` command sets all of them and moves the `## Development` entries under
+the new version. The `check` command fails CI when a file differs. A tag such as
+`v1.2.3` must match, or the release workflow stops.
+
+```bash
+uv run scripts/version/version.py bump 1.2.3
+uv run scripts/version/version.py check --tag v1.2.3
+```
+
+The repository has `bump-version`, `check-version` and `check-changes` skills
+that run these commands. Edit a skill in `.claude/skills/`, then run
+`go run ./cmd/duolog sync`. That command generates the copy in `.agents/skills/`
+that Codex reads, and CI fails if the copy is out of date.
+
 ## How to add a dependency
 
 Prefer the Go standard library. Explain why each new module is needed in the

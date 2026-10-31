@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"slices"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -21,7 +22,8 @@ func convertSkill(src []byte, drop []string, fromClaude bool) (out []byte, warni
 		return nil, nil, err
 	}
 	var doc yaml.Node
-	if err := yaml.Unmarshal([]byte(header), &doc); err != nil {
+	// A generated skill can be the source after a switch of direction.
+	if err := yaml.Unmarshal([]byte(strings.TrimPrefix(header, generatedComment+"\n")), &doc); err != nil {
 		return nil, nil, fmt.Errorf("bad YAML header: %w", err)
 	}
 	root := doc.Content[0]

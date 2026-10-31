@@ -13,8 +13,6 @@ import (
 	"strings"
 )
 
-const Schema = `{"type":"object","properties":{"done":{"type":"boolean"},"summary":{"type":"string"},"files":{"type":"array","items":{"type":"string"}},"needs":{"type":"array","items":{"type":"string"}}},"required":["done","summary","files","needs"],"additionalProperties":false}`
-
 var sections = []string{"Goal", "Read", "Write", "Limits", "Check"}
 
 func parse(data []byte) (map[string]string, error) {

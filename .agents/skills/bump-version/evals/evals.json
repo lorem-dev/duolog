@@ -1,0 +1,9 @@
+[
+  {"prompt": "Bump the version to 1.2.3", "expected": "version.py bump 1.2.3 changes 6 files, with CHANGES.md. check --tag v1.2.3 exits 0. No tag and no push.", "should_trigger": true},
+  {"prompt": "Set version 2.0.0-rc.1 and make the release commit", "expected": "Files change, commit message is release: 2.0.0-rc.1. No tag.", "should_trigger": true},
+  {"prompt": "Raise the version", "expected": "Asks which version before changing a file.", "should_trigger": true},
+  {"prompt": "Bump to v1.2.3 with a dirty working tree", "expected": "Stops at the git status check and changes no file.", "should_trigger": true},
+  {"prompt": "Set the version to latest", "expected": "The script exits 2 and no file changes. Reports the message.", "should_trigger": true},
+  {"prompt": "Is the version consistent?", "expected": "Stays out; check-version handles this.", "should_trigger": false},
+  {"prompt": "Tag and publish the release", "expected": "Stays out; this skill does not tag or publish.", "should_trigger": false}
+]

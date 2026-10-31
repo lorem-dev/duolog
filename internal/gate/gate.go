@@ -41,7 +41,7 @@ type Decision struct {
 }
 
 // Evaluate applies denies before role and mode limits. Lead restrictions always
-// apply: inherit_lead=false cannot grant access that the lead does not have.
+// apply: no project setting can grant access that the lead does not have.
 func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	if lead.Mode != "" {
 		m = mode.Lower(m, lead.Mode)
@@ -61,6 +61,13 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 		if pathutil.Windows(a.Target) {
 			a.Shell = "windows"
 		}
+		if usesWindowsNames(a) {
+			target, ok := windowsTarget(a.Target)
+			if !ok {
+				return decision(Deny, "a Windows stream name can reach a denied file", "windows name")
+			}
+			a.Target = target
+		}
 		a.Target = cleanPath(a.Target)
 	}
 	if a.Kind == "spawn" {
@@ -73,6 +80,7 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 		if a.Shell == "powershell" {
 			parts, uncertain = powershellParts(a.Target)
 		}
+		uncertain = uncertain || needsReview(parts)
 	}
 	// Check every part for a deny before any ask or allow can return.
 	for _, part := range parts {
@@ -94,6 +102,11 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 		for _, rule := range p.Rules {
 			if rule.Decision == Deny && (matches(rule, partAction) || matches(rule, baseAction)) {
 				return decision(Deny, "denied by project policy", rule.Action+" "+rule.Match)
+			}
+		}
+		if a.Kind == "exec" && !readOnlyCommand(part) {
+			if d, ok := hiddenDeny(p, lead, m, a, part); ok {
+				return d
 			}
 		}
 	}
@@ -353,7 +366,8 @@ func shellParts(command string) ([]string, bool) {
 			return
 		}
 		switch filepath.Base(word) {
-		case "command", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "powershell", "cmd":
+		case "command", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "powershell", "cmd",
+			"time", "nice", "ionice", "timeout", "nohup", "stdbuf", "setsid", "busybox", "doas", "watch", "parallel":
 			uncertain = true
 			return
 		}
@@ -429,6 +443,9 @@ func denyCommand(command string) string {
 				i++
 			}
 		}
+		if i < len(words) && strings.EqualFold(words[i], "reset") && slices.Contains(words[i:], "--hard") {
+			return strings.ToLower("git reset --hard " + strings.Join(words[i+1:], " "))
+		}
 		if i <= len(words) {
 			return strings.ToLower(strings.Join(append([]string{"git"}, words[i:]...), " "))
 		}
@@ -457,6 +474,10 @@ func denyCommand(command string) string {
 	return strings.Join(words, " ")
 }
 
+// readCommands only print. find and rg can also write or run, so readOnlyCommand
+// checks their options.
+var readCommands = []string{"cat", "head", "tail", "ls", "pwd", "wc", "grep", "get-content", "get-childitem", "get-location", "test-path", "select-string", "get-item"}
+
 func readOnlyCommand(command string) bool {
 	raw := strings.Fields(command)
 	words := strings.Fields(strings.ToLower(command))
@@ -464,7 +485,7 @@ func readOnlyCommand(command string) bool {
 		return false
 	}
 	if words[0] == "git" {
-		return len(words) > 1 && slices.Contains([]string{"status", "diff", "log", "show"}, words[1]) && !strings.Contains(command, "--output") && !strings.Contains(command, "--ext-diff") && !strings.Contains(command, "--textconv")
+		return len(words) > 1 && slices.Contains([]string{"status", "diff", "log", "show"}, words[1]) && !strings.Contains(command, "--output") && !strings.Contains(command, "--ext-diff") && !strings.Contains(command, "--textconv") && !strings.Contains(command, "--no-index")
 	}
 	switch words[0] {
 	case "find":
@@ -472,7 +493,7 @@ func readOnlyCommand(command string) bool {
 	case "rg":
 		return rgOptionsKnown(raw[1:])
 	}
-	return slices.Contains([]string{"cat", "head", "tail", "ls", "pwd", "wc", "grep", "get-content", "get-childitem", "get-location", "test-path", "select-string", "get-item"}, words[0])
+	return slices.Contains(readCommands, words[0])
 }
 
 // readCommandDecision applies read rules to the paths of each read command in
@@ -492,8 +513,8 @@ func readCommandDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action,
 			asked = &Decision{Ask, reason, "read command", m}
 		}
 		for _, target := range targets {
-			if a.Work != "" && !strings.HasPrefix(target, "~") {
-				target = RelativeTarget(a.Work, a.Cwd, target)
+			if a.Work != "" {
+				target = RelativeTarget(a.Work, a.Cwd, expandHome(target))
 			}
 			d := Evaluate(p, lead, m, Action{Kind: "read", Target: target, Role: a.Role, Shell: shell})
 			if d.Kind == Deny {
@@ -521,7 +542,7 @@ func readOnlyRule(pattern string) bool {
 			if len(fields) < 2 || !slices.Contains([]string{"status", "diff", "log", "show"}, strings.TrimSuffix(fields[1], "*")) {
 				return false
 			}
-		} else if !slices.Contains([]string{"cat", "head", "tail", "ls", "pwd", "wc", "rg", "grep", "find", "get-content", "get-childitem", "get-location", "test-path", "select-string", "get-item"}, strings.TrimSuffix(fields[0], "*")) {
+		} else if name := strings.TrimSuffix(fields[0], "*"); name != "rg" && name != "find" && !slices.Contains(readCommands, name) {
 			return false
 		}
 	}

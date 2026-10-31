@@ -1,0 +1,35 @@
+{
+  "direction": "claude",
+  "files": {
+    ".agents/skills/bump-version/SKILL.md": {
+      "source": ".claude/skills/bump-version/SKILL.md",
+      "source_hash": "f4c02a649be2e1bcef8b41c588b4cb5a4480b12bb80a2e9935d32f25ac49483f",
+      "target_hash": "ae7dc1bcd822e019e604e9473b12903745b0e7107146196a9fe28a7e5253e6e3"
+    },
+    ".agents/skills/bump-version/evals/evals.json": {
+      "source": ".claude/skills/bump-version/evals/evals.json",
+      "source_hash": "08378026651dbb688d53507370e6b3935fc43149c0dce05461e337481bceb059",
+      "target_hash": "08378026651dbb688d53507370e6b3935fc43149c0dce05461e337481bceb059"
+    },
+    ".agents/skills/check-changes/SKILL.md": {
+      "source": ".claude/skills/check-changes/SKILL.md",
+      "source_hash": "9cf9e89608dd2c8c4bb58cb81a86d0bcf913573c8571c21cd5e434114aaa9308",
+      "target_hash": "42b2b2e16e636ad9a869488b12b859630ba95e76a56fb3630e72ccce326bf958"
+    },
+    ".agents/skills/check-changes/evals/evals.json": {
+      "source": ".claude/skills/check-changes/evals/evals.json",
+      "source_hash": "c58fff034bb091845248989d960916226663fb983f6241d846cfd4dc95540eec",
+      "target_hash": "c58fff034bb091845248989d960916226663fb983f6241d846cfd4dc95540eec"
+    },
+    ".agents/skills/check-version/SKILL.md": {
+      "source": ".claude/skills/check-version/SKILL.md",
+      "source_hash": "2b2cc8a0d1edeb79e3777d9499538c2a347828fbe49e2ac150ac7332b47f549c",
+      "target_hash": "2dac5730b72672848041f7d3203eca94f1a7e28686a7f534335f50864cad13cd"
+    },
+    ".agents/skills/check-version/evals/evals.json": {
+      "source": ".claude/skills/check-version/evals/evals.json",
+      "source_hash": "fbae64d444e925e1d476b078cfc3816802319092ca090ed77d73a4c98c5dbf5b",
+      "target_hash": "fbae64d444e925e1d476b078cfc3816802319092ca090ed77d73a4c98c5dbf5b"
+    }
+  }
+}

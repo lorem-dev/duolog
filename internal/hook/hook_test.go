@@ -431,22 +431,6 @@ func TestCodexPromptRegistersBeforeSessionStart(t *testing.T) {
 	silent(t, Prompt(context.Background(), e))
 	lead(t, r, e)
 }
-func TestDeliverIdleCodex(t *testing.T) {
-	bin := testbin.Install(t, "codex", testbin.Scenario{Stdout: "Queued"})
-	e := session.Entry{Agent: "codex", ThreadID: "thread", PID: os.Getpid()}
-	if err := DeliverIdle(context.Background(), e, []byte("exact\n")); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(bin + ".args.json")
-	if err != nil || !strings.Contains(string(data), "thread") || !strings.Contains(string(data), "queue") {
-		t.Fatal(string(data), err)
-	}
-	e.PID = 1 << 30
-	if err := DeliverIdle(context.Background(), e, []byte("closed")); err == nil {
-		t.Fatal("closed queue accepted")
-	}
-}
-
 func TestCodexRegistersWithLargeMetadataHeader(t *testing.T) {
 	e, r, _ := setup(t, "codex")
 	header, _ := json.Marshal(map[string]any{"type": "session_meta", "payload": map[string]any{"originator": "codex-tui", "instructions": strings.Repeat("x", 32*1024)}})

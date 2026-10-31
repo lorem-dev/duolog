@@ -138,3 +138,65 @@ func TestTrustWindowsOverrideOnly(t *testing.T) {
 		t.Fatal(state, err)
 	}
 }
+
+// A nonempty approval at the right position says nothing about what runs there.
+func TestHookTrustNeedsAGateForEveryTool(t *testing.T) {
+	root := t.TempDir()
+	key := filepath.Join(root, ".codex", "hooks.json") + ":pre_tool_use:0:0"
+	for _, tc := range []struct {
+		name, hook string
+		want       bool
+	}{
+		{"gate", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"duolog gate --agent codex"}]}]}}`, true},
+		{"any tool", `{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"duolog gate --agent codex"}]}]}}`, true},
+		{"narrow matcher", `{"hooks":{"PreToolUse":[{"matcher":"NoSuchTool","hooks":[{"type":"command","command":"duolog gate --agent codex"}]}]}}`, false},
+		{"another subcommand", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"duolog hook SessionStart --agent codex"}]}]}}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture(t, fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = \"x\"\n", key))
+			writeHook(t, root, tc.hook)
+			s, e := Hooks("codex", root)
+			if e != nil || s.Trusted != tc.want {
+				t.Fatal(s, e)
+			}
+		})
+	}
+}
+
+func TestClaudeInstalledFollowsSettingsOrder(t *testing.T) {
+	root := t.TempDir()
+	settings := func(path, body string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	on, off := `{"enabledPlugins":{"duolog@duolog":true}}`, `{"enabledPlugins":{"duolog@duolog":false}}`
+	for _, tc := range []struct {
+		name, user, project, local string
+		want                       bool
+	}{
+		{"user only", on, "{}", "{}", true},
+		{"project disables", on, off, "{}", false},
+		{"local enables", "{}", "{}", on, true},
+		{"none", "{}", "{}", "{}", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture(t, "")
+			home, err := os.UserHomeDir()
+			if err != nil {
+				t.Fatal(err)
+			}
+			settings(filepath.Join(home, ".claude", "settings.json"), tc.user)
+			settings(filepath.Join(root, ".claude", "settings.json"), tc.project)
+			settings(filepath.Join(root, ".claude", "settings.local.json"), tc.local)
+			s, err := Hooks("claude", root)
+			if err != nil || s.Installed != tc.want {
+				t.Fatal(s, err)
+			}
+		})
+	}
+}

@@ -6,6 +6,8 @@ docs/superpowers/
 /duolog
 /duolog.exe
 /dist/
+/.release/
+__pycache__/
 /.cache/
 
 # duolog's own state, when this repository uses duolog.

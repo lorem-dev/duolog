@@ -115,3 +115,13 @@ func TestStartNoteUsesOnlyCachedCapabilities(t *testing.T) {
 		t.Fatal(line)
 	}
 }
+
+func TestRosterShowsAPinnedModel(t *testing.T) {
+	cfg, reg := setup(t)
+	role := cfg.Roles["plan"]
+	role.Use.Model = "claude-opus-5-5"
+	cfg.Roles["plan"] = role
+	if line := Line(cfg, "lead", reg); !strings.Contains(line, "plan=claude-opus-5-5/") {
+		t.Fatal(line)
+	}
+}

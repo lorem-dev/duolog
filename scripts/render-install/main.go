@@ -44,7 +44,7 @@ func main() {
 	)
 	flag.Parse()
 
-	pairs := [][2]string{{"scripts/install-template/install.sh.tmpl", "dist/install.sh"}, {"scripts/install-template/install.ps1.tmpl", "dist/install.ps1"}}
+	pairs := [][2]string{{"scripts/install-template/install.sh.tmpl", ".release/install.sh"}, {"scripts/install-template/install.ps1.tmpl", ".release/install.ps1"}}
 	if *tmplFlag != "" || *outFlag != "" {
 		if *tmplFlag == "" {
 			*tmplFlag = pairs[0][0]

@@ -32,7 +32,6 @@ type Spec struct {
 	Mode                           mode.Mode
 	Prompt, TaskDir, Cwd, ThreadID string
 	Env                            []string
-	Allowed, Disallowed            []string
 	Stdin                          []byte
 	Persistent                     bool
 	Timeout                        time.Duration

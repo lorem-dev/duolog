@@ -195,10 +195,32 @@ func (r *rig) started() []string {
 	last := splits[len(splits)-1]
 	for i, w := range last {
 		if w == "--" {
-			return last[i+1:]
+			return r.expandLaunch(last[i+1:])
 		}
 	}
 	r.t.Fatalf("no program in %v", last)
+	return nil
+}
+
+// expandLaunch returns the pane's variables and then its program, as a launcher
+// would start them, from peer launch --env-file FILE -- program.
+func (r *rig) expandLaunch(argv []string) []string {
+	r.t.Helper()
+	for i, w := range argv {
+		if w != "--env-file" || i+2 >= len(argv) {
+			continue
+		}
+		data, err := os.ReadFile(argv[i+1])
+		if err != nil {
+			r.t.Fatal(err)
+		}
+		var env []string
+		if err := json.Unmarshal(data, &env); err != nil {
+			r.t.Fatal(err)
+		}
+		return append(env, argv[i+3:]...)
+	}
+	r.t.Fatalf("no env file in %v", argv)
 	return nil
 }
 
@@ -502,15 +524,6 @@ func TestPeerGetsDepthAndLeadEnv(t *testing.T) {
 		t.Fatal(argv)
 	}
 	// A worker must not learn where the lead's terminal is.
-	joined := strings.Join(argv, " ")
-	if runtime.GOOS == "windows" {
-		exe, err := os.Executable()
-		if err != nil || argv[0] != exe || argv[1] != "peer" || argv[2] != "launch" || !contains(argv, "--") {
-			t.Fatal(argv, err)
-		}
-	} else if argv[0] != "env" || !strings.Contains(joined, "-u REX_SESSION") || !strings.Contains(joined, "-u REX_BLOCK") {
-		t.Fatal(joined)
-	}
 	for _, w := range argv {
 		if strings.HasPrefix(w, "REX_SESSION=") {
 			t.Fatal("REX_SESSION was passed on")
@@ -1292,15 +1305,25 @@ func TestLimitKeepsPane(t *testing.T) {
 	}
 }
 
-func TestPeerLaunchArgvPerOS(t *testing.T) {
-	env := []string{"PATH=/bin", "DUOLOG_DEPTH=1", "DUOLOG_LEAD=x"}
-	unix := launchArgv("linux", "/usr/bin/duolog", env, []string{"codex", "-m", "y"})
-	if strings.Join(unix, " ") != "env -u REX_SESSION -u REX_BLOCK PATH=/bin DUOLOG_DEPTH=1 DUOLOG_LEAD=x codex -m y" {
-		t.Fatal(unix)
+func TestPeerKeysStayOffTheCommandLine(t *testing.T) {
+	dir := t.TempDir()
+	file, err := writeEnvFile(dir, []string{"ANTHROPIC_API_KEY=sk-secret", "DUOLOG_DEPTH=1"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	win := launchArgv("windows", `C:\duolog.exe`, env, []string{"codex", "-m", "y"})
-	if strings.Join(win, " ") != `C:\duolog.exe peer launch PATH=/bin DUOLOG_DEPTH=1 DUOLOG_LEAD=x -- codex -m y` {
-		t.Fatal(win)
+	argv := launchArgv("/usr/bin/duolog", file, []string{"codex", "-m", "y"})
+	if strings.Contains(strings.Join(argv, " "), "sk-secret") {
+		t.Fatal(argv)
+	}
+	if want := "/usr/bin/duolog peer launch --env-file " + file + " -- codex -m y"; strings.Join(argv, " ") != want {
+		t.Fatal(argv)
+	}
+	info, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatal(info.Mode())
 	}
 }
 

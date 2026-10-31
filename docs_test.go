@@ -94,7 +94,10 @@ func TestDocsStartWithParagraph(t *testing.T) {
 				continue
 			}
 			if !title {
-				// The README centres its title and badges, which needs HTML.
+				// The README centres its icon, title and badges, which needs HTML.
+				if strings.HasPrefix(line, "<") && !strings.HasPrefix(line, "<h1") {
+					continue
+				}
 				if !strings.HasPrefix(line, "# ") && !strings.HasPrefix(line, "<h1") {
 					t.Errorf("%s:%d: expected a page title", path, i+1)
 					break

@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,13 +16,11 @@ import (
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/spf13/cobra"
 )
 
-func isWorker() bool {
-	depth, _ := strconv.Atoi(os.Getenv("DUOLOG_DEPTH"))
-	return depth >= 1
-}
+func isWorker() bool { return workerenv.IsWorker() }
 
 func newGateCommand() *cobra.Command {
 	var agent, event string
@@ -46,7 +43,12 @@ func newGateCommand() *cobra.Command {
 		root, err := projectRoot()
 		var s *store.Store
 		if err == nil {
-			s, err = store.Open(root)
+			// A worker runs in a project with state. Elsewhere it denies and creates none.
+			if info, statErr := os.Stat(filepath.Join(root, ".duolog")); statErr != nil || !info.IsDir() {
+				err = fmt.Errorf("no .duolog folder in %s", root)
+			} else {
+				s, err = store.Open(root)
+			}
 		}
 		if err == nil {
 			a, d, err = evaluateHook(cmd, root, agent, event, started)

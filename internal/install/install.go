@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/config"
@@ -53,7 +52,7 @@ func Run(o Options) (Report, error) {
 		if o.Scope == "user" {
 			path = userHooksPath(base, agent)
 		}
-		if agent == "claude" && pluginEnabled(base, o.Home) {
+		if agent == "claude" && PluginEnabled(base, o.Home) {
 			// The plugin already registers these hooks and the skill; a second
 			// copy in settings.json would run every gate twice. Drop any copy an
 			// earlier install left behind.
@@ -67,7 +66,7 @@ func Run(o Options) (Report, error) {
 			report.Notes = append(report.Notes, "Claude: the "+pluginKey+" plugin is enabled, so its hooks and skill are used and none were installed here. Gate waits are capped at 120 seconds.")
 			continue
 		}
-		hooks, err := HooksJSON(agent, runtime.GOOS, timeout)
+		hooks, err := HooksJSON(agent, timeout)
 		if err != nil {
 			return Report{}, err
 		}
@@ -142,6 +141,14 @@ func Remove(o Options) error {
 	}
 	for _, agent := range agents {
 		skill := installedSkillPath(o, base, agent)
+		// A skill with other content is not the one Run wrote, so it stays.
+		ours, err := plugin.FS.ReadFile(agent + "/skills/duolog/SKILL.md")
+		if err != nil {
+			return err
+		}
+		if have, err := os.ReadFile(skill); err != nil || !bytes.Equal(have, ours) {
+			continue
+		}
 		if err := os.Remove(skill); err != nil && !os.IsNotExist(err) {
 			return err
 		}
@@ -155,34 +162,6 @@ func Remove(o Options) error {
 
 // pluginKey is the enabledPlugins key of the duolog Claude plugin.
 const pluginKey = "duolog@duolog"
-
-// pluginEnabled applies project and local plugin settings after user settings.
-// An explicit project disable overrides an enabled user plugin.
-func pluginEnabled(base, home string) bool {
-	paths := []string{}
-	if home != "" {
-		paths = append(paths, filepath.Join(trusthome.Claude(home), "settings.json"))
-	}
-	if base != "" && base != home {
-		paths = append(paths, filepath.Join(base, ".claude", "settings.json"), filepath.Join(base, ".claude", "settings.local.json"))
-	}
-	enabled := false
-	for _, path := range paths {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		var doc struct {
-			Enabled map[string]bool `json:"enabledPlugins"`
-		}
-		if json.Unmarshal(data, &doc) == nil {
-			if value, ok := doc.Enabled[pluginKey]; ok {
-				enabled = value
-			}
-		}
-	}
-	return enabled
-}
 
 func resolve(o Options) (agents []string, base string, err error) {
 	switch o.Agent {
@@ -235,34 +214,79 @@ func skillPath(base, agent string) string {
 }
 
 // apply writes e when its bytes differ from the file. An existing file is
-// copied to <file>.duolog.bak first; an older backup is kept as the original.
+// copied to <file>.duolog.bak first; an older backup is kept as the original. A
+// symlink stays a link: the file it points to is the one that changes. The file
+// and its backup keep the existing permissions, because settings can hold keys.
 func apply(e edit) (bool, error) {
-	old, err := os.ReadFile(e.path)
+	path := e.path
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		target, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return false, fmt.Errorf("%s: a link that points nowhere, nothing changed: %w", path, err)
+		}
+		path = target
+	}
+	mode := os.FileMode(0o644)
+	old, err := os.ReadFile(path)
 	if err == nil && bytes.Equal(old, e.data) {
 		return false, nil
 	}
 	if err != nil && !os.IsNotExist(err) {
 		return false, err
 	}
-	if err := os.MkdirAll(filepath.Dir(e.path), 0o755); err != nil {
+	if err == nil {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			return false, statErr
+		}
+		mode = info.Mode().Perm()
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return false, err
 	}
 	if err == nil {
-		if _, statErr := os.Stat(e.path + backupSuffix); os.IsNotExist(statErr) {
-			if err := os.WriteFile(e.path+backupSuffix, old, 0o644); err != nil {
-				return false, err
-			}
+		if err := writeBackup(path+backupSuffix, old, mode); err != nil {
+			return false, err
 		}
 	}
-	tmp := e.path + ".duolog.tmp"
-	if err := os.WriteFile(tmp, e.data, 0o644); err != nil {
+	// A new file in the folder: a fixed name could follow a link planted there.
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
 		return false, err
 	}
-	if err := store.Rename(tmp, e.path); err != nil {
-		_ = os.Remove(tmp)
+	defer os.Remove(tmp.Name())
+	_, writeErr := tmp.Write(e.data)
+	closeErr := tmp.Close()
+	if writeErr != nil {
+		return false, writeErr
+	}
+	if closeErr != nil {
+		return false, closeErr
+	}
+	if err := os.Chmod(tmp.Name(), mode); err != nil {
+		return false, err
+	}
+	if err := store.Rename(tmp.Name(), path); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// writeBackup keeps the first backup, and refuses to follow a link in its place.
+func writeBackup(path string, data []byte, mode os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
+	if os.IsExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, writeErr := f.Write(data)
+	closeErr := f.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	return closeErr
 }
 
 type handler struct {
@@ -352,7 +376,7 @@ func powershellGuard(args string, gate bool) string {
 }
 
 // HooksJSON renders the hooks document for one agent, as the plugin ships it.
-func HooksJSON(agent, _ string, timeout int) ([]byte, error) {
+func HooksJSON(agent string, timeout int) ([]byte, error) {
 	hooks := map[string][]group{}
 	for _, e := range events(agent, timeout) {
 		hooks[e.name] = e.groups
@@ -372,17 +396,38 @@ func encode(v any) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func isOurs(raw json.RawMessage) bool {
-	var g group
-	if json.Unmarshal(raw, &g) != nil {
-		return false
+// withoutOurHandlers splits one group of a settings file. It returns the group
+// with duolog's handlers removed, and whether it held any of them. rest is nil
+// when nothing else is left. A foreign handler keeps its matcher and every field.
+func withoutOurHandlers(raw json.RawMessage) (rest json.RawMessage, ours bool, err error) {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return raw, false, nil
 	}
-	for _, h := range g.Hooks {
-		if IsOurCommand(h.Command) || IsOurCommand(h.CommandWindows) {
-			return true
+	var handlers []json.RawMessage
+	if json.Unmarshal(fields["hooks"], &handlers) != nil {
+		return raw, false, nil
+	}
+	var kept []json.RawMessage
+	for _, item := range handlers {
+		var h handler
+		if json.Unmarshal(item, &h) == nil && (IsOurCommand(h.Command) || IsOurCommand(h.CommandWindows)) {
+			ours = true
+			continue
 		}
+		kept = append(kept, item)
 	}
-	return false
+	if !ours {
+		return raw, false, nil
+	}
+	if len(kept) == 0 {
+		return nil, true, nil
+	}
+	if fields["hooks"], err = encode(kept); err != nil {
+		return nil, false, err
+	}
+	rest, err = encode(fields)
+	return rest, true, err
 }
 
 // mergeHooks returns the file at path with our hook groups replaced by ours
@@ -424,10 +469,14 @@ func mergeHooks(path string, ours []byte) ([]byte, error) {
 		var merged []json.RawMessage
 		pending := want[name]
 		for _, raw := range hooks[name] {
-			switch {
-			case !isOurs(raw):
-				merged = append(merged, raw)
-			case len(pending) > 0:
+			rest, ours, err := withoutOurHandlers(raw)
+			if err != nil {
+				return nil, err
+			}
+			if rest != nil {
+				merged = append(merged, rest)
+			}
+			if ours && rest == nil && len(pending) > 0 {
 				merged = append(merged, pending[0])
 				pending = pending[1:]
 			}

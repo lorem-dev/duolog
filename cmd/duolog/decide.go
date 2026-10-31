@@ -40,6 +40,15 @@ func newDecideCommand(kind string) *cobra.Command {
 		if request.K != gate.Ask || request.From == "" {
 			return fmt.Errorf("request %d is not a permission request", n)
 		}
+		// A late answer changes nothing, so saying it worked would mislead the lead.
+		if gate.AskExpired(request.T) {
+			return fmt.Errorf("request %d has expired: the worker was already denied", n)
+		}
+		if answered, err := alreadyAnswered(b.Directory(), n); err != nil {
+			return err
+		} else if answered != "" {
+			return fmt.Errorf("request %d was already answered: %s", n, answered)
+		}
 		lead, ok, err := reg.LeadByAddress(request.To)
 		if err != nil {
 			return err
@@ -60,6 +69,30 @@ func newDecideCommand(kind string) *cobra.Command {
 	}}
 	cmd.Flags().StringVar(&leadFlag, "lead", "", "Optional check: lead session ID or bus address that must own the request")
 	return cmd
+}
+
+// alreadyAnswered returns the first decision recorded for a request.
+func alreadyAnswered(dir string, n int64) (string, error) {
+	f, err := os.Open(filepath.Join(dir, "bus.ndjson"))
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	reader := bufio.NewReader(f)
+	ref := strconv.FormatInt(n, 10)
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err == io.EOF {
+			return "", nil
+		}
+		if err != nil {
+			return "", err
+		}
+		var m bus.Message
+		if json.Unmarshal(line, &m) == nil && m.Ref == ref && (m.K == gate.Allow || m.K == gate.Deny) {
+			return m.K, nil
+		}
+	}
 }
 
 // Read the request without advancing the lead's delivery cursor. Ignore a

@@ -106,7 +106,7 @@ func TestBareToolDenyDoesNotBreakOtherTools(t *testing.T) {
 
 func TestAskSummaryAndForegroundWait(t *testing.T) {
 	text := "echo " + strings.Repeat("a", 500) + "; rm -r -f /important"
-	summary := AskSummary(text)
+	summary := askSummary(strings.Join(strings.Fields(text), " "), 200)
 	if len(summary) > 200 || !utf8.ValidString(summary) || !strings.Contains(summary, "[cut; duolog decisions]") || !strings.HasSuffix(summary, "/important") {
 		t.Fatal(summary)
 	}
@@ -129,7 +129,7 @@ func TestAskSummaryAndForegroundWait(t *testing.T) {
 		t.Fatal("hook wait exceeds budget")
 	}
 	// The summary stays valid when non-ASCII actions are supplied.
-	summary = AskSummary(strings.Repeat("\u00e9", 200) + " tail")
+	summary = askSummary(strings.Repeat("\u00e9", 200)+" tail", 200)
 	if !json.Valid([]byte(`"`+summary+`"`)) || !utf8.ValidString(summary) {
 		t.Fatal(summary)
 	}

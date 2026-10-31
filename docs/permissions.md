@@ -42,17 +42,22 @@ The rules are in the `policy` section of the config. A rule has an action
 |---|---|---|
 | read | everything | allow |
 | read | `.env`, `*.pem`, `*.key`, `secrets/` | deny |
-| write | `.duolog/**`, `.git/**` | deny |
+| write | `.duolog` and `.git` folders, at any depth | deny |
+| write | `.claude/settings*.json`, `.claude/hooks/**`, `.codex/config.toml`, `.codex/hooks.json` | deny |
 | write | everything, for the write roles | allow |
-| exec | `go test`, `make build` and the like, for write roles | allow |
+| exec | `go test`, `make build`, `npm run test`, `uv run pytest` and the like, for write roles | allow |
 | exec | `git status`, `git diff`, `git log`, `git show` | allow |
 | exec | `git push`, `git reset --hard`, `git clean`, `git rebase` | deny |
 | exec | `rm -rf *` | deny |
 | net | everything | ask |
 
 A read-only role can execute only commands named by a read-only allow rule,
-such as `git status`, `git diff`, `cat` or `rg`. Build and run rules apply to
+such as `git status`, `git diff`, `cat` or `rg`. Build and test rules apply to
 write roles. This limit holds in `full` too.
+
+The default rules do not allow `go run`, `uv run` or `npm run deploy`, because
+they can start any program. These commands ask. A test or build still runs the
+project's own code, so a write role is only as safe as the code it can edit.
 
 A wildcard rule for read commands grants reads only, for every role. `find`
 and `rg` pass with known read options, so `find . -delete` or an unknown `rg`
@@ -61,14 +66,22 @@ option does not. Paths named by a read command follow the read rules, so
 recursive `grep` and `rg` with `--hidden`, `-u` or `--no-ignore` ask, because
 they can reach denied files without naming them. Plain `rg` and the `Grep`
 tool can still search a denied file that is neither hidden nor git-ignored:
-keep such files out of the tree or ignore them.
+keep such files out of the tree or ignore them. `git diff` and `git log` with
+no path can also show a denied file that Git tracks, so do not commit one.
+
+A deny also holds inside any other command. `uv run git push` is denied like
+`git push`, and `sed -n p .env` is denied like `cat .env`. A directory change
+before another command, a shell glob and `git -c` ask in every mode, because the
+gate reads the command text and cannot see what they do. A path can match a deny
+by accident: `go test ./secrets/...` is denied by the `secrets/` rule.
 
 Secrets include nested `.env` and `.env.*` files. Paths outside the working
 tree ask in every mode, unless an explicit outside-path rule applies. A broad
 `**` allow does not cover them. On macOS and Windows, path rules ignore case.
 
 A deny wins over an allow. When no rule matches, the decision is
-`on_unmatched`, which is `ask` by default.
+`on_unmatched`, which is `ask` by default. The default denies always apply: a
+project that sets its own `rules` replaces the allow rules, not the denies.
 
 ## How a worker asks the lead
 

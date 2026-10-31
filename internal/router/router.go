@@ -76,6 +76,10 @@ func Resolve(cfg *config.Config, role string, unavailable map[string]bool, opts 
 		if ceiling >= 0 && requested > ceiling {
 			route.Effort, route.EffortCapped = lead.Effort, true
 		}
+		// With no effort the agent picks its own default, which can be above the lead's.
+		if ceiling >= 0 && route.Effort == "" {
+			route.Effort = lead.Effort
+		}
 	}
 	return route, nil
 }

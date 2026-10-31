@@ -1,0 +1,8 @@
+[
+  {"prompt": "Is the version consistent across the repo?", "expected": "Runs version.py check. Reports the version and that every place agrees. Changes no file.", "should_trigger": true},
+  {"prompt": "What version does this repository state?", "expected": "Reports the version from the JSON of version.py check.", "should_trigger": true},
+  {"prompt": "Does the tag v1.0.0 match the repo?", "expected": "Runs version.py check --tag v1.0.0 and reports the result.", "should_trigger": true},
+  {"prompt": "Does v9.9.9 match what we have?", "expected": "Exit 1. Names the places that state another version. Changes no file.", "should_trigger": true},
+  {"prompt": "Bump the version to 2.0.0", "expected": "Stays out; bump-version handles this.", "should_trigger": false},
+  {"prompt": "What version of Go does this project need?", "expected": "Stays out; reads go.mod.", "should_trigger": false}
+]

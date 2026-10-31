@@ -45,10 +45,19 @@ func WorkRoot(cwd, fallback string) string {
 
 // StateRoot returns the main checkout for shared .duolog state.
 func StateRoot(cwd string) string {
-	if common := gitRoot(cwd, "--git-common-dir"); common != "" {
-		return preserveRoot(cwd, filepath.Dir(common))
+	common := gitRoot(cwd, "--git-common-dir")
+	if common == "" {
+		return cwd
 	}
-	return cwd
+	// A submodule's common folder is <parent>/.git/modules/<name>, which is no
+	// checkout. Only a folder named .git has its checkout beside it.
+	if filepath.Base(common) != ".git" {
+		if top := gitRoot(cwd, "--show-toplevel"); top != "" {
+			return preserveRoot(cwd, top)
+		}
+		return cwd
+	}
+	return preserveRoot(cwd, filepath.Dir(common))
 }
 
 func CurrentWorkRoot(fallback string) string {

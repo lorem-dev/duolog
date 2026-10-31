@@ -4,11 +4,12 @@ version: 2
 
 project_name: duolog
 
-# Hooks run after --clean removes dist, before assets and checksums are built.
+# Hooks run before GoReleaser checks that dist is empty, so the installers are
+# rendered to .release, which git ignores.
 before:
   hooks:
     - make install-script
-    - shellcheck -S error dist/install.sh
+    - shellcheck -S error .release/install.sh
 
 builds:
   - id: duolog
@@ -30,7 +31,7 @@ archives:
     files:
       - LICENSE
       - README*
-      - CHANGELOG*
+      - CHANGES.md
       - THIRD-PARTY.md
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
@@ -39,12 +40,18 @@ checksum:
   # Include the schema and both installers in the checksums.
   extra_files:
     - glob: duolog-config.schema.json
-    - glob: dist/install.sh
-    - glob: dist/install.ps1
+    - glob: .release/install.sh
+    - glob: .release/install.ps1
+
+# The release body comes from CHANGES.md: see --release-notes in the workflow.
+changelog:
+  disable: true
 
 release:
+  # A tag such as v1.2.3-rc.1 must not become the release that installers call latest.
+  prerelease: auto
   # Attach the schema and both installers to the release page.
   extra_files:
     - glob: duolog-config.schema.json
-    - glob: dist/install.sh
-    - glob: dist/install.ps1
+    - glob: .release/install.sh
+    - glob: .release/install.ps1

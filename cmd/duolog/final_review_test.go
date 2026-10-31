@@ -27,7 +27,7 @@ func generatedCommand(t *testing.T, agent, event string) testbin.HookCommand {
 
 func generatedCommandForOS(t *testing.T, agent, goos, event string) testbin.HookCommand {
 	t.Helper()
-	data, err := install.HooksJSON(agent, goos, 150)
+	data, err := install.HooksJSON(agent, 150)
 	if err != nil {
 		t.Fatal(err)
 	}

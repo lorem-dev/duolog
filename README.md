@@ -1,7 +1,8 @@
-<h1 align="center">
-  <img src="/assets/icon.png" width="24" alt="duolog icon">
-  duolog
-</h1>
+<p align="center">
+  <img src="/assets/icon.svg" width="64" alt="duolog icon">
+</p>
+
+<h1 align="center">duolog</h1>
 
 <p align="center">
   <a href="https://github.com/lorem-dev/duolog/releases/latest"><img src="https://img.shields.io/github/v/release/lorem-dev/duolog?label=download" alt="Download"></a>
@@ -46,7 +47,7 @@ PATH and open a new terminal if needed. Neither installer edits PATH.
 Pin a version with `--version`, or choose a directory with `--dir`:
 
 ```sh
-curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v0.1.0
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.0.0
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --dir "$HOME/bin"
 ```
 
@@ -54,7 +55,7 @@ The POSIX installer also accepts `DUOLOG_VERSION` and `DUOLOG_INSTALL_DIR`.
 On Windows, set those variables before running the installer:
 
 ```powershell
-$env:DUOLOG_VERSION = 'v0.1.0'
+$env:DUOLOG_VERSION = 'v1.0.0'
 $env:DUOLOG_INSTALL_DIR = "$env:LOCALAPPDATA\Programs\duolog"
 irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
 ```

@@ -38,7 +38,12 @@ func Line(cfg *config.Config, lead string, reg *session.Registry) string {
 	sort.Strings(names)
 	for _, name := range names {
 		target := cfg.Roles[name].Use
-		parts = append(parts, name+"="+models.Normalize(target.Agent, target.Model)+"/"+target.Effort)
+		// A full model ID is a pin, and a pin must not read as a moving alias.
+		model := models.Normalize(target.Agent, target.Model)
+		if strings.HasPrefix(target.Model, "claude-") || strings.HasPrefix(target.Model, "gpt-") {
+			model = target.Model
+		}
+		parts = append(parts, name+"="+model+"/"+target.Effort)
 	}
 	return strings.Join(parts, " ")
 }

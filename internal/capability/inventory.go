@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/trust"
 	"github.com/lorem-dev/duolog/internal/trusthome"
@@ -258,6 +259,10 @@ func cachedPlugins(ctx context.Context, root string, config []byte) ([]Item, boo
 		}
 	}
 	items = normalize(items)
+	// An uninitialized project keeps no cache: hooks read .duolog as "set up here".
+	if info, err := os.Stat(filepath.Join(root, ".duolog")); err != nil || !info.IsDir() {
+		return items, true
+	}
 	if data, err := json.Marshal(cacheFile{Key: key, Items: items}); err == nil {
 		if os.MkdirAll(filepath.Dir(path), 0755) == nil {
 			_ = os.WriteFile(path, data, 0600)
@@ -333,24 +338,41 @@ func find(inv Inventory, kind, name string) (Item, bool) {
 	return Item{}, false
 }
 
-// HasDuolog reports whether the agent's hook or plugin files mention duolog.
-// Without it a worker has the sandbox only and no permission rules.
+// HasDuolog reports whether duolog's hooks or its enabled plugin are in the
+// agent's settings. Without them a worker has the sandbox only and no permission
+// rules. A path that only contains the word, such as a project folder, does not count.
 func HasDuolog(agent, root string) bool {
 	h, err := home()
 	if err != nil {
 		return false
 	}
-	var files []string
 	switch agent {
 	case "claude":
-		files = []string{filepath.Join(trusthome.Claude(h), "settings.json"), filepath.Join(root, ".claude", "settings.json"), filepath.Join(root, ".claude", "settings.local.json"), filepath.Join(trusthome.Claude(h), "plugins", "installed_plugins.json")}
-	case "codex":
-		files = []string{filepath.Join(trust.CodexHome(h), "hooks.json"), filepath.Join(root, ".codex", "hooks.json"), filepath.Join(trust.CodexHome(h), "config.toml")}
-	}
-	for _, f := range files {
-		if data, err := os.ReadFile(f); err == nil && strings.Contains(string(data), "duolog") {
+		if install.PluginEnabled(root, h) {
 			return true
 		}
+		for _, path := range install.ClaudeSettingsFiles(root, h) {
+			if install.HasOurHook(path) {
+				return true
+			}
+		}
+	case "codex":
+		for _, path := range []string{filepath.Join(trust.CodexHome(h), "hooks.json"), filepath.Join(root, ".codex", "hooks.json")} {
+			if install.HasOurHook(path) {
+				return true
+			}
+		}
+		var config struct {
+			Plugins map[string]struct {
+				Enabled *bool `toml:"enabled"`
+			} `toml:"plugins"`
+		}
+		data, err := os.ReadFile(filepath.Join(trust.CodexHome(h), "config.toml"))
+		if err != nil || toml.Unmarshal(data, &config) != nil {
+			return false
+		}
+		plugin, ok := config.Plugins["duolog@duolog"]
+		return ok && (plugin.Enabled == nil || *plugin.Enabled)
 	}
 	return false
 }

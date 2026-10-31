@@ -340,12 +340,12 @@ func TestPluginHooksFileMatchesGenerated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := HooksJSON("claude", "linux", 150)
+	want, err := HooksJSON("claude", 150)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(data) != string(want) {
-		t.Fatalf("plugin/claude/hooks/hooks.json is stale; regenerate it from install.HooksJSON(\"claude\", \"linux\", 150)\n%s", want)
+		t.Fatalf("plugin/claude/hooks/hooks.json is stale; regenerate it from install.HooksJSON(\"claude\", 150)\n%s", want)
 	}
 }
 
@@ -370,37 +370,26 @@ func TestManifests(t *testing.T) {
 }
 
 func TestGuards(t *testing.T) {
-	for _, goos := range []string{"linux", "darwin", "windows"} {
-		for _, agent := range []string{"claude", "codex"} {
-			data, err := HooksJSON(agent, goos, 150)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var doc struct{ Hooks map[string][]group }
-			if err := json.Unmarshal(data, &doc); err != nil {
-				t.Fatal(err)
-			}
-			for _, groups := range doc.Hooks {
-				for _, g := range groups {
-					for _, h := range g.Hooks {
-						if agent == "codex" {
-							if !strings.Contains(h.Command, "then exec duolog") || !strings.HasPrefix(h.CommandWindows, "powershell -NoProfile -NonInteractive -Command ") {
-								t.Fatal(h)
-							}
-						} else if h.Command != "duolog" || len(h.Args) == 0 || h.CommandWindows != "" || strings.Contains(string(data), `"shell"`) {
+	for _, agent := range []string{"claude", "codex"} {
+		data, err := HooksJSON(agent, 150)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct{ Hooks map[string][]group }
+		if err := json.Unmarshal(data, &doc); err != nil {
+			t.Fatal(err)
+		}
+		for _, groups := range doc.Hooks {
+			for _, g := range groups {
+				for _, h := range g.Hooks {
+					if agent == "codex" {
+						if !strings.Contains(h.Command, "then exec duolog") || !strings.HasPrefix(h.CommandWindows, "powershell -NoProfile -NonInteractive -Command ") {
 							t.Fatal(h)
 						}
+					} else if h.Command != "duolog" || len(h.Args) == 0 || h.CommandWindows != "" || strings.Contains(string(data), `"shell"`) {
+						t.Fatal(h)
 					}
 				}
-			}
-		}
-	}
-	for _, agent := range []string{"claude", "codex"} {
-		a, _ := HooksJSON(agent, "linux", 150)
-		for _, goos := range []string{"darwin", "windows"} {
-			b, _ := HooksJSON(agent, goos, 150)
-			if string(a) != string(b) {
-				t.Fatal(agent + " hooks must be shared across OSes")
 			}
 		}
 	}
@@ -409,7 +398,7 @@ func TestGuards(t *testing.T) {
 // hookCommands returns the command of every hook for one event.
 func hookCommands(t *testing.T, agent, event string) []testbin.HookCommand {
 	t.Helper()
-	data, err := HooksJSON(agent, runtime.GOOS, 150)
+	data, err := HooksJSON(agent, 150)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,5 +510,95 @@ func TestClaudePluginEnabledInTargetRemovesOldHooks(t *testing.T) {
 	run(t, Options{Scope: "project", Agent: "claude", Home: home, Root: root})
 	if s := read(t, path); strings.Contains(s, `"command": "duolog"`) || !strings.Contains(s, "enabledPlugins") {
 		t.Errorf("old hooks should go and foreign keys stay:\n%s", s)
+	}
+}
+
+func TestInstallKeepsForeignHandlersInAMixedGroup(t *testing.T) {
+	for _, step := range []string{"install", "uninstall"} {
+		t.Run(step, func(t *testing.T) {
+			home, root := setup(t)
+			path := filepath.Join(root, ".claude/settings.json")
+			write(t, path, `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"duolog gate --agent claude --event PreToolUse"},{"type":"command","command":"my-security-hook"}]}]}}`)
+			o := Options{Scope: "project", Agent: "claude", Home: home, Root: root}
+			if step == "install" {
+				run(t, o)
+			} else if err := Remove(o); err != nil {
+				t.Fatal(err)
+			}
+			got := read(t, path)
+			if !strings.Contains(got, "my-security-hook") || !strings.Contains(got, `"matcher": "Bash"`) {
+				t.Fatalf("foreign handler or matcher lost:\n%s", got)
+			}
+			if step == "uninstall" && strings.Contains(got, "duolog gate") {
+				t.Fatalf("our handler stayed:\n%s", got)
+			}
+			if step == "install" {
+				again := read(t, path)
+				run(t, o)
+				if read(t, path) != again {
+					t.Fatal("a second install changed the file")
+				}
+			}
+		})
+	}
+}
+
+func TestInstallDoesNotWriteThroughAPlantedTempFile(t *testing.T) {
+	home, root := setup(t)
+	victim := filepath.Join(root, "user-notes.txt")
+	write(t, victim, "my notes")
+	if err := os.MkdirAll(filepath.Join(root, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(root, ".claude/settings.json.duolog.tmp")); err != nil {
+		t.Skip(err)
+	}
+	run(t, Options{Scope: "project", Agent: "claude", Home: home, Root: root})
+	if read(t, victim) != "my notes" {
+		t.Fatal("the planted link's target was overwritten")
+	}
+}
+
+func TestInstallKeepsFileModeAndLinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permissions and links")
+	}
+	home, root := setup(t)
+	real := filepath.Join(root, "dotfiles/settings.json")
+	write(t, real, `{"env":{"API_KEY":"x"}}`)
+	if err := os.Chmod(real, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, ".claude/settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, path); err != nil {
+		t.Fatal(err)
+	}
+	run(t, Options{Scope: "project", Agent: "claude", Home: home, Root: root})
+	if info, err := os.Lstat(path); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the link became a file: %v", err)
+	}
+	if !strings.Contains(read(t, real), "duolog") {
+		t.Fatal("the linked file was not updated")
+	}
+	for _, name := range []string{real, real + backupSuffix} {
+		info, err := os.Stat(name)
+		if err != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("%s: %v %v", name, info.Mode(), err)
+		}
+	}
+}
+
+func TestUninstallKeepsASkillItDidNotWrite(t *testing.T) {
+	home, root := setup(t)
+	path := filepath.Join(root, ".claude/skills/duolog/SKILL.md")
+	write(t, path, "my own notes")
+	if err := Remove(Options{Scope: "project", Agent: "claude", Home: home, Root: root}); err != nil {
+		t.Fatal(err)
+	}
+	if read(t, path) != "my own notes" {
+		t.Fatal("uninstall removed a skill it did not write")
 	}
 }

@@ -3,6 +3,8 @@ package gate
 import (
 	"slices"
 	"strings"
+
+	"github.com/lorem-dev/duolog/internal/pathutil"
 )
 
 // The options listed here only change what is printed. Anything else, in a
@@ -26,8 +28,9 @@ var (
 		"--only-matching", "--passthru", "--path-separator", "--pretty", "--quiet", "--regex-size-limit", "--regexp", "--file", "--replace", "--smart-case", "--sort", "--sortr", "--stats",
 		"--text", "--threads", "--trim", "--type", "--type-list", "--type-not", "--unrestricted", "--vimgrep", "--with-filename", "--word-regexp", "--version",
 	}
-	rgValueShorts = "ABCEMTdefgjmrt"
-	rgPlainShorts = ".0FHILNPSUVabchilnopqsuvwx"
+	rgValueShorts   = "ABCEMTdefgjmrt"
+	rgPlainShorts   = ".0FHILNPSUVabchilnopqsuvwx"
+	grepValueShorts = "ABCDXdefm"
 )
 
 func findOptionsKnown(words []string) bool {
@@ -87,8 +90,10 @@ func readCommandTargets(command string) (targets []string, reason string) {
 	}
 	name, args := strings.ToLower(words[0]), words[1:]
 	switch name {
-	case "git", "pwd", "get-location":
+	case "pwd", "get-location":
 		return nil, ""
+	case "git":
+		return gitTargets(args)
 	case "find":
 		for _, word := range args {
 			if strings.HasPrefix(word, "-") && !isFindSymlinkOption(word) {
@@ -138,6 +143,33 @@ func readCommandTargets(command string) (targets []string, reason string) {
 	return mergeTargets(targets, values)
 }
 
+// gitTargets lists what a Git read names. A word may be a revision instead of a
+// path, which read rules allow, and rev:path reads that path from the history.
+// git diff and git log with no path still show tracked denied files: like plain
+// rg, that is a search the gate cannot see into.
+func gitTargets(args []string) ([]string, string) {
+	if len(args) == 0 {
+		return nil, ""
+	}
+	var targets []string
+	literal := false
+	for _, word := range args[1:] {
+		switch {
+		case literal:
+			targets = append(targets, word)
+		case word == "--":
+			literal = true
+		case strings.HasPrefix(word, "-"):
+		default:
+			if _, path, found := strings.Cut(word, ":"); found && !pathutil.IsAbs(word) {
+				word = path
+			}
+			targets = append(targets, word)
+		}
+	}
+	return checkTargets(targets)
+}
+
 func mergeTargets(targets, values []string) ([]string, string) {
 	targets, reason := checkTargets(targets)
 	if reason != "" {
@@ -178,8 +210,9 @@ func optionValue(command, word string) string {
 	}
 	switch command {
 	case "grep", "rg":
-		if strings.HasPrefix(word, "-f") {
-			return word[2:]
+		letter, value := valueShort(command, word)
+		if letter == 'f' {
+			return value
 		}
 		return ""
 	case "get-content", "get-childitem", "get-item", "test-path", "select-string":
@@ -188,6 +221,26 @@ func optionValue(command, word string) string {
 	}
 	_, value, _ := strings.Cut(word, "=")
 	return value
+}
+
+// valueShort finds the option in a short cluster that takes a value, and the
+// value written in the same word: -nfx is -n with -f x. Validation and path
+// reading both use it, so that a cluster cannot hide a file from one of them.
+func valueShort(command, word string) (rune, string) {
+	if !strings.HasPrefix(word, "-") || strings.HasPrefix(word, "--") {
+		return 0, ""
+	}
+	letters := rgValueShorts
+	if command == "grep" {
+		letters = grepValueShorts
+	}
+	cluster := word[1:]
+	for i, letter := range cluster {
+		if strings.ContainsRune(letters, letter) {
+			return letter, cluster[i+1:]
+		}
+	}
+	return 0, ""
 }
 
 func explicitPattern(args []string) bool {
@@ -199,7 +252,10 @@ func explicitPattern(args []string) bool {
 		if lower == "-pattern" || strings.HasPrefix(lower, "-pattern:") || strings.HasPrefix(lower, "--regexp") || strings.HasPrefix(lower, "--file") {
 			return true
 		}
-		if !strings.HasPrefix(word, "--") && (strings.HasPrefix(word, "-e") || strings.HasPrefix(word, "-f")) {
+		if letter, _ := valueShort("grep", word); strings.HasPrefix(word, "-") && (letter == 'e' || letter == 'f') {
+			return true
+		}
+		if letter, _ := valueShort("rg", word); strings.HasPrefix(word, "-") && (letter == 'e' || letter == 'f') {
 			return true
 		}
 	}
@@ -219,6 +275,9 @@ func recursiveSearch(command string, args []string) bool {
 		switch command {
 		case "grep":
 			if name == "--recursive" || name == "--dereference-recursive" || !long && strings.ContainsAny(word, "rR") {
+				return true
+			}
+			if name == "--directories" || !long && strings.Contains(word, "d") {
 				return true
 			}
 		case "rg":

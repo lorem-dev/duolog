@@ -1,4 +1,4 @@
-.PHONY: build test vet docs-lint schema schema-write third-party third-party-check
+.PHONY: build test vet docs-lint schema schema-write third-party third-party-check version-check
 
 build:
 	go build ./cmd/duolog
@@ -8,6 +8,9 @@ test:
 
 vet:
 	go vet ./...
+
+version-check:
+	uv run scripts/version/version.py check
 
 docs-lint:
 	@find README.md docs -path docs/superpowers -prune -o -type f -name '*.md' -print0 | xargs -0 uvx --from pymarkdownlnt pymarkdown -c .pymarkdown.yaml scan

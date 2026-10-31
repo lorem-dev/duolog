@@ -75,10 +75,3 @@ func TestRejectsTaskMissingSection(t *testing.T) {
 		}
 	}
 }
-func TestSchemaRequiresAllFields(t *testing.T) {
-	for _, s := range []string{`"done"`, `"summary"`, `"files"`, `"needs"`, `"required"`, `"additionalProperties":false`} {
-		if !strings.Contains(Schema, s) {
-			t.Fatal(Schema)
-		}
-	}
-}

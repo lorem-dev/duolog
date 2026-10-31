@@ -59,7 +59,6 @@ func TestDenyBeatsAllow(t *testing.T) {
 }
 func TestLeadDenyCannotBeRelaxed(t *testing.T) {
 	p := policy(t)
-	p.InheritLead = false
 	check(t, p, LeadRules{Deny: []config.Rule{{Action: "exec", Match: "go *"}}}, mode.Full, Action{Kind: "exec", Target: "go test ./...", Role: "implement"}, Deny)
 }
 func TestFullModeConfirmsUnmatched(t *testing.T) {
@@ -107,9 +106,10 @@ func TestCompoundShellCommand(t *testing.T) {
 	for _, separator := range []string{" && ", " || ", "; ", " | ", "\n"} {
 		check(t, p, LeadRules{}, mode.Full, Action{Kind: "exec", Target: "go test ./..." + separator + "git push", Role: "implement"}, Deny)
 	}
-	for _, target := range []string{"go test $(echo ./...)", "go test `echo ./...`", "go test > .duolog/x", "go test &"} {
+	for _, target := range []string{"go test $(echo ./...)", "go test `echo ./...`", "go test > build/x", "go test &"} {
 		check(t, p, LeadRules{}, mode.Full, Action{Kind: "exec", Target: target, Role: "implement"}, Ask)
 	}
+	check(t, p, LeadRules{}, mode.Full, Action{Kind: "exec", Target: "go test > .duolog/x", Role: "implement"}, Deny)
 	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: "go test ./... && git status", Role: "implement"}, Allow)
 	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: `go test -run 'a|b' ./...`, Role: "implement"}, Ask)
 }
@@ -149,7 +149,8 @@ func TestShellDenyBypasses(t *testing.T) {
 			for _, wrapper := range []string{"command", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "cmd"} {
 				for _, prefix := range []string{"", "/usr/bin/"} {
 					command := prefix + wrapper + ` -c "git push"`
-					check(t, shellPolicy, lead, m, Action{Kind: "exec", Target: command, Role: "implement"}, Ask)
+					// The quoted form is one word to the shell, but the gate still sees the deny.
+					check(t, shellPolicy, lead, m, Action{Kind: "exec", Target: command, Role: "implement"}, Deny)
 					check(t, shellPolicy, lead, m, Action{Kind: "exec", Target: prefix + wrapper + " git push", Role: "implement"}, Ask)
 				}
 			}
@@ -190,7 +191,7 @@ func TestPlainDefaultShellAllows(t *testing.T) {
 	p := policy(t)
 	for _, m := range []mode.Mode{mode.Ask, mode.Edits, mode.Full} {
 		for _, command := range []string{
-			"go test ./...", "cargo test", "npm run test", "pnpm lint", "uv run test",
+			"go test ./...", "cargo test", "npm run test", "pnpm lint", "uv run pytest",
 			"task build", "make fmt", "git status", "git diff", "git log", "git show",
 			"go test ./... && git status",
 		} {

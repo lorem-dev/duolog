@@ -191,6 +191,9 @@ func TestScanMissingAgentIsEmpty(t *testing.T) {
 
 func TestCacheInvalidatedByConfigChange(t *testing.T) {
 	home, root := env(t)
+	if err := os.MkdirAll(filepath.Join(root, ".duolog"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	codex := testbin.Install(t, "codex", testbin.Scenario{Responses: map[string]testbin.Scenario{"plugin list --json": {Stdout: fixture(t, "codex-plugin-list.json")}}})
 	onlyPath(t, codex)
 	config := filepath.Join(home, ".codex", "config.toml")
@@ -240,9 +243,23 @@ func TestHasDuolog(t *testing.T) {
 		t.Fatal("empty home has duolog")
 	}
 	put(t, filepath.Join(root, ".codex", "hooks.json"), `{"hooks":{"PreToolUse":[{"hooks":[{"command":"duolog gate"}]}]}}`)
-	put(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"x":"duolog hook"}}`)
+	put(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PostToolUse":[{"hooks":[{"command":"duolog hook PostToolUse --agent claude"}]}]}}`)
 	if !HasDuolog("codex", root) || !HasDuolog("claude", root) {
 		t.Fatal("hooks not found")
+	}
+}
+
+// A project folder named duolog-fork in a trusted path is not an install.
+func TestHasDuologIgnoresTheWordInAPath(t *testing.T) {
+	home, root := env(t)
+	put(t, filepath.Join(home, ".codex", "config.toml"), "[projects.\"/work/duolog-fork\"]\ntrust_level = \"trusted\"\n")
+	put(t, filepath.Join(home, ".claude", "settings.json"), `{"env":{"X":"duolog"}}`)
+	if HasDuolog("codex", root) || HasDuolog("claude", root) {
+		t.Fatal("a mention of the word counted as an install")
+	}
+	put(t, filepath.Join(home, ".codex", "config.toml"), "[plugins.\"duolog@duolog\"]\nenabled = true\n")
+	if !HasDuolog("codex", root) {
+		t.Fatal("the enabled Codex plugin was not found")
 	}
 }
 

@@ -374,3 +374,29 @@ func TestCRLFBusAndCursor(t *testing.T) {
 		t.Fatal(lines, err)
 	}
 }
+
+func TestInboxFindsMessagesAfterTheFileIsReplaced(t *testing.T) {
+	dir := t.TempDir()
+	b, err := Open(dir, config.Wire{MaxLineBytes: 512, MaxSummaryBytes: 200})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 5 {
+		if _, err := b.Send(Message{From: "a", To: "reader", K: "note", S: "old"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := b.Inbox("reader"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "bus.ndjson")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Send(Message{From: "a", To: "reader", K: "note", S: "new"}); err != nil {
+		t.Fatal(err)
+	}
+	lines, err := b.Inbox("reader")
+	if err != nil || len(lines) != 1 {
+		t.Fatal(len(lines), err)
+	}
+}

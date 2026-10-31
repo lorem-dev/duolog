@@ -251,7 +251,7 @@ func TestDoctorFlagsMissingDuolog(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(opts.Root, ".codex"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(opts.Root, ".codex", "hooks.json"), []byte(`{"command":"duolog gate"}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(opts.Root, ".codex", "hooks.json"), []byte(`{"hooks":{"PreToolUse":[{"hooks":[{"command":"duolog gate"}]}]}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	got = findings(t, cfg, opts)

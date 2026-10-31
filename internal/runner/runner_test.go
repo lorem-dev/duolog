@@ -96,9 +96,7 @@ func TestCodexArgvResume(t *testing.T) {
 }
 func TestClaudeArgv(t *testing.T) {
 	s := spec(t, "claude")
-	s.Allowed = []string{"Read", "Bash(go test:*)"}
-	s.Disallowed = []string{"Write"}
-	containsArgs(t, Argv(s), "claude", "-p", "--model", "opus", "--effort", "high", "--output-format", "json", "--json-schema", "--no-session-persistence", "--allowedTools", "Read", "Bash(go test:*)", "--disallowedTools", "Write")
+	containsArgs(t, Argv(s), "claude", "-p", "--model", "opus", "--effort", "high", "--output-format", "json", "--json-schema", "--no-session-persistence")
 	s.ThreadID = "session-123"
 	a := Argv(s)
 	containsArgs(t, a, "--resume", "session-123")

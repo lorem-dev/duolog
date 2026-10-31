@@ -14,7 +14,7 @@ that directory is missing from `PATH` and never edits your shell profile.
 Pin a release or choose another directory:
 
 ```sh
-curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v0.1.0
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.0.0
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | DUOLOG_INSTALL_DIR="$HOME/bin" sh
 ```
 
@@ -37,7 +37,7 @@ An invalid download leaves an existing binary unchanged.
 To pin a Windows release or choose a directory:
 
 ```powershell
-$env:DUOLOG_VERSION = 'v0.1.0'
+$env:DUOLOG_VERSION = 'v1.0.0'
 $env:DUOLOG_INSTALL_DIR = "$env:LOCALAPPDATA\Programs\duolog"
 irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
 ```
@@ -80,8 +80,9 @@ go build ./cmd/duolog
 ```
 
 This writes `./duolog` on macOS and Linux, or `.\duolog.exe` on Windows. Put
-its directory on PATH. Hooks skip a missing binary for the lead and block a
-worker gate when the binary is missing.
+its directory on PATH. The Claude hooks use no shell guard, and `claude -p` did
+not block a tool when the binary was missing. The Codex hooks skip a missing
+binary for the lead and block a worker gate. See [Permissions](permissions.md).
 
 ## How to install the hooks and the skill
 
@@ -205,7 +206,8 @@ The worker must write `answer.json`. duolog takes the result only from that
 file. An exit code of 0 from the agent does not mean success.
 
 A line that starts with `run here:` means duolog did not start a worker. The
-role points to the lead's own agent and model, so the lead does the task. See
+role points to the lead's own agent and model, or it needs little context and
+the lead's model costs no more. So the lead does the task. See
 [Configuration](configuration.md).
 
 Exit code 3 means the task is waiting on a capability that the lead must

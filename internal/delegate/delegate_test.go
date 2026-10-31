@@ -1114,3 +1114,20 @@ func TestUnknownNeedFormatRefused(t *testing.T) {
 		t.Fatal(o, e)
 	}
 }
+
+func TestResultLineKeepsNeedsAndWarnings(t *testing.T) {
+	long := strings.Repeat("word ", 300)
+	line := resultLine(false, " needs=approval,LAST_NEED", long, "a.go", "; rules are off; open /hooks", "answer=x/answer.json")
+	if len(line) > maxLine {
+		t.Fatal(len(line))
+	}
+	for _, want := range []string{"LAST_NEED", "files=a.go", "rules are off", "summary=word", "answer=x/answer.json"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("%q is missing from %s", want, line)
+		}
+	}
+	short := resultLine(true, "", "Done.", "", "", "answer=x")
+	if short != "done=true summary=Done. files=" {
+		t.Fatal(short)
+	}
+}

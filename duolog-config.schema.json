@@ -137,10 +137,6 @@
           "type": "integer",
           "description": "Maximum live resumable sessions per agent; defaults to 1 and excludes fresh runs."
         },
-        "max_depth": {
-          "type": "integer",
-          "description": "Maximum delegation depth; defaults to 1 so workers cannot delegate."
-        },
         "self_max_read_files": {
           "type": "integer",
           "description": "Maximum files for work handled by the lead on a provider limit; defaults to 3."
@@ -211,10 +207,6 @@
     },
     "Policy": {
       "properties": {
-        "inherit_lead": {
-          "type": "boolean",
-          "description": "Constrain worker permissions to the lead settings; defaults to true."
-        },
         "on_unmatched": {
           "type": "string",
           "enum": [
@@ -227,15 +219,6 @@
         "ask_timeout_seconds": {
           "type": "integer",
           "description": "Seconds to wait for a permission answer; defaults to 120."
-        },
-        "on_ask_timeout": {
-          "type": "string",
-          "enum": [
-            "allow",
-            "deny",
-            "ask"
-          ],
-          "description": "Decision when the permission prompt times out; defaults to deny."
         },
         "rules": {
           "items": {
@@ -407,10 +390,6 @@
     },
     "Wire": {
       "properties": {
-        "language": {
-          "type": "string",
-          "description": "Language for tasks, answers and artifacts; defaults to en."
-        },
         "max_summary_bytes": {
           "type": "integer",
           "description": "Maximum summary size in bytes; defaults to 200."

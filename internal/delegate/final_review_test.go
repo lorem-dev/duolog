@@ -100,7 +100,7 @@ func TestDelegateRetainsKnownEffortAndBoundsOutput(t *testing.T) {
 	}
 	h.results = []runner.Result{{Done: true, Summary: strings.Repeat("a", 6000), Files: []string{}, Needs: []string{}}}
 	out, err := h.run("implement")
-	if err != nil || len(out.Line) > 512 || !strings.Contains(out.Line, "answer.json") {
+	if err != nil || len(out.Line) > 512 || !strings.Contains(out.Line, "[cut; ") {
 		t.Fatal(len(out.Line), out.Line, err)
 	}
 	if h.calls[0].Route.Effort != "low" {

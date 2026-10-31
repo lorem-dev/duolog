@@ -5,10 +5,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -81,24 +79,32 @@ func startTime(e Env) time.Time {
 	return time.Now()
 }
 
+func interactiveLead(e Env, h input) bool {
+	if e.Agent == "codex" {
+		return session.Originator(h.TranscriptPath) == "codex-tui"
+	}
+	return value(environment(e), "CLAUDE_CODE_ENTRYPOINT") == "cli"
+}
+
 // prepare refuses uninitialized projects before any library can create state.
 func prepare(e Env, register bool, started time.Time) (*state, error) {
 	if worker(e) || (e.Agent != "claude" && e.Agent != "codex") {
 		return nil, nil
 	}
+	var h input
+	if json.Unmarshal(e.Input, &h) != nil || h.ID == "" {
+		return nil, nil
+	}
 	dir := filepath.Join(e.Root, ".duolog")
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
-		if !register || !capability.HasDuolog(e.Agent, e.Root) {
+		// Only a session that will register may create state in a new folder.
+		if !register || !interactiveLead(e, h) || !capability.HasDuolog(e.Agent, e.Root) {
 			return nil, nil
 		}
 		if _, err := store.Open(e.Root); err != nil {
 			return nil, err
 		}
-	}
-	var h input
-	if json.Unmarshal(e.Input, &h) != nil || h.ID == "" {
-		return nil, nil
 	}
 	cfg, err := config.Load(e.Root)
 	if err != nil {
@@ -119,11 +125,7 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 		if !register {
 			return nil, nil
 		}
-		interactive := value(environment(e), "CLAUDE_CODE_ENTRYPOINT") == "cli"
-		if e.Agent == "codex" {
-			interactive = session.Originator(h.TranscriptPath) == "codex-tui"
-		}
-		if !interactive {
+		if !interactiveLead(e, h) {
 			return nil, nil
 		}
 		lead = session.Lead{ID: h.ID, Target: config.Target{Agent: e.Agent}, Mode: mode.Ask, PID: session.LeadPID()}
@@ -258,7 +260,12 @@ func Wake(ctx context.Context, e Env) int {
 	started := startTime(e)
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
+	// SessionStart starts this hook beside the one that registers the lead.
 	s, err := prepare(e, false, started)
+	for s == nil && err == nil && ctx.Err() == nil && time.Since(started) < 10*time.Second {
+		time.Sleep(200 * time.Millisecond)
+		s, err = prepare(e, false, started)
+	}
 	if err != nil || s == nil {
 		return 0
 	}
@@ -304,37 +311,4 @@ func Wake(ctx context.Context, e Env) int {
 		case <-ticker.C:
 		}
 	}
-}
-
-// DeliverIdle checks a known PID before queueing: codex queue reports success
-// even for a closed session. A successful command is only a submission receipt.
-func DeliverIdle(ctx context.Context, entry session.Entry, line []byte) error {
-	if entry.Closed || !session.ProcessAlive(entry.PID) {
-		return fmt.Errorf("session %q has ended", entry.ID)
-	}
-	run := func(name string, args ...string) error {
-		cmd := exec.CommandContext(ctx, name, args...)
-		cmd.Stdin = bytes.NewReader(nil)
-		return cmd.Run()
-	}
-	if entry.Agent == "codex" {
-		if entry.ThreadID == "" {
-			return fmt.Errorf("missing Codex thread id")
-		}
-		return run("codex", "queue", "--thread", entry.ThreadID, string(line))
-	}
-	if entry.Agent != "claude" || entry.Block == "" {
-		return fmt.Errorf("missing Claude pane")
-	}
-	if err := run("rex", "send", "--block", entry.Block, string(line)); err != nil {
-		return err
-	}
-	timer := time.NewTimer(700 * time.Millisecond)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-	}
-	return run("rex", "send-key", "--block", entry.Block, "enter")
 }

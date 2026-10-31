@@ -18,7 +18,7 @@ func TestInstaller(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX installer")
 	}
-	for _, scenario := range []string{"good", "tampered", "missing", "checksum-download", "pinned", "unsupported", "windows", "via-go", "update", "env", "dir", "tampered-existing"} {
+	for _, scenario := range []string{"good", "tampered", "missing", "checksum-download", "pinned", "pinned-bare", "bad-version", "unsupported", "windows", "via-go", "update", "env", "dir", "tampered-existing"} {
 		t.Run(scenario, func(t *testing.T) {
 			dir := t.TempDir()
 			script := filepath.Join(dir, "install.sh")
@@ -123,6 +123,12 @@ esac
 			if scenario == "pinned" {
 				args = append(args, "--version", "v1.2.3")
 			}
+			if scenario == "pinned-bare" {
+				args = append(args, "--version", "1.2.3")
+			}
+			if scenario == "bad-version" {
+				args = append(args, "--version", "1.2.3;x")
+			}
 			if scenario == "via-go" {
 				args = append(args, "--via-go")
 			}
@@ -139,7 +145,7 @@ esac
 				return string(out), err
 			}
 			out, err := run()
-			success := scenario == "good" || scenario == "pinned" || scenario == "update" || scenario == "env" || scenario == "dir"
+			success := scenario == "good" || strings.HasPrefix(scenario, "pinned") || scenario == "update" || scenario == "env" || scenario == "dir"
 			if success {
 				if err != nil {
 					t.Fatalf("install: %v\n%s", err, out)

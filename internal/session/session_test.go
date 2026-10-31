@@ -306,3 +306,67 @@ func TestLeadObservationCannotUndoSessionEnd(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateCannotLoseAnotherChange(t *testing.T) {
+	r, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Record(Entry{ID: "p", Lead: "l", Agent: "codex", Block: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	if _, err := r.Update("p", func(e *Entry) {
+		// The second change starts while this one is open, and must wait for it.
+		go func() {
+			_, err := r.Update("p", func(e *Entry) { e.Asked = "question" })
+			done <- err
+		}()
+		time.Sleep(100 * time.Millisecond)
+		e.Task = "task.md"
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	var got Entry
+	entries, err := r.Entries()
+	if err != nil || len(entries) != 1 {
+		t.Fatal(entries, err)
+	}
+	got = entries[0]
+	if got.Task != "task.md" || got.Asked != "question" {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestLimitNeverHidesARunningPane(t *testing.T) {
+	r, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.RecordLimited(Entry{ID: "pane", Lead: "l", Agent: "codex", Block: "b"}, 1); err != nil {
+		t.Fatal(err)
+	}
+	// A resumed thread over the limit does not close the pane.
+	if err := r.RecordLimited(Entry{ID: "thread", Lead: "l", Agent: "codex", Thread: "t"}, 1); err != nil {
+		t.Fatal(err)
+	}
+	// A second pane over the limit is refused, so the caller can close it.
+	if err := r.RecordLimited(Entry{ID: "pane2", Lead: "l", Agent: "codex", Block: "c"}, 1); err == nil {
+		t.Fatal("a second pane passed the limit")
+	}
+	entries, err := r.Entries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.ID == "pane" && e.Closed {
+			t.Fatal("the limit closed a running pane")
+		}
+		if e.ID == "pane2" {
+			t.Fatal("a refused pane was recorded")
+		}
+	}
+}

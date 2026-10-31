@@ -22,6 +22,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+      - name: The tag matches every stated version
+        run: uv run scripts/version/version.py check --tag "$GITHUB_REF_NAME"
       - name: Test suite
         timeout-minutes: 4
         run: go test -timeout 2m ./...
@@ -31,10 +34,12 @@ jobs:
       - name: Render install scripts
         run: make install-script
       - name: Check install script
-        run: shellcheck -S error dist/install.sh
+        run: shellcheck -S error .release/install.sh
+      - name: Write the release body from CHANGES.md
+        run: uv run scripts/version/version.py notes "$GITHUB_REF_NAME" -o .release/notes.md
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: '~> v2'
-          args: release --clean
+          args: release --clean --release-notes=.release/notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

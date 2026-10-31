@@ -227,3 +227,15 @@ func TestMultiPathPatchAsksAboutEveryPath(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkerGateCreatesNoStateInAnUnrelatedFolder(t *testing.T) {
+	gateSetup(t, mode.Full)
+	empty := t.TempDir()
+	t.Chdir(empty)
+	if out := runGate(t, "go test ./..."); !strings.Contains(out, `"permissionDecision":"deny"`) {
+		t.Fatal(out)
+	}
+	if _, err := os.Stat(filepath.Join(empty, ".duolog")); !os.IsNotExist(err) {
+		t.Fatal("the gate created state", err)
+	}
+}

@@ -111,8 +111,8 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			out.Line = oneLine(fmt.Sprintf("role %s: %v", role, err))
 		}
 	}()
-	if depth := os.Getenv("DUOLOG_DEPTH"); depth != "" && depth != "0" {
-		return out, fmt.Errorf("nested delegation refused (DUOLOG_DEPTH=%s)", depth)
+	if workerenv.IsWorker() {
+		return out, fmt.Errorf("nested delegation refused (DUOLOG_DEPTH=%s)", os.Getenv("DUOLOG_DEPTH"))
 	}
 	opts, _ := ctx.Value(optionsKey{}).(Options)
 	for _, need := range opts.Needs {
@@ -157,9 +157,6 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	if err = os.WriteFile(copyPath, original, 0600); err != nil {
 		return out, err
 	}
-	if err = os.WriteFile(filepath.Join(dir, "schema.json"), []byte(task.Schema), 0600); err != nil {
-		return out, err
-	}
 	reg, err := session.Open(s.Dir)
 	if err != nil {
 		return out, err
@@ -168,45 +165,12 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	if err != nil {
 		return out, err
 	}
-	leadID, hasLead := lead.ID, true
-	var leadTarget *config.Target
-	leadAgent := ""
-	leadMode := mode.Ask
-	address := "duolog/lead"
-	if hasLead {
-		if lead.TranscriptPath != "" {
-			observed, _ := readLeadState(lead.Agent, lead.TranscriptPath)
-			if observed.Model != "" {
-				lead.Model = observed.Model
-			}
-			if observed.Effort != "" {
-				lead.Effort = observed.Effort
-			}
-			if lead.Agent == "codex" {
-				if observed.Mode != "" {
-					lead.Mode = observed.Mode
-				} else {
-					lead.Mode = mode.Lower(lead.Mode, mode.Ask)
-				}
-			}
-			o := session.LeadObservation{ID: lead.ID, Agent: lead.Agent, Model: &lead.Model, Effort: &lead.Effort}
-			if lead.Agent == "codex" {
-				o.Mode = &lead.Mode
-			}
-			if lead, err = reg.ObserveLead(o, started); err != nil {
-				return out, err
-			}
-		}
-		lead, leadMode, err = reg.EffectiveMode(leadID)
-		if err != nil {
-			return out, err
-		}
-		leadTarget = &lead.Target
-		leadAgent = lead.Agent
-		address = session.Address(lead)
-	} else {
-		leadID = ""
+	lead, leadMode, err := observedLead(reg, lead, started)
+	if err != nil {
+		return out, err
 	}
+	leadID, leadAgent, address := lead.ID, lead.Agent, session.Address(lead)
+	leadTarget := &lead.Target
 	reg.LeadID = leadID
 	leadRules, err := gate.ImportLead(root, lead.Agent)
 	if err != nil {
@@ -231,8 +195,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		if out.Line == "" && err != nil {
 			out.Line = oneLine(fmt.Sprintf("role %s: %v", role, err))
 		}
-		if len(out.Line) > 512 {
-			out.Line = short(out.Line, 200) + " ... [cut; answer=.duolog/" + filepath.ToSlash(filepath.Join("tasks", filepath.Base(dir), "answer.json")) + "]"
+		if len(out.Line) > maxLine {
+			tail := " ... [cut; " + answerPointer(dir) + "]"
+			out.Line = short(out.Line, maxLine-len(tail)) + tail
 		}
 	}()
 	unavailable, err := reg.Unavailable()
@@ -336,18 +301,8 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		if trustErr != nil {
 			return out, trustErr
 		}
-		warning = ""
-		if route.Agent == "claude" && !state.Installed {
-			warning = "; Claude has no duolog hooks: rules are off; sandbox only"
-		}
-		if !state.Trusted {
-			if route.Sandbox != "read-only" {
-				return out, fmt.Errorf("Codex hooks untrusted; open /hooks before running write role %s", role)
-			}
-			warning = "; rules are off; open /hooks"
-		}
-		if !folder {
-			warning += "; folder trust missing"
+		if warning, err = trustWarning(route, role, state, folder); err != nil {
+			return out, err
 		}
 		readRules := leadRules
 		readRules.RoleSandbox = route.Sandbox
@@ -446,7 +401,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					out.Needs = out.Result.Needs
 					needs = " needs=" + strings.Join(out.Result.Needs, ",")
 				}
-				out.Line = oneLine(fmt.Sprintf("done=%t%s summary=%s files=%s%s", out.Result.Done, needs, out.Result.Summary, strings.Join(out.Result.Files, ","), warning))
+				out.Line = resultLine(out.Result.Done, needs, out.Result.Summary, strings.Join(out.Result.Files, ","), warning, answerPointer(dir))
 				return out, nil
 			}
 			if out.Result.QuotaEnded {
@@ -502,22 +457,97 @@ func missingBinary(err error) bool {
 	return errors.Is(err, exec.ErrNotFound) || (errors.As(err, &pathErr) && pathErr.Op == "fork/exec" && errors.Is(err, os.ErrNotExist))
 }
 func workerEnv(names []string, leadID string, roles ...string) []string {
-	var env []string
-	for _, name := range names {
-		if strings.EqualFold(name, "PATH") || strings.HasPrefix(name, "DUOLOG_") || strings.HasPrefix(name, "REX_") {
-			continue
-		}
-		if value, ok := os.LookupEnv(name); ok {
-			env = append(env, name+"="+value)
-		}
-	}
 	role := ""
 	if len(roles) > 0 {
 		role = roles[0]
 	}
-	return append(env, workerenv.Path(), "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+leadID, "DUOLOG_ROLE="+role)
+	return append(workerenv.Passthrough(names), workerenv.Path(), "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+leadID, "DUOLOG_ROLE="+role)
 }
+
+// observedLead brings the registered lead up to date with its transcript, and
+// returns it with the mode that limits workers.
+func observedLead(reg *session.Registry, lead session.Lead, started time.Time) (session.Lead, mode.Mode, error) {
+	if lead.TranscriptPath != "" {
+		observed, _ := readLeadState(lead.Agent, lead.TranscriptPath)
+		if observed.Model != "" {
+			lead.Model = observed.Model
+		}
+		if observed.Effort != "" {
+			lead.Effort = observed.Effort
+		}
+		if lead.Agent == "codex" {
+			if observed.Mode != "" {
+				lead.Mode = observed.Mode
+			} else {
+				lead.Mode = mode.Lower(lead.Mode, mode.Ask)
+			}
+		}
+		o := session.LeadObservation{ID: lead.ID, Agent: lead.Agent, Model: &lead.Model, Effort: &lead.Effort}
+		if lead.Agent == "codex" {
+			o.Mode = &lead.Mode
+		}
+		var err error
+		if lead, err = reg.ObserveLead(o, started); err != nil {
+			return lead, mode.Ask, err
+		}
+	}
+	return reg.EffectiveMode(lead.ID)
+}
+
+// trustWarning says what the lead must know about the worker's rules. A write role
+// with untrusted Codex hooks would run with no gate, so it does not start.
+func trustWarning(route router.Route, role string, state trust.State, folder bool) (string, error) {
+	warning := ""
+	if route.Agent == "claude" && !state.Installed {
+		warning = "; Claude has no duolog hooks: rules are off; sandbox only"
+	}
+	if !state.Trusted {
+		if route.Sandbox != "read-only" {
+			return "", fmt.Errorf("Codex hooks untrusted; open /hooks before running write role %s", role)
+		}
+		warning = "; rules are off; open /hooks"
+	}
+	if !folder {
+		warning += "; folder trust missing"
+	}
+	return warning, nil
+}
+
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// maxLine is what the lead reads for one worker. It costs tokens on every turn.
+const maxLine = 512
+
+// resultLine gives the summary only the room that needs, files and warnings leave.
+// A warning such as "rules are off" must reach the lead, and the summary is also
+// in answer.json.
+func resultLine(done bool, needs, summary, files, warning, pointer string) string {
+	line := func(summary string) string {
+		return oneLine(fmt.Sprintf("done=%t%s summary=%s files=%s%s", done, needs, summary, files, warning))
+	}
+	summary = oneLine(summary)
+	if over := len(line(summary)) - maxLine; over > 0 {
+		cut := " ... [cut; " + pointer + "]"
+		summary = short(summary, max(0, len(summary)-over-len(cut))) + cut
+	}
+	return line(summary)
+}
+
+// answerPointer names the answer as a path from the current folder, which differs
+// from the state folder in a linked worktree. A worker that failed wrote none.
+func answerPointer(dir string) string {
+	path := filepath.Join(dir, "answer.json")
+	label := "answer="
+	if _, err := os.Stat(path); err != nil {
+		path, label = dir, "task="
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		if relative, err := filepath.Rel(cwd, path); err == nil {
+			path = relative
+		}
+	}
+	return label + filepath.ToSlash(path)
+}
 func short(s string, n int) string {
 	if len(s) <= n {
 		return s

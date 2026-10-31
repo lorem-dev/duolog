@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -41,16 +42,14 @@ type Role struct {
 }
 
 type Wire struct {
-	Language        string `yaml:"language" jsonschema_description:"Language for tasks, answers and artifacts; defaults to en."`
-	MaxSummaryBytes int    `yaml:"max_summary_bytes" jsonschema_description:"Maximum summary size in bytes; defaults to 200."`
-	MaxLineBytes    int    `yaml:"max_line_bytes" jsonschema_description:"Maximum bus message size in bytes; defaults to 512."`
-	InlineMaxBytes  int    `yaml:"inline_max_bytes" jsonschema_description:"Maximum task and Read file bytes sent inline to worker stdin; defaults to 65536."`
+	MaxSummaryBytes int `yaml:"max_summary_bytes" jsonschema_description:"Maximum summary size in bytes; defaults to 200."`
+	MaxLineBytes    int `yaml:"max_line_bytes" jsonschema_description:"Maximum bus message size in bytes; defaults to 512."`
+	InlineMaxBytes  int `yaml:"inline_max_bytes" jsonschema_description:"Maximum task and Read file bytes sent inline to worker stdin; defaults to 65536."`
 }
 
 type Limits struct {
 	ManualOnlyModels []string `yaml:"manual_only_models" jsonschema_description:"Model aliases requiring explicit manual permission; defaults to fable and astra."`
 	MaxLiveSessions  int      `yaml:"max_live_sessions" jsonschema_description:"Maximum live resumable sessions per agent; defaults to 1 and excludes fresh runs."`
-	MaxDepth         int      `yaml:"max_depth" jsonschema_description:"Maximum delegation depth; defaults to 1 so workers cannot delegate."`
 	SelfMaxReadFiles int      `yaml:"self_max_read_files" jsonschema_description:"Maximum files for work handled by the lead on a provider limit; defaults to 3."`
 	SelfMaxReadLines int      `yaml:"self_max_read_lines" jsonschema_description:"Maximum lines for work handled by the lead on a provider limit; defaults to 200."`
 }
@@ -71,10 +70,8 @@ type Sessions struct {
 }
 
 type Policy struct {
-	InheritLead       bool   `yaml:"inherit_lead" jsonschema_description:"Constrain worker permissions to the lead settings; defaults to true."`
 	OnUnmatched       string `yaml:"on_unmatched" jsonschema_description:"Decision for an action with no matching rule; defaults to ask." jsonschema:"enum=allow,enum=deny,enum=ask"`
 	AskTimeoutSeconds int    `yaml:"ask_timeout_seconds" jsonschema_description:"Seconds to wait for a permission answer; defaults to 120."`
-	OnAskTimeout      string `yaml:"on_ask_timeout" jsonschema_description:"Decision when the permission prompt times out; defaults to deny." jsonschema:"enum=allow,enum=deny,enum=ask"`
 	Rules             []Rule `yaml:"rules" jsonschema_description:"Permission rules for actions and paths; defaults allow routine work and deny sensitive operations."`
 }
 
@@ -159,7 +156,28 @@ func Load(root string) (*Config, error) {
 		}
 	}
 	platformDefaults(&cfg)
+	if err := keepDefaultDenies(&cfg); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
+}
+
+// keepDefaultDenies holds every default deny when a layer replaces the rule list.
+// YAML replaces a list as a whole, and a project that adds one allow rule must not
+// lose .git/** or git push by doing so.
+func keepDefaultDenies(cfg *Config) error {
+	var defaults Config
+	if err := yaml.Unmarshal(defaultConfig, &defaults); err != nil {
+		return fmt.Errorf("embedded config.default.yaml: %w", err)
+	}
+	for _, rule := range defaults.Policy.Rules {
+		if rule.Decision == "deny" && !slices.ContainsFunc(cfg.Policy.Rules, func(have Rule) bool {
+			return have.Decision == rule.Decision && have.Action == rule.Action && have.Match == rule.Match
+		}) {
+			cfg.Policy.Rules = append(cfg.Policy.Rules, rule)
+		}
+	}
+	return nil
 }
 
 func mergeLayer(dst *yaml.Node, data []byte, source string) error {

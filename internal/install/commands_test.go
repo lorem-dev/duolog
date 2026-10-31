@@ -76,8 +76,8 @@ func TestExecutableHookOwnership(t *testing.T) {
 		`{"hooks":[{"type":"command","command":"duolog","args":["gate","--agent","claude"]}]}`,
 		`{"hooks":[{"type":"command","commandWindows":"powershell -NoProfile -NonInteractive -Command duolog gate --agent codex"}]}`,
 	} {
-		if !isOurs([]byte(raw)) {
-			t.Fatal("hook not recognized", raw)
+		if _, ours, err := withoutOurHandlers([]byte(raw)); err != nil || !ours {
+			t.Fatal("hook not recognized", raw, err)
 		}
 	}
 }
@@ -134,7 +134,7 @@ func TestSkillsCheckBinaryAndRules(t *testing.T) {
 }
 
 func TestWindowsGuardAvoidsCommandDiscovery(t *testing.T) {
-	data, err := HooksJSON("codex", "windows", 150)
+	data, err := HooksJSON("codex", 150)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestReinstallUpgradesOlderClaudeHooks(t *testing.T) {
 		}
 		write(t, path, string(raw))
 		run(t, Options{Scope: "project", Agent: "claude", Home: home, Root: root})
-		want, _ := HooksJSON("claude", "windows", 150)
+		want, _ := HooksJSON("claude", 150)
 		if read(t, path) != string(want) {
 			t.Fatal("legacy hook was not replaced", read(t, path))
 		}

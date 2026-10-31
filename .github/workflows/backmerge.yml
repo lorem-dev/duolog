@@ -1,7 +1,8 @@
 # After a release lands on main, keep develop in sync by opening (or
 # refreshing) a pull request that merges main back into develop. A PR is
-# used rather than a direct push so the merge is visible and CI runs on it;
-# resolve any conflicts on the PR before merging.
+# used rather than a direct push so the merge is visible; resolve any conflicts
+# on the PR before merging. GitHub starts no workflow for a PR that GITHUB_TOKEN
+# opens, so close and reopen the PR to run CI on it.
 
 name: Back-merge main -> develop
 

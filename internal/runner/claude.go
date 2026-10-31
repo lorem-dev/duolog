@@ -25,14 +25,6 @@ func claudeArgv(s Spec) []string {
 	} else {
 		args = append(args, "--resume", s.ThreadID)
 	}
-	if len(s.Allowed) > 0 {
-		args = append(args, "--allowedTools")
-		args = append(args, s.Allowed...)
-	}
-	if len(s.Disallowed) > 0 {
-		args = append(args, "--disallowedTools")
-		args = append(args, s.Disallowed...)
-	}
 	return append(args, "--", taskInstruction)
 }
 

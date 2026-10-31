@@ -3,6 +3,7 @@ package peer
 import (
 	"encoding/json"
 	"github.com/lorem-dev/duolog/internal/bus"
+	"github.com/lorem-dev/duolog/internal/gate"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,7 +103,7 @@ func TestExpiredAskIsNoLongerPending(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write(time.Now().Add(-askLifetime-time.Second), 1)
+	write(time.Now().Add(-(gate.MaxAskWait+30*time.Second)-time.Second), 1)
 	if got, err := pendingAsk(dir, address); err != nil || got != "" {
 		t.Fatal(got, err)
 	}

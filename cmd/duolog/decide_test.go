@@ -211,3 +211,28 @@ func TestDecisionWithoutLeadEnvUsesFlag(t *testing.T) {
 		t.Fatal("accepted a mismatched --lead")
 	}
 }
+
+func TestDecisionIsRefusedWhenItCanChangeNothing(t *testing.T) {
+	r, root := gateSetup(t, mode.Ask)
+	t.Setenv("DUOLOG_DEPTH", "")
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := bus.Open(r.Dir, cfg.Wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := "codex/lead.lead-1"
+	n, err := b.Send(bus.Message{From: "duolog/ask.x", To: address, K: "ask", S: "exec custom"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := strconv.FormatInt(n, 10)
+	if _, err := gateCommand(t, "", "allow", ref); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gateCommand(t, "", "deny", ref); err == nil || !strings.Contains(err.Error(), "already answered") {
+		t.Fatal(err)
+	}
+}

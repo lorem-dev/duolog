@@ -35,7 +35,7 @@ func TestWindowsHookShells(t *testing.T) {
 		for _, agent := range []string{"codex"} {
 			t.Run(shell+"/"+agent, func(t *testing.T) {
 				var doc struct{ Hooks map[string][]group }
-				data, err := HooksJSON(agent, "windows", 150)
+				data, err := HooksJSON(agent, 150)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -104,7 +104,7 @@ func TestWindowsHookShells(t *testing.T) {
 // A worker has no PSModulePath unless it is passed through, and every Codex tool
 // call runs this guard, so the guard must not need a module search.
 func TestWindowsGuardNeedsNoModuleSearch(t *testing.T) {
-	data, err := HooksJSON("codex", "windows", 150)
+	data, err := HooksJSON("codex", 150)
 	if err != nil {
 		t.Fatal(err)
 	}

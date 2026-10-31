@@ -1,0 +1,6 @@
+# duolog's local state stays out of Git: the bus, sessions, tasks and caches.
+*
+# Share these with the project.
+!.gitignore
+!config.yaml
+!sync.lock.json

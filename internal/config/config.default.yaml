@@ -5,7 +5,6 @@
 version: 1
 
 wire:
-  language: en             # tasks, answers and artifacts; only the lead talks in the user's language
   max_summary_bytes: 200
   max_line_bytes: 512
   inline_max_bytes: 65536  # duolog puts the task and its Read files in the worker's stdin up to this size
@@ -13,7 +12,6 @@ wire:
 limits:
   manual_only_models: [fable, astra]  # refused unless --allow-manual-model is passed
   max_live_sessions: 1     # per agent; one-shot `fresh` runs do not count
-  max_depth: 1             # a worker never delegates further
   self_max_read_files: 3   # on a provider limit, the lead does a task this small itself
   self_max_read_lines: 200 # otherwise its own subagent does it
 
@@ -104,20 +102,23 @@ sessions:
   idle_close_minutes: 30
 
 # Decided by the duolog binary, not by a model, so an ordinary decision costs no tokens.
-# A worker never gets more than the lead's own settings allow (inherit_lead).
+# A worker never gets more than the lead's own settings allow, and it never delegates.
+# An unanswered question is denied when ask_timeout_seconds ends.
 # The lead's mode adds to this: denies first, then the role's limit, then the mode.
 policy:
-  inherit_lead: true
   on_unmatched: ask
   ask_timeout_seconds: 120
-  on_ask_timeout: deny
   rules:
     - {action: read,  match: "**", decision: allow}
     - {action: read,  match: "{**/.env,**/.env.*,**/*.pem,**/*.key,**/secrets/**}", decision: deny}
-    - {action: write, match: ".duolog/**", decision: deny}
-    - {action: write, match: ".git/**", decision: deny}
+    - {action: write, match: "{**/.duolog/**,**/.git/**}", decision: deny}
+    # A worker that changes these would change its own rules or the lead's hooks.
+    - {action: write, match: "{.claude/settings*.json,.claude/hooks/**,.codex/config.toml,.codex/hooks.json}", decision: deny}
     - {action: write, match: "**", decision: allow, roles: [implement, implement_complex, mechanical, tests, docs, debug_hard]}
-    - {action: exec,  match: "{go,cargo,npm,pnpm,uv,task,make} {test,lint,fmt,build,run}*", decision: allow, roles: [implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    # Not run: go run and uv run start any program. A named test or lint script is fine.
+    - {action: exec,  match: "{go,cargo,npm,pnpm,uv,task,make} {test,lint,fmt,build}*", decision: allow, roles: [implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    - {action: exec,  match: "{npm,pnpm} run {test,lint,fmt,build}*", decision: allow, roles: [implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    - {action: exec,  match: "uv run {pytest,ruff,ty}*", decision: allow, roles: [implement, implement_complex, mechanical, tests, docs, debug_hard]}
     - {action: exec,  match: "git {status,diff,log,show}*", decision: allow}
     - {action: exec,  match: "{cat,head,tail,ls,pwd,wc,rg,grep,find,Get-Content,Get-ChildItem,Get-Location,Test-Path,Select-String,Get-Item}*", decision: allow}
     - {action: exec,  match: "git {push,reset --hard,clean,rebase}*", decision: deny}
