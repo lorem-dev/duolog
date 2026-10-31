@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"os"
 	"path/filepath"
@@ -46,5 +47,77 @@ func TestDoctorProbeFlag(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("%q missing %q", out, want)
 		}
+	}
+}
+
+func TestDoctorUsesRexInventoryAndLeadState(t *testing.T) {
+	isolatedRouteConfig(t)
+	root := t.TempDir()
+	t.Chdir(root)
+	reg, err := session.Open(filepath.Join(root, ".duolog"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, lead := range []string{"ended", "live"} {
+		if err := reg.RegisterLead(session.Lead{ID: lead}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, e := range []session.Entry{
+		{ID: "block:orphan-a", Lead: "ended"},
+		{ID: "block:orphan-b", Lead: "ended"},
+		{ID: "block:gone", Lead: "ended"},
+		{ID: "block:live", Lead: "live"},
+	} {
+		if err := reg.Record(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := reg.Close("ended"); err != nil {
+		t.Fatal(err)
+	}
+	rex := testbin.Install(t, "rex", testbin.Scenario{Exit: 2, Responses: map[string]testbin.Scenario{
+		"block ls --json": {Stdout: `{"blocks":[{"id":"block:orphan-a"},{"id":"block:orphan-b"},{"id":"block:live"},{"id":"block:unrelated"}]}`},
+	}})
+	t.Setenv("PATH", filepath.Dir(rex))
+	out, err := executeBusCommand(t, "doctor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"block:orphan-a", "block:orphan-b"} {
+		if !strings.Contains(out, "Pane "+id+" belongs to ended lead ended; duolog peer close "+id) {
+			t.Fatal(out)
+		}
+	}
+	for _, id := range []string{"block:live", "block:gone", "block:unrelated"} {
+		if strings.Contains(out, "duolog peer close "+id) {
+			t.Fatal(out)
+		}
+	}
+	calls, err := os.ReadFile(rex + ".calls.ndjson")
+	if err != nil || string(calls) != "[\"block\",\"ls\",\"--json\"]\n" {
+		t.Fatalf("calls=%s err=%v", calls, err)
+	}
+}
+
+func TestDoctorRexInventoryUnavailable(t *testing.T) {
+	for _, scenario := range []testbin.Scenario{
+		{Exit: 4, Stderr: "socket unavailable"},
+		{Stdout: "invalid JSON"},
+		{Stdout: `{}`},
+	} {
+		t.Run(scenario.Stdout+scenario.Stderr, func(t *testing.T) {
+			isolatedRouteConfig(t)
+			t.Chdir(t.TempDir())
+			rex := testbin.Install(t, "rex", scenario)
+			t.Setenv("PATH", filepath.Dir(rex))
+			out, err := executeBusCommand(t, "doctor")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out, "Rex pane inventory unavailable") {
+				t.Fatal(out)
+			}
+		})
 	}
 }

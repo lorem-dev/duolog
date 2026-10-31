@@ -64,7 +64,9 @@ func Summarize(path string) (Table, error) {
 			warnings[fmt.Sprintf("No price for %s model %s; cost excluded", record.Agent, record.Model)] = true
 		} else {
 			record.Cost = (float64(record.Input-record.Cached)*price.Input + float64(record.Cached)*price.Cached + float64(record.Output)*price.Output) / 1e6
-			if price.PricedFor != record.Model {
+			if alias == record.Model {
+				warnings[fmt.Sprintf("Estimated %s using prices for %s; actual version unknown (usage records the routed alias)", alias, price.PricedFor)] = true
+			} else if price.PricedFor != record.Model {
 				warnings[fmt.Sprintf("Estimated %s using prices for %s; version that ran was %s", alias, price.PricedFor, record.Model)] = true
 			}
 			if price.Note != "" {

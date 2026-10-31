@@ -60,16 +60,54 @@ func contains(t *testing.T, got string, wants ...string) {
 		}
 	}
 }
+
+// matchingFinding keeps every required relationship in one diagnostic.
+func matchingFinding(got []Finding, wants ...string) bool {
+	for _, f := range got {
+		matches := true
+		for _, want := range wants {
+			matches = matches && strings.Contains(f.Message, want)
+		}
+		if matches {
+			return true
+		}
+	}
+	return false
+}
+func requireFinding(t *testing.T, got []Finding, wants ...string) {
+	t.Helper()
+	if !matchingFinding(got, wants...) {
+		t.Fatalf("no single finding contains %q: %+v", wants, got)
+	}
+}
+func TestMatchingFindingRejectsUnrelatedDiagnostics(t *testing.T) {
+	for _, wants := range [][]string{
+		{"terra", "tests", "review_intermediate", "docs"},
+		{"implement", "gpt-6-sol", "gpt-6.1-sol"},
+		{"implement", "gpt-6.1-sol", "ultra"},
+	} {
+		var unrelated []Finding
+		for _, want := range wants {
+			unrelated = append(unrelated, Finding{Message: want})
+		}
+		if matchingFinding(unrelated, wants...) {
+			t.Fatalf("accepted unrelated diagnostics: %+v", unrelated)
+		}
+		if !matchingFinding([]Finding{{Message: strings.Join(wants, " ")}}, wants...) {
+			t.Fatal("rejected associated diagnostic")
+		}
+	}
+}
 func TestDoctorFlagsAliasWithNoModel(t *testing.T) {
 	cfg, opts, _ := setup(t)
-	contains(t, findings(t, cfg, opts), "terra", "tests", "review_intermediate", "docs")
+	requireFinding(t, Run(context.Background(), cfg, opts), "Alias terra has no visible model", "tests", "review_intermediate", "docs")
 }
 func TestDoctorFlagsOldPin(t *testing.T) {
 	cfg, opts, _ := setup(t)
 	r := cfg.Roles["implement"]
 	r.Use.Model = "gpt-6-sol"
 	cfg.Roles["implement"] = r
-	contains(t, findings(t, cfg, opts), "implement", "gpt-6-sol", "gpt-6.1-sol")
+	requireFinding(t, Run(context.Background(), cfg, opts), "Role implement pins gpt-6-sol", "newer model gpt-6.1-sol")
 }
 func TestDoctorWarnsOnNewerAgentVersion(t *testing.T) {
 	cfg, opts, codex := setup(t)
@@ -95,7 +133,7 @@ func TestDoctorFlagsUnsupportedEffort(t *testing.T) {
 	r := cfg.Roles["implement"]
 	r.Use.Effort = "ultra"
 	cfg.Roles["implement"] = r
-	contains(t, findings(t, cfg, opts), "implement", "gpt-6.1-sol", "ultra")
+	requireFinding(t, Run(context.Background(), cfg, opts), "Role implement model gpt-6.1-sol", "does not support effort ultra")
 }
 func TestProbeClearsUnavailable(t *testing.T) {
 	cfg, opts, codex := setup(t)
