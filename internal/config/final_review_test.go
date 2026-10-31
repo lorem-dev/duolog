@@ -14,7 +14,7 @@ func TestNativeAndLoginPassthroughDefaults(t *testing.T) {
 			}
 		}
 		if goos == "windows" {
-			for _, name := range []string{"SYSTEMROOT", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "PATHEXT", "COMSPEC"} {
+			for _, name := range []string{"SYSTEMROOT", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "PATHEXT", "COMSPEC", "PSMODULEPATH"} {
 				if !slices.Contains(names, name) {
 					t.Errorf("Windows missing %s", name)
 				}

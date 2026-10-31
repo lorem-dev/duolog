@@ -12,7 +12,7 @@ var defaultConfig []byte
 func DefaultEnvPassthrough(goos string) []string {
 	names := []string{"PATH", "HOME", "USER", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_HOME", "CLAUDE_CONFIG_DIR"}
 	if goos == "windows" {
-		names = append(names, "SYSTEMROOT", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "PATHEXT", "COMSPEC")
+		names = append(names, "SYSTEMROOT", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "PATHEXT", "COMSPEC", "PSMODULEPATH")
 	}
 	return names
 }

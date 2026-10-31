@@ -81,3 +81,35 @@ func TestWindowsHookShells(t *testing.T) {
 		}
 	}
 }
+
+// A worker has no PSModulePath unless it is passed through, and every Codex tool
+// call runs this guard, so the guard must not need a module search.
+func TestWindowsGuardNeedsNoModuleSearch(t *testing.T) {
+	data, err := HooksJSON("codex", "windows", 150)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct{ Hooks map[string][]group }
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	testbin.Install(t, "duolog", testbin.Scenario{Exit: 7})
+	var env []string
+	for _, name := range []string{"PATH", "SYSTEMROOT", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "PATHEXT", "COMSPEC"} {
+		env = append(env, name+"="+os.Getenv(name))
+	}
+	command := testbin.HookProcess(doc.Hooks["PreToolUse"][0].Hooks[0].CommandWindows)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := testbin.CommandContext(ctx, command.Path, command.Args[1:]...)
+	cmd.SysProcAttr = command.SysProcAttr
+	cmd.Env = append(env, "DUOLOG_DEPTH=1")
+	started := time.Now()
+	err = cmd.Run()
+	if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != 7 {
+		t.Fatal(err)
+	}
+	if took := time.Since(started); took > 10*time.Second {
+		t.Fatalf("guard took %s", took)
+	}
+}

@@ -335,8 +335,12 @@ func command(goos, args string, gate bool) string {
 	return s + "fi"
 }
 
+// powershellGuard reads the exit code without a module cmdlet: Get-Variable
+// loads Microsoft.PowerShell.Utility, which took 18 to 30 seconds per hook in a
+// worker environment without PSModulePath. [char]36 is the dollar sign, which
+// an outer shell would otherwise expand.
 func powershellGuard(args string, gate bool) string {
-	s := "if (Get-Command duolog -CommandType Application -ErrorAction SilentlyContinue) { duolog " + args + "; exit (Get-Variable LASTEXITCODE -ValueOnly) }; "
+	s := "if (Get-Command duolog -CommandType Application -ErrorAction SilentlyContinue) { duolog " + args + "; exit [int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] }; "
 	if gate {
 		s += "if ([Environment]::GetEnvironmentVariable('DUOLOG_DEPTH') -match '^0*[1-9][0-9]*$') { exit 2 }; "
 	}
