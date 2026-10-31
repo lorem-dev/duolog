@@ -3,7 +3,11 @@
 # requires-python = ">=3.12"
 # dependencies = ["resvg-py", "pillow"]
 # ///
-"""Generate duolog's icon: two chat bubbles in dialogue, each with half a hint of its agent."""
+"""Generate duolog's icon: two chat bubbles in dialogue, a half-hidden burst and a prompt.
+
+The burst and the prompt are drawn here from scratch. They hint at the two kinds of agent
+and copy no vendor's logo.
+"""
 import io
 import math
 import os
@@ -24,31 +28,46 @@ def squircle(center: float, radius: float, n: float = 5.0, steps: int = 72) -> s
     return "M" + " L".join(points) + "Z"
 
 
-def bubble(x: int, y: int, w: int, h: int, r: int, tail_x: int, tail_w: int, tip_x: int, tip_y: int) -> str:
+def bubble(x: int, y: int, w: int, h: int, r: int, tx: int, tw: int, side: str) -> str:
+    """A bubble with a short, softly rounded tail at its lower left or lower right."""
     b = y + h
-    return (
-        f"M{x + r},{y}H{x + w - r}A{r},{r} 0 0 1 {x + w},{y + r}V{b - r}A{r},{r} 0 0 1 {x + w - r},{b}"
-        f"H{tail_x + tail_w}Q{tail_x + tail_w * 0.42:.0f},{b + 10} {tip_x},{tip_y}"
-        f"Q{tail_x + tail_w * 0.12:.0f},{b + 42} {tail_x},{b}H{x + r}A{r},{r} 0 0 1 {x},{b - r}V{y + r}A{r},{r} 0 0 1 {x + r},{y}Z"
-    )
+    head = f"M{x + r},{y}H{x + w - r}A{r},{r} 0 0 1 {x + w},{y + r}V{b - r}A{r},{r} 0 0 1 {x + w - r},{b}"
+    if side == "left":
+        tail = (
+            f"H{tx + tw}C{tx + tw - 8},{b + 26} {tx + tw * 0.45:.0f},{b + 52} {tx + 12},{b + 64}"
+            f"Q{tx - 8},{b + 72} {tx - 2},{b + 52}C{tx + 4},{b + 34} {tx + 2},{b + 16} {tx},{b}"
+        )
+    else:
+        tail = (
+            f"H{tx + tw}C{tx + tw - 2},{b + 16} {tx + tw - 4},{b + 34} {tx + tw + 2},{b + 52}"
+            f"Q{tx + tw + 8},{b + 72} {tx + tw - 12},{b + 64}C{tx + tw * 0.55:.0f},{b + 52} {tx + 8},{b + 26} {tx},{b}"
+        )
+    return head + tail + f"H{x + r}A{r},{r} 0 0 1 {x},{b - r}V{y + r}A{r},{r} 0 0 1 {x + r},{y}Z"
 
 
-def spark(cx: float, cy: float, r: float, rays: int = 12) -> str:
+def burst(cx: float, cy: float, r: float) -> str:
+    """Thick, stubby rays of uneven length and tilt, packed around a centre."""
+    lengths = [1.0, 0.8, 0.95, 0.72, 0.9, 0.84, 1.0, 0.7, 0.88, 0.96, 0.76, 0.92, 0.82, 0.98, 0.74]
+    tilt = [0, 3, -4, 2, -2, 4, -3, 1, 3, -4, 2, -1, 4, -2, 3]
     parts: list[str] = []
-    for i in range(rays):
-        a = 2 * math.pi * i / rays - math.pi / 2
-        length = r if i % 2 == 0 else r * 0.72
+    for i, (length, dt) in enumerate(zip(lengths, tilt)):
+        a = math.radians(360 / len(lengths) * i + dt)
+        ux, uy = math.cos(a), math.sin(a)
+        px, py = -uy, ux
+        base, tip = r * 0.06, r * 0.052
+        bx, by = cx + ux * r * 0.02, cy + uy * r * 0.02
+        ex, ey = cx + ux * r * length, cy + uy * r * length
         parts.append(
-            f"M{cx + 0.14 * r * math.cos(a):.1f},{cy + 0.14 * r * math.sin(a):.1f}"
-            f"L{cx + length * math.cos(a):.1f},{cy + length * math.sin(a):.1f}"
+            f"M{bx + px * base:.1f},{by + py * base:.1f}L{ex + px * tip:.1f},{ey + py * tip:.1f}"
+            f"A{tip:.1f},{tip:.1f} 0 0 0 {ex - px * tip:.1f},{ey - py * tip:.1f}L{bx - px * base:.1f},{by - py * base:.1f}Z"
         )
     return "".join(parts)
 
 
 clip = squircle(512, 512)
 rim = squircle(512, 498)
-back = bubble(156, 196, 456, 328, 88, 244, 104, 192, 616)
-front = bubble(412, 412, 456, 328, 88, 676, 104, 832, 832)
+back = bubble(92, 164, 500, 360, 96, 176, 88, "left")
+front = bubble(432, 432, 500, 360, 96, 752, 88, "right")
 
 svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
 <title>duolog: a conversation between two agents</title>
@@ -57,22 +76,20 @@ svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width=
 <radialGradient id="halo" cx=".34" cy=".38" r=".5"><stop offset="0" stop-color="#8E7BFF" stop-opacity=".55"/><stop offset="1" stop-color="#8E7BFF" stop-opacity="0"/></radialGradient>
 <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".45" stop-color="#fff" stop-opacity=".1"/><stop offset="1" stop-color="#fff" stop-opacity=".28"/></linearGradient>
 <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".22"/><stop offset=".42" stop-color="#fff" stop-opacity=".04"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
-<radialGradient id="vig" cx=".5" cy=".42" r=".78"><stop offset=".45" stop-opacity="0"/><stop offset="1" stop-opacity=".38"/></radialGradient>
-<linearGradient id="warm" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="#F2B090" stop-opacity=".78"/><stop offset="1" stop-color="#C96A4A" stop-opacity=".46"/></linearGradient>
+<linearGradient id="warm" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="#FFBE98"/><stop offset="1" stop-color="#E97B4E"/></linearGradient>
 <linearGradient id="steel" x1="0" y1="0" x2=".4" y2="1"><stop offset="0" stop-color="#fff"/><stop offset=".55" stop-color="#ECEBFF"/><stop offset="1" stop-color="#B6B8EA"/></linearGradient>
-<filter id="lift" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#05061F" flood-opacity=".5"/></filter>
+<filter id="lift" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="26" stdDeviation="26" flood-color="#05061F" flood-opacity=".62"/></filter>
+<filter id="liftbig" x="-35%" y="-35%" width="170%" height="190%"><feDropShadow dx="0" dy="44" stdDeviation="48" flood-color="#05061F" flood-opacity=".85"/></filter>
 <clipPath id="clip"><path d="{clip}"/></clipPath>
-<clipPath id="inback"><path d="{back}"/></clipPath>
-<clipPath id="infront"><path d="{front}"/></clipPath>
+<clipPath id="inback"><rect x="92" y="164" width="500" height="360" rx="96"/></clipPath>
 </defs>
 <g clip-path="url(#clip)">
 <rect width="1024" height="1024" fill="url(#bg)"/><rect width="1024" height="1024" fill="url(#halo)"/>
-<path d="{back}" fill="url(#warm)"/>
-<g clip-path="url(#inback)"><path d="{spark(156, 336, 118)}" fill="none" stroke="#FFF6EF" stroke-width="23" stroke-linecap="round"/></g>
-<path d="{back}" fill="none" stroke="#FFD9C4" stroke-width="8" stroke-linejoin="round"/>
-<path d="{front}" fill="url(#steel)" filter="url(#lift)"/>
-<g clip-path="url(#infront)"><path d="M738,494l92,82-92,82" fill="none" stroke="#2A2A78" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/></g>
-<rect width="1024" height="1024" fill="url(#gloss)"/><rect width="1024" height="1024" fill="url(#vig)"/>
+<path d="{back}" fill="url(#warm)" filter="url(#lift)"/>
+<g clip-path="url(#inback)"><g transform="rotate(53 467 524)"><path d="{burst(467, 524, 236)}" fill="#FFF6EF"/></g></g>
+<path d="{front}" fill="url(#steel)" filter="url(#liftbig)"/>
+<path d="M586,556l66,56-66,56M684,668H778" fill="none" stroke="#2A2A78" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+<rect width="1024" height="1024" fill="url(#gloss)"/>
 </g>
 <path d="{rim}" fill="none" stroke="url(#rim)" stroke-width="7" opacity=".85"/>
 </svg>
