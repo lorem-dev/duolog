@@ -1,0 +1,301 @@
+// Package gate decides worker permissions without a model call.
+package gate
+
+import (
+	"fmt"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"github.com/bmatcuk/doublestar/v4"
+	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/mode"
+)
+
+const (
+	Allow = "allow"
+	Deny  = "deny"
+	Ask   = "ask"
+)
+
+type Action struct {
+	Kind   string `json:"kind"`
+	Target string `json:"target"`
+	Role   string `json:"role"`
+}
+
+type Decision struct {
+	Kind   string    `json:"decision"`
+	Reason string    `json:"reason"`
+	Rule   string    `json:"rule"`
+	Mode   mode.Mode `json:"mode"`
+}
+
+// Evaluate applies denies before role and mode limits. Lead restrictions always
+// apply: inherit_lead=false cannot grant access that the lead does not have.
+func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
+	if lead.Mode != "" {
+		m = mode.Lower(m, lead.Mode)
+	}
+	decision := func(kind, reason, rule string) Decision { return Decision{kind, reason, rule, m} }
+	for _, rule := range p.Rules {
+		if err := validateRule(rule); err != nil {
+			return decision(Deny, err.Error(), "invalid policy")
+		}
+	}
+	for _, rule := range lead.Deny {
+		if err := validateRule(rule); err != nil {
+			return decision(Deny, err.Error(), "invalid lead policy")
+		}
+	}
+	if (a.Kind == "read" || a.Kind == "write") && a.Target != "" {
+		a.Target = cleanPath(a.Target)
+	}
+	if a.Kind == "spawn" {
+		return decision(Deny, "workers cannot delegate", "worker depth")
+	}
+	parts := []string{a.Target}
+	uncertain := false
+	if a.Kind == "exec" {
+		parts, uncertain = shellParts(a.Target)
+	}
+	// Check every part for a deny before any ask or allow can return.
+	for _, part := range parts {
+		partAction := a
+		partAction.Target = part
+		for _, rule := range lead.Deny {
+			if matches(rule, partAction) {
+				return decision(Deny, "denied by lead settings", "lead: "+rule.Action+" "+rule.Match)
+			}
+		}
+		for _, rule := range p.Rules {
+			if rule.Decision == Deny && matches(rule, partAction) {
+				return decision(Deny, "denied by project policy", rule.Action+" "+rule.Match)
+			}
+		}
+	}
+	if a.Kind == "write" && a.Target == "" {
+		return decision(Ask, "write target is not verified; approval required", "unverified action")
+	}
+	if a.Kind != "read" && a.Kind != "write" && a.Kind != "exec" && a.Kind != "net" {
+		return decision(Ask, "unknown tool requires approval", "unknown tool")
+	}
+	if a.Kind == "write" {
+		if lead.RoleSandbox == "read-only" || !roleCanWrite(p, a) {
+			return decision(Deny, "role "+a.Role+" cannot write", "role sandbox")
+		}
+	}
+	if m == mode.Plan && a.Kind != "read" {
+		return decision(Deny, "plan mode permits only reads", "mode plan")
+	}
+	// apply_patch and other writes without a verified target cannot be allowed,
+	// including in full mode.
+	if a.Target == "" || uncertain {
+		return decision(Ask, "tool target or shell syntax requires approval", "unverified action")
+	}
+	if a.Kind == "write" && m == mode.Ask {
+		return decision(Ask, "ask mode requires approval for writes", "mode ask")
+	}
+	result := decision(Allow, "allowed by policy", "policy")
+	for _, part := range parts {
+		partAction := a
+		partAction.Target = part
+		d := decision(p.OnUnmatched, "no matching policy rule", "on_unmatched")
+		for _, rule := range p.Rules {
+			if rule.Decision != Deny && matches(rule, partAction) {
+				d = decision(rule.Decision, "matched project policy", rule.Action+" "+rule.Match)
+				break
+			}
+		}
+		if d.Kind != Allow && d.Kind != Ask && d.Kind != Deny {
+			d = decision(Deny, "invalid policy decision", "invalid policy")
+		}
+		if m == mode.Full && d.Kind == Ask {
+			d = decision(Allow, "full mode confirms action", "mode full: "+d.Rule)
+		}
+		if d.Kind == Deny {
+			return d
+		}
+		if result.Kind != Ask {
+			result = d
+		}
+	}
+	if result.Kind == Ask {
+		result.Reason += " (ask)"
+	}
+	return result
+}
+
+func roleCanWrite(p config.Policy, a Action) bool {
+	scoped := false
+	for _, r := range p.Rules {
+		if r.Action == "write" && r.Decision == Allow {
+			if len(r.Roles) > 0 {
+				scoped = true
+			}
+			if matches(r, a) {
+				return true
+			}
+		}
+	}
+	return !scoped
+}
+
+func cleanPath(path string) string {
+	return filepath.ToSlash(filepath.Clean(strings.ReplaceAll(path, `\`, "/")))
+}
+
+func matches(r config.Rule, a Action) bool {
+	if r.Action != a.Kind || len(r.Roles) > 0 && !slices.Contains(r.Roles, a.Role) {
+		return false
+	}
+	for _, pattern := range expandBraces(r.Match) {
+		if a.Kind == "read" || a.Kind == "write" {
+			pattern = strings.TrimPrefix(pattern, "./")
+			ok, err := doublestar.Match(pattern, a.Target)
+			if err == nil && ok {
+				return true
+			}
+		} else if starMatch(pattern, a.Target) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateRule(r config.Rule) error {
+	if r.Match == "" {
+		return fmt.Errorf("empty %s permission pattern", r.Action)
+	}
+	switch r.Action {
+	case "read", "write":
+		for _, pattern := range expandBraces(r.Match) {
+			if !doublestar.ValidatePattern(pattern) {
+				return fmt.Errorf("invalid %s permission pattern %q", r.Action, r.Match)
+			}
+		}
+	case "exec", "net", "spawn":
+	default:
+		return fmt.Errorf("unknown permission action %q", r.Action)
+	}
+	return nil
+}
+
+// Exec globs deliberately treat '/' as an ordinary character.
+func starMatch(pattern, value string) bool {
+	p, v, star, retry := 0, 0, -1, 0
+	for v < len(value) {
+		if p < len(pattern) && pattern[p] == '*' {
+			star, retry = p, v
+			p++
+		} else if p < len(pattern) && pattern[p] == value[v] {
+			p++
+			v++
+		} else if star >= 0 {
+			retry++
+			v, p = retry, star+1
+		} else {
+			return false
+		}
+	}
+	return strings.Trim(pattern[p:], "*") == ""
+}
+
+func expandBraces(pattern string) []string {
+	start, depth := -1, 0
+	for i, c := range pattern {
+		switch c {
+		case '{':
+			if depth == 0 {
+				start = i
+			}
+			depth++
+		case '}':
+			depth--
+			if depth != 0 || start < 0 {
+				continue
+			}
+			var options []string
+			last, nested := start+1, 0
+			for j := start + 1; j < i; j++ {
+				switch pattern[j] {
+				case '{':
+					nested++
+				case '}':
+					nested--
+				case ',':
+					if nested == 0 {
+						options = append(options, pattern[last:j])
+						last = j + 1
+					}
+				}
+			}
+			options = append(options, pattern[last:i])
+			var result []string
+			for _, option := range options {
+				result = append(result, expandBraces(pattern[:start]+option+pattern[i+1:])...)
+			}
+			return result
+		}
+	}
+	return []string{pattern}
+}
+
+// shellParts is deliberately conservative, not a shell interpreter. Quoted
+// separators remain arguments; substitutions and unsupported syntax need review.
+func shellParts(command string) ([]string, bool) {
+	var parts []string
+	start := 0
+	var quote byte
+	escaped, uncertain := false, false
+	for i := 0; i < len(command); i++ {
+		c := command[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if c == '\\' && quote != '\'' {
+			uncertain = true
+			escaped = true
+			continue
+		}
+		if quote != '\'' && (c == '`' || c == '$' && i+1 < len(command) && command[i+1] == '(') {
+			uncertain = true
+		}
+		if quote != 0 {
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		if c == '\'' || c == '"' {
+			quote = c
+			continue
+		}
+		if strings.ContainsRune("<>()", rune(c)) {
+			uncertain = true
+		}
+		if c == '&' && (i+1 >= len(command) || command[i+1] != '&') {
+			uncertain = true
+		}
+		if c != '&' && c != '|' && c != ';' && c != '\n' {
+			continue
+		}
+		part := strings.TrimSpace(command[start:i])
+		if part == "" {
+			uncertain = true
+		} else {
+			parts = append(parts, strings.Join(strings.Fields(part), " "))
+		}
+		if (c == '&' || c == '|') && i+1 < len(command) && command[i+1] == c {
+			i++
+		}
+		start = i + 1
+	}
+	if part := strings.TrimSpace(command[start:]); part != "" {
+		parts = append(parts, strings.Join(strings.Fields(part), " "))
+	} else {
+		uncertain = true
+	}
+	return parts, uncertain || escaped || quote != 0
+}
