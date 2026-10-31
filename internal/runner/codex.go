@@ -23,7 +23,7 @@ func codexArgv(s Spec) []string {
 	if s.Route.Context == "minimal" {
 		args = append(args, "-c", "project_doc_max_bytes=0")
 	}
-	if s.ThreadID == "" {
+	if s.ThreadID == "" && !s.Persistent {
 		args = append(args, "--ephemeral")
 	}
 	args = append(args, "--output-schema", filepath.Join(s.TaskDir, "answer.schema.json"), "-o", filepath.Join(s.TaskDir, "answer.json"), "--json", taskInstruction)

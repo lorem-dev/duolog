@@ -47,7 +47,7 @@ func Open(dir string, w config.Wire) (*Bus, error) {
 	if err := os.MkdirAll(filepath.Join(dir, "cursors"), 0755); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, "bus.jsonl"), os.O_CREATE|os.O_APPEND|os.O_RDWR, 0600)
+	f, err := os.OpenFile(filepath.Join(dir, "bus.ndjson"), os.O_CREATE|os.O_APPEND|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func (b *Bus) Send(m Message) (int64, error) {
 		return 0, err
 	}
 	defer lock.Close()
-	f, err := os.OpenFile(filepath.Join(b.dir, "bus.jsonl"), os.O_CREATE|os.O_APPEND|os.O_RDWR, 0600)
+	f, err := os.OpenFile(filepath.Join(b.dir, "bus.ndjson"), os.O_CREATE|os.O_APPEND|os.O_RDWR, 0600)
 	if err != nil {
 		return 0, err
 	}
@@ -187,7 +187,7 @@ func (b *Bus) Inbox(reader string) ([][]byte, error) {
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
-	f, err := os.Open(filepath.Join(b.dir, "bus.jsonl"))
+	f, err := os.Open(filepath.Join(b.dir, "bus.ndjson"))
 	if err != nil {
 		return nil, err
 	}

@@ -5,6 +5,7 @@ go 1.25.9
 require (
 	github.com/gofrs/flock v0.13.1
 	github.com/invopop/jsonschema v0.14.0
+	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/spf13/cobra v1.10.1
 	gopkg.in/yaml.v3 v3.0.1

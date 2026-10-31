@@ -19,7 +19,9 @@ func claudeArgv(s Spec) []string {
 	args = append(args, "--output-format", "json", "--json-schema", answerSchema)
 	args = append(args, mode.Args("claude", s.Mode, s.Route.Sandbox)...)
 	if s.ThreadID == "" {
-		args = append(args, "--no-session-persistence")
+		if !s.Persistent {
+			args = append(args, "--no-session-persistence")
+		}
 	} else {
 		args = append(args, "--resume", s.ThreadID)
 	}

@@ -33,6 +33,7 @@ type Spec struct {
 	Env                            []string
 	Allowed, Disallowed            []string
 	Stdin                          []byte
+	Persistent                     bool
 	Timeout                        time.Duration
 }
 
