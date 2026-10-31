@@ -71,7 +71,8 @@ func TestDocsLineLength(t *testing.T) {
 				fence = trimmed[:n]
 				continue
 			}
-			if strings.HasPrefix(trimmed, "|") {
+			// A badge line holds one image link, which cannot wrap, like a table row.
+			if strings.HasPrefix(trimmed, "|") || strings.HasPrefix(trimmed, "<a href=") {
 				continue
 			}
 			if utf8.RuneCountInString(line) > 80 {
@@ -85,6 +86,7 @@ func TestDocsStartWithParagraph(t *testing.T) {
 	for _, path := range docFiles(t) {
 		lines := docLines(t, path)
 		title := false
+		inHTMLTitle := false
 		prose := false
 		for i, line := range lines {
 			line = strings.TrimSpace(line)
@@ -92,11 +94,20 @@ func TestDocsStartWithParagraph(t *testing.T) {
 				continue
 			}
 			if !title {
-				if !strings.HasPrefix(line, "# ") {
+				// The README centres its title and badges, which needs HTML.
+				if !strings.HasPrefix(line, "# ") && !strings.HasPrefix(line, "<h1") {
 					t.Errorf("%s:%d: expected a page title", path, i+1)
 					break
 				}
 				title = true
+				inHTMLTitle = strings.HasPrefix(line, "<h1") && !strings.Contains(line, "</h1>")
+				continue
+			}
+			if inHTMLTitle {
+				inHTMLTitle = !strings.Contains(line, "</h1>")
+				continue
+			}
+			if strings.HasPrefix(line, "<") {
 				continue
 			}
 			if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "|") || strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~") || strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") || strings.HasPrefix(line, ">") || (line[0] >= '0' && line[0] <= '9' && strings.Contains(line, ". ")) {

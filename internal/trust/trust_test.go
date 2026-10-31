@@ -11,6 +11,9 @@ func fixture(t *testing.T, body string) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	if e := os.MkdirAll(filepath.Join(home, ".codex"), 0700); e != nil {
 		t.Fatal(e)
 	}
@@ -45,6 +48,33 @@ func TestHookTrustMatchesProject(t *testing.T) {
 		t.Fatal(s, e)
 	}
 }
+
+// Codex writes approvals with snake_case event names, as in
+// "/path/hooks.json:session_start:0:0".
+func TestHookTrustReadsCodexEventSpelling(t *testing.T) {
+	root := t.TempDir()
+	hook := `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"duolog gate"}]}]}}`
+	path := filepath.Join(root, ".codex", "hooks.json")
+	for _, tc := range []struct {
+		name, event string
+		want        bool
+	}{
+		{"real spelling", "pre_tool_use", true},
+		{"documented spelling", "PreToolUse", true},
+		{"other event", "session_start", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			key := path + ":" + tc.event + ":0:0"
+			fixture(t, fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = \"invented-hash\"\n", key))
+			writeHook(t, root, hook)
+			s, e := Hooks("codex", root)
+			if e != nil || s.Trusted != tc.want {
+				t.Fatal(s, e)
+			}
+		})
+	}
+}
+
 func TestClaudeSkipsTrust(t *testing.T) {
 	fixture(t, "invalid TOML [")
 	root := t.TempDir()
@@ -95,5 +125,16 @@ func TestHookTrustRequiresCurrentGateEntry(t *testing.T) {
 				t.Fatalf("trusted=%v want %v, err=%v", got.Trusted, tc.trusted, err)
 			}
 		})
+	}
+}
+
+func TestTrustWindowsOverrideOnly(t *testing.T) {
+	root := t.TempDir()
+	key := filepath.Join(root, ".codex", "hooks.json") + ":PreToolUse:0:0"
+	fixture(t, fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = \"fixture\"\n", key))
+	writeHook(t, root, `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","commandWindows":"powershell -NoProfile -NonInteractive -Command duolog gate --agent codex"}]}]}}`)
+	state, err := Hooks("codex", root)
+	if err != nil || !state.Installed || !state.Trusted {
+		t.Fatal(state, err)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -57,6 +58,15 @@ func newPeerCommand() *cobra.Command {
 	var allowManual bool
 	var timeout time.Duration
 	root := &cobra.Command{Use: "peer", Short: "Open and drive a second agent session in a Rex pane"}
+	if runtime.GOOS == "windows" {
+		root.Args = cobra.ArbitraryArgs
+		root.DisableFlagParsing = true
+		root.RunE = func(cmd *cobra.Command, _ []string) error {
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), peer.WindowsNotice)
+			return err
+		}
+		return root
+	}
 	root.PersistentFlags().StringVar(&lead, "lead", "", "Registered lead session ID (defaults to DUOLOG_LEAD)")
 	run := func(use, short string, args cobra.PositionalArgs, call func(ctx context.Context, cmd *cobra.Command, args []string) (string, error)) *cobra.Command {
 		return &cobra.Command{Use: use, Short: short, Args: args, RunE: func(cmd *cobra.Command, args []string) error {

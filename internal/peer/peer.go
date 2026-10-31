@@ -911,6 +911,15 @@ func Close(ctx context.Context, id string) error {
 
 // pendingAsk never advances the delivery cursor; the lead hook still receives
 // the request. Replies are matched by ref so answered requests do not stop wait.
+// askLifetime covers the longest gate wait. An ask older than this has no gate
+// waiting for its answer, whether it timed out or its worker was killed.
+const askLifetime = gate.MaxAskWait + 30*time.Second
+
+func askExpired(sent string) bool {
+	at, err := time.Parse(time.RFC3339Nano, sent)
+	return err == nil && time.Since(at) > askLifetime
+}
+
 func pendingAsk(dir, address string) (string, error) {
 	f, err := os.Open(filepath.Join(dir, "bus.ndjson"))
 	if os.IsNotExist(err) {
@@ -934,7 +943,7 @@ func pendingAsk(dir, address string) (string, error) {
 		if err := json.Unmarshal(line, &m); err != nil {
 			return "", err
 		}
-		if m.K == "ask" && m.To == address && strings.HasPrefix(m.From, "duolog/ask.") {
+		if m.K == "ask" && m.To == address && strings.HasPrefix(m.From, "duolog/ask.") && !askExpired(m.T) {
 			pending[strconv.FormatInt(m.N, 10)] = fmt.Sprintf("ask %d: %s", m.N, m.S)
 		}
 		if (m.K == "allow" || m.K == "deny") && m.From == address {
@@ -946,3 +955,6 @@ func pendingAsk(dir, address string) (string, error) {
 	}
 	return "", nil
 }
+
+// WindowsNotice explains the supported alternative without invoking Rex.
+const WindowsNotice = "Live sessions are not available on Windows; use duolog delegate."

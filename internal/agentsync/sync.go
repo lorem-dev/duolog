@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gofrs/flock"
+	"github.com/lorem-dev/duolog/internal/pathutil"
 	"github.com/lorem-dev/duolog/internal/project"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -70,17 +72,25 @@ type unit struct {
 }
 
 type runner struct {
-	root       string
-	cfg        config.Sync
-	o          Options
-	from, to   dirs
-	fromSide   string
-	scanFailed bool
-	rep        Report
+	root        string
+	cfg         config.Sync
+	o           Options
+	from, to    dirs
+	fromSide    string
+	scanFailed  bool
+	pathWindows bool
+	rep         Report
 }
 
 // Run converts agents and skills from the source side to the target side.
 func Run(root string, cfg config.Sync, o Options) (Report, error) {
+	pathWindows := runtime.GOOS == "windows" || pathutil.Windows(o.Path)
+	if o.Path != "" {
+		o.Path = relative(root, o.Path)
+		if o.Path == "" {
+			return Report{}, fmt.Errorf("--path must be inside the project")
+		}
+	}
 	mutexPath := filepath.Join(project.StateRoot(root), ".duolog", "sync.lock")
 	if _, err := os.Stat(mutexPath); err == nil || !o.DryRun && !o.Check {
 		if err := os.MkdirAll(filepath.Dir(mutexPath), 0755); err != nil {
@@ -116,7 +126,7 @@ func Run(root string, cfg config.Sync, o Options) (Report, error) {
 		side = o.From
 	}
 	lock.Direction = side
-	r := &runner{root: root, cfg: cfg, o: o, fromSide: side, from: sideDirs(side), to: sideDirs(other(side))}
+	r := &runner{root: root, cfg: cfg, o: o, pathWindows: pathWindows, fromSide: side, from: sideDirs(side), to: sideDirs(other(side))}
 	r.sync(&lock)
 	if !o.DryRun && !o.Check {
 		if err := saveLock(root, lock); err != nil {
@@ -166,7 +176,11 @@ func (r *runner) inScope(src string) bool {
 	if r.o.Path == "" {
 		return true
 	}
-	return unitRoot(src, r.from) == unitRoot(r.o.Path, r.from)
+	a, b := unitRoot(src, r.from), unitRoot(r.o.Path, r.from)
+	if r.pathWindows {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 func (r *runner) wantKind(target string) (agent, ok bool) {
@@ -344,12 +358,34 @@ func (r *runner) pruneEmpty(dir string) {
 	}
 }
 
+// readSourceDir treats a file in the way as a scan failure. Windows reports it
+// as "path not found", which would otherwise read as a deleted source and
+// remove the files generated from it.
+func readSourceDir(path string) ([]os.DirEntry, error) {
+	entries, err := os.ReadDir(path)
+	if !errors.Is(err, fs.ErrNotExist) {
+		return entries, err
+	}
+	for dir := path; ; dir = filepath.Dir(dir) {
+		info, statErr := os.Stat(dir)
+		if statErr == nil {
+			if !info.IsDir() {
+				return nil, fmt.Errorf("%s is not a directory", dir)
+			}
+			return nil, err
+		}
+		if dir == filepath.Dir(dir) {
+			return nil, err
+		}
+	}
+}
+
 func (r *runner) agentUnits() []unit {
 	ext := ".md"
 	if r.fromSide == "codex" {
 		ext = ".toml"
 	}
-	entries, err := os.ReadDir(r.abs(r.from.agents))
+	entries, err := readSourceDir(r.abs(r.from.agents))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		r.scanError(r.from.agents, err)
 		return nil
@@ -432,7 +468,7 @@ func (r *runner) resolver() func(string) (string, error) {
 const ownSkill = "duolog"
 
 func (r *runner) skillUnits() []unit {
-	entries, err := os.ReadDir(r.abs(r.from.skills))
+	entries, err := readSourceDir(r.abs(r.from.skills))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		r.scanError(r.from.skills, err)
 		return nil
@@ -521,14 +557,14 @@ func relative(root, path string) string {
 	if path == "" {
 		return ""
 	}
-	if filepath.IsAbs(path) {
-		rel, err := filepath.Rel(root, path)
+	if pathutil.IsAbs(path) {
+		rel, err := pathutil.Relative(root, path)
 		if err != nil {
 			return ""
 		}
 		path = rel
 	}
-	path = filepath.ToSlash(filepath.Clean(path))
+	path = pathutil.Clean(path)
 	if path == ".." || strings.HasPrefix(path, "../") || path == "." {
 		return ""
 	}
@@ -550,7 +586,16 @@ func Hook(root string, cfg config.Sync, path string) string {
 	if rel == "" {
 		return ""
 	}
-	if e, ok := lock.Files[rel]; ok {
+	key := rel
+	if runtime.GOOS == "windows" || pathutil.Windows(path) {
+		for candidate := range lock.Files {
+			if strings.EqualFold(candidate, rel) {
+				key = candidate
+				break
+			}
+		}
+	}
+	if e, ok := lock.Files[key]; ok {
 		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
 		if err == nil && hashBytes(data) != e.TargetHash {
 			return fmt.Sprintf("duolog sync: %s is generated from %s; edit the source instead. The file was left as is.", rel, e.Source)

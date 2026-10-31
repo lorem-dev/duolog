@@ -160,7 +160,9 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	if err = readLog(stderrPath, s.Route.Agent, true, &result); err != nil {
 		return result, err
 	}
-	if runErr != nil {
+	// A worker that exits 0 and leaves a background child holding its output
+	// has still finished: its answer is complete.
+	if runErr != nil && !(errors.Is(runErr, exec.ErrWaitDelay) && result.ExitCode == 0) {
 		return result, runErr
 	}
 	if closeErr != nil {

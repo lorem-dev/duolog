@@ -14,6 +14,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/store"
+	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/lorem-dev/duolog/plugin"
 )
 
@@ -49,6 +50,9 @@ func Run(o Options) (Report, error) {
 	var report Report
 	for _, agent := range agents {
 		path := hooksPath(base, agent)
+		if o.Scope == "user" {
+			path = userHooksPath(base, agent)
+		}
 		if agent == "claude" && pluginEnabled(base, o.Home) {
 			// The plugin already registers these hooks and the skill; a second
 			// copy in settings.json would run every gate twice. Drop any copy an
@@ -75,7 +79,7 @@ func Run(o Options) (Report, error) {
 		if err != nil {
 			return Report{}, err
 		}
-		edits = append(edits, edit{path, data}, edit{skillPath(base, agent), skill})
+		edits = append(edits, edit{path, data}, edit{installedSkillPath(o, base, agent), skill})
 	}
 	if o.Scope != "user" {
 		if _, err := store.Open(o.Root); err != nil {
@@ -120,6 +124,9 @@ func Remove(o Options) error {
 	var edits []edit
 	for _, agent := range agents {
 		path := hooksPath(base, agent)
+		if o.Scope == "user" {
+			path = userHooksPath(base, agent)
+		}
 		if _, err := os.Stat(path); err == nil {
 			data, err := mergeHooks(path, nil)
 			if err != nil {
@@ -134,7 +141,7 @@ func Remove(o Options) error {
 		}
 	}
 	for _, agent := range agents {
-		skill := skillPath(base, agent)
+		skill := installedSkillPath(o, base, agent)
 		if err := os.Remove(skill); err != nil && !os.IsNotExist(err) {
 			return err
 		}
@@ -149,25 +156,32 @@ func Remove(o Options) error {
 // pluginKey is the enabledPlugins key of the duolog Claude plugin.
 const pluginKey = "duolog@duolog"
 
-// pluginEnabled reports whether the duolog plugin is switched on in the
-// settings.json under any of dirs (the target base and the user home).
-func pluginEnabled(dirs ...string) bool {
-	for _, dir := range dirs {
-		if dir == "" {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
+// pluginEnabled applies project and local plugin settings after user settings.
+// An explicit project disable overrides an enabled user plugin.
+func pluginEnabled(base, home string) bool {
+	paths := []string{}
+	if home != "" {
+		paths = append(paths, filepath.Join(trusthome.Claude(home), "settings.json"))
+	}
+	if base != "" && base != home {
+		paths = append(paths, filepath.Join(base, ".claude", "settings.json"), filepath.Join(base, ".claude", "settings.local.json"))
+	}
+	enabled := false
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
 		}
 		var doc struct {
 			Enabled map[string]bool `json:"enabledPlugins"`
 		}
-		if json.Unmarshal(data, &doc) == nil && doc.Enabled[pluginKey] {
-			return true
+		if json.Unmarshal(data, &doc) == nil {
+			if value, ok := doc.Enabled[pluginKey]; ok {
+				enabled = value
+			}
 		}
 	}
-	return false
+	return enabled
 }
 
 func resolve(o Options) (agents []string, base string, err error) {
@@ -198,6 +212,19 @@ func hooksPath(base, agent string) string {
 		return filepath.Join(base, ".claude", "settings.json")
 	}
 	return filepath.Join(base, ".codex", "hooks.json")
+}
+
+func userHooksPath(home, agent string) string {
+	if agent == "claude" {
+		return filepath.Join(trusthome.Claude(home), "settings.json")
+	}
+	return filepath.Join(trusthome.Codex(home), "hooks.json")
+}
+func installedSkillPath(o Options, base, agent string) string {
+	if o.Scope == "user" && agent == "claude" {
+		return filepath.Join(trusthome.Claude(base), "skills", "duolog", "SKILL.md")
+	}
+	return skillPath(base, agent)
 }
 
 func skillPath(base, agent string) string {
@@ -231,7 +258,7 @@ func apply(e edit) (bool, error) {
 	if err := os.WriteFile(tmp, e.data, 0o644); err != nil {
 		return false, err
 	}
-	if err := os.Rename(tmp, e.path); err != nil {
+	if err := store.Rename(tmp, e.path); err != nil {
 		_ = os.Remove(tmp)
 		return false, err
 	}
@@ -239,10 +266,12 @@ func apply(e edit) (bool, error) {
 }
 
 type handler struct {
-	Type        string `json:"type"`
-	Command     string `json:"command"`
-	Timeout     int    `json:"timeout,omitempty"`
-	AsyncRewake bool   `json:"asyncRewake,omitempty"`
+	Type           string   `json:"type"`
+	Command        string   `json:"command"`
+	CommandWindows string   `json:"commandWindows,omitempty"`
+	Args           []string `json:"args,omitempty"`
+	Timeout        int      `json:"timeout,omitempty"`
+	AsyncRewake    bool     `json:"asyncRewake,omitempty"`
 }
 
 type group struct {
@@ -256,17 +285,29 @@ type event struct {
 
 // events returns the hook entries of one agent in a fixed order. Timeouts are
 // in seconds for Claude; Codex hooks.json also takes seconds.
-func events(agent, goos string, timeout int) []event {
+func events(agent string, timeout int) []event {
+	makeHandler := func(args string, gate bool) handler {
+		h := handler{Type: "command", Command: "duolog", Args: strings.Fields(args)}
+		if agent == "codex" {
+			h.Command = command("linux", args, gate)
+			h.Args = nil
+			h.CommandWindows = command("windows", args, gate)
+		}
+		return h
+	}
 	hook := func(name string) group {
-		return group{[]handler{{Type: "command", Command: command(goos, agent, "hook "+name+" --agent "+agent, false)}}}
+		return group{[]handler{makeHandler("hook "+name+" --agent "+agent, false)}}
 	}
 	gate := func(name string) group {
-		return group{[]handler{{Type: "command", Command: command(goos, agent, "gate --agent "+agent+" --event "+name, true), Timeout: timeout}}}
+		h := makeHandler("gate --agent "+agent+" --event "+name, true)
+		h.Timeout = timeout
+		return group{[]handler{h}}
 	}
 	start := []group{hook("SessionStart")}
 	if agent == "claude" {
-		wake := group{[]handler{{Type: "command", Command: command(goos, agent, "hook wake --agent claude", false), AsyncRewake: true}}}
-		start = append(start, wake)
+		h := makeHandler("hook wake --agent claude", false)
+		h.AsyncRewake = true
+		start = append(start, group{[]handler{h}})
 	}
 	return []event{
 		{"SessionStart", start},
@@ -278,19 +319,14 @@ func events(agent, goos string, timeout int) []event {
 	}
 }
 
-// command wraps a duolog call in a small per-OS guard. A missing binary must
-// not block the lead, so the guard exits 0. A gate fails closed for a worker:
-// with DUOLOG_DEPTH of 1 or more and no binary, it exits 2 to block the call.
-// Claude Code runs hook commands through Git Bash on Windows, so Claude always
-// gets the POSIX form; only Codex on Windows gets the cmd.exe form. The cmd
-// form is an explicit if/else, so a real exit code of duolog is never masked.
-func command(goos, agent, args string, gate bool) string {
-	if goos == "windows" && agent != "claude" {
-		missing := "exit /b 0"
-		if gate {
-			missing = `if defined DUOLOG_DEPTH (if not "%DUOLOG_DEPTH%"=="0" exit /b 2) else (exit /b 0)`
-		}
-		return "where duolog >nul 2>nul & if errorlevel 1 (" + missing + ") else (duolog " + args + ")"
+// Codex carries both shell guards in one shared file. POSIX must exec so
+// registration records the agent, not a short-lived shell.
+func command(goos, args string, gate bool) string {
+	if goos == "windows" {
+		body := powershellGuard(args, gate)
+		// No variable expansion or embedded double quotes: safe when the outer
+		// Windows shell is PowerShell, Git Bash or cmd. Codex documents no shell.
+		return `powershell -NoProfile -NonInteractive -Command "` + body + `"`
 	}
 	s := "if command -v duolog >/dev/null 2>&1; then exec duolog " + args + "; "
 	if gate {
@@ -299,10 +335,26 @@ func command(goos, agent, args string, gate bool) string {
 	return s + "fi"
 }
 
+// powershellGuard finds duolog with where.exe and reads the exit code without a
+// module cmdlet. Measured on hosted Windows runners, x64 and ARM: PowerShell
+// starts in 0.2 seconds, but Get-Command for a missing program searches every
+// module for 24 seconds, and Get-Variable took 18 to 30 seconds in a worker
+// environment without PSModulePath. Every Codex tool call runs this guard.
+// [char]36 is the dollar sign, which an outer shell would otherwise expand, and
+// $PATH:duolog keeps where.exe out of the current directory.
+func powershellGuard(args string, gate bool) string {
+	lastExit := "[int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0]"
+	s := "& ([Environment]::SystemDirectory + '\\where.exe') /Q ([char]36 + 'PATH:duolog'); if (" + lastExit + " -eq 0) { duolog " + args + "; exit " + lastExit + " }; "
+	if gate {
+		s += "if ([Environment]::GetEnvironmentVariable('DUOLOG_DEPTH') -match '^0*[1-9][0-9]*$') { exit 2 }; "
+	}
+	return s + "exit 0"
+}
+
 // HooksJSON renders the hooks document for one agent, as the plugin ships it.
-func HooksJSON(agent, goos string, timeout int) ([]byte, error) {
+func HooksJSON(agent, _ string, timeout int) ([]byte, error) {
 	hooks := map[string][]group{}
-	for _, e := range events(agent, goos, timeout) {
+	for _, e := range events(agent, timeout) {
 		hooks[e.name] = e.groups
 	}
 	return encode(map[string]any{"hooks": hooks})
@@ -326,7 +378,7 @@ func isOurs(raw json.RawMessage) bool {
 		return false
 	}
 	for _, h := range g.Hooks {
-		if IsOurCommand(h.Command) {
+		if IsOurCommand(h.Command) || IsOurCommand(h.CommandWindows) {
 			return true
 		}
 	}
@@ -401,5 +453,5 @@ func mergeHooks(path string, ours []byte) ([]byte, error) {
 
 // IsOurCommand shares handler recognition with trust and startup checks.
 func IsOurCommand(command string) bool {
-	return command == "duolog gate" || strings.Contains(command, "duolog hook ") || strings.Contains(command, "duolog gate ")
+	return command == "duolog" || command == "duolog gate" || strings.Contains(command, "duolog hook ") || strings.Contains(command, "duolog gate ")
 }

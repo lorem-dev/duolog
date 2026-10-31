@@ -11,12 +11,13 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/lorem-dev/duolog/internal/pathutil"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
 // Put saves an immutable snapshot and returns its content-addressed reference.
 func Put(s *store.Store, path string) (string, error) {
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(pathutil.Native(path))
 	if err != nil {
 		return "", err
 	}
@@ -48,7 +49,7 @@ func Put(s *store.Store, path string) (string, error) {
 	if closeErr != nil {
 		return "", closeErr
 	}
-	if err := os.Rename(file.Name(), dest); err != nil {
+	if err := store.Rename(file.Name(), dest); err != nil {
 		// Another writer may have published the same snapshot on Windows.
 		if existing, readErr := os.ReadFile(dest); readErr != nil || !bytes.Equal(existing, content) {
 			return "", err
@@ -80,13 +81,14 @@ func Read(s *store.Store, root, ref string) (content []byte, stale bool, err err
 	if err != nil {
 		return nil, false, err
 	}
-	name = strings.ReplaceAll(name, `\`, "/")
+	rawName := name
+	name = pathutil.Slashes(name)
 	if at := strings.LastIndexByte(name, '@'); at >= 0 {
 		hash := name[at+1:]
 		if !validHash(hash, 8) {
 			return nil, false, fmt.Errorf("invalid blob hash in ref %q", ref)
 		}
-		path, _, err := repoPath(root, name[:at])
+		path, _, err := repoPath(root, rawName[:at])
 		if err != nil {
 			return nil, false, err
 		}
@@ -120,7 +122,7 @@ func validHash(hash string, length int) bool {
 }
 
 func repoPath(root, name string) (string, string, error) {
-	name = strings.ReplaceAll(name, `\`, "/")
+	name = pathutil.Clean(name)
 	if name == "" || strings.HasPrefix(name, "/") || strings.Contains(name, ":") {
 		return "", "", fmt.Errorf("ref must be relative to project root: %q", name)
 	}

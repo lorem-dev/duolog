@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/bus"
@@ -100,6 +101,9 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 		if (action.Kind == "read" || action.Kind == "write") && action.Target != "" {
 			action.Target = gate.RelativeTarget(work, envelope.Cwd, action.Target)
 		}
+		if action.Kind == "exec" {
+			action.Work, action.Cwd = work, envelope.Cwd
+		}
 	}
 	a = actions[0]
 	cfg, err := config.Load(root)
@@ -149,17 +153,23 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 		}
 	}
 	d = gate.Decision{Kind: gate.Allow, Mode: m}
+	var asked []string
 	for _, action := range actions {
 		action.Role = a.Role
 		next := gate.Evaluate(cfg.Policy, rules, m, action)
 		if next.Kind == gate.Deny {
 			return action, next, nil
 		}
+		if next.Kind == gate.Ask {
+			asked = append(asked, action.Target)
+		}
 		if d.Kind != gate.Ask {
 			a, d = action, next
 		}
 	}
 	if d.Kind == gate.Ask {
+		// One answer covers the whole tool call, so the question names every path.
+		a.Target = strings.Join(asked, " ")
 		b, err := bus.Open(reg.Dir, cfg.Wire)
 		if err != nil {
 			return a, d, err

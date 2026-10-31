@@ -44,8 +44,8 @@ Every page starts with one short paragraph that says what the page is about.
 Headings are sentences, not labels. `How a worker asks for permission` is better
 than `Permissions`.
 
-Lines have at most 80 characters. Tables and fenced code blocks are exempt,
-because you cannot wrap them without breaking them.
+Lines have at most 80 characters. Tables, fenced code blocks and the badge links
+in `README.md` are exempt, because you cannot wrap them without breaking them.
 
 Every page ends with a section named `Related pages`, unless it has none.
 
@@ -99,7 +99,21 @@ two do not drift apart.
 - Plans and design notes. These go in `docs/superpowers/`, which git ignores.
 - Code that goes out of date. Link to the source file instead.
 
-Python scripts carry a uv header and type annotations.
+Python scripts carry a uv header and type annotations. Run them as
+`uv run <script>`, on every OS, rather than executing a shebang. PowerShell
+uses `$env:NAME = 'value'` instead of `export NAME=value`. It uses a backtick
+for a continued command instead of a POSIX backslash; prefer one-line commands.
+
+On Windows, use `go build ./cmd/duolog` instead of `make build`. For the
+individual checks, run `go vet ./...`, `go test ./...`,
+`go test . -run '^TestSchemaFileIsCurrent$'`,
+`go run ./scripts/thirdparty -check` and `go run ./scripts/render-install`.
+The CI workflow shows the PowerShell form of docs lint; it lists Markdown
+files with `Get-ChildItem` before calling `uvx` and `go test -run TestDocs .`.
+The test jobs cover Linux amd64/arm64, macOS and Windows amd64/arm64. The
+Windows arm64 job runs without the race detector, which Go does not support.
+The cross-build job compiles all six release targets. These checks do not run
+real agents.
 
 ## How to add a dependency
 

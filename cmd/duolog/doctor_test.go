@@ -5,6 +5,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -51,6 +52,9 @@ func TestDoctorProbeFlag(t *testing.T) {
 }
 
 func TestDoctorUsesRexInventoryAndLeadState(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Rex has no Windows build")
+	}
 	isolatedRouteConfig(t)
 	root := t.TempDir()
 	t.Chdir(root)
@@ -106,6 +110,9 @@ func TestDoctorUsesRexInventoryAndLeadState(t *testing.T) {
 }
 
 func TestDoctorRexInventoryUnavailable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Rex has no Windows build")
+	}
 	for _, scenario := range []testbin.Scenario{
 		{Exit: 4, Stderr: "socket unavailable"},
 		{Stdout: "invalid JSON"},

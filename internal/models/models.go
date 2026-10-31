@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/lorem-dev/duolog/internal/store"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -226,7 +227,7 @@ func (r Resolver) writeCache(c catalogCache) error {
 	if closeErr != nil {
 		return fmt.Errorf("model cache: %w", closeErr)
 	}
-	if err := os.Rename(file.Name(), filepath.Join(r.CacheDir, "models.json")); err != nil {
+	if err := store.Rename(file.Name(), filepath.Join(r.CacheDir, "models.json")); err != nil {
 		return fmt.Errorf("model cache: %w", err)
 	}
 	return nil

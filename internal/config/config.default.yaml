@@ -119,9 +119,10 @@ policy:
     - {action: write, match: "**", decision: allow, roles: [implement, implement_complex, mechanical, tests, docs, debug_hard]}
     - {action: exec,  match: "{go,cargo,npm,pnpm,uv,task,make} {test,lint,fmt,build,run}*", decision: allow, roles: [implement, implement_complex, mechanical, tests, docs, debug_hard]}
     - {action: exec,  match: "git {status,diff,log,show}*", decision: allow}
-    - {action: exec,  match: "{cat,head,tail,ls,pwd,wc,rg,grep,find}*", decision: allow}
+    - {action: exec,  match: "{cat,head,tail,ls,pwd,wc,rg,grep,find,Get-Content,Get-ChildItem,Get-Location,Test-Path,Select-String,Get-Item}*", decision: allow}
     - {action: exec,  match: "git {push,reset --hard,clean,rebase}*", decision: deny}
     - {action: exec,  match: "rm -rf *", decision: deny}
+    - {action: exec,  match: "remove-item -recurse *", decision: deny}
     - {action: net,   match: "*", decision: ask}
 
 # What to do when the target agent lacks a skill, MCP server or plugin the task needs.

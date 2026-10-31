@@ -3,7 +3,7 @@ package gate
 import (
 	"encoding/json"
 	"fmt"
-	"path/filepath"
+	"github.com/lorem-dev/duolog/internal/pathutil"
 	"strings"
 )
 
@@ -28,15 +28,18 @@ func Normalize(agent string, input []byte) (Action, error) {
 	if err := json.Unmarshal(input, &hook); err != nil {
 		return Action{}, err
 	}
-	// Only Bash and spawn have verified Codex hook names. Claude tool names
-	// cannot confer permissions on an unverified Codex tool.
-	if agent == "codex" && hook.Tool != "" && hook.Tool != "Bash" && hook.Tool != "collaborationspawn_agent" && hook.Tool != "spawn_agent" && hook.Tool != "apply_patch" {
+	// Accept known Codex hook names, including the native Windows shell tool.
+	// Other Claude tool names cannot confer permissions on an unknown Codex tool.
+	if agent == "codex" && hook.Tool != "" && hook.Tool != "Bash" && hook.Tool != "PowerShell" && hook.Tool != "collaborationspawn_agent" && hook.Tool != "spawn_agent" && hook.Tool != "apply_patch" {
 		return Action{Kind: "unknown", Target: hook.Tool}, nil
 	}
 	a := Action{}
 	switch hook.Tool {
-	case "Bash":
+	case "Bash", "PowerShell":
 		a.Kind, a.Target = "exec", strings.TrimSpace(hook.Input.Command)
+		if hook.Tool == "PowerShell" {
+			a.Shell = "powershell"
+		}
 	case "Read", "Grep", "Glob", "LS", "Write", "Edit", "MultiEdit", "NotebookEdit":
 		a.Kind = "write"
 		if hook.Tool == "Read" || hook.Tool == "Grep" || hook.Tool == "Glob" || hook.Tool == "LS" {
@@ -52,9 +55,12 @@ func Normalize(agent string, input []byte) (Action, error) {
 			hook.Input.Path = "."
 		}
 		if hook.Input.Path != "" {
+			if pathutil.Windows(hook.Input.Path) || pathutil.Windows(hook.Cwd) {
+				a.Shell = "windows"
+			}
 			a.Target = cleanPath(hook.Input.Path)
-			if filepath.IsAbs(a.Target) && hook.Cwd != "" {
-				if relative, err := filepath.Rel(hook.Cwd, a.Target); err == nil {
+			if pathutil.IsAbs(a.Target) && hook.Cwd != "" {
+				if relative, err := pathutil.Relative(hook.Cwd, a.Target); err == nil {
 					a.Target = cleanPath(relative)
 				}
 			}
@@ -63,6 +69,9 @@ func Normalize(agent string, input []byte) (Action, error) {
 		a.Kind = "write"
 		paths := PatchPaths(hook.Input.Patch + "\n" + hook.Input.Command)
 		if len(paths) == 1 {
+			if pathutil.Windows(paths[0]) || pathutil.Windows(hook.Cwd) {
+				a.Shell = "windows"
+			}
 			a.Target = cleanPath(paths[0])
 		}
 	case "TodoWrite", "Skill":
@@ -134,10 +143,26 @@ func NormalizeAll(agent string, input []byte) ([]Action, error) {
 		return nil, err
 	}
 	var h struct {
-		Tool  string                          `json:"tool_name"`
-		Input struct{ Patch, Command string } `json:"tool_input"`
+		Tool  string                                         `json:"tool_name"`
+		Cwd   string                                         `json:"cwd"`
+		Input struct{ Patch, Command, Pattern, Glob string } `json:"tool_input"`
 	}
-	if json.Unmarshal(input, &h) != nil || h.Tool != "apply_patch" {
+	if json.Unmarshal(input, &h) != nil {
+		return []Action{a}, nil
+	}
+	// A search names what it reads in its pattern as well as in its path.
+	if h.Tool == "Glob" || h.Tool == "Grep" {
+		pattern := h.Input.Glob
+		if h.Tool == "Glob" {
+			pattern = h.Input.Pattern
+		}
+		actions := []Action{a}
+		if pattern != "" {
+			actions = append(actions, Action{Kind: "read", Target: cleanPath(pattern), Shell: a.Shell})
+		}
+		return actions, nil
+	}
+	if h.Tool != "apply_patch" {
 		return []Action{a}, nil
 	}
 	paths := PatchPaths(h.Input.Patch + "\n" + h.Input.Command)
@@ -146,7 +171,11 @@ func NormalizeAll(agent string, input []byte) ([]Action, error) {
 	}
 	actions := make([]Action, 0, len(paths))
 	for _, path := range paths {
-		actions = append(actions, Action{Kind: "write", Target: cleanPath(path)})
+		action := Action{Kind: "write", Target: cleanPath(path)}
+		if pathutil.Windows(path) || pathutil.Windows(h.Cwd) {
+			action.Shell = "windows"
+		}
+		actions = append(actions, action)
 	}
 	return actions, nil
 }

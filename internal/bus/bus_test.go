@@ -284,6 +284,12 @@ func TestSendRepairsTornTail(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "bus.ndjson"), append(data, fragment...), 0600); err != nil {
 				t.Fatal(err)
 			}
+			// A reader may still hold the file open while Send repairs its tail.
+			reader, err := os.Open(filepath.Join(dir, "bus.ndjson"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reader.Close()
 			if n := sendTestMessage(t, b, Message{To: "reader", S: "repaired"}); n != int64(completeCount+1) {
 				t.Fatalf("N = %d", n)
 			}
@@ -343,5 +349,28 @@ func TestWireLimits(t *testing.T) {
 	}
 	if n := sendTestMessage(t, b, Message{S: "ok"}); n != 1 {
 		t.Fatalf("N = %d", n)
+	}
+}
+
+func TestCRLFBusAndCursor(t *testing.T) {
+	b, dir := openTestBus(t)
+	data := []byte("{\"n\":1,\"from\":\"lead\",\"to\":\"worker\",\"s\":\"hello\"}\r\n")
+	if err := os.WriteFile(filepath.Join(dir, "bus.ndjson"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cursors", "worker"), []byte("0\r\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	lines, err := b.Inbox("worker")
+	if err != nil || len(lines) != 1 || !bytes.Equal(lines[0], data) {
+		t.Fatal(lines, err)
+	}
+	n, err := b.Send(Message{From: "lead", To: "worker", S: "next"})
+	if err != nil || n != 2 {
+		t.Fatal(n, err)
+	}
+	lines, err = b.Inbox("worker")
+	if err != nil || len(lines) != 1 || !bytes.Contains(lines[0], []byte("next")) {
+		t.Fatal(lines, err)
 	}
 }

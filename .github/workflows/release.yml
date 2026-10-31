@@ -13,6 +13,7 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
@@ -22,14 +23,15 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Test suite
-        run: go test ./...
+        timeout-minutes: 4
+        run: go test -timeout 2m ./...
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
-      # GoReleaser includes install.sh in both release assets and checksums.
-      - name: Render install script
+      # GoReleaser includes both installers in release assets and checksums.
+      - name: Render install scripts
         run: make install-script
       - name: Check install script
-        run: shellcheck dist/install.sh
+        run: shellcheck -S error dist/install.sh
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: '~> v2'

@@ -59,7 +59,9 @@ These come from the
 - Codex does not fire `SessionEnd` when its pane closes (OBSERVED), so a
   closed Codex pane can stay in the registry. `duolog doctor` warns about a
   pane whose lead has ended.
-- We did not test Rex or duolog on Windows.
+- Rex has no known Windows build. Live sessions are unavailable on Windows.
+  `duolog peer` prints this limit; use `duolog delegate` instead.
+- Real agents on Windows have not been run.
 
 ## How to test the Rex flow by hand
 

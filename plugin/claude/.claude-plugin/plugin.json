@@ -2,5 +2,12 @@
   "name": "duolog",
   "version": "0.1.0",
   "description": "Hand work between Claude Code and Codex sessions with small task files and short answers.",
-  "license": "Apache-2.0"
+  "author": {
+    "name": "Lorem Dev",
+    "url": "https://github.com/lorem-dev"
+  },
+  "homepage": "https://github.com/lorem-dev/duolog",
+  "repository": "https://github.com/lorem-dev/duolog",
+  "license": "Apache-2.0",
+  "keywords": ["codex", "delegation", "multi-agent", "code-review", "workflow"]
 }

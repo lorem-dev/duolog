@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/lorem-dev/duolog/internal/install"
+	"github.com/lorem-dev/duolog/internal/pathutil"
+	"github.com/lorem-dev/duolog/internal/trusthome"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -28,13 +31,9 @@ type settings struct {
 
 func read() (settings, error) {
 	var s settings
-	home := os.Getenv("HOME")
-	if home == "" {
-		var err error
-		home, err = os.UserHomeDir()
-		if err != nil {
-			return s, err
-		}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return s, err
 	}
 	data, err := os.ReadFile(filepath.Join(CodexHome(home), "config.toml"))
 	if os.IsNotExist(err) {
@@ -58,7 +57,12 @@ func Folder(agent, root string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return s.Projects[root].TrustLevel == "trusted", nil
+	for path, settings := range s.Projects {
+		if pathutil.Clean(pathutil.Resolved(path)) == pathutil.Clean(pathutil.Resolved(root)) && settings.TrustLevel == "trusted" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 func Hooks(agent, root string) (State, error) {
 	if agent == "claude" {
@@ -67,15 +71,16 @@ func Hooks(agent, root string) (State, error) {
 			return State{}, err
 		}
 		installed := false
-		for _, base := range []string{root, home} {
-			data, err := os.ReadFile(filepath.Join(base, ".claude", "settings.json"))
+		for _, path := range []string{filepath.Join(root, ".claude", "settings.json"), filepath.Join(trusthome.Claude(home), "settings.json")} {
+			data, err := os.ReadFile(path)
 			if err != nil {
 				continue
 			}
 			var doc struct {
 				Hooks map[string][]struct {
 					Hooks []struct {
-						Command string `json:"command"`
+						Command        string `json:"command"`
+						CommandWindows string `json:"commandWindows"`
 					} `json:"hooks"`
 				} `json:"hooks"`
 				Plugins map[string]bool `json:"enabledPlugins"`
@@ -127,8 +132,9 @@ func hooksAt(path string, s settings) (State, error) {
 	var definition struct {
 		Hooks map[string][]struct {
 			Hooks []struct {
-				Type    string `json:"type"`
-				Command string `json:"command"`
+				Type           string `json:"type"`
+				Command        string `json:"command"`
+				CommandWindows string `json:"commandWindows"`
 			} `json:"hooks"`
 		} `json:"hooks"`
 	}
@@ -137,14 +143,20 @@ func hooksAt(path string, s settings) (State, error) {
 	}
 	for i, group := range definition.Hooks["PreToolUse"] {
 		for j, hook := range group.Hooks {
-			if hook.Type != "command" || !install.IsOurCommand(hook.Command) {
+			if hook.Type != "command" || !(install.IsOurCommand(hook.Command) || install.IsOurCommand(hook.CommandWindows)) {
 				continue
 			}
-			key := fmt.Sprintf("%s:PreToolUse:%d:%d", path, i, j)
 			// Codex's hash algorithm is unknown here. Changes after review cannot
 			// be detected from this state; Codex itself will skip a changed hook.
-			if s.Hooks.State[key].TrustedHash != "" {
-				return State{Trusted: true, Installed: true}, nil
+			for approved, state := range s.Hooks.State {
+				// Codex stores the snake_case event name; hooks.json uses PascalCase.
+				for _, event := range []string{":pre_tool_use:", ":PreToolUse:"} {
+					approvedPath, suffix, ok := strings.Cut(approved, event)
+					if ok && suffix == fmt.Sprintf("%d:%d", i, j) && state.TrustedHash != "" &&
+						pathutil.Clean(pathutil.Resolved(approvedPath)) == pathutil.Clean(pathutil.Resolved(path)) {
+						return State{Trusted: true, Installed: true}, nil
+					}
+				}
 			}
 		}
 	}
@@ -153,8 +165,5 @@ func hooksAt(path string, s settings) (State, error) {
 
 // CodexHome honors the native CLI config directory override.
 func CodexHome(home string) string {
-	if dir := os.Getenv("CODEX_HOME"); dir != "" {
-		return dir
-	}
-	return filepath.Join(home, ".codex")
+	return trusthome.Codex(home)
 }

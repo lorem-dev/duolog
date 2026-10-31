@@ -139,9 +139,6 @@ func TestSchemaRejectsMistakes(t *testing.T) {
 
 func TestConfigSchemaReadsNothing(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("HOME", root)
-	t.Setenv("XDG_CONFIG_HOME", root)
-	t.Setenv("APPDATA", root)
 	binary := filepath.Join(t.TempDir(), "duolog")
 	if os.PathSeparator == '\\' {
 		binary += ".exe"
@@ -150,6 +147,13 @@ func TestConfigSchemaReadsNothing(t *testing.T) {
 	if b, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, b)
 	}
+	// Build with the job cache before isolating the product configuration.
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", root)
+	t.Setenv("APPDATA", root)
+	t.Setenv("USERPROFILE", root)
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	if err := os.MkdirAll(filepath.Join(root, ".duolog"), 0755); err != nil {
 		t.Fatal(err)
 	}

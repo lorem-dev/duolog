@@ -1,6 +1,6 @@
 # Getting started with duolog
 
-Install the binary with one command, then set up this project:
+Install the binary on macOS or Linux, then set up this project:
 
 ```sh
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh
@@ -18,17 +18,46 @@ curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | DUOLOG_INSTALL_DIR="$HOME/bin" sh
 ```
 
-`DUOLOG_VERSION` also pins a release; `--dir` also sets the directory. Use
-`--via-go` to print the source install command. The script supports Linux and
-macOS on amd64 and arm64. On other platforms, including Windows, it prints
-`go install github.com/lorem-dev/duolog/cmd/duolog@<version>` and exits with
-an error.
+`DUOLOG_VERSION` also pins a POSIX release; `--dir` also sets its directory.
+Use `--via-go` to print the source install command. The POSIX script supports
+macOS and Linux; use the PowerShell installer on Windows.
+
+On Windows, use Windows PowerShell 5.1 or PowerShell 7 (`pwsh`):
+
+```powershell
+irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
+```
+
+Add the printed directory to PATH in Windows Environment Variables, then open
+another terminal and run `duolog install --scope project`. The default folder
+is `$env:LOCALAPPDATA\Programs\duolog`. The installer does not edit PATH.
+Both installers select amd64 or arm64 and verify SHA-256 before installing.
+An invalid download leaves an existing binary unchanged.
+
+To pin a Windows release or choose a directory:
+
+```powershell
+$env:DUOLOG_VERSION = 'v0.1.0'
+$env:DUOLOG_INSTALL_DIR = "$env:LOCALAPPDATA\Programs\duolog"
+irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
+```
 
 Project setup adds one marked line near the top of `AGENTS.md` and the Claude
 instruction file. If the project has `.duolog/config.yaml` but a new machine
 has no duolog on `PATH`, that line asks the agent to offer the install command.
 The agent must get your agreement before running it. User setup does not add
 this line. Uninstall removes the line and keeps your other instructions.
+
+## What works on each OS
+
+| OS | Install command | Known limits |
+|---|---|---|
+| macOS | `curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh` piped to `sh` | Rex is needed only for live sessions |
+| Linux | `curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh` piped to `sh` | Rex is needed only for live sessions |
+| Windows | `irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1` piped to `iex` | No Rex or live sessions; real agents have not been run |
+
+All other single-line `duolog` commands shown here work in POSIX shells and
+PowerShell. The install links work once a release publishes the assets.
 
 ## What you need before you start
 
@@ -47,11 +76,12 @@ reads the answer from a file.
 Run this in the repository root:
 
 ```bash
-make build
+go build ./cmd/duolog
 ```
 
-This writes `./duolog`. Put it on your `PATH`. The hooks call `duolog` by
-name, so a binary that is not on `PATH` does nothing.
+This writes `./duolog` on macOS and Linux, or `.\duolog.exe` on Windows. Put
+its directory on PATH. Hooks skip a missing binary for the lead and block a
+worker gate when the binary is missing.
 
 ## How to install the hooks and the skill
 
@@ -76,6 +106,29 @@ The command writes these files and prints each path:
 Use `--agent claude` or `--agent codex` to install for one agent. Use
 `--scope user` to install in your home folder for all projects. SessionStart
 then creates `.duolog/` in a new project and registers its lead.
+
+User scope honors `CODEX_HOME` and `CLAUDE_CONFIG_DIR`. If they are unset,
+Go's native home lookup supplies `.codex` and `.claude` under your home.
+
+Codex hooks store a POSIX command and `commandWindows` together. Claude
+hooks use `command: "duolog"` with `args` and no shell on every OS, including
+the plugin. Both hook files can be committed and shared across OSes. No Git
+Bash is needed for Claude hooks. PowerShell tool calls use the same gate as
+Bash tool calls. Real Windows agents remain untested.
+
+An enabled Claude plugin supplies the hooks and skill. The installer skips
+those copies and removes older native hooks to avoid running each gate twice.
+Codex still needs `duolog install`: its marketplace plugin supplies the skill,
+but does not install hooks. See the [README install steps](../README.md#install)
+for both marketplace commands.
+
+A marketplace plugin's skill checks `duolog version` and offers the binary
+install if it is missing. In a project someone else set up, the marked line
+in `AGENTS.md` and `CLAUDE.md` offers it when `.duolog/config.yaml` exists;
+the skill also checks. Both require agreement before running the install.
+If the binary exists but the rules are off, the skill runs `duolog doctor`
+once per session and reports what it names, such as `/hooks` for Codex.
+A hook cannot offer the install when its binary is missing.
 
 If a file already exists and changes, duolog first copies it to
 `<file>.duolog.bak`. `duolog uninstall` removes only the hook entries and the
@@ -171,7 +224,10 @@ estimates, not a bill.
 ## Known limits
 
 - The first release is unpublished. There is no download.
-- Windows has not been run. Its CI matrix needs a green run before merge.
+- Real agents on Windows have not been run. Native CI needs a green run
+  before merge; compiled test agents do not prove agent hook discovery.
+- Windows console interruption and descendant cancellation still lack native
+  verification. POSIX signal tests do not prove those Windows paths.
 - Codex as the lead is not proven. See [Rex](rex.md).
 - Most agent behavior in the research page is OBSERVED, not VERIFIED. Read
   [the live verification](research/2026-10-30-live-verification.md) before you

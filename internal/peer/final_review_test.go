@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"encoding/json"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"os"
 	"path/filepath"
@@ -85,5 +86,28 @@ func TestPeerUsesLinkedWorkRootForPane(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(args[0], " "), work) {
 		t.Fatal("pane -c lost work root", args)
+	}
+}
+
+func TestExpiredAskIsNoLongerPending(t *testing.T) {
+	dir := t.TempDir()
+	address := "codex/lead.lead-1"
+	write := func(sent time.Time, n int) {
+		t.Helper()
+		line, err := json.Marshal(bus.Message{N: int64(n), T: sent.UTC().Format(time.RFC3339Nano), From: "duolog/ask.x", To: address, K: "ask", S: "approval required"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "bus.ndjson"), append(line, '\n'), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(time.Now().Add(-askLifetime-time.Second), 1)
+	if got, err := pendingAsk(dir, address); err != nil || got != "" {
+		t.Fatal(got, err)
+	}
+	write(time.Now(), 2)
+	if got, err := pendingAsk(dir, address); err != nil || got == "" {
+		t.Fatal(got, err)
 	}
 }

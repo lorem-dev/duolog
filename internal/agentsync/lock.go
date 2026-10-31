@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/lorem-dev/duolog/internal/project"
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"github.com/lorem-dev/duolog/internal/project"
+	"github.com/lorem-dev/duolog/internal/store"
 )
 
 // Lock records which files duolog generated, from what, and in which direction.
@@ -56,6 +58,24 @@ func LoadLock(root string) (Lock, error) {
 				return Lock{}, err
 			}
 			lock.Direction = main.Direction
+			// Files committed with this checkout stay owned on the first sync here.
+			committed, err := os.ReadFile(filepath.Join(root, ".duolog", "sync.lock.json"))
+			if errors.Is(err, os.ErrNotExist) {
+				return lock, nil
+			}
+			if err != nil {
+				return Lock{}, err
+			}
+			var tracked Lock
+			if err := json.Unmarshal(committed, &tracked); err != nil {
+				return Lock{}, fmt.Errorf("%s: %w", filepath.Join(root, ".duolog", "sync.lock.json"), err)
+			}
+			if tracked.Files != nil {
+				lock.Files = tracked.Files
+			}
+			if tracked.Direction != "" {
+				lock.Direction = tracked.Direction
+			}
 		}
 		return lock, nil
 	}
@@ -117,7 +137,7 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 		os.Remove(name)
 		return errors.Join(werr, cerr)
 	}
-	if err := os.Rename(name, path); err != nil {
+	if err := store.Rename(name, path); err != nil {
 		os.Remove(name)
 		return err
 	}

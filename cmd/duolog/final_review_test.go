@@ -15,35 +15,50 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/install"
+	"github.com/lorem-dev/duolog/internal/pathutil"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
-func generatedCommand(t *testing.T, agent, event string) string {
+func generatedCommand(t *testing.T, agent, event string) testbin.HookCommand {
 	t.Helper()
-	data, err := install.HooksJSON(agent, "linux", 150)
+	return generatedCommandForOS(t, agent, runtime.GOOS, event)
+}
+
+func generatedCommandForOS(t *testing.T, agent, goos, event string) testbin.HookCommand {
+	t.Helper()
+	data, err := install.HooksJSON(agent, goos, 150)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var doc struct {
-		Hooks map[string][]struct{ Hooks []struct{ Command string } }
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Command, CommandWindows string
+				Args                    []string
+			}
+		}
 	}
 	if err := json.Unmarshal(data, &doc); err != nil {
 		t.Fatal(err)
 	}
-	return doc.Hooks[event][0].Hooks[0].Command
+	h := doc.Hooks[event][0].Hooks[0]
+	if goos == "windows" && h.CommandWindows != "" {
+		return testbin.HookCommand{Command: h.CommandWindows}
+	}
+	return testbin.HookCommand{Command: h.Command, Args: h.Args}
 }
 
-// This test drives install -> sh guard -> session -> delegate -> real runner ->
+// This test drives install -> generated hook -> session -> delegate -> runner ->
 // fake agent -> the generated gate command. No model or terminal is started.
 func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX guard regression; Windows requires a native run")
-	}
 	_, source, _, _ := runtime.Caller(0)
 	repo := filepath.Clean(filepath.Join(filepath.Dir(source), "../.."))
 	binDir := t.TempDir()
 	binary := filepath.Join(binDir, "duolog")
+	if runtime.GOOS == "windows" {
+		binary += ".exe"
+	}
 	build := exec.Command("go", "build", "-o", binary, "./cmd/duolog")
 	build.Dir = repo
 	if output, err := build.CombinedOutput(); err != nil {
@@ -77,7 +92,8 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 			input, _ := json.Marshal(map[string]string{"session_id": "lead-real-guard", "permission_mode": "bypassPermissions", "transcript_path": transcript, "cwd": root})
 			invokeHook := func(event string) []byte {
 				t.Helper()
-				cmd := exec.Command("sh", "-c", generatedCommand(t, leadAgent, event))
+				command := generatedCommand(t, leadAgent, event)
+				cmd := testbin.HookProcess(command.Command, command.Args...)
 				cmd.Stdin = bytes.NewReader(input)
 				output, err := cmd.CombinedOutput()
 				if err != nil {
@@ -95,7 +111,7 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 			}
 			lead, ok, err := reg.Lead("lead-real-guard")
 			if err != nil || !ok || lead.PID != os.Getpid() {
-				t.Fatalf("lead did not survive actual sh guard: %+v %v %v", lead, ok, err)
+				t.Fatalf("lead did not survive the next generated hook: %+v %v %v", lead, ok, err)
 			}
 			// Approvals use the documented key shape; the event spelling has no saved
 			// config.toml fixture and remains a concern for live verification.
@@ -142,22 +158,42 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 				if tc.want != "" {
 					answer = `{"done":false,"summary":"Needs lead decision.","files":[],"needs":["approval"]}`
 				}
-				scenario := testbin.Scenario{Hooks: []testbin.HookCommand{{Command: generatedCommand(t, workerAgent, "PreToolUse"), Input: hookInput}}, Answer: answer}
+				hook := generatedCommand(t, workerAgent, "PreToolUse")
+				hook.Input = hookInput
+				scenario := testbin.Scenario{Hooks: []testbin.HookCommand{hook}, Answer: answer}
 				if workerAgent == "claude" {
 					scenario.Stdout = `{"structured_output":` + answer + `}`
 				}
 				fake := testbin.Install(t, workerAgent, scenario)
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				cmd := exec.CommandContext(ctx, binary, "delegate", tc.role, "--task", "task.md")
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				cmd := testbin.CommandContext(ctx, binary, "delegate", tc.role, "--task", "task.md")
+				cmd.Env = append(os.Environ(), "PATH="+strings.ReplaceAll(os.Getenv("PATH"), binDir+string(os.PathListSeparator), ""))
 				output, runErr := cmd.CombinedOutput()
 				cancel()
 				if tc.want == "" && runErr != nil {
-					t.Fatalf("delegate: %s %v", output, runErr)
+					t.Fatalf("delegate: %s %v\n%s", output, runErr, delegateLogs(t, root))
 				}
 				if tc.want != "" && (cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != 3) {
-					t.Fatalf("needs exit: %s %v", output, runErr)
+					t.Fatalf("needs exit: %s %v\n%s", output, runErr, delegateLogs(t, root))
 				}
 				env, _ := os.ReadFile(fake + ".env.json")
+				var workerPairs []string
+				if err := json.Unmarshal(env, &workerPairs); err != nil {
+					t.Fatal(err)
+				}
+				foundPath := false
+				for _, pair := range workerPairs {
+					if strings.HasPrefix(pair, "PATH=") {
+						foundPath = true
+						first := strings.SplitN(strings.TrimPrefix(pair, "PATH="), string(os.PathListSeparator), 2)[0]
+						if pathutil.Clean(pathutil.Resolved(first)) != pathutil.Clean(pathutil.Resolved(binDir)) {
+							t.Fatal("worker PATH does not start with executable directory", pair)
+						}
+					}
+				}
+				if !foundPath {
+					t.Fatal("worker has no PATH")
+				}
 				for _, want := range []string{"DUOLOG_ROLE=" + tc.role, "DUOLOG_LEAD=lead-real-guard"} {
 					if !bytes.Contains(env, []byte(want)) {
 						t.Fatalf("missing %s in worker env", want)
@@ -317,4 +353,19 @@ func TestDelegateInterruptReportsAndStopsDescendant(t *testing.T) {
 	if _, err := os.Stat(fake + ".child-done"); !os.IsNotExist(err) {
 		t.Fatal("worker descendant outlived interrupted delegate", err)
 	}
+}
+
+// A failed delegate often has no console output; retain the actual worker logs.
+func delegateLogs(t *testing.T, root string) string {
+	t.Helper()
+	var logs strings.Builder
+	paths, err := filepath.Glob(filepath.Join(root, ".duolog", "tasks", "*", "*.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		fmt.Fprintf(&logs, "%s (%v):\n%s\n", path, err, data)
+	}
+	return logs.String()
 }

@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/lorem-dev/duolog/internal/store"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/trust"
+	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -102,13 +104,18 @@ func Scan(ctx context.Context, agent, root string) (Inventory, error) {
 	}
 	inv.Items = normalize(items)
 	path := filepath.Join(project.StateRoot(root), ".duolog", "cache", "inventory-"+agent+".json")
+	// An uninitialized project gets no cache, so that a read-only command does not
+	// create .duolog/ with no .gitignore, which hooks would then treat as set up.
+	if _, statErr := os.Stat(filepath.Join(project.StateRoot(root), ".duolog", ".gitignore")); statErr != nil {
+		return inv, nil
+	}
 	if data, err := json.Marshal(inv); err == nil {
 		if os.MkdirAll(filepath.Dir(path), 0755) == nil {
 			if f, err := os.CreateTemp(filepath.Dir(path), ".inventory-*"); err == nil {
 				_, werr := f.Write(data)
 				cerr := f.Close()
 				if werr == nil && cerr == nil {
-					_ = os.Rename(f.Name(), path)
+					_ = store.Rename(f.Name(), path)
 				}
 				_ = os.Remove(f.Name())
 			}
@@ -119,12 +126,12 @@ func Scan(ctx context.Context, agent, root string) (Inventory, error) {
 
 func scanClaude(ctx context.Context, root, h string) []Item {
 	var items []Item
-	items = append(items, skillsIn(filepath.Join(h, ".claude", "skills"))...)
+	items = append(items, skillsIn(filepath.Join(trusthome.Claude(h), "skills"))...)
 	items = append(items, skillsIn(filepath.Join(root, ".claude", "skills"))...)
 	var settings struct {
 		Enabled map[string]bool `json:"enabledPlugins"`
 	}
-	readJSON(filepath.Join(h, ".claude", "settings.json"), &settings)
+	readJSON(filepath.Join(trusthome.Claude(h), "settings.json"), &settings)
 	type plugin struct {
 		ID          string `json:"id"`
 		Enabled     *bool  `json:"enabled"`
@@ -137,7 +144,7 @@ func scanClaude(ctx context.Context, root, h string) []Item {
 				InstallPath string `json:"installPath"`
 			} `json:"plugins"`
 		}
-		readJSON(filepath.Join(h, ".claude", "plugins", "installed_plugins.json"), &installed)
+		readJSON(filepath.Join(trusthome.Claude(h), "plugins", "installed_plugins.json"), &installed)
 		plugins = nil
 		for id, installs := range installed.Plugins {
 			for _, in := range installs {
@@ -164,7 +171,7 @@ func scanClaude(ctx context.Context, root, h string) []Item {
 		Projects map[string]servers `json:"projects"`
 	}
 	readJSON(filepath.Join(root, ".mcp.json"), &project)
-	readJSON(filepath.Join(h, ".claude.json"), &user)
+	readJSON(trusthome.ClaudeState(h), &user)
 	// Only the keys are used: the values hold env and headers.
 	for _, set := range []map[string]json.RawMessage{project.MCP, user.MCP, user.Projects[root].MCP, user.Projects[filepath.ToSlash(root)].MCP} {
 		for name := range set {
@@ -189,6 +196,7 @@ func claudePluginList(ctx context.Context, into any) bool {
 func scanCodex(ctx context.Context, root, h string) ([]Item, []string) {
 	var items []Item
 	items = append(items, skillsIn(filepath.Join(h, ".agents", "skills"))...)
+	items = append(items, skillsIn(filepath.Join(trust.CodexHome(h), "skills"))...)
 	items = append(items, skillsIn(filepath.Join(root, ".agents", "skills"))...)
 	items = append(items, skillsIn(filepath.Join(root, ".codex", "skills"))...)
 	config := filepath.Join(trust.CodexHome(h), "config.toml")
@@ -335,7 +343,7 @@ func HasDuolog(agent, root string) bool {
 	var files []string
 	switch agent {
 	case "claude":
-		files = []string{filepath.Join(h, ".claude", "settings.json"), filepath.Join(root, ".claude", "settings.json"), filepath.Join(root, ".claude", "settings.local.json"), filepath.Join(h, ".claude", "plugins", "installed_plugins.json")}
+		files = []string{filepath.Join(trusthome.Claude(h), "settings.json"), filepath.Join(root, ".claude", "settings.json"), filepath.Join(root, ".claude", "settings.local.json"), filepath.Join(trusthome.Claude(h), "plugins", "installed_plugins.json")}
 	case "codex":
 		files = []string{filepath.Join(trust.CodexHome(h), "hooks.json"), filepath.Join(root, ".codex", "hooks.json"), filepath.Join(trust.CodexHome(h), "config.toml")}
 	}

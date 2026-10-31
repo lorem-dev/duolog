@@ -4,6 +4,7 @@ package session
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/lorem-dev/duolog/internal/store"
 	"os"
 	"path/filepath"
 	"sort"
@@ -137,7 +138,7 @@ func (r *Registry) access(write bool, fn func(*state) error) error {
 	if closeErr != nil {
 		return closeErr
 	}
-	return os.Rename(f.Name(), path)
+	return store.Rename(f.Name(), path)
 }
 func (r *Registry) Lookup(lead, agent, role, thread string) (*Entry, bool, error) {
 	var found *Entry

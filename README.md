@@ -1,44 +1,153 @@
-# duolog
+<h1 align="center">
+  <img src="/assets/icon.png" width="24" alt="duolog icon">
+  duolog
+</h1>
 
-Install the binary with one command, then set up this project:
+<p align="center">
+  <a href="https://github.com/lorem-dev/duolog/releases/latest"><img src="https://img.shields.io/github/v/release/lorem-dev/duolog?label=download" alt="Download"></a>
+  <a href="./docs/getting-started.md"><img src="https://img.shields.io/badge/docs-read-blue" alt="Documentation"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/lorem-dev/duolog" alt="License"></a>
+  <a href="https://github.com/lorem-dev/duolog/actions/workflows/ci.yml"><img src="https://github.com/lorem-dev/duolog/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
+
+<p align="center">
+duolog makes Claude Code and Codex work as a pair in one project. You choose
+which agent and model does each kind of work. The sessions talk through a
+small file bus, so they do not paste large context at each other.
+</p>
+
+---
+
+## Install
+
+Install the binary first. On macOS and Linux:
 
 ```sh
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh
-duolog install --scope project
 ```
 
-The download link works after the first release. The script verifies SHA-256
-checksums and installs to `~/.local/bin`. Run it again to update. It warns if
-that directory is missing from `PATH` and never edits your shell profile.
+On Windows, use Windows PowerShell 5.1 or PowerShell 7:
 
-Pin a release or choose another directory:
+```powershell
+irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
+```
+
+The binary links work after the first release. Until then, use Go:
+
+```sh
+go install github.com/lorem-dev/duolog/cmd/duolog@latest
+```
+
+Both installers verify SHA-256 and select amd64 or arm64. Run the same command
+again to update. The default folder is `~/.local/bin` on macOS/Linux and
+`$env:LOCALAPPDATA\Programs\duolog` on Windows. Add the printed directory to
+PATH and open a new terminal if needed. Neither installer edits PATH.
+
+Pin a version with `--version`, or choose a directory with `--dir`:
 
 ```sh
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v0.1.0
-curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | DUOLOG_INSTALL_DIR="$HOME/bin" sh
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --dir "$HOME/bin"
 ```
 
-`DUOLOG_VERSION` also pins a release; `--dir` also sets the directory. Use
-`--via-go` to print the source install command. The script supports Linux and
-macOS on amd64 and arm64. On other platforms, including Windows, it prints
-`go install github.com/lorem-dev/duolog/cmd/duolog@<version>` and exits with
-an error.
+The POSIX installer also accepts `DUOLOG_VERSION` and `DUOLOG_INSTALL_DIR`.
+On Windows, set those variables before running the installer:
 
-Project setup adds one marked line near the top of `AGENTS.md` and the Claude
-instruction file. If the project has `.duolog/config.yaml` but a new machine
-has no duolog on `PATH`, that line asks the agent to offer the install command.
-The agent must get your agreement before running it. User setup does not add
-this line. Uninstall removes the line and keeps your other instructions.
+```powershell
+$env:DUOLOG_VERSION = 'v0.1.0'
+$env:DUOLOG_INSTALL_DIR = "$env:LOCALAPPDATA\Programs\duolog"
+irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
+```
 
-duolog makes Claude Code and Codex work as a pair in one project. You choose
-which agent and model does each kind of work. The two sessions then talk through
-a cheap file bus, so they do not paste large context at each other.
+### How to install the plugins from the duolog marketplace
 
-**Status.** The code exists and its unit tests pass. The first release is
-unpublished; the install link above works after it is published. You can
-build from source now with `make build`. We did not run duolog on Windows.
-Codex as the lead is not proven. Read
-[the known limits](#what-is-not-proven-yet) before you rely on it.
+Add this repository as a custom marketplace, then install the plugin from it.
+A marketplace is a Git repository that lists plugins. This repository is its
+own marketplace, named `duolog`. It is not in the official plugin directories
+yet, so each agent needs the address once. Install the binary first, because
+the plugins call it.
+
+In Claude Code, run these commands in a terminal:
+
+```sh
+claude plugin marketplace add lorem-dev/duolog
+claude plugin install duolog@duolog
+```
+
+Or run the same steps inside a session:
+
+```text
+/plugin marketplace add lorem-dev/duolog
+/plugin install duolog@duolog
+```
+
+In Codex, run these commands in a terminal:
+
+```sh
+codex plugin marketplace add lorem-dev/duolog
+codex plugin add duolog@duolog
+```
+
+Start a new session after the install, so that the agent loads the plugin. In
+`duolog@duolog`, the first word is the plugin and the second is the marketplace.
+
+The address can take other forms. Claude Code clones `lorem-dev/duolog` over
+SSH, so use the HTTPS form if you have no SSH key for GitHub.
+
+| Address | When to use it |
+|---|---|
+| `lorem-dev/duolog` | The normal case |
+| `https://github.com/lorem-dev/duolog.git` | You have no SSH key for GitHub |
+| `./path/to/duolog` | You test a local copy of this repository |
+
+Use these commands to update or remove the plugin:
+
+| Task | Claude Code | Codex |
+|---|---|---|
+| See what is installed | `claude plugin list` | `codex plugin list` |
+| Get the new marketplace list | `claude plugin marketplace update duolog` | `codex plugin marketplace upgrade duolog` |
+| Update the plugin | `claude plugin update duolog@duolog` | `codex plugin add duolog@duolog` |
+| Remove the plugin | `claude plugin uninstall duolog@duolog` | `codex plugin remove duolog@duolog` |
+| Remove the marketplace | `claude plugin marketplace remove duolog` | `codex plugin marketplace remove duolog` |
+
+To share the Claude Code plugin with a project, add `--scope project` to both
+Claude Code commands. They write the marketplace and the plugin to
+`.claude/settings.json`. Commit that file, so that other people get the same
+setup.
+
+The enabled Claude plugin supplies its hooks and skill on every OS. Claude does
+not need a separate hook install. If you run `duolog install`, it uses the
+enabled plugin and removes older duplicate native hooks.
+
+### How to install the hooks
+
+Install hooks for one project or for all your projects:
+
+```sh
+duolog install --scope project
+duolog install --scope user
+```
+
+Codex needs this step because marketplace plugins do not install its hooks.
+It then needs one approval in `/hooks` (press `t`) and a trusted project
+folder. Claude needs this step if its plugin is not enabled. Both scopes
+install the skills too; project scope adds a starter config and an install
+offer in `AGENTS.md` and `CLAUDE.md`.
+
+Run `duolog doctor` to check the setup. For a project that already uses duolog,
+install the binary, use the project's skill, and follow doctor's named steps.
+
+A marketplace plugin's skill first checks `duolog version` and offers the
+binary install if it is missing. In a project someone else set up, the marked
+instruction line offers it when `.duolog/config.yaml` exists; the skill also
+checks. Both ask for agreement before running the install. If the binary is
+present but hooks are not approved, the skill runs `duolog doctor` once per
+session and reports what it names, such as `/hooks` for Codex. A hook cannot
+offer the install when the binary is missing.
+
+Real agents on Windows have not been run. Native Windows CI checks are
+configured; hosted results for this change are pending. Codex as the lead
+has limits; read [what is not proven yet](#what-is-not-proven-yet).
 
 ## What duolog does
 
@@ -101,8 +210,9 @@ repository exists.
 ## What is not proven yet
 
 - The first release is unpublished. Nothing is on a package registry.
-- Windows has not been run. Treat it as unsupported until its CI matrix and
-  one real run pass; rules may not apply there.
+- Real agents on Windows have not been run. Hosted CI must pass before merge;
+  it executes generated hooks and installers without starting real agents.
+- Live sessions require Rex on macOS or Linux. Windows uses `duolog delegate`.
 - Codex as the lead is not proven. In our checks its shell could not find
   `rex`, and we have not shown that it can start `claude -p`.
 - Most agent behavior behind the design is OBSERVED in a few runs, not

@@ -573,6 +573,28 @@ func TestClaudeJSONResultLimitTriggersQuota(t *testing.T) {
 	}
 }
 
+func TestFinishedWorkerSurvivesDescendantHoldingOutput(t *testing.T) {
+	s := spec(t, "claude")
+	fake := install(t, &s, testbin.Scenario{SpawnChild: true, Stdout: `{"structured_output":` + goodAnswer + `}`})
+	t.Cleanup(func() {
+		data, err := os.ReadFile(fake + ".child-pid")
+		if err != nil {
+			return
+		}
+		pid, err := strconv.Atoi(string(data))
+		if err != nil {
+			return
+		}
+		if p, err := os.FindProcess(pid); err == nil {
+			_ = p.Kill()
+		}
+	})
+	got, err := Run(context.Background(), s)
+	if err != nil || got.Interrupted || !got.Done {
+		t.Fatal(got, err)
+	}
+}
+
 func TestCancellationKillsDescendantHoldingOutput(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("native Windows process-tree verification pending")

@@ -54,6 +54,15 @@ A read-only role can execute only commands named by a read-only allow rule,
 such as `git status`, `git diff`, `cat` or `rg`. Build and run rules apply to
 write roles. This limit holds in `full` too.
 
+A wildcard rule for read commands grants reads only, for every role. `find`
+and `rg` pass with known read options, so `find . -delete` or an unknown `rg`
+option does not. Paths named by a read command follow the read rules, so
+`cat .env` is denied and `cat ~/.ssh/id_rsa` asks. A shell glob in a path, a
+recursive `grep` and `rg` with `--hidden`, `-u` or `--no-ignore` ask, because
+they can reach denied files without naming them. Plain `rg` and the `Grep`
+tool can still search a denied file that is neither hidden nor git-ignored:
+keep such files out of the tree or ignore them.
+
 Secrets include nested `.env` and `.env.*` files. Paths outside the working
 tree ask in every mode, unless an explicit outside-path rule applies. A broad
 `**` allow does not cover them. On macOS and Windows, path rules ignore case.
@@ -88,8 +97,17 @@ the cut, and point to this command for the full action.
 ## Where the checks run
 
 The gate is a hook. The command is `duolog gate --agent <agent> --event
-<event>`, for `PreToolUse` and `PermissionRequest`. If the `duolog` binary is
-missing, the Claude hook still refuses the call for a worker.
+<event>`, for `PreToolUse` and `PermissionRequest`. Claude runs it directly
+with `command` and `args`, without a shell. A missing binary does not block
+a tool in the measured `claude -p` run. It also cannot offer an install.
+
+Worker safety comes from launch: both delegate and peer put the directory of
+the running duolog executable first in the worker's PATH, even when the
+parent's PATH lacks it. The worker therefore finds that same binary for its
+gate. The requirement that a worker fails closed if the binary is absent
+holds through this launch guarantee, rather than a Claude shell guard.
+Codex keeps its POSIX and Windows guards. Interactive Claude display of a
+missing executable has not been measured.
 
 ## A Codex lead that starts a Claude worker
 
@@ -123,7 +141,17 @@ These come from the research page and are OBSERVED, not VERIFIED:
   Claude.
 - Whether hooks fire for tools inside a Codex `spawn_agent` child is NOT
   VERIFIED.
-- We did not test permissions on Windows.
+- Real agents on Windows have not been run. Native CI executes the generated
+  gate commands, but does not prove that agents discover or honor hooks.
+
+## How PowerShell commands are checked
+
+The PowerShell tool counts as an exec action. Only a plain named command can
+pass without review. Expressions, quotes, variables, pipelines, script blocks
+and command chains ask, even in full mode. A read-only role can run only named
+read commands allowed by policy, such as `Get-Content`, `Get-ChildItem` and
+`git status`. `Remove-Item -Recurse` and `git push` match deny rules first.
+Windows drive letters, backslashes and case are normalized before path rules.
 
 ## Related pages
 

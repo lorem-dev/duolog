@@ -672,6 +672,21 @@ again at 8:48 AM.` (see `scripts/bench/fixtures/limits/`).
 824, not the real line near 1230. The cheaper form was not checked for answer
 quality beyond that.
 
+## Claude exec hooks with a missing binary: OBSERVED
+
+Measured on real Claude Code 2.1.312. The setup registered exec-form hooks
+with `"command":"duolog-missing-xyz"` and an `args` array for SessionStart,
+UserPromptSubmit, PreToolUse and PostToolUse, with that executable absent.
+Under `claude -p`, the tool ran, the process exited 0, and stderr was empty.
+With a present binary, the same form's PreToolUse deny was honored.
+
+Exec form uses no shell, so the hook form is the same for sh, Git Bash and
+PowerShell. This corrects the earlier claim that a missing executable must
+not be used for a lead. Interactive display of a failed hook was not
+measured. No copy of this probe is in `scripts/bench/probes/`; this is an
+observation supplied for this task, not a retained replayable probe. No real
+agent was run while making this change.
+
 ## What these tests changed on the machine
 
 | Item | State after the runs |

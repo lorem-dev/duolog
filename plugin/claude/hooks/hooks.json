@@ -5,7 +5,14 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog gate --agent claude --event PermissionRequest; elif [ \"${DUOLOG_DEPTH:-0}\" -ge 1 ] 2>/dev/null; then exit 2; fi",
+            "command": "duolog",
+            "args": [
+              "gate",
+              "--agent",
+              "claude",
+              "--event",
+              "PermissionRequest"
+            ],
             "timeout": 150
           }
         ]
@@ -16,7 +23,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook PostToolUse --agent claude; fi"
+            "command": "duolog",
+            "args": [
+              "hook",
+              "PostToolUse",
+              "--agent",
+              "claude"
+            ]
           }
         ]
       }
@@ -26,7 +39,14 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog gate --agent claude --event PreToolUse; elif [ \"${DUOLOG_DEPTH:-0}\" -ge 1 ] 2>/dev/null; then exit 2; fi",
+            "command": "duolog",
+            "args": [
+              "gate",
+              "--agent",
+              "claude",
+              "--event",
+              "PreToolUse"
+            ],
             "timeout": 150
           }
         ]
@@ -37,7 +57,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook SessionEnd --agent claude; fi"
+            "command": "duolog",
+            "args": [
+              "hook",
+              "SessionEnd",
+              "--agent",
+              "claude"
+            ]
           }
         ]
       }
@@ -47,7 +73,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook SessionStart --agent claude; fi"
+            "command": "duolog",
+            "args": [
+              "hook",
+              "SessionStart",
+              "--agent",
+              "claude"
+            ]
           }
         ]
       },
@@ -55,7 +87,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook wake --agent claude; fi",
+            "command": "duolog",
+            "args": [
+              "hook",
+              "wake",
+              "--agent",
+              "claude"
+            ],
             "asyncRewake": true
           }
         ]
@@ -66,7 +104,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook UserPromptSubmit --agent claude; fi"
+            "command": "duolog",
+            "args": [
+              "hook",
+              "UserPromptSubmit",
+              "--agent",
+              "claude"
+            ]
           }
         ]
       }

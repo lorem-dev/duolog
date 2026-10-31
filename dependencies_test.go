@@ -1,6 +1,7 @@
 package duolog_test
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"strings"
@@ -25,9 +26,11 @@ func TestBinaryModules(t *testing.T) {
 			t.Run(targetOS+"/"+arch, func(t *testing.T) {
 				cmd := exec.Command("go", "list", "-deps", "-f", "{{if .Module}}{{.Module.Path}}{{end}}", "./cmd/duolog")
 				cmd.Env = append(os.Environ(), "GOOS="+targetOS, "GOARCH="+arch, "CGO_ENABLED=0")
-				output, err := cmd.CombinedOutput()
+				var stderr bytes.Buffer
+				cmd.Stderr = &stderr
+				output, err := cmd.Output()
 				if err != nil {
-					t.Fatalf("go list: %v\n%s", err, output)
+					t.Fatalf("go list: %v\n%s", err, stderr.String())
 				}
 				for _, name := range strings.Fields(string(output)) {
 					if !allowed[name] {

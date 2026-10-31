@@ -4,6 +4,7 @@ package task
 import (
 	"bytes"
 	"fmt"
+	"github.com/lorem-dev/duolog/internal/pathutil"
 	"github.com/lorem-dev/duolog/internal/project"
 	"os"
 	"path/filepath"
@@ -21,7 +22,7 @@ func parse(data []byte) (map[string]string, error) {
 	current := ""
 	next := 0
 	fence := ""
-	for _, line := range strings.Split(string(data), "\n") {
+	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
 			marker := trimmed[:3]
@@ -113,6 +114,7 @@ func References(path string) ([]Reference, error) {
 				return nil, fmt.Errorf("invalid Read range %q", name)
 			}
 		}
+		r.Path = pathutil.Clean(r.Path)
 		refs = append(refs, r)
 	}
 	return refs, nil
@@ -120,6 +122,10 @@ func References(path string) ([]Reference, error) {
 
 // Resolve refuses traversal and symlinks before opening any task input.
 func Resolve(root, path string) (string, error) {
+	path = pathutil.Native(path)
+	if pathutil.IsAbs(path) && !filepath.IsAbs(path) {
+		return "", fmt.Errorf("path outside root: %s", path)
+	}
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return "", err
