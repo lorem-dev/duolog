@@ -4,9 +4,12 @@ duolog makes Claude Code and Codex work as a pair in one project. You choose
 which agent and model does each kind of work. The two sessions then talk through
 a cheap file bus, so they do not paste large context at each other.
 
-**The project has no code yet.** The commands below show the planned interface.
+**Status.** The code exists and its unit tests pass. The first release is
+unpublished: there is no download yet, so you build the binary from source with
+`make build`. We did not run duolog on Windows. Codex as the lead is not
+proven. Read [the known limits](#what-is-not-proven-yet) before you rely on it.
 
-## What duolog will do
+## What duolog does
 
 | Need | What duolog does |
 |---|---|
@@ -20,7 +23,7 @@ a cheap file bus, so they do not paste large context at each other.
 | Handle a plugin that only one agent has | Tells the second session what to do, or asks the lead to do that part |
 | Keep working when a provider's limit ends | Moves the work to the lead's provider, with no new session |
 
-## How you will use it
+## How you use it
 
 Install duolog for one project or for all your projects:
 
@@ -60,12 +63,31 @@ mistakes. Put this line first in `.duolog/config.yaml`:
 The link points to `main`, so you do not need to change it after an upgrade.
 Each release will also include the schema, if you want a fixed version.
 
-duolog will generate this file from its Go types, and
-`duolog config schema` will print it. The link works only after the public
+duolog generates this file from its Go types, and `duolog config schema`
+prints it. The link works only after the public
 repository exists.
+
+## What is not proven yet
+
+- The first release is unpublished. Nothing is on a package registry.
+- Windows is covered by CI unit tests only. We never ran the live tests there.
+- Codex as the lead is not proven. In our checks its shell could not find
+  `rex`, and we have not shown that it can start `claude -p`.
+- Most agent behavior behind the design is OBSERVED in a few runs, not
+  VERIFIED. The [live verification][lv] lists each answer with its label.
+- The cost targets are not measured yet. See [Budgets](docs/budgets.md).
 
 ## Related pages
 
+- [Getting started](docs/getting-started.md): build, install and send a task
+- [Configuration](docs/configuration.md): roles, models and limits
+- [Sync](docs/sync.md): generate one agent's files from the other's
+- [Bus](docs/bus.md): messages and artifacts
+- [Permissions](docs/permissions.md): how duolog decides for a worker
+- [Rex](docs/rex.md): a live second session
+- [Budgets](docs/budgets.md): cost targets and what we measured
 - [Practices and models](docs/research/2026-10-30-practices-and-models.md): the
   evidence behind the default rules
 - [How to write the documentation](docs/contributing.md): the writing rules
+
+[lv]: docs/research/2026-10-30-live-verification.md

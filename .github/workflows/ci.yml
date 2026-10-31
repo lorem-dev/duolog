@@ -1,0 +1,56 @@
+name: ci
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    steps:
+      # Windows would otherwise check out CRLF files, and the schema check
+      # compares bytes.
+      - name: Keep line endings as they are in Git
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-go@v5.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: astral-sh/setup-uv@v5.4.1
+
+      - name: Vet
+        run: go vet ./...
+      - name: Vet the end-to-end tests
+        run: go vet -tags=e2e ./test/e2e/
+      - name: Unit tests
+        run: go test -race ./...
+
+      # macOS and Linux run the make targets.
+      - name: Schema is current
+        if: runner.os != 'Windows'
+        run: make schema
+      - name: Docs lint
+        if: runner.os != 'Windows'
+        run: make docs-lint
+
+      # Windows has no make by default, so this job runs the same commands.
+      - name: Schema is current (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: go test ./internal/config/ -run '^TestSchemaFileIsCurrent$'
+      - name: Docs lint (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          find README.md docs -path docs/superpowers -prune -o -type f -name '*.md' -print0 | xargs -0 uvx --from pymarkdownlnt pymarkdown -c .pymarkdown.yaml scan
+          go test -run TestDocs .

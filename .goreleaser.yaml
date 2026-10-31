@@ -1,0 +1,35 @@
+# Release build. Check it with: goreleaser check
+# Try it without publishing: goreleaser release --snapshot --clean
+version: 2
+
+project_name: duolog
+
+builds:
+  - id: duolog
+    main: ./cmd/duolog
+    binary: duolog
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+
+archives:
+  - id: duolog
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+  # The schema is an extra release file. This line puts it in the checksums.
+  extra_files:
+    - glob: duolog-config.schema.json
+
+release:
+  # The schema is attached to the release page.
+  extra_files:
+    - glob: duolog-config.schema.json
