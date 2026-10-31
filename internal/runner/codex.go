@@ -10,6 +10,8 @@ import (
 
 func codexArgv(s Spec) []string {
 	args := []string{"codex", "exec"}
+	// Sandbox belongs to exec; its resume subcommand does not accept it.
+	args = append(args, mode.Args("codex", s.Mode, s.Route.Sandbox)...)
 	if s.ThreadID != "" {
 		args = append(args, "resume", s.ThreadID)
 	}
@@ -21,7 +23,6 @@ func codexArgv(s Spec) []string {
 	if s.Route.Context == "minimal" {
 		args = append(args, "-c", "project_doc_max_bytes=0")
 	}
-	args = append(args, mode.Args("codex", s.Mode, s.Route.Sandbox)...)
 	if s.ThreadID == "" {
 		args = append(args, "--ephemeral")
 	}

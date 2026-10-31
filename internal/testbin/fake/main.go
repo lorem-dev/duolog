@@ -46,6 +46,15 @@ func run() error {
 			return err
 		}
 	}
+	for _, chunk := range s.Output {
+		stream := os.Stdout
+		if chunk.Stderr {
+			stream = os.Stderr
+		}
+		fmt.Fprint(stream, chunk.Text)
+		// Allow the runner to drain each pipe before emitting the next chunk.
+		time.Sleep(20 * time.Millisecond)
+	}
 	fmt.Fprint(os.Stdout, s.Stdout)
 	fmt.Fprint(os.Stderr, s.Stderr)
 	time.Sleep(time.Duration(s.SleepMS) * time.Millisecond)

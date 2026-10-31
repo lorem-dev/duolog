@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -58,12 +59,39 @@ func TestCodexArgvResume(t *testing.T) {
 	s := spec(t, "codex")
 	s.ThreadID = "thread-123"
 	a := Argv(s)
-	if len(a) < 4 || !reflect.DeepEqual(a[:4], []string{"codex", "exec", "resume", "thread-123"}) {
+	// Model the CLI scopes: exec accepts sandbox; resume does not. Consume
+	// option values too, so a misplaced flag cannot hide among positionals.
+	resume := false
+	var positional []string
+	for i := 2; i < len(a); i++ {
+		switch a[i] {
+		case "resume":
+			resume = true
+		case "-s", "--sandbox":
+			if resume {
+				t.Fatalf("resume does not accept %s: %v", a[i], a)
+			}
+			i++
+			if i >= len(a) || a[i] != "read-only" {
+				t.Fatalf("missing sandbox value: %v", a)
+			}
+		case "-m", "-c", "--output-schema", "-o":
+			i++
+			if i >= len(a) {
+				t.Fatalf("missing option value: %v", a)
+			}
+		case "--json":
+		default:
+			if strings.HasPrefix(a[i], "-") || !resume {
+				t.Fatalf("unexpected argument %q: %v", a[i], a)
+			}
+			positional = append(positional, a[i])
+		}
+	}
+	if !resume || !reflect.DeepEqual(positional, []string{s.ThreadID, taskInstruction}) {
 		t.Fatal(a)
 	}
-	if strings.Contains(strings.Join(a, " "), "--ephemeral") {
-		t.Fatal(a)
-	}
+	containsArgs(t, a, "-s", "read-only")
 }
 func TestClaudeArgv(t *testing.T) {
 	s := spec(t, "claude")
@@ -335,5 +363,53 @@ func TestAnswerCanReportUnfinishedTask(t *testing.T) {
 	r, e := Run(context.Background(), s)
 	if e != nil || r.Done || !reflect.DeepEqual(r.Needs, []string{"Specify target."}) {
 		t.Fatalf("%+v %v", r, e)
+	}
+}
+
+func TestSuccessfulAnswerMentioningQuota(t *testing.T) {
+	for _, agent := range []string{"codex", "claude"} {
+		t.Run(agent, func(t *testing.T) {
+			s := spec(t, agent)
+			answer := `{"done":true,"summary":"Explained usage limit and rate_limit; resets 3am (Europe/Belgrade)","files":[],"needs":[]}`
+			sc := testbin.Scenario{Stderr: "diagnostic: usage limit documentation\n"}
+			if agent == "codex" {
+				sc.Stdout = `{"type":"item.completed","item":{"type":"agent_message","text":"Explained usage limit"}}` + "\n" + `{"type":"item.completed","item":{"type":"command_execution","aggregated_output":"rate limit"}}`
+				sc.Writes = map[string]string{filepath.Join(s.TaskDir, "answer.json"): answer}
+			} else {
+				sc.Stdout = `{"structured_output":` + answer + `}`
+			}
+			install(t, &s, sc)
+			r, err := Run(context.Background(), s)
+			if err != nil || !r.Done || r.QuotaEnded || !r.ResetAt.IsZero() {
+				t.Fatalf("%+v %v", r, err)
+			}
+		})
+	}
+}
+
+func TestClaudeStderrDoesNotCorruptResult(t *testing.T) {
+	for _, interleaved := range []bool{false, true} {
+		t.Run(fmt.Sprint(interleaved), func(t *testing.T) {
+			s := spec(t, "claude")
+			stdout := `{"session_id":"session-123","usage":{"input_tokens":7},"structured_output":` + goodAnswer + `}`
+			diagnostic := `{"diagnostic":"startup warning"}` + "\n"
+			sc := testbin.Scenario{Output: []testbin.OutputChunk{{Stderr: true, Text: diagnostic}, {Text: stdout}}}
+			if interleaved {
+				mid := len(stdout) / 2
+				sc.Output = []testbin.OutputChunk{{Text: stdout[:mid]}, {Stderr: true, Text: diagnostic}, {Text: stdout[mid:]}}
+			}
+			install(t, &s, sc)
+			r, err := Run(context.Background(), s)
+			if err != nil || !r.Done || r.SessionID != "session-123" || r.Usage.Input != 7 {
+				t.Fatalf("%+v %v", r, err)
+			}
+			log := string(read(t, filepath.Join(s.TaskDir, "stdout.log")))
+			if !strings.Contains(log, diagnostic) || !strings.Contains(log, stdout[:len(stdout)/2]) || !strings.Contains(log, stdout[len(stdout)/2:]) {
+				t.Fatal("log is missing stdout or stderr")
+			}
+			if string(read(t, filepath.Join(s.TaskDir, "answer.json"))) != goodAnswer {
+				t.Fatal("answer not saved")
+			}
+		})
 	}
 }

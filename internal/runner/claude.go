@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"io"
@@ -39,25 +38,7 @@ func claudeResult(path string, result *Result) (json.RawMessage, error) {
 		return nil, err
 	}
 	defer file.Close()
-	reader := bufio.NewReader(file)
-	// Ignore diagnostic lines preceding the JSON result. Decode directly from
-	// disk so stdout is never retained on Result, including unknown JSON fields.
-	for {
-		first, err := reader.Peek(1)
-		if err != nil {
-			return nil, err
-		}
-		if first[0] == '{' {
-			break
-		}
-		if first[0] == ' ' || first[0] == '\n' || first[0] == '\r' || first[0] == '\t' {
-			reader.ReadByte()
-			continue
-		}
-		if _, err := reader.ReadBytes('\n'); err != nil {
-			return nil, err
-		}
-	}
+	// Only stdout is decoded; stderr is retained separately in stdout.log.
 	var output struct {
 		SessionID  string          `json:"session_id"`
 		Structured json.RawMessage `json:"structured_output"`
@@ -68,7 +49,7 @@ func claudeResult(path string, result *Result) (json.RawMessage, error) {
 			Output   int64 `json:"output_tokens"`
 		} `json:"usage"`
 	}
-	if err := json.NewDecoder(reader).Decode(&output); err != nil {
+	if err := json.NewDecoder(file).Decode(&output); err != nil {
 		return nil, err
 	}
 	result.SessionID = output.SessionID

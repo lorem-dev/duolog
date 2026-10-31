@@ -112,6 +112,18 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	cmd.Stdin = bytes.NewReader(s.Stdin)
 	cmd.Stdout = log
 	cmd.Stderr = log
+	// Claude emits one JSON result on stdout. Keep a separate disk capture so
+	// stderr diagnostics cannot be mistaken for, or interleaved into, that JSON.
+	stdoutPath := filepath.Join(s.TaskDir, "claude.stdout.json")
+	if s.Route.Agent == "claude" {
+		stdout, openErr := os.OpenFile(stdoutPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+		if openErr != nil {
+			log.Close()
+			return result, openErr
+		}
+		defer stdout.Close()
+		cmd.Stdout = io.MultiWriter(log, stdout)
+	}
 	cmd.Env = append([]string{}, s.Env...)
 	if s.Route.Agent == "claude" {
 		env := cmd.Env[:0]
@@ -145,7 +157,7 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	}
 	if s.Route.Agent == "claude" {
 		var answer json.RawMessage
-		answer, err = claudeResult(logPath, &result)
+		answer, err = claudeResult(stdoutPath, &result)
 		if err != nil {
 			return result, err
 		}
@@ -195,7 +207,9 @@ func readLog(path, agent string, result *Result) error {
 			codexEvent(line, result)
 		}
 		text := strings.ToLower(string(line))
-		if strings.Contains(text, "usage limit") || strings.Contains(text, "hit your") && strings.Contains(text, "limit") || strings.Contains(text, "rate_limit") || strings.Contains(text, "rate limit") {
+		// Successful model answers and tool output may discuss quota limits.
+		// Text alone is not a failure signal: require a nonzero process exit.
+		if result.ExitCode > 0 && (strings.Contains(text, "usage limit") || strings.Contains(text, "hit your") && strings.Contains(text, "limit") || strings.Contains(text, "rate_limit") || strings.Contains(text, "rate limit")) {
 			result.QuotaEnded = true
 			if reset := resetTime(string(line), time.Now()); !reset.IsZero() {
 				result.ResetAt = reset

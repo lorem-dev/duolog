@@ -11,9 +11,16 @@ import (
 	"testing"
 )
 
+// OutputChunk writes one piece to the selected stream, in scenario order.
+type OutputChunk struct {
+	Text   string
+	Stderr bool
+}
+
 // Scenario describes one fake invocation. Exit -1 terminates by a kill signal.
 // Writes happen after SleepMS, and relative paths are relative to the child cwd.
 type Scenario struct {
+	Output         []OutputChunk
 	Stdout, Stderr string
 	Exit           int
 	SleepMS        int
