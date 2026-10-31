@@ -1,0 +1,15 @@
+# rex 0.0.1793299046, real runs on 2026-10-31.
+## running program, --for 500ms --json
+exit=1
+output=Error: wait timed out after 500ms: context deadline exceeded
+## exited with code 0 (block may be gone or kept)
+inspect exit=3
+inspect output=Error: block target "block:ID" not found
+wait exit=3
+wait output=Error: block, window, or session target "block:ID" not found
+## exited with code 3, --keep-open
+inspect exit=0
+inspect output={ block data, 0 exit 
+wait exit=3
+wait output={"exit_code":3,"error":"exit status 3"}
+Error: exit status 3

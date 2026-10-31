@@ -47,7 +47,7 @@ func baseScript() map[string]testbin.Scenario {
 	return map[string]testbin.Scenario{
 		"split":         {Stdout: splitReply},
 		"block inspect": {Stdout: `{"block":{"id":"block:peer"}}`},
-		"wait":          {Exit: 1, Stderr: "timed out"},
+		"wait":          {Exit: 1, Stderr: "Error: wait timed out after 500ms: context deadline exceeded"},
 		"capture":       {Stdout: codexIdle("")},
 		"send":          {},
 		"send-key":      {},
@@ -470,7 +470,7 @@ func TestPeerStartsInLeadMode(t *testing.T) {
 		want        string
 		screen      string
 	}{
-		{"codex", "implement", mode.Plan, "-s read-only", codexIdle("")},
+		{"claude", "plan", mode.Plan, "--permission-mode plan", claudeIdle("")},
 		{"codex", "implement", mode.Ask, "-s workspace-write", codexIdle("")},
 		{"codex", "implement", mode.Full, "-s workspace-write", codexIdle("")},
 		{"claude", "plan", mode.Ask, "--permission-mode plan", claudeIdle("")},
@@ -1168,23 +1168,62 @@ func TestCloseByBlockID(t *testing.T) {
 }
 
 func TestRaisedModeNeedsRestart(t *testing.T) {
-	r := newRig(t, baseScript())
-	r.lead("codex", mode.Plan)
-	e := r.ready()
-	if !contains(r.started(), "read-only") {
-		t.Fatalf("the peer did not start read-only: %v", r.started())
+	r := newRig(t, withScreens(claudeIdle("")))
+	r.lead("claude", mode.Ask)
+	e := r.open("debug_hard")
+	if !contains(r.started(), "default") {
+		t.Fatalf("the peer did not start in ask mode: %v", r.started())
 	}
 	st, err := Status(r.ctx, e.ID)
 	if err != nil || strings.Contains(st.Line, "restart") {
 		t.Fatalf("%+v %v", st, err)
 	}
-	ask := mode.Ask
-	if _, err := r.reg.ObserveLead(session.LeadObservation{ID: "lead-1", Agent: "codex", Mode: &ask}, time.Now().Add(time.Second)); err != nil {
+	edits := mode.Edits
+	if _, err := r.reg.ObserveLead(session.LeadObservation{ID: "lead-1", Agent: "claude", Mode: &edits}, time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	st, err = Status(r.ctx, e.ID)
 	if err != nil || st.State != Ready || !strings.Contains(st.Line, "restart") || strings.Contains(st.Line, "\n") || !strings.Contains(st.Line, e.ID) {
 		t.Fatalf("%+v %v", st, err)
+	}
+}
+
+func TestPlanModeRefusesWriteRole(t *testing.T) {
+	r := newRig(t, baseScript())
+	r.lead("codex", mode.Plan)
+	_, err := Open(r.ctx, "implement")
+	if err == nil || !strings.Contains(err.Error(), "mode plan refuses write role implement") {
+		t.Fatalf("%v", err)
+	}
+	if len(r.named("split")) != 0 {
+		t.Fatal("a pane was opened for a write role in plan mode")
+	}
+}
+
+func TestLimitMarksAgentUnavailable(t *testing.T) {
+	r := newRig(t, baseScript())
+	e := r.ready()
+	script := baseScript()
+	script["capture"] = screens("You've hit your usage limit. Try again at 8:48 AM.\n" + codexIdle(""))
+	r.rex(script)
+	got, err := Wait(r.ctx, e.ID)
+	if err != nil || got.State != Limited {
+		t.Fatalf("%+v %v", got, err)
+	}
+	u, err := r.reg.Unavailable()
+	if err != nil || !u["codex"] {
+		t.Fatalf("codex is not marked unavailable: %v %v", u, err)
+	}
+	// The next open routes elsewhere and does not split a pane in codex.
+	before := len(r.named("split"))
+	r.rex(baseScript())
+	r.cfg.Rex.StartTimeoutSeconds = 1
+	next, err := Open(r.ctx, "implement")
+	if err != nil || len(r.named("split")) != before+1 {
+		t.Fatalf("%+v %v", next, err)
+	}
+	if argv := strings.Join(r.started(), " "); !strings.Contains(argv, "claude") || strings.Contains(argv, "codex") {
+		t.Fatalf("routed to the limited agent: %s", argv)
 	}
 }
 

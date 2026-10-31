@@ -321,10 +321,16 @@ func (c Client) Probe(ctx context.Context, block string) (Presence, error) {
 	if json.Unmarshal(bytes.TrimSpace([]byte(r.stdout)), &ended) == nil && ended.ExitCode != nil {
 		return Exited, nil
 	}
-	if IsNotFound(&Error{Code: r.code, Output: oneLine(r.stderr + " " + r.stdout)}) {
+	out := oneLine(r.stderr + " " + r.stdout)
+	if IsNotFound(&Error{Code: r.code, Output: out}) {
 		return Gone, nil
 	}
-	return Running, nil
+	// Measured on real rex: wait on a running program exits 1 with
+	// "wait timed out after 500ms". Any other result is an error, never Running.
+	if r.code == 1 && strings.Contains(out, "wait timed out") {
+		return Running, nil
+	}
+	return Gone, &Error{Cmd: "wait", Code: r.code, Output: out}
 }
 
 // Alive reports whether the program in a block still runs. It captures at most

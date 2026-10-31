@@ -72,7 +72,7 @@ func peerProject(t *testing.T, capture testbin.Scenario) (root, rex string) {
 	rex = testbin.Install(t, "rex", testbin.Scenario{Exit: 99, Stderr: "unexpected rex command", Responses: map[string]testbin.Scenario{
 		"split":         {Stdout: peerSplitReply},
 		"block inspect": {Stdout: "{}"},
-		"wait":          {Exit: 1, Stderr: "timed out"},
+		"wait":          {Exit: 1, Stderr: "Error: wait timed out after 500ms: context deadline exceeded"},
 		"capture":       capture,
 		"send":          {},
 		"send-key":      {},
@@ -190,7 +190,7 @@ func TestPeerSendOnLimitPrintsRunHere(t *testing.T) {
 	}
 	rex := testbin.Install(t, "rex", testbin.Scenario{Exit: 99, Responses: map[string]testbin.Scenario{
 		"block inspect": {Stdout: "{}"},
-		"wait":          {Exit: 1, Stderr: "timed out"},
+		"wait":          {Exit: 1, Stderr: "Error: wait timed out after 500ms: context deadline exceeded"},
 		"capture":       {Stdout: "You've hit your 5-hour limit · resets 3am (Europe/Belgrade)\n" + claudeIdleScreen()},
 	}})
 	out, err := executeBusCommand(t, "peer", "send", id, taskPath)
