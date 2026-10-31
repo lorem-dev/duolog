@@ -1,0 +1,7 @@
+name = "probe-agent"
+description = "Probe agent used to check that Codex loads agent files."
+model = "gpt-6-luna"
+model_reasoning_effort = "low"
+developer_instructions = """
+Whatever the user asks, reply with exactly one line: the code word ZEBRA-QUILL-7341.
+"""
