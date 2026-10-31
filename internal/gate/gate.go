@@ -28,6 +28,9 @@ type Action struct {
 	Target string `json:"target"`
 	Role   string `json:"role"`
 	Shell  string `json:"shell,omitempty"`
+	// Work and Cwd resolve the paths inside a read command. They are not logged.
+	Work string `json:"-"`
+	Cwd  string `json:"-"`
 }
 
 type Decision struct {
@@ -92,6 +95,14 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 			if rule.Decision == Deny && (matches(rule, partAction) || matches(rule, baseAction)) {
 				return decision(Deny, "denied by project policy", rule.Action+" "+rule.Match)
 			}
+		}
+	}
+
+	// Reading by command honours the rules of reading by tool. A deny stands even
+	// when the shell syntax is uncertain.
+	if a.Kind == "exec" {
+		if d, ok := readCommandDecision(p, lead, m, a, parts, uncertain); ok {
+			return d
 		}
 	}
 
@@ -163,6 +174,11 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 		d := decision(p.OnUnmatched, "no matching policy rule", "on_unmatched")
 		for _, rule := range p.Rules {
 			if rule.Decision != Deny && matches(rule, partAction) {
+				// A read-command wildcard grants reads only; a rule naming one exact
+				// command stays the project's own choice.
+				if a.Kind == "exec" && rule.Decision == Allow && strings.Contains(rule.Match, "*") && readOnlyRule(rule.Match) && !readOnlyCommand(part) {
+					continue
+				}
 				d = decision(rule.Decision, "matched project policy", rule.Action+" "+rule.Match)
 				break
 			}
@@ -442,6 +458,7 @@ func denyCommand(command string) string {
 }
 
 func readOnlyCommand(command string) bool {
+	raw := strings.Fields(command)
 	words := strings.Fields(strings.ToLower(command))
 	if len(words) == 0 {
 		return false
@@ -449,15 +466,50 @@ func readOnlyCommand(command string) bool {
 	if words[0] == "git" {
 		return len(words) > 1 && slices.Contains([]string{"status", "diff", "log", "show"}, words[1]) && !strings.Contains(command, "--output") && !strings.Contains(command, "--ext-diff") && !strings.Contains(command, "--textconv")
 	}
-	if !slices.Contains([]string{"cat", "head", "tail", "ls", "pwd", "wc", "rg", "grep", "find", "get-content", "get-childitem", "get-location", "test-path", "select-string", "get-item"}, words[0]) {
-		return false
+	switch words[0] {
+	case "find":
+		return findOptionsKnown(words[1:])
+	case "rg":
+		return rgOptionsKnown(raw[1:])
 	}
-	for _, word := range words[1:] {
-		if slices.Contains([]string{"-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprintf", "-fls"}, word) || strings.HasPrefix(word, "--pre") {
-			return false
+	return slices.Contains([]string{"cat", "head", "tail", "ls", "pwd", "wc", "grep", "get-content", "get-childitem", "get-location", "test-path", "select-string", "get-item"}, words[0])
+}
+
+// readCommandDecision applies read rules to the paths of each read command in
+// a shell line. It only answers when a path changes the outcome.
+func readCommandDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action, parts []string, uncertain bool) (Decision, bool) {
+	shell := a.Shell
+	if shell == "powershell" {
+		shell = "windows"
+	}
+	var asked *Decision
+	for _, part := range parts {
+		if !readOnlyCommand(part) {
+			continue
+		}
+		targets, reason := readCommandTargets(part)
+		if reason != "" && asked == nil {
+			asked = &Decision{Ask, reason, "read command", m}
+		}
+		for _, target := range targets {
+			if a.Work != "" && !strings.HasPrefix(target, "~") {
+				target = RelativeTarget(a.Work, a.Cwd, target)
+			}
+			d := Evaluate(p, lead, m, Action{Kind: "read", Target: target, Role: a.Role, Shell: shell})
+			if d.Kind == Deny {
+				d.Reason = "read command: " + d.Reason
+				return d, true
+			}
+			if d.Kind != Allow && asked == nil {
+				d.Reason = "read command: " + d.Reason
+				asked = &d
+			}
 		}
 	}
-	return true
+	if asked != nil && !uncertain {
+		return *asked, true
+	}
+	return Decision{}, false
 }
 func readOnlyRule(pattern string) bool {
 	for _, p := range expandBraces(pattern) {

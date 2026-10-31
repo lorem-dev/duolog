@@ -54,6 +54,15 @@ A read-only role can execute only commands named by a read-only allow rule,
 such as `git status`, `git diff`, `cat` or `rg`. Build and run rules apply to
 write roles. This limit holds in `full` too.
 
+A wildcard rule for read commands grants reads only, for every role. `find`
+and `rg` pass with known read options, so `find . -delete` or an unknown `rg`
+option does not. Paths named by a read command follow the read rules, so
+`cat .env` is denied and `cat ~/.ssh/id_rsa` asks. A shell glob in a path, a
+recursive `grep` and `rg` with `--hidden`, `-u` or `--no-ignore` ask, because
+they can reach denied files without naming them. Plain `rg` and the `Grep`
+tool can still search a denied file that is neither hidden nor git-ignored:
+keep such files out of the tree or ignore them.
+
 Secrets include nested `.env` and `.env.*` files. Paths outside the working
 tree ask in every mode, unless an explicit outside-path rule applies. A broad
 `**` allow does not cover them. On macOS and Windows, path rules ignore case.

@@ -143,11 +143,26 @@ func NormalizeAll(agent string, input []byte) ([]Action, error) {
 		return nil, err
 	}
 	var h struct {
-		Tool  string                          `json:"tool_name"`
-		Cwd   string                          `json:"cwd"`
-		Input struct{ Patch, Command string } `json:"tool_input"`
+		Tool  string                                         `json:"tool_name"`
+		Cwd   string                                         `json:"cwd"`
+		Input struct{ Patch, Command, Pattern, Glob string } `json:"tool_input"`
 	}
-	if json.Unmarshal(input, &h) != nil || h.Tool != "apply_patch" {
+	if json.Unmarshal(input, &h) != nil {
+		return []Action{a}, nil
+	}
+	// A search names what it reads in its pattern as well as in its path.
+	if h.Tool == "Glob" || h.Tool == "Grep" {
+		pattern := h.Input.Glob
+		if h.Tool == "Glob" {
+			pattern = h.Input.Pattern
+		}
+		actions := []Action{a}
+		if pattern != "" {
+			actions = append(actions, Action{Kind: "read", Target: cleanPath(pattern), Shell: a.Shell})
+		}
+		return actions, nil
+	}
+	if h.Tool != "apply_patch" {
 		return []Action{a}, nil
 	}
 	paths := PatchPaths(h.Input.Patch + "\n" + h.Input.Command)
