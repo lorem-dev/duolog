@@ -65,7 +65,7 @@ func askReply(t *testing.T, kind, from string, unknown bool, want string) {
 	defer cancel()
 	result := make(chan Decision, 1)
 	go func() {
-		result <- Escalate(ctx, b, "first-123456", Action{"exec", "custom-command", "implement"}, 1100*time.Millisecond)
+		result <- Escalate(ctx, b, "first-123456", Action{Kind: "exec", Target: "custom-command", Role: "implement"}, 1100*time.Millisecond)
 	}()
 	var request bus.Message
 	deadline := time.Now().Add(time.Second)
@@ -97,7 +97,7 @@ func askReply(t *testing.T, kind, from string, unknown bool, want string) {
 }
 func TestAskSendsOneLine(t *testing.T) {
 	b, _, dir := askSetup(t)
-	d := Escalate(context.Background(), b, "first-123456", Action{"exec", strings.Repeat("界\n\"", 400), "implement"}, 20*time.Millisecond)
+	d := Escalate(context.Background(), b, "first-123456", Action{Kind: "exec", Target: strings.Repeat("界\n\"", 400), Role: "implement"}, 20*time.Millisecond)
 	ms := askMessages(t, dir)
 	if d.Kind != Deny || len(ms) != 1 {
 		t.Fatal(d, ms)
@@ -171,7 +171,7 @@ func TestAskHonorsSmallerWireLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	Escalate(context.Background(), b, "first-123456", Action{"exec", strings.Repeat("\"", 500), "implement"}, time.Millisecond)
+	Escalate(context.Background(), b, "first-123456", Action{Kind: "exec", Target: strings.Repeat("\"", 500), Role: "implement"}, time.Millisecond)
 	data, err := os.ReadFile(filepath.Join(dir, "bus.ndjson"))
 	if err != nil {
 		t.Fatal(err)

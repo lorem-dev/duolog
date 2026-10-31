@@ -8,7 +8,7 @@ project_name: duolog
 before:
   hooks:
     - make install-script
-    - shellcheck dist/install.sh
+    - shellcheck -S error dist/install.sh
 
 builds:
   - id: duolog
@@ -36,13 +36,15 @@ archives:
 
 checksum:
   name_template: checksums.txt
-  # Include the schema and installer in the checksums.
+  # Include the schema and both installers in the checksums.
   extra_files:
     - glob: duolog-config.schema.json
     - glob: dist/install.sh
+    - glob: dist/install.ps1
 
 release:
-  # Attach the schema and installer to the release page.
+  # Attach the schema and both installers to the release page.
   extra_files:
     - glob: duolog-config.schema.json
     - glob: dist/install.sh
+    - glob: dist/install.ps1

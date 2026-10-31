@@ -23,6 +23,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/pathutil"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/runner"
@@ -123,7 +124,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		return out, err
 	}
 	root = project.CurrentWorkRoot(root)
-	lookup := taskPath
+	lookup := pathutil.Native(taskPath)
 	if !filepath.IsAbs(lookup) {
 		if cwd, e := os.Getwd(); e == nil {
 			candidate := filepath.Join(cwd, lookup)
@@ -350,12 +351,12 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		readRules := leadRules
 		readRules.RoleSandbox = route.Sandbox
 		inline, inlineErr := task.Inline(copyPath, root, cfg.Wire.InlineMaxBytes, func(path string) bool {
-			if filepath.IsAbs(path) {
-				if rel, err := filepath.Rel(root, path); err == nil {
+			if pathutil.IsAbs(path) {
+				if rel, err := pathutil.Relative(root, path); err == nil {
 					path = rel
 				}
 			}
-			return gate.Evaluate(cfg.Policy, readRules, leadMode, gate.Action{Kind: "read", Target: filepath.ToSlash(path), Role: role}).Kind == gate.Allow
+			return gate.Evaluate(cfg.Policy, readRules, leadMode, gate.Action{Kind: "read", Target: pathutil.Clean(path), Role: role}).Kind == gate.Allow
 		})
 		if inlineErr != nil {
 			return out, inlineErr

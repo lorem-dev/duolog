@@ -65,6 +65,9 @@ generated version.
 Sync never reads or writes the `duolog` skill folder on either side, because
 `duolog install` owns it.
 
+Backslashes in `--path` work on all hosts. In PowerShell, use for example
+`duolog sync --path .claude\agents\review.md`.
+
 ## How hooks run sync
 
 With `sync.auto: true`, a main session runs sync after a tool call that edits
@@ -77,7 +80,8 @@ direction. Worker sessions never run sync.
   note when it writes a Codex agent and the folder is not trusted.
 - In an earlier run, Claude did not apply `effort` from agent frontmatter.
   That is NOT VERIFIED. duolog passes the effort at run time.
-- We did not run sync on Windows.
+- Native sync tests are configured for Windows CI. Hosted results are pending.
+  Real agent-driven sync on Windows has not been run.
 
 ## How concurrent hooks share state
 

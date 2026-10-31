@@ -1,17 +1,12 @@
-// render-install renders scripts/install-template/install.sh.tmpl into
-// dist/install.sh, substituting owner/repo/binary/platform list at
-// build time. The rendered script is published as a GitHub-release
-// asset and is the canonical install path documented in README.md.
+// render-install renders the POSIX and PowerShell installer templates to dist.
+// Both release assets resolve versions at runtime. With -template and/or -o,
+// it renders a single custom file instead.
 //
-// Usage:
-//
-//	go run ./scripts/render-install [-template <path>] [-o <path>]
-//
-// Defaults: -template scripts/install-template/install.sh.tmpl,
-// -o dist/install.sh.
+// Usage: go run ./scripts/render-install [-template <path>] [-o <path>]
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"os"
@@ -44,16 +39,28 @@ func defaultData() templateData {
 
 func main() {
 	var (
-		tmplFlag = flag.String("template", "scripts/install-template/install.sh.tmpl", "path to template")
-		outFlag  = flag.String("o", "dist/install.sh", "output path")
+		tmplFlag = flag.String("template", "", "path to template")
+		outFlag  = flag.String("o", "", "output path")
 	)
 	flag.Parse()
 
-	if err := renderTemplate(*tmplFlag, *outFlag, defaultData()); err != nil {
-		fmt.Fprintf(os.Stderr, "render-install: %v\n", err)
-		os.Exit(1)
+	pairs := [][2]string{{"scripts/install-template/install.sh.tmpl", "dist/install.sh"}, {"scripts/install-template/install.ps1.tmpl", "dist/install.ps1"}}
+	if *tmplFlag != "" || *outFlag != "" {
+		if *tmplFlag == "" {
+			*tmplFlag = pairs[0][0]
+		}
+		if *outFlag == "" {
+			*outFlag = pairs[0][1]
+		}
+		pairs = [][2]string{{*tmplFlag, *outFlag}}
 	}
-	fmt.Printf("rendered %s\n", *outFlag)
+	for _, pair := range pairs {
+		if err := renderTemplate(pair[0], pair[1], defaultData()); err != nil {
+			fmt.Fprintf(os.Stderr, "render-install: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("rendered %s\n", pair[1])
+	}
 }
 
 // renderTemplate parses the template at tmplPath, executes it with
@@ -73,14 +80,13 @@ func renderTemplate(tmplPath, outPath string, data templateData) error {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(outPath), err)
 	}
 
-	out, err := os.OpenFile(outPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
-	if err != nil {
-		return fmt.Errorf("create %s: %w", outPath, err)
-	}
-	defer out.Close()
-
-	if err := tmpl.Execute(out, data); err != nil {
+	var rendered bytes.Buffer
+	if err := tmpl.Execute(&rendered, data); err != nil {
 		return fmt.Errorf("execute template: %w", err)
 	}
-	return nil
+	result := rendered.Bytes()
+	if strings.HasSuffix(outPath, ".ps1") {
+		result = bytes.ReplaceAll(result, []byte("\n"), []byte("\r\n"))
+	}
+	return os.WriteFile(outPath, result, 0755)
 }

@@ -66,6 +66,9 @@ func newHarness(t *testing.T) *harness {
 	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("XDG_CONFIG_HOME", home)
 	t.Setenv("APPDATA", home)
 	t.Setenv("DUOLOG_DEPTH", "")

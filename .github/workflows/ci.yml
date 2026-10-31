@@ -15,46 +15,100 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            race: '-race'
+          - os: ubuntu-24.04-arm
+            race: '-race'
+          - os: macos-latest
+            race: '-race'
+          - os: windows-latest
+            race: '-race'
+          # Go does not support the race detector on windows/arm64.
+          - os: windows-11-arm
+            race: ''
     steps:
-      # Windows would otherwise check out CRLF files, and the schema check
-      # compares bytes.
-      - name: Keep line endings as they are in Git
-        run: git config --global core.autocrlf false
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
       - uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
-
       - name: Vet
         run: go vet ./...
-      - name: Vet the end-to-end tests
+      - name: Vet the end-to-end tests (do not run them)
         run: go vet -tags=e2e ./test/e2e/
-      - name: Vulnerability check
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      - name: Unit and native generated-command tests
+        run: go test ${{ matrix.race }} ./...
+      - name: Schema is current
+        run: go test . -run '^TestSchemaFileIsCurrent$'
       - name: Third-party notices are current
         run: go run ./scripts/thirdparty -check
-      - name: Unit tests
-        run: go test -race ./...
-
-      # macOS and Linux run the make targets.
-      - name: Schema is current
-        if: runner.os != 'Windows'
-        run: make schema
       - name: Docs lint
         if: runner.os != 'Windows'
         run: make docs-lint
-
-      # Windows has no make by default, so this job runs the same commands.
-      - name: Schema is current (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: go test . -run '^TestSchemaFileIsCurrent$'
       - name: Docs lint (Windows)
         if: runner.os == 'Windows'
-        shell: bash
+        shell: pwsh
         run: |
-          find README.md docs -path docs/superpowers -prune -o -type f -name '*.md' -print0 | xargs -0 uvx --from pymarkdownlnt pymarkdown -c .pymarkdown.yaml scan
+          $paths = @('README.md') + @(Get-ChildItem docs -Recurse -Filter '*.md' |
+            Where-Object { $_.FullName -notmatch '[\\/]superpowers[\\/]' } |
+            ForEach-Object { $_.FullName })
+          uvx --from pymarkdownlnt pymarkdown -c .pymarkdown.yaml scan @paths
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -run TestDocs .
+      - name: Render both installers
+        run: go run ./scripts/render-install
+      - name: Parse installer with Windows PowerShell 5.1
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'dist/install.ps1'), [ref]$tokens, [ref]$parseErrors) > $null
+          if ($parseErrors.Count) { $parseErrors; exit 1 }
+      - name: Parse installer with pwsh
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'dist/install.ps1'), [ref]$tokens, [ref]$parseErrors) > $null
+          if ($parseErrors.Count) { $parseErrors; exit 1 }
+      - name: Shellcheck release installer
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck -S error dist/install.sh
+      - name: Run POSIX installer test with dash
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          test "$(readlink /bin/sh)" = dash
+          go test ./scripts/render-install -run '^TestInstaller$' -count=1
+      - name: Vulnerability check
+        if: matrix.os == 'ubuntu-latest'
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+
+  cross-build:
+    name: cross-build (all release targets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build six release targets
+        shell: bash
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          for target_os in darwin linux windows; do
+            for target_arch in amd64 arm64; do
+              GOOS="$target_os" GOARCH="$target_arch" go build \
+                -o "$RUNNER_TEMP/duolog-$target_os-$target_arch" ./cmd/duolog
+            done
+          done

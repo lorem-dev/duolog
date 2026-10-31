@@ -17,6 +17,8 @@ func policy(t testing.TB) config.Policy {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("USERPROFILE", dir)
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("APPDATA", dir)
@@ -43,73 +45,73 @@ func TestRulesFirstMatchByTable(t *testing.T) {
 		{"exec", "go test ./...", Allow}, {"net", "example.com", Ask},
 	} {
 		t.Run(tc.target, func(t *testing.T) {
-			check(t, p, LeadRules{}, mode.Edits, Action{tc.kind, tc.target, "implement"}, tc.want)
+			check(t, p, LeadRules{}, mode.Edits, Action{Kind: tc.kind, Target: tc.target, Role: "implement"}, tc.want)
 		})
 	}
 	// A later deny takes priority, but allow and ask keep their table order.
 	p.Rules = []config.Rule{{Action: "exec", Match: "*", Decision: Ask}, {Action: "exec", Match: "*", Decision: Allow}}
-	check(t, p, LeadRules{}, mode.Edits, Action{"exec", "go test ./...", "implement"}, Ask)
+	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: "go test ./...", Role: "implement"}, Ask)
 }
 
 func TestDenyBeatsAllow(t *testing.T) {
 	p := policy(t)
-	check(t, p, LeadRules{Deny: []config.Rule{{Action: "write", Match: "src/**"}}}, mode.Edits, Action{"write", "src/a.go", "implement"}, Deny)
+	check(t, p, LeadRules{Deny: []config.Rule{{Action: "write", Match: "src/**"}}}, mode.Edits, Action{Kind: "write", Target: "src/a.go", Role: "implement"}, Deny)
 }
 func TestLeadDenyCannotBeRelaxed(t *testing.T) {
 	p := policy(t)
 	p.InheritLead = false
-	check(t, p, LeadRules{Deny: []config.Rule{{Action: "exec", Match: "go *"}}}, mode.Full, Action{"exec", "go test ./...", "implement"}, Deny)
+	check(t, p, LeadRules{Deny: []config.Rule{{Action: "exec", Match: "go *"}}}, mode.Full, Action{Kind: "exec", Target: "go test ./...", Role: "implement"}, Deny)
 }
 func TestFullModeConfirmsUnmatched(t *testing.T) {
 	p := policy(t)
 	for _, kind := range []string{"exec", "net"} {
-		check(t, p, LeadRules{}, mode.Full, Action{kind, "example.com", "implement"}, Allow)
+		check(t, p, LeadRules{}, mode.Full, Action{Kind: kind, Target: "example.com", Role: "implement"}, Allow)
 	}
 }
 func TestFullModeKeepsDenies(t *testing.T) {
 	p := policy(t)
-	for _, a := range []Action{{"exec", "git push", "implement"}, {"read", ".env", "implement"}, {"write", ".duolog/x", "implement"}, {"write", "src/a.go", "implement"}} {
+	for _, a := range []Action{{Kind: "exec", Target: "git push", Role: "implement"}, {Kind: "read", Target: ".env", Role: "implement"}, {Kind: "write", Target: ".duolog/x", Role: "implement"}, {Kind: "write", Target: "src/a.go", Role: "implement"}} {
 		check(t, p, LeadRules{Deny: []config.Rule{{Action: "write", Match: "src/**"}}}, mode.Full, a, Deny)
 	}
 }
 func TestFullModeKeepsRoleLimit(t *testing.T) {
-	check(t, policy(t), LeadRules{}, mode.Full, Action{"write", "src/a.go", "review_final"}, Deny)
+	check(t, policy(t), LeadRules{}, mode.Full, Action{Kind: "write", Target: "src/a.go", Role: "review_final"}, Deny)
 }
 func TestPlanModeOnlyReads(t *testing.T) {
 	p := policy(t)
-	check(t, p, LeadRules{}, mode.Plan, Action{"read", "src/a.go", "implement"}, Allow)
-	for _, a := range []Action{{"write", "src/a.go", "implement"}, {"exec", "go test ./...", "implement"}} {
+	check(t, p, LeadRules{}, mode.Plan, Action{Kind: "read", Target: "src/a.go", Role: "implement"}, Allow)
+	for _, a := range []Action{{Kind: "write", Target: "src/a.go", Role: "implement"}, {Kind: "exec", Target: "go test ./...", Role: "implement"}} {
 		check(t, p, LeadRules{}, mode.Plan, a, Deny)
 	}
 }
 func TestEditsModeAllowsWrite(t *testing.T) {
 	p := policy(t)
-	check(t, p, LeadRules{}, mode.Edits, Action{"write", "src/a.go", "implement"}, Allow)
-	check(t, p, LeadRules{}, mode.Edits, Action{"exec", "custom-command", "implement"}, Ask)
-	check(t, p, LeadRules{}, mode.Ask, Action{"write", "src/a.go", "implement"}, Ask)
+	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "write", Target: "src/a.go", Role: "implement"}, Allow)
+	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: "custom-command", Role: "implement"}, Ask)
+	check(t, p, LeadRules{}, mode.Ask, Action{Kind: "write", Target: "src/a.go", Role: "implement"}, Ask)
 }
 func TestRoleScopedWrite(t *testing.T) {
-	check(t, policy(t), LeadRules{}, mode.Edits, Action{"write", "src/a.go", "review_final"}, Deny)
+	check(t, policy(t), LeadRules{}, mode.Edits, Action{Kind: "write", Target: "src/a.go", Role: "review_final"}, Deny)
 }
 func TestPathTraversalNormalized(t *testing.T) {
 	p := policy(t)
 	for _, target := range []string{"src/../.duolog/x", ".duolog", "./.duolog/x", `src\..\.duolog\x`} {
-		check(t, p, LeadRules{}, mode.Full, Action{"write", target, "implement"}, Deny)
+		check(t, p, LeadRules{}, mode.Full, Action{Kind: "write", Target: target, Role: "implement"}, Deny)
 	}
 	for _, target := range []string{"src/../.env", "secret.pem", "a/b/key.key", "secrets/a"} {
-		check(t, p, LeadRules{}, mode.Full, Action{"read", target, "implement"}, Deny)
+		check(t, p, LeadRules{}, mode.Full, Action{Kind: "read", Target: target, Role: "implement"}, Deny)
 	}
 }
 func TestCompoundShellCommand(t *testing.T) {
 	p := policy(t)
 	for _, separator := range []string{" && ", " || ", "; ", " | ", "\n"} {
-		check(t, p, LeadRules{}, mode.Full, Action{"exec", "go test ./..." + separator + "git push", "implement"}, Deny)
+		check(t, p, LeadRules{}, mode.Full, Action{Kind: "exec", Target: "go test ./..." + separator + "git push", Role: "implement"}, Deny)
 	}
 	for _, target := range []string{"go test $(echo ./...)", "go test `echo ./...`", "go test > .duolog/x", "go test &"} {
-		check(t, p, LeadRules{}, mode.Full, Action{"exec", target, "implement"}, Ask)
+		check(t, p, LeadRules{}, mode.Full, Action{Kind: "exec", Target: target, Role: "implement"}, Ask)
 	}
-	check(t, p, LeadRules{}, mode.Edits, Action{"exec", "go test ./... && git status", "implement"}, Allow)
-	check(t, p, LeadRules{}, mode.Edits, Action{"exec", `go test -run 'a|b' ./...`, "implement"}, Ask)
+	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: "go test ./... && git status", Role: "implement"}, Allow)
+	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: `go test -run 'a|b' ./...`, Role: "implement"}, Ask)
 }
 
 func TestShellDenyBypasses(t *testing.T) {
@@ -141,14 +143,14 @@ func TestShellDenyBypasses(t *testing.T) {
 				{`go test -run "Test.*" ./...`, Ask},
 			} {
 				t.Run(string(m)+"/"+tc.command+"/inherited="+strconv.FormatBool(inherited), func(t *testing.T) {
-					check(t, shellPolicy, lead, m, Action{"exec", tc.command, "implement"}, tc.want)
+					check(t, shellPolicy, lead, m, Action{Kind: "exec", Target: tc.command, Role: "implement"}, tc.want)
 				})
 			}
 			for _, wrapper := range []string{"command", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "cmd"} {
 				for _, prefix := range []string{"", "/usr/bin/"} {
 					command := prefix + wrapper + ` -c "git push"`
-					check(t, shellPolicy, lead, m, Action{"exec", command, "implement"}, Ask)
-					check(t, shellPolicy, lead, m, Action{"exec", prefix + wrapper + " git push", "implement"}, Ask)
+					check(t, shellPolicy, lead, m, Action{Kind: "exec", Target: command, Role: "implement"}, Ask)
+					check(t, shellPolicy, lead, m, Action{Kind: "exec", Target: prefix + wrapper + " git push", Role: "implement"}, Ask)
 				}
 			}
 		}
@@ -173,10 +175,10 @@ func TestPathSpecificCommandDenies(t *testing.T) {
 					} else {
 						p.Rules = append(p.Rules, rule)
 					}
-					check(t, p, lead, mode.Full, Action{"exec", command, "implement"}, Deny)
+					check(t, p, lead, mode.Full, Action{Kind: "exec", Target: command, Role: "implement"}, Deny)
 					// Path-specific denies must not block other executable paths.
 					if strings.HasPrefix(pattern, "/usr/bin/") {
-						check(t, p, lead, mode.Full, Action{"exec", "/opt/bin/git push", "implement"}, Allow)
+						check(t, p, lead, mode.Full, Action{Kind: "exec", Target: "/opt/bin/git push", Role: "implement"}, Allow)
 					}
 				})
 			}
@@ -192,7 +194,7 @@ func TestPlainDefaultShellAllows(t *testing.T) {
 			"task build", "make fmt", "git status", "git diff", "git log", "git show",
 			"go test ./... && git status",
 		} {
-			check(t, p, LeadRules{}, m, Action{"exec", command, "implement"}, Allow)
+			check(t, p, LeadRules{}, m, Action{Kind: "exec", Target: command, Role: "implement"}, Allow)
 		}
 	}
 }
@@ -202,7 +204,7 @@ func TestEveryAutoDecisionLogged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, a := range []Action{{"read", "src/a.go", "implement"}, {"exec", "git push", "implement"}, {"net", "example.com", "implement"}} {
+	for _, a := range []Action{{Kind: "read", Target: "src/a.go", Role: "implement"}, {Kind: "exec", Target: "git push", Role: "implement"}, {Kind: "net", Target: "example.com", Role: "implement"}} {
 		d := Evaluate(p, LeadRules{}, mode.Edits, a)
 		if err := Log(s, a, d); err != nil {
 			t.Fatal(err)
@@ -240,7 +242,7 @@ func TestImportLeadFollowsLeadAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := Evaluate(policy(t), lead, mode.Full, Action{"write", "src/a.go", "implement"})
+	d := Evaluate(policy(t), lead, mode.Full, Action{Kind: "write", Target: "src/a.go", Role: "implement"})
 	if d.Kind != Deny {
 		t.Fatal(d)
 	}
@@ -263,7 +265,7 @@ func TestImportClaudeProjectAndUserDenies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, a := range []Action{{"exec", "git push origin main", "implement"}, {"read", "private/x", "implement"}, {"write", "src/a.go", "implement"}} {
+	for _, a := range []Action{{Kind: "exec", Target: "git push origin main", Role: "implement"}, {Kind: "read", Target: "private/x", Role: "implement"}, {Kind: "write", Target: "src/a.go", Role: "implement"}} {
 		check(t, p, lead, mode.Full, a, Deny)
 	}
 	writeSetting(t, filepath.Join(root, ".claude/settings.json"), `{"permissions":{"deny":"invalid"}}`)
@@ -314,8 +316,8 @@ func TestImportClaudePathSelectorBases(t *testing.T) {
 						kind = "write"
 					}
 					t.Run(entry, func(t *testing.T) {
-						check(t, p, lead, mode.Full, Action{kind, filepath.ToSlash(target), "implement"}, Deny)
-						check(t, p, lead, mode.Full, Action{kind, "public/file.txt", "implement"}, Allow)
+						check(t, p, lead, mode.Full, Action{Kind: kind, Target: filepath.ToSlash(target), Role: "implement"}, Deny)
+						check(t, p, lead, mode.Full, Action{Kind: kind, Target: "public/file.txt", Role: "implement"}, Allow)
 					})
 				}
 			}
@@ -334,7 +336,7 @@ func TestImportCodexLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d := Evaluate(p, lead, mode.Full, Action{"write", "src/a.go", "implement"}); d.Kind != Deny {
+	if d := Evaluate(p, lead, mode.Full, Action{Kind: "write", Target: "src/a.go", Role: "implement"}); d.Kind != Deny {
 		t.Fatal(d)
 	}
 	writeSetting(t, filepath.Join(root, ".codex/config.toml"), "sandbox_mode = [\n")
@@ -360,13 +362,13 @@ func TestMalformedLeadDeniesFailClosed(t *testing.T) {
 func TestMalformedPolicyFailsClosed(t *testing.T) {
 	p := policy(t)
 	p.Rules = append(p.Rules, config.Rule{Action: "read", Match: "[", Decision: Deny})
-	check(t, p, LeadRules{}, mode.Full, Action{"read", "src/a.go", "implement"}, Deny)
+	check(t, p, LeadRules{}, mode.Full, Action{Kind: "read", Target: "src/a.go", Role: "implement"}, Deny)
 }
 
 func TestUnverifiedShellSyntaxNeedsApproval(t *testing.T) {
 	p := policy(t)
 	for _, command := range []string{`go test ./... && g\it push`, "go test ./... && git\tpush", "go test ./... && git  push"} {
-		if d := Evaluate(p, LeadRules{}, mode.Full, Action{"exec", command, "implement"}); d.Kind == Allow {
+		if d := Evaluate(p, LeadRules{}, mode.Full, Action{Kind: "exec", Target: command, Role: "implement"}); d.Kind == Allow {
 			t.Errorf("allowed %q: %+v", command, d)
 		}
 	}
@@ -387,7 +389,7 @@ func BenchmarkGate(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		d := Evaluate(c.Policy, lead, mode.Edits, Action{"exec", "go test ./...", "implement"})
+		d := Evaluate(c.Policy, lead, mode.Edits, Action{Kind: "exec", Target: "go test ./...", Role: "implement"})
 		if d.Kind != Allow {
 			b.Fatal(d)
 		}

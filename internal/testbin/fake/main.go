@@ -98,7 +98,7 @@ func run() error {
 		}
 	}
 	for i, hook := range s.Hooks {
-		cmd := exec.Command("sh", "-c", hook.Command)
+		cmd := testbin.HookProcess(hook.Command)
 		cmd.Stdin = strings.NewReader(hook.Input)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr

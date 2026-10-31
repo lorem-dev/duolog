@@ -25,11 +25,11 @@ jobs:
         run: go test ./...
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
-      # GoReleaser includes install.sh in both release assets and checksums.
-      - name: Render install script
+      # GoReleaser includes both installers in release assets and checksums.
+      - name: Render install scripts
         run: make install-script
       - name: Check install script
-        run: shellcheck dist/install.sh
+        run: shellcheck -S error dist/install.sh
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: '~> v2'

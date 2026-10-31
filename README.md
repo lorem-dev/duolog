@@ -1,6 +1,6 @@
 # duolog
 
-Install the binary with one command, then set up this project:
+Install the binary on macOS or Linux, then set up this project:
 
 ```sh
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh
@@ -18,11 +18,29 @@ curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | DUOLOG_INSTALL_DIR="$HOME/bin" sh
 ```
 
-`DUOLOG_VERSION` also pins a release; `--dir` also sets the directory. Use
-`--via-go` to print the source install command. The script supports Linux and
-macOS on amd64 and arm64. On other platforms, including Windows, it prints
-`go install github.com/lorem-dev/duolog/cmd/duolog@<version>` and exits with
-an error.
+`DUOLOG_VERSION` also pins a POSIX release; `--dir` also sets its directory.
+Use `--via-go` to print the source install command. The POSIX script supports
+macOS and Linux; use the PowerShell installer on Windows.
+
+On Windows, use Windows PowerShell 5.1 or PowerShell 7 (`pwsh`):
+
+```powershell
+irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
+```
+
+Add the printed directory to PATH in Windows Environment Variables, then open
+another terminal and run `duolog install --scope project`. The default folder
+is `$env:LOCALAPPDATA\Programs\duolog`. The installer does not edit PATH.
+Both installers select amd64 or arm64 and verify SHA-256 before installing.
+An invalid download leaves an existing binary unchanged.
+
+To pin a Windows release or choose a directory:
+
+```powershell
+$env:DUOLOG_VERSION = 'v0.1.0'
+$env:DUOLOG_INSTALL_DIR = "$env:LOCALAPPDATA\Programs\duolog"
+irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
+```
 
 Project setup adds one marked line near the top of `AGENTS.md` and the Claude
 instruction file. If the project has `.duolog/config.yaml` but a new machine
@@ -36,7 +54,9 @@ a cheap file bus, so they do not paste large context at each other.
 
 **Status.** The code exists and its unit tests pass. The first release is
 unpublished; the install link above works after it is published. You can
-build from source now with `make build`. We did not run duolog on Windows.
+build from source now with `go build ./cmd/duolog`. Real agents on Windows
+have not been run. Native Windows CI checks are configured but this change
+has not yet been run by hosted CI.
 Codex as the lead is not proven. Read
 [the known limits](#what-is-not-proven-yet) before you rely on it.
 
@@ -101,8 +121,9 @@ repository exists.
 ## What is not proven yet
 
 - The first release is unpublished. Nothing is on a package registry.
-- Windows has not been run. Treat it as unsupported until its CI matrix and
-  one real run pass; rules may not apply there.
+- Real agents on Windows have not been run. Hosted CI must pass before merge;
+  it executes generated hooks and installers without starting real agents.
+- Live sessions require Rex on macOS or Linux. Windows uses `duolog delegate`.
 - Codex as the lead is not proven. In our checks its shell could not find
   `rex`, and we have not shown that it can start `claude -p`.
 - Most agent behavior behind the design is OBSERVED in a few runs, not

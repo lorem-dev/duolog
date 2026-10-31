@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/install"
+	"github.com/lorem-dev/duolog/internal/peer"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/trust"
 )
@@ -78,7 +80,9 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 	}
 	add("info", fmt.Sprintf("Codex hooks approved=%t folder trusted=%t", hooks.Trusted, folder))
 	add("warning", "Hooks changed after review cannot be detected here; Codex itself will skip changed hooks. Review /hooks.")
-	if opts.RexBin == "" {
+	if runtime.GOOS == "windows" {
+		add("info", peer.WindowsNotice)
+	} else if opts.RexBin == "" {
 		add("warning", "Rex unavailable; pane connectivity cannot be checked")
 	}
 	var baseline map[string]string

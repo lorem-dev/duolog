@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/lorem-dev/duolog/internal/project"
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"github.com/lorem-dev/duolog/internal/project"
+	"github.com/lorem-dev/duolog/internal/store"
 )
 
 // Lock records which files duolog generated, from what, and in which direction.
@@ -117,7 +119,7 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 		os.Remove(name)
 		return errors.Join(werr, cerr)
 	}
-	if err := os.Rename(name, path); err != nil {
+	if err := store.Rename(name, path); err != nil {
 		os.Remove(name)
 		return err
 	}

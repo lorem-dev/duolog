@@ -6,6 +6,7 @@
           {
             "type": "command",
             "command": "if command -v duolog >/dev/null 2>&1; then exec duolog gate --agent claude --event PermissionRequest; elif [ \"${DUOLOG_DEPTH:-0}\" -ge 1 ] 2>/dev/null; then exit 2; fi",
+            "shell": "bash",
             "timeout": 150
           }
         ]
@@ -16,7 +17,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook PostToolUse --agent claude; fi"
+            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook PostToolUse --agent claude; fi",
+            "shell": "bash"
           }
         ]
       }
@@ -27,6 +29,7 @@
           {
             "type": "command",
             "command": "if command -v duolog >/dev/null 2>&1; then exec duolog gate --agent claude --event PreToolUse; elif [ \"${DUOLOG_DEPTH:-0}\" -ge 1 ] 2>/dev/null; then exit 2; fi",
+            "shell": "bash",
             "timeout": 150
           }
         ]
@@ -37,7 +40,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook SessionEnd --agent claude; fi"
+            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook SessionEnd --agent claude; fi",
+            "shell": "bash"
           }
         ]
       }
@@ -47,7 +51,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook SessionStart --agent claude; fi"
+            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook SessionStart --agent claude; fi",
+            "shell": "bash"
           }
         ]
       },
@@ -56,6 +61,7 @@
           {
             "type": "command",
             "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook wake --agent claude; fi",
+            "shell": "bash",
             "asyncRewake": true
           }
         ]
@@ -66,7 +72,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook UserPromptSubmit --agent claude; fi"
+            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook UserPromptSubmit --agent claude; fi",
+            "shell": "bash"
           }
         ]
       }

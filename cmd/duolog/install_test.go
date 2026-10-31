@@ -11,6 +11,8 @@ import (
 func TestInstallCommandProject(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
 	t.Chdir(root)

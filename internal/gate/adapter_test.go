@@ -69,7 +69,7 @@ func TestNormalizeRejectsMalformed(t *testing.T) {
 func TestUnknownToolsAskInEveryMode(t *testing.T) {
 	p := policy(t)
 	for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
-		check(t, p, LeadRules{}, m, Action{"unknown", "unverified-tool", "implement"}, Ask)
+		check(t, p, LeadRules{}, m, Action{Kind: "unknown", Target: "unverified-tool", Role: "implement"}, Ask)
 	}
 }
 func TestRenderMatchesEachAgentFormat(t *testing.T) {

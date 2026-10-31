@@ -10,7 +10,9 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/pathutil"
 	"github.com/lorem-dev/duolog/internal/trust"
+	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -34,7 +36,7 @@ func ImportLead(root, agent string) (LeadRules, error) {
 	}
 	var paths []string
 	if agent == "claude" {
-		paths = []string{filepath.Join(home, ".claude/settings.json"), filepath.Join(root, ".claude/settings.json"), filepath.Join(root, ".claude/settings.local.json")}
+		paths = []string{filepath.Join(trusthome.Claude(home), "settings.json"), filepath.Join(root, ".claude/settings.json"), filepath.Join(root, ".claude/settings.local.json")}
 	} else {
 		paths = []string{filepath.Join(trust.CodexHome(home), "config.toml"), filepath.Join(root, ".codex/config.toml")}
 	}
@@ -75,7 +77,7 @@ func ImportLead(root, agent string) (LeadRules, error) {
 				}
 				if (rule.Action == "read" || rule.Action == "write") && strings.Contains(entry, "(") {
 					base := root
-					if path == filepath.Join(home, ".claude/settings.json") {
+					if path == filepath.Join(trusthome.Claude(home), "settings.json") {
 						base = filepath.Dir(path)
 					}
 					rule.Match, err = claudePathPattern(rule.Match, root, home, base)
@@ -125,10 +127,13 @@ func ImportLead(root, agent string) (LeadRules, error) {
 // project-relative paths, including ../ for files outside the project.
 func claudePathPattern(pattern, root, home, base string) (string, error) {
 	var path string
+	pattern = pathutil.Slashes(pattern)
 	switch {
+	case len(pattern) > 1 && pattern[1] == ':':
+		path = pattern
 	case strings.HasPrefix(pattern, "//"):
 		path = filepath.FromSlash(strings.TrimPrefix(pattern, "/"))
-		if runtime.GOOS == "windows" {
+		if runtime.GOOS == "windows" || pathutil.Windows(root) {
 			rest := strings.TrimPrefix(pattern, "//")
 			if len(rest) > 1 && rest[1] == '/' {
 				path = filepath.FromSlash(rest[:1] + ":" + rest[1:])
@@ -143,11 +148,11 @@ func claudePathPattern(pattern, root, home, base string) (string, error) {
 	default:
 		path = filepath.Join(root, filepath.FromSlash(pattern))
 	}
-	relative, err := filepath.Rel(root, path)
+	relative, err := pathutil.Relative(root, path)
 	if err != nil {
-		return filepath.ToSlash(path), nil
+		return pathutil.Clean(path), nil
 	}
-	return filepath.ToSlash(relative), nil
+	return pathutil.Clean(relative), nil
 }
 
 func claudeDeny(entry string) (config.Rule, error) {
@@ -162,7 +167,7 @@ func claudeDeny(entry string) (config.Rule, error) {
 	}
 	kind := ""
 	switch tool {
-	case "Bash":
+	case "Bash", "PowerShell":
 		kind = "exec"
 		// Claude's :* is a command-prefix rule, including the command alone.
 		if prefix, ok := strings.CutSuffix(pattern, ":*"); ok {

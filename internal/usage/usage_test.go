@@ -11,7 +11,7 @@ import (
 func logFile(t *testing.T, data string) string {
 	t.Helper()
 	home := t.TempDir()
-	for _, key := range []string{"HOME", "XDG_CONFIG_HOME", "APPDATA"} {
+	for _, key := range []string{"HOME", "USERPROFILE", "XDG_CONFIG_HOME", "APPDATA"} {
 		t.Setenv(key, home)
 	}
 	dir := filepath.Join(t.TempDir(), ".duolog")

@@ -345,3 +345,26 @@ func TestWireLimits(t *testing.T) {
 		t.Fatalf("N = %d", n)
 	}
 }
+
+func TestCRLFBusAndCursor(t *testing.T) {
+	b, dir := openTestBus(t)
+	data := []byte("{\"n\":1,\"from\":\"lead\",\"to\":\"worker\",\"s\":\"hello\"}\r\n")
+	if err := os.WriteFile(filepath.Join(dir, "bus.ndjson"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cursors", "worker"), []byte("0\r\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	lines, err := b.Inbox("worker")
+	if err != nil || len(lines) != 1 || !bytes.Equal(lines[0], data) {
+		t.Fatal(lines, err)
+	}
+	n, err := b.Send(Message{From: "lead", To: "worker", S: "next"})
+	if err != nil || n != 2 {
+		t.Fatal(n, err)
+	}
+	lines, err = b.Inbox("worker")
+	if err != nil || len(lines) != 1 || !bytes.Contains(lines[0], []byte("next")) {
+		t.Fatal(lines, err)
+	}
+}

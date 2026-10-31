@@ -3,7 +3,10 @@ package gate
 
 import (
 	"fmt"
+	"github.com/lorem-dev/duolog/internal/pathutil"
+	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -24,6 +27,7 @@ type Action struct {
 	Kind   string `json:"kind"`
 	Target string `json:"target"`
 	Role   string `json:"role"`
+	Shell  string `json:"shell,omitempty"`
 }
 
 type Decision struct {
@@ -51,6 +55,9 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 		}
 	}
 	if (a.Kind == "read" || a.Kind == "write") && a.Target != "" {
+		if pathutil.Windows(a.Target) {
+			a.Shell = "windows"
+		}
 		a.Target = cleanPath(a.Target)
 	}
 	if a.Kind == "spawn" {
@@ -60,6 +67,9 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	uncertain := false
 	if a.Kind == "exec" {
 		parts, uncertain = shellParts(a.Target)
+		if a.Shell == "powershell" {
+			parts, uncertain = powershellParts(a.Target)
+		}
 	}
 	// Check every part for a deny before any ask or allow can return.
 	for _, part := range parts {
@@ -68,6 +78,9 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 		baseAction := partAction
 		if a.Kind == "exec" {
 			baseAction.Target = denyCommand(part)
+			if a.Shell == "powershell" {
+				baseAction.Target = denyPowerShell(part)
+			}
 		}
 		// Preserve path-specific denies as well as basename command denies.
 		for _, rule := range lead.Deny {
@@ -101,7 +114,7 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 		for _, part := range parts {
 			allowed := false
 			for _, rule := range p.Rules {
-				if rule.Decision == Allow && readOnlyRule(rule.Match) && readOnlyCommand(part) && matches(rule, Action{Kind: "exec", Target: part, Role: a.Role}) {
+				if rule.Decision == Allow && readOnlyRule(rule.Match) && readOnlyCommand(part) && matches(rule, Action{Kind: "exec", Target: part, Role: a.Role, Shell: a.Shell}) {
 					allowed = true
 					break
 				}
@@ -133,7 +146,7 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	if m == mode.Plan && a.Kind != "read" {
 		safe := a.Kind == "exec"
 		for _, part := range parts {
-			safe = safe && allowedReadCommand(p, a.Role, part)
+			safe = safe && allowedReadCommand(p, a.Role, part, a.Shell)
 		}
 		if !safe {
 			return decision(Deny, "plan mode permits only reads", "mode plan")
@@ -189,7 +202,7 @@ func roleCanWrite(p config.Policy, a Action) bool {
 }
 
 func cleanPath(path string) string {
-	return filepath.ToSlash(filepath.Clean(strings.ReplaceAll(path, `\`, "/")))
+	return pathutil.Clean(path)
 }
 
 func matches(r config.Rule, a Action) bool {
@@ -198,8 +211,8 @@ func matches(r config.Rule, a Action) bool {
 	}
 	for _, pattern := range expandBraces(r.Match) {
 		if a.Kind == "read" || a.Kind == "write" {
-			pattern = strings.TrimPrefix(pattern, "./")
-			if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+			pattern = strings.TrimPrefix(pathutil.Clean(pattern), "./")
+			if runtime.GOOS == "darwin" || runtime.GOOS == "windows" || a.Shell == "windows" || pathutil.Windows(r.Match) || pathutil.Windows(a.Target) {
 				pattern = strings.ToLower(pattern)
 				a.Target = strings.ToLower(a.Target)
 			}
@@ -207,7 +220,7 @@ func matches(r config.Rule, a Action) bool {
 			if err == nil && ok {
 				return true
 			}
-		} else if starMatch(pattern, a.Target) {
+		} else if starMatch(execCase(pattern, a.Shell), execCase(a.Target, a.Shell)) {
 			return true
 		}
 	}
@@ -221,7 +234,7 @@ func validateRule(r config.Rule) error {
 	switch r.Action {
 	case "read", "write":
 		for _, pattern := range expandBraces(r.Match) {
-			if !doublestar.ValidatePattern(pattern) {
+			if !doublestar.ValidatePattern(pathutil.Slashes(pattern)) {
 				return fmt.Errorf("invalid %s permission pattern %q", r.Action, r.Match)
 			}
 		}
@@ -295,7 +308,7 @@ func expandBraces(pattern string) []string {
 // basenameCommand receives a verified shell part with normalized whitespace.
 func basenameCommand(command string) string {
 	word, _, _ := strings.Cut(command, " ")
-	return filepath.Base(word) + command[len(word):]
+	return strings.TrimSuffix(path.Base(pathutil.Slashes(word)), ".exe") + command[len(word):]
 }
 
 // shellParts is deliberately conservative, not a shell interpreter. Quoted
@@ -324,7 +337,7 @@ func shellParts(command string) ([]string, bool) {
 			return
 		}
 		switch filepath.Base(word) {
-		case "command", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "cmd":
+		case "command", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "powershell", "cmd":
 			uncertain = true
 			return
 		}
@@ -374,17 +387,24 @@ func shellParts(command string) ([]string, bool) {
 }
 
 func outside(path string) bool {
-	return filepath.IsAbs(path) || path == ".." || strings.HasPrefix(path, "../") || strings.HasPrefix(path, "~/")
+	return pathutil.Outside(path)
 }
 
 // Canonical command forms are used only for denies, never to grant access to
 // an executable at an arbitrary path.
 func denyCommand(command string) string {
 	words := strings.Fields(basenameCommand(command))
+	if len(words) > 0 && strings.EqualFold(words[0], "Remove-Item") {
+		for _, word := range words[1:] {
+			if strings.EqualFold(word, "-Recurse") || strings.HasPrefix(strings.ToLower(word), "-recurse:") {
+				return "remove-item -recurse " + strings.Join(words[1:], " ")
+			}
+		}
+	}
 	if len(words) == 0 {
 		return command
 	}
-	if words[0] == "git" {
+	if strings.EqualFold(words[0], "git") {
 		i := 1
 		for i < len(words) && strings.HasPrefix(words[i], "-") {
 			option := words[i]
@@ -394,7 +414,7 @@ func denyCommand(command string) string {
 			}
 		}
 		if i <= len(words) {
-			return strings.Join(append([]string{"git"}, words[i:]...), " ")
+			return strings.ToLower(strings.Join(append([]string{"git"}, words[i:]...), " "))
 		}
 	}
 	if words[0] == "rm" {
@@ -422,14 +442,14 @@ func denyCommand(command string) string {
 }
 
 func readOnlyCommand(command string) bool {
-	words := strings.Fields(command)
+	words := strings.Fields(strings.ToLower(command))
 	if len(words) == 0 {
 		return false
 	}
 	if words[0] == "git" {
 		return len(words) > 1 && slices.Contains([]string{"status", "diff", "log", "show"}, words[1]) && !strings.Contains(command, "--output") && !strings.Contains(command, "--ext-diff") && !strings.Contains(command, "--textconv")
 	}
-	if !slices.Contains([]string{"cat", "head", "tail", "ls", "pwd", "wc", "rg", "grep", "find"}, words[0]) {
+	if !slices.Contains([]string{"cat", "head", "tail", "ls", "pwd", "wc", "rg", "grep", "find", "get-content", "get-childitem", "get-location", "test-path", "select-string", "get-item"}, words[0]) {
 		return false
 	}
 	for _, word := range words[1:] {
@@ -441,7 +461,7 @@ func readOnlyCommand(command string) bool {
 }
 func readOnlyRule(pattern string) bool {
 	for _, p := range expandBraces(pattern) {
-		fields := strings.Fields(p)
+		fields := strings.Fields(strings.ToLower(p))
 		if len(fields) == 0 {
 			return false
 		}
@@ -449,16 +469,16 @@ func readOnlyRule(pattern string) bool {
 			if len(fields) < 2 || !slices.Contains([]string{"status", "diff", "log", "show"}, strings.TrimSuffix(fields[1], "*")) {
 				return false
 			}
-		} else if !slices.Contains([]string{"cat", "head", "tail", "ls", "pwd", "wc", "rg", "grep", "find"}, strings.TrimSuffix(fields[0], "*")) {
+		} else if !slices.Contains([]string{"cat", "head", "tail", "ls", "pwd", "wc", "rg", "grep", "find", "get-content", "get-childitem", "get-location", "test-path", "select-string", "get-item"}, strings.TrimSuffix(fields[0], "*")) {
 			return false
 		}
 	}
 	return true
 }
 
-func allowedReadCommand(p config.Policy, role, command string) bool {
+func allowedReadCommand(p config.Policy, role, command, shell string) bool {
 	for _, rule := range p.Rules {
-		if rule.Decision == Allow && readOnlyRule(rule.Match) && readOnlyCommand(command) && matches(rule, Action{Kind: "exec", Target: command, Role: role}) {
+		if rule.Decision == Allow && readOnlyRule(rule.Match) && readOnlyCommand(command) && matches(rule, Action{Kind: "exec", Target: command, Role: role, Shell: shell}) {
 			return true
 		}
 	}
@@ -475,4 +495,59 @@ func matchesExplicitOutside(rule config.Rule, action Action) bool {
 		}
 	}
 	return false
+}
+
+func execCase(s, shell string) string {
+	if shell == "powershell" {
+		return strings.ToLower(s)
+	}
+	return s
+}
+
+var namedPowerShell = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9-]*(?:\.exe)?$`)
+
+// PowerShell is not POSIX shell. Never interpret expressions, aliases, calls,
+// script blocks, pipelines, redirection, expansions, quotes or command chains.
+// Still return parts for deny checks before asking about uncertain syntax.
+func powershellParts(command string) ([]string, bool) {
+	chunks := strings.FieldsFunc(command, func(r rune) bool { return strings.ContainsRune(";|&\r\n", r) })
+	uncertain := len(chunks) != 1 || strings.ContainsAny(command, ";|&\r\n'\"$`(){}<>@#=,*?[]")
+	var parts []string
+	for _, chunk := range chunks {
+		words := strings.Fields(chunk)
+		if len(words) == 0 {
+			uncertain = true
+			continue
+		}
+		switch strings.ToLower(words[0]) {
+		case "command", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "powershell", "cmd", "invoke-expression", "iex", "start-process":
+			uncertain = true
+		}
+		if !namedPowerShell.MatchString(words[0]) {
+			uncertain = true
+		}
+		words[0] = strings.TrimSuffix(strings.ToLower(words[0]), ".exe")
+		// Cmdlet names, parameter names and Git subcommands are case-insensitive.
+		parts = append(parts, strings.ToLower(strings.Join(words, " ")))
+	}
+	return parts, uncertain || len(parts) == 0
+}
+
+// Normalize destructive aliases and abbreviated parameters only for denies.
+// They can never confer an allow or a read-only permission.
+func denyPowerShell(command string) string {
+	words := strings.Fields(strings.ToLower(command))
+	if len(words) == 0 {
+		return command
+	}
+	switch words[0] {
+	case "remove-item", "ri", "rm", "rmdir", "rd", "del", "erase":
+		for _, word := range words[1:] {
+			parameter, _, _ := strings.Cut(word, ":")
+			if strings.HasPrefix(parameter, "-") && len(parameter) > 1 && strings.HasPrefix("-recurse", parameter) {
+				return "remove-item -recurse " + strings.Join(words[1:], " ")
+			}
+		}
+	}
+	return denyCommand(command)
 }

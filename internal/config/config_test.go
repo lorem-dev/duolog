@@ -14,6 +14,9 @@ func isolatedRoot(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("XDG_CONFIG_HOME", home)
 	t.Setenv("APPDATA", home)
 	return t.TempDir()
@@ -268,5 +271,14 @@ func TestDefaultPassthroughKeepsLoginVariables(t *testing.T) {
 		if !slices.Contains(cfg.EnvPassthrough, want) {
 			t.Errorf("env_passthrough lacks %s: %v", want, cfg.EnvPassthrough)
 		}
+	}
+}
+
+func TestCRLFConfig(t *testing.T) {
+	root := isolatedRoot(t)
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "version: 1\r\npolicy:\r\n  on_unmatched: deny\r\n")
+	cfg, err := Load(root)
+	if err != nil || cfg.Policy.OnUnmatched != "deny" {
+		t.Fatal(cfg, err)
 	}
 }

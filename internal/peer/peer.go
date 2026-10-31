@@ -946,3 +946,6 @@ func pendingAsk(dir, address string) (string, error) {
 	}
 	return "", nil
 }
+
+// WindowsNotice explains the supported alternative without invoking Rex.
+const WindowsNotice = "Live sessions are not available on Windows; use duolog delegate."

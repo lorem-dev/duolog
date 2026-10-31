@@ -123,7 +123,17 @@ These come from the research page and are OBSERVED, not VERIFIED:
   Claude.
 - Whether hooks fire for tools inside a Codex `spawn_agent` child is NOT
   VERIFIED.
-- We did not test permissions on Windows.
+- Real agents on Windows have not been run. Native CI executes the generated
+  gate commands, but does not prove that agents discover or honor hooks.
+
+## How PowerShell commands are checked
+
+The PowerShell tool counts as an exec action. Only a plain named command can
+pass without review. Expressions, quotes, variables, pipelines, script blocks
+and command chains ask, even in full mode. A read-only role can run only named
+read commands allowed by policy, such as `Get-Content`, `Get-ChildItem` and
+`git status`. `Remove-Item -Recurse` and `git push` match deny rules first.
+Windows drive letters, backslashes and case are normalized before path rules.
 
 ## Related pages
 

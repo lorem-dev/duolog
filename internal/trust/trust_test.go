@@ -11,6 +11,9 @@ func fixture(t *testing.T, body string) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	if e := os.MkdirAll(filepath.Join(home, ".codex"), 0700); e != nil {
 		t.Fatal(e)
 	}
@@ -95,5 +98,16 @@ func TestHookTrustRequiresCurrentGateEntry(t *testing.T) {
 				t.Fatalf("trusted=%v want %v, err=%v", got.Trusted, tc.trusted, err)
 			}
 		})
+	}
+}
+
+func TestTrustWindowsOverrideOnly(t *testing.T) {
+	root := t.TempDir()
+	key := filepath.Join(root, ".codex", "hooks.json") + ":PreToolUse:0:0"
+	fixture(t, fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = \"fixture\"\n", key))
+	writeHook(t, root, `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","commandWindows":"powershell -NoProfile -NonInteractive -Command duolog gate --agent codex"}]}]}}`)
+	state, err := Hooks("codex", root)
+	if err != nil || !state.Installed || !state.Trusted {
+		t.Fatal(state, err)
 	}
 }

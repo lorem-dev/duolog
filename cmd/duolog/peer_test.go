@@ -53,6 +53,9 @@ func rexCalls(t *testing.T, bin string) [][]string {
 
 // peerProject makes a project root with a live lead and a fake rex.
 func peerProject(t *testing.T, capture testbin.Scenario) (root, rex string) {
+	if runtime.GOOS == "windows" {
+		t.Skip("live peer sessions are unavailable on Windows")
+	}
 	t.Helper()
 	isolatedRouteConfig(t)
 	root = t.TempDir()
@@ -238,6 +241,9 @@ func TestDoctorListsPanesOfEndedLeadFromPeerOpen(t *testing.T) {
 }
 
 func TestPeerLaunchSetsEnvWithoutRex(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("peer launcher is unused on Windows")
+	}
 	program := testbin.Install(t, "agent", testbin.Scenario{})
 	t.Setenv("REX_SESSION", "sess")
 	t.Setenv("REX_BLOCK", "block:lead")

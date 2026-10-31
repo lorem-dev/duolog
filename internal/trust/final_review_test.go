@@ -13,6 +13,7 @@ func TestGeneratedHooksTrustedAtBothScopesAndCodexHome(t *testing.T) {
 		t.Run(scope, func(t *testing.T) {
 			home, root := t.TempDir(), t.TempDir()
 			t.Setenv("HOME", home)
+			t.Setenv("CLAUDE_CONFIG_DIR", "")
 			t.Setenv("USERPROFILE", home)
 			t.Setenv("CODEX_HOME", "")
 			dir := filepath.Join(root, ".codex")

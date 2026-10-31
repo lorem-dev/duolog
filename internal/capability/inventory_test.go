@@ -36,6 +36,8 @@ func fixture(t *testing.T, name string) string {
 func env(t *testing.T) (home, root string) {
 	t.Helper()
 	home, root = t.TempDir(), t.TempDir()
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	old := Home
 	Home = home
 	t.Cleanup(func() { Home = old })
@@ -308,4 +310,23 @@ func TestCodexPluginFailureKeepsOtherKindsKnown(t *testing.T) {
 		t.Fatal(inv, err)
 	}
 	requireItems(t, inv, "mcp:codegraph")
+}
+
+func TestClaudeCapabilityConfigOverride(t *testing.T) {
+	home, root := env(t)
+	custom := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", custom)
+	put(t, filepath.Join(home, ".claude", "skills", "ignored", "SKILL.md"), "ignored")
+	put(t, filepath.Join(custom, "skills", "visible", "SKILL.md"), "visible")
+	put(t, filepath.Join(custom, ".claude.json"), `{"mcpServers":{"override-server":{}}}`)
+	fake := testbin.Install(t, "claude", testbin.Scenario{Stdout: "[]"})
+	onlyPath(t, fake)
+	inv, err := Scan(context.Background(), "claude", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(names(inv), "\n")
+	if strings.Contains(got, "ignored") || !strings.Contains(got, "visible") || !strings.Contains(got, "override-server") {
+		t.Fatal(got)
+	}
 }

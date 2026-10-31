@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -34,7 +35,7 @@ func newDoctorCommand() *cobra.Command {
 		}
 		opts := doctor.Options{Root: root, Registry: reg, Probe: probe}
 		var inventoryFindings []doctor.Finding
-		if bin, ok := rex.Locate(os.Getenv("REX_BIN_DIR"), rex.BundleGlobs()); ok {
+		if bin, ok := rex.Locate(os.Getenv("REX_BIN_DIR"), rex.BundleGlobs()); ok && runtime.GOOS != "windows" {
 			opts.RexBin = bin
 			opts.Panes, err = doctorPanes(cmd.Context(), bin, os.Getenv("REX_SESSION"), reg)
 			if err != nil {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -22,9 +23,11 @@ const catalog = `{"models":[{"slug":"gpt-6.1-sol","visibility":"list","supported
 func setup(t *testing.T) (*config.Config, Options, string) {
 	t.Helper()
 	home := t.TempDir()
-	for _, key := range []string{"HOME", "XDG_CONFIG_HOME", "APPDATA"} {
+	for _, key := range []string{"HOME", "USERPROFILE", "XDG_CONFIG_HOME", "APPDATA"} {
 		t.Setenv(key, home)
 	}
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	root := t.TempDir()
 	cfg, err := config.Load(root)
 	if err != nil {
@@ -202,7 +205,11 @@ func TestProbeDoesNotClearOnEmptyAnswer(t *testing.T) {
 }
 func TestDoctorReportsTrustAndRexWithoutCallingRex(t *testing.T) {
 	cfg, opts, _ := setup(t)
-	contains(t, findings(t, cfg, opts), "hooks approved=false", "folder trusted=false", "changed after review cannot be detected", "Codex itself will skip", "Rex unavailable")
+	rexMessage := "Rex unavailable"
+	if runtime.GOOS == "windows" {
+		rexMessage = "Live sessions are not available on Windows; use duolog delegate."
+	}
+	contains(t, findings(t, cfg, opts), "hooks approved=false", "folder trusted=false", "changed after review cannot be detected", "Codex itself will skip", rexMessage)
 }
 
 // The retained catalog fixture has the shape of real `codex debug models`:

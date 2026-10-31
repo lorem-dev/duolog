@@ -21,36 +21,52 @@ import (
 
 func generatedCommand(t *testing.T, agent, event string) string {
 	t.Helper()
-	data, err := install.HooksJSON(agent, "linux", 150)
+	return generatedCommandForOS(t, agent, runtime.GOOS, event)
+}
+
+func generatedCommandForOS(t *testing.T, agent, goos, event string) string {
+	t.Helper()
+	data, err := install.HooksJSON(agent, goos, 150)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var doc struct {
-		Hooks map[string][]struct{ Hooks []struct{ Command string } }
+		Hooks map[string][]struct {
+			Hooks []struct{ Command, CommandWindows string }
+		}
 	}
 	if err := json.Unmarshal(data, &doc); err != nil {
 		t.Fatal(err)
 	}
-	return doc.Hooks[event][0].Hooks[0].Command
+	h := doc.Hooks[event][0].Hooks[0]
+	if goos == "windows" && h.CommandWindows != "" {
+		return h.CommandWindows
+	}
+	return h.Command
 }
 
-// This test drives install -> sh guard -> session -> delegate -> real runner ->
+// This test drives install -> generated guard -> session -> delegate -> runner ->
 // fake agent -> the generated gate command. No model or terminal is started.
 func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX guard regression; Windows requires a native run")
-	}
 	_, source, _, _ := runtime.Caller(0)
 	repo := filepath.Clean(filepath.Join(filepath.Dir(source), "../.."))
 	binDir := t.TempDir()
 	binary := filepath.Join(binDir, "duolog")
+	if runtime.GOOS == "windows" {
+		binary += ".exe"
+	}
 	build := exec.Command("go", "build", "-o", binary, "./cmd/duolog")
 	build.Dir = repo
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %s %v", output, err)
 	}
-	for _, leadAgent := range []string{"claude", "codex"} {
-		t.Run(leadAgent, func(t *testing.T) {
+	cases := []struct{ agent, shell string }{{"claude", "native"}, {"codex", "native"}}
+	if runtime.GOOS == "windows" {
+		cases = append(cases, struct{ agent, shell string }{"claude", "bash"})
+	}
+	for _, tc := range cases {
+		leadAgent := tc.agent
+		t.Run(leadAgent+"/"+tc.shell, func(t *testing.T) {
 			isolatedRouteConfig(t)
 			t.Setenv("USERPROFILE", os.Getenv("HOME"))
 			t.Setenv("CODEX_HOME", "")
@@ -77,7 +93,12 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 			input, _ := json.Marshal(map[string]string{"session_id": "lead-real-guard", "permission_mode": "bypassPermissions", "transcript_path": transcript, "cwd": root})
 			invokeHook := func(event string) []byte {
 				t.Helper()
-				cmd := exec.Command("sh", "-c", generatedCommand(t, leadAgent, event))
+				command := generatedCommand(t, leadAgent, event)
+				cmd := testbin.HookProcess(command)
+				if tc.shell == "bash" {
+					command = generatedCommandForOS(t, leadAgent, "linux", event)
+					cmd = testbin.GitBashProcess(command)
+				}
 				cmd.Stdin = bytes.NewReader(input)
 				output, err := cmd.CombinedOutput()
 				if err != nil {
@@ -95,7 +116,7 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 			}
 			lead, ok, err := reg.Lead("lead-real-guard")
 			if err != nil || !ok || lead.PID != os.Getpid() {
-				t.Fatalf("lead did not survive actual sh guard: %+v %v %v", lead, ok, err)
+				t.Fatalf("lead did not survive the generated hook guard: %+v %v %v", lead, ok, err)
 			}
 			// Approvals use the documented key shape; the event spelling has no saved
 			// config.toml fixture and remains a concern for live verification.
@@ -147,7 +168,7 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 					scenario.Stdout = `{"structured_output":` + answer + `}`
 				}
 				fake := testbin.Install(t, workerAgent, scenario)
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				cmd := exec.CommandContext(ctx, binary, "delegate", tc.role, "--task", "task.md")
 				output, runErr := cmd.CombinedOutput()
 				cancel()

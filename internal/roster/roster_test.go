@@ -16,7 +16,7 @@ import (
 func setup(t *testing.T) (*config.Config, *session.Registry) {
 	t.Helper()
 	home := t.TempDir()
-	for _, key := range []string{"HOME", "XDG_CONFIG_HOME", "APPDATA"} {
+	for _, key := range []string{"HOME", "USERPROFILE", "XDG_CONFIG_HOME", "APPDATA"} {
 		t.Setenv(key, home)
 	}
 	cfg, err := config.Load(t.TempDir())
@@ -90,6 +90,8 @@ func TestRosterWarnsWhenDuologMissing(t *testing.T) {
 
 func TestStartNoteUsesOnlyCachedCapabilities(t *testing.T) {
 	_, reg := setup(t)
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	root := t.TempDir()
 	cache := filepath.Join(root, ".duolog", "cache")
 	if err := os.MkdirAll(cache, 0755); err != nil {

@@ -99,7 +99,9 @@ The default environment includes PATH, HOME and USER, plus
 Windows also keeps SYSTEMROOT, USERPROFILE, APPDATA, LOCALAPPDATA, TEMP, TMP,
 PATHEXT and COMSPEC. An explicit `env_passthrough` replaces these defaults.
 The worker always gets `DUOLOG_DEPTH=1`, its `DUOLOG_LEAD` and `DUOLOG_ROLE`.
-Codex trust reads `CODEX_HOME` when set.
+Codex trust, hooks and capabilities read `CODEX_HOME` when set. Claude hooks,
+permissions and capabilities read `CLAUDE_CONFIG_DIR` when set. Home lookups
+use the OS home directory, including USERPROFILE on Windows.
 
 ## Related pages
 

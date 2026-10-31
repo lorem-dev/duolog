@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/lorem-dev/duolog/internal/store"
 	"io"
 	"math"
 	"net/url"
@@ -254,5 +255,5 @@ func writeCursor(path string, offset int64) error {
 	if closeErr != nil {
 		return closeErr
 	}
-	return os.Rename(f.Name(), path)
+	return store.Rename(f.Name(), path)
 }
