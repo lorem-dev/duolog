@@ -31,6 +31,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/task"
 	"github.com/lorem-dev/duolog/internal/trust"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 type Outcome struct {
@@ -503,7 +504,7 @@ func missingBinary(err error) bool {
 func workerEnv(names []string, leadID string, roles ...string) []string {
 	var env []string
 	for _, name := range names {
-		if strings.HasPrefix(name, "DUOLOG_") || strings.HasPrefix(name, "REX_") {
+		if strings.EqualFold(name, "PATH") || strings.HasPrefix(name, "DUOLOG_") || strings.HasPrefix(name, "REX_") {
 			continue
 		}
 		if value, ok := os.LookupEnv(name); ok {
@@ -514,7 +515,7 @@ func workerEnv(names []string, leadID string, roles ...string) []string {
 	if len(roles) > 0 {
 		role = roles[0]
 	}
-	return append(env, "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+leadID, "DUOLOG_ROLE="+role)
+	return append(env, workerenv.Path(), "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+leadID, "DUOLOG_ROLE="+role)
 }
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 func short(s string, n int) string {

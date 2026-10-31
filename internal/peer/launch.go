@@ -7,6 +7,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/router"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // agentArgv is the interactive command of a peer. The lead's mode picks the
@@ -40,7 +41,7 @@ func agentArgv(route router.Route, m mode.Mode) []string {
 func agentEnv(cfg *config.Config, agent, leadID string, roles ...string) []string {
 	var pairs []string
 	for _, name := range cfg.EnvPassthrough {
-		if strings.HasPrefix(name, "DUOLOG_") || strings.HasPrefix(name, "REX_") {
+		if strings.EqualFold(name, "PATH") || strings.HasPrefix(name, "DUOLOG_") || strings.HasPrefix(name, "REX_") {
 			continue
 		}
 		if value, ok := os.LookupEnv(name); ok {
@@ -54,7 +55,7 @@ func agentEnv(cfg *config.Config, agent, leadID string, roles ...string) []strin
 	if len(roles) > 0 {
 		role = roles[0]
 	}
-	return append(pairs, "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+leadID, "DUOLOG_ROLE="+role)
+	return append(pairs, workerenv.Path(), "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+leadID, "DUOLOG_ROLE="+role)
 }
 
 // launchArgv wraps a program so that it starts with env and without the Rex

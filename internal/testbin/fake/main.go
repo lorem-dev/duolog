@@ -98,13 +98,16 @@ func run() error {
 		}
 	}
 	for i, hook := range s.Hooks {
-		cmd := testbin.HookProcess(hook.Command)
+		cmd := testbin.HookProcess(hook.Command, hook.Args...)
 		cmd.Stdin = strings.NewReader(hook.Input)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 		err := cmd.Run()
 		code := 0
 		if err != nil {
+			if cmd.ProcessState == nil {
+				return err
+			}
 			code = cmd.ProcessState.ExitCode()
 		}
 		result, _ := json.Marshal(struct {

@@ -159,7 +159,7 @@ func TestPreservesForeignHooks(t *testing.T) {
 	if a < 0 || b < a || !strings.Contains(got, "other-c") || !strings.Contains(got, `"model": "opus"`) {
 		t.Fatalf("foreign content lost or reordered:\n%s", got)
 	}
-	if !strings.Contains(got, "duolog gate") {
+	if !strings.Contains(got, `"command": "duolog"`) {
 		t.Fatalf("our hook missing:\n%s", got)
 	}
 	if read(t, path+".duolog.bak") != foreign {
@@ -384,14 +384,10 @@ func TestGuards(t *testing.T) {
 				for _, g := range groups {
 					for _, h := range g.Hooks {
 						if agent == "codex" {
-							if h.Shell != "" || !strings.Contains(h.Command, "then exec duolog") || !strings.HasPrefix(h.CommandWindows, "powershell -NoProfile -NonInteractive -Command ") {
+							if !strings.Contains(h.Command, "then exec duolog") || !strings.HasPrefix(h.CommandWindows, "powershell -NoProfile -NonInteractive -Command ") {
 								t.Fatal(h)
 							}
-						} else if goos == "windows" {
-							if h.Shell != "powershell" || !strings.Contains(h.Command, "Get-Command duolog") {
-								t.Fatal(h)
-							}
-						} else if h.Shell != "bash" || !strings.Contains(h.Command, "then exec duolog") {
+						} else if h.Command != "duolog" || len(h.Args) == 0 || h.CommandWindows != "" || strings.Contains(string(data), `"shell"`) {
 							t.Fatal(h)
 						}
 					}
@@ -399,15 +395,19 @@ func TestGuards(t *testing.T) {
 			}
 		}
 	}
-	a, _ := HooksJSON("codex", "linux", 150)
-	b, _ := HooksJSON("codex", "windows", 150)
-	if string(a) != string(b) {
-		t.Fatal("Codex hooks must be shared across OSes")
+	for _, agent := range []string{"claude", "codex"} {
+		a, _ := HooksJSON(agent, "linux", 150)
+		for _, goos := range []string{"darwin", "windows"} {
+			b, _ := HooksJSON(agent, goos, 150)
+			if string(a) != string(b) {
+				t.Fatal(agent + " hooks must be shared across OSes")
+			}
+		}
 	}
 }
 
 // hookCommands returns the command of every hook for one event.
-func hookCommands(t *testing.T, agent, event string) []string {
+func hookCommands(t *testing.T, agent, event string) []testbin.HookCommand {
 	t.Helper()
 	data, err := HooksJSON(agent, runtime.GOOS, 150)
 	if err != nil {
@@ -416,21 +416,22 @@ func hookCommands(t *testing.T, agent, event string) []string {
 	var doc struct {
 		Hooks map[string][]struct {
 			Hooks []struct {
-				Command        string `json:"command"`
-				CommandWindows string `json:"commandWindows"`
+				Command        string   `json:"command"`
+				CommandWindows string   `json:"commandWindows"`
+				Args           []string `json:"args"`
 			} `json:"hooks"`
 		} `json:"hooks"`
 	}
 	if err := json.Unmarshal(data, &doc); err != nil {
 		t.Fatal(err)
 	}
-	var out []string
+	var out []testbin.HookCommand
 	for _, g := range doc.Hooks[event] {
 		for _, h := range g.Hooks {
 			if runtime.GOOS == "windows" && h.CommandWindows != "" {
-				out = append(out, h.CommandWindows)
+				out = append(out, testbin.HookCommand{Command: h.CommandWindows})
 			} else {
-				out = append(out, h.Command)
+				out = append(out, testbin.HookCommand{Command: h.Command, Args: h.Args})
 			}
 		}
 	}
@@ -438,10 +439,10 @@ func hookCommands(t *testing.T, agent, event string) []string {
 }
 
 // exitCode runs the native generated hook with a PATH that has no duolog.
-func exitCode(t *testing.T, command string, env ...string) int {
+func exitCode(t *testing.T, command testbin.HookCommand, env ...string) int {
 	t.Helper()
 	empty := t.TempDir()
-	c := testbin.HookProcess(command)
+	c := testbin.HookProcess(command.Command, command.Args...)
 	path := empty
 	if runtime.GOOS == "windows" {
 		path += string(os.PathListSeparator) + filepath.Join(os.Getenv("SYSTEMROOT"), "System32") + string(os.PathListSeparator) + filepath.Join(os.Getenv("SYSTEMROOT"), "System32", "WindowsPowerShell", "v1.0")
@@ -464,7 +465,7 @@ func exitCode(t *testing.T, command string, env ...string) int {
 
 func TestGuardsRunFailClosed(t *testing.T) {
 
-	for _, agent := range []string{"claude", "codex"} {
+	for _, agent := range []string{"codex"} {
 		for _, event := range []string{"PreToolUse", "PermissionRequest"} {
 			cmds := hookCommands(t, agent, event)
 			if len(cmds) != 1 {
@@ -496,9 +497,6 @@ func TestGuardsRunFailClosed(t *testing.T) {
 }
 
 func TestClaudePluginEnabledSkipsHooks(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows native install requires the Bash plugin disabled")
-	}
 	home, root := setup(t)
 	write(t, filepath.Join(home, ".claude/settings.json"), `{"enabledPlugins":{"duolog@duolog":true}}`)
 	r := run(t, Options{Scope: "project", Agent: "claude", Home: home, Root: root})
@@ -516,15 +514,12 @@ func TestClaudePluginEnabledSkipsHooks(t *testing.T) {
 }
 
 func TestClaudePluginEnabledInTargetRemovesOldHooks(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows native install requires the Bash plugin disabled")
-	}
 	home, root := setup(t)
 	run(t, Options{Scope: "project", Agent: "claude", Home: home, Root: root})
 	path := filepath.Join(root, ".claude/settings.json")
 	write(t, path, strings.Replace(read(t, path), "{", `{"enabledPlugins":{"duolog@duolog":true},`, 1))
 	run(t, Options{Scope: "project", Agent: "claude", Home: home, Root: root})
-	if s := read(t, path); strings.Contains(s, "duolog gate") || !strings.Contains(s, "enabledPlugins") {
+	if s := read(t, path); strings.Contains(s, `"command": "duolog"`) || !strings.Contains(s, "enabledPlugins") {
 		t.Errorf("old hooks should go and foreign keys stay:\n%s", s)
 	}
 }

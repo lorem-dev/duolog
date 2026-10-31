@@ -54,9 +54,6 @@ func Run(o Options) (Report, error) {
 			path = userHooksPath(base, agent)
 		}
 		if agent == "claude" && pluginEnabled(base, o.Home) {
-			if runtime.GOOS == "windows" {
-				return Report{}, fmt.Errorf("disable the duolog Claude plugin before installing native Windows hooks; its Bash hooks require Git Bash")
-			}
 			// The plugin already registers these hooks and the skill; a second
 			// copy in settings.json would run every gate twice. Drop any copy an
 			// earlier install left behind.
@@ -269,12 +266,12 @@ func apply(e edit) (bool, error) {
 }
 
 type handler struct {
-	Type           string `json:"type"`
-	Command        string `json:"command"`
-	CommandWindows string `json:"commandWindows,omitempty"`
-	Shell          string `json:"shell,omitempty"`
-	Timeout        int    `json:"timeout,omitempty"`
-	AsyncRewake    bool   `json:"asyncRewake,omitempty"`
+	Type           string   `json:"type"`
+	Command        string   `json:"command"`
+	CommandWindows string   `json:"commandWindows,omitempty"`
+	Args           []string `json:"args,omitempty"`
+	Timeout        int      `json:"timeout,omitempty"`
+	AsyncRewake    bool     `json:"asyncRewake,omitempty"`
 }
 
 type group struct {
@@ -288,17 +285,13 @@ type event struct {
 
 // events returns the hook entries of one agent in a fixed order. Timeouts are
 // in seconds for Claude; Codex hooks.json also takes seconds.
-func events(agent, goos string, timeout int) []event {
+func events(agent string, timeout int) []event {
 	makeHandler := func(args string, gate bool) handler {
-		h := handler{Type: "command", Command: command("linux", agent, args, gate)}
+		h := handler{Type: "command", Command: "duolog", Args: strings.Fields(args)}
 		if agent == "codex" {
-			h.CommandWindows = command("windows", agent, args, gate)
-		} else {
-			h.Shell = "bash"
-			if goos == "windows" {
-				h.Command = powershellGuard(args, gate)
-				h.Shell = "powershell"
-			}
+			h.Command = command("linux", args, gate)
+			h.Args = nil
+			h.CommandWindows = command("windows", args, gate)
 		}
 		return h
 	}
@@ -326,16 +319,11 @@ func events(agent, goos string, timeout int) []event {
 	}
 }
 
-// An exec-form hook cannot make a missing executable silent for leads while
-// blocking workers. Claude therefore needs an explicit per-OS shell guard;
-// its format has no Windows override. Codex carries both forms in one file.
-// POSIX must exec so registration records the agent, not a short-lived shell.
-func command(goos, agent, args string, gate bool) string {
+// Codex carries both shell guards in one shared file. POSIX must exec so
+// registration records the agent, not a short-lived shell.
+func command(goos, args string, gate bool) string {
 	if goos == "windows" {
 		body := powershellGuard(args, gate)
-		if agent == "claude" {
-			return body
-		}
 		// No variable expansion or embedded double quotes: safe when the outer
 		// Windows shell is PowerShell, Git Bash or cmd. Codex documents no shell.
 		return `powershell -NoProfile -NonInteractive -Command "` + body + `"`
@@ -356,9 +344,9 @@ func powershellGuard(args string, gate bool) string {
 }
 
 // HooksJSON renders the hooks document for one agent, as the plugin ships it.
-func HooksJSON(agent, goos string, timeout int) ([]byte, error) {
+func HooksJSON(agent, _ string, timeout int) ([]byte, error) {
 	hooks := map[string][]group{}
-	for _, e := range events(agent, goos, timeout) {
+	for _, e := range events(agent, timeout) {
 		hooks[e.name] = e.groups
 	}
 	return encode(map[string]any{"hooks": hooks})

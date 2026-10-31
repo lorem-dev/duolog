@@ -54,3 +54,30 @@ func TestGeneratedHooksTrustedAtBothScopesAndCodexHome(t *testing.T) {
 		})
 	}
 }
+
+func TestClaudeRecognizesGeneratedAndOlderHooks(t *testing.T) {
+	home, root := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	path := filepath.Join(root, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	generated, err := install.HooksJSON("claude", "windows", 150)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, data := range [][]byte{generated,
+		[]byte(`{"hooks":{"PreToolUse":[{"hooks":[{"command":"if command -v duolog; then exec duolog gate --agent claude; fi"}]}]}}`),
+		[]byte(`{"hooks":{"PreToolUse":[{"hooks":[{"command":"if (Get-Command duolog) { duolog gate --agent claude }"}]}]}}`),
+	} {
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Hooks("claude", root)
+		if err != nil || !got.Installed || !got.Trusted {
+			t.Fatal(got, err)
+		}
+	}
+}

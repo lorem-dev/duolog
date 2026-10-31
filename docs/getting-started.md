@@ -110,18 +110,25 @@ then creates `.duolog/` in a new project and registers its lead.
 User scope honors `CODEX_HOME` and `CLAUDE_CONFIG_DIR`. If they are unset,
 Go's native home lookup supplies `.codex` and `.claude` under your home.
 
-Codex hooks store a POSIX command and `commandWindows` together, so their
-file can be shared. Claude has no OS override field. Its native installer
-writes an explicit Bash guard on macOS/Linux and a PowerShell guard on
-Windows. Re-run `duolog install --agent claude --scope user` on each machine;
-keep those OS-specific settings out of shared project settings. An exec-form
-hook cannot silently skip a missing binary for a lead while blocking workers.
+Codex hooks store a POSIX command and `commandWindows` together. Claude
+hooks use `command: "duolog"` with `args` and no shell on every OS, including
+the plugin. Both hook files can be committed and shared across OSes. No Git
+Bash is needed for Claude hooks. PowerShell tool calls use the same gate as
+Bash tool calls. Real Windows agents remain untested.
 
-The Claude plugin ships the Bash guard, including on Windows with Git Bash.
-Without Git Bash, disable that plugin before installing native Windows hooks.
-The installer refuses duplicate plugin hooks on Windows. The plugin itself
-has not been proven with real Windows agents. PowerShell tool calls use the
-same gate as Bash tool calls.
+An enabled Claude plugin supplies the hooks and skill. The installer skips
+those copies and removes older native hooks to avoid running each gate twice.
+Codex still needs `duolog install`: its marketplace plugin supplies the skill,
+but does not install hooks. See the [README install steps](../README.md#install)
+for both marketplace commands.
+
+A marketplace plugin's skill checks `duolog version` and offers the binary
+install if it is missing. In a project someone else set up, the marked line
+in `AGENTS.md` and `CLAUDE.md` offers it when `.duolog/config.yaml` exists;
+the skill also checks. Both require agreement before running the install.
+If the binary exists but the rules are off, the skill runs `duolog doctor`
+once per session and reports what it names, such as `/hooks` for Codex.
+A hook cannot offer the install when its binary is missing.
 
 If a file already exists and changes, duolog first copies it to
 `<file>.duolog.bak`. `duolog uninstall` removes only the hook entries and the

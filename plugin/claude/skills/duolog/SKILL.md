@@ -7,20 +7,38 @@ description: >-
 
 # duolog
 
-Delegate self-contained work. Do small edits yourself. Commands also work in
-PowerShell. Real agents on Windows have not been run.
+## Before you start
+
+1. Run `duolog version`. If it is not found, tell the user and offer the
+   command for this OS below. Run it only if they agree.
+
+   macOS/Linux:
+
+   ```sh
+   curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh && duolog install --scope project
+   ```
+
+   Windows PowerShell:
+
+   ```powershell
+   irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
+   ```
+
+   On Windows, add the printed directory to PATH, then run
+   `duolog install --scope project`.
+2. Run `duolog doctor` once per session. If it says the rules are off, tell
+   the user what it names, such as `/hooks` for Codex, and follow its steps
+   before delegating.
 
 ## Hand over
 
 1. Write `task.md` with sections Goal, Read, Write, Limits, Check, in order.
 2. List Read files by line range. Denied reads stay references; they are not
    inlined.
-3. Run `duolog delegate <role> --task task.md`. Use a long shell-tool timeout;
-   split tasks that exceed the host's limit.
+3. Run `duolog delegate <role> --task task.md`. Use a long timeout.
 4. Read the summary and needed file ranges. Long answers point to `answer.json`.
 
-The lead resolves automatically. With several leads, pass `--lead <id>` from the
-SessionStart line. Missing leads refuse delegation.
+With several leads, pass `--lead <id>` from SessionStart.
 
 ## When duolog says `run here`
 
@@ -39,9 +57,8 @@ When the lead is free, answer numbered requests with `duolog allow <n>` or
 
 ## Live sessions
 
-On Windows use `duolog delegate`; live sessions need Rex on macOS/Linux.
-Use `duolog peer` send, wait and answer. `peer wait` returns when a gate ask
-arrives. Put long content in an artifact.
+On Windows use `duolog delegate`. Live sessions need Rex on macOS/Linux.
+`duolog peer wait` returns for a gate ask. Put long content in an artifact.
 
 ## Never
 

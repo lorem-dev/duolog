@@ -19,12 +19,12 @@ import (
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
-func generatedCommand(t *testing.T, agent, event string) string {
+func generatedCommand(t *testing.T, agent, event string) testbin.HookCommand {
 	t.Helper()
 	return generatedCommandForOS(t, agent, runtime.GOOS, event)
 }
 
-func generatedCommandForOS(t *testing.T, agent, goos, event string) string {
+func generatedCommandForOS(t *testing.T, agent, goos, event string) testbin.HookCommand {
 	t.Helper()
 	data, err := install.HooksJSON(agent, goos, 150)
 	if err != nil {
@@ -32,7 +32,10 @@ func generatedCommandForOS(t *testing.T, agent, goos, event string) string {
 	}
 	var doc struct {
 		Hooks map[string][]struct {
-			Hooks []struct{ Command, CommandWindows string }
+			Hooks []struct {
+				Command, CommandWindows string
+				Args                    []string
+			}
 		}
 	}
 	if err := json.Unmarshal(data, &doc); err != nil {
@@ -40,12 +43,12 @@ func generatedCommandForOS(t *testing.T, agent, goos, event string) string {
 	}
 	h := doc.Hooks[event][0].Hooks[0]
 	if goos == "windows" && h.CommandWindows != "" {
-		return h.CommandWindows
+		return testbin.HookCommand{Command: h.CommandWindows}
 	}
-	return h.Command
+	return testbin.HookCommand{Command: h.Command, Args: h.Args}
 }
 
-// This test drives install -> generated guard -> session -> delegate -> runner ->
+// This test drives install -> generated hook -> session -> delegate -> runner ->
 // fake agent -> the generated gate command. No model or terminal is started.
 func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 	_, source, _, _ := runtime.Caller(0)
@@ -60,13 +63,8 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %s %v", output, err)
 	}
-	cases := []struct{ agent, shell string }{{"claude", "native"}, {"codex", "native"}}
-	if runtime.GOOS == "windows" {
-		cases = append(cases, struct{ agent, shell string }{"claude", "bash"})
-	}
-	for _, tc := range cases {
-		leadAgent := tc.agent
-		t.Run(leadAgent+"/"+tc.shell, func(t *testing.T) {
+	for _, leadAgent := range []string{"claude", "codex"} {
+		t.Run(leadAgent, func(t *testing.T) {
 			isolatedRouteConfig(t)
 			t.Setenv("USERPROFILE", os.Getenv("HOME"))
 			t.Setenv("CODEX_HOME", "")
@@ -94,11 +92,7 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 			invokeHook := func(event string) []byte {
 				t.Helper()
 				command := generatedCommand(t, leadAgent, event)
-				cmd := testbin.HookProcess(command)
-				if tc.shell == "bash" {
-					command = generatedCommandForOS(t, leadAgent, "linux", event)
-					cmd = testbin.GitBashProcess(command)
-				}
+				cmd := testbin.HookProcess(command.Command, command.Args...)
 				cmd.Stdin = bytes.NewReader(input)
 				output, err := cmd.CombinedOutput()
 				if err != nil {
@@ -116,7 +110,7 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 			}
 			lead, ok, err := reg.Lead("lead-real-guard")
 			if err != nil || !ok || lead.PID != os.Getpid() {
-				t.Fatalf("lead did not survive the generated hook guard: %+v %v %v", lead, ok, err)
+				t.Fatalf("lead did not survive the next generated hook: %+v %v %v", lead, ok, err)
 			}
 			// Approvals use the documented key shape; the event spelling has no saved
 			// config.toml fixture and remains a concern for live verification.
@@ -163,13 +157,16 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 				if tc.want != "" {
 					answer = `{"done":false,"summary":"Needs lead decision.","files":[],"needs":["approval"]}`
 				}
-				scenario := testbin.Scenario{Hooks: []testbin.HookCommand{{Command: generatedCommand(t, workerAgent, "PreToolUse"), Input: hookInput}}, Answer: answer}
+				hook := generatedCommand(t, workerAgent, "PreToolUse")
+				hook.Input = hookInput
+				scenario := testbin.Scenario{Hooks: []testbin.HookCommand{hook}, Answer: answer}
 				if workerAgent == "claude" {
 					scenario.Stdout = `{"structured_output":` + answer + `}`
 				}
 				fake := testbin.Install(t, workerAgent, scenario)
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				cmd := exec.CommandContext(ctx, binary, "delegate", tc.role, "--task", "task.md")
+				cmd.Env = append(os.Environ(), "PATH="+strings.ReplaceAll(os.Getenv("PATH"), binDir+string(os.PathListSeparator), ""))
 				output, runErr := cmd.CombinedOutput()
 				cancel()
 				if tc.want == "" && runErr != nil {
@@ -179,6 +176,22 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 					t.Fatalf("needs exit: %s %v", output, runErr)
 				}
 				env, _ := os.ReadFile(fake + ".env.json")
+				var workerPairs []string
+				if err := json.Unmarshal(env, &workerPairs); err != nil {
+					t.Fatal(err)
+				}
+				foundPath := false
+				for _, pair := range workerPairs {
+					if strings.HasPrefix(pair, "PATH=") {
+						foundPath = true
+						if strings.TrimPrefix(pair, "PATH=") != binDir && !strings.HasPrefix(pair, "PATH="+binDir+string(os.PathListSeparator)) {
+							t.Fatal("worker PATH does not start with executable directory", pair)
+						}
+					}
+				}
+				if !foundPath {
+					t.Fatal("worker has no PATH")
+				}
 				for _, want := range []string{"DUOLOG_ROLE=" + tc.role, "DUOLOG_LEAD=lead-real-guard"} {
 					if !bytes.Contains(env, []byte(want)) {
 						t.Fatalf("missing %s in worker env", want)

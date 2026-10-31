@@ -10,18 +10,17 @@ import (
 	"testing"
 )
 
-// The Claude shell field explicitly selects Bash. Also exercise these exact
-// portable guards under sh in TestGeneratedCommandsPassThrough.
+// Exercise Codex guards in Bash as well as its native shell.
 func TestGeneratedCommandsWithBash(t *testing.T) {
-	for _, agent := range []string{"claude", "codex"} {
+	for _, agent := range []string{"codex"} {
 		for _, event := range []string{"SessionStart", "SessionEnd", "UserPromptSubmit", "PostToolUse", "PreToolUse", "PermissionRequest"} {
 			for _, command := range hookCommands(t, agent, event) {
-				cmd := testbin.GitBashProcess(command)
+				cmd := testbin.GitBashProcess(command.Command)
 				cmd.Env = append(os.Environ(), "PATH="+t.TempDir(), "DUOLOG_DEPTH=0")
 				if out, err := cmd.CombinedOutput(); err != nil || len(out) != 0 {
 					t.Fatalf("missing lead: %v %q", err, out)
 				}
-				cmd = testbin.GitBashProcess(command)
+				cmd = testbin.GitBashProcess(command.Command)
 				cmd.Env = append(os.Environ(), "PATH="+t.TempDir(), "DUOLOG_DEPTH=1")
 				out, err := cmd.CombinedOutput()
 				want := 0
@@ -39,7 +38,7 @@ func TestGeneratedCommandsWithBash(t *testing.T) {
 					t.Fatalf("missing worker: %d %v %q", got, err, out)
 				}
 				fake := testbin.Install(t, "duolog", testbin.Scenario{Exit: 7})
-				cmd = testbin.GitBashProcess(command)
+				cmd = testbin.GitBashProcess(command.Command)
 				cmd.Stdin = strings.NewReader("input\n")
 				if out, err := cmd.CombinedOutput(); err == nil || cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != 7 || len(out) != 0 {
 					t.Fatalf("present: %v %q", err, out)

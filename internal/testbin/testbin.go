@@ -20,7 +20,10 @@ type OutputChunk struct {
 // Scenario describes one fake invocation. Exit -1 terminates by a kill signal.
 // Writes happen after SleepMS, and relative paths are relative to the child cwd.
 // HookCommand runs an actual generated hook inside the fake worker environment.
-type HookCommand struct{ Command, Input string }
+type HookCommand struct {
+	Command, Input string
+	Args           []string
+}
 
 type Scenario struct {
 	SpawnChild bool

@@ -88,8 +88,17 @@ the cut, and point to this command for the full action.
 ## Where the checks run
 
 The gate is a hook. The command is `duolog gate --agent <agent> --event
-<event>`, for `PreToolUse` and `PermissionRequest`. If the `duolog` binary is
-missing, the Claude hook still refuses the call for a worker.
+<event>`, for `PreToolUse` and `PermissionRequest`. Claude runs it directly
+with `command` and `args`, without a shell. A missing binary does not block
+a tool in the measured `claude -p` run. It also cannot offer an install.
+
+Worker safety comes from launch: both delegate and peer put the directory of
+the running duolog executable first in the worker's PATH, even when the
+parent's PATH lacks it. The worker therefore finds that same binary for its
+gate. The requirement that a worker fails closed if the binary is absent
+holds through this launch guarantee, rather than a Claude shell guard.
+Codex keeps its POSIX and Windows guards. Interactive Claude display of a
+missing executable has not been measured.
 
 ## A Codex lead that starts a Claude worker
 

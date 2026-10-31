@@ -10,26 +10,13 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/testbin"
-	"github.com/lorem-dev/duolog/plugin"
 )
 
-// The plugin's exact shipped Bash commands must also run in Windows Git Bash.
-// Native installed Claude commands and Codex overrides run in both PS hosts.
+// Codex overrides run through CreateProcess and Git Bash.
 func TestWindowsHookShells(t *testing.T) {
-	var pluginDoc struct{ Hooks map[string][]group }
-	data, err := plugin.FS.ReadFile("claude/hooks/hooks.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(data, &pluginDoc); err != nil {
-		t.Fatal(err)
-	}
-	for _, shell := range []string{"bash", "powershell", "pwsh"} {
-		for _, agent := range []string{"claude", "codex"} {
+	for _, shell := range []string{"bash", "powershell"} {
+		for _, agent := range []string{"codex"} {
 			t.Run(shell+"/"+agent, func(t *testing.T) {
-				if agent == "codex" && shell == "pwsh" {
-					return
-				} // commandWindows explicitly selects Windows PowerShell.
 				var doc struct{ Hooks map[string][]group }
 				data, err := HooksJSON(agent, "windows", 150)
 				if err != nil {
@@ -38,31 +25,16 @@ func TestWindowsHookShells(t *testing.T) {
 				if err := json.Unmarshal(data, &doc); err != nil {
 					t.Fatal(err)
 				}
-				if shell == "bash" && agent == "claude" {
-					doc = pluginDoc
-				}
-				shellPath := ""
-				if shell != "bash" {
-					shellPath, err = exec.LookPath(shell)
-					if err != nil {
-						t.Fatal(err)
-					}
-				}
+
 				for event, groups := range doc.Hooks {
 					for _, g := range groups {
 						for _, h := range g.Hooks {
-							command := h.Command
-							if agent == "codex" {
-								command = h.CommandWindows
-							}
+							command := h.CommandWindows
 							process := func() *exec.Cmd {
 								if shell == "bash" {
 									return testbin.GitBashProcess(command)
 								}
-								if agent == "codex" {
-									return testbin.HookProcess(command)
-								}
-								return exec.Command(shellPath, "-NoProfile", "-NonInteractive", "-Command", command)
+								return testbin.HookProcess(command)
 							}
 							for _, depth := range []string{"0", "1"} {
 								t.Setenv("DUOLOG_DEPTH", depth)
