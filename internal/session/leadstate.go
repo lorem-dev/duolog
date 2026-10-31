@@ -31,11 +31,16 @@ func ReadLeadState(agent, transcriptPath string) (LeadState, error) {
 		return state, nil
 	}
 	defer f.Close()
-	info, err := f.Stat()
+	return readLeadState(agent, f)
+}
+
+func readLeadState(agent string, f io.ReadSeeker) (LeadState, error) {
+	var state LeadState
+	size, err := f.Seek(0, io.SeekEnd)
 	if err != nil {
 		return state, nil
 	}
-	start := max(int64(0), info.Size()-64*1024)
+	start := max(int64(0), size-64*1024)
 	if _, err = f.Seek(start, io.SeekStart); err != nil {
 		return state, nil
 	}

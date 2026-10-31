@@ -13,6 +13,7 @@ func LeadMode(reg *session.Registry, id string) (session.Lead, mode.Mode, error)
 		return lead, effective, err
 	}
 	if lead.TranscriptPath != "" && lead.Agent == "codex" {
+		before := lead
 		observed, _ := session.ReadLeadState(lead.Agent, lead.TranscriptPath)
 		live := observed.Mode
 		if live == "" {
@@ -21,7 +22,7 @@ func LeadMode(reg *session.Registry, id string) (session.Lead, mode.Mode, error)
 		// EffectiveMode includes the last observed mode; recompute against only the
 		// explicit ceiling after refreshing the live observation.
 		lead.Mode = live
-		if err = reg.RegisterLead(lead); err != nil {
+		if _, err = reg.UpdateLead(before, lead); err != nil {
 			return lead, "", err
 		}
 		return reg.EffectiveMode(id)

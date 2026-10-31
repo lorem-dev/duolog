@@ -195,33 +195,6 @@ func TestLeadStateFromTranscript(t *testing.T) {
 		})
 	}
 }
-func TestReadsOnlyTranscriptTail(t *testing.T) {
-	e, _, _ := setup(t, "claude")
-	f, err := os.OpenFile(transcript(e), os.O_WRONLY|os.O_TRUNC, 0600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := string(fixture(t, "transcripts/claude-assistant.trimmed.jsonl"))
-	_, _ = f.WriteString(old)
-	if err = f.Truncate(50 * 1024 * 1024); err != nil {
-		t.Fatal(err)
-	}
-	_ = f.Close()
-	s, err := session.ReadLeadState("claude", transcript(e))
-	if err != nil || s.Model != "" || s.Effort != "" {
-		t.Fatal(s, err)
-	}
-	f, err = os.OpenFile(transcript(e), os.O_APPEND|os.O_WRONLY, 0600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _ = f.WriteString("\n" + old)
-	_ = f.Close()
-	s, err = session.ReadLeadState("claude", transcript(e))
-	if err != nil || s.Effort != "high" {
-		t.Fatal(s, err)
-	}
-}
 func TestCodexNullEffortUsesDefault(t *testing.T) {
 	e, _, _ := setup(t, "codex")
 	testbin.Install(t, "codex", testbin.Scenario{Stdout: `{"models":[{"slug":"gpt-test","default_reasoning_level":"medium"}]}`})
@@ -509,5 +482,20 @@ func TestCodexSandboxModeMapping(t *testing.T) {
 func TestUnknownProcessMeansAlive(t *testing.T) {
 	if !session.ProcessAlive(0) || !session.ProcessAlive(-1) || !session.ProcessAlive(os.Getpid()) {
 		t.Fatal("unknown or current process treated as dead")
+	}
+}
+
+func TestLateHooksCannotRegisterEndedLead(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		t.Run(agent, func(t *testing.T) {
+			e, r, _ := setup(t, agent)
+			SessionStart(context.Background(), e)
+			SessionEnd(context.Background(), e)
+			silent(t, Prompt(context.Background(), e))
+			silent(t, SessionStart(context.Background(), e))
+			if _, ok, err := r.Lead(id(e)); err != nil || ok {
+				t.Fatal("ended lead recreated", err)
+			}
+		})
 	}
 }

@@ -168,3 +168,97 @@ func TestRegistryReadErrorsAreReturned(t *testing.T) {
 		})
 	}
 }
+
+func TestLeadObservationsPreserveConcurrentChanges(t *testing.T) {
+	for _, changedMode := range []bool{false, true} {
+		t.Run(fmt.Sprint(changedMode), func(t *testing.T) {
+			r := registry(t)
+			before := Lead{ID: "lead", Target: config.Target{Agent: "claude", Model: "opus", Effort: "high"}, Mode: mode.Full}
+			if err := r.RegisterLead(before); err != nil {
+				t.Fatal(err)
+			}
+			// The decision and hook both read before. Complete the restrictive hook
+			// first, then allow the older decision to finish its transcript read.
+			hookDone := make(chan error, 1)
+			go func() {
+				other, err := Open(r.Dir)
+				if err == nil {
+					newer := before
+					newer.Mode, newer.PID = mode.Plan, os.Getpid()
+					err = other.RegisterLead(newer)
+				}
+				hookDone <- err
+			}()
+			if err := <-hookDone; err != nil {
+				t.Fatal(err)
+			}
+			observed := before
+			observed.Effort = "low"
+			if changedMode {
+				observed.Mode = mode.Ask
+			}
+			got, err := r.UpdateLead(before, observed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Mode != mode.Plan || got.Effort != "low" || got.PID != os.Getpid() {
+				t.Fatalf("lost concurrent fields: %+v", got)
+			}
+			stored, effective, err := r.EffectiveMode(before.ID)
+			if err != nil || stored != got || effective != mode.Plan {
+				t.Fatal(stored, effective, err)
+			}
+		})
+	}
+}
+
+func TestLeadObservationCannotUndoSessionEnd(t *testing.T) {
+	r := registry(t)
+	before := Lead{ID: "ended", Target: config.Target{Agent: "codex"}, Mode: mode.Full}
+	if err := r.RegisterLead(before); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Record(Entry{ID: "worker", Lead: before.ID}); err != nil {
+		t.Fatal(err)
+	}
+	ended := make(chan error, 1)
+	go func() { ended <- r.Close(before.ID) }()
+	if err := <-ended; err != nil {
+		t.Fatal(err)
+	}
+	after := before
+	after.Mode = mode.Ask
+	if _, err := r.UpdateLead(before, after); err == nil {
+		t.Fatal("updated an ended lead")
+	}
+	if err := r.RegisterLead(after); err == nil {
+		t.Fatal("recreated an ended lead")
+	}
+	if _, ok, err := r.Lead(before.ID); err != nil || ok {
+		t.Fatal("lead resurrected", err)
+	}
+	entries, err := r.Entries()
+	if err != nil || len(entries) != 1 || !entries[0].Closed {
+		t.Fatal(entries, err)
+	}
+}
+
+func TestStartingLeadPreservesConcurrentRegistration(t *testing.T) {
+	r := registry(t)
+	newer := Lead{ID: "lead", Target: config.Target{Agent: "claude"}, Mode: mode.Plan}
+	if err := r.RegisterLead(newer); err != nil {
+		t.Fatal(err)
+	}
+	older := newer
+	older.Mode = mode.Full
+	got, err := r.StartLead(older)
+	if err != nil || got != newer {
+		t.Fatal(got, err)
+	}
+	if err := r.Close(newer.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.StartLead(older); err == nil {
+		t.Fatal("started an ended lead")
+	}
+}
