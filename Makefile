@@ -24,3 +24,7 @@ third-party:
 
 third-party-check:
 	go run ./scripts/thirdparty -check
+
+.PHONY: install-script
+install-script:
+	go run ./scripts/render-install

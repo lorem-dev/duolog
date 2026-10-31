@@ -1,14 +1,40 @@
 # Getting started with duolog
 
-This page takes you from a source checkout to your first delegated task. It
-describes what the code does today. The first release is unpublished, so you
-build the binary yourself.
+Install the binary with one command, then set up this project:
+
+```sh
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh
+duolog install --scope project
+```
+
+The download link works after the first release. The script verifies SHA-256
+checksums and installs to `~/.local/bin`. Run it again to update. It warns if
+that directory is missing from `PATH` and never edits your shell profile.
+
+Pin a release or choose another directory:
+
+```sh
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v0.1.0
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | DUOLOG_INSTALL_DIR="$HOME/bin" sh
+```
+
+`DUOLOG_VERSION` also pins a release; `--dir` also sets the directory. Use
+`--via-go` to print the source install command. The script supports Linux and
+macOS on amd64 and arm64. On other platforms, including Windows, it prints
+`go install github.com/lorem-dev/duolog/cmd/duolog@<version>` and exits with
+an error.
+
+Project setup adds one marked line near the top of `AGENTS.md` and the Claude
+instruction file. If the project has `.duolog/config.yaml` but a new machine
+has no duolog on `PATH`, that line asks the agent to offer the install command.
+The agent must get your agreement before running it. User setup does not add
+this line. Uninstall removes the line and keeps your other instructions.
 
 ## What you need before you start
 
 | Need | Why |
 |---|---|
-| Go 1.25.9 | To build the binary |
+| Go 1.25.13 | Only to build from source |
 | Git | duolog stores its state in `.duolog/` at the root of the main worktree |
 | Claude Code, Codex, or both | duolog starts them; it does not replace them |
 | Rex | Only for live second sessions. See [Rex](rex.md) |
@@ -44,6 +70,8 @@ The command writes these files and prints each path:
 | `.codex/hooks.json` | Codex hooks, merged with yours |
 | `.agents/skills/duolog/SKILL.md` | The same skill for Codex |
 | `.duolog/config.yaml` | A starter config, only if none exists |
+| `AGENTS.md` | One line offering install on a machine without duolog |
+| `.claude/CLAUDE.md` or `CLAUDE.md` | The same line; uses the nested file if it exists |
 
 Use `--agent claude` or `--agent codex` to install for one agent. Use
 `--scope user` to install in your home folder for all projects. SessionStart
@@ -51,7 +79,8 @@ then creates `.duolog/` in a new project and registers its lead.
 
 If a file already exists and changes, duolog first copies it to
 `<file>.duolog.bak`. `duolog uninstall` removes only the hook entries and the
-skill file that duolog added.
+skill file that duolog added. It also removes the marked install offer. An
+instruction file is deleted only if duolog created it and it is now empty.
 
 Codex needs two approvals that duolog cannot give. Open `/hooks` in Codex and
 press `t` to trust the hooks. Trust the project folder too. Without them,
@@ -64,8 +93,8 @@ duolog doctor
 ```
 
 The command prints one line for each finding. It checks the agent binaries and
-versions, whether hooks are installed, Codex trust, and Rex. It makes no model
-call unless you add `--probe`.
+versions, whether hooks are installed, Codex trust, Rex, and the install offer
+(for information only). It makes no model call unless you add `--probe`.
 
 ## How to send your first task
 

@@ -1,6 +1,6 @@
 module github.com/lorem-dev/duolog
 
-go 1.25.9
+go 1.25.13
 
 require (
 	github.com/bmatcuk/doublestar/v4 v4.10.4

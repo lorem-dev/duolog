@@ -81,6 +81,11 @@ func Run(o Options) (Report, error) {
 		if _, err := store.Open(o.Root); err != nil {
 			return Report{}, err
 		}
+		instructions, err := instructionEdits(o.Root)
+		if err != nil {
+			return Report{}, err
+		}
+		edits = append(edits, instructions...)
 		path := filepath.Join(o.Root, ".duolog", "config.yaml")
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			edits = append(edits, edit{path, []byte("# yaml-language-server: $schema=" + config.SchemaURL + "\nversion: 1\n")})
@@ -134,6 +139,9 @@ func Remove(o Options) error {
 			return err
 		}
 		_ = os.Remove(filepath.Dir(skill)) // only succeeds when empty
+	}
+	if o.Scope != "user" {
+		return removeInstructions(o.Root)
 	}
 	return nil
 }

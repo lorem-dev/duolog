@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
-	"github.com/lorem-dev/duolog/internal/project"
+	"fmt"
 	"os"
 	"os/signal"
 
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/spf13/cobra"
 )
+
+var version = "dev"
 
 func newRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -15,6 +18,10 @@ func newRootCommand() *cobra.Command {
 		Short:        "Coordinate Claude Code and Codex tasks",
 		SilenceUsage: true,
 	}
+	cmd.AddCommand(&cobra.Command{Use: "version", Short: "Print the duolog version", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), version)
+		return err
+	}})
 	cmd.AddCommand(newConfigCommand(), newRouteCommand(), newSendCommand(), newInboxCommand(), newPutCommand(), newRefCommand(), newReadCommand(), newDelegateCommand(), newDoctorCommand(), newRosterCommand(), newStatsCommand(), newGateCommand(), newDecideCommand("allow"), newDecideCommand("deny"), newModeCommand(), newDecisionsCommand(), newHookCommand(), newSyncCommand(), newInstallCommand(), newUninstallCommand(), newPeerCommand(), newCapsCommand())
 	return cmd
 }
