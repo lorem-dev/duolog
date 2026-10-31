@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/hook"
@@ -148,7 +149,17 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 	} else {
 		rules.RoleSandbox = "read-only"
 	}
-	return a, gate.Evaluate(cfg.Policy, rules, m, a), nil
+	d = gate.Evaluate(cfg.Policy, rules, m, a)
+	if d.Kind == gate.Ask {
+		b, err := bus.Open(reg.Dir, cfg.Wire)
+		if err != nil {
+			return a, d, err
+		}
+		resolved := gate.Escalate(cmd.Context(), b, lead.ID, a, time.Duration(cfg.Policy.AskTimeoutSeconds)*time.Second)
+		resolved.Mode = d.Mode
+		d = resolved
+	}
+	return a, d, nil
 }
 
 func newDecisionsCommand() *cobra.Command {

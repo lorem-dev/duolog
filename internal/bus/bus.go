@@ -37,6 +37,9 @@ type Bus struct {
 	wire config.Wire
 }
 
+// Directory is the shared state directory containing this bus and its registry.
+func (b *Bus) Directory() string { return b.dir }
+
 func Open(dir string, w config.Wire) (*Bus, error) {
 	if w.MaxSummaryBytes <= 0 || w.MaxLineBytes <= 0 {
 		return nil, fmt.Errorf("wire byte limits must be positive")

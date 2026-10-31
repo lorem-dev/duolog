@@ -12,6 +12,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/mode"
 )
 
+// Ask is an unresolved policy result; hook callers resolve it with Escalate.
 const (
 	Allow = "allow"
 	Deny  = "deny"
