@@ -459,7 +459,7 @@ func TestClaudeLeadingStdoutDiagnostics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	diagnostics := "Startup warning: using project settings\n\nConnecting to services...\n"
+	diagnostics := "Startup warning: using project settings\n{warning: connection delayed}\n\nConnecting to services...\n"
 	install(t, &s, testbin.Scenario{Stdout: diagnostics + string(pretty), Stderr: "stderr diagnostic\n"})
 	r, err := Run(context.Background(), s)
 	if err != nil || !r.Done || r.SessionID != "session-123" || r.Usage.Input != 7 || r.Summary != "Implemented." {
