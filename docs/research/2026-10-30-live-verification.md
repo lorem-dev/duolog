@@ -2,23 +2,21 @@
 
 This page records what Claude Code and Codex really did when we tested the
 assumptions behind duolog, before any product code existed. The original runs
-were on 2026-10-30 and 2026-10-31. VERIFIED below means the saved fixtures
-support the stated answer. Missing setup or evidence is marked NOT VERIFIED.
-Historical
-observations remain in the text, with their limits.
+were on 2026-10-30 and 2026-10-31. Historical observations remain in the text,
+with their limits.
 
 ## Results that contradict the design
 
 Read these first when revising tasks 9 to 13, 15 and 16. Live behavior with
-missing setup is NOT VERIFIED, as the summary and setup table explain.
+missing setup is OBSERVED, as the summary and setup table explain.
 
 | What the design says | What we measured | What it means |
 |---|---|---|
 | A reference is cheaper than content on the bus | A whole-file reference cost 1.9 times the content. `resume` cost the most. A 16-line review told where the bug is cost less, but 1 of 3 runs gave no review | These are costs for different tasks. Comparable review quality and a line-range threshold are NOT VERIFIED |
-| `PermissionRequest` works under one-off runs | The earlier run reported no firing under `codex exec` and approval policy `never` | NOT VERIFIED as a replayable test. Do not assume this hook gates one-off work |
-| Hooks protect the worker | The earlier run reported that `codex exec` skipped an untrusted hook with no warning | NOT VERIFIED as a replayable test. Check hook trust before relying on it |
-| `.codex/agents` may not load | The earlier run reported agent loading under `codex exec` in a trusted folder, but no `agent_type` in an untrusted one | NOT VERIFIED: full agent and trust setup were not saved |
-| Rex works from either agent | The tested Codex shell could not find `rex`; one sandbox run could not reach its socket | NOT VERIFIED as a replayable test. These observations do not cover all Codex launch or sandbox settings |
+| `PermissionRequest` works under one-off runs | The earlier run reported no firing under `codex exec` and approval policy `never` | OBSERVED; the setup was not saved. Do not assume this hook gates one-off work |
+| Hooks protect the worker | The earlier run reported that `codex exec` skipped an untrusted hook with no warning | OBSERVED; the setup was not saved. Check hook trust before relying on it |
+| `.codex/agents` may not load | The earlier run reported agent loading under `codex exec` in a trusted folder, but no `agent_type` in an untrusted one | OBSERVED; full agent and trust setup were not saved |
+| Rex works from either agent | The tested Codex shell could not find `rex`; one sandbox run could not reach its socket | OBSERVED; the setup was not saved. These observations do not cover all Codex launch or sandbox settings |
 | `SessionStart` can register the lead with its effort | No saved `SessionStart` sample names effort. The Claude `-p` sample does not name the model either | Later records can show effort. Before a new turn they can be stale; Codex can record null |
 | Claude `/model` and `/effort` affect one session | They wrote to `~/.claude/settings.json`, even with `--setting-sources project,local` | Never send these commands to a worker pane |
 
@@ -28,39 +26,44 @@ Versions: codex-cli 0.165.0 at the start and at the end, so it did not change.
 Claude Code 2.1.312. rex 0.0.1793047680. The shared Codex server is a separate
 binary at version 0.166.0. It was already there before these runs.
 
+VERIFIED means a saved sample or script in this repository lets a reader check
+the answer. OBSERVED means a real run showed it once or a few times, the
+evidence text is on this page, and the full setup was not saved, so it is not
+reproducible yet. NOT VERIFIED means no run showed it.
+
 | Id | Question | Answer |
 |---|---|---|
-| A1 | Codex loads an agent file and runs it by name | NOT VERIFIED: original observation below; setup or records missing |
-| A2 | Codex accepts a hyphen in an agent name | NOT VERIFIED: original observation below; setup or records missing |
-| A3 | Codex needs `trust_level` for agent files | NOT VERIFIED: original observation below; setup or records missing |
-| S1 | Extra SKILL.md keys cause problems in Codex | NOT VERIFIED: original observation below; setup or records missing |
-| S2 | Codex honors `disable-model-invocation` | NOT VERIFIED: original observation below; setup or records missing |
-| S3 | Codex loads `.agents/skills` without trust | NOT VERIFIED: original observation below; setup or records missing |
-| S4 | Claude runs a skill with no symlink | NOT VERIFIED: original observation below; setup or records missing |
-| C1 | Claude runs an agent converted from TOML | NOT VERIFIED: original observation below; setup or records missing |
+| A1 | Codex loads an agent file and runs it by name | OBSERVED YES, trusted folder only |
+| A2 | Codex accepts a hyphen in an agent name | OBSERVED YES, in `agent_type` |
+| A3 | Codex needs `trust_level` for agent files | OBSERVED YES |
+| S1 | Extra SKILL.md keys cause problems in Codex | OBSERVED NO |
+| S2 | Codex honors `disable-model-invocation` | OBSERVED NO |
+| S3 | Codex loads `.agents/skills` without trust | OBSERVED YES |
+| S4 | Claude runs a skill with no symlink | OBSERVED YES |
+| C1 | Claude runs an agent converted from TOML | OBSERVED YES |
 | C2 | Claude honors `effort` in agent frontmatter | NOT VERIFIED |
 | C3 | Claude starts `mcpServers` from agent frontmatter | NOT VERIFIED |
-| H1 | `PreToolUse` deny works under `claude -p` | NOT VERIFIED: original observation below; setup or records missing |
-| H2 | `PreToolUse` deny works under `codex exec` | NOT VERIFIED: original observation below; setup or records missing |
-| H3 | `PermissionRequest` fires under `claude -p` | NOT VERIFIED: original observation below; setup or records missing |
-| H4 | `PermissionRequest` fires under `codex exec` | NOT VERIFIED: original observation below; setup or records missing |
-| H5 | `PreToolUse` deny works under `bypassPermissions` | NOT VERIFIED: original observation below; setup or records missing |
-| H6 | `codex exec` runs an untrusted hook | NOT VERIFIED: original observation below; setup or records missing |
-| H7 | Hook allow removes the prompt, live, in both agents | NOT VERIFIED: original observation below; setup or records missing |
-| H8 | Codex hooks run in a main session without a bypass flag | NOT VERIFIED: original observation below; setup or records missing |
+| H1 | `PreToolUse` deny works under `claude -p` | OBSERVED YES |
+| H2 | `PreToolUse` deny works under `codex exec` | OBSERVED YES |
+| H3 | `PermissionRequest` fires under `claude -p` | OBSERVED YES |
+| H4 | `PermissionRequest` fires under `codex exec` | OBSERVED NO |
+| H5 | `PreToolUse` deny works under `bypassPermissions` | OBSERVED YES |
+| H6 | `codex exec` runs an untrusted hook | OBSERVED NO |
+| H7 | Hook allow removes the prompt, live, in both agents | OBSERVED YES |
+| H8 | Codex hooks run in a main session without a bypass flag | OBSERVED YES, after trust |
 | H9 | Hooks fire for tools inside a `spawn_agent` child | NOT VERIFIED |
-| D1 | `asyncRewake` wakes an idle Claude | NOT VERIFIED: original observation below; setup or records missing |
-| D2 | `codex queue` wakes an idle Codex | NOT VERIFIED: original observation below; setup or records missing |
+| D1 | `asyncRewake` wakes an idle Claude | OBSERVED YES |
+| D2 | `codex queue` wakes an idle Codex | OBSERVED YES |
 | D3 | `codex queue` reaches a closed session when reopened | NOT VERIFIED |
 | E1 | Saved SessionStart stdin names the session id | VERIFIED YES in all four samples |
 | E2 | Saved SessionStart stdin names the model | VERIFIED YES, except the `claude -p` sample |
 | E3 | Saved SessionStart or UserPromptSubmit stdin names the effort | VERIFIED NO in these samples |
-| E4 | A later hook shows a changed effort | NOT VERIFIED: original observation below; setup or records missing |
-| E5 | A later hook shows a changed model | NOT VERIFIED: original observation below; setup or records missing |
-| E6 | Effort can be read with no new model call | Later transcript records can show it; change records were not saved. Immediate reading after a change is NOT VERIFIED |
-| E7 | Value of effort that was never chosen | NOT VERIFIED: original observation below; setup or records missing |
-| P1 | A later hook shows a changed mode in Claude | NOT VERIFIED: original observation below; setup or records missing |
-| P2 | A later hook shows a changed mode in Codex | NOT VERIFIED: original observation below; setup or records missing |
+| E4 | A later hook shows a changed effort | OBSERVED YES for Claude, OBSERVED NO for Codex |
+| E5 | A later hook shows a changed model | OBSERVED YES for Codex, OBSERVED NO for Claude |
+| E6 | Effort can be read with no new model call | OBSERVED YES, both agents, from later transcript records; the value can be stale and Codex can record null; change records were not saved. Immediate reading after a change is NOT VERIFIED |
+| E7 | Value of effort that was never chosen | OBSERVED YES: Claude `medium` for Haiku 5.5; Codex `null` with `--ignore-user-config`. See the effort section |
+| P1 | A later hook shows a changed mode in Claude | OBSERVED YES |
+| P2 | A later hook shows a changed mode in Codex | OBSERVED NO |
 | U1 | Codex startup update behavior | OBSERVED: no setting ran `brew upgrade --cask codex`; a later start with both flags did not. The effect of either flag alone is NOT VERIFIED |
 | U2 | `DISABLE_AUTOUPDATER=1` stops the check | NOT VERIFIED |
 | U3 | `codex exec` or `claude -p` can stop on a question | NOT VERIFIED: never seen |
@@ -68,12 +71,12 @@ binary at version 0.166.0. It was already there before these runs.
 | M2 | MCP can write to `.duolog/` under the sandbox | NOT VERIFIED: check dropped |
 | M3 | `claude -p` discovers plugins and MCP servers | VERIFIED discovery in the init sample: plugins listed; servers connected, needs-auth and failed. Execution is NOT VERIFIED |
 | M4 | Plugins and user MCP servers are active under `codex exec` | NOT VERIFIED |
-| M5 | Read-only `codex exec` reads a Claude plugin SKILL.md | NOT VERIFIED: original observation below; setup or records missing |
-| R1 | `rex split`, `send`, `send-key` drive both agents from Claude | NOT VERIFIED: original observation below; setup or records missing |
-| R2 | `rex` works from a sandboxed Codex command | NOT VERIFIED: original observation below; setup or records missing |
-| R3 | A closed pane and an exited program can be told apart | NOT VERIFIED: original observation below; setup or records missing |
-| R4 | SessionEnd fires when the pane closes, Claude | NOT VERIFIED: original observation below; setup or records missing |
-| R5 | SessionEnd fires when the pane closes, Codex | NOT VERIFIED: original observation below; setup or records missing |
+| M5 | Read-only `codex exec` reads a Claude plugin SKILL.md | OBSERVED YES |
+| R1 | `rex split`, `send`, `send-key` drive both agents from Claude | OBSERVED YES |
+| R2 | `rex` works from a sandboxed Codex command | OBSERVED NO |
+| R3 | A closed pane and an exited program can be told apart | OBSERVED YES |
+| R4 | SessionEnd fires when the pane closes, Claude | OBSERVED YES |
+| R5 | SessionEnd fires when the pane closes, Codex | OBSERVED NO |
 | B1 | A whole-file reference cost less than content in these runs | VERIFIED NO for estimated cost; comparable review quality is NOT VERIFIED |
 | B2 | The directed 16-line task cost less than whole-file content | VERIFIED YES for estimated cost only; different tasks. Comparable quality and the threshold are NOT VERIFIED |
 | B3 | The second `resume` turn cost less than new content in these runs | VERIFIED NO for estimated cost; comparable review quality is NOT VERIFIED |
@@ -110,7 +113,7 @@ VERIFIED covers these saved samples, not every run.
 
 The earlier run removed its temporary files and Codex session records. The
 fixtures save inputs and selected outputs, not the full live setup. The
-following answers are NOT VERIFIED as repeatable live behavior. We cannot
+following answers are OBSERVED but not repeatable live behavior. We cannot
 rebuild their original setup from this page and the fixtures alone.
 
 | Answers | Missing setup or evidence |
@@ -139,7 +142,7 @@ The evidence below is an excerpt, not a complete retained transcript.
 The command used `codex exec --json`, model `gpt-6-luna`, effort `low`,
 `project_doc_max_bytes=0` and `--disable hooks`. Its prompt asked to spawn
 `probe-agent`. The full agent file and trust setup were not saved, so A1 to A3
-are NOT VERIFIED as repeatable tests.
+are OBSERVED but not repeatable tests.
 
 The code word lives only in `developer_instructions`. These lines come from the
 session record, which `transcript_path` names:
@@ -190,7 +193,7 @@ The earlier run reported no refusal or warning for its key set. Codex got
 The notes name `codex debug prompt-input`, `codex exec` with `$probe-skill`,
 and `claude -p /probe-skill`. The Claude command used
 `--setting-sources user,project`, unlike the isolation rule above. The skill
-files and full commands were not saved. S1 to S4 are NOT VERIFIED.
+files and full commands were not saved. S1 to S4 are OBSERVED.
 
 | Check | Trusted Codex | Untrusted Codex | Claude |
 |---|---|---|---|
@@ -198,14 +201,14 @@ files and full commands were not saved. S1 to S4 are NOT VERIFIED.
 | Calling it returned `COPPER-LATCH-6650` | Yes, no tool call | Yes, no tool call | Yes |
 
 **What this means.** The report suggests that these keys did not cause errors
-in its setup. Without the skill files, that result is NOT VERIFIED. The
+in its setup. Without the skill files, that result is OBSERVED. The
 reported listing also does not establish every effect of
 `disable-model-invocation`. We did not test whether Claude hides such a skill
 from the model.
 
 ## The earlier run reported a converted Claude agent
 
-C1 is NOT VERIFIED because the source and converted files were not saved.
+C1 is OBSERVED because the source and converted files were not saved.
 The following table records the earlier interpretation, not a repeatable
 conversion test. The report says `claude --agent` ran the converted file.
 The prompt was only `Begin.`, and the model then tried `touch agent_probe.txt`.
@@ -229,7 +232,7 @@ must refuse it or map it to deny rules. Treat `effort` as unproven and pass
 
 The table records the earlier observations for H1 to H8. The fixtures do not
 include complete hook setup and per-case results, so these live decisions are
-NOT VERIFIED as repeatable tests. The Codex exec event fixture contains a
+OBSERVED but not repeatable tests. The Codex exec event fixture contains a
 model message reporting a blocked command, not the hook script itself.
 
 | Agent and run | `PreToolUse` deny, JSON | `PreToolUse` deny, exit 2 | `PermissionRequest` deny | `PermissionRequest` allow |
@@ -285,7 +288,7 @@ calls it from inside the `exec` code tool. `spawn_agent` is
 
 ## The earlier run reported hook firing after trust
 
-H8 is NOT VERIFIED without the full hook and trust setup. The report says
+H8 is OBSERVED without the full hook and trust setup. The report says
 project hooks did not run in a Codex session with no bypass flag until we
 trusted them. Then `UserPromptSubmit` and, in the next session,
 `SessionStart` fired.
@@ -311,7 +314,7 @@ them. Do not treat them as facts about the current session.
 
 ## The earlier run reported delivery to idle sessions
 
-D1 and D2 are NOT VERIFIED without their full setup and response records.
+D1 and D2 are OBSERVED without their full setup and response records.
 The report says `asyncRewake` woke Claude with no key from us in two cases:
 6 seconds after start with no prompt, and 25 seconds after a prompt, when the
 turn had
@@ -324,14 +327,14 @@ wake probe cl-ci-rw-ss code RWK-4471</system-reminder>
 ```
 
 The hook entry used `type: command` and `asyncRewake: true`. The command
-body and repeat guard were not saved. D1 is NOT VERIFIED as a replayable test.
+body and repeat guard were not saved. D1 is OBSERVED.
 
 `codex queue` woke a live session, and the session answered with no key from us.
 This worked in embedded mode and on the shared server.
 
 The command used `codex queue --thread` with a live thread id and a message
 asking for `PONG-9913`. The full queue and response records were not saved.
-D2 is NOT VERIFIED as a replayable test.
+D2 is OBSERVED.
 
 **What this means.** A rewake uses a turn, and the hook runs again on
 `UserPromptSubmit`, so the hook must guard against repeats. On a closed session,
@@ -362,7 +365,7 @@ new `turn_context` record. Reading an existing transcript needs no model call,
 but producing the next turn can use tokens. Before that record appears, the
 latest value may still be the old one. Reading immediately after a change is
 NOT VERIFIED. The changed-value records were not retained, so E4 to E7 are
-NOT VERIFIED as replayable live tests.
+OBSERVED but not replayable live tests.
 
 Codex can write `null` for effort. That means the record does not supply the
 chosen value. A catalog default does not prove which effort the server used.
@@ -506,7 +509,7 @@ copy.
 
 ## The earlier run compared a closed pane and an exited program
 
-R1 to R5 are NOT VERIFIED without the full pane setup and closure records.
+R1 to R5 are OBSERVED without the full pane setup and closure records.
 The following table preserves the earlier observations. The split fixture
 shows `block_ids`, and the wait fixture shows an exit status of 3. Those two
 fixtures alone cannot reproduce the full comparison. The report says the two
