@@ -104,3 +104,18 @@ func TestRenderMatchesEachAgentFormat(t *testing.T) {
 		}
 	}
 }
+
+// Found by the live test round: the gate asked about Claude's StructuredOutput
+// tool, so a worker could never return its answer.
+func TestStructuredOutputIsAllowedInEveryMode(t *testing.T) {
+	p := policy(t)
+	a, err := Normalize("claude", []byte(`{"tool_name":"StructuredOutput","tool_input":{"done":true}}`))
+	if err != nil || a.Kind != "answer" {
+		t.Fatal(a, err)
+	}
+	for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
+		if d := Evaluate(p, LeadRules{}, m, a); d.Kind != Allow {
+			t.Fatal(m, d)
+		}
+	}
+}

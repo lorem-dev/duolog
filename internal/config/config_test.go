@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -252,6 +253,20 @@ func TestStringScalarsPreserveOriginalValues(t *testing.T) {
 					t.Fatalf("language = %q, want original scalar %q", cfg.Wire.Language, scalar)
 				}
 			})
+		}
+	}
+}
+
+// macOS finds the Claude login through USER; a worker without it reports
+// "Not logged in" (found by the live test round).
+func TestDefaultPassthroughKeepsLoginVariables(t *testing.T) {
+	cfg, err := Load(isolatedRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"PATH", "HOME", "USER"} {
+		if !slices.Contains(cfg.EnvPassthrough, want) {
+			t.Errorf("env_passthrough lacks %s: %v", want, cfg.EnvPassthrough)
 		}
 	}
 }

@@ -61,6 +61,7 @@ func TestReverseDelegate(t *testing.T) {
 func TestGateDeniesRealTool(t *testing.T) {
 	needAgent(t, "claude", "git")
 	p := newProject(t)
+	p.registerLead()
 	p.duolog("install", "--scope", "project", "--agent", "claude")
 	remote := filepath.Join(t.TempDir(), "remote.git")
 	p.git("init", "-q", "--bare", remote)
@@ -139,7 +140,7 @@ func TestHookSyncAfterSkillEdit(t *testing.T) {
 	prompt := "Create the file .claude/skills/e2e-new/SKILL.md with exactly this content, then say done.\n" +
 		"---\nname: e2e-new\ndescription: Use when asked for the new code word.\n---\nThe new code word is " + skillWord + ".\n"
 	r := p.run("claude", "-p", "--model", "haiku", "--effort", "low", "--no-session-persistence",
-		"--permission-mode", "acceptEdits", "--setting-sources", "project,local", "--strict-mcp-config", "--", prompt)
+		"--permission-mode", "bypassPermissions", "--setting-sources", "project,local", "--strict-mcp-config", "--", prompt)
 	t.Logf("claude exit %d: %s", r.Code, strings.TrimSpace(r.Stdout))
 	target := p.path(".agents/skills/e2e-new/SKILL.md")
 	deadline := time.Now().Add(10 * time.Second)

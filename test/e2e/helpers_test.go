@@ -74,8 +74,9 @@ roles:
 `
 
 type project struct {
-	t   *testing.T
-	dir string
+	t    *testing.T
+	dir  string
+	lead string // registered lead session id; delegate passes it with --lead
 }
 
 type result struct {
@@ -101,6 +102,22 @@ func newProject(t *testing.T) *project {
 	return p
 }
 
+// registerLead records an interactive Claude lead the way its SessionStart hook
+// does, so that worker gates find a lead instead of failing closed.
+func (p *project) registerLead() {
+	p.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, filepath.Join(binDir, "duolog"), "hook", "SessionStart", "--agent", "claude")
+	cmd.Dir = p.dir
+	cmd.Env = append(env(), "CLAUDE_CODE_ENTRYPOINT=cli")
+	cmd.Stdin = strings.NewReader(`{"session_id":"e2e-lead","hook_event_name":"SessionStart"}`)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		p.t.Fatalf("register lead: %v\n%s", err, out)
+	}
+	p.lead = "e2e-lead"
+}
+
 func (p *project) path(rel string) string { return filepath.Join(p.dir, filepath.FromSlash(rel)) }
 
 func (p *project) write(rel, content string) {
@@ -116,8 +133,10 @@ func (p *project) write(rel, content string) {
 
 func (p *project) git(args ...string) string {
 	p.t.Helper()
-	cmd := exec.Command("git", args...)
+	full := append([]string{"-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"}, args...)
+	cmd := exec.Command("git", full...)
 	cmd.Dir = p.dir
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		p.t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
@@ -144,6 +163,12 @@ func env() []string {
 
 func (p *project) command(ctx context.Context, name string, args ...string) result {
 	p.t.Helper()
+	if name == "duolog" {
+		name = filepath.Join(binDir, name)
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = p.dir
 	cmd.Env = env()
@@ -186,7 +211,11 @@ func taskText(goal, read, write, limits, check string) string {
 func (p *project) delegate(role, task string) string {
 	p.t.Helper()
 	p.write("task.md", task)
-	r := p.run("duolog", "delegate", role, "--task", "task.md")
+	args := []string{"delegate", role, "--task", "task.md"}
+	if p.lead != "" {
+		args = append(args, "--lead", p.lead)
+	}
+	r := p.run("duolog", args...)
 	line := strings.TrimSpace(r.Stdout)
 	p.t.Logf("delegate %s: exit %d: %s", role, r.Code, line)
 	if r.Code != 0 {
