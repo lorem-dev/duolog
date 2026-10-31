@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"context"
 	"encoding/csv"
 	"fmt"
 	"os"
@@ -73,13 +74,28 @@ func TestGateDeniesRealTool(t *testing.T) {
 		"Run no other command. "+answerRule,
 		"The summary says whether the push worked or was refused.",
 	)
-	line := p.delegate("e2e_claude_write", task)
-	t.Logf("decisions:\n%s", p.duolog("decisions"))
+	// The worker is denied, then reports done false, so exit 3 is correct.
+	line := p.delegateExit("e2e_claude_write", task, 0, 3)
+	decisions := p.duolog("decisions")
+	t.Logf("decisions:\n%s", decisions)
+	if !hasDeny(decisions, "git push") {
+		t.Errorf("no deny for git push in the decisions:\n%s", decisions)
+	}
 	p.git("-C", remote, "rev-parse", "--git-dir") // the remote exists
 	refs := p.git("-C", remote, "for-each-ref")
 	if strings.TrimSpace(refs) != "" {
 		t.Errorf("push reached the remote:\n%s\nanswer: %s", refs, line)
 	}
+}
+
+// hasDeny reports whether `duolog decisions` output has a Deny row for the command.
+func hasDeny(decisions, command string) bool {
+	for _, line := range strings.Split(decisions, "\n") {
+		if strings.HasPrefix(line, "Deny ") && strings.Contains(line, command) {
+			return true
+		}
+	}
+	return false
 }
 
 const agentWord = "ZEBRA-QUILL-7341"
@@ -124,8 +140,9 @@ func TestSyncedSkillRunsInBoth(t *testing.T) {
 	)
 	for _, role := range []string{"e2e_codex", "e2e_claude"} {
 		t.Run(role, func(t *testing.T) {
-			p.t = t
-			requireWord(t, p.delegate(role, task), skillWord)
+			sub := *p
+			sub.t = t
+			requireWord(t, sub.delegate(role, task), skillWord)
 		})
 	}
 }
@@ -206,7 +223,8 @@ func TestCodexLeadDelegatesToClaude(t *testing.T) {
 	}
 }
 
-var peerLine = regexp.MustCompile(`^\S+ [a-z_-]+`)
+// peerLine is what peer open prints: a session id and a state word.
+var peerLine = regexp.MustCompile(`\b(peer-[a-z0-9]{6}) (starting|updating|question|ready|limited)\b`)
 
 // Codex as the lead opens a peer through Rex. It needs a running Rex app and
 // a person to answer the trust question, so it runs only when asked for.
@@ -218,9 +236,17 @@ func TestCodexLeadOpensPeer(t *testing.T) {
 	p := newProject(t)
 	trustCodexFolder(t, p.dir)
 	last := codexLead(p, "Run this shell command and reply with its output line, unchanged: duolog peer open e2e_claude")
-	if !peerLine.MatchString(last) || strings.Contains(strings.ToLower(last), "error") {
-		t.Errorf("want a session line from peer open, got: %s", last)
+	m := peerLine.FindStringSubmatch(last)
+	if m == nil {
+		t.Fatalf("want a session line from peer open, got: %s", last)
 	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if r := p.command(ctx, "duolog", "peer", "close", m[1]); r.Code != 0 {
+			t.Logf("peer close %s: exit %d\n%s%s", m[1], r.Code, r.Stdout, r.Stderr)
+		}
+	})
 	t.Logf("peer open line: %s", last)
 }
 

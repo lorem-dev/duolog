@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -210,6 +211,12 @@ func taskText(goal, read, write, limits, check string) string {
 // delegate writes task.md, delegates it and returns the single answer line.
 func (p *project) delegate(role, task string) string {
 	p.t.Helper()
+	return p.delegateExit(role, task, 0)
+}
+
+// delegateExit is delegate that accepts the listed exit codes.
+func (p *project) delegateExit(role, task string, ok ...int) string {
+	p.t.Helper()
 	p.write("task.md", task)
 	args := []string{"delegate", role, "--task", "task.md"}
 	if p.lead != "" {
@@ -218,7 +225,7 @@ func (p *project) delegate(role, task string) string {
 	r := p.run("duolog", args...)
 	line := strings.TrimSpace(r.Stdout)
 	p.t.Logf("delegate %s: exit %d: %s", role, r.Code, line)
-	if r.Code != 0 {
+	if !slices.Contains(ok, r.Code) {
 		p.t.Fatalf("delegate %s failed with exit %d\n%s", role, r.Code, r.Stderr)
 	}
 	p.printUsage()
