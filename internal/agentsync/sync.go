@@ -97,7 +97,9 @@ func Run(root string, cfg config.Sync, o Options) (Report, error) {
 			return Report{}, err
 		}
 		mutex := flock.New(mutexPath)
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		// Eight runs in a row took over two seconds on a slow Windows runner, and a
+		// sync that gives up leaves generated files out of date.
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		locked, err := mutex.TryLockContext(ctx, 20*time.Millisecond)
 		if err != nil || !locked {

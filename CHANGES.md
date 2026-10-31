@@ -42,6 +42,10 @@
 
 ## Development
 
+### Fixed
+
+- `duolog sync` waits up to 15 seconds for another run, not 2, on a slow disk.
+
 ## 1.0.0
 
 ### Added
