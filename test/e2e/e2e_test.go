@@ -62,7 +62,6 @@ func TestReverseDelegate(t *testing.T) {
 func TestGateDeniesRealTool(t *testing.T) {
 	needAgent(t, "claude", "git")
 	p := newProject(t)
-	p.registerLead()
 	p.duolog("install", "--scope", "project", "--agent", "claude")
 	remote := filepath.Join(t.TempDir(), "remote.git")
 	p.git("init", "-q", "--bare", remote)
@@ -156,11 +155,20 @@ func TestHookSyncAfterSkillEdit(t *testing.T) {
 	p := newProject(t)
 	p.duolog("install", "--scope", "project", "--agent", "claude")
 	p.duolog("sync", "--from", "claude")
-	prompt := "Create the file .claude/skills/e2e-new/SKILL.md with exactly this content, then say done.\n" +
+	prompt := "Use the Write tool to create the file .claude/skills/e2e-new/SKILL.md with exactly this content, then say done.\n" +
 		"---\nname: e2e-new\ndescription: Use when asked for the new code word.\n---\nThe new code word is " + skillWord + ".\n"
 	r := p.run("claude", "-p", "--model", "haiku", "--effort", "low", "--no-session-persistence",
-		"--permission-mode", "bypassPermissions", "--setting-sources", "project,local", "--strict-mcp-config", "--", prompt)
+		"--tools", "Write", "--permission-mode", "bypassPermissions", "--setting-sources", "project,local", "--strict-mcp-config", "--", prompt)
 	t.Logf("claude exit %d: %s", r.Code, strings.TrimSpace(r.Stdout))
+	if r.Code != 0 {
+		t.Fatalf("claude failed: %s", r.Stderr)
+	}
+	// PostToolUse sync reads file_path from file tools; a Bash mkdir/cat does
+	// not identify the edited skill. Keep this probe on the file-tool path.
+	source, err := os.ReadFile(p.path(".claude/skills/e2e-new/SKILL.md"))
+	if err != nil || !strings.Contains(string(source), skillWord) {
+		t.Fatalf("Claude did not create the source skill: %v\n%s", err, source)
+	}
 	target := p.path(".agents/skills/e2e-new/SKILL.md")
 	deadline := time.Now().Add(10 * time.Second)
 	for {

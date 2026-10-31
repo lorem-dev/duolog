@@ -21,6 +21,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lorem-dev/duolog/internal/install"
+	"github.com/lorem-dev/duolog/internal/session"
 )
 
 // binDir holds the duolog binary built once for the whole run.
@@ -75,9 +78,8 @@ roles:
 `
 
 type project struct {
-	t    *testing.T
-	dir  string
-	lead string // registered lead session id; delegate passes it with --lead
+	t   *testing.T
+	dir string
 }
 
 type result struct {
@@ -88,6 +90,9 @@ type result struct {
 // newProject makes a temporary Git project with the cheap config.
 func newProject(t *testing.T) *project {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("live lead registration uses the Unix /bin/sh hook guard")
+	}
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -100,6 +105,7 @@ func newProject(t *testing.T) *project {
 	p.write("README.md", "e2e project\n")
 	p.git("add", "-A")
 	p.git("commit", "-q", "-m", "start")
+	p.registerLead()
 	return p
 }
 
@@ -107,16 +113,58 @@ func newProject(t *testing.T) *project {
 // does, so that worker gates find a lead instead of failing closed.
 func (p *project) registerLead() {
 	p.t.Helper()
+	fixture := func(rel string) []byte {
+		p.t.Helper()
+		data, err := os.ReadFile(filepath.Join("..", "..", "scripts", "bench", "fixtures", filepath.FromSlash(rel)))
+		if err != nil {
+			p.t.Fatal(err)
+		}
+		return data
+	}
+	transcript := p.path(".duolog/e2e-lead.jsonl")
+	p.write(".duolog/e2e-lead.jsonl", string(fixture("transcripts/claude-assistant.trimmed.jsonl")))
+	var input map[string]any
+	if err := json.Unmarshal(fixture("hooks/claude-sessionstart-interactive.json"), &input); err != nil {
+		p.t.Fatal(err)
+	}
+	input["session_id"] = "e2e-lead"
+	input["cwd"] = p.dir
+	input["transcript_path"] = transcript
+	input["scratchpad_dir"] = p.t.TempDir()
+	input["permission_mode"] = "default"
+	stdin, err := json.Marshal(input)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	data, err := install.HooksJSON("claude", runtime.GOOS, 150)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	var doc struct {
+		Hooks map[string][]struct{ Hooks []struct{ Command string } }
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		p.t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, filepath.Join(binDir, "duolog"), "hook", "SessionStart", "--agent", "claude")
+	// Run the exact installed guard. Its exec must leave this test process as
+	// the live parent of duolog, rather than registering a short-lived shell.
+	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", doc.Hooks["SessionStart"][0].Hooks[0].Command)
 	cmd.Dir = p.dir
 	cmd.Env = append(env(), "CLAUDE_CODE_ENTRYPOINT=cli")
-	cmd.Stdin = strings.NewReader(`{"session_id":"e2e-lead","hook_event_name":"SessionStart"}`)
+	cmd.Stdin = bytes.NewReader(stdin)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		p.t.Fatalf("register lead: %v\n%s", err, out)
 	}
-	p.lead = "e2e-lead"
+	reg, err := session.Open(p.path(".duolog"))
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	lead, live, err := reg.Lead("e2e-lead")
+	if err != nil || !live || lead.PID != os.Getpid() || lead.TranscriptPath != transcript || lead.Model == "" || lead.Effort == "" {
+		p.t.Fatalf("lead did not survive installed SessionStart guard: %+v live=%v err=%v", lead, live, err)
+	}
 }
 
 func (p *project) path(rel string) string { return filepath.Join(p.dir, filepath.FromSlash(rel)) }
@@ -218,11 +266,7 @@ func (p *project) delegate(role, task string) string {
 func (p *project) delegateExit(role, task string, ok ...int) string {
 	p.t.Helper()
 	p.write("task.md", task)
-	args := []string{"delegate", role, "--task", "task.md"}
-	if p.lead != "" {
-		args = append(args, "--lead", p.lead)
-	}
-	r := p.run("duolog", args...)
+	r := p.run("duolog", "delegate", role, "--task", "task.md")
 	line := strings.TrimSpace(r.Stdout)
 	p.t.Logf("delegate %s: exit %d: %s", role, r.Code, line)
 	if !slices.Contains(ok, r.Code) {
