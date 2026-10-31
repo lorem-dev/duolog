@@ -18,10 +18,14 @@ import (
 type Lead struct {
 	ID string
 	config.Target
-	Mode mode.Mode
+	Mode           mode.Mode
+	TranscriptPath string
+	PID            int
 }
 type Entry struct {
 	ID, Lead, Agent, Role, Thread, ThreadID string
+	BlockID                                 string
+	PID                                     int
 	Input                                   int64
 	UpdatedAt                               time.Time
 	Closed                                  bool
@@ -199,6 +203,10 @@ func (r *Registry) Lead(id string) (Lead, bool, error) {
 	var l Lead
 	var ok bool
 	err := r.access(false, func(s *state) error { l, ok = s.Leads[id]; return nil })
+	if err == nil && ok && !ProcessAlive(l.PID) {
+		err = r.Close(id)
+		ok = false
+	}
 	return l, ok, err
 }
 
@@ -219,6 +227,12 @@ func (r *Registry) EffectiveMode(id string) (Lead, mode.Mode, error) {
 		}
 		return nil
 	})
+	if err == nil && !ProcessAlive(lead.PID) {
+		if closeErr := r.Close(id); closeErr != nil {
+			return lead, "", closeErr
+		}
+		return lead, "", fmt.Errorf("lead %q has ended", id)
+	}
 	return lead, effective, err
 }
 

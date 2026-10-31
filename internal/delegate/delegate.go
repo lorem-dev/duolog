@@ -147,8 +147,25 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	leadMode := mode.Ask
 	address := "duolog/lead"
 	if hasLead {
+		if lead.TranscriptPath != "" {
+			observed, _ := session.ReadLeadState(lead.Agent, lead.TranscriptPath)
+			lead.Model, lead.Effort = observed.Model, observed.Effort
+			if lead.Agent == "codex" {
+				if observed.Mode != "" {
+					lead.Mode = observed.Mode
+				} else {
+					lead.Mode = mode.Lower(lead.Mode, mode.Ask)
+				}
+			}
+			if err = reg.RegisterLead(lead); err != nil {
+				return out, err
+			}
+		}
+		_, leadMode, err = reg.EffectiveMode(leadID)
+		if err != nil {
+			return out, err
+		}
 		leadTarget = &lead.Target
-		leadMode = lead.Mode
 		address = session.Address(lead)
 	} else {
 		leadID = ""

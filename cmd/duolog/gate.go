@@ -10,6 +10,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/hook"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -24,8 +25,15 @@ func isWorker() bool {
 func newGateCommand() *cobra.Command {
 	var agent, event string
 	cmd := &cobra.Command{Use: "gate", Short: "Decide a worker hook request", SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
-		// Exit before reading stdin, config or registry in the user's session.
+		// A lead only records its live mode; it never receives a gate decision.
 		if !isWorker() {
+			root, err := projectRoot()
+			if err == nil {
+				data, readErr := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 4*1024*1024+1))
+				if readErr == nil && len(data) <= 4*1024*1024 {
+					hook.Observe(cmd.Context(), hook.Env{Root: root, Agent: agent, Input: data, Environ: os.Environ()})
+				}
+			}
 			return nil
 		}
 		a := gate.Action{Kind: "unknown", Role: os.Getenv("DUOLOG_ROLE")}
@@ -106,7 +114,7 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string) (gate.Action, g
 	if err != nil {
 		return a, d, err
 	}
-	lead, m, err := reg.EffectiveMode(session.CurrentLead(os.Environ()))
+	lead, m, err := gate.LeadMode(reg, session.CurrentLead(os.Environ()))
 	if err != nil {
 		return a, d, err
 	}

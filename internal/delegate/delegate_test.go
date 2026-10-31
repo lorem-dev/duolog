@@ -926,3 +926,24 @@ func TestReadOnlyDelegationSkipsChangeDetection(t *testing.T) {
 		t.Fatalf("read-only delegation invoked Git: %v", err)
 	}
 }
+
+func TestDelegateReadsLeadTranscriptAtDecisionTime(t *testing.T) {
+	h := newHarness(t)
+	h.lead("claude", mode.Full, "ultra")
+	l, _, err := h.reg.Lead("lead-123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.TranscriptPath = filepath.Join(h.root, "lead.jsonl")
+	put(t, l.TranscriptPath, "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-opus-5-5\"},\"effort\":\"low\"}\n")
+	if err = h.reg.RegisterLead(l); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = h.run("implement"); err != nil {
+		t.Fatal(err)
+	}
+	h.requireCalls(1)
+	if h.calls[0].Route.Effort != "low" {
+		t.Fatal(h.calls[0].Route)
+	}
+}
