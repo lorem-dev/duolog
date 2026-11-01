@@ -92,13 +92,13 @@ codex plugin add duolog@duolog
 Start a new session after the install, so that the agent loads the plugin. In
 `duolog@duolog`, the first word is the plugin and the second is the marketplace.
 
-The address can take other forms. Claude Code clones `lorem-dev/duolog` over
-SSH, so use the HTTPS form if you have no SSH key for GitHub.
+The address can take other forms. Claude Code tries `lorem-dev/duolog` over SSH
+first and then HTTPS, so the HTTPS form only skips the failed first try.
 
 | Address | When to use it |
 |---|---|
 | `lorem-dev/duolog` | The normal case |
-| `https://github.com/lorem-dev/duolog.git` | You have no SSH key for GitHub |
+| `https://github.com/lorem-dev/duolog.git` | You want HTTPS from the start |
 | `./path/to/duolog` | You test a local copy of this repository |
 
 Use these commands to update or remove the plugin:

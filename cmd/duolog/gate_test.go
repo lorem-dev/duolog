@@ -239,3 +239,12 @@ func TestWorkerGateCreatesNoStateInAnUnrelatedFolder(t *testing.T) {
 		t.Fatal("the gate created state", err)
 	}
 }
+
+func TestHookInputMayStartWithAByteOrderMark(t *testing.T) {
+	gateSetup(t, mode.Full)
+	data, _ := json.Marshal(map[string]any{"tool_name": "Bash", "tool_input": map[string]string{"command": "git status"}})
+	out, err := gateCommand(t, "\xef\xbb\xbf"+string(data), "gate", "--agent", "codex", "--event", "PreToolUse")
+	if err != nil || out != "" {
+		t.Fatalf("%q %v", out, err)
+	}
+}

@@ -45,6 +45,7 @@
 ### Fixed
 
 - `duolog sync` waits up to 15 seconds for another run, not 2, on a slow disk.
+- A hook no longer ignores input that starts with a byte order mark.
 
 ## 1.0.0
 
