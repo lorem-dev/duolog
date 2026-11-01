@@ -42,6 +42,11 @@
 
 ## Development
 
+### Changed
+
+- The Claude skill runs report commands, such as `duolog doctor`, unprompted.
+- The skills install the version they shipped with, not the latest release.
+
 ### Fixed
 
 - `duolog sync` waits up to 15 seconds for another run, not 2, on a slow disk.

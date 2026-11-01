@@ -3,6 +3,7 @@ name: duolog
 description: >-
   Delegate a bounded task to a second Claude or Codex session with duolog and
   read its short answer. Use for self-contained work or a second opinion.
+allowed-tools: Bash(duolog version), Bash(duolog doctor), Bash(duolog roster), Bash(duolog route *), Bash(duolog caps), Bash(duolog caps *), Bash(duolog stats), Bash(duolog inbox *), Bash(duolog peer status *), Bash(duolog peer wait *)
 ---
 
 # duolog
@@ -15,13 +16,13 @@ description: >-
    macOS/Linux:
 
    ```sh
-   curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh && duolog install --scope project
+   curl -fsSL https://github.com/lorem-dev/duolog/releases/download/v1.0.0/install.sh | sh -s -- --version v1.0.0 && duolog install --scope project
    ```
 
    Windows PowerShell:
 
    ```powershell
-   irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
+   $env:DUOLOG_VERSION = 'v1.0.0'; irm https://github.com/lorem-dev/duolog/releases/download/v1.0.0/install.ps1 | iex
    ```
 
    On Windows, add the printed directory to PATH, then run

@@ -107,7 +107,7 @@ jobs:
   cross-build:
     name: cross-build (all release targets)
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
@@ -126,6 +126,19 @@ jobs:
               GOOS="$target_os" GOARCH="$target_arch" go build \
                 -o "$RUNNER_TEMP/duolog-$target_os-$target_arch" ./cmd/duolog
             done
+          done
+      # A static binary needs no libc, so it runs on musl and on very old glibc. These
+      # are the systems where a dynamic build would fail first.
+      - name: The Linux binary is static and runs on old systems and Alpine
+        shell: bash
+        run: |
+          file "$RUNNER_TEMP/duolog-linux-amd64" | grep -q 'statically linked'
+          for image in alpine:3.10 alpine:3.20 ubuntu:14.04 ubuntu:16.04 debian:9 centos:7; do
+            echo "== $image"
+            docker run --rm \
+              -v "$RUNNER_TEMP/duolog-linux-amd64:/usr/local/bin/duolog-under-test:ro" \
+              -v "$PWD/scripts/compat/smoke.sh:/smoke.sh:ro" \
+              "$image" sh /smoke.sh /usr/local/bin/duolog-under-test
           done
       # A config check does not find a release that cannot run, so run it.
       - name: Install shellcheck for the release hooks

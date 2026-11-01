@@ -41,6 +41,8 @@ def root(tmp_path: Path) -> Path:
         "plugin/codex/plugin.json": '{"version": "1.0.0"}\n',
         "README.md": "--version v1.0.0\r\n$env:DUOLOG_VERSION = 'v1.0.0'\r\n",
         "docs/getting-started.md": "--version v1.0.0\n$env:DUOLOG_VERSION = 'v1.0.0'\n",
+        "plugin/claude/skills/duolog/SKILL.md": "releases/download/v1.0.0/install.sh --version v1.0.0\n$env:DUOLOG_VERSION = 'v1.0.0'; releases/download/v1.0.0/install.ps1\n",
+        "plugin/codex/skills/duolog/SKILL.md": "releases/download/v1.0.0/install.sh --version v1.0.0\n$env:DUOLOG_VERSION = 'v1.0.0'; releases/download/v1.0.0/install.ps1\n",
         "CHANGES.md": CHANGES,
     }
     for name, text in files.items():
@@ -91,7 +93,7 @@ def test_a_wrong_tag_is_a_wrong_call(root: Path, tag: str) -> None:
 
 def test_bump_changes_every_place_and_keeps_line_endings(root: Path) -> None:
     code, output = run(root, "bump", "1.2.3-rc.1")
-    assert code == 0 and len(json.loads(output)["changed"]) == 6
+    assert code == 0 and len(json.loads(output)["changed"]) == 8
     assert run(root, "check", "--tag", "v1.2.3-rc.1")[0] == 0
     assert (root / "README.md").read_bytes() == b"--version v1.2.3-rc.1\r\n$env:DUOLOG_VERSION = 'v1.2.3-rc.1'\r\n"
 

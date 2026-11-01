@@ -52,6 +52,12 @@ PLACES: tuple[Place, ...] = (
     Place("README.md", rf"DUOLOG_VERSION = 'v{VERSION}'"),
     Place("docs/getting-started.md", rf"--version v{VERSION}"),
     Place("docs/getting-started.md", rf"DUOLOG_VERSION = 'v{VERSION}'"),
+    Place("plugin/claude/skills/duolog/SKILL.md", rf"releases/download/v{VERSION}/install"),
+    Place("plugin/claude/skills/duolog/SKILL.md", rf"--version v{VERSION}"),
+    Place("plugin/claude/skills/duolog/SKILL.md", rf"DUOLOG_VERSION = 'v{VERSION}'"),
+    Place("plugin/codex/skills/duolog/SKILL.md", rf"releases/download/v{VERSION}/install"),
+    Place("plugin/codex/skills/duolog/SKILL.md", rf"--version v{VERSION}"),
+    Place("plugin/codex/skills/duolog/SKILL.md", rf"DUOLOG_VERSION = 'v{VERSION}'"),
 )
 
 

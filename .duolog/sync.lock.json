@@ -8,8 +8,8 @@
     },
     ".agents/skills/bump-version/evals/evals.json": {
       "source": ".claude/skills/bump-version/evals/evals.json",
-      "source_hash": "08378026651dbb688d53507370e6b3935fc43149c0dce05461e337481bceb059",
-      "target_hash": "08378026651dbb688d53507370e6b3935fc43149c0dce05461e337481bceb059"
+      "source_hash": "24cfa15de99e35a07e19a827f4ce75361f5fc789671b20a06ec5240f918ed264",
+      "target_hash": "24cfa15de99e35a07e19a827f4ce75361f5fc789671b20a06ec5240f918ed264"
     },
     ".agents/skills/check-changes/SKILL.md": {
       "source": ".claude/skills/check-changes/SKILL.md",

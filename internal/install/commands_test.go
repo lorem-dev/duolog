@@ -3,8 +3,10 @@ package install
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/lorem-dev/duolog/plugin"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -117,12 +119,22 @@ func TestSkillsCheckBinaryAndRules(t *testing.T) {
 						t.Fatalf("skill missing %q", want)
 					}
 				}
+				// A project's offer stays on latest, because it outlives any one version. The
+				// skill names its own version, which version.py keeps current.
 				for _, line := range []string{
 					"curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh && duolog install --scope project",
 					"irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex",
 				} {
-					if !strings.Contains(shipped, line) || !strings.Contains(InstallOffer, line) {
-						t.Fatal("skill install differs from project offer")
+					if !strings.Contains(InstallOffer, line) {
+						t.Fatal("project offer changed: " + line)
+					}
+				}
+				for _, pattern := range []string{
+					`curl -fsSL https://github\.com/lorem-dev/duolog/releases/download/v[0-9.]+/install\.sh \| sh -s -- --version v[0-9.]+ && duolog install --scope project`,
+					`\$env:DUOLOG_VERSION = 'v[0-9.]+'; irm https://github\.com/lorem-dev/duolog/releases/download/v[0-9.]+/install\.ps1 \| iex`,
+				} {
+					if !regexp.MustCompile(pattern).MatchString(shipped) {
+						t.Fatal("skill does not pin its install: " + pattern)
 					}
 				}
 				if strings.Index(shipped, "duolog version") > strings.Index(shipped, "duolog doctor") || strings.Index(shipped, "duolog doctor") > strings.Index(shipped, "## Hand over") {
@@ -165,6 +177,28 @@ func TestReinstallUpgradesOlderClaudeHooks(t *testing.T) {
 		want, _ := HooksJSON("claude", 150)
 		if read(t, path) != string(want) {
 			t.Fatal("legacy hook was not replaced", read(t, path))
+		}
+	}
+}
+
+// A read-only list: nothing here starts a worker, decides for the lead or writes.
+func TestClaudeSkillAllowsOnlyReportCommands(t *testing.T) {
+	data, err := plugin.FS.ReadFile("claude/skills/duolog/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := ""
+	for _, l := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(l, "allowed-tools:") {
+			line = l
+		}
+	}
+	if !strings.Contains(line, "Bash(duolog version)") || !strings.Contains(line, "Bash(duolog doctor)") {
+		t.Fatal("report commands are missing: " + line)
+	}
+	for _, refused := range []string{"duolog *", "delegate", "allow", "deny", "mode", "install", "uninstall", "sync", "send", "peer open", "peer answer", "peer close", "curl", "irm"} {
+		if strings.Contains(strings.TrimPrefix(line, "allowed-tools:"), refused) {
+			t.Fatalf("the skill must not allow %q: %s", refused, line)
 		}
 	}
 }
