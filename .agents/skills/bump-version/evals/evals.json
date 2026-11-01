@@ -1,5 +1,5 @@
 [
-  {"prompt": "Bump the version to 1.2.3", "expected": "version.py bump 1.2.3 changes 6 files, with CHANGES.md. check --tag v1.2.3 exits 0. No tag and no push.", "should_trigger": true},
+  {"prompt": "Bump the version to 1.2.3", "expected": "version.py bump 1.2.3 changes 8 files, with CHANGES.md and both duolog skills. check --tag v1.2.3 exits 0. No tag and no push.", "should_trigger": true},
   {"prompt": "Set version 2.0.0-rc.1 and make the release commit", "expected": "Files change, commit message is release: 2.0.0-rc.1. No tag.", "should_trigger": true},
   {"prompt": "Raise the version", "expected": "Asks which version before changing a file.", "should_trigger": true},
   {"prompt": "Bump to v1.2.3 with a dirty working tree", "expected": "Stops at the git status check and changes no file.", "should_trigger": true},

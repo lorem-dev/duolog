@@ -39,6 +39,10 @@ The binary links work after the first release. Until then, use Go:
 go install github.com/lorem-dev/duolog/cmd/duolog@latest
 ```
 
+The Linux binaries are static, so they need no libc of a given version. CI runs
+them on Alpine 3.10 and 3.20, Ubuntu 14.04 and 16.04, Debian 9 and CentOS 7.
+Claude Code and Codex have their own system requirements.
+
 Both installers verify SHA-256 and select amd64 or arm64. Run the same command
 again to update. The default folder is `~/.local/bin` on macOS/Linux and
 `$env:LOCALAPPDATA\Programs\duolog` on Windows. Add the printed directory to
