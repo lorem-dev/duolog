@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"io"
 	"os"
 	"time"
 
@@ -33,7 +32,7 @@ func newHookCommand() *cobra.Command {
 		if err != nil {
 			return nil
 		}
-		data, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 4*1024*1024+1))
+		data, err := readHookInput(cmd)
 		if err != nil || len(data) > 4*1024*1024 {
 			return nil
 		}

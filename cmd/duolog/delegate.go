@@ -13,7 +13,7 @@ func newDelegateCommand() *cobra.Command {
 	var taskPath, thread, lead string
 	var needs []string
 	var allowManual bool
-	cmd := &cobra.Command{Use: "delegate <role>", Short: "Delegate a task and print its answer", Args: cobra.ExactArgs(1), SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "delegate <role>", Short: "Delegate a task and print its answer", Long: "Delegate a task and print its answer.\n\nThe task file needs the sections ## Goal, ## Read, ## Write, ## Limits and ## Check.", Args: cobra.ExactArgs(1), SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
 		root, err := projectRoot()
 		if err != nil {
 			return err

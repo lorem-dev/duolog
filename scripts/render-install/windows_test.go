@@ -24,12 +24,19 @@ func TestWindowsInstaller(t *testing.T) {
 	for _, shell := range []string{"powershell", "pwsh"} {
 		t.Run(shell, func(t *testing.T) {
 			binary, err := exec.LookPath(shell)
+			if err != nil && os.Getenv("CI") == "" {
+				t.Skip(shell + " is not installed")
+			}
 			if err != nil {
 				t.Fatal("CI must provide Windows PowerShell 5.1 and pwsh:", err)
 			}
 			if shell == "powershell" {
 				pwsh, err := exec.LookPath("pwsh")
 				if err != nil {
+					// A developer's machine may have only 5.1. CI must run this.
+					if os.Getenv("CI") == "" {
+						t.Skip("pwsh is not installed")
+					}
 					t.Fatal(err)
 				}
 				// Reproduce pwsh -> Go -> powershell.exe module-path inheritance.

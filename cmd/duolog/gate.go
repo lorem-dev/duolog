@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,6 +23,14 @@ import (
 
 func isWorker() bool { return workerenv.IsWorker() }
 
+// readHookInput reads one hook's JSON, one byte over the limit so that callers can
+// refuse it. Windows PowerShell 5.1 can start a pipe with a byte order mark, which
+// JSON rejects: a hook then registered no lead and said nothing.
+func readHookInput(cmd *cobra.Command) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 4*1024*1024+1))
+	return bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")), err
+}
+
 func newGateCommand() *cobra.Command {
 	var agent, event string
 	cmd := &cobra.Command{Use: "gate", Short: "Decide a worker hook request", SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
@@ -31,7 +40,7 @@ func newGateCommand() *cobra.Command {
 			defer func() { _ = recover() }()
 			root, err := projectRoot()
 			if err == nil {
-				data, readErr := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 4*1024*1024+1))
+				data, readErr := readHookInput(cmd)
 				if readErr == nil && len(data) <= 4*1024*1024 {
 					hook.Observe(cmd.Context(), hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ()})
 				}
@@ -78,7 +87,7 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 	if event != "PreToolUse" && event != "PermissionRequest" {
 		return a, d, fmt.Errorf("unsupported gate event %q", event)
 	}
-	data, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 4*1024*1024+1))
+	data, err := readHookInput(cmd)
 	if err != nil {
 		return a, d, err
 	}
