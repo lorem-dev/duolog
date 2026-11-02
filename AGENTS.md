@@ -15,3 +15,8 @@ requests here.
 - Keep private projects out: a study or a bug report from a private project
   stays anonymised, with no names, paths, ticket ids or code from it.
 - Follow `docs/contributing.md` for README and `docs/`.
+- Bring every change to `develop` and `main` through a pull request: one into
+  `develop`, and one from `develop` into `main` for a release. Squash locally
+  into a signed commit with UTC dates, push it as the PR head, wait for CI, then
+  fast-forward the base branch to that head. The GitHub merge button writes
+  local dates, so do not use it.
