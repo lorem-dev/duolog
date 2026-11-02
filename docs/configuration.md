@@ -219,6 +219,44 @@ Some servers cannot be bridged. The task then goes to the lead, as with
 `duolog caps` marks each server `bridgeable` or says why it is not, and
 `duolog doctor` names the servers each agent can lend.
 
+## What happens when a worker cannot sign in
+
+Before a worker starts, duolog checks two logins. A failed login would
+otherwise end the run only after the lead waited for it.
+
+| What | How duolog checks it, with no model call |
+|---|---|
+| The worker's agent | `codex login status` or `claude auth status --json` |
+| An MCP server with a token in config | One MCP `initialize` request with the headers the worker gets. Only HTTP 401, 403 or an error that names the token count |
+| An MCP server that signs in with OAuth | `codex mcp list --json` or `claude mcp get <name>` |
+
+A passed check is kept for five minutes in `.duolog/cache/auth.json`, which
+holds only the time. A stdio server is not checked, because it would have to
+start. A server that checks its token only when a tool runs passes too. The
+worker is told to stop with `auth:mcp:<server>` in `needs` when a server
+refuses it, and duolog reads a refused agent login from the worker's errors.
+Both get the same treatment as a failed check.
+
+`capabilities.on_auth_failure` decides what happens next:
+
+| Value | What happens |
+|---|---|
+| `login_then_lead` | The default. duolog runs the agent's own login once: `codex login`, `claude auth login`, `codex mcp login <name>` or `claude mcp login <name>`. If it works, the worker starts. Otherwise the task goes to the lead |
+| `lead` | The task goes to the lead at once, with the login command to show the person |
+| `fail` | `duolog delegate` fails |
+
+The login waits up to `login_timeout_seconds` (180 by default) for the person
+to finish it in the browser. When it needs a terminal that duolog does not
+have, the result line has `needs=auth:<agent>` or `needs=auth:mcp:<name>` and
+the command for the person, such as `! codex mcp login jira`.
+
+When the person closes the login, or it times out or fails, the task goes to
+the lead, as with `on_missing.mcp: lead_first`. The line names the agent or the
+server and the reason, never the token. duolog does not ask for that login
+again until the lead's session ends. A server with a token in config has
+nothing to log in to: the line names the config entry that holds the token.
+duolog runs at most one login for each delegation.
+
 ## What a Codex worker's sandbox blocks
 
 A write role runs Codex in `workspace-write`. The cost study saw these limits
