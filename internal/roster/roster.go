@@ -84,3 +84,11 @@ func StartNote(root string, lead session.Lead) string {
 	}
 	return note
 }
+
+// LearningNote tells the lead to open tasks when learning mode is enabled.
+func LearningNote(cfg *config.Config) string {
+	if cfg.Learning.Enabled {
+		return "; learning mode on: run duolog task start before a task"
+	}
+	return ""
+}

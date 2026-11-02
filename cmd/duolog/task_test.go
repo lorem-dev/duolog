@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -206,5 +207,48 @@ func TestOutcomeForUnfinishedTask(t *testing.T) {
 	_, err := executeBusCommand(t, "task", "outcome", task.ID, "accepted")
 	if err == nil || !strings.Contains(err.Error(), "is not finished") {
 		t.Fatal(err)
+	}
+}
+
+func TestTaskStartPrintsProtocol(t *testing.T) {
+	root := learningRepo(t, true)
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := executeBusCommand(t, "task", "start", "fix")
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	for feature := range config.Features {
+		if !strings.Contains(out, feature+"=") {
+			t.Errorf("missing feature %s in %s", feature, out)
+		}
+	}
+	var names []string
+	for name := range cfg.Learning.Classes {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	previous := strings.Index(out, "Classes:\n")
+	if previous < 0 {
+		t.Fatal(out)
+	}
+	for _, name := range names {
+		c := cfg.Learning.Classes[name]
+		line := name + " (" + c.Priority + "): " + c.Description + "\n"
+		at := strings.Index(out, line)
+		if at <= previous {
+			t.Errorf("missing or unsorted %q in %s", line, out)
+		}
+		previous = at
+	}
+	for _, want := range []string{"--escalate-from", "--use", "out_of_turns", "duolog task finish", "plan, then review_final", "then implement_complex"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in %s", want, out)
+		}
+	}
+	if lines := strings.SplitN(out, "\n", 2); len(lines) != 2 || !strings.HasPrefix(lines[1], "Learning mode routes each delegation by its class.") {
+		t.Fatal(out)
 	}
 }

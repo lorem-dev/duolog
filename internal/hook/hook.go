@@ -205,7 +205,7 @@ func deliver(ctx context.Context, e Env, event string, register, includeRoster b
 			return Output{}
 		}
 		if includeRoster {
-			data = append([]byte(roster.Line(s.cfg, s.lead.ID, s.reg)+roster.StartNote(e.Root, s.lead)+"\n"), data...)
+			data = append([]byte(roster.Line(s.cfg, s.lead.ID, s.reg)+roster.StartNote(e.Root, s.lead)+roster.LearningNote(s.cfg)+"\n"), data...)
 		}
 	}
 	if extra != nil {

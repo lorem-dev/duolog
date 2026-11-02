@@ -1,0 +1,144 @@
+# How learning mode tunes routing for a project
+
+Learning mode uses local task results to propose which agent, model and effort
+should do each kind of work. It is off by default. The lead shows a proposed
+change to the person before applying it.
+
+## How to turn it on
+
+Add this to `.duolog/config.yaml`:
+
+```yaml
+learning:
+  enabled: true
+```
+
+A lead is the session you work in. Its SessionStart hook notes when learning
+mode is on. Before a task, the lead runs:
+
+```bash
+duolog task start fix login
+```
+
+The command opens a task and prints the protocol: features, classes, steps and
+escalation signals. With several leads, pass `--lead <id>` from SessionStart.
+A worker cannot open or finish tasks, record outcomes or apply learned orders.
+
+## How a delegation gets a class
+
+A class describes the kind of work. It picks a target from an ordered list
+called a ladder. The role still controls the worker's access and context.
+
+Give `duolog delegate` the features you know, separated by commas. Start with
+`output` so that the rule can identify the result you need:
+
+```bash
+duolog delegate docs --task .duolog/task.md --features output=docs,exemplar=yes
+```
+
+| Feature | Values |
+|---|---|
+| `output` | `code`, `plan`, `review`, `tests`, `docs`, `diagnosis` |
+| `exemplar` | `yes`, `partly`, `no`: whether similar code exists |
+| `components` | `1`, `2+` |
+| `outside_evidence` | `yes`, `no` |
+| `scope` | `1-3`, `4-20`, `20+`: expected files touched |
+| `ambiguity` | `low`, `high` |
+| `target` | `code`, `plan`: what a review checks |
+
+Config rules match the features and role in order. The first match wins.
+Use `--class <name>` to name a class directly. If no class or rule matches,
+the role uses its own target and the journal records `unclassified`.
+
+If the person names a target, pass it with `--use agent/model/effort`. Ask if
+their choice is unclear. These runs count in the statistics, but receive no
+profiling offer. A subagent of the lead's own vendor uses the agent's own
+tools when the person asks for one.
+
+For new structure, use three delegations with `--class skeleton`: `plan`,
+then `review_final` of the plan, then `implement_complex`.
+
+To leave a failed run, pass `--escalate-from <id> --reason <signal>`. The
+result line supplies the delegation ID. Signals are `no_repro`, `no_lines`,
+`inconsistent`, `not_green` and `out_of_turns`. A provider limit is not a
+quality failure. Changing the person's explicit target needs their agreement.
+
+## What the journal keeps and where
+
+The local journal lives under `.duolog/journal/`:
+
+| File or folder | What it keeps |
+|---|---|
+| `delegations.ndjson` | Target, class, reason, usage, cost, time and result per delegation |
+| `tasks.ndjson` | Finished tasks and the person's outcomes |
+| `verdicts.ndjson` | Comparison scores and the person's decisions |
+| `tasks/` | Local task files and patches for profiling |
+
+Subagents run with the agent's own tools are not journalled: duolog cannot
+see them. A delegation made through duolog is recorded even when the person
+chose its target.
+
+Run `duolog stats --classes` to see the observed quality, failures, cost and
+time for each ladder entry. The plain `duolog stats` command still reports
+token costs.
+
+## What happens at the end of a task
+
+Run `duolog task finish`. The lead shows the output to the user in its printed
+order: a table of delegations, at most two profiling offers, any routing-change
+notice, and the outcome question.
+
+Each offer states its target, reason and estimated cost, including the judge.
+The person chooses one, both or none. There are no offers for replays,
+provider limits, tasks returned to the lead, or explicit person choices.
+
+Record the person's outcome for the finished task:
+
+```bash
+duolog task outcome <task-id> accepted
+```
+
+The other outcomes are `small_fixes`, `reworked` and `dropped`. Add `--note`
+for a short explanation. A later outcome replaces the earlier one when the
+journal is read.
+
+## How a profiling run compares two targets
+
+A profiling run repeats the recorded work on another target from the same
+starting tree. A judge compares both results without seeing which target made
+each one. The person confirms or corrects the scores before they affect
+quality estimates.
+
+## How duolog learn changes the order
+
+Run `duolog learn` to see a proposed order as a diff, with its evidence.
+Quality-first classes prefer the best quality estimate, allowing a cheaper
+entry close to it. Cost-first classes prefer the cheapest entry that clears
+the quality threshold after accounting for uncertainty.
+
+Starting quality estimates come from configured priors. Confirmed or corrected
+comparisons count at full weight. Task outcomes and failures count at half
+weight. Provider limits and work returned to the lead add no observations.
+A winning profile can add a target outside the configured ladder.
+
+After the person approves the diff, run:
+
+```bash
+duolog learn --apply
+```
+
+This writes `.duolog/routing.learned.yaml` only if an order changed. Changed
+statistics alone do not cause a write. Class definitions stay in
+`.duolog/config.yaml`; learned orders and numbers stay in the generated file.
+
+## How to go back to the defaults
+
+Delete `.duolog/routing.learned.yaml` to restore the configured ladders.
+The journal remains available for future proposals. Set `learning.enabled`
+to `false` to turn learning mode off.
+
+## Related pages
+
+- [Configuration](configuration.md): learning settings and project overrides
+- [Getting started](getting-started.md): install duolog and delegate a task
+- [Permissions](permissions.md): the worker's access and permission requests

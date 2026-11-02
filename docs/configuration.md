@@ -334,7 +334,8 @@ Put the working forms in `.duolog/brief.md`, so that every worker uses them.
 
 Learning mode gives each delegation a task class, and the class picks the
 target from a ladder of agent, model and effort entries. It is off by default,
-and with it off nothing changes. The `learning` keys and their defaults:
+and with it off nothing changes. See [Learning mode](learning.md) for the task
+workflow and journal. The `learning` keys and their defaults:
 
 | Key | Default | What it does |
 |---|---|---|
@@ -356,6 +357,7 @@ a project can add a class or change one ladder and keep the rest.
 
 - [Getting started](getting-started.md): install and first task
 - [Permissions](permissions.md): policy rules and modes
+- [Learning mode](learning.md): task classes, the journal and learned orders
 - [Practices and models](research/2026-10-30-practices-and-models.md): the
   evidence behind the defaults
 - [Cost study](research/2026-11-01-cost-study.md): what duolog cost against

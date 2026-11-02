@@ -143,3 +143,14 @@ func TestStartNoteCoauthors(t *testing.T) {
 		t.Fatal(note)
 	}
 }
+
+func TestLearningNote(t *testing.T) {
+	cfg := &config.Config{}
+	if got := LearningNote(cfg); got != "" {
+		t.Fatal(got)
+	}
+	cfg.Learning.Enabled = true
+	if got := LearningNote(cfg); got != "; learning mode on: run duolog task start before a task" {
+		t.Fatal(got)
+	}
+}

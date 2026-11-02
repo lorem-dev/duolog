@@ -607,3 +607,23 @@ func TestUninstallKeepsASkillItDidNotWrite(t *testing.T) {
 		t.Fatal("uninstall removed a skill it did not write")
 	}
 }
+
+func TestSkillNamesTaskStart(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		text := skillText(t, agent)
+		for _, want := range []string{"duolog task start", "use your tools"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("%s skill lacks %q", agent, want)
+			}
+		}
+		if n := words(text); n >= 400 {
+			t.Errorf("%s skill has %d words", agent, n)
+		}
+	}
+	text := skillText(t, "claude")
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, "allowed-tools:") && (strings.Contains(line, "duolog task") || strings.Contains(line, "duolog learn")) {
+			t.Fatal("learning writes must not be preapproved", line)
+		}
+	}
+}

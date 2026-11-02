@@ -37,7 +37,7 @@ changes into one pull request unless the user asks otherwise.
 1. Give a whole feature to `planner`; it reads, implements, checks and lists
    hunks to review. Do small fixes yourself.
 2. Write `.duolog/task.md`: Goal, Read, Write, Limits, Check.
-   Give known files or ranges; put docs the worker edits under Write.
+   Give known files or ranges; list edited docs under Write.
 3. Run `duolog delegate <role> --task .duolog/task.md` with a long timeout.
    Wait for notice; do not poll.
 4. Read summary and `git diff --stat`; open marked hunks only. Read
@@ -45,7 +45,8 @@ changes into one pull request unless the user asks otherwise.
 5. Keep hard parts and final review, or use `review_final`.
 
 Put worker rules in `.duolog/brief.md`. With several leads, pass
-`--lead <id>` from SessionStart.
+`--lead <id>` from SessionStart. Learning mode: run `duolog task start` first.
+Subagents of your own vendor use your tools, not duolog.
 
 ## Running from Codex
 
@@ -54,24 +55,21 @@ Run `duolog delegate` outside the sandbox, or workers cannot start. For an old
 
 ## When duolog says `run here`
 
-- `run here: self`: do the task here, reading only the listed ranges.
+- `run here: self`: do it here, reading only the listed ranges.
 - `run here: subagent model=M effort=E`: call `spawn_agent` with model M,
   reasoning_effort E and fork_turns "none", then `wait_agent`. Pass task
   text. Never start another duolog session.
 
 ## Permission requests
 
-A foreground delegate blocks you, so an ask denies: the worker retries
-plainer, then lists the command in `needs`. When free,
-answer with `duolog allow <n>` or `duolog deny <n>`. If the user allows a
-command for good, run `duolog remember '<command>'`.
+A foreground delegate denies asks; the worker retries, then lists the command
+in `needs`. Later run `duolog allow <n>` or `duolog deny <n>`, and
+`duolog remember '<command>'` if the user allows it for good.
 
 ## Live sessions
 
 Live sessions need Rex. `duolog peer wait` returns for a question; answer it
 with `duolog peer answer <id> <option>`. Run each peer wait alone in the
-background, not chained with CI.
-
-## Never
+background.
 
 Never send `/model` or `/effort` to a Claude pane; they change its settings.

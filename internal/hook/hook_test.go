@@ -726,3 +726,22 @@ func TestSessionStartCoauthorHint(t *testing.T) {
 		})
 	}
 }
+
+func TestSessionStartNotesLearningMode(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		for _, enabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/%t", agent, enabled), func(t *testing.T) {
+				e, _, _ := setup(t, agent)
+				write(t, filepath.Join(e.Root, ".duolog", "config.yaml"), fmt.Sprintf("learning:\n  enabled: %t\n", enabled))
+				got := content(t, SessionStart(context.Background(), e), "SessionStart")
+				want := "; learning mode on: run duolog task start before a task"
+				if strings.Contains(got, want) != enabled {
+					t.Fatal(got)
+				}
+				if enabled && strings.Index(got, "; caps=") > strings.Index(got, want) {
+					t.Fatal("learning note precedes capability note", got)
+				}
+			})
+		}
+	}
+}

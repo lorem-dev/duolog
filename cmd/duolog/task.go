@@ -72,6 +72,10 @@ func newTaskStartCommand() *cobra.Command {
 		} else {
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "task %s started at %s\n", task.ID, base[:7])
 		}
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(cmd.OutOrStdout(), protocol(cfg))
 		return err
 	}}
 	cmd.Flags().StringVar(&lead, "lead", "", "Registered lead session ID (defaults to DUOLOG_LEAD)")
@@ -206,4 +210,38 @@ func readLearningJournal(j *journal.Journal) (ds []journal.Delegation, ts []jour
 	}
 	vs, err = journal.ReadAll[journal.Verdict](j, "verdicts.ndjson")
 	return
+}
+
+// protocol gives the lead the fixed learning-mode instructions and the
+// project's class descriptions in name order.
+func protocol(cfg *config.Config) string {
+	const start = `Learning mode routes each delegation by its class. For every duolog delegate in this task:
+- Add --features with what you know, output first:
+  output=code|plan|review|tests|docs|diagnosis exemplar=yes|partly|no components=1|2+
+  outside_evidence=yes|no scope=1-3|4-20|20+ ambiguity=low|high target=code|plan
+  Join them with commas. Or name the class with --class <name>. With neither, the
+  role's own target runs and the delegation counts as unclassified.
+- If the person names a model or way to run a step, use it (--use); if unsure what
+  they meant, ask.
+- Skeleton work is three delegations with --class skeleton: plan, then review_final
+  of the plan, then implement_complex.
+- Escalate with --escalate-from <id> --reason <signal> when the worker gave no
+  reproduction (no_repro) or no line references (no_lines), explained inconsistently
+  (inconsistent), did not turn the test green (not_green) or ran out of turns
+  (out_of_turns). The result line shows the id.
+Classes:
+`
+	var out strings.Builder
+	out.WriteString(start)
+	var names []string
+	for name := range cfg.Learning.Classes {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		c := cfg.Learning.Classes[name]
+		fmt.Fprintf(&out, "%s (%s): %s\n", name, c.Priority, c.Description)
+	}
+	out.WriteString("When the task is done, run duolog task finish and show its output to the user as\nprinted, in that order.\n")
+	return out.String()
 }

@@ -238,6 +238,7 @@ duolog uses the [Apache License 2.0](LICENSE).
 
 - [Getting started](docs/getting-started.md): build, install and send a task
 - [Configuration](docs/configuration.md): roles, models and limits
+- [Learning mode](docs/learning.md): task classes and routing from local results
 - [Sync](docs/sync.md): generate one agent's files from the other's
 - [Bus](docs/bus.md): messages and artifacts
 - [Permissions](docs/permissions.md): how duolog decides for a worker
