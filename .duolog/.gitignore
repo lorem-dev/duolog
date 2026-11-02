@@ -3,4 +3,3 @@
 # Share these with the project.
 !.gitignore
 !config.yaml
-!sync.lock.json

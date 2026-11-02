@@ -51,7 +51,11 @@ jobs:
         run: uv run --no-project --python 3.12 --with click --with pytest python -m pytest scripts/version/tests -q -p no:cacheprovider
       - name: Generated skill copies are current
         if: matrix.os == 'ubuntu-latest'
-        run: go run ./cmd/duolog sync --check
+        # The sync lock is not committed, so regenerate the copies and compare.
+        run: |
+          rm -rf .agents/skills
+          go run ./cmd/duolog sync --from claude
+          test -z "$(git status --porcelain --untracked-files=all -- .agents .codex)"
       - name: Schema is current
         run: go test . -run '^TestSchemaFileIsCurrent$'
       - name: Third-party notices are current

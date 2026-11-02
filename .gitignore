@@ -13,4 +13,3 @@ __pycache__/
 # duolog's own state, when this repository uses duolog.
 .duolog/*
 !.duolog/config.yaml
-!.duolog/sync.lock.json
