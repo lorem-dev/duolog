@@ -115,6 +115,7 @@ func writeLearned(t *testing.T, root, body string) {
 
 func TestLadderPutsLearnedOrderFirst(t *testing.T) {
 	root := isolatedRoot(t)
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "learning:\n  enabled: true\n")
 	writeLearned(t, root, "ladders:\n  debug:\n    order: [codex/sol/medium, claude/sonnet/high]\n")
 	cfg, err := Load(root)
 	if err != nil {
@@ -150,6 +151,7 @@ func TestLadderUsesStepLadder(t *testing.T) {
 
 func TestDeletingLearnedFileRestoresDefaults(t *testing.T) {
 	root := isolatedRoot(t)
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "learning:\n  enabled: true\n")
 	writeLearned(t, root, "ladders:\n  debug:\n    order: [claude/opus/high]\n")
 	cfg, err := Load(root)
 	if err != nil {
@@ -180,5 +182,43 @@ func TestParseEntryKey(t *testing.T) {
 		if _, err := ParseEntryKey(bad); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
+	}
+}
+
+func TestLearnedFileReadOnlyWhenEnabled(t *testing.T) {
+	root := isolatedRoot(t)
+	writeLearned(t, root, "ladders: [not, a, map\n")
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatalf("disabled learning read the learned file: %v", err)
+	}
+	if cfg.Learning.Learned != nil {
+		t.Fatalf("Learned set while disabled: %v", cfg.Learning.Learned)
+	}
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "learning:\n  enabled: true\n")
+	if _, err := Load(root); err == nil || !strings.Contains(err.Error(), LearnedRoutingFile) {
+		t.Fatalf("enabled learning accepted a malformed learned file: %v", err)
+	}
+}
+
+func TestLadderSkipsUnparsableLearnedKey(t *testing.T) {
+	root := isolatedRoot(t)
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "learning:\n  enabled: true\n")
+	writeLearned(t, root, "ladders:\n  debug:\n    order: [gemini/x/high, codex/sol/medium]\n")
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, entries := cfg.Learning.Ladder("debug", "debug_hard")
+	want := []string{"codex/sol/medium", "codex/terra/medium", "claude/opus/high"}
+	if !slices.Equal(keysOf(entries), want) {
+		t.Fatalf("got %v", keysOf(entries))
+	}
+}
+
+func TestLearningRejectsUnknownJudgeModel(t *testing.T) {
+	_, _, err := loadWithProject(t, "learning:\n  judges:\n    - {agent: codex, model: nova, effort: high}\n")
+	if err == nil || !strings.Contains(err.Error(), `learning.judges[0]: unknown model "nova"`) {
+		t.Fatalf("got %v", err)
 	}
 }

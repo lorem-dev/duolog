@@ -196,11 +196,13 @@ func Load(root string) (*Config, error) {
 	if err := validateLearning(&cfg); err != nil {
 		return nil, err
 	}
-	routing, err := ReadLearnedRouting(root)
-	if err != nil {
-		return nil, err
+	if cfg.Learning.Enabled {
+		routing, err := ReadLearnedRouting(root)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Learning.Learned = routing.Ladders
 	}
-	cfg.Learning.Learned = routing.Ladders
 	return &cfg, nil
 }
 
