@@ -121,7 +121,7 @@ func TestClassifyLimitOnlyWhenStopped(t *testing.T) {
 		t.Fatalf("working screen: %s", state)
 	}
 	// The warning the agent prints before the limit is only a warning.
-	warning := "You've used 98% of your 5-hour limit · resets 3am (Europe/B…\n" + claudeIdle("")
+	warning := "You've used 98% of your 5-hour limit · resets 3am (Europe/L…\n" + claudeIdle("")
 	if state, _ := Classify("claude", []byte(warning)); state != Ready {
 		t.Fatalf("warning: %s", state)
 	}
