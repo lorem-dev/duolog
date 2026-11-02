@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/lorem-dev/duolog/main/duolog-config.schema.json
+# duolog's settings for working on duolog itself. Commands that workers may run
+# beyond the default rules are in learned.yaml next to this file, which
+# `duolog remember` adds to.
+version: 1
+
+# The defaults, then what a Go build here needs: the lead's toolchain choice and
+# caches, so that a worker builds and tests as the lead does.
+env_passthrough:
+  - PATH
+  - HOME
+  - USER
+  - ANTHROPIC_API_KEY
+  - OPENAI_API_KEY
+  - CODEX_HOME
+  - CLAUDE_CONFIG_DIR
+  - SYSTEMROOT
+  - USERPROFILE
+  - APPDATA
+  - LOCALAPPDATA
+  - TEMP
+  - TMP
+  - TMPDIR
+  - PATHEXT
+  - COMSPEC
+  - PSMODULEPATH
+  - GOTOOLCHAIN
+  - GOFLAGS
+  - GOMODCACHE
+  - GOCACHE
+  - ASDF_GOLANG_VERSION

@@ -1,0 +1,96 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(duolog:*)",
+      "Bash(scripts/dev/bin/duolog:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(go build:*)",
+      "Bash(gofmt -l:*)",
+      "Bash(make docs-lint)",
+      "Bash(make schema)",
+      "Bash(uv run scripts/version/version.py check)",
+      "Bash(go run ./cmd/duolog sync --check)",
+      "Bash(go run ./scripts/thirdparty -check)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)"
+    ]
+  },
+  "enabledPlugins": {
+    "duolog@duolog": false
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exec \"$CLAUDE_PROJECT_DIR\"/scripts/dev/bin/duolog hook SessionStart --agent claude"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exec \"$CLAUDE_PROJECT_DIR\"/scripts/dev/bin/duolog hook wake --agent claude",
+            "asyncRewake": true
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exec \"$CLAUDE_PROJECT_DIR\"/scripts/dev/bin/duolog hook SessionEnd --agent claude"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exec \"$CLAUDE_PROJECT_DIR\"/scripts/dev/bin/duolog hook UserPromptSubmit --agent claude"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exec \"$CLAUDE_PROJECT_DIR\"/scripts/dev/bin/duolog hook PostToolUse --agent claude"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exec \"$CLAUDE_PROJECT_DIR\"/scripts/dev/bin/duolog gate --agent claude --event PreToolUse",
+            "timeout": 150
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exec \"$CLAUDE_PROJECT_DIR\"/scripts/dev/bin/duolog gate --agent claude --event PermissionRequest",
+            "timeout": 150
+          }
+        ]
+      }
+    ]
+  }
+}

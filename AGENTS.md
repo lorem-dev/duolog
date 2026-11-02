@@ -20,3 +20,10 @@ requests here.
   into a signed commit with UTC dates, push it as the PR head, wait for CI, then
   fast-forward the base branch to that head. The GitHub merge button writes
   local dates, so do not use it.
+- Run the duolog built from this checkout: `scripts/dev/bin/duolog`. In Claude
+  sessions the hooks also put it on PATH as `duolog`. See "How duolog runs while
+  you work on it" in `docs/contributing.md`.
+- When the codegraph MCP tools are available, use them for structural
+  questions: where a symbol is defined, what calls it, what a change affects.
+  Use grep and file reads for literal text. Build the index with
+  `codegraph init -y`; `.codegraph/` stays out of Git.

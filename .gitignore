@@ -13,3 +13,11 @@ __pycache__/
 # duolog's own state, when this repository uses duolog.
 .duolog/*
 !.duolog/config.yaml
+!.duolog/learned.yaml
+
+# Local to each checkout: the code index, the skills scripts/dev/bin/duolog copies
+# from plugin/, and personal Claude settings.
+.codegraph/
+.claude/skills/duolog/
+.agents/skills/duolog/
+.claude/settings.local.json

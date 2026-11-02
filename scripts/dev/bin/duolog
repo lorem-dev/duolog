@@ -1,0 +1,58 @@
+#!/bin/sh
+# duolog built from this checkout. The repository's own Claude and Codex hooks
+# call it, so working on duolog uses the code in the work tree, not a release.
+#
+# It rebuilds .cache/dev/duolog when a source file is newer, and on
+# SessionStart it also copies the skills from plugin/ and, for Claude, puts
+# this folder first on the lead's PATH, so that a plain `duolog` in the
+# session runs this build too.
+set -u
+here=$(cd "$(dirname "$0")" && pwd -P)
+root=$(cd "$here/../../.." && pwd -P)
+bin="$root/.cache/dev/duolog"
+# Claude Code on Windows runs hooks in Git Bash, where go build needs .exe.
+case "$(uname -s 2>/dev/null)" in
+MINGW* | MSYS* | CYGWIN*) bin="$bin.exe" ;;
+esac
+
+stale() {
+	[ ! -x "$bin" ] && return 0
+	[ -n "$(find "$root/cmd" "$root/internal" "$root/plugin" "$root/go.mod" "$root/go.sum" "$root/schema.go" -newer "$bin" -type f -print 2>/dev/null | head -n 1)" ]
+}
+
+if stale; then
+	mkdir -p "$root/.cache/dev"
+	# Parallel hooks may build at once: each writes its own file, then renames.
+	tmp="$root/.cache/dev/build.$$.tmp"
+	case "$bin" in *.exe) tmp="$tmp.exe" ;; esac
+	if (cd "$root" && go build -o "$tmp" ./cmd/duolog) >&2; then
+		mv -f "$tmp" "$bin"
+	else
+		rm -f "$tmp"
+		if [ ! -x "$bin" ]; then
+			echo "duolog: the build from $root failed and there is no earlier build" >&2
+			# A worker without its gate must stop, as the installed hooks do.
+			[ "${DUOLOG_DEPTH:-0}" -ge 1 ] 2>/dev/null && exit 2
+			exit 1
+		fi
+		echo "duolog: the build failed; running the earlier build" >&2
+	fi
+fi
+
+if [ "${1:-}" = hook ] && [ "${2:-}" = SessionStart ]; then
+	case " $* " in
+	*" --agent claude "*)
+		mkdir -p "$root/.claude/skills/duolog"
+		cp "$root/plugin/claude/skills/duolog/SKILL.md" "$root/.claude/skills/duolog/SKILL.md"
+		if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+			printf 'export PATH="%s:$PATH"\n' "$here" >>"$CLAUDE_ENV_FILE"
+		fi
+		;;
+	*" --agent codex "*)
+		mkdir -p "$root/.agents/skills/duolog"
+		cp "$root/plugin/codex/skills/duolog/SKILL.md" "$root/.agents/skills/duolog/SKILL.md"
+		;;
+	esac
+fi
+
+exec "$bin" "$@"

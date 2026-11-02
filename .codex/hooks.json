@@ -1,0 +1,72 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "r=$(git rev-parse --show-toplevel 2>/dev/null); if [ -x \"$r/scripts/dev/bin/duolog\" ]; then exec \"$r\"/scripts/dev/bin/duolog hook SessionStart --agent codex; fi",
+            "commandWindows": "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/dev/bin/duolog.ps1 hook SessionStart --agent codex"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "r=$(git rev-parse --show-toplevel 2>/dev/null); if [ -x \"$r/scripts/dev/bin/duolog\" ]; then exec \"$r\"/scripts/dev/bin/duolog hook SessionEnd --agent codex; fi",
+            "commandWindows": "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/dev/bin/duolog.ps1 hook SessionEnd --agent codex"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "r=$(git rev-parse --show-toplevel 2>/dev/null); if [ -x \"$r/scripts/dev/bin/duolog\" ]; then exec \"$r\"/scripts/dev/bin/duolog hook UserPromptSubmit --agent codex; fi",
+            "commandWindows": "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/dev/bin/duolog.ps1 hook UserPromptSubmit --agent codex"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "r=$(git rev-parse --show-toplevel 2>/dev/null); if [ -x \"$r/scripts/dev/bin/duolog\" ]; then exec \"$r\"/scripts/dev/bin/duolog hook PostToolUse --agent codex; fi",
+            "commandWindows": "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/dev/bin/duolog.ps1 hook PostToolUse --agent codex"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "r=$(git rev-parse --show-toplevel 2>/dev/null); if [ -x \"$r/scripts/dev/bin/duolog\" ]; then exec \"$r\"/scripts/dev/bin/duolog gate --agent codex --event PreToolUse; elif [ \"${DUOLOG_DEPTH:-0}\" -ge 1 ] 2>/dev/null; then exit 2; fi",
+            "commandWindows": "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/dev/bin/duolog.ps1 gate --agent codex --event PreToolUse",
+            "timeout": 150
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "r=$(git rev-parse --show-toplevel 2>/dev/null); if [ -x \"$r/scripts/dev/bin/duolog\" ]; then exec \"$r\"/scripts/dev/bin/duolog gate --agent codex --event PermissionRequest; elif [ \"${DUOLOG_DEPTH:-0}\" -ge 1 ] 2>/dev/null; then exit 2; fi",
+            "commandWindows": "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/dev/bin/duolog.ps1 gate --agent codex --event PermissionRequest",
+            "timeout": 150
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+# Commands a person allowed for workers with `duolog remember`. Deny rules still win.
+# Checks this repository runs before a commit; tests, vet and gofmt are in the defaults.
+rules:
+    - action: exec
+      match: make {docs-lint,schema}
+      decision: allow
+      roles: [debug_hard, docs, implement, implement_complex, mechanical, planner, tests]
+    - action: exec
+      match: uv run scripts/version/version.py check
+      decision: allow
+      roles: [debug_hard, docs, implement, implement_complex, mechanical, planner, tests]
+    - action: exec
+      match: go run ./cmd/duolog sync --check
+      decision: allow
+      roles: [debug_hard, docs, implement, implement_complex, mechanical, planner, tests]
+    - action: exec
+      match: go run ./scripts/thirdparty -check
+      decision: allow
+      roles: [debug_hard, docs, implement, implement_complex, mechanical, planner, tests]

@@ -1,0 +1,10 @@
+# What a Codex lead may run without asking while working on duolog. A worker
+# never gets these: its commands go through the duolog gate.
+prefix_rule(pattern = ["duolog"], decision = "allow", justification = "duolog built from this checkout")
+prefix_rule(pattern = ["scripts/dev/bin/duolog"], decision = "allow", justification = "duolog built from this checkout")
+prefix_rule(pattern = ["go", ["test", "vet", "build"]], decision = "allow", justification = "checks of this repository")
+prefix_rule(pattern = ["gofmt", "-l"], decision = "allow", justification = "checks of this repository")
+prefix_rule(pattern = ["make", ["docs-lint", "schema"]], decision = "allow", justification = "checks of this repository")
+prefix_rule(pattern = ["uv", "run", "scripts/version/version.py", "check"], decision = "allow", justification = "checks of this repository")
+prefix_rule(pattern = ["go", "run", "./cmd/duolog", "sync", "--check"], decision = "allow", justification = "checks of this repository")
+prefix_rule(pattern = ["go", "run", "./scripts/thirdparty", "-check"], decision = "allow", justification = "checks of this repository")

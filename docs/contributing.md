@@ -147,11 +147,31 @@ uv run scripts/version/version.py check --tag v1.2.3
 
 The repository has `bump-version`, `check-version` and `check-changes` skills
 that run these commands. Edit a skill in `.claude/skills/`, then run
-`go run ./cmd/duolog sync`. That command generates the copy in `.agents/skills/`
-that Codex reads, and CI fails if the copy is out of date.
+`go run ./cmd/duolog sync --from claude`. That command generates the copy in
+`.agents/skills/` that Codex reads, and CI fails if the copy is out of date.
 
 ## How to add a dependency
 
 Prefer the Go standard library. Explain why each new module is needed in the
 pull request. Run `make third-party` and commit the updated license table.
 Each new module must pass the license check in `make third-party-check`.
+
+## How duolog runs while you work on it
+
+In this repository, Claude Code and Codex run the duolog that you build from
+the work tree, not a release. Nothing outside the repository changes.
+
+- `.claude/settings.json` and `.codex/hooks.json` call `scripts/dev/bin/duolog`.
+  On Windows, Codex calls `scripts/dev/bin/duolog.ps1`, from the repository
+  root.
+- The script builds `.cache/dev/duolog` when a source file is newer, then runs
+  it. A failed build runs the earlier build.
+- At the start of a session it copies the skills from `plugin/`. For Claude it
+  also puts `scripts/dev/bin` first on the session's PATH, so that `duolog` in
+  a command runs this build. A Codex session runs `scripts/dev/bin/duolog`.
+- The duolog plugin is off in this repository, so that no gate runs twice.
+
+Codex runs the hooks only after you approve them in `/hooks` and trust the
+project. `.duolog/config.yaml` passes the Go settings to workers.
+`.duolog/learned.yaml` lets workers run the checks above. `.codex/rules/` and
+`.claude/settings.json` let the lead run them without a question.
