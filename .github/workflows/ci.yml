@@ -154,7 +154,7 @@ jobs:
       - name: Write the release body from CHANGES.md
         run: uv run scripts/version/version.py notes "$TAG" -o .release/notes.md
       - name: Dry run of the release
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           version: '~> v2'
           args: release --clean --skip=publish,announce,validate --release-notes=.release/notes.md

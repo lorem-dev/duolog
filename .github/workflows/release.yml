@@ -37,7 +37,7 @@ jobs:
         run: shellcheck -S error .release/install.sh
       - name: Write the release body from CHANGES.md
         run: uv run scripts/version/version.py notes "$GITHUB_REF_NAME" -o .release/notes.md
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
           version: '~> v2'
           args: release --clean --release-notes=.release/notes.md
