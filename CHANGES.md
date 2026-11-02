@@ -42,6 +42,8 @@
 
 ## Development
 
+## 1.2.0
+
 ### Added
 
 - `on_missing.mcp: bridge` lends a lead's MCP server to a worker of the other

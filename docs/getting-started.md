@@ -14,7 +14,7 @@ that directory is missing from `PATH` and never edits your shell profile.
 Pin a release or choose another directory:
 
 ```sh
-curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.1.0
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.2.0
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | DUOLOG_INSTALL_DIR="$HOME/bin" sh
 ```
 
@@ -37,7 +37,7 @@ An invalid download leaves an existing binary unchanged.
 To pin a Windows release or choose a directory:
 
 ```powershell
-$env:DUOLOG_VERSION = 'v1.1.0'
+$env:DUOLOG_VERSION = 'v1.2.0'
 $env:DUOLOG_INSTALL_DIR = "$env:LOCALAPPDATA\Programs\duolog"
 irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
 ```
