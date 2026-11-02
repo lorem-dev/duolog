@@ -127,6 +127,9 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	if a.Kind == "unknown" && (strings.HasPrefix(a.Target, "request_user_input") || a.Target == "AskUserQuestion") {
 		return decision(Deny, "a worker cannot ask the user; return done false with the question in needs", "ask user")
 	}
+	if a.Kind == "mcp" {
+		return mcpDecision(p, a, decision)
+	}
 	if a.Kind != "read" && a.Kind != "write" && a.Kind != "exec" && a.Kind != "net" {
 		return decision(Ask, "unknown tool requires approval", "unknown tool")
 	}
@@ -219,6 +222,25 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	return result
 }
 
+// mcpDecision allows an MCP tool only by a rule that names it. duolog cannot
+// tell whether a tool reads or writes, so no mode or role allows one by
+// itself, and full mode does not turn the ask into an allow. Denies were
+// checked before.
+func mcpDecision(p config.Policy, a Action, decision func(kind, reason, rule string) Decision) Decision {
+	for _, rule := range p.Rules {
+		if rule.Decision != Deny && matches(rule, a) {
+			if rule.Decision == Allow {
+				return decision(Allow, "matched project policy", rule.Action+" "+rule.Match)
+			}
+			break
+		}
+	}
+	if p.OnUnmatched == Deny {
+		return decision(Deny, "no matching policy rule", "on_unmatched")
+	}
+	return decision(Ask, "MCP tool requires approval", "mcp tool")
+}
+
 func roleCanWrite(p config.Policy, a Action) bool {
 	scoped := false
 	for _, r := range p.Rules {
@@ -253,6 +275,10 @@ func matches(r config.Rule, a Action) bool {
 			if err == nil && ok {
 				return true
 			}
+		} else if a.Kind == "mcp" {
+			if starMatch(MCPName(pattern), MCPName(a.Target)) {
+				return true
+			}
 		} else if starMatch(execCase(pattern, a.Shell), execCase(a.Target, a.Shell)) {
 			return true
 		}
@@ -272,6 +298,12 @@ func validateRule(r config.Rule) error {
 			}
 		}
 	case "exec", "net", "spawn", "unknown", "internal", "answer":
+	case "mcp":
+		for _, pattern := range expandBraces(r.Match) {
+			if server, tool, ok := strings.Cut(pattern, "/"); !ok || server == "" || tool == "" {
+				return fmt.Errorf("mcp permission pattern %q: write server/tool", r.Match)
+			}
+		}
 	default:
 		return fmt.Errorf("unknown permission action %q", r.Action)
 	}

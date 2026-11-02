@@ -347,3 +347,29 @@ func TestAuthFailureDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// mcp_tools and remembered MCP tools add gate allows to the policy; they do
+// not replace the default rules.
+func TestMCPRulesAddToPolicy(t *testing.T) {
+	root := isolatedRoot(t)
+	base, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "capabilities:\n  mcp_tools: {jira: [get_issue, search]}\n")
+	writeConfig(t, filepath.Join(root, ".duolog", LearnedFile), "rules:\n  - {action: mcp, match: wiki/read, decision: allow}\n  - {action: mcp, match: wiki/delete, decision: deny}\n")
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Policy.Rules) != len(base.Policy.Rules)+3 {
+		t.Fatal(len(cfg.Policy.Rules), len(base.Policy.Rules))
+	}
+	var got []string
+	for _, r := range cfg.Policy.Rules[len(base.Policy.Rules):] {
+		got = append(got, r.Action+" "+r.Match+" "+r.Decision)
+	}
+	if strings.Join(got, "; ") != "mcp wiki/read allow; mcp jira/get_issue allow; mcp jira/search allow" {
+		t.Fatal(got)
+	}
+}

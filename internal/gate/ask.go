@@ -44,6 +44,9 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout ti
 		return deny("cannot read lead wait state")
 	} else if waiting {
 		// Name the command, so the lead can allow it or rewrite the task without reading the log.
+		if a.Kind == "mcp" {
+			return deny(fmt.Sprintf("lead is waiting for foreground delegate; MCP tool %q needs approval. Return done false with mcp:%s in needs; the lead may allow it with duolog remember mcp:%s or capabilities.mcp_tools", a.Target, a.Target, a.Target))
+		}
 		return deny(fmt.Sprintf("lead is waiting for foreground delegate; %q needs approval. Return done false with it in needs, or use a plain command inside the project without pipes, globs or substitutions; the lead may ask the user to allow it next time with duolog remember", askSummary(strings.Join(strings.Fields(a.Target), " "), 160)))
 	}
 	address := session.Address(l)

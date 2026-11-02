@@ -441,3 +441,15 @@ func TestBridgeOutputHasNoValues(t *testing.T) {
 		t.Fatal(string(m.ClaudeConfig))
 	}
 }
+
+func TestLimitOwnServers(t *testing.T) {
+	tools := map[string][]string{"jira": {"get_issue"}, "bad name": {"x"}}
+	args, allowed := Limit("codex", []string{"jira", "wiki", "bad name"}, tools)
+	if strings.Join(args, " ") != `-c mcp_servers.jira.enabled_tools=["get_issue"]` || allowed != nil {
+		t.Fatal(args, allowed)
+	}
+	args, allowed = Limit("claude", []string{"jira", "bad name"}, tools)
+	if args != nil || strings.Join(allowed, ",") != "mcp__bad_name__x,mcp__jira__get_issue" {
+		t.Fatal(args, allowed)
+	}
+}

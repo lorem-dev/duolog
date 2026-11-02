@@ -468,3 +468,28 @@ func (s Server) Request() (string, map[string]string, error) {
 	}
 	return u, headers, nil
 }
+
+// Limit applies capabilities.mcp_tools to servers the worker has itself, so
+// that the list is the agent's filter as it is for a bridged server. Codex gets
+// enabled_tools; Claude, which has no such filter, gets --allowedTools.
+func Limit(agent string, names []string, tools map[string][]string) (codexArgs, allowedTools []string) {
+	sorted := append([]string(nil), names...)
+	sort.Strings(sorted)
+	for _, name := range sorted {
+		list, ok := tools[name]
+		if !ok {
+			continue
+		}
+		switch agent {
+		case "codex":
+			if codexName.MatchString(name) {
+				codexArgs = append(codexArgs, "-c", "mcp_servers."+name+".enabled_tools="+tomlArray(list))
+			}
+		case "claude":
+			for _, tool := range list {
+				allowedTools = append(allowedTools, claudeTool(name, tool))
+			}
+		}
+	}
+	return codexArgs, allowedTools
+}

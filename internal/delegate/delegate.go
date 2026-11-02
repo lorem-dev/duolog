@@ -373,6 +373,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			route.Model = model
 			stdin := append(append(brief, inline...), workerLines...)
 			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Env: env, Persistent: route.Session == "resume", KeepMCP: needsKind(withoutBridged(opts.Needs, bridged), capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin), MCP: bridged}
+			spec.MCP = limitOwn(spec, opts.Needs, cfg.Capabilities.MCPTools)
 			if route.Sandbox == "read-only" {
 				spec.Mode = mode.Plan
 			}
@@ -884,4 +885,29 @@ func settleAuth(ctx context.Context, cfg *config.Config, reg *session.Registry, 
 	out.Needs = []string{p.Need()}
 	out.Line = oneLine("role " + role + " waits for lead: " + reason + "." + tail)
 	return false, nil
+}
+
+// limitOwn adds capabilities.mcp_tools for the worker's own servers that the
+// task needs, so that the list filters them as it filters a bridged server.
+func limitOwn(spec runner.Spec, needs []string, tools map[string][]string) *runner.MCP {
+	var own []string
+	for _, need := range withoutBridged(needs, spec.MCP) {
+		if kind, name, err := capability.ParseNeed(need); err == nil && kind == capability.KindMCP {
+			own = append(own, name)
+		}
+	}
+	codexArgs, allowed := capability.Limit(spec.Route.Agent, own, tools)
+	m := spec.MCP
+	if m == nil {
+		if len(codexArgs) == 0 && len(allowed) == 0 {
+			return nil
+		}
+		m = &runner.MCP{}
+	} else {
+		copied := *m
+		m = &copied
+	}
+	m.CodexArgs = append(append([]string(nil), m.CodexArgs...), codexArgs...)
+	m.AllowedTools = append(append([]string(nil), m.AllowedTools...), allowed...)
+	return m
 }

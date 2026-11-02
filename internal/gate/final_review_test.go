@@ -99,9 +99,11 @@ func TestBareToolDenyDoesNotBreakOtherTools(t *testing.T) {
 	}
 	p := config.Policy{OnUnmatched: Ask, Rules: []config.Rule{{Action: "read", Match: "**", Decision: Allow}}}
 	check(t, p, lead, mode.Full, Action{Kind: "read", Target: "src/a", Role: "review_final"}, Allow)
-	for _, tool := range []string{"mcp__github__create_issue", "Grep", "Skill", "Glob"} {
+	for _, tool := range []string{"Grep", "Skill", "Glob"} {
 		check(t, p, lead, mode.Full, Action{Kind: "unknown", Target: tool}, Deny)
 	}
+	// The hook names an MCP tool mcp__server__tool; the lead's deny holds.
+	check(t, p, lead, mode.Full, Action{Kind: "mcp", Target: "github/create_issue"}, Deny)
 }
 
 func TestAskSummaryAndForegroundWait(t *testing.T) {

@@ -102,3 +102,18 @@ func TestBridgeIsOffByDefault(t *testing.T) {
 		t.Fatal(o, e)
 	}
 }
+
+// mcp_tools also limits a server the worker has itself.
+func TestOwnServerLimitedByToolList(t *testing.T) {
+	h := bridgeHarness(t)
+	h.cfg.Capabilities.MCPTools = map[string][]string{"mine": {"read"}}
+	h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "mine"}}}, capability.Inventory{Agent: "claude"})
+	if _, e := h.runNeeds("implement", "mcp:mine"); e != nil {
+		t.Fatal(e)
+	}
+	h.requireCalls(1)
+	m := h.calls[0].MCP
+	if m == nil || len(m.Names) != 0 || strings.Join(m.CodexArgs, " ") != `-c mcp_servers.mine.enabled_tools=["read"]` {
+		t.Fatalf("%+v", m)
+	}
+}

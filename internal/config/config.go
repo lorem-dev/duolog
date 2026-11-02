@@ -76,7 +76,7 @@ type Policy struct {
 }
 
 type Rule struct {
-	Action   string   `yaml:"action" jsonschema_description:"Action type matched by this rule, such as read, write, exec or net."`
+	Action   string   `yaml:"action" jsonschema_description:"Action type matched by this rule, such as read, write, exec, net or mcp (match server/tool)."`
 	Match    string   `yaml:"match" jsonschema_description:"Glob expression selecting paths or commands; ** matches all paths."`
 	Decision string   `yaml:"decision" jsonschema_description:"Permission result for a matching rule; deny takes precedence over allow." jsonschema:"enum=allow,enum=deny,enum=ask"`
 	Roles    []string `yaml:"roles" jsonschema_description:"Roles to which the rule applies; an omitted list applies to every role."`
@@ -167,7 +167,28 @@ func Load(root string) (*Config, error) {
 		return nil, err
 	}
 	cfg.Policy.Rules = append(cfg.Policy.Rules, learned...)
+	cfg.Policy.Rules = append(cfg.Policy.Rules, MCPToolRules(cfg.Capabilities.MCPTools)...)
 	return &cfg, nil
+}
+
+// MCPToolRules turns capabilities.mcp_tools into gate allows: the tools a
+// person listed for a server are the ones a worker may call without asking.
+// They add to the policy rules, like learned rules, and a deny still wins.
+func MCPToolRules(tools map[string][]string) []Rule {
+	servers := make([]string, 0, len(tools))
+	for server := range tools {
+		servers = append(servers, server)
+	}
+	slices.Sort(servers)
+	var rules []Rule
+	for _, server := range servers {
+		for _, tool := range tools[server] {
+			if strings.TrimSpace(tool) != "" {
+				rules = append(rules, Rule{Action: "mcp", Match: server + "/" + tool, Decision: "allow"})
+			}
+		}
+	}
+	return rules
 }
 
 // LearnedFile holds the allow rules a person approved during work with
@@ -197,7 +218,7 @@ func LearnedRules(root string) ([]Rule, error) {
 	}
 	var rules []Rule
 	for _, rule := range file.Rules {
-		if rule.Decision == "allow" && rule.Action == "exec" && strings.TrimSpace(rule.Match) != "" {
+		if rule.Decision == "allow" && (rule.Action == "exec" || rule.Action == "mcp") && strings.TrimSpace(rule.Match) != "" {
 			rules = append(rules, rule)
 		}
 	}

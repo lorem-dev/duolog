@@ -316,7 +316,7 @@
       "properties": {
         "action": {
           "type": "string",
-          "description": "Action type matched by this rule, such as read, write, exec or net."
+          "description": "Action type matched by this rule, such as read, write, exec, net or mcp (match server/tool)."
         },
         "match": {
           "type": "string",
