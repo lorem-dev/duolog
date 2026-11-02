@@ -73,14 +73,20 @@ func TestGateRetryLineTellsWorkerToRetryPlainer(t *testing.T) {
 	}
 }
 
-func TestNeedsServers(t *testing.T) {
+func TestNeedsKind(t *testing.T) {
 	for needs, want := range map[string]bool{"": false, "skill:x": false, "mcp:jira": true, "plugin:x": true, "MCP:jira": true, "bad": false} {
 		var list []string
 		if needs != "" {
 			list = []string{needs}
 		}
-		if got := needsServers(list); got != want {
+		if got := needsKind(list, "mcp", "plugin"); got != want {
 			t.Errorf("%q: %t, want %t", needs, got, want)
 		}
+	}
+}
+
+func TestNeedsSkill(t *testing.T) {
+	if !needsKind([]string{"skill:review"}, "skill") || needsKind([]string{"mcp:jira"}, "skill") {
+		t.Fatal("skill need not told apart")
 	}
 }

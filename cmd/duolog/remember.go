@@ -29,6 +29,9 @@ func newRememberCommand() *cobra.Command {
 			return fmt.Errorf("workers cannot change the policy")
 		}
 		command := strings.Join(strings.Fields(strings.Join(args, " ")), " ")
+		if command == "" {
+			return fmt.Errorf("name the command to remember")
+		}
 		root, err := projectRoot()
 		if err != nil {
 			return err
@@ -96,21 +99,28 @@ func newRememberCommand() *cobra.Command {
 }
 
 // anyProgram runs code or fetches it from its arguments, so "python *" would
-// allow every script: such a command is remembered exactly as it was approved.
-var anyProgram = []string{"python", "python3", "node", "deno", "bun", "ruby", "perl", "php", "java", "dotnet", "curl", "wget", "npx", "pnpx", "bunx", "uvx", "pipx", "ssh", "scp", "rsync", "docker", "kubectl"}
+// allow every script. A version suffix counts too: python3.12 is python.
+var anyProgram = []string{"python", "node", "nodejs", "deno", "bun", "ruby", "perl", "php", "lua", "julia", "rscript", "java", "dotnet", "awk", "gawk", "nawk", "mawk",
+	"osascript", "curl", "wget", "npx", "pnpx", "bunx", "uvx", "pipx", "ssh", "scp", "rsync", "docker", "podman", "kubectl"}
 
-// rememberPattern keeps the program and the plain words after it, up to three
-// words, and lets the rest vary: ".venv/bin/ruff check app/a.py" becomes
+// runSubcommands start a program named in the arguments: "uv run *" or
+// "go run *" would allow any script.
+var runSubcommands = []string{"run", "exec", "dlx", "x"}
+
+// rememberPattern lets the arguments vary only after a program and its plain
+// subcommand words, up to three words: ".venv/bin/ruff check app/a.py" becomes
 // ".venv/bin/ruff check *" and "npm run lint -- --fix" "npm run lint *". A
-// word with an option dash, a path or a value ends the plain words.
+// word with an option dash, a path or a value ends the plain words. A program
+// with no subcommand, one that runs any code, or a run subcommand is
+// remembered exactly as it was approved.
 func rememberPattern(command string) string {
 	words := strings.Fields(command)
 	base := 1
 	for base < len(words) && base < 3 && !strings.HasPrefix(words[base], "-") && !strings.ContainsAny(words[base], "/.=:@") {
 		base++
 	}
-	program := strings.TrimSuffix(filepath.Base(words[0]), ".exe")
-	if base == len(words) || base == 1 && slices.Contains(anyProgram, program) {
+	program := strings.TrimRight(strings.ToLower(strings.TrimSuffix(filepath.Base(words[0]), ".exe")), "0123456789.")
+	if base == 1 || base == len(words) || slices.Contains(anyProgram, program) || slices.Contains(runSubcommands, words[base-1]) {
 		return command
 	}
 	return strings.Join(words[:base], " ") + " *"

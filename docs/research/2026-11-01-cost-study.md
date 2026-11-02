@@ -100,8 +100,11 @@ A review of the study's first patch by two agents found eight ways around the
 gate in it, and the patch fixed them. Our own review then found more in the new
 read commands: `sort -no file` and `sort --compress-program` wrote and ran
 programs, `jq -f` could print a secret in its error, and `diff -r` and `yq`
-could reach denied files. 1.1.0 checks the options of `jq` and `sort` and
-leaves out `diff` and `yq`.
+could reach denied files. A review of 1.1.0 by Codex found three more:
+`uniq - .duolog/learned.yaml` wrote the learned rules from a read-only role,
+`file -m.env` printed a secret, and `remember` widened `python3.12` and `awk`
+commands. 1.1.0 checks the options of `jq`, `sort`, `uniq` and `file`, leaves
+out `diff` and `yq`, and keeps such commands exact in `remember`.
 
 ## Which model to give a worker task
 

@@ -164,12 +164,24 @@ func TestMoreReadCommands(t *testing.T) {
 		{"sort src/a.txt .env", Deny},
 		{"uniq src/a.txt", Allow},
 		{"uniq src/a.txt src/b.txt", Ask},
+		// - is an operand too: uniq - OUT writes OUT, such as the learned rules.
+		{"uniq - .duolog/learned.yaml", Deny},
+		{"uniq -- - .git/config", Deny},
+		{"uniq - src/out.txt", Ask},
+		{"uniq -c -f 1 src/a.txt", Allow},
+		{"uniq --group=append src/a.txt", Allow},
 		{"tree -L 2 src", Allow},
 		{"tree -o out.txt src", Ask},
 		{"tree -ao out.txt src", Ask},
 		{"tree -RH . src", Ask},
 		{"file src/a.go", Allow},
 		{"file -C -m src/magic", Ask},
+		// -m and -f read a file and print its lines in errors, also when attached.
+		{"file -m.env src/a.go", Ask},
+		{"file -f.env", Ask},
+		{"file -bm.env src/a.go", Ask},
+		{"file --magic-file=src/m src/a.go", Ask},
+		{"file -bi src/a.go", Allow},
 		{"stat src/a.go", Allow},
 		{"which go", Allow},
 	} {
@@ -240,6 +252,22 @@ func TestPatternValuesAreNotPaths(t *testing.T) {
 		got := Evaluate(p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: tc.command, Role: "implement"})
 		if got.Kind != tc.want {
 			t.Errorf("%q: %s (%s), want %s", tc.command, got.Kind, got.Reason, tc.want)
+		}
+	}
+}
+
+// A read command that writes would let a read-only role or plan mode change
+// protected files, such as the learned rules that widen the policy.
+func TestReadCommandsCannotWriteInPlanMode(t *testing.T) {
+	p := policy(t)
+	for _, command := range []string{"uniq - .duolog/learned.yaml", "uniq -- - .duolog/brief.md", "sort -no .git/config src/a.txt", "file -m.env src/a.go"} {
+		for _, m := range []mode.Mode{mode.Plan, mode.Edits, mode.Full} {
+			if got := Evaluate(p, LeadRules{RoleSandbox: "read-only"}, m, Action{Kind: "exec", Target: command, Role: "review_final"}); got.Kind == Allow {
+				t.Errorf("read-only %s %q: allowed", m, command)
+			}
+			if got := Evaluate(p, LeadRules{}, m, Action{Kind: "exec", Target: command, Role: "implement"}); m == mode.Plan && got.Kind == Allow {
+				t.Errorf("plan %q: allowed", command)
+			}
 		}
 	}
 }

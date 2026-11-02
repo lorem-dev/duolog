@@ -38,14 +38,6 @@ var (
 	jqPlainShorts = "nrjascCMSeR"
 	// The number of words each jq option with values takes.
 	jqValueLong = map[string]int{"--indent": 1, "--arg": 2, "--argjson": 2}
-	// sort options that only change the order. -o writes, --compress-program
-	// runs a program, and -T writes elsewhere; GNU also accepts any unique
-	// prefix of a long option, so only these exact names are known.
-	sortPlainLong = []string{"--ignore-leading-blanks", "--dictionary-order", "--ignore-case", "--general-numeric-sort", "--human-numeric-sort", "--ignore-nonprinting",
-		"--month-sort", "--numeric-sort", "--random-sort", "--reverse", "--version-sort", "--stable", "--unique", "--zero-terminated", "--merge", "--debug"}
-	sortValueLong   = []string{"--sort", "--key", "--field-separator", "--check", "--buffer-size", "--parallel"}
-	sortPlainShorts = "bdfghiMnRrVsuzcCm"
-	sortValueShorts = "ktS"
 )
 
 // jqFiles returns the files a jq command reads, after its filter, and false
@@ -76,40 +68,6 @@ func jqFiles(args []string) ([]string, bool) {
 		}
 	}
 	return files, true
-}
-
-func sortOptionsKnown(words []string) bool {
-	for i := 0; i < len(words); i++ {
-		word := words[i]
-		switch {
-		case word == "--":
-			return true
-		case !strings.HasPrefix(word, "-") || word == "-":
-		case strings.HasPrefix(word, "--"):
-			name, _, attached := strings.Cut(word, "=")
-			if slices.Contains(sortValueLong, name) {
-				if !attached && name != "--check" {
-					i++
-				}
-			} else if attached || !slices.Contains(sortPlainLong, name) {
-				return false
-			}
-		default:
-			for j, letter := range word[1:] {
-				if strings.ContainsRune(sortValueShorts, letter) {
-					// The value is the rest of the word, or the next word.
-					if j == len(word)-2 {
-						i++
-					}
-					break
-				}
-				if !strings.ContainsRune(sortPlainShorts, letter) {
-					return false
-				}
-			}
-		}
-	}
-	return true
 }
 
 func findOptionsKnown(words []string) bool {
@@ -429,4 +387,84 @@ func recursiveSearch(command string, args []string) bool {
 		}
 	}
 	return false
+}
+
+// optionSpec lists the options of a read command that only change its output.
+// Anything else, or more file operands than maxFiles, makes the command not a
+// read. GNU accepts any unique prefix of a long option, so only exact names
+// are known.
+type optionSpec struct {
+	plainShorts, valueShorts string
+	plainLong                []string
+	valueLong                []string // the value is "=x" or the next word
+	attachedLong             []string // the value, if any, is "=x"
+	maxFiles                 int      // -1 for no limit
+}
+
+func (o optionSpec) known(words []string) bool {
+	files := 0
+	for i := 0; i < len(words); i++ {
+		word := words[i]
+		switch {
+		case word == "--":
+			files += len(words) - i - 1
+			i = len(words)
+		case word == "-" || !strings.HasPrefix(word, "-"):
+			// - is standard input and an operand like any other: uniq - OUT writes OUT.
+			files++
+		case strings.HasPrefix(word, "--"):
+			name, _, attached := strings.Cut(word, "=")
+			switch {
+			case slices.Contains(o.valueLong, name):
+				if !attached {
+					i++
+				}
+			case slices.Contains(o.attachedLong, name):
+			case slices.Contains(o.plainLong, name) && !attached:
+			default:
+				return false
+			}
+		default:
+			for j, letter := range word[1:] {
+				if strings.ContainsRune(o.valueShorts, letter) {
+					// The value is the rest of the word, or the next word.
+					if j == len(word)-2 {
+						i++
+					}
+					break
+				}
+				if !strings.ContainsRune(o.plainShorts, letter) {
+					return false
+				}
+			}
+		}
+	}
+	return o.maxFiles < 0 || files <= o.maxFiles
+}
+
+var checkedOptions = map[string]optionSpec{
+	// -o writes, --compress-program runs a program, and -T writes elsewhere.
+	"sort": {
+		plainShorts: "bdfghiMnRrVsuzcCm", valueShorts: "ktS",
+		plainLong: []string{"--ignore-leading-blanks", "--dictionary-order", "--ignore-case", "--general-numeric-sort", "--human-numeric-sort", "--ignore-nonprinting",
+			"--month-sort", "--numeric-sort", "--random-sort", "--reverse", "--version-sort", "--stable", "--unique", "--zero-terminated", "--merge", "--debug"},
+		valueLong:    []string{"--sort", "--key", "--field-separator", "--buffer-size", "--parallel"},
+		attachedLong: []string{"--check"},
+		maxFiles:     -1,
+	},
+	// A second operand is the output file.
+	"uniq": {
+		plainShorts: "cdDuiz", valueShorts: "fsw",
+		plainLong:    []string{"--count", "--repeated", "--unique", "--ignore-case", "--zero-terminated"},
+		valueLong:    []string{"--skip-fields", "--skip-chars", "--check-chars"},
+		attachedLong: []string{"--all-repeated", "--group"},
+		maxFiles:     1,
+	},
+	// -m and -f read another file and print its lines in errors; -C writes.
+	"file": {
+		plainShorts: "bikLhNnprszZ0E",
+		plainLong: []string{"--brief", "--mime", "--mime-type", "--mime-encoding", "--keep-going", "--dereference", "--no-dereference", "--no-pad", "--no-buffer",
+			"--raw", "--special-files", "--uncompress", "--uncompress-noreport", "--print0", "--extension", "--apple"},
+		maxFiles: -1,
+	},
 }

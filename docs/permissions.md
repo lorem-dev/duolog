@@ -135,11 +135,12 @@ duolog remember '.venv/bin/ruff check app/a.py'
 ```
 
 duolog saves an allow rule in `.duolog/learned.yaml` for every write role, or
-for the roles named with `--role`. The rule keeps the program and the plain
-words after it and lets the rest vary: this one allows
-`.venv/bin/ruff check *`. A program that runs any code from its arguments,
-such as `python` or `node`, is saved exactly as approved. Give your own glob
-with `--match`.
+for the roles named with `--role`. The rule keeps the program and its plain
+subcommand words and lets the rest vary: this one allows
+`.venv/bin/ruff check *`. A program with no subcommand, a program that runs
+any code from its arguments, such as `python3.12` or `awk`, and a `run` or
+`exec` subcommand, such as `uv run`, are saved exactly as approved. Give your
+own glob with `--match`.
 
 The command refuses a rule that cannot make the command allowed: a deny still
 wins, and shell syntax that the gate cannot read always asks. A worker cannot

@@ -75,7 +75,8 @@ Put the project rules that every worker needs in `.duolog/brief.md`: the test
 command, the tools to use, the files not to touch. duolog puts this file first
 in each worker's input. The same start in every task lets the provider serve it
 from its prompt cache. The file must be a regular file of at most 32 KiB; a
-link is ignored, because it could point at a secret.
+link is ignored, because it could point at a secret. The brief counts against
+`wire.inline_max_bytes`, so a long brief leaves less room for Read files.
 
 Every worker is also told not to commit, push or ask the user, and to edit a
 changelog or docs only if the task lists them under Write.
@@ -141,7 +142,8 @@ of the project. It also starts with no MCP servers, because the user's servers
 added 7.4 thousand tokens to every call in the cost study. A task that names an
 `mcp:` or `plugin:` need keeps them. A `minimal` Claude worker skips every
 `CLAUDE.md`, the one in your home folder too: Claude loads that file as project
-instructions when the project is inside the home folder.
+instructions when the project is inside the home folder. A `minimal` worker of
+either agent keeps its skills only when the task names a `skill:` need.
 
 ## What a Codex worker's sandbox blocks
 

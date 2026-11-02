@@ -669,3 +669,18 @@ func TestCancellationKillsDescendantHoldingOutput(t *testing.T) {
 		t.Fatal("descendant survived cancellation", err)
 	}
 }
+
+// A minimal worker whose task needs a skill keeps the skill list.
+func TestMinimalKeepsSkillsForASkillNeed(t *testing.T) {
+	s := spec(t, "claude")
+	s.KeepSkills = true
+	line := strings.Join(Argv(s), " ")
+	if strings.Contains(line, "--disable-slash-commands") || !strings.Contains(line, "claudeMdExcludes") {
+		t.Fatal(line)
+	}
+	s = spec(t, "codex")
+	s.KeepSkills = true
+	if line := strings.Join(Argv(s), " "); strings.Contains(line, "skills.include_instructions") || !strings.Contains(line, "project_doc_max_bytes=0") {
+		t.Fatal(line)
+	}
+}

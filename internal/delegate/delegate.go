@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -304,9 +305,16 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		if warning, err = trustWarning(route, role, state, folder); err != nil {
 			return out, err
 		}
+		// The brief and the worker lines count against the inline limit, so a large
+		// brief leaves less room for Read files instead of growing every handoff.
+		brief := workerBrief(root)
+		budget := cfg.Wire.InlineMaxBytes - len(brief) - len(workerLines)
+		if budget <= 0 {
+			return out, fmt.Errorf(".duolog/brief.md and the worker lines take %d of wire.inline_max_bytes (%d); shorten the brief", len(brief)+len(workerLines), cfg.Wire.InlineMaxBytes)
+		}
 		readRules := leadRules
 		readRules.RoleSandbox = route.Sandbox
-		inline, inlineErr := task.Inline(copyPath, root, cfg.Wire.InlineMaxBytes, func(path string) bool {
+		inline, inlineErr := task.Inline(copyPath, root, budget, func(path string) bool {
 			if pathutil.IsAbs(path) {
 				if rel, err := pathutil.Relative(root, path); err == nil {
 					path = rel
@@ -326,9 +334,8 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			}
 		} else {
 			route.Model = model
-			stdin := append(workerBrief(root), inline...)
-			stdin = append(stdin, []byte("\n"+capability.NeedsLine+"\n"+gateRetryLine+"\n"+ownershipLine+"\n")...)
-			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Env: workerEnv(cfg.EnvPassthrough, leadID, role), Persistent: route.Session == "resume", KeepMCP: needsServers(opts.Needs)}
+			stdin := append(append(brief, inline...), workerLines...)
+			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Env: workerEnv(cfg.EnvPassthrough, leadID, role), Persistent: route.Session == "resume", KeepMCP: needsKind(opts.Needs, capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill)}
 			if route.Sandbox == "read-only" {
 				spec.Mode = mode.Plan
 			}
@@ -635,6 +642,9 @@ func changes(before, after map[string]string) []string {
 func Snapshot(root string) (map[string]string, error)  { return snapshot(root) }
 func Changes(before, after map[string]string) []string { return changes(before, after) }
 
+// workerLines close every worker's input.
+var workerLines = "\n" + capability.NeedsLine + "\n" + gateRetryLine + "\n" + ownershipLine + "\n"
+
 // gateRetryLine keeps a worker going after a refusal it can avoid: most refused
 // commands only had quotes, globs or pipes the gate cannot read, and a stopped
 // worker costs the lead a full restart.
@@ -643,11 +653,12 @@ const gateRetryLine = "If the gate refuses a command, retry once with a plainer 
 // maxBriefBytes bounds the brief: it is sent to every worker.
 const maxBriefBytes = 32 * 1024
 
-// needsServers reports whether a task relies on an MCP server, which a plugin can
-// also bring. Without one, a Claude worker starts with no MCP servers.
-func needsServers(needs []string) bool {
+// needsKind reports whether a task names a need of one of these kinds. A Claude
+// worker keeps MCP servers only for an mcp or plugin need, since a plugin can
+// bring a server, and a minimal worker keeps skills only for a skill need.
+func needsKind(needs []string, kinds ...string) bool {
 	for _, need := range needs {
-		if kind, _, err := capability.ParseNeed(need); err == nil && (kind == capability.KindMCP || kind == capability.KindPlugin) {
+		if kind, _, err := capability.ParseNeed(need); err == nil && slices.Contains(kinds, kind) {
 			return true
 		}
 	}

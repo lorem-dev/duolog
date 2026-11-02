@@ -534,10 +534,10 @@ func denyCommand(command string) string {
 // checks their options.
 // diff is not here: diff -r and two folders print files that policy denies.
 var readCommands = []string{"cat", "head", "tail", "ls", "pwd", "wc", "grep", "get-content", "get-childitem", "get-location", "test-path", "select-string", "get-item",
-	"stat", "du", "cut", "nl", "comm", "uniq", "realpath", "which", "basename", "dirname", "shasum", "md5"}
+	"stat", "du", "cut", "nl", "comm", "realpath", "which", "basename", "dirname", "shasum", "md5"}
 
 // checkedReadCommands are reads only with some options, which readOnlyCommand checks.
-var checkedReadCommands = []string{"find", "rg", "sed", "jq", "sort", "tree", "file"}
+var checkedReadCommands = []string{"find", "rg", "sed", "jq", "sort", "uniq", "tree", "file"}
 
 func readOnlyCommand(command string) bool {
 	raw := strings.Fields(command)
@@ -558,27 +558,13 @@ func readOnlyCommand(command string) bool {
 	case "jq":
 		_, ok := jqFiles(raw[1:])
 		return ok
-	case "sort":
-		return sortOptionsKnown(raw[1:])
+	case "sort", "uniq", "file":
+		return checkedOptions[words[0]].known(raw[1:])
 	case "tree":
 		// -o writes a file, and -R with -H writes an HTML page into each folder.
 		return !slices.ContainsFunc(raw[1:], func(w string) bool {
 			return strings.HasPrefix(w, "--o") || strings.HasPrefix(w, "--fromfile") || !strings.HasPrefix(w, "--") && strings.HasPrefix(w, "-") && strings.ContainsAny(w, "oR")
 		})
-	case "file":
-		// -C and --compile write a magic file.
-		return !slices.ContainsFunc(raw[1:], func(w string) bool {
-			return strings.HasPrefix(w, "--c") || !strings.HasPrefix(w, "--") && strings.HasPrefix(w, "-") && strings.Contains(w, "C")
-		})
-	case "uniq":
-		// uniq IN OUT writes OUT: allow at most one file.
-		files := 0
-		for _, w := range words[1:] {
-			if !strings.HasPrefix(w, "-") {
-				files++
-			}
-		}
-		return files <= 1
 	}
 	return slices.Contains(readCommands, words[0])
 }

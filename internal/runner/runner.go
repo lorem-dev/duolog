@@ -36,7 +36,9 @@ type Spec struct {
 	Persistent                     bool
 	// KeepMCP keeps the agent's MCP servers for a task that needs one.
 	KeepMCP bool
-	Timeout time.Duration
+	// KeepSkills keeps the skill list of a minimal worker whose task needs a skill.
+	KeepSkills bool
+	Timeout    time.Duration
 }
 
 type Usage struct{ Input, Cached, Output int64 }

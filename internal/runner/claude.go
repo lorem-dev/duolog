@@ -28,9 +28,13 @@ func claudeArgv(s Spec) []string {
 		args = append(args, "--strict-mcp-config")
 	}
 	if s.Route.Context == "minimal" {
-		// Minimal context drops skills and every CLAUDE.md, the user's too: a project
+		// Minimal context drops every CLAUDE.md, the user's too, and skills unless the
+		// task needs one: a project
 		// under the home folder would otherwise load it as project instructions.
-		args = append(args, "--disable-slash-commands", "--settings", minimalSettings)
+		args = append(args, "--settings", minimalSettings)
+		if !s.KeepSkills {
+			args = append(args, "--disable-slash-commands")
+		}
 	}
 	if s.ThreadID == "" {
 		if !s.Persistent {
