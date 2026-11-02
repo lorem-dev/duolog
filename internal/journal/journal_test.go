@@ -107,3 +107,27 @@ func TestAppendDropsPartialTail(t *testing.T) {
 		t.Fatal(got, err)
 	}
 }
+
+func TestAppendKeepsCompleteUnterminatedTail(t *testing.T) {
+	j := open(t)
+	os.WriteFile(filepath.Join(j.Dir, "delegations.ndjson"), []byte("{\"id\":\"a\"}\n{\"id\":\"b\"}"), 0600)
+	if err := j.Append("delegations.ndjson", Delegation{ID: "c"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadAll[Delegation](j, "delegations.ndjson")
+	if err != nil || len(got) != 3 || got[1].ID != "b" || got[2].ID != "c" {
+		t.Fatal(got, err)
+	}
+}
+
+func TestAppendDropsLongPartialTail(t *testing.T) {
+	j := open(t)
+	os.WriteFile(filepath.Join(j.Dir, "delegations.ndjson"), []byte("{\"id\":\"a\"}\n{\"id\":\""+strings.Repeat("x", 10000)), 0600)
+	if err := j.Append("delegations.ndjson", Delegation{ID: "c"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadAll[Delegation](j, "delegations.ndjson")
+	if err != nil || len(got) != 2 || got[1].ID != "c" {
+		t.Fatal(got, err)
+	}
+}

@@ -158,7 +158,7 @@ func (j *Journal) Append(name string, record any) error {
 		return err
 	}
 	defer l.Close()
-	f, err := os.OpenFile(filepath.Join(j.Dir, name), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	f, err := os.OpenFile(filepath.Join(j.Dir, name), os.O_APPEND|os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return err
 	}
@@ -173,21 +173,47 @@ func (j *Journal) Append(name string, record any) error {
 	return f.Close()
 }
 
-// dropPartialTail cuts an interrupted last line (no final newline) so the next
-// record starts on a clean line instead of merging into the fragment.
+// dropPartialTail repairs an interrupted last line (no final newline) so the
+// next record starts on a clean line. A tail that is a complete JSON value is
+// kept and gets its newline; anything else is cut back to the last newline.
 func dropPartialTail(f *os.File) error {
 	info, err := f.Stat()
 	if err != nil || info.Size() == 0 {
 		return err
 	}
-	data, err := os.ReadFile(f.Name())
-	if err != nil {
+	size := info.Size()
+	last := make([]byte, 1)
+	if _, err := f.ReadAt(last, size-1); err != nil {
 		return err
 	}
-	if data[len(data)-1] == '\n' {
+	if last[0] == '\n' {
 		return nil
 	}
-	return f.Truncate(int64(bytes.LastIndexByte(data, '\n') + 1))
+	// Read backwards in chunks until the newline before the tail.
+	var tail []byte
+	start := size
+	for start > 0 {
+		n := int64(4096)
+		if n > start {
+			n = start
+		}
+		start -= n
+		chunk := make([]byte, n)
+		if _, err := f.ReadAt(chunk, start); err != nil {
+			return err
+		}
+		tail = append(chunk, tail...)
+		if i := bytes.LastIndexByte(chunk, '\n'); i >= 0 {
+			tail = tail[i+1:]
+			start += int64(i) + 1
+			break
+		}
+	}
+	if json.Valid(tail) {
+		_, err := f.Write([]byte{'\n'})
+		return err
+	}
+	return f.Truncate(start)
 }
 
 // ReadAll reads every record of a file. A missing file is empty and a broken

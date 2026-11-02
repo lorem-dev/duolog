@@ -26,16 +26,14 @@ func git(root string, env []string, stdin []byte, args ...string) ([]byte, error
 }
 
 // InGit reports whether root is inside a Git work tree.
-func InGit(root string) bool { return inGit(root) }
-
-func inGit(root string) bool {
+func InGit(root string) bool {
 	out, err := git(root, nil, nil, "rev-parse", "--is-inside-work-tree")
 	return err == nil && strings.TrimSpace(string(out)) == "true"
 }
 
 // Head returns the HEAD commit; outside Git, or before the first commit, it is empty.
 func Head(root string) (string, error) {
-	if !inGit(root) {
+	if !InGit(root) {
 		return "", nil
 	}
 	out, err := git(root, nil, nil, "rev-parse", "--verify", "-q", "HEAD")
@@ -48,7 +46,7 @@ func Head(root string) (string, error) {
 // Capture hashes the working tree (untracked files included, .duolog excluded)
 // through a temporary index, so the real index stays untouched.
 func Capture(root string) (string, error) {
-	if !inGit(root) {
+	if !InGit(root) {
 		return "", nil
 	}
 	out, err := git(root, nil, nil, "rev-parse", "--git-path", "index")
