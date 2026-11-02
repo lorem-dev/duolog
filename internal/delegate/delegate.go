@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"crypto/sha256"
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/bus"
@@ -143,6 +144,11 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		return out, fmt.Errorf("task file: %w; write it inside the project, such as .duolog/task.md, which Git ignores", err)
 	}
 	if err = task.Validate(source); err != nil {
+		return out, err
+	}
+	// The paths Write lists, to name what the worker changed outside them.
+	writes, err := task.WritePaths(source)
+	if err != nil {
 		return out, err
 	}
 	original, err := os.ReadFile(source)
@@ -466,7 +472,18 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					out.Needs = out.Result.Needs
 					needs = " needs=" + strings.Join(out.Result.Needs, ",")
 				}
-				out.Line = resultLine(out.Result.Done, needs, out.Result.Summary, strings.Join(out.Result.Files, ","), warning, answerPointer(dir))
+				if len(out.Result.Decisions) > 0 {
+					needs += fmt.Sprintf(" decisions=%d", len(out.Result.Decisions))
+				}
+				lineWarning := warning
+				if before != nil {
+					if after, snapErr := snapshot(root); snapErr == nil {
+						if outside := outsideWrite(changes(before, after), writes); len(outside) > 0 {
+							lineWarning += "; outside=" + strings.Join(outside, ",")
+						}
+					}
+				}
+				out.Line = resultLine(out.Result.Done, needs, out.Result.Summary, strings.Join(out.Result.Files, ","), lineWarning, answerPointer(dir))
 				return out, nil
 			}
 			if out.Result.QuotaEnded {
@@ -699,7 +716,12 @@ func Snapshot(root string) (map[string]string, error)  { return snapshot(root) }
 func Changes(before, after map[string]string) []string { return changes(before, after) }
 
 // workerLines close every worker's input.
-var workerLines = "\n" + capability.NeedsLine + "\n" + gateRetryLine + "\n" + ownershipLine + "\n"
+var workerLines = "\n" + capability.NeedsLine + "\n" + gateRetryLine + "\n" + ownershipLine + "\n" + decisionsLine + "\n"
+
+// decisionsLine makes a worker name what it settled alone. In the cost study
+// Codex workers decided one to three open points of a skeleton without saying
+// so, and the lead could not see them in the diff.
+const decisionsLine = "List in decisions each choice the task left open that you made yourself, such as a library, a name, a file layout or a default. Leave it empty when the task settled everything."
 
 // gateRetryLine keeps a worker going after a refusal it can avoid: most refused
 // commands only had quotes, globs or pipes the gate cannot read, and a stopped
@@ -910,4 +932,30 @@ func limitOwn(spec runner.Spec, needs []string, tools map[string][]string) *runn
 	m.CodexArgs = append(append([]string(nil), m.CodexArgs...), codexArgs...)
 	m.AllowedTools = append(append([]string(nil), m.AllowedTools...), allowed...)
 	return m
+}
+
+// outsideWrite lists the changed paths that no Write entry covers: a file, a
+// folder that holds it, or a glob. A task whose Write lists no path gets no
+// list, since it did not say what the worker may change. A change the lead
+// made while the worker ran shows up here too.
+func outsideWrite(changed, writes []string) []string {
+	if len(writes) == 0 {
+		return nil
+	}
+	var outside []string
+	for _, name := range changed {
+		clean := pathutil.Clean(name)
+		covered := false
+		for _, w := range writes {
+			match, _ := doublestar.Match(w, clean)
+			if match || w == "." || clean == w || strings.HasPrefix(clean, w+"/") {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			outside = append(outside, name)
+		}
+	}
+	return outside
 }

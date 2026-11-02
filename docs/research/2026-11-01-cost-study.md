@@ -131,18 +131,52 @@ at five effort levels (84 runs). A blind grader scored each answer from 0 to 3.
 
 Effort above `high` raised no model's score, and Opus at `max` cost six times
 Opus at `high`. No default role asks for `xhigh` or `max`. Only one of the four
-bugs told the models apart. The bugs were still easier than a real
-investigation with logs and several services, so the defaults keep Opus for
-hard debugging until such cases are measured.
+bugs told the models apart. `gpt-6.1-sol` made no false claim in any run;
+Opus at low effort made three. So the `debug` role, which reads one
+repository, runs on `sol` at medium effort. The bugs were still easier than a
+real investigation with logs and several services, so `debug_hard` keeps Opus
+until such cases are measured.
+
+## The skeleton of a new module
+
+A later round asked each model to lay out a new module with no example in the
+repository: once a port of a small Go library to a Python package, once a Go
+service skeleton with a CLI, config, health checks, metrics, a linter, a
+Makefile, a Dockerfile and CI jobs. Each run got a brief: the file layout, the
+allowed libraries, a list of what not to build, and the open points to ask
+about. Each model ran once at low, medium and high effort (18 runs). A blind
+grader used a rubric of five criteria and a total from 0 to 3.
+
+| Task, model | USD | Lines | Total | Decided silently | Questions raised |
+|---|---|---|---|---|---|
+| Port, `gpt-6.1-terra` | 0.08 | 334 | 2.33 | 2.0 | 5.0 |
+| Port, `gpt-6.1-sol` | 0.42 | 706 | 2.67 | 2.3 | 5.3 |
+| Port, Opus | 1.52 | 713 | 3.00 | 0 | 10.7 |
+| Skeleton, `gpt-6.1-terra` | 0.09 | 734 | 3.00 | 1.3 | 3.7 |
+| Skeleton, `gpt-6.1-sol` | 0.26 | 1025 | 3.00 | 2.0 | 4.3 |
+| Skeleton, Opus | 1.04 | 1079 | 3.00 | 0.7 | 10.0 |
+
+With the brief, no model bloated the skeleton: 330 to 1180 lines a run. An
+earlier skeleton of the same kind, written by Opus from a plan with no such
+brief, had 8.5 thousand lines and 25 additions nobody asked for. The extra
+work came from the plan, which the worker then followed. The models differ
+in what they decide without asking: Opus listed 10 to 12 open points and
+decided almost nothing alone, Codex decided one to three of them silently.
+In the skeleton task `sol` and Opus each broke a rule of the brief. A reviewer
+needed 15 to 25 minutes a run, more than any model cost. Effort did not change
+the mean total.
+
+So keep the plan and the brief with the lead, write the list of what not to
+build into the brief, and ask a Codex worker to list the decisions it made.
 
 ## What the study did not show
 
 - Each setup ran once per task. Runs of one task can differ up to 30 times in
   tokens (Bai et al. 2026, arxiv.org/html/2604.22750), so 3 to 5 repeats are
   needed before these numbers are averages.
-- The worker tasks ran twice per cell, and the matrix covers simple tasks
-  only. Whether a cheaper model can take the default review or debug roles
-  needs more runs.
+- The worker tasks ran once or twice per cell. The review and debug results
+  rest on a few runs each, and the hard bugs could be found by reading one
+  repository.
 
 ## Related pages
 

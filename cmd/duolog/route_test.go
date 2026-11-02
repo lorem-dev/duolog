@@ -38,7 +38,7 @@ func TestRouteJSON(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &route); err != nil {
 		t.Fatal(err)
 	}
-	for key, want := range map[string]any{"agent": "codex", "model": "terra", "effort": "medium", "sandbox": "read-only", "context": "project", "session": "fresh", "is_fallback": false, "self": false, "in_lead": false, "effort_capped": false} {
+	for key, want := range map[string]any{"agent": "codex", "model": "sol", "effort": "medium", "sandbox": "read-only", "context": "project", "session": "fresh", "is_fallback": false, "self": false, "in_lead": false, "effort_capped": false} {
 		if got, ok := route[key]; !ok || got != want {
 			t.Errorf("%s = %v, want %v", key, got, want)
 		}

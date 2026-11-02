@@ -3,11 +3,13 @@
 package rex
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -72,9 +74,10 @@ func IsNotFound(err error) bool {
 }
 
 // Locate finds rex in PATH, then in binDir (REX_BIN_DIR), then in the first
-// match of globs, which are application bundle patterns.
+// match of globs, which are application bundle patterns. It skips the other
+// program named rex; see Shadow.
 func Locate(binDir string, globs []string) (string, bool) {
-	if path, err := exec.LookPath("rex"); err == nil {
+	if path, err := exec.LookPath("rex"); err == nil && !foreign(path) {
 		return path, true
 	}
 	name := "rex"
@@ -100,6 +103,28 @@ func Locate(binDir string, globs []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// Shadow returns the rex in PATH when it is not the Rex CLI, so that doctor can
+// say why the command rex starts something else.
+func Shadow() (string, bool) {
+	path, err := exec.LookPath("rex")
+	return path, err == nil && foreign(path)
+}
+
+// foreign reports whether path is a script, such as the Perl deployment tool
+// that package managers also install as rex. Given Rex arguments that tool runs
+// tasks from a Rexfile, so duolog does not start it. The Rex CLI is a compiled
+// program, so the first line tells them apart without running either. A rex in
+// REX_BIN_DIR is the user's own choice and is not checked.
+func foreign(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	line, _ := bufio.NewReader(io.LimitReader(f, 256)).ReadString('\n')
+	return strings.HasPrefix(line, "#!")
 }
 
 // BundleGlobs lists the macOS application locations of the rex helper.

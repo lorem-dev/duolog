@@ -50,6 +50,18 @@
   `duolog remember mcp:<server>/<tool>` allow tools without replacing rules.
 - duolog checks a worker's login and its MCP servers before it starts, runs the
   agent's login once, and hands the task to the lead when that fails.
+- A `debug` role finds the cause of a bug in one repository on Codex `sol`,
+  read-only; `debug_hard` stays on Opus for bugs across components.
+- The result line counts the choices a worker made alone as `decisions=<n>`
+  and names files changed outside Write as `outside=<paths>`.
+- `duolog doctor` warns when the `rex` in PATH is a script, not the Rex CLI;
+  duolog then skips it.
+
+### Changed
+
+- `review_intermediate` runs on `sol` instead of `terra`, which made false
+  findings in half of its review runs in the cost study.
+- Claude workers also get `autoMemoryEnabled: false` in their settings.
 
 ## 1.1.0
 

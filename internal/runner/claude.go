@@ -12,9 +12,15 @@ import (
 	"github.com/lorem-dev/duolog/internal/mode"
 )
 
-// minimalSettings excludes instruction files. --setting-sources would do more, but
-// it also drops the user settings that enable the duolog plugin and its gate.
-const minimalSettings = `{"claudeMdExcludes":["**/CLAUDE.md","**/CLAUDE.local.md","**/.claude/rules/**"]}`
+// workerSettings turns off auto memory, which CLAUDE_CODE_DISABLE_AUTO_MEMORY
+// also does: the memory folder belongs to the project path, so a worker's note
+// would reach the lead and later sessions. minimalSettings also excludes
+// instruction files. --setting-sources would do more, but it also drops the user
+// settings that enable the duolog plugin and its gate.
+const (
+	workerSettings  = `{"autoMemoryEnabled":false}`
+	minimalSettings = `{"autoMemoryEnabled":false,"claudeMdExcludes":["**/CLAUDE.md","**/CLAUDE.local.md","**/.claude/rules/**"]}`
+)
 
 func claudeArgv(s Spec) []string {
 	args := []string{"claude", "-p", "--model", s.Route.Model}
@@ -49,6 +55,8 @@ func claudeArgv(s Spec) []string {
 		if !s.KeepSkills {
 			args = append(args, "--disable-slash-commands")
 		}
+	} else {
+		args = append(args, "--settings", workerSettings)
 	}
 	if s.ThreadID == "" {
 		if !s.Persistent {

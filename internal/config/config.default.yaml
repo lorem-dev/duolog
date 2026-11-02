@@ -74,8 +74,10 @@ roles:
     sandbox: workspace-write
     context: project
     session: fresh
+  # In the cost study sol made no false findings on reviews; terra cost half as
+  # much but made a false one in half of its runs.
   review_intermediate:
-    use: {agent: codex, model: terra, effort: medium}
+    use: {agent: codex, model: sol, effort: medium}
     fallback: {agent: claude, model: sonnet, effort: medium}
     sandbox: read-only
     context: project
@@ -86,6 +88,15 @@ roles:
     sandbox: read-only
     context: project
     session: fresh
+  # Finding a cause by reading one repository. In the cost study sol found it on
+  # four hard bugs at every effort, for a third to a sixteenth of what opus cost.
+  debug:
+    use: {agent: codex, model: sol, effort: medium}
+    fallback: {agent: claude, model: opus, effort: high}
+    sandbox: read-only
+    context: project
+    session: resume
+  # Several components, logs or other evidence from outside the repository.
   debug_hard:
     use: {agent: claude, model: opus, effort: high}
     fallback: {agent: codex, model: sol, effort: high}

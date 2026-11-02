@@ -306,7 +306,7 @@
             "fresh",
             "resume"
           ],
-          "description": "Thread reuse policy; defaults to fresh except plan and debug_hard, which resume."
+          "description": "Thread reuse policy; defaults to fresh except plan, debug and debug_hard, which resume."
         }
       },
       "additionalProperties": false,

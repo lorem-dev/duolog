@@ -8,7 +8,10 @@ worker is enough.
 ## What you need
 
 - The Rex terminal app, and `rex` on the `PATH` of the session that runs
-  duolog.
+  duolog. Without it, duolog looks in `REX_BIN_DIR`, then on macOS inside
+  the Rex app. Another program can also be called `rex`, such as a Perl
+  deployment tool from a package manager. duolog skips a `rex` that is a
+  script, and `duolog doctor` names it.
 - A lead session with duolog installed. See
   [Getting started](getting-started.md).
 - The lead registered by its `SessionStart` hook. The `--lead` flag or the

@@ -194,7 +194,8 @@ duolog delegate review_intermediate --task .duolog/task.md
 Planning and the final review use Opus, because a mistake costs the most there.
 Routine work uses cheaper Codex models. A whole feature goes to `planner`, which
 reads, implements and checks on Codex, so the lead does not read the code
-itself. The rules are in
+itself. `debug` finds the cause of a bug in one repository on Codex; a bug
+that crosses components goes to `debug_hard` on Opus. The rules are in
 [internal/config/config.default.yaml](internal/config/config.default.yaml).
 A project can change any of them.
 

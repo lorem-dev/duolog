@@ -23,9 +23,9 @@ import (
 )
 
 const taskInstruction = "Do the task in the stdin block."
-const codexAnswerInstruction = "Reply with only one JSON object with the keys done, summary, files and needs. done is true or false, summary is a string, files and needs are arrays of strings."
+const codexAnswerInstruction = "Reply with only one JSON object with the keys done, summary, files, needs and decisions. done is true or false, summary is a string, files, needs and decisions are arrays of strings."
 const defaultTimeout = 30 * time.Minute
-const answerSchema = `{"type":"object","properties":{"done":{"type":"boolean"},"summary":{"type":"string"},"files":{"type":"array","items":{"type":"string"}},"needs":{"type":"array","items":{"type":"string"}}},"required":["done","summary","files","needs"],"additionalProperties":false}`
+const answerSchema = `{"type":"object","properties":{"done":{"type":"boolean"},"summary":{"type":"string"},"files":{"type":"array","items":{"type":"string"}},"needs":{"type":"array","items":{"type":"string"}},"decisions":{"type":"array","items":{"type":"string"}}},"required":["done","summary","files","needs","decisions"],"additionalProperties":false}`
 
 type Spec struct {
 	Route                          router.Route
@@ -65,10 +65,12 @@ type MCP struct {
 
 type Usage struct{ Input, Cached, Output int64 }
 type Result struct {
-	Done        bool
-	Summary     string
-	Files       []string
-	Needs       []string
+	Done    bool
+	Summary string
+	Files   []string
+	Needs   []string
+	// Decisions are the choices the task left open that the worker made itself.
+	Decisions   []string
 	Interrupted bool
 	ResetAt     time.Time
 	SessionID   string
@@ -229,10 +231,11 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 		return codexAnswer(answer, answerPath, result)
 	}
 	var parsed struct {
-		Done    *bool    `json:"done"`
-		Summary *string  `json:"summary"`
-		Files   []string `json:"files"`
-		Needs   []string `json:"needs"`
+		Done      *bool    `json:"done"`
+		Summary   *string  `json:"summary"`
+		Files     []string `json:"files"`
+		Needs     []string `json:"needs"`
+		Decisions []string `json:"decisions"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(answer))
 	decoder.DisallowUnknownFields()
@@ -250,6 +253,7 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	result.Summary = *parsed.Summary
 	result.Files = parsed.Files
 	result.Needs = parsed.Needs
+	result.Decisions = parsed.Decisions
 	return result, nil
 }
 

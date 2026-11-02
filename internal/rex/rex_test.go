@@ -255,6 +255,16 @@ func TestRexBinaryFromAppBundle(t *testing.T) {
 	if got, ok := Locate(envDir, []string{glob}); !ok || got != filepath.Join(onPath, name) {
 		t.Fatalf("PATH must win: %q %v", got, ok)
 	}
+	// A script named rex, such as the Perl deployment tool, is not the Rex CLI.
+	if err := os.WriteFile(filepath.Join(onPath, name), []byte("#!/usr/bin/env perl\nuse Rex;\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := Locate(envDir, []string{glob}); !ok || got != inEnv {
+		t.Fatalf("a script rex must be skipped: %q %v", got, ok)
+	}
+	if got, ok := Shadow(); !ok || got != filepath.Join(onPath, name) {
+		t.Fatalf("shadow: %q %v", got, ok)
+	}
 	t.Setenv("PATH", empty)
 	if _, ok := Locate("", []string{filepath.Join(empty, "none*")}); ok {
 		t.Fatal("found a rex that is not there")

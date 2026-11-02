@@ -38,7 +38,7 @@ type Role struct {
 	Fallback Target `yaml:"fallback" jsonschema_description:"Alternative target when the preferred agent is unavailable; defaults use the other vendor."`
 	Sandbox  string `yaml:"sandbox" jsonschema_description:"Maximum file access for the role; defaults to read-only for reviews and workspace-write for edits." jsonschema:"enum=read-only,enum=workspace-write"`
 	Context  string `yaml:"context" jsonschema_description:"Project instruction scope; defaults to project for code work and minimal for small tasks." jsonschema:"enum=minimal,enum=project"`
-	Session  string `yaml:"session" jsonschema_description:"Thread reuse policy; defaults to fresh except plan and debug_hard, which resume." jsonschema:"enum=fresh,enum=resume"`
+	Session  string `yaml:"session" jsonschema_description:"Thread reuse policy; defaults to fresh except plan, debug and debug_hard, which resume." jsonschema:"enum=fresh,enum=resume"`
 }
 
 type Wire struct {

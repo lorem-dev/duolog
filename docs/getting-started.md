@@ -209,6 +209,16 @@ done=true summary=<one line> files=<comma separated paths>
 The worker must write `answer.json`. duolog takes the result only from that
 file. An exit code of 0 from the agent does not mean success.
 
+The line can also carry two fields:
+
+| Field | What it means |
+|---|---|
+| `decisions=<n>` | The worker made n choices that the task left open, such as a library or a name. They are listed under `decisions` in `answer.json` |
+| `outside=<paths>` | Files that changed during the run but are not under any path that Write lists. A change the lead made meanwhile shows up too |
+
+`outside` needs Git, a role that can write and a Write section that lists
+paths.
+
 A line that starts with `run here:` means duolog did not start a worker. The
 role points to the lead's own agent and model, or it needs little context and
 the lead's model costs no more. So the lead does the task. See

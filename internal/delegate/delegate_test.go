@@ -450,7 +450,7 @@ func TestRunnerGetsConcreteCodexModel(t *testing.T) {
 	if _, err := h.run("review_intermediate"); err != nil {
 		t.Fatal(err)
 	}
-	requireArgPair(t, fake, "-m", "gpt-6.1-terra")
+	requireArgPair(t, fake, "-m", "gpt-6.1-sol")
 }
 
 func TestRunnerGetsClaudeAlias(t *testing.T) {
@@ -1162,5 +1162,51 @@ func TestBriefLeadsStdinWithinTheInlineLimit(t *testing.T) {
 	put(t, filepath.Join(h.root, ".duolog", "brief.md"), strings.Repeat("x", 500))
 	if _, e := h.run("implement"); e == nil || !strings.Contains(e.Error(), "shorten the brief") {
 		t.Fatalf("an oversized brief was sent: %v", e)
+	}
+}
+
+// The lead learns that a worker changed a file Write does not list.
+func TestResultLineNamesChangesOutsideWrite(t *testing.T) {
+	h := newHarness(t)
+	h.gitRepo()
+	h.change = "a.go"
+	out, e := h.run("implement")
+	if e != nil || strings.Contains(out.Line, "outside=") {
+		t.Fatal(out.Line, e)
+	}
+	h.change = "other/b.go"
+	out, e = h.run("implement")
+	if e != nil || !strings.Contains(out.Line, "; outside=other/b.go") {
+		t.Fatal(out.Line, e)
+	}
+	// A read-only role takes no snapshot, so it names nothing.
+	out, e = h.run("review_intermediate")
+	if e != nil || strings.Contains(out.Line, "outside=") {
+		t.Fatal(out.Line, e)
+	}
+}
+
+func TestOutsideWriteCoversFoldersAndGlobs(t *testing.T) {
+	writes := []string{"a.go", "docs", "internal/**/*_test.go"}
+	got := outsideWrite([]string{"a.go", "docs/x.md", "internal/gate/gate_test.go", "internal/gate/gate.go", "ab.go"}, writes)
+	if strings.Join(got, ",") != "internal/gate/gate.go,ab.go" {
+		t.Fatal(got)
+	}
+	if got := outsideWrite([]string{"x.go"}, nil); got != nil {
+		t.Fatal("no Write paths, no list:", got)
+	}
+}
+
+// The count of a worker's own decisions reaches the lead; the text stays in
+// answer.json.
+func TestResultLineCountsDecisions(t *testing.T) {
+	h := newHarness(t)
+	h.results = []runner.Result{{Done: true, Summary: "Done.", Files: []string{"a.go"}, Needs: []string{}, Decisions: []string{"used slog", "named it Limiter"}}}
+	out, e := h.run("implement")
+	if e != nil || !strings.Contains(out.Line, " decisions=2 ") {
+		t.Fatal(out.Line, e)
+	}
+	if !strings.Contains(string(h.calls[0].Stdin), decisionsLine) {
+		t.Fatal("worker input misses the decisions line")
 	}
 }

@@ -69,6 +69,19 @@ lead that read the code first, at the same test results. See
 Keep a small fix in the lead. A handoff has a fixed cost: on a two-file bug,
 one Codex session alone cost less than any setup with duolog.
 
+## Which role finds the cause of a bug
+
+Give `debug` a bug whose cause can be found by reading one repository. It runs
+on `sol` at medium effort, read-only, and keeps its thread for follow-up
+questions. In the cost study, `sol` found the cause of four hard bugs at every
+effort, for a third to a sixteenth of what Opus cost. Give `debug_hard` a bug
+that crosses several components or needs logs and other evidence from outside
+the repository. It runs on Opus and may edit files.
+
+Reviews between tasks go to `review_intermediate` on `sol`. In the cost study,
+`terra` cost half as much but made a false finding in half of its review runs,
+and `sol` made none.
+
 ## How to give every worker the same rules
 
 Put the project rules that every worker needs in `.duolog/brief.md`: the test

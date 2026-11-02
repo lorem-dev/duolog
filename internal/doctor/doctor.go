@@ -38,6 +38,9 @@ type Options struct {
 	Panes    []Pane
 	// RexBin is the located rex executable. Doctor never runs it.
 	RexBin string
+	// RexShadow is a rex in PATH that is not the Rex CLI, such as a Perl tool of
+	// the same name. duolog skips it.
+	RexShadow string
 }
 
 func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
@@ -84,6 +87,13 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 		add("info", peer.WindowsNotice)
 	} else if opts.RexBin == "" {
 		add("warning", "Rex unavailable; pane connectivity cannot be checked")
+	}
+	if opts.RexShadow != "" && runtime.GOOS != "windows" {
+		uses := "set REX_BIN_DIR to the folder of the Rex CLI or put that folder first in PATH"
+		if opts.RexBin != "" {
+			uses = "duolog uses " + opts.RexBin + "; to run it as rex, put its folder first in PATH"
+		}
+		add("warning", "rex in PATH ("+opts.RexShadow+") is a script, not the Rex CLI; duolog skips it. "+uses)
 	}
 	var baseline map[string]string
 	_ = json.Unmarshal([]byte(FixtureVersions), &baseline)
