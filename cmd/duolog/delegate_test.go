@@ -108,3 +108,29 @@ func TestDelegateUseFlag(t *testing.T) {
 		t.Fatal(out, e)
 	}
 }
+
+func TestDelegateEscalationFlags(t *testing.T) {
+	isolatedRouteConfig(t)
+	t.Chdir(t.TempDir())
+	t.Setenv("DUOLOG_DEPTH", "")
+	var got delegate.Options
+	ran := 0
+	old := runDelegate
+	t.Cleanup(func() { runDelegate = old })
+	runDelegate = func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
+		got = delegate.OptionsFrom(ctx)
+		ran++
+		return delegate.Outcome{Line: "done=true"}, nil
+	}
+	out, e := executeBusCommand(t, "delegate", "debug_hard", "--task", "task.md", "--escalate-from", "task-1", "--reason", "not_green")
+	if e != nil || out != "done=true\n" || got.EscalateFrom != "task-1" || got.EscalateReason != "not_green" {
+		t.Fatal(out, e, got)
+	}
+	// One flag without the other is a mistake, not a plain delegation.
+	for _, args := range [][]string{{"--escalate-from", "task-1"}, {"--reason", "not_green"}} {
+		out, e = executeBusCommand(t, append([]string{"delegate", "debug_hard", "--task", "task.md"}, args...)...)
+		if e == nil || ran != 1 || strings.Count(out, "\n") != 1 || !strings.Contains(out, "--escalate-from and --reason go together") {
+			t.Fatal(args, out, e)
+		}
+	}
+}

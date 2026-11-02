@@ -260,8 +260,8 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		ro := router.Options{Lead: leadTarget, AllowManualModel: opts.AllowManualModel}
 		if opts.Entry != nil {
 			ro.Use, ro.NoSelf = opts.Entry, sameModel(*opts.Entry, leadTarget)
-		} else {
-			lr.route(cfg, role, unavailable, &ro)
+		} else if err := lr.route(cfg, role, unavailable, &ro); err != nil {
+			return out, err
 		}
 		route, routeErr := router.Resolve(cfg, role, unavailable, ro)
 		if routeErr != nil {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
@@ -35,6 +36,8 @@ type learnRun struct {
 	id, role string
 	task     journal.OpenTask
 	implicit bool
+	// after is the entry an escalation leaves; route starts after it.
+	after string
 	// rec holds the classification; finish adds the route and the run.
 	rec  journal.Delegation
 	next learnRoute // chosen by route, before Resolve
@@ -89,8 +92,20 @@ func beginLearning(cfg *config.Config, s *store.Store, leadID, role, id string, 
 	if err != nil {
 		return nil, err
 	}
-	lr := &learnRun{j: j, stateDir: s.Dir, cfg: cfg, opts: opts, id: id, role: role, started: time.Now()}
-	rec := journal.Delegation{ID: id, Lead: leadID, Role: role, Features: opts.Features, StatedClass: opts.Class, ProfileOf: opts.ReplayOf}
+	var left journal.Delegation
+	if opts.EscalateFrom != "" && opts.ReplayOf == "" {
+		if left, err = escalated(j, leadID, opts); err != nil {
+			return nil, err
+		}
+		if len(opts.Features) == 0 && opts.Class == "" {
+			opts.Features, opts.Class = left.Features, left.StatedClass
+		}
+	}
+	lr := &learnRun{j: j, stateDir: s.Dir, cfg: cfg, opts: opts, id: id, role: role, started: time.Now(), after: left.Entry}
+	rec := journal.Delegation{ID: id, Lead: leadID, Role: role, Features: opts.Features, StatedClass: opts.Class, ProfileOf: opts.ReplayOf, EscalatedFrom: left.ID}
+	if left.ID != "" {
+		rec.EscalationReason = opts.EscalateReason
+	}
 	rec.RuleClass = learning.Classify(l.Classify, role, opts.Features)
 	rec.Class = opts.Class
 	if rec.Class == "" {
@@ -139,6 +154,11 @@ func beginLearning(cfg *config.Config, s *store.Store, leadID, role, id string, 
 	if c, ok := l.Classes[rec.Class]; ok {
 		rec.RoleMismatch = !slices.Contains(c.Roles, role)
 	}
+	if lr.after != "" && opts.Entry == nil {
+		if _, ok := learning.Choose(l, rec.Class, role, nil, lr.after); !ok {
+			return nil, fmt.Errorf("class %s has no entry after %s; do it yourself or name another role", rec.Class, lr.after)
+		}
+	}
 	lr.rec = rec
 	if opts.Entry != nil {
 		why := "forced"
@@ -155,25 +175,71 @@ func beginLearning(cfg *config.Config, s *store.Store, leadID, role, id string, 
 	return lr, nil
 }
 
-// route picks the class's ladder entry as the target. With no class, or no
-// entry whose agent is available, the role's own routing applies. NoSelf is
-// set only when the entry is the lead's own model, so that it is measured.
-func (lr *learnRun) route(cfg *config.Config, role string, unavailable map[string]bool, ro *router.Options) {
+// escalated returns the delegation the lead leaves, after checking that the
+// reason is a known signal and that the left run says something about its
+// entry's quality.
+func escalated(j *journal.Journal, leadID string, opts Options) (journal.Delegation, error) {
+	if !slices.Contains(learning.EscalationReasons, opts.EscalateReason) {
+		return journal.Delegation{}, fmt.Errorf("unknown escalation reason %q; use one of %s", opts.EscalateReason, strings.Join(learning.EscalationReasons, ", "))
+	}
+	task, ok, err := j.CurrentTask(leadID)
+	if err != nil {
+		return journal.Delegation{}, err
+	}
+	recs, err := journal.ReadAll[journal.Delegation](j, delegationsFile)
+	if err != nil {
+		return journal.Delegation{}, err
+	}
+	i := slices.IndexFunc(recs, func(r journal.Delegation) bool {
+		return ok && r.ID == opts.EscalateFrom && r.Task == task.ID && r.ProfileOf == ""
+	})
+	if i < 0 {
+		return journal.Delegation{}, fmt.Errorf("delegation %q is not in the open task", opts.EscalateFrom)
+	}
+	left := recs[i]
+	if left.Outcome == journal.OutcomeInfra {
+		return journal.Delegation{}, fmt.Errorf("delegation %s ended on a provider limit, not on quality; run it again", left.ID)
+	}
+	if left.Outcome == journal.OutcomeLead {
+		return journal.Delegation{}, fmt.Errorf("delegation %s went back to the lead before a worker ran; there is no run to escalate from", left.ID)
+	}
+	if left.Entry == "" {
+		return journal.Delegation{}, fmt.Errorf("delegation %s ran on its role's own target, not on a ladder entry; delegate again with --class or --use", left.ID)
+	}
+	if left.Why == "person" && (opts.Entry == nil || !opts.Person) {
+		return journal.Delegation{}, fmt.Errorf("delegation %s was the person's explicit choice; ask them before changing it", left.ID)
+	}
+	return left, nil
+}
+
+// route picks the class's ladder entry as the target, or after an escalation
+// the next entry after the one the lead left. With no class, or no entry
+// whose agent is available, the role's own routing applies; an escalation
+// with no available entry is an error instead. NoSelf is set only when the
+// entry is the lead's own model, so that it is measured.
+func (lr *learnRun) route(cfg *config.Config, role string, unavailable map[string]bool, ro *router.Options) error {
 	if lr == nil || lr.opts.Entry != nil {
-		return
+		return nil
 	}
 	lr.next = learnRoute{why: "role"}
 	if lr.rec.Class == learning.Unclassified {
-		return
+		return nil
 	}
-	choice, ok := learning.Choose(cfg.Learning, lr.rec.Class, role, unavailable, "")
+	choice, ok := learning.Choose(cfg.Learning, lr.rec.Class, role, unavailable, lr.after)
 	if !ok {
-		return
+		if lr.after != "" {
+			return fmt.Errorf("class %s has no available entry after %s; do it yourself or name another role", lr.rec.Class, lr.after)
+		}
+		return nil
+	}
+	if lr.after != "" {
+		choice.Why = "escalation"
 	}
 	t := choice.Entry.Target()
 	ro.Use = &t
 	ro.NoSelf = sameModel(t, ro.Lead)
 	lr.next = learnRoute{entry: choice.Entry.Key(), ladder: choice.Ladder, why: choice.Why}
+	return nil
 }
 
 // resolved starts an attempt with the route Resolve gave for the choice route

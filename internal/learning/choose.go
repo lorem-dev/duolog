@@ -50,3 +50,8 @@ func Choose(l config.Learning, class, role string, unavailable map[string]bool, 
 	}
 	return Choice{}, false
 }
+
+// EscalationReasons are the signals the skill lists for leaving a ladder
+// entry: no reproduction, no line references, inconsistent explanations, a
+// fix that does not turn the test green, and a worker out of turns.
+var EscalationReasons = []string{"no_repro", "no_lines", "inconsistent", "not_green", "out_of_turns"}

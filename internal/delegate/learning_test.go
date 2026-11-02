@@ -701,3 +701,148 @@ func TestLearningCaptureFailureWritesNoRecord(t *testing.T) {
 		t.Fatalf("%+v", recs)
 	}
 }
+
+// firstDebug runs debug once and returns its record, the delegation to leave.
+func (h *harness) firstDebug() journal.Delegation {
+	h.t.Helper()
+	if out, err := h.runWith("debug_hard", Options{Features: diagnosis()}); err != nil {
+		h.t.Fatal(out, err)
+	}
+	return h.records()[0]
+}
+
+// leftRecord appends a delegation of the open task, as an earlier run would.
+func (h *harness) leftRecord(d journal.Delegation) journal.Delegation {
+	h.t.Helper()
+	task, ok, err := h.journal().CurrentTask("lead-123456")
+	if err != nil || !ok {
+		h.t.Fatal(task, ok, err)
+	}
+	d.Task, d.Lead, d.Role, d.Class, d.RuleClass, d.Ladder = task.ID, "lead-123456", "debug_hard", "debug", "debug", "debug"
+	d.Features = diagnosis()
+	if err := h.journal().Append("delegations.ndjson", d); err != nil {
+		h.t.Fatal(err)
+	}
+	return d
+}
+
+func TestEscalationMovesToNextEntry(t *testing.T) {
+	h := newHarness(t)
+	h.learning(true)
+	first := h.firstDebug()
+	if first.Entry != "codex/terra/medium" {
+		t.Fatalf("%+v", first)
+	}
+	out, err := h.runWith("debug_hard", Options{Features: diagnosis(), EscalateFrom: first.ID, EscalateReason: "not_green"})
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	h.requireCalls(2)
+	if r := h.calls[1].Route; r.Agent != "codex" || models.Normalize("codex", r.Model) != "sol" || r.Effort != "medium" {
+		t.Fatal(r)
+	}
+	rec := h.records()[1]
+	if rec.Why != "escalation" || rec.EscalatedFrom != first.ID || rec.EscalationReason != "not_green" || rec.Entry != "codex/sol/medium" || rec.Step != 2 {
+		t.Fatalf("%+v", rec)
+	}
+}
+
+func TestEscalationReusesFeatures(t *testing.T) {
+	h := newHarness(t)
+	h.learning(true)
+	first := h.firstDebug()
+	if out, err := h.runWith("debug_hard", Options{EscalateFrom: first.ID, EscalateReason: "no_lines"}); err != nil {
+		t.Fatal(out, err)
+	}
+	rec := h.records()[1]
+	if rec.Class != "debug" || rec.Features["output"] != "diagnosis" || rec.Entry != "codex/sol/medium" {
+		t.Fatalf("%+v", rec)
+	}
+}
+
+func TestEscalationNeedsKnownReason(t *testing.T) {
+	h := newHarness(t)
+	h.learning(true)
+	first := h.firstDebug()
+	_, err := h.runWith("debug_hard", Options{EscalateFrom: first.ID, EscalateReason: "tired"})
+	if err == nil || !strings.Contains(err.Error(), "out_of_turns") {
+		t.Fatal(err)
+	}
+	h.requireCalls(1)
+}
+
+func TestEscalationFromLastEntryRefused(t *testing.T) {
+	h := newHarness(t)
+	h.learning(true)
+	left := h.leftRecord(journal.Delegation{ID: "task-last", Entry: "claude/opus/high", Why: "escalation"})
+	_, err := h.runWith("debug_hard", Options{EscalateFrom: left.ID, EscalateReason: "inconsistent"})
+	if err == nil || !strings.Contains(err.Error(), "class debug has no entry after claude/opus/high") {
+		t.Fatal(err)
+	}
+	h.requireCalls(0)
+}
+
+func TestEscalationUnknownDelegation(t *testing.T) {
+	h := newHarness(t)
+	h.learning(true)
+	_, err := h.runWith("debug_hard", Options{EscalateFrom: "task-nope", EscalateReason: "no_repro"})
+	if err == nil || !strings.Contains(err.Error(), `delegation "task-nope" is not in the open task`) {
+		t.Fatal(err)
+	}
+	h.requireCalls(0)
+}
+
+func TestEscalationFromInfraRefused(t *testing.T) {
+	h := newHarness(t)
+	h.learning(true)
+	h.firstDebug()
+	left := h.leftRecord(journal.Delegation{ID: "task-infra", Entry: "codex/terra/medium", Why: "prior", Outcome: journal.OutcomeInfra})
+	_, err := h.runWith("debug_hard", Options{EscalateFrom: left.ID, EscalateReason: "out_of_turns"})
+	if err == nil || !strings.Contains(err.Error(), "provider limit") {
+		t.Fatal(err)
+	}
+	h.requireCalls(1)
+}
+
+func TestEscalationFromPersonChoiceRefused(t *testing.T) {
+	h := newHarness(t)
+	h.learning(true)
+	h.firstDebug()
+	left := h.leftRecord(journal.Delegation{ID: "task-person", Entry: "codex/terra/medium", Why: "person"})
+	_, err := h.runWith("debug_hard", Options{EscalateFrom: left.ID, EscalateReason: "not_green"})
+	if err == nil || !strings.Contains(err.Error(), "explicit choice") {
+		t.Fatal(err)
+	}
+	h.requireCalls(1)
+	// With --use the person has agreed to the change.
+	out, err := h.runWith("debug_hard", Options{EscalateFrom: left.ID, EscalateReason: "not_green", Entry: target("claude/opus/high"), Person: true})
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	h.requireCalls(2)
+	rec := h.records()[len(h.records())-1]
+	if rec.EscalatedFrom != left.ID || rec.Entry != "claude/opus/high" || rec.Why != "person" {
+		t.Fatalf("%+v", rec)
+	}
+}
+
+// A run on the role's own target or one that never reached a worker says
+// nothing about a ladder entry, so there is nothing to escalate from.
+func TestEscalationNeedsLadderRun(t *testing.T) {
+	for _, c := range []struct {
+		left journal.Delegation
+		want string
+	}{
+		{journal.Delegation{ID: "task-role", Why: "role"}, "not on a ladder entry"},
+		{journal.Delegation{ID: "task-lead", Entry: "codex/terra/medium", Why: "prior", Outcome: journal.OutcomeLead}, "before a worker ran"},
+	} {
+		h := newHarness(t)
+		h.learning(true)
+		left := h.leftRecord(c.left)
+		_, err := h.runWith("debug_hard", Options{EscalateFrom: left.ID, EscalateReason: "no_repro"})
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Fatal(c.left.ID, err)
+		}
+		h.requireCalls(0)
+	}
+}
