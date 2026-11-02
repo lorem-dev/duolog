@@ -59,10 +59,7 @@ func TestTranscriptBeyondFirstTailAndApprovalPolicy(t *testing.T) {
 			t.Fatal(err)
 		}
 		got, err := ReadLeadState("codex", path)
-		want := mode.Ask
-		if approval == "never" {
-			want = mode.Full
-		}
+		want := map[string]mode.Mode{"never": mode.Full, "on-request": mode.Edits, "untrusted": mode.Ask, "": mode.Ask}[approval]
 		if err != nil || got.Mode != want || got.Effort != "low" {
 			t.Fatal(got, err)
 		}

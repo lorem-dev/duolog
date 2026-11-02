@@ -30,8 +30,7 @@ func parse(data []byte) (map[string]string, error) {
 				fence = ""
 			}
 		}
-		if fence == "" && strings.HasPrefix(line, "## ") {
-			name := strings.TrimSpace(strings.TrimPrefix(line, "## "))
+		if name, ok := sectionHeading(line, next); fence == "" && ok {
 			if next >= len(sections) || name != sections[next] {
 				return nil, fmt.Errorf("task sections must be Goal, Read, Write, Limits, Check in order; unexpected %q", name)
 			}
@@ -44,7 +43,7 @@ func parse(data []byte) (map[string]string, error) {
 		}
 	}
 	if next != len(sections) {
-		return nil, fmt.Errorf("task missing section %s", sections[next])
+		return nil, fmt.Errorf("task missing section %s (a line \"## %s\")", sections[next], sections[next])
 	}
 	return result, nil
 }
@@ -242,7 +241,7 @@ func Inline(path, root string, maxBytes int, allowRead ...func(string) bool) ([]
 // Annotate uses the same fence and heading rules as the task parser.
 func Annotate(text, lines string) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
-	fence, offset := "", 0
+	fence, offset, next := "", 0, 0
 	for _, line := range strings.SplitAfter(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
@@ -254,9 +253,28 @@ func Annotate(text, lines string) string {
 			}
 		}
 		offset += len(line)
-		if fence == "" && trimmed == "## Limits" {
-			return text[:offset] + lines + text[offset:]
+		if name, ok := sectionHeading(strings.TrimRight(line, "\n"), next); fence == "" && ok && next < len(sections) && name == sections[next] {
+			if name == "Limits" {
+				return text[:offset] + lines + text[offset:]
+			}
+			next++
 		}
 	}
 	return text
+}
+
+// sectionHeading reads a heading that starts a section. A "## " line always
+// does, and a wrong name there is an error. Agents also write "# Goal" or
+// "### Goal", so those levels count when they name the section due next;
+// otherwise they are ordinary text in the section.
+func sectionHeading(line string, next int) (string, bool) {
+	level := len(line) - len(strings.TrimLeft(line, "#"))
+	if level < 1 || level > 3 || !strings.HasPrefix(line[level:], " ") {
+		return "", false
+	}
+	name := strings.TrimSpace(line[level:])
+	if level == 2 {
+		return name, true
+	}
+	return name, next < len(sections) && name == sections[next]
 }

@@ -18,6 +18,9 @@ func claudeArgv(s Spec) []string {
 	}
 	args = append(args, "--output-format", "json", "--json-schema", answerSchema)
 	args = append(args, mode.Args("claude", s.Mode, s.Route.Sandbox)...)
+	if s.Route.Context == "minimal" {
+		args = append(args, "--disable-slash-commands")
+	}
 	if s.ThreadID == "" {
 		if !s.Persistent {
 			args = append(args, "--no-session-persistence")

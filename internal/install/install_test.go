@@ -162,8 +162,12 @@ func TestPreservesForeignHooks(t *testing.T) {
 	if !strings.Contains(got, `"command": "duolog"`) {
 		t.Fatalf("our hook missing:\n%s", got)
 	}
-	if read(t, path+".duolog.bak") != foreign {
+	// The backup stays out of the work tree, where git add -A would pick it up.
+	if read(t, filepath.Join(root, ".duolog/backup/.claude/settings.json")) != foreign {
 		t.Fatal("backup is not the original file")
+	}
+	if _, err := os.Stat(path + backupSuffix); !os.IsNotExist(err) {
+		t.Fatal("a backup was left next to the project file", err)
 	}
 }
 
@@ -288,7 +292,7 @@ func TestKeepsExistingConfig(t *testing.T) {
 	if got := read(t, path); got != "version: 1\n" {
 		t.Fatalf("config changed: %q", got)
 	}
-	if _, err := os.Stat(path + ".duolog.bak"); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, ".duolog/backup/.duolog/config.yaml")); !os.IsNotExist(err) {
 		t.Fatal("backup of an untouched file")
 	}
 }
@@ -583,7 +587,7 @@ func TestInstallKeepsFileModeAndLinks(t *testing.T) {
 	if !strings.Contains(read(t, real), "duolog") {
 		t.Fatal("the linked file was not updated")
 	}
-	for _, name := range []string{real, real + backupSuffix} {
+	for _, name := range []string{real, filepath.Join(root, ".duolog/backup/.claude/settings.json")} {
 		info, err := os.Stat(name)
 		if err != nil || info.Mode().Perm() != 0o600 {
 			t.Fatalf("%s: %v %v", name, info.Mode(), err)

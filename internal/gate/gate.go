@@ -123,6 +123,10 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 		return decision(Allow, "returns the worker answer", "answer tool")
 	}
 
+	// The lead talks to the user; a worker that waits for an answer only stalls.
+	if a.Kind == "unknown" && strings.HasPrefix(a.Target, "request_user_input") {
+		return decision(Deny, "a worker cannot ask the user; return done false with the question in needs", "ask user")
+	}
 	if a.Kind != "read" && a.Kind != "write" && a.Kind != "exec" && a.Kind != "net" {
 		return decision(Ask, "unknown tool requires approval", "unknown tool")
 	}
@@ -340,6 +344,43 @@ func basenameCommand(command string) string {
 	return strings.TrimSuffix(path.Base(pathutil.Slashes(word)), ".exe") + command[len(word):]
 }
 
+// quotedLiteralUnsafe lists what a quoted run may not hold. Whitespace and
+// control characters would split one shell word into several once the quotes
+// are gone, and glob, brace and tilde characters would read as patterns the
+// shell never expands. A backslash is refused because removing the quotes
+// removes it too. Double quotes also expand $ and backticks; single quotes keep
+// them literal.
+const (
+	quotedLiteralUnsafe       = " \t\n\r\v\f*?[]{}~'\"\\"
+	doubleQuotedLiteralUnsafe = quotedLiteralUnsafe + "$`"
+)
+
+// literalQuotes reports whether the quotes in part only group literal text,
+// so that removing them leaves the same words the shell passes on: they are
+// balanced, each quoted run is non-empty and holds none of quotedLiteralUnsafe,
+// and nothing outside them redirects, substitutes or escapes.
+func literalQuotes(part string) bool {
+	for i := 0; i < len(part); i++ {
+		c := part[i]
+		if c != '\'' && c != '"' {
+			if strings.IndexByte("\\$`<>()", c) >= 0 {
+				return false
+			}
+			continue
+		}
+		unsafe := quotedLiteralUnsafe
+		if c == '"' {
+			unsafe = doubleQuotedLiteralUnsafe
+		}
+		end := strings.IndexByte(part[i+1:], c)
+		if end <= 0 || strings.ContainsAny(part[i+1:i+1+end], unsafe) {
+			return false
+		}
+		i += end + 1
+	}
+	return true
+}
+
 // shellParts is deliberately conservative, not a shell interpreter. Quoted
 // separators remain arguments; substitutions and unsupported syntax need review.
 func shellParts(command string) ([]string, bool) {
@@ -349,26 +390,38 @@ func shellParts(command string) ([]string, bool) {
 	escaped, uncertain := false, false
 	appendPart := func(part string) {
 		words := strings.Fields(part)
+		quoted := false
 		// Only literal words can be matched safely without interpreting a shell.
 		if len(words) == 0 {
 			uncertain = true
 			return
 		}
 		if strings.ContainsAny(part, "'\"\\$`<>()") {
-			uncertain = true
 			stripped := strings.NewReplacer("'", "", "\"", "", "\\", "").Replace(part)
-			parts = append(parts, strings.Join(strings.Fields(stripped), " "))
-			return
+			words = strings.Fields(stripped)
+			if !literalQuotes(part) || len(words) == 0 {
+				uncertain = true
+				parts = append(parts, strings.Join(words, " "))
+				return
+			}
+			quoted = true
 		}
 		word := words[0]
-		if strings.ContainsAny(word, "=*?[]{}~") {
+		// A quoted part still reaches the deny checks when it needs review.
+		review := func() {
 			uncertain = true
+			if quoted {
+				parts = append(parts, strings.Join(words, " "))
+			}
+		}
+		if strings.ContainsAny(word, "=*?[]{}~") {
+			review()
 			return
 		}
 		switch filepath.Base(word) {
 		case "command", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "powershell", "cmd",
 			"time", "nice", "ionice", "timeout", "nohup", "stdbuf", "setsid", "busybox", "doas", "watch", "parallel":
-			uncertain = true
+			review()
 			return
 		}
 		parts = append(parts, strings.Join(words, " "))
@@ -397,7 +450,8 @@ func shellParts(command string) ([]string, bool) {
 			quote = c
 			continue
 		}
-		if strings.ContainsRune("<>()", rune(c)) {
+		// Brace expansion turns one word into several, so a word the gate reads can become a denied path.
+		if strings.ContainsRune("<>(){", rune(c)) {
 			uncertain = true
 		}
 		if c == '&' && (i+1 >= len(command) || command[i+1] != '&') {
@@ -476,7 +530,12 @@ func denyCommand(command string) string {
 
 // readCommands only print. find and rg can also write or run, so readOnlyCommand
 // checks their options.
-var readCommands = []string{"cat", "head", "tail", "ls", "pwd", "wc", "grep", "get-content", "get-childitem", "get-location", "test-path", "select-string", "get-item"}
+// diff is not here: diff -r and two folders print files that policy denies.
+var readCommands = []string{"cat", "head", "tail", "ls", "pwd", "wc", "grep", "get-content", "get-childitem", "get-location", "test-path", "select-string", "get-item",
+	"stat", "du", "cut", "nl", "comm", "uniq", "realpath", "which", "basename", "dirname", "shasum", "md5"}
+
+// checkedReadCommands are reads only with some options, which readOnlyCommand checks.
+var checkedReadCommands = []string{"find", "rg", "sed", "jq", "sort", "tree", "file"}
 
 func readOnlyCommand(command string) bool {
 	raw := strings.Fields(command)
@@ -492,8 +551,50 @@ func readOnlyCommand(command string) bool {
 		return findOptionsKnown(words[1:])
 	case "rg":
 		return rgOptionsKnown(raw[1:])
+	case "sed":
+		return safeSed(raw)
+	case "jq":
+		_, ok := jqFiles(raw[1:])
+		return ok
+	case "sort":
+		return sortOptionsKnown(raw[1:])
+	case "tree":
+		// -o writes a file, and -R with -H writes an HTML page into each folder.
+		return !slices.ContainsFunc(raw[1:], func(w string) bool {
+			return strings.HasPrefix(w, "--o") || strings.HasPrefix(w, "--fromfile") || !strings.HasPrefix(w, "--") && strings.HasPrefix(w, "-") && strings.ContainsAny(w, "oR")
+		})
+	case "file":
+		// -C and --compile write a magic file.
+		return !slices.ContainsFunc(raw[1:], func(w string) bool {
+			return strings.HasPrefix(w, "--c") || !strings.HasPrefix(w, "--") && strings.HasPrefix(w, "-") && strings.Contains(w, "C")
+		})
+	case "uniq":
+		// uniq IN OUT writes OUT: allow at most one file.
+		files := 0
+		for _, w := range words[1:] {
+			if !strings.HasPrefix(w, "-") {
+				files++
+			}
+		}
+		return files <= 1
 	}
 	return slices.Contains(readCommands, words[0])
+}
+
+var sedPrintRange = regexp.MustCompile(`^([0-9]+|\$)(,([0-9]+|\$))?p$`)
+
+// safeSed accepts only sed -n 'N,Mp' FILE...: it prints a line range and can
+// neither write a file nor run a command.
+func safeSed(words []string) bool {
+	if len(words) < 4 || words[1] != "-n" || !sedPrintRange.MatchString(words[2]) {
+		return false
+	}
+	for _, word := range words[3:] {
+		if strings.HasPrefix(word, "-") {
+			return false
+		}
+	}
+	return true
 }
 
 // readCommandDecision applies read rules to the paths of each read command in
@@ -542,7 +643,7 @@ func readOnlyRule(pattern string) bool {
 			if len(fields) < 2 || !slices.Contains([]string{"status", "diff", "log", "show"}, strings.TrimSuffix(fields[1], "*")) {
 				return false
 			}
-		} else if name := strings.TrimSuffix(fields[0], "*"); name != "rg" && name != "find" && !slices.Contains(readCommands, name) {
+		} else if name := strings.TrimSuffix(fields[0], "*"); !slices.Contains(checkedReadCommands, name) && !slices.Contains(readCommands, name) {
 			return false
 		}
 	}

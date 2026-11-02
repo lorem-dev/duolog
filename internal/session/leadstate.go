@@ -101,23 +101,37 @@ func parseLeadState(agent string, data []byte) LeadState {
 			state = LeadState{Model: record.Payload.Model, ApprovalPolicy: record.Payload.Approval}
 			_ = json.Unmarshal(record.Payload.Effort, &state.Effort)
 			nullEffort = bytes.Equal(bytes.TrimSpace(record.Payload.Effort), []byte("null"))
-			switch record.Payload.Sandbox.Type {
-			case "read-only":
-				state.Mode = mode.Plan
-			case "workspace-write":
-				state.Mode = mode.Ask
-			case "danger-full-access":
-				state.Mode = mode.Ask
-				if record.Payload.Approval == "never" {
-					state.Mode = mode.Full
-				}
-			}
+			state.Mode = CodexMode(record.Payload.Sandbox.Type, record.Payload.Approval)
 		}
 	}
 	if agent == "codex" && nullEffort && state.Model != "" {
 		state.Effort = defaultEffort(state.Model)
 	}
 	return state
+}
+
+// CodexMode gives a Codex lead the mode of what Codex itself does without
+// asking. In workspace-write with approval on-request, never or on-failure,
+// Codex edits the project and asks only to leave the sandbox, so its workers
+// may edit too. untrusted asks before most commands and edits, and an unknown
+// approval policy counts as ask. An unknown sandbox is no observation.
+func CodexMode(sandbox, approval string) mode.Mode {
+	switch sandbox {
+	case "read-only":
+		return mode.Plan
+	case "workspace-write", "danger-full-access":
+		switch approval {
+		case "never":
+			if sandbox == "danger-full-access" {
+				return mode.Full
+			}
+			return mode.Edits
+		case "on-request", "on-failure":
+			return mode.Edits
+		}
+		return mode.Ask
+	}
+	return ""
 }
 
 func defaultEffort(model string) string {

@@ -47,12 +47,22 @@ func containsArgs(t *testing.T, got []string, want ...string) {
 func TestCodexArgvMinimal(t *testing.T) {
 	s := spec(t, "codex")
 	a := Argv(s)
-	containsArgs(t, a, "codex", "exec", "-m", "gpt-6-luna", `model_reasoning_effort="low"`, "project_doc_max_bytes=0", "-s", "read-only", "--ephemeral", "-o", "--json", "Do the task in the stdin block.")
+	containsArgs(t, a, "codex", "exec", "-m", "gpt-6-luna", `model_reasoning_effort="low"`, "project_doc_max_bytes=0", "skills.include_instructions=false", "allow_login_shell=false", "-s", "read-only", "--ephemeral", "-o", "--json", "Do the task in the stdin block.")
 }
 func TestCodexArgvProjectContext(t *testing.T) {
 	s := spec(t, "codex")
 	s.Route.Context = "project"
-	if strings.Contains(strings.Join(Argv(s), " "), "project_doc_max_bytes") {
+	if line := strings.Join(Argv(s), " "); strings.Contains(line, "project_doc_max_bytes") || strings.Contains(line, "skills.include_instructions") {
+		t.Fatal(Argv(s))
+	}
+}
+
+// A minimal-context worker gets its rules from the task, not from skills.
+func TestClaudeArgvMinimalDropsSkills(t *testing.T) {
+	s := spec(t, "claude")
+	containsArgs(t, Argv(s), "--disable-slash-commands")
+	s.Route.Context = "project"
+	if strings.Contains(strings.Join(Argv(s), " "), "--disable-slash-commands") {
 		t.Fatal(Argv(s))
 	}
 }
@@ -598,12 +608,33 @@ func TestCancellationKillsDescendantHoldingOutput(t *testing.T) {
 		t.Skip("native Windows process-tree verification pending")
 	}
 	s := spec(t, "claude")
-	s.Timeout = 250 * time.Millisecond
+	s.Timeout = time.Minute
 	fake := install(t, &s, testbin.Scenario{SpawnChild: true, SleepMS: 60000})
-	started := time.Now()
-	got, err := Run(context.Background(), s)
-	if err == nil || !got.Interrupted || time.Since(started) > 3*time.Second {
-		t.Fatal(got, err, time.Since(started))
+	// Cancel once the descendant runs. A fixed short timeout could expire
+	// before a loaded machine started it, and the test then saw no child.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cancelled := make(chan time.Time, 1)
+	go func() {
+		for ctx.Err() == nil {
+			if _, err := os.Stat(fake + ".child-pid"); err == nil {
+				cancelled <- time.Now()
+				cancel()
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	got, err := Run(ctx, s)
+	var since time.Duration
+	select {
+	case at := <-cancelled:
+		since = time.Since(at)
+	default:
+		t.Fatal("the worker ended before its descendant started", got, err)
+	}
+	if err == nil || !got.Interrupted || since > 3*time.Second {
+		t.Fatal(got, err, since)
 	}
 	pidData, pidErr := os.ReadFile(fake + ".child-pid")
 	if pidErr != nil {

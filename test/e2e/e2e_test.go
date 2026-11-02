@@ -297,7 +297,8 @@ func benchSource() string {
 	return strings.Join(lines[:2000], "\n") + "\n"
 }
 
-// savedCost returns the mean estimated cost of one form in the saved bench.
+// savedCost returns the mean cost of one form in the saved bench, priced as if
+// nothing was cached.
 func savedCost(t *testing.T, form string) float64 {
 	t.Helper()
 	f, err := os.Open(filepath.Join("..", "..", "scripts", "bench", "fixtures", "results", "handoff-bench.csv"))
@@ -326,7 +327,7 @@ func savedCost(t *testing.T, form string) float64 {
 			}
 			return v
 		}
-		sum += lunaCost(usageRow{Input: num("input"), Cached: num("cached"), Output: num("output")})
+		sum += uncachedCost(usageRow{Input: num("input"), Output: num("output")})
 		count++
 	}
 	if count == 0 {
@@ -360,9 +361,12 @@ func TestInlineCostsLessThanReference(t *testing.T) {
 			if len(rows) != 1 {
 				t.Fatalf("want one usage row: %+v", rows)
 			}
-			cost, ref := lunaCost(rows[0]), savedCost(t, c.form)
-			t.Logf("%s inline: input=%d cached=%d output=%d cost %.5f USD; saved %q reference %.5f; answer: %s",
-				c.name, rows[0].Input, rows[0].Cached, rows[0].Output, cost, c.form, ref, line)
+			// Codex decides per call whether a prompt comes from its cache, so a
+			// cached price swings by twice between runs. Both sides are priced
+			// uncached: the test is about the tokens the handoff sends.
+			cost, ref := uncachedCost(rows[0]), savedCost(t, c.form)
+			t.Logf("%s inline: input=%d cached=%d output=%d cost %.5f USD uncached (%.5f with cache); saved %q reference %.5f; answer: %s",
+				c.name, rows[0].Input, rows[0].Cached, rows[0].Output, cost, lunaCost(rows[0]), c.form, ref, line)
 			if cost >= ref {
 				t.Errorf("inline %.5f is not below the %s reference %.5f", cost, c.form, ref)
 			}

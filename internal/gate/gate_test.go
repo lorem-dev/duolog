@@ -111,7 +111,9 @@ func TestCompoundShellCommand(t *testing.T) {
 	}
 	check(t, p, LeadRules{}, mode.Full, Action{Kind: "exec", Target: "go test > .duolog/x", Role: "implement"}, Deny)
 	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: "go test ./... && git status", Role: "implement"}, Allow)
-	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: `go test -run 'a|b' ./...`, Role: "implement"}, Ask)
+	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: `go test -run 'a|b' ./...`, Role: "implement"}, Allow)
+	// Quotes that only group literal text are read as literals; a substitution inside them is not.
+	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: `go test -run "$(id)" ./...`, Role: "implement"}, Ask)
 }
 
 func TestShellDenyBypasses(t *testing.T) {
@@ -343,6 +345,23 @@ func TestImportCodexLimits(t *testing.T) {
 	writeSetting(t, filepath.Join(root, ".codex/config.toml"), "sandbox_mode = [\n")
 	if _, err := ImportLead(root, "codex"); err == nil {
 		t.Fatal("malformed TOML accepted")
+	}
+}
+
+// Codex edits the project without asking under on-request, so a write role may
+// edit too; untrusted asks first.
+func TestImportCodexApproval(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	for approval, want := range map[string]string{"on-request": Allow, "on-failure": Allow, "never": Allow, "untrusted": Ask} {
+		writeSetting(t, filepath.Join(root, ".codex/config.toml"), "sandbox_mode = 'workspace-write'\napproval_policy = '"+approval+"'\n")
+		lead, err := ImportLead(root, "codex")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d := Evaluate(p, lead, mode.Full, Action{Kind: "write", Target: "src/a.go", Role: "implement"}); d.Kind != want {
+			t.Errorf("%s: %s (%s), want %s", approval, d.Kind, d.Reason, want)
+		}
 	}
 }
 

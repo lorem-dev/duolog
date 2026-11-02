@@ -327,6 +327,11 @@ func lunaCost(row usageRow) float64 {
 	return (float64(row.Input-row.Cached)*0.10 + float64(row.Cached)*0.01 + float64(row.Output)*0.50) / 1e6
 }
 
+// uncachedCost prices every input token at the full luna rate.
+func uncachedCost(row usageRow) float64 {
+	return (float64(row.Input)*0.10 + float64(row.Output)*0.50) / 1e6
+}
+
 func needAgent(t *testing.T, names ...string) {
 	t.Helper()
 	for _, name := range names {

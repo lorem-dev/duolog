@@ -43,7 +43,8 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout ti
 	if waiting, err := reg.IsWaiting(lead); err != nil {
 		return deny("cannot read lead wait state")
 	} else if waiting {
-		return deny("lead is waiting for foreground delegate; return done false with needs, then re-run after the lead decides")
+		// Name the command, so the lead can allow it or rewrite the task without reading the log.
+		return deny(fmt.Sprintf("lead is waiting for foreground delegate; %q needs approval. Return done false with it in needs, or use a plain command inside the project without pipes, globs or substitutions; the lead may ask the user to allow it next time with duolog remember", askSummary(strings.Join(strings.Fields(a.Target), " "), 160)))
 	}
 	address := session.Address(l)
 	from := "duolog/ask." + rand.Text()

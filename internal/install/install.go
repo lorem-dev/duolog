@@ -36,6 +36,8 @@ const backupSuffix = ".duolog.bak"
 type edit struct {
 	path string
 	data []byte
+	// backup is where the old file goes; empty means next to it.
+	backup string
 }
 
 // Run installs hooks, the skill and, in project scope, a starter config.
@@ -61,7 +63,7 @@ func Run(o Options) (Report, error) {
 				if err != nil {
 					return Report{}, err
 				}
-				edits = append(edits, edit{path, data})
+				edits = append(edits, edit{path: path, data: data})
 			}
 			report.Notes = append(report.Notes, "Claude: the "+pluginKey+" plugin is enabled, so its hooks and skill are used and none were installed here. Gate waits are capped at 120 seconds.")
 			continue
@@ -78,7 +80,7 @@ func Run(o Options) (Report, error) {
 		if err != nil {
 			return Report{}, err
 		}
-		edits = append(edits, edit{path, data}, edit{installedSkillPath(o, base, agent), skill})
+		edits = append(edits, edit{path: path, data: data}, edit{path: installedSkillPath(o, base, agent), data: skill})
 	}
 	if o.Scope != "user" {
 		if _, err := store.Open(o.Root); err != nil {
@@ -91,9 +93,16 @@ func Run(o Options) (Report, error) {
 		edits = append(edits, instructions...)
 		path := filepath.Join(o.Root, ".duolog", "config.yaml")
 		if _, err := os.Stat(path); os.IsNotExist(err) {
-			edits = append(edits, edit{path, []byte("# yaml-language-server: $schema=" + config.SchemaURL + "\nversion: 1\n")})
+			edits = append(edits, edit{path: path, data: []byte("# yaml-language-server: $schema=" + config.SchemaURL + "\nversion: 1\n")})
 		} else if err != nil {
 			return Report{}, err
+		}
+	}
+	// A backup next to a project file lands in the work tree, where git add -A
+	// picks it up. .duolog/ is ignored, so project backups go there.
+	if o.Scope != "user" {
+		for i := range edits {
+			edits[i].backup = projectBackup(o.Root, edits[i].path)
 		}
 	}
 	for _, e := range edits {
@@ -131,7 +140,12 @@ func Remove(o Options) error {
 			if err != nil {
 				return err
 			}
-			edits = append(edits, edit{path, data})
+			edits = append(edits, edit{path: path, data: data})
+		}
+	}
+	if o.Scope != "user" {
+		for i := range edits {
+			edits[i].backup = projectBackup(o.Root, edits[i].path)
 		}
 	}
 	for _, e := range edits {
@@ -245,7 +259,13 @@ func apply(e edit) (bool, error) {
 		return false, err
 	}
 	if err == nil {
-		if err := writeBackup(path+backupSuffix, old, mode); err != nil {
+		backup := e.backup
+		if backup == "" {
+			backup = path + backupSuffix
+		} else if err := os.MkdirAll(filepath.Dir(backup), 0o755); err != nil {
+			return false, err
+		}
+		if err := writeBackup(backup, old, mode); err != nil {
 			return false, err
 		}
 	}
@@ -503,4 +523,14 @@ func mergeHooks(path string, ours []byte) ([]byte, error) {
 // IsOurCommand shares handler recognition with trust and startup checks.
 func IsOurCommand(command string) bool {
 	return command == "duolog" || command == "duolog gate" || strings.Contains(command, "duolog hook ") || strings.Contains(command, "duolog gate ")
+}
+
+// projectBackup names the backup of a file in the project: the same path under
+// .duolog/backup/. A file outside the project keeps its backup next to it.
+func projectBackup(root, path string) string {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || !filepath.IsLocal(rel) {
+		return ""
+	}
+	return filepath.Join(root, ".duolog", "backup", rel)
 }
