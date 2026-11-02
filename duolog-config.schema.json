@@ -48,6 +48,20 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "AutoAnswer": {
+      "properties": {
+        "match": {
+          "type": "string",
+          "description": "Text in a peer question to match, in list order."
+        },
+        "answer": {
+          "type": "string",
+          "description": "Option label to select; trust and persistent approval grants are refused."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "Capabilities": {
       "properties": {
         "on_missing": {
@@ -284,6 +298,13 @@
     },
     "Rex": {
       "properties": {
+        "auto_answers": {
+          "items": {
+            "$ref": "#/$defs/AutoAnswer"
+          },
+          "type": "array",
+          "description": "Ordered question and option rules; replaces defaults, and an empty list disables them. Defaults to continuing without trusting Codex hooks."
+        },
         "capture_lines": {
           "type": "integer",
           "description": "Terminal lines captured to inspect state; defaults to 20. Answers are read from files."

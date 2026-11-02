@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -42,7 +43,7 @@ type Client struct {
 	Session string
 	// Anchor is the pane a split goes beside; empty means the focused pane.
 	Anchor string
-	// Dir and Label apply to panes made by Split.
+	// Dir is the new pane's working directory. Label names a split pane or a new tab.
 	Dir   string
 	Label string
 }
@@ -253,6 +254,55 @@ func (c Client) Split(ctx context.Context, argv []string) (string, error) {
 	return created.BlockIDs[0], nil
 }
 
+// NewWindow opens a tab in the same session without changing the lead's focus.
+// NAME labels the tab; the program starts directly, with no shell.
+func (c Client) NewWindow(ctx context.Context, argv []string) (string, error) {
+	if len(argv) == 0 {
+		return "", errors.New("rex window new: missing command")
+	}
+	args := []string{"window", "new", "-s", c.Session}
+	if c.Label != "" {
+		args = append(args, c.Label)
+	}
+	args = append(args, "--focus=false", "--json", "--shell=none")
+	if c.Dir != "" {
+		args = append(args, "-c", c.Dir)
+	}
+	args = append(args, "--")
+	out, err := c.call(ctx, append(args, argv...)...)
+	if err != nil {
+		return "", err
+	}
+	var created struct {
+		BlockIDs []string `json:"block_ids"`
+	}
+	if err := json.Unmarshal([]byte(out), &created); err != nil || len(created.BlockIDs) == 0 || created.BlockIDs[0] == "" {
+		return "", errors.New("rex window new: reply has no block_ids[0]")
+	}
+	return created.BlockIDs[0], nil
+}
+
+// WindowID reads a pane's current window. Empty block selects the focused pane.
+func (c Client) WindowID(ctx context.Context, block string) (string, error) {
+	args := []string{"block", "inspect", "-s", c.Session, "--json"}
+	if block != "" {
+		args = append(args, block)
+	}
+	out, err := c.call(ctx, args...)
+	if err != nil {
+		return "", err
+	}
+	var inspected struct {
+		Block struct {
+			WindowID string `json:"window_id"`
+		} `json:"block"`
+	}
+	if err := json.Unmarshal([]byte(out), &inspected); err != nil || inspected.Block.WindowID == "" {
+		return "", errors.New("rex block inspect: reply has no block.window_id")
+	}
+	return inspected.Block.WindowID, nil
+}
+
 // Send types text into a pane without pressing enter. The caller owns the
 // pause before SendKey.
 func (c Client) Send(ctx context.Context, block, text string) error {
@@ -294,7 +344,10 @@ func lastLines(text string, n int) []byte {
 }
 
 // clean drops control characters, including escape sequences' escape byte.
+var ansiRe = regexp.MustCompile("\x1b\\[[0-?]*[ -/]*[@-~]")
+
 func clean(s string) string {
+	s = ansiRe.ReplaceAllString(s, "")
 	return strings.Map(func(r rune) rune {
 		if r == '\t' {
 			return ' '

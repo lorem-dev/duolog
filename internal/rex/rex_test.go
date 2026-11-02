@@ -120,7 +120,7 @@ func TestAliveCapturesLimitedLines(t *testing.T) {
 func TestCaptureDropsControlCharacters(t *testing.T) {
 	c := install(t, testbin.Scenario{Stdout: "ok\x1b[31m red\x07\n"})
 	out, err := c.Capture(context.Background(), "b", 20)
-	if err != nil || string(out) != "ok[31m red" {
+	if err != nil || string(out) != "ok red" {
 		t.Fatalf("%q %v", out, err)
 	}
 }
@@ -282,5 +282,52 @@ func TestDetectNeedsSessionAndBinary(t *testing.T) {
 	c, ok := Detect()
 	if !ok || c.Session != "work" || c.Anchor != "block:lead" || filepath.Base(c.Bin) != filepath.Base(bin) {
 		t.Fatalf("%+v %v", c, ok)
+	}
+}
+
+func TestCaptureRemovesANSIStyles(t *testing.T) {
+	c := install(t, testbin.Scenario{Stdout: "\x1b[2m• Working (3s · esc to interrupt)\x1b[0m\n› \x1b[0K"})
+	out, err := c.Capture(context.Background(), "b", 20)
+	if err != nil || string(out) != "• Working (3s · esc to interrupt)\n›" {
+		t.Fatalf("%q %v", out, err)
+	}
+}
+
+func TestNewWindowUsesSessionAndCommand(t *testing.T) {
+	c := install(t, testbin.Scenario{Responses: map[string]testbin.Scenario{"window new": {Stdout: `{"window_id":"window:new","block_ids":["block:new"]}`}}})
+	c.Anchor, c.Dir, c.Label = "block:lead", "/work", "codex-tests"
+	id, err := c.NewWindow(context.Background(), []string{"codex", "-m", "x"})
+	if err != nil || id != "block:new" {
+		t.Fatalf("%s %v", id, err)
+	}
+	got := calls(t, c.Bin)
+	args := strings.Join(got[0], " ")
+	for _, want := range []string{"window new -s sess codex-tests", "--focus=false", "--shell=none", "-c /work", "-- codex -m x"} {
+		if !strings.Contains(args, want) {
+			t.Fatalf("missing %s: %s", want, args)
+		}
+	}
+	if has(got[0], "-b") {
+		t.Fatal("new tab anchored to a pane")
+	}
+}
+
+func TestWindowIDReadsBlockOwner(t *testing.T) {
+	c := install(t, testbin.Scenario{Stdout: `{"block":{"id":"block:p","window_id":"window:w"}}`})
+	id, err := c.WindowID(context.Background(), "block:p")
+	if err != nil || id != "window:w" {
+		t.Fatalf("%s %v", id, err)
+	}
+	if args := strings.Join(calls(t, c.Bin)[0], " "); args != "block inspect -s sess --json block:p" {
+		t.Fatal(args)
+	}
+}
+
+func TestNewWindowRejectsMissingBlock(t *testing.T) {
+	for _, reply := range []string{`{}`, `{"window_id":"window:new","block_ids":[]}`, `bad`} {
+		c := install(t, testbin.Scenario{Stdout: reply})
+		if _, err := c.NewWindow(context.Background(), []string{"codex"}); err == nil {
+			t.Fatalf("accepted %s", reply)
+		}
 	}
 }

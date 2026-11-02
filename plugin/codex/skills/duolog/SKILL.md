@@ -9,8 +9,8 @@ description: >-
 
 ## Before you start
 
-1. Run `duolog version`. If it is not found, tell the user and offer the
-   command for this OS below. Run it only if they agree.
+1. Run `duolog version`. If not found, tell the user and offer the OS
+   command below. Run it only if they agree.
 
    macOS/Linux:
 
@@ -26,47 +26,51 @@ description: >-
 
    On Windows, add the printed directory to PATH, then run
    `duolog install --scope project`.
-2. Run `duolog doctor` once per session. If it says the rules are off, tell
-   the user what it names, such as `/hooks`, before delegating.
+2. Run `duolog doctor` once per session. If the rules are off, tell the
+   user what it names (`/hooks`) before delegating.
 
 ## Hand over
 
-1. Give a whole feature to `planner`: it reads, implements, checks and lists
-   hunks to review. Do small fixes yourself.
-2. Write `.duolog/task.md` with sections Goal, Read, Write, Limits, Check.
-   Give files or line ranges you know. Put a changelog or docs under Write if
-   the worker edits them.
-3. Run `duolog delegate <role> --task .duolog/task.md` with a long timeout.
-   Wait for its notice; do not poll.
-4. Read the summary and `git diff --stat`; open only marked hunks. Read
-   `answer.json` only for `decisions=`. Skip full test suites.
-5. Keep hard parts and the final review, or use `review_final`.
+Do steps that the rules or duolog settle without explaining them; report
+results.
+Collect small changes into one pull request per batch unless the user asks
+otherwise.
 
-`.duolog/brief.md` holds rules for every worker. With several leads, pass
+1. Give whole features to `planner`: read, implement, check, list review hunks.
+   Do small fixes yourself.
+2. Write `.duolog/task.md` with sections Goal, Read, Write, Limits, Check.
+   Give known files or ranges; list docs and changelog under Write for workers.
+3. Run `duolog delegate <role> --task .duolog/task.md` with a long timeout.
+   Wait for notice; do not poll.
+4. Read the summary and `git diff --stat`; open marked hunks only. Read
+   `answer.json` only for `decisions=`. Skip full test suites.
+5. Keep hard parts and final review, or use `review_final`.
+
+Put worker rules in `.duolog/brief.md`. With several leads, pass
 `--lead <id>` from SessionStart.
 
 ## Running from Codex
 
-Run `duolog delegate` outside the sandbox, or workers cannot start. An old
-`duolog version` means PATH found an older copy; use the full path.
+Run `duolog delegate` outside the sandbox, or workers cannot start. For an old
+`duolog version`, use the full path.
 
 ## When duolog says `run here`
 
 - `run here: self`: do the task here, reading only the listed ranges.
 - `run here: subagent model=M effort=E`: call `spawn_agent` with model M,
-  reasoning_effort E and fork_turns "none", then `wait_agent`. Give the task
-  text. Do not start another duolog session.
+  reasoning_effort E and fork_turns "none", then `wait_agent`. Pass task
+  text. Never start another duolog session.
 
 ## Permission requests
 
 A foreground delegate blocks you, so an ask denies: the worker retries
 plainer, then returns `done: false` with the command in `needs`. When free,
 answer with `duolog allow <n>` or `duolog deny <n>`. If the user allows a
-command for good, run `duolog remember '<command>'`.
+command permanently, run `duolog remember '<command>'`.
 
 ## Live sessions
 
-Live sessions need Rex; `duolog peer wait` returns for an ask.
+Rex sessions: `duolog peer wait` returns for asks.
 
 ## Never
 

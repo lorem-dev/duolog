@@ -74,7 +74,7 @@ func peerProject(t *testing.T, capture testbin.Scenario) (root, rex string) {
 	}
 	rex = testbin.Install(t, "rex", testbin.Scenario{Exit: 99, Stderr: "unexpected rex command", Responses: map[string]testbin.Scenario{
 		"split":         {Stdout: peerSplitReply},
-		"block inspect": {Stdout: "{}"},
+		"block inspect": {Stdout: `{"block":{"window_id":"window:lead"}}`},
 		"wait":          {Exit: 1, Stderr: "Error: wait timed out after 500ms: context deadline exceeded"},
 		"capture":       capture,
 		"send":          {},
@@ -192,7 +192,7 @@ func TestPeerSendOnLimitPrintsRunHere(t *testing.T) {
 		t.Fatal(err)
 	}
 	rex := testbin.Install(t, "rex", testbin.Scenario{Exit: 99, Responses: map[string]testbin.Scenario{
-		"block inspect": {Stdout: "{}"},
+		"block inspect": {Stdout: `{"block":{"window_id":"window:lead"}}`},
 		"wait":          {Exit: 1, Stderr: "Error: wait timed out after 500ms: context deadline exceeded"},
 		"capture":       {Stdout: "You've hit your 5-hour limit · resets 3am (Europe/London)\n" + claudeIdleScreen()},
 	}})
@@ -287,5 +287,24 @@ func TestPeerLaunchSetsEnvWithoutRex(t *testing.T) {
 	}
 	if _, err := executeBusCommand(t, "peer", "launch", "--env-file", file); err == nil {
 		t.Fatal("launch without a program")
+	}
+}
+
+func TestPeerListJSON(t *testing.T) {
+	root, _ := peerProject(t, testbin.Scenario{Stdout: claudeIdleScreen()})
+	reg, err := session.Open(filepath.Join(root, ".duolog"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Record(session.Entry{ID: "peer-list", Lead: "lead-1", Agent: "claude", Role: "plan", Block: "block:peer", RexSession: "sess"}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := executeBusCommand(t, "peer", "list", "--json")
+	var peers []struct {
+		ID    string `json:"id"`
+		State string `json:"state"`
+	}
+	if err != nil || json.Unmarshal([]byte(out), &peers) != nil || len(peers) != 1 || peers[0].ID != "peer-list" || peers[0].State != "ready" {
+		t.Fatalf("%s %v", out, err)
 	}
 }

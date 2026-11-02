@@ -373,3 +373,30 @@ func TestMCPRulesAddToPolicy(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestAutoAnswers(t *testing.T) {
+	root := isolatedRoot(t)
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Rex.AutoAnswers) != 1 || cfg.Rex.AutoAnswers[0].Match != "Hooks need review" {
+		t.Fatalf("%+v", cfg.Rex)
+	}
+	for _, answer := range []string{"Trust all", "Yes, and don't ask again", "Always allow", " trust folder"} {
+		writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "rex:\n  auto_answers:\n    - match: question\n      answer: "+answer+"\n")
+		if _, err := Load(root); err == nil {
+			t.Fatalf("accepted %q", answer)
+		}
+	}
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "rex:\n  auto_answers: []\n")
+	cfg, err = Load(root)
+	if err != nil || len(cfg.Rex.AutoAnswers) != 0 {
+		t.Fatalf("%+v %v", cfg, err)
+	}
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "rex:\n  auto_answers:\n    - match: question\n      answer: No\n")
+	cfg, err = Load(root)
+	if err != nil || len(cfg.Rex.AutoAnswers) != 1 || cfg.Rex.AutoAnswers[0].Match != "question" {
+		t.Fatalf("%+v %v", cfg, err)
+	}
+}

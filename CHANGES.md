@@ -51,6 +51,13 @@
 
 - A lead session start removes task folders and `duolog put` snapshots unchanged
   for 7 days, and the sync records of removed worktrees.
+- `duolog peer` settles safe prompts and gates commands; `rex.auto_answers`
+  configures replies. Workers keep routine summaries short.
+
+### Fixed
+
+- `duolog peer` waits for busy panes, removes closed entries, separates
+  worktrees and tabs, and reports queued questions.
 
 ## 1.2.0
 

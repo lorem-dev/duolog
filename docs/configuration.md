@@ -131,7 +131,8 @@ The lead's own settings are the ceiling:
 | `capabilities` | What to do when the other agent lacks a skill, plugin or server |
 | `sync` | How agents and skills are generated. See [Sync](sync.md) |
 | `env_passthrough` | The only variables a worker inherits |
-| `rex` | Timeouts for live sessions. See [Rex](rex.md) |
+| `rex` | Timeouts and capture settings for live sessions. See [Rex](rex.md) |
+| `rex.auto_answers` | Ordered `{match, answer}` rules for safe peer questions. Defaults to answering `Hooks need review` with `Continue without trusting`. A project list replaces the defaults; `[]` disables it. Trust and persistent approval grants are refused |
 | `coauthors` | Enable worker credit and set commit co-author templates. See [Getting started](getting-started.md#how-to-credit-the-workers-in-commits) |
 
 ## What workers inherit

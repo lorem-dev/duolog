@@ -122,9 +122,21 @@ type SkillSync struct {
 	DropKeys []string `yaml:"drop_keys" jsonschema_description:"Skill frontmatter keys explicitly discarded; defaults to an empty list."`
 }
 
+type AutoAnswer struct {
+	Match  string `yaml:"match" jsonschema_description:"Text in a peer question to match, in list order."`
+	Answer string `yaml:"answer" jsonschema_description:"Option label to select; trust and persistent approval grants are refused."`
+}
+
+// SafeAutoAnswer refuses labels that grant trust or bypass future approvals.
+func SafeAutoAnswer(answer string) bool {
+	answer = strings.ToLower(strings.TrimSpace(answer))
+	return answer != "" && !strings.HasPrefix(answer, "trust") && !strings.HasPrefix(answer, "yes, and don't ask") && !strings.HasPrefix(answer, "always")
+}
+
 type Rex struct {
-	CaptureLines        int `yaml:"capture_lines" jsonschema_description:"Terminal lines captured to inspect state; defaults to 20. Answers are read from files."`
-	StartTimeoutSeconds int `yaml:"start_timeout_seconds" jsonschema_description:"Seconds to wait for terminal startup; defaults to 120."`
+	AutoAnswers         []AutoAnswer `yaml:"auto_answers" jsonschema_description:"Ordered question and option rules; replaces defaults, and an empty list disables them. Defaults to continuing without trusting Codex hooks."`
+	CaptureLines        int          `yaml:"capture_lines" jsonschema_description:"Terminal lines captured to inspect state; defaults to 20. Answers are read from files."`
+	StartTimeoutSeconds int          `yaml:"start_timeout_seconds" jsonschema_description:"Seconds to wait for terminal startup; defaults to 120."`
 }
 
 // Load merges embedded, user, project and local settings in that order.
@@ -163,6 +175,11 @@ func Load(root string) (*Config, error) {
 			if _, ok := cfg.Models[target.Model]; !ok && !strings.HasPrefix(target.Model, "gpt-") && !strings.HasPrefix(target.Model, "claude-") {
 				return nil, fmt.Errorf("role %s: unknown model %q", name, target.Model)
 			}
+		}
+	}
+	for i, rule := range cfg.Rex.AutoAnswers {
+		if strings.TrimSpace(rule.Match) == "" || !SafeAutoAnswer(rule.Answer) {
+			return nil, fmt.Errorf("rex.auto_answers[%d]: needs nonempty match and safe answer; cannot grant trust or skip approvals", i)
 		}
 	}
 	platformDefaults(&cfg)

@@ -198,3 +198,27 @@ func claudeIdle(text string) string {
 	rule := strings.Repeat("─", 64)
 	return "\n" + rule + "\n❯ " + text + "\n" + rule + "\n  ⏸ manual mode on · ? for shortcuts\n"
 }
+
+func TestWorkingLineIsBusyWithoutInterruptHint(t *testing.T) {
+	for _, tc := range []struct{ agent, line string }{
+		{"codex", "• Working (48s)"},
+		{"claude", "✻ Channelling… (48s · esc to interrupt)"},
+	} {
+		idle := codexIdle("")
+		if tc.agent == "claude" {
+			idle = claudeIdle("")
+		}
+		s := Parse(tc.agent, []byte(tc.line+"\n"+idle))
+		if s.State == Ready || !s.Working {
+			t.Fatalf("%s: %+v", tc.agent, s)
+		}
+	}
+}
+
+func TestQueuedPanelReportsQuestionInsteadOfCount(t *testing.T) {
+	raw := "Queued follow-up inputs\n? 1 question\nWhich environment should I use?\n› 1. Staging\n  2. Production\nshift+left to answer\n"
+	s := Parse("codex", []byte(raw))
+	if s.State != Question || s.Queued || !strings.Contains(s.Question, "Which environment should I use?") || len(s.Options) != 2 {
+		t.Fatalf("%+v", s)
+	}
+}

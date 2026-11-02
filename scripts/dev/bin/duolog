@@ -2,7 +2,7 @@
 # duolog built from this checkout. The repository's own Claude and Codex hooks
 # call it, so working on duolog uses the code in the work tree, not a release.
 #
-# It rebuilds .cache/dev/duolog when a source file is newer, and on
+# It builds .cache/dev/duolog only when missing, and on
 # SessionStart it also copies the skills from plugin/ and, for Claude, puts
 # this folder first on the lead's PATH, so that a plain `duolog` in the
 # session runs this build too.
@@ -15,12 +15,7 @@ case "$(uname -s 2>/dev/null)" in
 MINGW* | MSYS* | CYGWIN*) bin="$bin.exe" ;;
 esac
 
-stale() {
-	[ ! -x "$bin" ] && return 0
-	[ -n "$(find "$root/cmd" "$root/internal" "$root/plugin" "$root/go.mod" "$root/go.sum" "$root/schema.go" -newer "$bin" -type f -print 2>/dev/null | head -n 1)" ]
-}
-
-if stale; then
+if [ ! -e "$bin" ]; then
 	mkdir -p "$root/.cache/dev"
 	# Parallel hooks may build at once: each writes its own file, then renames.
 	tmp="$root/.cache/dev/build.$$.tmp"

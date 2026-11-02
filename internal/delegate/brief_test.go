@@ -90,3 +90,19 @@ func TestNeedsSkill(t *testing.T) {
 		t.Fatal("skill need not told apart")
 	}
 }
+
+func TestWorkerShortSummary(t *testing.T) {
+	const want = "When everything went as planned, keep the summary to one short sentence; give details only for a problem, an open question or a choice you made."
+	for _, role := range []string{"implement", "plan"} {
+		t.Run(role, func(t *testing.T) {
+			h := newHarness(t)
+			if _, err := h.run(role); err != nil {
+				t.Fatal(err)
+			}
+			h.requireCalls(1)
+			if !strings.Contains(string(h.calls[0].Stdin), want) {
+				t.Fatal("missing short summary instruction")
+			}
+		})
+	}
+}

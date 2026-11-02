@@ -18,6 +18,8 @@ requests here.
   the project's, no home folder paths, no time zones or cities.
 - Keep private projects out: a study or a bug report from a private project
   stays anonymised, with no names, paths, ticket ids or code from it.
+- Collect small changes into one pull request per batch unless the user asks
+  otherwise.
 - Follow `docs/contributing.md` for README and `docs/`.
 - Bring every change to `develop` and `main` through a pull request: one into
   `develop`, and one from `develop` into `main` for a release. Squash locally

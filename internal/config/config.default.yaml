@@ -203,5 +203,8 @@ sync:
 # Defaults come from the OS and include native login and CLI config variables.
 
 rex:
+  auto_answers:
+    - match: Hooks need review
+      answer: Continue without trusting
   capture_lines: 20         # a capture checks state only; answers are read from files
   start_timeout_seconds: 120

@@ -1,18 +1,11 @@
 # duolog built from this checkout, for Windows. It does what the POSIX script
-# next to it does: rebuild .cache\dev\duolog.exe when a source file is newer,
+# next to it does: build .cache\dev\duolog.exe only when missing,
 # copy the skill on SessionStart, then run the build with the same arguments.
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $bin = Join-Path $root '.cache\dev\duolog.exe'
 
-$stale = -not (Test-Path $bin)
-if (-not $stale) {
-	$built = (Get-Item $bin).LastWriteTimeUtc
-	$sources = @('cmd', 'internal', 'plugin') | ForEach-Object { Get-ChildItem -Path (Join-Path $root $_) -Recurse -File }
-	$sources += @('go.mod', 'go.sum', 'schema.go') | ForEach-Object { Get-Item (Join-Path $root $_) }
-	$stale = [bool]($sources | Where-Object { $_.LastWriteTimeUtc -gt $built } | Select-Object -First 1)
-}
-if ($stale) {
+if (-not (Test-Path $bin)) {
 	New-Item -ItemType Directory -Force -Path (Split-Path $bin) | Out-Null
 	# Parallel hooks may build at once: each writes its own file, then renames.
 	$tmp = "$bin.$PID.exe"

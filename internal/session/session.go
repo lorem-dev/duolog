@@ -45,8 +45,11 @@ type Entry struct {
 	// Block is the Rex pane of a live peer session; it is empty for threads
 	// that only exist in the agent. Doctor and peer commands join on it.
 	Block string
-	PID   int
-	Input int64
+	// WorkRoot keys live peers by checkout, while state is shared across worktrees.
+	WorkRoot   string
+	RexSession string
+	PID        int
+	Input      int64
 	// Task is the task file a live peer was sent and has not finished. Base is
 	// the working tree before that task, as path to Git status.
 	Task string
@@ -65,6 +68,7 @@ type Registry struct {
 }
 type state struct {
 	Waiting      map[string]map[string]int       `json:"waiting,omitempty"`
+	ClosedPeers  map[string]string               `json:"closed_peers,omitempty"`
 	Entries      []Entry                         `json:"entries"`
 	Leads        map[string]Lead                 `json:"leads"`
 	Unavailable  map[string]time.Time            `json:"unavailable"`
@@ -179,7 +183,8 @@ func (r *Registry) Update(id string, change func(*Entry)) (Entry, error) {
 	return updated, err
 }
 
-// RecordLimited retains at most limit sessions for this lead and agent, and a
+// RecordLimited retains at most limit sessions for this lead and agent (and
+// work root for live panes). A
 // nonpositive limit leaves the registry unbounded. A stored thread that is over the
 // limit is closed, because it costs nothing to reopen. A pane is still running, and
 // nothing here can stop it, so a pane is never closed to make room: a new pane over
@@ -197,6 +202,9 @@ func (r *Registry) RecordLimited(e Entry, limit int) error {
 					continue
 				}
 				if x.Block != "" {
+					if e.Block != "" && x.WorkRoot != e.WorkRoot {
+						continue
+					}
 					panes++
 				} else {
 					threads = append(threads, i)
@@ -239,6 +247,39 @@ func (r *Registry) Close(id string) error {
 		return nil
 	})
 }
+
+// RemovePeer drops a closed pane's entry, keeping only its IDs so that a
+// repeated close remains harmless without accepting unknown pane IDs.
+func (r *Registry) RemovePeer(id string) error {
+	return r.access(true, func(s *state) error {
+		for i, x := range s.Entries {
+			if x.ID == id && x.Block != "" {
+				if s.ClosedPeers == nil {
+					s.ClosedPeers = make(map[string]string)
+				}
+				s.ClosedPeers[x.ID] = x.Block
+				s.Entries = append(s.Entries[:i], s.Entries[i+1:]...)
+				return nil
+			}
+		}
+		return nil
+	})
+}
+
+func (r *Registry) PeerRemoved(key string) (bool, error) {
+	found := false
+	err := r.access(false, func(s *state) error {
+		for id, block := range s.ClosedPeers {
+			if key == id || key == block {
+				found = true
+				break
+			}
+		}
+		return nil
+	})
+	return found, err
+}
+
 func (r *Registry) Unavailable() (map[string]bool, error) {
 	u := make(map[string]bool)
 	err := r.access(false, func(s *state) error {

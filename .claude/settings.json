@@ -3,6 +3,7 @@
     "allow": [
       "Bash(duolog:*)",
       "Bash(scripts/dev/bin/duolog:*)",
+      "Bash(scripts/dev/rebuild)",
       "Bash(go test:*)",
       "Bash(go vet:*)",
       "Bash(go build:*)",

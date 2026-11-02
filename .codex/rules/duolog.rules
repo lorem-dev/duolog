@@ -2,6 +2,7 @@
 # never gets these: its commands go through the duolog gate.
 prefix_rule(pattern = ["duolog"], decision = "allow", justification = "duolog built from this checkout")
 prefix_rule(pattern = ["scripts/dev/bin/duolog"], decision = "allow", justification = "duolog built from this checkout")
+prefix_rule(pattern = ["scripts/dev/rebuild"], decision = "allow", justification = "verify a batch and replace the pinned development build")
 prefix_rule(pattern = ["go", ["test", "vet", "build"]], decision = "allow", justification = "checks of this repository")
 prefix_rule(pattern = ["gofmt", "-l"], decision = "allow", justification = "checks of this repository")
 prefix_rule(pattern = ["make", ["docs-lint", "schema"]], decision = "allow", justification = "checks of this repository")

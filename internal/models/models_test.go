@@ -17,6 +17,11 @@ import (
 
 // The copied test executable handles metadata commands without starting an agent.
 func TestMain(m *testing.M) {
+	for _, key := range []string{"DUOLOG_DEPTH", "DUOLOG_LEAD", "DUOLOG_ROLE"} {
+		if err := os.Unsetenv(key); err != nil {
+			panic(err)
+		}
+	}
 	if os.Getenv("DUOLOG_FAKE_CODEX") == "1" {
 		input, _ := io.ReadAll(os.Stdin)
 		if len(input) != 0 {

@@ -140,7 +140,29 @@ func newPeerCommand() *cobra.Command {
 		}
 		return args[0] + " closed", nil
 	})
-	root.AddCommand(open, wait, send, status, answer, closeCmd, newPeerLaunchCommand())
+	var listJSON bool
+	list := &cobra.Command{Use: "list", Short: "List this lead's peer states without answering questions", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		ctx, cancel, err := peerContext(cmd, lead, false, 0)
+		if err != nil {
+			return err
+		}
+		defer cancel()
+		peers, err := peer.List(ctx)
+		if err != nil {
+			return err
+		}
+		if listJSON {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(peers)
+		}
+		for _, p := range peers {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", p.ID, p.State); err != nil {
+				return err
+			}
+		}
+		return nil
+	}}
+	list.Flags().BoolVar(&listJSON, "json", false, "Print peer IDs and states as JSON")
+	root.AddCommand(open, wait, send, status, answer, closeCmd, list, newPeerLaunchCommand())
 	return root
 }
 

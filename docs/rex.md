@@ -1,7 +1,7 @@
 # How to run a second session beside you with Rex
 
-This page explains `duolog peer`. It opens a second agent session in a pane
-next to yours, using the Rex command line, and drives it with short messages.
+This page explains `duolog peer`. It opens a second agent session using the
+Rex command line and drives it with short messages.
 Use it when you want a live session. Use `duolog delegate` when a one-shot
 worker is enough.
 
@@ -21,28 +21,54 @@ worker is enough.
 
 | Step | Command | What happens |
 |---|---|---|
-| 1 | `duolog peer open <role>` | Opens a pane with the agent of the role and waits until the session is ready or asks a question |
+| 1 | `duolog peer open <role>` | Opens a pane or tab with the agent of the role and waits until the session is ready or asks a question |
 | 2 | `duolog peer answer <id> <option>` | Answers the question that the session shows, by label or number |
 | 3 | `duolog peer send <id> <task>` | Sends one line that points to a task file |
 | 4 | `duolog peer wait <id>` | Keeps waiting for the session. The default limit is 30 minutes |
 | 5 | `duolog peer status <id>` | Prints the state in one line |
 | 6 | `duolog peer close <id>` | Closes the pane. Changed files stay |
 
+A peer belongs to its role and work root. Opening that role again in the same
+worktree reuses the peer. Opening it in another worktree starts a new peer.
+For peers, `max_live_sessions` applies per lead, agent and work root.
+
+The first peer splits beside the lead. If the lead's window already holds a
+peer pane, the next peer opens in a new tab of the same Rex session. Duolog
+keeps the lead's focus. Closing a peer removes its session entry; repeating
+that close is harmless.
+
 Each command prints one line, such as `<id> <state>: <question or note>`. The
-lead reads the question and decides. duolog never answers a question for the
-lead.
+lead decides questions that the rules do not settle.
 
 `duolog peer wait` reports the state, not the result. `task finished` means the
-session went idle. The peer's answer stays in its pane, and in any files it
+session went idle. A working or spinner line keeps it busy even when its
+input prompt is visible. Duolog opens Codex's queued question panel to read
+the question and options. The lead or an auto-answer rule can then answer it.
+The peer's answer stays in its pane, and in any files it
 wrote. duolog reads the pane only to learn its state. When the lead needs the
 answer as data, use `duolog delegate`, which returns it and records its spend.
 
-## Why the lead must answer every question
+## How duolog settles routine questions
 
-A new session can ask whether to trust the folder. For Claude, pressing Enter
-alone quits. For Codex, the default is to trust. A wrong default would either
-close the session or widen its access, so duolog leaves the choice to the
-lead.
+`rex.auto_answers` lists rules with `match` text and an `answer` option label.
+Duolog checks them in order and records each automatic answer. The first rule
+whose text occurs in the question wins. If its option is missing, the lead
+answers. A project list replaces the defaults; `auto_answers: []` turns it off.
+
+The default matches `Hooks need review` and selects `Continue without trusting`.
+The hooks stay off, and the peer keeps its sandbox. Validation refuses answers
+starting with `Trust`, `Yes, and don't ask` or `Always`, ignoring case and outer
+spaces. Duolog also checks the selected option before answering.
+
+Codex command prompts go to the duolog permission gate with the peer's role.
+The gate judges the command after leading `NAME=value` assignments. An allow
+selects `Yes, proceed`; a deny selects `No`. Only an ask reaches the lead, with
+the command shown. Text rules cannot override a command decision. The peer
+keeps its own sandbox; this only answers its prompt.
+
+A new session can also ask whether to trust the folder. For Claude, pressing
+Enter alone quits. For Codex, the default is to trust. Duolog leaves that choice
+to the lead and selects options by label rather than pressing a default.
 
 ## What a worker may never receive
 

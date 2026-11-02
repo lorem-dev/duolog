@@ -36,6 +36,8 @@ type Screen struct {
 	Options  []Option
 	// Working is true while the agent shows that it can be interrupted.
 	Working bool
+	// Queued means Codex has a question behind its follow-up input panel.
+	Queued bool
 	// Composer is true when an input line is visible; Input is its text and
 	// Empty is true when it is blank or shows only the agent's placeholder.
 	Composer bool
@@ -52,16 +54,17 @@ const (
 )
 
 var (
-	workingRe  = regexp.MustCompile(`(?i)\besc to interrupt\b|\bctrl\+c to interrupt\b`)
-	updatingRe = regexp.MustCompile(`(?i)==> (?:upgrading|installing|downloading|fetching|pouring)|updating (?:codex|claude)|brew upgrade|installing update|downloading update`)
-	limitRe    = regexp.MustCompile(`(?i)you.ve hit your [^\n]*limit`)
-	yesNoRe    = regexp.MustCompile(`(?i)\((?:y/n|yes/no)\)|\[(?:y/n|yes/no)\]`)
-	hintRe     = regexp.MustCompile(`(?i)\benter\b.*\besc(?:ape)?\b`)
-	numberedRe = regexp.MustCompile(`^\s*(?:([` + markers + `])\s*)?(\d+)\.\s+(\S.*?)\s*$`)
-	cursorRe   = regexp.MustCompile(`^(\s*)([` + markers + `])\s+(\S.*?)\s*$`)
-	ruleRe     = regexp.MustCompile(`^\s*[─╌━]{5,}\s*$`)
-	claudeTry  = regexp.MustCompile(`^Try ".*"$`)
-	gapRe      = regexp.MustCompile(`\s{2,}`)
+	queuedCountRe = regexp.MustCompile(`\?\s+[1-9][0-9]*\s+questions?\b`)
+	workingRe     = regexp.MustCompile(`(?i)\besc to interrupt\b|\bctrl\+c to interrupt\b|^\s*[•·]?\s*Working\s*\(`)
+	updatingRe    = regexp.MustCompile(`(?i)==> (?:upgrading|installing|downloading|fetching|pouring)|updating (?:codex|claude)|brew upgrade|installing update|downloading update`)
+	limitRe       = regexp.MustCompile(`(?i)you.ve hit your [^\n]*limit`)
+	yesNoRe       = regexp.MustCompile(`(?i)\((?:y/n|yes/no)\)|\[(?:y/n|yes/no)\]`)
+	hintRe        = regexp.MustCompile(`(?i)\benter\b.*\besc(?:ape)?\b`)
+	numberedRe    = regexp.MustCompile(`^\s*(?:([` + markers + `])\s*)?(\d+)\.\s+(\S.*?)\s*$`)
+	cursorRe      = regexp.MustCompile(`^(\s*)([` + markers + `])\s+(\S.*?)\s*$`)
+	ruleRe        = regexp.MustCompile(`^\s*[─╌━]{5,}\s*$`)
+	claudeTry     = regexp.MustCompile(`^Try ".*"$`)
+	gapRe         = regexp.MustCompile(`\s{2,}`)
 )
 
 // Classify reads a captured screen for the named agent. The text of a question
@@ -84,6 +87,21 @@ func Parse(agent string, raw []byte) Screen {
 	if options, first, ok := findQuestion(lines); ok {
 		s.State, s.Options = Question, options
 		s.Question = questionText(lines, first, options)
+		if agent == "codex" && strings.Contains(s.Text, commandQuestion) {
+			if command := promptCommand(s.Text); command != "" {
+				menu := ""
+				if i := strings.Index(s.Question, "["); i >= 0 {
+					menu = " " + s.Question[i:]
+				}
+				s.Question = commandQuestion + " " + oneLine(command) + menu
+			}
+		}
+		return s
+	}
+	if agent == "codex" && (strings.Contains(s.Text, "Queued follow-up inputs") || queuedCountRe.MatchString(s.Text)) && strings.Contains(s.Text, "shift+left to answer") {
+		s.Queued = true
+		s.State = Question
+		s.Question = cut(oneLine(s.Text), maxQuestionBytes)
 		return s
 	}
 	s.Composer, s.Input, s.Empty = findComposer(agent, lines)
@@ -219,6 +237,9 @@ func questionText(lines []string, first int, options []Option) string {
 	var before []string
 	for _, line := range lines[:first] {
 		if t := strings.Join(strings.Fields(line), " "); t != "" && !ruleRe.MatchString(line) {
+			if t == "Queued follow-up inputs" || queuedCountRe.MatchString(t) || strings.Contains(t, "shift+left to answer") {
+				continue
+			}
 			before = append(before, t)
 		}
 	}

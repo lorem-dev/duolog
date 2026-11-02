@@ -305,7 +305,7 @@ func TestSkillIsShort(t *testing.T) {
 		if n := words(text); n >= 400 {
 			t.Errorf("%s skill has %d words", agent, n)
 		}
-		for _, rule := range []string{"duolog delegate", "task.md", "Goal", "Read", "Write", "Limits", "Check", "range", "run here: self", "run here: subagent", "duolog allow", "duolog deny", "duolog peer", "/model", "/effort"} {
+		for _, rule := range []string{"Collect small changes into one pull request per batch unless the user asks\notherwise.", "Do steps that the rules or duolog settle without explaining them; report\nresults.", "duolog delegate", "task.md", "Goal", "Read", "Write", "Limits", "Check", "range", "run here: self", "run here: subagent", "duolog allow", "duolog deny", "duolog peer", "/model", "/effort"} {
 			if !strings.Contains(text, rule) {
 				t.Errorf("%s skill lacks %q", agent, rule)
 			}
@@ -457,6 +457,7 @@ func exitCode(t *testing.T, command testbin.HookCommand, env ...string) int {
 }
 
 func TestGuardsRunFailClosed(t *testing.T) {
+	t.Setenv("DUOLOG_DEPTH", "")
 
 	for _, agent := range []string{"codex"} {
 		for _, event := range []string{"PreToolUse", "PermissionRequest"} {

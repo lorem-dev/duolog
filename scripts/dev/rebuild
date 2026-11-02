@@ -1,0 +1,53 @@
+#!/bin/sh
+# Verify a batch, replace the pinned build, then retire the lead's idle peers.
+set -eu
+here=$(cd "$(dirname "$0")" && pwd -P)
+root=$(cd "$here/../.." && pwd -P)
+dir="$root/.cache/dev"
+bin="$dir/duolog"
+tmp="$dir/rebuild.$$.tmp"
+windows=0
+case "$(uname -s 2>/dev/null)" in
+MINGW* | MSYS* | CYGWIN*) bin="$bin.exe"; tmp="$tmp.exe"; windows=1 ;;
+esac
+mkdir -p "$dir"
+log=$(mktemp "$dir/rebuild.XXXXXX")
+peers="$dir/peers.$$.tmp"
+trap 'rm -f "$tmp" "$log" "$peers"' 0
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+checked() {
+	if "$@" >"$log" 2>&1; then
+		return 0
+	else
+		code=$?
+		tail -n 20 "$log" >&2
+		exit "$code"
+	fi
+}
+
+cd "$root"
+checked go vet ./...
+checked go test ./...
+checked go build -o "$tmp" ./cmd/duolog
+commit=$(git rev-parse --short HEAD)
+mv -f "$tmp" "$bin"
+
+closed=0
+# Windows has no Rex peers. Outside Rex there is no session to control.
+if [ "$windows" -eq 0 ] && [ -n "${REX_SESSION:-}" ]; then
+	if "$bin" peer list >"$peers" 2>"$log"; then
+		while IFS=' ' read -r id state rest; do
+			if [ "$state" = ready ]; then
+				checked "$bin" peer close "$id"
+				closed=$((closed + 1))
+			fi
+		done <"$peers"
+	else
+		code=$?
+		tail -n 20 "$log" >&2
+		exit "$code"
+	fi
+fi
+printf 'rebuilt %s; closed %s idle peers\n' "$commit" "$closed"

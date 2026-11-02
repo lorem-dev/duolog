@@ -1,5 +1,6 @@
 // Package peer opens and drives a second agent session in a Rex pane. The lead
-// answers every question the session asks; duolog presses no key of its own.
+// answers unresolved questions; configured safe answers and command gate
+// decisions settle routine prompts without involving the lead.
 package peer
 
 import (
@@ -18,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/coauthor"
 	"github.com/lorem-dev/duolog/internal/config"
@@ -260,17 +262,33 @@ func Open(ctx context.Context, role string) (Entry, error) {
 		here := delegate.Placement{Where: "subagent", Model: route.Model, Effort: route.Effort}
 		return Entry{State: Limited, Note: strings.TrimSpace(here.String())}, nil
 	}
+	// Serialize placement across worktrees and agents sharing this registry.
+	// Release before watching startup so another peer can open while this one works.
+	opening := flock.New(filepath.Join(e.dir, "peer-open.lock"))
+	if err := opening.Lock(); err != nil {
+		return Entry{}, err
+	}
+	defer opening.Close()
 	peers, err := e.livePeers(ctx, lead.id, route.Agent)
 	if err != nil {
 		return Entry{}, err
 	}
 	for _, p := range peers {
-		if p.Role == role {
+		if p.Role == role && sameWorkRoot(p.WorkRoot, e.root) {
+			if err := opening.Unlock(); err != nil {
+				return Entry{}, err
+			}
 			return e.watch(ctx, p, true)
 		}
 	}
-	if limit := e.cfg.Limits.MaxLiveSessions; limit > 0 && len(peers) >= limit {
-		return Entry{}, fmt.Errorf("max_live_sessions is %d and %s session %s is still open; close it with duolog peer close %s first", limit, route.Agent, peers[0].ID, peers[0].ID)
+	var here []session.Entry
+	for _, p := range peers {
+		if sameWorkRoot(p.WorkRoot, e.root) {
+			here = append(here, p)
+		}
+	}
+	if limit := e.cfg.Limits.MaxLiveSessions; limit > 0 && len(here) >= limit {
+		return Entry{}, fmt.Errorf("max_live_sessions is %d and %s session %s is still open; close it with duolog peer close %s first", limit, route.Agent, here[0].ID, here[0].ID)
 	}
 	model, err := resolveModel(ctx, e.cfg, filepath.Join(e.dir, "cache"), route.Target)
 	if err != nil {
@@ -287,12 +305,21 @@ func Open(ctx context.Context, role string) (Entry, error) {
 	}
 	client := e.rex
 	client.Label = route.Agent + "-" + role
-	block, err := client.Split(ctx, launchArgv(exe, envFile, agentArgv(route, lead.mode)))
+	newTab, err := e.needsNewTab(ctx, lead.id)
 	if err != nil {
 		_ = os.Remove(envFile)
 		return Entry{}, err
 	}
-	entry := session.Entry{ID: newID(), Lead: lead.id, Agent: route.Agent, Role: role, Thread: peerThread, Block: block, Mode: lead.mode, UpdatedAt: time.Now()}
+	open := client.Split
+	if newTab {
+		open = client.NewWindow
+	}
+	block, err := open(ctx, launchArgv(exe, envFile, agentArgv(route, lead.mode)))
+	if err != nil {
+		_ = os.Remove(envFile)
+		return Entry{}, err
+	}
+	entry := session.Entry{ID: newID(), Lead: lead.id, Agent: route.Agent, Role: role, Thread: peerThread, Block: block, WorkRoot: e.root, RexSession: e.rex.Session, Mode: lead.mode, UpdatedAt: time.Now()}
 	if err := e.reg.RecordLimited(entry, e.cfg.Limits.MaxLiveSessions); err != nil {
 		// The pane exists but nothing records it: do not leave it unowned.
 		_ = e.rex.Close(ctx, block)
@@ -304,6 +331,9 @@ func Open(ctx context.Context, role string) (Entry, error) {
 		if err := os.WriteFile(e.modelPath(entry), []byte(model), 0600); err != nil {
 			return Entry{}, err
 		}
+	}
+	if err := opening.Unlock(); err != nil {
+		return Entry{}, err
 	}
 	return e.watch(ctx, entry, true)
 }
@@ -355,7 +385,47 @@ func (e *env) observe(ctx context.Context, entry session.Entry) (State, Screen, 
 	if rex.IsNotFound(err) {
 		return Closed, Screen{}, nil
 	}
-	return screen.State, screen, err
+	if err != nil {
+		return screen.State, screen, err
+	}
+	queuedOpened := false
+	for attempts := 0; screen.State == Question; attempts++ {
+		if screen.Queued {
+			if attempts >= 16 {
+				return Question, screen, fmt.Errorf("peer %s: queued question did not open", entry.ID)
+			}
+			if !queuedOpened {
+				if err := e.rex.SendKey(ctx, entry.Block, "shift+left"); err != nil {
+					return Question, screen, err
+				}
+				queuedOpened = true
+			}
+			if err := sleep(ctx, keyDelay); err != nil {
+				return Question, screen, err
+			}
+			screen, err = e.screen(ctx, entry)
+			if err != nil {
+				return Starting, screen, err
+			}
+			continue
+		}
+		if attempts >= 16 {
+			return Question, screen, fmt.Errorf("peer %s: automatic answers did not clear the question", entry.ID)
+		}
+		queuedOpened = false
+		handled, err := e.autoAnswer(ctx, entry, screen)
+		if err != nil {
+			return Question, screen, err
+		}
+		if !handled {
+			break
+		}
+		screen, err = e.screen(ctx, entry)
+		if err != nil {
+			return Starting, screen, err
+		}
+	}
+	return screen.State, screen, nil
 }
 
 func (e *env) screen(ctx context.Context, entry session.Entry) (Screen, error) {
@@ -474,7 +544,9 @@ func stuckInput(s Screen, taskPath string) bool {
 	return s.Composer && !s.Working && s.Input != "" && strings.HasPrefix(s.Input, probe(taskLine(taskPath)))
 }
 
-func taskLine(path string) string { return "Read " + path + " and do it. Do not call rex." }
+func taskLine(path string) string {
+	return "Read " + path + " and do it. Do not call rex. When everything went as planned, reply only \"done\"; write more only for a problem, an open question or a choice you made."
+}
 
 // probe is the start of a line: enough to tell it from a line that lost its start.
 func probe(text string) string { return cut(text, 40) }
@@ -837,6 +909,26 @@ func Answer(ctx context.Context, id, choice string) error {
 	if state != Question {
 		return fmt.Errorf("peer %s has no question to answer (state %s)", entry.ID, state)
 	}
+	if err := e.selectOption(ctx, entry, screen, choice); err != nil {
+		return err
+	}
+	// Read the state again: the next question, if any, goes to the lead.
+	_, after, err := e.observe(ctx, entry)
+	if err != nil {
+		return err
+	}
+	entry, err = e.update(entry.ID, func(x *session.Entry) { x.Asked = "" })
+	if err != nil {
+		return err
+	}
+	if after.State == Question {
+		return e.ask(entry, after.Question)
+	}
+	return nil
+}
+
+// selectOption is shared by lead answers and automatic answers.
+func (e *env) selectOption(ctx context.Context, entry session.Entry, screen Screen, choice string) error {
 	if len(screen.Options) == 0 {
 		return fmt.Errorf("peer %s: the question has no options duolog can select; answer it in the pane", entry.ID)
 	}
@@ -875,18 +967,6 @@ func Answer(ctx context.Context, id, choice string) error {
 	}
 	if err := sleep(ctx, sendDelay); err != nil {
 		return err
-	}
-	// Read the state again: the next question, if any, goes to the lead.
-	after, err := e.screen(ctx, entry)
-	if err != nil {
-		return err
-	}
-	entry, err = e.update(entry.ID, func(x *session.Entry) { x.Asked = "" })
-	if err != nil {
-		return err
-	}
-	if after.State == Question {
-		return e.ask(entry, after.Question)
 	}
 	return nil
 }
@@ -939,18 +1019,22 @@ func Close(ctx context.Context, id string) error {
 	}
 	entry, err := e.find(id)
 	if err != nil {
+		removed, lookupErr := e.reg.PeerRemoved(id)
+		if lookupErr != nil {
+			return lookupErr
+		}
+		if removed {
+			return nil
+		}
 		return err
 	}
 	if err := e.credit(entry); err != nil {
 		return err
 	}
-	closeErr := e.rex.Close(ctx, entry.Block)
-	if !entry.Closed {
-		if _, err := e.update(entry.ID, func(x *session.Entry) { x.Closed = true }); err != nil {
-			return errors.Join(closeErr, err)
-		}
+	if err := e.rex.Close(ctx, entry.Block); err != nil {
+		return err
 	}
-	return closeErr
+	return e.reg.RemovePeer(entry.ID)
 }
 
 // pendingAsk never advances the delivery cursor; the lead hook still receives
@@ -993,3 +1077,52 @@ func pendingAsk(dir, address string) (string, error) {
 
 // WindowsNotice explains the supported alternative without invoking Rex.
 const WindowsNotice = "Live sessions are not available on Windows; use duolog delegate."
+
+// sameWorkRoot handles filesystem aliases without reusing legacy peers whose
+// working directory was never recorded.
+func sameWorkRoot(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	left, le := os.Stat(a)
+	right, re := os.Stat(b)
+	return le == nil && re == nil && os.SameFile(left, right)
+}
+
+// needsNewTab checks actual pane locations, including peers of other agents or
+// leads. A peer moved to another window no longer occupies the lead's window.
+func (e *env) needsNewTab(ctx context.Context, leadID string) (bool, error) {
+	window, err := e.rex.WindowID(ctx, e.rex.Anchor)
+	if err != nil {
+		return false, err
+	}
+	all, err := e.reg.Entries()
+	if err != nil {
+		return false, err
+	}
+	for _, p := range all {
+		if p.Block == "" || p.Closed {
+			continue
+		}
+		if p.RexSession != "" && p.RexSession != e.rex.Session {
+			continue
+		}
+		if p.RexSession == "" && p.Lead != leadID {
+			continue
+		}
+		owner, err := e.rex.WindowID(ctx, p.Block)
+		if rex.IsNotFound(err) {
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
+		if owner == window {
+			return true, nil
+		}
+	}
+	return false, nil
+}

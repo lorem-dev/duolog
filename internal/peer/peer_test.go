@@ -47,7 +47,8 @@ type rig struct {
 func baseScript() map[string]testbin.Scenario {
 	return map[string]testbin.Scenario{
 		"split":         {Stdout: splitReply},
-		"block inspect": {Stdout: `{"block":{"id":"block:peer"}}`},
+		"window new":    {Stdout: splitReply},
+		"block inspect": {Stdout: `{"block":{"id":"block:peer","window_id":"window:lead"}}`},
 		"wait":          {Exit: 1, Stderr: "Error: wait timed out after 500ms: context deadline exceeded"},
 		"capture":       {Stdout: codexIdle("")},
 		"send":          {},
@@ -188,9 +189,9 @@ func (r *rig) keys() []string {
 // started is the program line that was given to rex split, after the separator.
 func (r *rig) started() []string {
 	r.t.Helper()
-	splits := r.named("split")
+	splits := append(r.named("split"), r.named("window new")...)
 	if len(splits) == 0 {
-		r.t.Fatal("rex split was not run")
+		r.t.Fatal("no peer pane was opened")
 	}
 	last := splits[len(splits)-1]
 	for i, w := range last {
@@ -301,7 +302,7 @@ func sendOK(task string) []string {
 }
 
 func line(task string) string {
-	return "Read " + task + " and do it. Do not call rex."
+	return "Read " + task + " and do it. Do not call rex. When everything went as planned, reply only \"done\"; write more only for a problem, an open question or a choice you made."
 }
 
 func working() string {
@@ -365,7 +366,9 @@ func TestAnswerRefusedForWorker(t *testing.T) {
 }
 
 func TestSocketUnreachableIsOneLine(t *testing.T) {
-	r := newRig(t, map[string]testbin.Scenario{"split": {Exit: 4, Stderr: "connecting to Rex server\nfailed to WebSocket dial\n"}})
+	script := baseScript()
+	script["split"] = testbin.Scenario{Exit: 4, Stderr: "connecting to Rex server\nfailed to WebSocket dial\n"}
+	r := newRig(t, script)
 	_, err := Open(r.ctx, "implement")
 	if !errors.Is(err, rex.ErrSocket) || strings.Contains(err.Error(), "\n") || !strings.Contains(err.Error(), "sandbox") {
 		t.Fatalf("%v", err)
@@ -421,7 +424,7 @@ func TestOpenReplacesDeadSession(t *testing.T) {
 	r := newRig(t, baseScript())
 	first := r.ready()
 	script := baseScript()
-	script["block inspect"] = testbin.Scenario{Sequence: []testbin.Scenario{gone, {Stdout: "{}"}}}
+	script["block inspect"] = testbin.Scenario{Sequence: []testbin.Scenario{gone, {Stdout: `{"block":{"window_id":"window:lead"}}`}}}
 	script["split"] = testbin.Scenario{Stdout: strings.ReplaceAll(splitReply, "block:peer", "block:second")}
 	r.rex(script)
 	second := r.open("implement")
@@ -596,6 +599,7 @@ func TestQuestionGoesToLead(t *testing.T) {
 func TestNoKeysWithoutDecision(t *testing.T) {
 	for _, tc := range []struct{ role, file string }{{"implement", "codex-trust-folder.txt"}, {"plan", "claude-trust-folder.txt"}, {"implement", "codex-hooks-review.txt"}} {
 		r := newRig(t, withScreens(fixtureText(tc.file)))
+		r.cfg.Rex.AutoAnswers = nil
 		e := r.open(tc.role)
 		if e.State != Question {
 			t.Fatalf("%s: %+v", tc.file, e)
@@ -1081,8 +1085,9 @@ func TestCloseDoesNotRevertFiles(t *testing.T) {
 	if n := len(r.named("block close")); n != 1 {
 		t.Fatalf("%d closes", n)
 	}
-	if !r.entry(e.ID).Closed {
-		t.Fatal("the entry is not closed")
+	entries, err := r.reg.Entries()
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("entries=%+v err=%v", entries, err)
 	}
 }
 
@@ -1239,12 +1244,11 @@ func TestLimitMarksAgentUnavailable(t *testing.T) {
 	if err != nil || !u["codex"] {
 		t.Fatalf("codex is not marked unavailable: %v %v", u, err)
 	}
-	// The next open routes elsewhere and does not split a pane in codex.
-	before := len(r.named("split"))
-	r.rex(baseScript())
+	// The next open routes elsewhere in a new tab beside the limited peer.
+	r.rex(withScreens(claudeIdle("")))
 	r.cfg.Rex.StartTimeoutSeconds = 1
 	next, err := Open(r.ctx, "implement")
-	if err != nil || len(r.named("split")) != before+1 {
+	if err != nil || next.State != Ready || len(r.named("window new")) != 1 || len(r.named("split")) != 0 {
 		t.Fatalf("%+v %v", next, err)
 	}
 	if argv := r.started(); !slices.Contains(argv, "claude") || slices.Contains(argv, "codex") {
@@ -1337,4 +1341,355 @@ func contains(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestAutoAnswerHooks(t *testing.T) {
+	first := fixtureText("codex-hooks-review.txt")
+	moved := strings.Replace(first, "› 1.", "  1.", 1)
+	moved = strings.Replace(moved, "  3.", "› 3.", 1)
+	r := newRig(t, withScreens(first, moved, codexIdle(""), codexIdle("")))
+	e := r.ready()
+	if got := strings.Join(r.keys(), ","); got != "down,down,enter" {
+		t.Fatal(got)
+	}
+	if r.entry(e.ID).Asked != "" || len(r.messages("ask")) != 0 {
+		t.Fatal("auto-answer reached lead")
+	}
+	data, err := os.ReadFile(filepath.Join(r.root, ".duolog", "decisions.ndjson"))
+	if err != nil || !strings.Contains(string(data), "Continue without trusting") {
+		t.Fatalf("%s %v", data, err)
+	}
+}
+
+func commandPrompt(command string, no bool) string {
+	text := "Would you like to run the following command?\n\n  $ " + command + "\n\n› 1. Yes, proceed (y)\n  2. Yes, and don't ask again (a)\n  3. No, and tell Codex what to do differently (esc)\n"
+	if no {
+		text = strings.Replace(text, "› 1.", "  1.", 1)
+		text = strings.Replace(text, "  3.", "› 3.", 1)
+	}
+	return text
+}
+
+func TestPeerCommandGate(t *testing.T) {
+	for _, tc := range []struct{ command, decision, keys string }{
+		{"CHECK=1 go test ./...", "allow", "enter"},
+		{"CHECK=1 git push", "deny", "down,down,enter"},
+		{"unknown-command", "ask", ""},
+	} {
+		t.Run(tc.decision, func(t *testing.T) {
+			first := commandPrompt(tc.command, false)
+			r := newRig(t, withScreens(first, commandPrompt(tc.command, true), codexIdle(""), codexIdle("")))
+			r.cfg.Policy.Rules = append(r.cfg.Policy.Rules, config.Rule{Action: "exec", Match: "go test *", Decision: "allow", Roles: []string{"implement"}})
+			if tc.decision == "allow" {
+				r.rex(withScreens(first, codexIdle(""), codexIdle("")))
+			}
+			e := r.open("implement")
+			if tc.decision == "ask" {
+				if e.State != Question || len(r.keys()) != 0 {
+					t.Fatalf("%+v %v", e, r.keys())
+				}
+				return
+			}
+			if e.State != Ready || strings.Join(r.keys(), ",") != tc.keys {
+				t.Fatalf("%+v %v", e, r.keys())
+			}
+			if len(r.messages("ask")) != 0 {
+				t.Fatal("gate result reached lead")
+			}
+		})
+	}
+}
+
+func TestCommandQuestionIncludesCommand(t *testing.T) {
+	const command = "unknown-command --target some/file"
+	r := newRig(t, withScreens(commandPrompt(command, false)))
+	e := r.open("implement")
+	if e.State != Question || !strings.Contains(e.Question, command) {
+		t.Fatalf("%+v", e)
+	}
+}
+
+func TestStripAssignments(t *testing.T) {
+	for input, want := range map[string]string{
+		"A=1 B=two go test ./...":       "go test ./...",
+		"A='two words' go test ./...":   "go test ./...",
+		"A=\"two words\" go test ./...": "go test ./...",
+		"A= go test ./...":              "go test ./...",
+		"A=$(bad) go test ./...":        "A=$(bad) go test ./...",
+		"A=one; bad":                    "A=one; bad",
+	} {
+		if got := stripAssignments(input); got != want {
+			t.Errorf("%q: %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestAutoAnswerRules(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		rules    []config.AutoAnswer
+		wantKeys string
+	}{
+		{"disabled", nil, ""},
+		{"first missing wins", []config.AutoAnswer{{Match: "Hooks need review", Answer: "Missing"}, {Match: "Hooks need review", Answer: "Review hooks"}}, ""},
+		{"safe first", []config.AutoAnswer{{Match: "Hooks need review", Answer: "Review hooks"}, {Match: "Hooks need review", Answer: "Missing"}}, "enter"},
+		{"unsafe config", []config.AutoAnswer{{Match: "Hooks need review", Answer: "Trust all and continue"}}, ""},
+		{"no fuzzy grant", []config.AutoAnswer{{Match: "Hooks need review", Answer: "all and continue"}}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			first := fixtureText("codex-hooks-review.txt")
+			r := newRig(t, withScreens(first, codexIdle(""), codexIdle("")))
+			r.cfg.Rex.AutoAnswers = tc.rules
+			e := r.open("implement")
+			if got := strings.Join(r.keys(), ","); got != tc.wantKeys {
+				t.Fatalf("%+v keys=%s", e, got)
+			}
+			if tc.wantKeys == "" && e.State != Question {
+				t.Fatalf("%+v", e)
+			}
+		})
+	}
+}
+
+func TestCommandAskCannotUseTextRule(t *testing.T) {
+	r := newRig(t, withScreens(commandPrompt("unknown-command", false)))
+	r.cfg.Rex.AutoAnswers = []config.AutoAnswer{{Match: commandQuestion, Answer: "Yes, proceed"}}
+	e := r.open("implement")
+	if e.State != Question || len(r.keys()) != 0 {
+		t.Fatalf("%+v %v", e, r.keys())
+	}
+}
+
+func TestStatusSettlesCommandWithRoleAndLeadRules(t *testing.T) {
+	for _, tc := range []string{"role allow", "wrong role asks", "read-only denies", "lead denies"} {
+		t.Run(tc, func(t *testing.T) {
+			r := newRig(t, baseScript())
+			e := r.ready()
+			r.cfg.Policy.Rules = append(r.cfg.Policy.Rules, config.Rule{Action: "exec", Match: "task-check *", Decision: "allow", Roles: []string{"implement"}})
+			if tc == "wrong role asks" {
+				r.cfg.Policy.Rules[len(r.cfg.Policy.Rules)-1].Roles = []string{"tests"}
+			}
+			denied := tc == "read-only denies" || tc == "lead denies"
+			if tc == "read-only denies" {
+				role := r.cfg.Roles["implement"]
+				role.Sandbox = "read-only"
+				r.cfg.Roles["implement"] = role
+			}
+			if tc == "lead denies" {
+				r.lead("claude", mode.Full)
+				if err := os.MkdirAll(filepath.Join(r.root, ".claude"), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(r.root, ".claude", "settings.json"), []byte(`{"permissions":{"deny":["Bash(task-check:*)"]}}`), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			first := commandPrompt("task-check ./...", false)
+			if denied {
+				r.rex(withScreens(first, commandPrompt("task-check ./...", true), codexIdle("")))
+			} else {
+				r.rex(withScreens(first, codexIdle("")))
+			}
+			st, err := Status(r.ctx, e.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc == "wrong role asks" {
+				if st.State != Question || len(r.keys()) != 0 {
+					t.Fatalf("%+v %v", st, r.keys())
+				}
+				return
+			}
+			want := "enter"
+			if denied {
+				want = "down,down,enter"
+			}
+			if st.State != Ready || strings.Join(r.keys(), ",") != want {
+				t.Fatalf("%+v %v", st, r.keys())
+			}
+			if r.entry(e.ID).Asked != "" || len(r.messages("ask")) != 0 {
+				t.Fatal("settled question reached lead")
+			}
+		})
+	}
+}
+
+func TestWaitNeverFinishesWhileWorking(t *testing.T) {
+	r := newRig(t, baseScript())
+	e := r.ready()
+	_, err := r.reg.Update(e.ID, func(x *session.Entry) { x.Task = "task.md" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	busy := "• Working (48s)\n" + codexIdle("")
+	r.rex(withScreens(busy))
+	ctx, cancel := context.WithCancel(r.ctx)
+	calls := 0
+	sleep = func(context.Context, time.Duration) error {
+		calls++
+		if calls >= 3 {
+			cancel()
+			return context.Canceled
+		}
+		return nil
+	}
+	got, err := Wait(ctx, e.ID)
+	if !errors.Is(err, context.Canceled) || got.Note == "task finished" || r.entry(e.ID).Task == "" {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+func TestCloseRemovesPeerEntry(t *testing.T) {
+	r := newRig(t, baseScript())
+	e := r.ready()
+	if err := Close(r.ctx, e.ID); err != nil {
+		t.Fatal(err)
+	}
+	all, err := r.reg.Entries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, x := range all {
+		if x.ID == e.ID {
+			t.Fatalf("closed peer retained: %+v", x)
+		}
+	}
+}
+
+func TestOpenDoesNotReuseAnotherWorktree(t *testing.T) {
+	r := newRig(t, baseScript())
+	first := r.ready()
+	work := t.TempDir()
+	git := filepath.Join(r.root, ".git")
+	for _, dir := range []string{"objects", "refs/heads", "worktrees/feature"} {
+		if err := os.MkdirAll(filepath.Join(git, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, text := range map[string]string{
+		filepath.Join(git, "HEAD"):                        "ref: refs/heads/main\n",
+		filepath.Join(git, "config"):                      "[core]\nrepositoryformatversion=0\nbare=false\n",
+		filepath.Join(git, "worktrees/feature/HEAD"):      "ref: refs/heads/feature\n",
+		filepath.Join(git, "worktrees/feature/commondir"): "../..\n",
+		filepath.Join(git, "worktrees/feature/gitdir"):    filepath.Join(work, ".git") + "\n",
+		filepath.Join(work, ".git"):                       "gitdir: " + filepath.Join(git, "worktrees/feature") + "\n",
+	} {
+		if err := os.WriteFile(path, []byte(text), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(work)
+	second := r.open("implement")
+	if second.ID == first.ID {
+		t.Fatal("reused peer from another worktree")
+	}
+	if again := r.open("implement"); again.ID != second.ID {
+		t.Fatal("did not reuse same worktree")
+	}
+}
+
+const queuedQuestion = "Queued follow-up inputs\nMCP server needs an answer\n? 1 question\nshift+left to answer\n"
+
+func TestQueuedQuestionOpensAndReachesLead(t *testing.T) {
+	r := newRig(t, baseScript())
+	e := r.ready()
+	dialog := "Which environment should I use?\n› 1. Staging\n  2. Production\n"
+	r.rex(withScreens(queuedQuestion+working(), dialog))
+	got, err := Wait(r.ctx, e.ID)
+	if err != nil || got.State != Question || !strings.Contains(got.Question, "Which environment") || !strings.Contains(got.Question, "Staging") {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if strings.Join(r.keys(), ",") != "shift+left" {
+		t.Fatal(r.keys())
+	}
+	if err := Answer(r.ctx, e.ID, "Staging"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSecondPeerOpensNewTabAcrossAgents(t *testing.T) {
+	r := newRig(t, baseScript())
+	t.Setenv("REX_BLOCK", "block:lead")
+	r.ready()
+	script := withScreens(claudeIdle(""))
+	script["window new"] = testbin.Scenario{Stdout: `{"window_id":"window:other","block_ids":["block:second"]}`}
+	r.rex(script)
+	next := r.open("plan")
+	if next.State != Ready || len(r.named("window new")) != 1 || len(r.named("split")) != 0 {
+		t.Fatalf("%+v calls=%v", next, r.calls())
+	}
+	args := strings.Join(r.named("window new")[0], " ")
+	for _, want := range []string{"-s sess", "--focus=false", "--shell=none", r.root} {
+		if !strings.Contains(args, want) {
+			t.Fatalf("missing %s: %s", want, args)
+		}
+	}
+}
+
+func TestQueuedQuestionCanAutoAnswer(t *testing.T) {
+	r := newRig(t, baseScript())
+	e := r.ready()
+	dialog := "Which environment should I use?\n› 1. Staging\n  2. Production\n"
+	r.cfg.Rex.AutoAnswers = []config.AutoAnswer{{Match: "Which environment", Answer: "Staging"}}
+	r.rex(withScreens(queuedQuestion+working(), dialog, codexIdle(""), codexIdle("")))
+	got, err := Wait(r.ctx, e.ID)
+	if err != nil || got.State != Ready || len(r.messages("ask")) != 0 {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if keys := strings.Join(r.keys(), ","); keys != "shift+left,enter" {
+		t.Fatal(keys)
+	}
+}
+
+func TestMovedPeerLeavesLeadWindowAvailable(t *testing.T) {
+	r := newRig(t, baseScript())
+	t.Setenv("REX_BLOCK", "block:lead")
+	r.ready()
+	script := withScreens(claudeIdle(""))
+	script["block inspect -s sess --json block:peer"] = testbin.Scenario{Stdout: `{"block":{"window_id":"window:elsewhere"}}`}
+	r.rex(script)
+	r.open("plan")
+	if len(r.named("split")) != 1 || len(r.named("window new")) != 0 {
+		t.Fatal(r.calls())
+	}
+}
+
+func TestFailedCloseRetainsEntry(t *testing.T) {
+	r := newRig(t, baseScript())
+	e := r.ready()
+	script := baseScript()
+	script["block close"] = testbin.Scenario{Exit: 4}
+	r.rex(script)
+	if err := Close(r.ctx, e.ID); err == nil {
+		t.Fatal("failed close succeeded")
+	}
+	if r.entry(e.ID).Closed {
+		t.Fatal("failed close changed the entry")
+	}
+}
+
+func TestListPeersDoesNotAnswerQuestions(t *testing.T) {
+	r := newRig(t, baseScript())
+	e := r.ready()
+	if err := r.reg.Record(session.Entry{ID: "other", Lead: "another-lead", Agent: "codex", Role: "implement", Block: "block:other"}); err != nil {
+		t.Fatal(err)
+	}
+	r.rex(withScreens(fixtureText("codex-hooks-review.txt")))
+	peers, err := List(r.ctx)
+	if err != nil || len(peers) != 1 || peers[0].ID != e.ID || peers[0].State != Question {
+		t.Fatalf("%+v %v", peers, err)
+	}
+	if len(r.keys()) != 0 || len(r.messages("ask")) != 0 || r.entry(e.ID).Asked != "" {
+		t.Fatal("listing changed a question")
+	}
+}
+
+func TestListPeersPreservesBusyState(t *testing.T) {
+	r := newRig(t, baseScript())
+	r.ready()
+	r.rex(withScreens(working()))
+	peers, err := List(r.ctx)
+	if err != nil || len(peers) != 1 || peers[0].State == Ready {
+		t.Fatalf("%+v %v", peers, err)
+	}
 }

@@ -744,7 +744,9 @@ func Snapshot(root string) (map[string]string, error)  { return snapshot(root) }
 func Changes(before, after map[string]string) []string { return changes(before, after) }
 
 // workerLines close every worker's input.
-var workerLines = "\n" + capability.NeedsLine + "\n" + gateRetryLine + "\n" + ownershipLine + "\n" + decisionsLine + "\n"
+var workerLines = "\n" + capability.NeedsLine + "\n" + gateRetryLine + "\n" + ownershipLine + "\n" + decisionsLine + "\n" + summaryLine + "\n"
+
+const summaryLine = "When everything went as planned, keep the summary to one short sentence; give details only for a problem, an open question or a choice you made."
 
 // decisionsLine makes a worker name what it settled alone. In the cost study
 // Codex workers decided one to three open points of a skeleton without saying
