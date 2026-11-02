@@ -143,6 +143,19 @@ func TestMoreReadCommands(t *testing.T) {
 		{"jq --indent 4 . package.json", Allow},
 		{"jq .key .env", Deny},
 		{"jq --arg k v .key .env", Deny},
+		// env and $ENV print the worker's environment, API keys included.
+		{"jq -n env", Ask},
+		{"jq -nr env.OPENAI_API_KEY", Ask},
+		{"jq -n '$ENV'", Ask},
+		{"jq -n '$__prog_args'", Ask},
+		// -X is a flag in BSD grep and ugrep: the file after it is still a target.
+		{"grep -X x .env", Deny},
+		{"grep -nX x .env", Deny},
+		// ugrep runs programs with --filter and writes with --save-config.
+		{"grep --filter=all:cat x src/a.go", Ask},
+		{"grep --save-config", Ask},
+		{"grep -n -A 3 -e x src/a.go", Allow},
+		{"grep -3 --color=never x src/a.go", Allow},
 		// jq prints the program it failed to parse, so -f would print a secret.
 		{"jq -f .env", Deny},
 		{"jq -nf .env", Deny},
@@ -202,9 +215,11 @@ func TestMoreReadCommands(t *testing.T) {
 
 // A Codex worker that asks the user would wait for an answer that never comes.
 func TestWorkerCannotAskTheUser(t *testing.T) {
-	got := Evaluate(policy(t), LeadRules{}, mode.Full, Action{Kind: "unknown", Target: "request_user_input_async", Role: "implement"})
-	if got.Kind != Deny || !strings.Contains(got.Reason, "needs") {
-		t.Fatalf("got %s (%s)", got.Kind, got.Reason)
+	for _, tool := range []string{"request_user_input_async", "AskUserQuestion"} {
+		got := Evaluate(policy(t), LeadRules{}, mode.Full, Action{Kind: "unknown", Target: tool, Role: "implement"})
+		if got.Kind != Deny || !strings.Contains(got.Reason, "needs") {
+			t.Fatalf("%s: got %s (%s)", tool, got.Kind, got.Reason)
+		}
 	}
 }
 

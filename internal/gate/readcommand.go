@@ -28,9 +28,11 @@ var (
 		"--only-matching", "--passthru", "--path-separator", "--pretty", "--quiet", "--regex-size-limit", "--regexp", "--file", "--replace", "--smart-case", "--sort", "--sortr", "--stats",
 		"--text", "--threads", "--trim", "--type", "--type-list", "--type-not", "--unrestricted", "--vimgrep", "--with-filename", "--word-regexp", "--version",
 	}
-	rgValueShorts   = "ABCEMTdefgjmrt"
-	rgPlainShorts   = ".0FHILNPSUVabchilnopqsuvwx"
-	grepValueShorts = "ABCDXdefm"
+	rgValueShorts = "ABCEMTdefgjmrt"
+	rgPlainShorts = ".0FHILNPSUVabchilnopqsuvwx"
+	// -X takes a value only in GNU grep; in BSD grep and ugrep it is a flag, and
+	// reading the next word as its value would hide the file after it.
+	grepValueShorts = "ABCDdefm"
 	// jq options that only change the output. -f, -L, --rawfile and --slurpfile
 	// read other files, and an error message prints the program it read.
 	jqPlainLong = []string{"--null-input", "--raw-input", "--slurp", "--compact-output", "--raw-output", "--raw-output0", "--join-output", "--ascii-output",
@@ -49,6 +51,10 @@ func jqFiles(args []string) ([]string, bool) {
 		word := args[i]
 		switch {
 		case literal || word == "-" || !strings.HasPrefix(word, "-"):
+			// env, $ENV and $__prog_args print the worker's environment, API keys included.
+			if !filter && (strings.Contains(strings.ToLower(word), "env") || strings.Contains(word, "$")) {
+				return nil, false
+			}
 			if filter {
 				files = append(files, word)
 			}
@@ -443,6 +449,20 @@ func (o optionSpec) known(words []string) bool {
 }
 
 var checkedOptions = map[string]optionSpec{
+	// grep may be GNU, BSD or ugrep. ugrep's --filter runs programs and
+	// --save-config writes, so only options that GNU and BSD share are known.
+	// Recursive options are known here and still ask in readCommandTargets.
+	"grep": {
+		plainShorts: "0123456789EFGPiywxvcLlhHnboqsTZzUarRVIuJXMOSp", valueShorts: "ABCDdefm",
+		plainLong: []string{"--extended-regexp", "--fixed-strings", "--basic-regexp", "--perl-regexp", "--ignore-case", "--no-ignore-case", "--word-regexp", "--line-regexp",
+			"--null-data", "--no-messages", "--invert-match", "--byte-offset", "--line-number", "--line-buffered", "--with-filename", "--no-filename", "--only-matching",
+			"--quiet", "--silent", "--text", "--recursive", "--dereference-recursive", "--files-without-match", "--files-with-matches", "--count", "--initial-tab", "--null",
+			"--binary", "--version", "--help"},
+		valueLong: []string{"--regexp", "--file", "--max-count", "--label", "--binary-files", "--directories", "--devices", "--include", "--exclude", "--exclude-from",
+			"--exclude-dir", "--before-context", "--after-context", "--context"},
+		attachedLong: []string{"--color", "--colour"},
+		maxFiles:     -1,
+	},
 	// -o writes, --compress-program runs a program, and -T writes elsewhere.
 	"sort": {
 		plainShorts: "bdfghiMnRrVsuzcCm", valueShorts: "ktS",

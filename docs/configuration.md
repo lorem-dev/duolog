@@ -76,7 +76,8 @@ command, the tools to use, the files not to touch. duolog puts this file first
 in each worker's input. The same start in every task lets the provider serve it
 from its prompt cache. The file must be a regular file of at most 32 KiB; a
 link is ignored, because it could point at a secret. The brief counts against
-`wire.inline_max_bytes`, so a long brief leaves less room for Read files.
+`wire.inline_max_bytes`, so a long brief leaves less room for Read files. A
+resumed thread already holds the brief, so duolog does not send it again.
 
 Every worker is also told not to commit, push or ask the user, and to edit a
 changelog or docs only if the task lists them under Write.
@@ -143,7 +144,8 @@ added 7.4 thousand tokens to every call in the cost study. A task that names an
 `mcp:` or `plugin:` need keeps them. A `minimal` Claude worker skips every
 `CLAUDE.md`, the one in your home folder too: Claude loads that file as project
 instructions when the project is inside the home folder. A `minimal` worker of
-either agent keeps its skills only when the task names a `skill:` need.
+either agent keeps its skills only when the task names a `skill:` or
+`plugin:` need.
 
 ## What a Codex worker's sandbox blocks
 

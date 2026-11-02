@@ -444,6 +444,7 @@ func TestCodexEditsLeadKeepsProtectedPaths(t *testing.T) {
 		".duolog/config.yaml":         Deny,
 		".duolog/learned.yaml":        Deny,
 		".codex/rules/duolog.rules":   Deny,
+		".codex/agents/x.toml":        Deny,
 		".codex/config.toml":          Deny,
 		".claude/settings.local.json": Deny,
 		".git/hooks/pre-commit":       Deny,

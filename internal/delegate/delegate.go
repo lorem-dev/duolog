@@ -335,7 +335,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		} else {
 			route.Model = model
 			stdin := append(append(brief, inline...), workerLines...)
-			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Env: workerEnv(cfg.EnvPassthrough, leadID, role), Persistent: route.Session == "resume", KeepMCP: needsKind(opts.Needs, capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill)}
+			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Env: workerEnv(cfg.EnvPassthrough, leadID, role), Persistent: route.Session == "resume", KeepMCP: needsKind(opts.Needs, capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin)}
 			if route.Sandbox == "read-only" {
 				spec.Mode = mode.Plan
 			}
@@ -355,6 +355,8 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 						entry = nil
 					} else {
 						spec.ThreadID = entry.ThreadID
+						// The thread already holds the brief from its first turn.
+						spec.Stdin = append(append([]byte{}, inline...), workerLines...)
 					}
 				}
 			}
@@ -655,7 +657,8 @@ const maxBriefBytes = 32 * 1024
 
 // needsKind reports whether a task names a need of one of these kinds. A Claude
 // worker keeps MCP servers only for an mcp or plugin need, since a plugin can
-// bring a server, and a minimal worker keeps skills only for a skill need.
+// bring a server, and a minimal worker keeps skills only for a skill or plugin
+// need.
 func needsKind(needs []string, kinds ...string) bool {
 	for _, need := range needs {
 		if kind, _, err := capability.ParseNeed(need); err == nil && slices.Contains(kinds, kind) {

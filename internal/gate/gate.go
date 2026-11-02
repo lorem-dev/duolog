@@ -124,7 +124,7 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	}
 
 	// The lead talks to the user; a worker that waits for an answer only stalls.
-	if a.Kind == "unknown" && strings.HasPrefix(a.Target, "request_user_input") {
+	if a.Kind == "unknown" && (strings.HasPrefix(a.Target, "request_user_input") || a.Target == "AskUserQuestion") {
 		return decision(Deny, "a worker cannot ask the user; return done false with the question in needs", "ask user")
 	}
 	if a.Kind != "read" && a.Kind != "write" && a.Kind != "exec" && a.Kind != "net" {
@@ -558,7 +558,7 @@ func readOnlyCommand(command string) bool {
 	case "jq":
 		_, ok := jqFiles(raw[1:])
 		return ok
-	case "sort", "uniq", "file":
+	case "grep", "sort", "uniq", "file":
 		return checkedOptions[words[0]].known(raw[1:])
 	case "tree":
 		// -o writes a file, and -R with -H writes an HTML page into each folder.

@@ -29,6 +29,8 @@ func TestRememberPattern(t *testing.T) {
 		"uv run script.py":                "uv run script.py",
 		"go run ./cmd/x":                  "go run ./cmd/x",
 		"docker compose up web":           "docker compose up web",
+		"make check FOO=1":                "make check FOO=1",
+		"npm --prefix web run lint":       "npm --prefix web run lint",
 	} {
 		if got := rememberPattern(command); got != want {
 			t.Errorf("%q: %q, want %q", command, got, want)
@@ -156,5 +158,39 @@ func TestLearnedRulesKeepOnlyExecAllows(t *testing.T) {
 	rules, err := config.LearnedRules(root)
 	if err != nil || len(rules) != 1 || rules[0].Match != "jq *" {
 		t.Fatalf("got %+v %v", rules, err)
+	}
+}
+
+// A Codex prefix rule would also match extra arguments outside the sandbox,
+// so --native writes one only for a pattern that already ends in " *".
+func TestRememberNativeSkipsCodexForExactCommands(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	out, err := rememberIn(t, "--native", "curl", "-s", "https://example.invalid/health")
+	if err != nil || !strings.Contains(out, "codex: no rule") {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".codex", "rules", "duolog.rules")); !os.IsNotExist(err) {
+		t.Fatal("an exact command got a Codex prefix rule", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(root, ".claude", "settings.local.json"))
+	if !strings.Contains(string(data), `"Bash(curl -s https://example.invalid/health)"`) {
+		t.Fatalf("claude settings: %s", data)
+	}
+	if out, err := rememberIn(t, "--native", ".venv/bin/ruff", "check", "app/a.py"); err != nil || !strings.Contains(out, "prefix_rule") {
+		t.Fatalf("%v: %s", err, out)
+	}
+}
+
+// Options after the command's first word belong to the command.
+func TestRememberTakesUnquotedOptions(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	if _, err := rememberIn(t, "npm", "--prefix", "web", "run", "lint"); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(root, ".duolog", config.LearnedFile))
+	if !strings.Contains(string(data), "npm --prefix web run lint") {
+		t.Fatalf("learned: %s", data)
 	}
 }

@@ -59,10 +59,10 @@
 
 - The Claude skill runs report commands, such as `duolog doctor`, unprompted.
 - The skills install the version they shipped with, not the latest release.
-- The gate reads quoted words, `rg` and `grep` option values and more read
-  commands, such as `sed -n 'N,Mp'`, `jq` and `sort`, without asking.
+- The gate reads quoted words and more read commands, such as `sed -n 'N,Mp'`
+  and `jq`; it checks `grep` options, and an unknown one asks.
 - A Codex lead in `workspace-write` with approval `on-request` lets workers
-  edit, as Codex does; `untrusted` still asks.
+  edit, as Codex does, except `.codex/`; `untrusted` still asks.
 - A gate denial names the command, and the worker retries once in a plainer
   form before it stops.
 - Workers are told not to commit or ask the user; Claude workers skip auto

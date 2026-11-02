@@ -45,7 +45,7 @@ The rules are in the `policy` section of the config. A rule has an action
 | read | everything | allow |
 | read | `.env`, `*.pem`, `*.key`, `secrets/` | deny |
 | write | `.duolog` and `.git` folders, at any depth | deny |
-| write | `.claude/settings*.json`, `.claude/hooks/**`, `.codex/config.toml`, `.codex/hooks.json`, `.codex/rules/**` | deny |
+| write | `.claude/settings*.json`, `.claude/hooks/**` and the `.codex` folder | deny |
 | write | everything, for the write roles | allow |
 | exec | `go test`, `make build`, `npm run test`, `uv run pytest` and the like, for write roles | allow |
 | exec | Check tools of each ecosystem, for write roles: `node_modules/.bin/eslint`, `.venv/bin/ruff`, `python -m pytest`, `go vet`, `cargo clippy`, `cmake --build`, offline `gradle` and `mvn`, `dotnet test --no-restore` and the like | allow |
@@ -80,10 +80,12 @@ or `$` and a backtick inside double quotes. The shell would split or expand
 such text, so the gate cannot read the words it passes on. A brace anywhere in
 a command asks for the same reason.
 
-`sed` reads only as `sed -n 'N,Mp' file`. `jq` and `sort` pass only with
-options that change the output: `jq -f`, `jq -L`, `sort -o` and
-`sort --compress-program` ask. `diff` and `yq` are not read commands, because
-`diff -r` prints denied files and `yq` can write them.
+`sed` reads only as `sed -n 'N,Mp' file`. `grep`, `jq`, `sort`, `uniq` and
+`file` pass only with options that change the output, so `jq -f`, `sort -o`,
+`uniq - out`, `file -m.env` and ugrep's `grep --filter` ask. A `jq` filter
+that names `env` or a `$` variable asks, because it can print the worker's
+API keys. `diff` and `yq` are not read commands, because `diff -r` prints
+denied files and `yq` can write them.
 
 A deny also holds inside any other command. `uv run git push` is denied like
 `git push`, and `sed -n p .env` is denied like `cat .env`. A directory change
@@ -113,7 +115,8 @@ with a plainer form, then stops with `done: false` and the command in `needs`.
 The lead decides, adjusts the task or permitted policy/mode, and re-runs. Deny
 rules still apply. When the lead is free, normal numbered asks work as below.
 `peer wait` returns at once for a pending gate ask. A worker that tries to ask
-the user is denied, because only the lead talks to the user.
+the user, with Codex `request_user_input` or Claude `AskUserQuestion`, is
+denied, because only the lead talks to the user.
 
 The lead answers with:
 
@@ -150,8 +153,10 @@ With `--native`, duolog also allows the command for the lead:
 `Bash(prefix:*)` in `.claude/settings.local.json` and a `prefix_rule` in
 `.codex/rules/duolog.rules`. Codex runs an allowed prefix outside its
 sandbox, which is more than the worker rule grants, so `--native` is off by
-default. We checked the Codex rule with `codex execpolicy check`; a live Codex
-session that reads it is not verified.
+default. A Codex rule matches a prefix, so an exact command gets no Codex
+rule. Give the options of `remember` before the command. We checked the Codex
+rule with `codex execpolicy check`; a live Codex session that reads it is not
+verified.
 
 ## Where the checks run
 

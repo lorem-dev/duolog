@@ -121,7 +121,8 @@ policy:
     - {action: read,  match: "{**/.env,**/.env.*,**/*.pem,**/*.key,**/secrets/**}", decision: deny}
     - {action: write, match: "{**/.duolog/**,**/.git/**}", decision: deny}
     # A worker that changes these would change its own rules or the lead's hooks.
-    - {action: write, match: "{.claude/settings*.json,.claude/hooks/**,.codex/config.toml,.codex/hooks.json,.codex/rules/**}", decision: deny}
+    # Codex itself keeps .codex/ read-only in workspace-write.
+    - {action: write, match: "{.claude/settings*.json,.claude/hooks/**,.codex/**}", decision: deny}
     - {action: write, match: "**", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
     # Not run: go run and uv run start any program. A named test or lint script is fine.
     - {action: exec,  match: "{go,cargo,npm,pnpm,uv,task,make} {test,lint,fmt,build}*", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}

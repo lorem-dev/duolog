@@ -81,6 +81,16 @@ func TestAcceptsOtherHeadingLevels(t *testing.T) {
 			t.Fatalf("%q annotate:\n%s", level, got)
 		}
 	}
+	// A task with "## " sections keeps other headings as text, as 1.0 did.
+	for _, text := range []string{
+		strings.Replace(document("- a.go"), "Complete work.\n", "Complete work.\n# Read\nthe log first.\n", 1),
+		strings.Replace(document("- a.go"), "Stay focused.\n", "Stay focused.\n### Check\nno network\n", 1),
+	} {
+		write(t, p, text)
+		if err := Validate(p); err != nil {
+			t.Fatalf("a 1.0 task fails: %v\n%s", err, text)
+		}
+	}
 	write(t, p, strings.ReplaceAll(document("- a.go"), "## ", ""))
 	if err := Validate(p); err == nil || !strings.Contains(err.Error(), `"## Goal"`) {
 		t.Fatalf("missing sections: %v", err)

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -17,6 +18,7 @@ var sections = []string{"Goal", "Read", "Write", "Limits", "Check"}
 
 func parse(data []byte) (map[string]string, error) {
 	result := make(map[string]string)
+	otherLevels := !hasSecondLevelSections(string(data))
 	current := ""
 	next := 0
 	fence := ""
@@ -30,7 +32,7 @@ func parse(data []byte) (map[string]string, error) {
 				fence = ""
 			}
 		}
-		if name, ok := sectionHeading(line, next); fence == "" && ok {
+		if name, ok := sectionHeading(line, next, otherLevels); fence == "" && ok {
 			if next >= len(sections) || name != sections[next] {
 				return nil, fmt.Errorf("task sections must be Goal, Read, Write, Limits, Check in order; unexpected %q", name)
 			}
@@ -242,6 +244,7 @@ func Inline(path, root string, maxBytes int, allowRead ...func(string) bool) ([]
 func Annotate(text, lines string) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	fence, offset, next := "", 0, 0
+	otherLevels := !hasSecondLevelSections(text)
 	for _, line := range strings.SplitAfter(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
@@ -253,7 +256,7 @@ func Annotate(text, lines string) string {
 			}
 		}
 		offset += len(line)
-		if name, ok := sectionHeading(strings.TrimRight(line, "\n"), next); fence == "" && ok && next < len(sections) && name == sections[next] {
+		if name, ok := sectionHeading(strings.TrimRight(line, "\n"), next, otherLevels); fence == "" && ok && next < len(sections) && name == sections[next] {
 			if name == "Limits" {
 				return text[:offset] + lines + text[offset:]
 			}
@@ -265,9 +268,10 @@ func Annotate(text, lines string) string {
 
 // sectionHeading reads a heading that starts a section. A "## " line always
 // does, and a wrong name there is an error. Agents also write "# Goal" or
-// "### Goal", so those levels count when they name the section due next;
-// otherwise they are ordinary text in the section.
-func sectionHeading(line string, next int) (string, bool) {
+// "### Goal": when a task has no "## " section at all, those levels count if
+// they name the section due next, and are ordinary text otherwise. A task
+// with "## " sections keeps every other heading as text, as 1.0 did.
+func sectionHeading(line string, next int, otherLevels bool) (string, bool) {
 	level := len(line) - len(strings.TrimLeft(line, "#"))
 	if level < 1 || level > 3 || !strings.HasPrefix(line[level:], " ") {
 		return "", false
@@ -276,5 +280,26 @@ func sectionHeading(line string, next int) (string, bool) {
 	if level == 2 {
 		return name, true
 	}
-	return name, next < len(sections) && name == sections[next]
+	return name, otherLevels && next < len(sections) && name == sections[next]
+}
+
+// hasSecondLevelSections reports whether a "## " line outside a fence names
+// one of the sections.
+func hasSecondLevelSections(text string) bool {
+	fence := ""
+	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			marker := trimmed[:3]
+			if fence == "" {
+				fence = marker
+			} else if fence == marker {
+				fence = ""
+			}
+		}
+		if fence == "" && strings.HasPrefix(line, "## ") && slices.Contains(sections, strings.TrimSpace(line[3:])) {
+			return true
+		}
+	}
+	return false
 }

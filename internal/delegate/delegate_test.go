@@ -217,6 +217,7 @@ func TestFreshRunsAreNotRegistered(t *testing.T) {
 }
 func TestResumeReusesThread(t *testing.T) {
 	h := newHarness(t)
+	put(t, filepath.Join(h.root, ".duolog", "brief.md"), "- BRIEF_RULE\n")
 	if _, e := h.run("plan"); e != nil {
 		t.Fatal(e)
 	}
@@ -226,6 +227,10 @@ func TestResumeReusesThread(t *testing.T) {
 	h.requireCalls(2)
 	if h.calls[1].ThreadID != "worker-id" {
 		t.Fatal(h.calls)
+	}
+	// The thread holds the brief from its first turn; a resumed turn does not repeat it.
+	if !strings.Contains(string(h.calls[0].Stdin), "BRIEF_RULE") || strings.Contains(string(h.calls[1].Stdin), "BRIEF_RULE") {
+		t.Fatalf("brief: first %q, resumed %q", h.calls[0].Stdin, h.calls[1].Stdin)
 	}
 	if strings.Contains(strings.Join(runner.Argv(h.calls[0]), " "), "--no-session-persistence") {
 		t.Fatal("initial resumable run cannot persist")

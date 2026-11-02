@@ -83,15 +83,24 @@ func newRememberCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		fmt.Fprintf(cmd.OutOrStdout(), "claude: %s\n", claude)
+		// A Codex prefix rule also matches extra arguments and runs them outside
+		// the sandbox, so an exact command gets no Codex rule.
+		if _, anyArgs := nativePrefix(match); !anyArgs {
+			fmt.Fprintln(cmd.OutOrStdout(), "codex: no rule; Codex rules match a prefix, and this command is exact")
+			return nil
+		}
 		codex, err := addCodexRule(filepath.Join(root, ".codex", "rules", "duolog.rules"), match)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "claude: %s\ncodex: %s (outside the sandbox, trusted project only)\n", claude, codex)
+		fmt.Fprintf(cmd.OutOrStdout(), "codex: %s (outside the sandbox, trusted project only)\n", codex)
 		return nil
 	}}
 	// Off by default: a Codex prefix rule also runs the command outside the
 	// Codex sandbox, which is more than the worker rule grants.
+	// Options after the first word belong to the command: remember npm --prefix web run lint.
+	cmd.Flags().SetInterspersed(false)
 	cmd.Flags().BoolVar(&native, "native", false, "Also allow it for the lead in .claude/settings.local.json and .codex/rules/duolog.rules")
 	cmd.Flags().StringVar(&match, "match", "", "Glob to allow instead of the one derived from the command")
 	cmd.Flags().StringSliceVar(&roles, "role", nil, "Role the rule applies to (repeat); default: every writing role")
@@ -99,8 +108,9 @@ func newRememberCommand() *cobra.Command {
 }
 
 // anyProgram runs code or fetches it from its arguments, so "python *" would
-// allow every script. A version suffix counts too: python3.12 is python.
-var anyProgram = []string{"python", "node", "nodejs", "deno", "bun", "ruby", "perl", "php", "lua", "julia", "rscript", "java", "dotnet", "awk", "gawk", "nawk", "mawk",
+// allow every script and "make *" any makefile (make -f). A version suffix
+// counts too: python3.12 is python.
+var anyProgram = []string{"make", "python", "node", "nodejs", "deno", "bun", "ruby", "perl", "php", "lua", "julia", "rscript", "java", "dotnet", "awk", "gawk", "nawk", "mawk",
 	"osascript", "curl", "wget", "npx", "pnpx", "bunx", "uvx", "pipx", "ssh", "scp", "rsync", "docker", "podman", "kubectl"}
 
 // runSubcommands start a program named in the arguments: "uv run *" or
