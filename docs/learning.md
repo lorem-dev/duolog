@@ -121,10 +121,9 @@ It rebuilds the recorded starting tree from the base commit and saved patch.
 The main checkout and its staged changes stay as they were. A record without
 a base commit or saved starting patch cannot be replayed.
 
-The command prints both summaries, costs, patch statistics and check results.
-It runs the class's `checks` commands on both results. Commands use spaces
-to separate arguments; shell operators and quoting have no special meaning.
-A missing program has exit code `-1` and does not stop the comparison.
+The command runs the class's `checks` commands on both results. Commands use
+spaces to separate arguments; shell operators and quoting have no special
+meaning. A missing program has exit code `-1` and does not stop the comparison.
 
 The worktree uses the fixed path `.duolog/profile/worktree` under the shared
 state root. The command removes it on success, failure or interruption. It
@@ -138,8 +137,39 @@ when several leads are active. Use `--allow-manual-model` for a deliberate
 model version pin that is absent from the live model list. Workers cannot
 run profiling commands.
 
-This command currently reports the replay and checks. A later step adds a
-blind judge and asks the person to confirm or correct the scores.
+A judge compares the results using the class's rubric. It sees the recorded
+task, patches and answers under neutral labels A and B. It does not receive
+the entry names or learn which side is the original. The label order is
+random. The judge uses a vendor absent from both sides when possible.
+Otherwise it uses the first configured judge in `learning.judges`.
+
+The judge scores each criterion from 0 to 3. Criteria marked `(count)` also
+require a count for each side. Its task and inputs stay in
+`.duolog/judge/<verdict-id>/` under the current work root. An invalid answer
+creates no verdict. The error gives the saved answer path for inspection.
+
+The command prints the scores and reasons in original/profile order, the
+check totals, and separate replay and judge costs. It then asks the lead to
+show the result to the person. After they confirm the scores, record it:
+
+```bash
+duolog verdict <verdict-id> confirm
+```
+
+To correct scores, quote each criterion and give its original/profile scores:
+
+```bash
+duolog verdict <verdict-id> correct "structure matches what was asked=1/3"
+```
+
+Each correction needs at least one known criterion with scores from 0 to 3.
+Criteria left out keep the judge's scores. Add `--note` for a short explanation.
+Workers cannot record verdict decisions. The latest decision replaces earlier
+decisions for that verdict; it applies to the saved judge scores.
+
+The verdict and decision go to `.duolog/journal/verdicts.ndjson`. A comparison
+affects quality estimates only after the person confirms or corrects it.
+The judge call does not count as another task delegation.
 
 ## How duolog learn changes the order
 

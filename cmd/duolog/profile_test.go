@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/profile"
+	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
 func TestProfileRejectsBadEntry(t *testing.T) {
@@ -19,16 +20,74 @@ func TestProfileRejectsBadEntry(t *testing.T) {
 	}
 }
 
-func TestProfileSummaryPrintsPatchesAndChecks(t *testing.T) {
-	var out bytes.Buffer
-	r := profile.Replay{Original: profile.Side{Entry: "codex/terra/medium", Summary: "original summary", USD: 0.2, Checks: []journal.Check{{Command: "no-such-program-x", Exit: -1}}}, Profile: profile.Side{Entry: "codex/sol/high", Summary: "profile summary", Patch: []byte("diff --git a/y.txt b/y.txt\nnew file mode 100644\n--- /dev/null\n+++ b/y.txt\n@@ -0,0 +1 @@\n+replayed\n"), Checks: []journal.Check{{Command: "git --version", Exit: 0}}}}
-	if err := writeReplaySummary(&out, r); err != nil {
+func TestProfilePrintsVerdictScreen(t *testing.T) {
+	root := learningRepo(t, true)
+	if err := os.WriteFile(filepath.Join(root, ".duolog", "config.yaml"), []byte("learning:\n  enabled: true\n  judges: [{agent: claude, model: opus, effort: high}]\n  classes:\n    docs:\n      rubric: [quality]\n      checks: [git --version, no-such-program-x]\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Original: codex/terra/medium ($0.2000)", "original summary", "Profile: codex/sol/high", "profile summary", "y.txt", "1 file changed", "0 files changed", "check: no-such-program-x; exit=-1", "check: git --version; exit=0"} {
-		if !strings.Contains(out.String(), want) {
-			t.Fatalf("missing %q in %s", want, &out)
+	j, err := journal.Open(filepath.Join(root, ".duolog"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := journal.Head(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := journal.Delegation{ID: "d-profile", Task: "t-profile", Step: 1, Class: "docs", Ladder: "docs", Role: "docs", Entry: "claude/opus/high", Agent: "claude", Model: "opus", Effort: "high", Base: base, Done: true}
+	if err := j.Append("delegations.ndjson", r); err != nil {
+		t.Fatal(err)
+	}
+	dir := j.TaskDir(r.Task, r.ID)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string]string{"task.md": "## Goal\nWrite a note.\n## Read\n## Write\n- note.txt\n## Limits\nStay focused.\n## Check\nInspect.\n", "before.patch": "", "result.patch": "", "answer.json": `{"summary":"original result"}`} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0600); err != nil {
+			t.Fatal(err)
 		}
+	}
+	output := func(summary string) string {
+		data, err := json.Marshal(map[string]any{"structured_output": map[string]any{"done": true, "summary": summary, "files": []string{}, "needs": []string{}}, "usage": map[string]int{"input_tokens": 100, "output_tokens": 50}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	fake := testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{
+		"auth status": {Stdout: `{"loggedIn":true}`},
+		"-p":          {Sequence: []testbin.Scenario{{Stdout: output("replay result"), Writes: map[string]string{"note.txt": "replay\n"}}, {Stdout: output(`{"scores":[{"criterion":"quality","a":3,"b":2,"reason":"one is clearer"}]}`)}}},
+	}})
+	out, err := executeBusCommand(t, "profile", r.ID, "--entry", "claude/sonnet/medium", "--lead", "task-lead")
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	previous := -1
+	for _, want := range []string{"verdict ", "CRITERION", "checks:", "cost:", "confirm"} {
+		i := strings.Index(out, want)
+		if i <= previous {
+			t.Fatalf("missing or out of order %q: %s", want, out)
+		}
+		previous = i
+	}
+	for _, want := range []string{"docs docs, original claude/opus/high vs profile claude/sonnet/medium; judge claude/opus/high, blind, order shuffled", "original 1/2 passed, profile 1/2 passed", "quality", "one is clearer", "duolog verdict ", " correct "} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q: %s", want, out)
+		}
+	}
+	vs := readVerdicts(t, j)
+	if len(vs) != 1 || vs[0].Kind != "verdict" {
+		t.Fatal(vs)
+	}
+	ds, err := journal.ReadAll[journal.Delegation](j, "delegations.ndjson")
+	if err != nil || len(ds) != 2 || ds[1].ProfileOf != r.ID {
+		t.Fatal(ds, err)
+	}
+	args, err := os.ReadFile(fake + ".args.json")
+	if err != nil || !strings.Contains(string(args), "opus") {
+		t.Fatal(string(args), err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".duolog", profile.WorktreeDir)); !os.IsNotExist(err) {
+		t.Fatal("profile worktree remains", err)
 	}
 }
 

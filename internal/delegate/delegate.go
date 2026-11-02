@@ -259,7 +259,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	for attempt := 0; attempt < 2; attempt++ {
 		ro := router.Options{Lead: leadTarget, AllowManualModel: opts.AllowManualModel}
 		if opts.Entry != nil {
-			ro.Use, ro.NoSelf = opts.Entry, sameModel(*opts.Entry, leadTarget)
+			ro.Use, ro.NoSelf = opts.Entry, true
 		} else if err := lr.route(cfg, role, unavailable, &ro); err != nil {
 			return out, err
 		}

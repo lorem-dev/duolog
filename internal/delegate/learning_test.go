@@ -480,6 +480,31 @@ func TestUseWorksWithLearningOff(t *testing.T) {
 	noJournal(t, h)
 }
 
+func TestJudgeRoutesToEntryWithoutJournalling(t *testing.T) {
+	h := newHarness(t)
+	h.learning(false)
+	if err := h.reg.RegisterLead(session.Lead{ID: "lead-123456", Target: config.Target{Agent: "claude", Model: "haiku", Effort: "high"}, Mode: mode.Full}); err != nil {
+		t.Fatal(err)
+	}
+	spec := h.cfg.Roles["review_final"]
+	spec.Context = "minimal"
+	h.cfg.Roles["review_final"] = spec
+	out, err := h.runWith("review_final", Options{Judge: true, Entry: target("codex/sol/high")})
+	if err != nil || out.RunHere != nil {
+		t.Fatal(out, err)
+	}
+	h.requireCalls(1)
+	if r := h.calls[0].Route; r.Agent != "codex" || models.Normalize(r.Agent, r.Model) != "sol" || r.Effort != "high" {
+		t.Fatal(r)
+	}
+	if recs := h.records(); len(recs) != 0 {
+		t.Fatal(recs)
+	}
+	if _, ok, err := h.journal().CurrentTask("lead-123456"); err != nil || ok {
+		t.Fatal("judge opened a task", err)
+	}
+}
+
 func TestReplayRecordCarriesOriginalTask(t *testing.T) {
 	h := newHarness(t)
 	h.learning(true)
