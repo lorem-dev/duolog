@@ -186,13 +186,15 @@ duolog sync --from claude
 Send a task to a role:
 
 ```bash
-duolog delegate review_intermediate --task task.md
+duolog delegate review_intermediate --task .duolog/task.md
 ```
 
 ## The default rules
 
 Planning and the final review use Opus, because a mistake costs the most there.
-Routine work uses cheaper Codex models. The rules are in
+Routine work uses cheaper Codex models. A whole feature goes to `planner`, which
+reads, implements and checks on Codex, so the lead does not read the code
+itself. The rules are in
 [internal/config/config.default.yaml](internal/config/config.default.yaml).
 A project can change any of them.
 
@@ -214,15 +216,18 @@ repository exists.
 
 ## What is not proven yet
 
-- The first release is unpublished. Nothing is on a package registry.
-- Real agents on Windows have not been run. Hosted CI must pass before merge;
-  it executes generated hooks and installers without starting real agents.
+- Nothing is on a package registry.
+- Real agents ran on Windows 11 once, in Windows PowerShell 5.1: install,
+  hooks, workers and gate denies worked. PowerShell 7 and Windows on arm64
+  with real agents are not checked.
 - Live sessions require Rex on macOS or Linux. Windows uses `duolog delegate`.
-- Codex as the lead is not proven. In our checks its shell could not find
-  `rex`, and we have not shown that it can start `claude -p`.
+- Codex as the lead worked in the cost study, but `duolog delegate` had to run
+  outside its sandbox. Its shell could not find `rex` in our checks.
 - Most agent behavior behind the design is OBSERVED in a few runs, not
   VERIFIED. The [live verification][lv] lists each answer with its label.
-- The cost targets are not measured yet. See [Budgets](docs/budgets.md).
+- The cost study ran each setup once per task, on five tasks of one private
+  project. Repeats are needed before its numbers are averages. See
+  [Budgets](docs/budgets.md) and [the cost study][cs].
 
 ## License
 
@@ -242,3 +247,4 @@ duolog uses the [Apache License 2.0](LICENSE).
 - [How to write the documentation](docs/contributing.md): the writing rules
 
 [lv]: docs/research/2026-10-30-live-verification.md
+[cs]: docs/research/2026-11-01-cost-study.md

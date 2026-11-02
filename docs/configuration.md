@@ -43,7 +43,7 @@ A role names a kind of work. It has these fields:
 | `use` | The agent, model alias and effort that do the work |
 | `fallback` | Where the work goes when the `use` agent is unavailable |
 | `sandbox` | `read-only` or `workspace-write`. The most the worker may do to files |
-| `context` | `minimal` drops the project instructions; `project` keeps them |
+| `context` | `minimal` drops the project instructions and the skill list; `project` keeps them |
 | `session` | `fresh` starts a new run; `resume` continues a thread |
 
 To see the result for one role, run:
@@ -55,6 +55,30 @@ duolog route review_final --json
 
 To see every role and its model, run `duolog roster`. Add `--versions` to see
 which Codex version each alias resolves to.
+
+## Which role takes a whole feature
+
+Give a whole feature to `planner`. It reads the code, implements, runs the
+checks and lists the risks and the hunks to review. It runs on `sol` with
+minimal context and keeps its thread, so a follow-up round reuses the
+worker's cache. In the cost study, an Opus lead that handed a large feature to
+`planner` and did not read the code itself cost about half as much as an Opus
+lead that read the code first, at the same test results. See
+[the cost study](research/2026-11-01-cost-study.md).
+
+Keep a small fix in the lead. A handoff has a fixed cost: on a two-file bug,
+one Codex session alone cost less than any setup with duolog.
+
+## How to give every worker the same rules
+
+Put the project rules that every worker needs in `.duolog/brief.md`: the test
+command, the tools to use, the files not to touch. duolog puts this file first
+in each worker's input. The same start in every task lets the provider serve it
+from its prompt cache. The file must be a regular file of at most 32 KiB; a
+link is ignored, because it could point at a secret.
+
+Every worker is also told not to commit, push or ask the user, and to edit a
+changelog or docs only if the task lists them under Write.
 
 ## Why the config holds only model aliases
 
@@ -107,9 +131,29 @@ Codex trust, hooks and capabilities read `CODEX_HOME` when set. Claude hooks,
 permissions and capabilities read `CLAUDE_CONFIG_DIR` when set. Home lookups
 use the OS home directory, including USERPROFILE on Windows.
 
+A Codex worker runs its commands with `allow_login_shell=false`. A login shell
+reruns your profile, which can reset PATH and lose tools such as `node` from
+nvm. The worker keeps the PATH that duolog passes.
+
+## What a Codex worker's sandbox blocks
+
+A write role runs Codex in `workspace-write`. The cost study saw these limits
+with `codex exec` (OBSERVED, Codex 0.165.0 on macOS):
+
+| What fails | Why | What to do |
+|---|---|---|
+| Tests that use a local database or Redis | The sandbox blocks the network, even localhost | Set `network_access = true` under `[sandbox_workspace_write]` in the project's `.codex/config.toml` |
+| `uv run` | Its cache lock is outside the project | Run `.venv/bin/python -m pytest` |
+| `npx` | Its cache in `~/.npm` is outside the project | Run `node_modules/.bin/<tool>` |
+| `git status` with Git LFS | LFS writes to `.git/lfs/tmp` | Name the check in the task instead |
+
+Put the working forms in `.duolog/brief.md`, so that every worker uses them.
+
 ## Related pages
 
 - [Getting started](getting-started.md): install and first task
 - [Permissions](permissions.md): policy rules and modes
 - [Practices and models](research/2026-10-30-practices-and-models.md): the
   evidence behind the defaults
+- [Cost study](research/2026-11-01-cost-study.md): what duolog cost against
+  one agent, and why 1.1.0 changed the gate and the roles

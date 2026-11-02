@@ -131,7 +131,9 @@ If the binary exists but the rules are off, the skill runs `duolog doctor`
 once per session and reports what it names, such as `/hooks` for Codex.
 A hook cannot offer the install when its binary is missing.
 
-If a file already exists and changes, duolog first copies it to
+If a file already exists and changes, duolog first copies it. A project file
+goes to the same path under `.duolog/backup/`, which Git ignores, so
+`git add -A` does not pick it up. A file in your home folder goes to
 `<file>.duolog.bak`. `duolog uninstall` removes only the hook entries and the
 skill file that duolog added. It also removes the marked install offer. An
 instruction file is deleted only if duolog created it and it is now empty.
@@ -153,7 +155,9 @@ versions, whether hooks are installed, Codex trust, Rex, and the install offer
 ## How to send your first task
 
 A task is a Markdown file with five sections in this order: Goal, Read,
-Write, Limits and Check. Each section is a second-level heading.
+Write, Limits and Check. Each section is a heading, usually `## Goal`; `# Goal`
+and `### Goal` work too. Save it inside the project. `.duolog/task.md` is a
+good place, because Git ignores `.duolog/`.
 
 ```markdown
 ## Goal
@@ -179,7 +183,7 @@ calls on reading them.
 Send the task to a role:
 
 ```bash
-duolog delegate review_intermediate --task task.md
+duolog delegate review_intermediate --task .duolog/task.md
 ```
 
 The command finds its lead from `--lead`, then `DUOLOG_LEAD`, then a registered
@@ -226,8 +230,8 @@ estimates, not a bill.
 ## Known limits
 
 - The first release is unpublished. There is no download.
-- Real agents on Windows have not been run. Native CI needs a green run
-  before merge; compiled test agents do not prove agent hook discovery.
+- Real agents ran on Windows 11 once, in Windows PowerShell 5.1: hooks fired
+  and the gate denied. PowerShell 7 and arm64 with real agents are unchecked.
 - Windows console interruption and descendant cancellation still lack native
   verification. POSIX signal tests do not prove those Windows paths.
 - Codex as the lead is not proven. See [Rex](rex.md).

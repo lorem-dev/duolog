@@ -42,15 +42,39 @@
 
 ## Development
 
+### Added
+
+- `duolog remember` allows a command the user approved for workers from now
+  on; `--native` also allows it for the lead.
+- A `planner` role takes a whole feature: it reads the code, implements and
+  checks on Codex.
+- duolog puts `.duolog/brief.md` first in every worker's input, for rules that
+  all workers need.
+- Write roles may run check tools such as `.venv/bin/ruff`,
+  `node_modules/.bin/eslint`, `go vet` and `cargo clippy`.
+
 ### Changed
 
 - The Claude skill runs report commands, such as `duolog doctor`, unprompted.
 - The skills install the version they shipped with, not the latest release.
+- The gate reads quoted words, `rg` and `grep` option values and more read
+  commands, such as `sed -n 'N,Mp'`, `jq` and `sort`, without asking.
+- A Codex lead in `workspace-write` with approval `on-request` lets workers
+  edit, as Codex does; `untrusted` still asks.
+- A gate denial names the command, and the worker retries once in a plainer
+  form before it stops.
+- Workers are told not to commit or ask the user, and a `minimal` worker gets
+  no skill list.
+- `duolog install` keeps backups of project files under `.duolog/backup/`,
+  which Git ignores.
+- A task may use `# Goal` or `### Goal` headings as well as `## Goal`.
 
 ### Fixed
 
 - `duolog sync` waits up to 15 seconds for another run, not 2, on a slow disk.
 - A hook no longer ignores input that starts with a byte order mark.
+- Codex workers keep the PATH that duolog passes; a login shell no longer
+  resets it.
 
 ## 1.0.0
 
