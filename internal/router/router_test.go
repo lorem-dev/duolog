@@ -235,3 +235,17 @@ func TestNoSelfRunsWorker(t *testing.T) {
 		t.Fatalf("Self with=%v NoSelf=%v; want true, false", with.Self, without.Self)
 	}
 }
+
+func TestNoSelfBeatsMinimalContextRule(t *testing.T) {
+	cfg := defaults(t)
+	lead := &config.Target{Agent: "codex", Model: "luna", Effort: "low"}
+	for _, noSelf := range []bool{false, true} {
+		got, err := Resolve(cfg, "mechanical", nil, Options{Lead: lead, NoSelf: noSelf})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Self == noSelf {
+			t.Fatalf("NoSelf=%v: Self=%v, route %+v", noSelf, got.Self, got)
+		}
+	}
+}

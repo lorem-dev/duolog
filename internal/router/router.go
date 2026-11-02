@@ -75,7 +75,7 @@ func Resolve(cfg *config.Config, role string, unavailable map[string]bool, opts 
 		if spec.Context == "minimal" {
 			leadModel, leadOK := cfg.Models[leadAlias]
 			roleModel, roleOK := cfg.Models[alias]
-			if leadOK && roleOK && leadModel.Input <= roleModel.Input {
+			if !opts.NoSelf && leadOK && roleOK && leadModel.Input <= roleModel.Input {
 				route.Self = true
 			}
 		}
