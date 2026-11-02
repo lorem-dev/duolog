@@ -127,6 +127,11 @@ func newTaskFinishCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		declined, err := declinedClasses(j)
+		if err != nil {
+			return err
+		}
+		classProposal := len(learning.ProposeClasses(cfg, ds, declined)) > 0
 		var runs []journal.Delegation
 		for _, d := range ds {
 			if d.Task == task.ID && d.ProfileOf == "" {
@@ -164,7 +169,7 @@ func newTaskFinishCommand() *cobra.Command {
 		if _, err := j.CloseTask(l.ID); err != nil {
 			return err
 		}
-		return learning.WriteReport(cmd.OutOrStdout(), cfg, task, runs, offers, changed, false)
+		return learning.WriteReport(cmd.OutOrStdout(), cfg, task, runs, offers, changed, classProposal)
 	}}
 	cmd.Flags().StringVar(&lead, "lead", "", "Registered lead session ID (defaults to DUOLOG_LEAD)")
 	return cmd

@@ -72,6 +72,7 @@ The local journal lives under `.duolog/journal/`:
 | `delegations.ndjson` | Target, class, reason, usage, cost, time and result per delegation |
 | `tasks.ndjson` | Finished tasks and the person's outcomes |
 | `verdicts.ndjson` | Comparison scores and the person's decisions |
+| `declined.ndjson` | Names of class and rule proposals the person declined |
 | `tasks/` | Local task files and patches for profiling |
 
 Subagents run with the agent's own tools are not journalled: duolog cannot
@@ -192,6 +193,58 @@ duolog learn --apply
 This writes `.duolog/routing.learned.yaml` only if an order changed. Changed
 statistics alone do not cause a write. Class definitions stay in
 `.duolog/config.yaml`; learned orders and numbers stay in the generated file.
+
+## How duolog proposes a class or classification rule
+
+`duolog learn` shows class proposals after the learned-order report. Each
+proposal includes evidence, a config diff, and commands to apply or decline it.
+`duolog task finish` mentions when a proposal is ready, before asking for the
+task outcome.
+
+Five unclassified delegations with the same role and full feature set trigger
+a new class proposal. Features may be empty. The class name combines the role
+and output, such as `review_final_review`. Without an output, the suffix is
+`misc`, such as `review_final_misc`.
+
+The new class uses cost-first selection and the role's preferred and fallback
+targets. Its rubric checks correctness against the tests and brief, and false
+claims. A classification rule selects the new class for that role and feature
+set.
+
+Three delegations with the same stated class, rule class and feature set
+trigger a rule proposal when those classes differ. Its name is `rule:<class>`.
+It changes classification to the stated class without adding a new class.
+Replays and provider limits do not count toward either threshold.
+
+Several feature groups can produce the same proposal name. Duolog offers the
+largest group first and breaks ties by the sorted feature set. The apply and
+decline flags act on the group currently offered under that name. Other groups
+remain available on later runs. Once the class exists, later groups add only
+classification rules for it.
+
+After the person approves a proposal, apply its shown name:
+
+```bash
+duolog learn --apply-class review_final_misc
+```
+
+This edits `.duolog/config.yaml` and preserves its comments. It keeps the full
+effective classification list because YAML lists replace lower layers. The
+new rule goes before the first matching rule. A failed config load restores
+the old file. A later config layer that hides the new rule also makes the
+application fail and restores the old file.
+
+To stop offering a proposal, record the person's decision:
+
+```bash
+duolog learn --decline-class review_final_misc
+```
+
+Declines stay in `.duolog/journal/declined.ndjson`, with the proposal name and
+the group it identifies. New observations do not revive that declined group.
+Declines do not change the learned routing file. Workers can read proposals
+but cannot apply or decline them. Plain `duolog learn` leaves the project's
+config unchanged.
 
 ## How to go back to the defaults
 

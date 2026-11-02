@@ -152,6 +152,33 @@ func TestFinishWithoutOpenTask(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestFinishMentionsClassProposal(t *testing.T) {
+	for _, decline := range []bool{false, true} {
+		t.Run(map[bool]string{false: "proposed", true: "declined"}[decline], func(t *testing.T) {
+			root := learningRepo(t, true)
+			j, task := startedTask(t, root, "task-lead")
+			classProposalJournal(t, root, task.ID)
+			if decline {
+				if err := j.Append("declined.ndjson", journal.Declined{Name: "review_final_misc"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			out, err := executeBusCommand(t, "task", "finish")
+			if err != nil {
+				t.Fatal(out, err)
+			}
+			at := strings.Index(out, "A new class proposal is ready: run duolog learn after the outcome.")
+			if decline {
+				if at >= 0 {
+					t.Fatal(out)
+				}
+			} else if at < strings.Index(out, "Profiling offers") || at >= strings.Index(out, "Ask the user for the outcome") {
+				t.Fatal(out)
+			}
+		})
+	}
+}
 func TestWritingTaskCommandsRefuseWorker(t *testing.T) {
 	root := learningRepo(t, true)
 	j, task := startedTask(t, root, "task-lead")
