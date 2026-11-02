@@ -38,10 +38,10 @@ type learnRun struct {
 	// rec holds the classification; finish adds the route and the run.
 	rec  journal.Delegation
 	next learnRoute // chosen by route, before Resolve
-	cur  learnRoute // the route Resolve gave last
-	run  learnRoute // the route the worker ran with
-	ran  bool
-	// The worker's run: set by start, summed per runWorker call.
+	cur  learnRoute // the final attempt's route: the one Resolve gave last
+	// The final attempt's worker: ran is set by start once the before tree is
+	// taken, usage is summed per runWorker call; resolved clears them.
+	ran       bool
 	started   time.Time
 	before    string
 	decisions int64
@@ -176,31 +176,32 @@ func (lr *learnRun) route(cfg *config.Config, role string, unavailable map[strin
 	lr.next = learnRoute{entry: choice.Entry.Key(), ladder: choice.Ladder, why: choice.Why}
 }
 
-// resolved keeps the route Resolve gave for the choice route made.
+// resolved starts an attempt with the route Resolve gave for the choice route
+// made. The record is the final attempt's, so an earlier attempt's worker run
+// (one that hit a quota and fell back) is forgotten.
 func (lr *learnRun) resolved(route router.Route) {
 	if lr == nil {
 		return
 	}
 	lr.cur = lr.next
 	lr.cur.route = route
+	lr.ran, lr.usage, lr.quota, lr.before = false, runner.Usage{}, false, ""
 }
 
-// start marks the worker as run and takes what finish compares against. A
-// fallback after a quota calls it again: the record is the final attempt's.
+// start takes what finish compares against and marks the worker as run.
 func (lr *learnRun) start(root string) error {
 	if lr == nil {
 		return nil
 	}
-	lr.ran, lr.run, lr.started, lr.usage, lr.quota = true, lr.cur, time.Now(), runner.Usage{}, false
-	lr.decisions = 0
+	var decisions int64
 	if info, err := os.Stat(filepath.Join(lr.stateDir, "decisions.ndjson")); err == nil {
-		lr.decisions = info.Size()
+		decisions = info.Size()
 	}
 	before, err := journal.Capture(root)
 	if err != nil {
 		return fmt.Errorf("learning: %w", err)
 	}
-	lr.before = before
+	lr.ran, lr.started, lr.decisions, lr.before = true, time.Now(), decisions, before
 	return nil
 }
 
@@ -221,7 +222,7 @@ func (lr *learnRun) note() string {
 	if lr == nil {
 		return ""
 	}
-	st := lr.state()
+	st := lr.cur
 	s := "; id=" + lr.id + " class=" + lr.rec.Class
 	if st.entry != "" {
 		s += " entry=" + st.entry
@@ -238,27 +239,24 @@ func (lr *learnRun) note() string {
 	return s
 }
 
-func (lr *learnRun) state() learnRoute {
-	if lr.ran {
-		return lr.run
-	}
-	return lr.cur
-}
-
-// finish writes the journal record of a delegation that ran a worker or
-// returned run here, and for a live run keeps a copy of its task, answer
-// and patches under the task's folder.
+// finish writes the journal record of a delegation that ran a worker,
+// returned run here, or went back to the lead before any worker ran (outcome
+// lead). For a live worker run it keeps a copy of its task, answer and
+// patches under the task's folder.
 func (lr *learnRun) finish(root, dir, copyPath string, out Outcome) error {
-	if lr == nil || (!lr.ran && out.RunHere == nil) {
+	if lr == nil || (!lr.ran && out.RunHere == nil && len(out.Needs) == 0) {
 		return nil
 	}
-	st := lr.state()
+	st := lr.cur
 	rec := lr.rec
 	rec.Time = lr.started.UTC()
 	rec.Entry, rec.Ladder, rec.Why = st.entry, st.ladder, st.why
 	rec.Agent, rec.Model, rec.Effort, rec.EffortCapped = st.route.Agent, st.route.Model, st.route.Effort, st.route.EffortCapped
 	rec.RunHere = out.RunHere != nil
 	rec.Needs = out.Needs
+	if !lr.ran && !rec.RunHere {
+		rec.Outcome = journal.OutcomeLead
+	}
 	var errs []error
 	if lr.ran {
 		rec.Input, rec.Cached, rec.Output = lr.usage.Input, lr.usage.Cached, lr.usage.Output
@@ -266,7 +264,7 @@ func (lr *learnRun) finish(root, dir, copyPath string, out Outcome) error {
 		rec.Seconds = time.Since(lr.started).Seconds()
 		rec.Done = out.Result.Done
 		if lr.quota {
-			rec.Outcome, rec.Done = "infra", false
+			rec.Outcome, rec.Done = journal.OutcomeInfra, false
 		}
 		var err error
 		rec.GateDenials, rec.GateAsks, err = lr.gateCounts()

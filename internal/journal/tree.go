@@ -75,12 +75,34 @@ func Capture(root string) (string, error) {
 	}
 	env := []string{"GIT_INDEX_FILE=" + name}
 	// git add refuses a pathspec naming an ignored path, and projects ignore
-	// .duolog, so it is added with the rest and then dropped from this index.
+	// .duolog, so it is added with the rest. Then the .duolog paths the project
+	// does not track (duolog's own state) are dropped from this index; tracked
+	// ones, such as a committed config.yaml, stay with their working-tree content.
+	tracked, err := git(root, env, nil, "ls-files", "-z", "--", ".duolog")
+	if err != nil {
+		return "", err
+	}
 	if _, err := git(root, env, nil, "add", "-A", "--", "."); err != nil {
 		return "", err
 	}
-	if _, err := git(root, env, nil, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", ".duolog"); err != nil {
+	added, err := git(root, env, nil, "ls-files", "-z", "--", ".duolog")
+	if err != nil {
 		return "", err
+	}
+	keep := map[string]bool{}
+	for _, path := range strings.Split(string(tracked), "\x00") {
+		keep[path] = true
+	}
+	var drop []byte
+	for _, path := range strings.Split(string(added), "\x00") {
+		if path != "" && !keep[path] {
+			drop = append(append(drop, path...), 0)
+		}
+	}
+	if len(drop) > 0 {
+		if _, err := git(root, env, drop, "update-index", "--force-remove", "-z", "--stdin"); err != nil {
+			return "", err
+		}
 	}
 	tree, err := git(root, env, nil, "write-tree")
 	if err != nil {

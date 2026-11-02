@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -64,6 +65,39 @@ func TestCaptureWithIgnoredDuolog(t *testing.T) {
 	}
 	if files := run(t, dir, "ls-tree", "-r", "--name-only", tree); files != ".gitignore\na.txt\n" {
 		t.Fatalf("tree files %q", files)
+	}
+}
+
+// A project may commit .duolog/config.yaml and ignore the rest: the capture
+// keeps what the project tracks, with its working-tree content, and drops the
+// untracked state.
+func TestCaptureKeepsTrackedDuolog(t *testing.T) {
+	dir := repo(t)
+	write(t, dir, ".gitignore", "ignored.txt\n.duolog/*\n!.duolog/config.yaml\n")
+	write(t, dir, ".duolog/config.yaml", "learning:\n  enabled: true\n")
+	run(t, dir, "add", ".gitignore", ".duolog/config.yaml")
+	run(t, dir, "commit", "-q", "-m", "config")
+	base := strings.TrimSpace(run(t, dir, "rev-parse", "HEAD"))
+	write(t, dir, ".duolog/journal/delegations.ndjson", "{}\n")
+	write(t, dir, "new.txt", "n")
+	tree, err := Capture(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files := run(t, dir, "ls-tree", "-r", "--name-only", tree); files != ".duolog/config.yaml\n.gitignore\na.txt\nnew.txt\n" {
+		t.Fatalf("tree files %q", files)
+	}
+	patch, err := Diff(dir, base, tree)
+	if err != nil || strings.Contains(string(patch), ".duolog") || !strings.Contains(string(patch), "new.txt") {
+		t.Fatalf("%s %v", patch, err)
+	}
+	// An edit to the tracked file is captured like any other.
+	write(t, dir, ".duolog/config.yaml", "learning:\n  enabled: false\n")
+	if tree, err = Capture(dir); err != nil {
+		t.Fatal(err)
+	}
+	if got := run(t, dir, "show", tree+":.duolog/config.yaml"); !strings.Contains(got, "false") {
+		t.Fatal(got)
 	}
 }
 

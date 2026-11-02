@@ -54,12 +54,21 @@ type Delegation struct {
 	EscalatedFrom    string            `json:"escalated_from,omitempty"`
 	EscalationReason string            `json:"escalation_reason,omitempty"`
 	ProfileOf        string            `json:"profile_of,omitempty"`
-	Outcome          string            `json:"outcome,omitempty"` // "" or "infra": the run ended on a quota or rate limit, not on quality
+	Outcome          string            `json:"outcome,omitempty"` // "", OutcomeInfra or OutcomeLead
 	Base             string            `json:"base,omitempty"`
 	BeforeTree       string            `json:"before_tree,omitempty"`
 	AfterTree        string            `json:"after_tree,omitempty"`
 	Files            []FileChange      `json:"files,omitempty"`
 }
+
+// A delegation with one of these outcomes says nothing about the quality of
+// its entry, so aggregation and escalation skip it.
+const (
+	// OutcomeInfra: the run ended on a quota or rate limit.
+	OutcomeInfra = "infra"
+	// OutcomeLead: the task went back to the lead before any worker ran.
+	OutcomeLead = "lead"
+)
 
 type Task struct {
 	Kind        string    `json:"kind"` // "finish" or "outcome"

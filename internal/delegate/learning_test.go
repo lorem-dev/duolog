@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/auth"
+	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/journal"
@@ -624,5 +625,79 @@ func TestLearningErrorKeepsAnswer(t *testing.T) {
 	out, err := h.run("implement")
 	if err == nil || !strings.HasPrefix(out.Line, "done=true") || !strings.Contains(err.Error(), "learning") {
 		t.Fatal(out, err)
+	}
+}
+
+// A wait for the lead decided before any worker starts is journalled, as an
+// outcome that says nothing about the entry.
+func TestLearningJournalsLeadFirstWait(t *testing.T) {
+	h := newHarness(t)
+	h.lead("claude", mode.Edits, "high")
+	h.learning(true)
+	h.inventories(capability.Inventory{Agent: "codex"}, capability.Inventory{Agent: "claude", Items: []capability.Item{{Kind: "mcp", Name: "codegraph"}}})
+	out, err := h.runWith("implement", Options{Needs: []string{"mcp:codegraph"}, Features: map[string]string{"output": "code"}})
+	h.requireCalls(0)
+	if err != nil || len(out.Needs) != 1 {
+		t.Fatal(out, err)
+	}
+	rec := h.record()
+	if rec.Outcome != journal.OutcomeLead || rec.Done || rec.RunHere || len(rec.Needs) != 1 || rec.Needs[0] != "mcp:codegraph" || rec.Input != 0 || rec.Output != 0 || rec.USD != 0 || rec.Class != "implement" {
+		t.Fatalf("%+v", rec)
+	}
+	if _, err := os.Stat(h.journal().TaskDir(rec.Task, rec.ID)); !os.IsNotExist(err) {
+		t.Fatal("files kept for a worker that never ran", err)
+	}
+}
+
+// Attempt 0 hits a quota and the fallback is the lead's own agent: the record
+// is the run-here of the final attempt, not the quota.
+func TestLearningRunHereAfterQuotaRecordsFinalAttempt(t *testing.T) {
+	h := newHarness(t)
+	h.lead("claude", mode.Edits, "high")
+	h.learning(true)
+	h.limited()
+	h.results[0].Usage = runner.Usage{Input: 100, Output: 10}
+	out, err := h.run("implement")
+	if err != nil || out.RunHere == nil {
+		t.Fatal(out, err)
+	}
+	h.requireCalls(1)
+	rec := h.record()
+	if !rec.RunHere || rec.Done || rec.Outcome != "" || rec.Input != 0 || rec.Output != 0 || rec.USD != 0 || rec.Agent != "claude" || models.Normalize("claude", rec.Model) != "sonnet" {
+		t.Fatalf("%+v", rec)
+	}
+}
+
+func TestLearningQuotaThenFallbackWorkerRecordsFallback(t *testing.T) {
+	h := newHarness(t)
+	h.learning(true)
+	h.limited()
+	h.results[0].Usage = runner.Usage{Input: 100, Output: 10}
+	h.results = append(h.results, runner.Result{Done: true, Summary: "Completed.", Files: []string{}, Needs: []string{}, Usage: runner.Usage{Input: 12, Output: 3}})
+	h.errs = append(h.errs, nil)
+	out, err := h.runWith("implement", Options{Features: map[string]string{"output": "code"}})
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	h.requireCalls(2)
+	rec := h.record()
+	if rec.Outcome != "" || !rec.Done || rec.Input != 12 || rec.Output != 3 || rec.Agent != "claude" || rec.Entry != "claude/opus/high" {
+		t.Fatalf("%+v", rec)
+	}
+}
+
+// A capture that fails stops the delegation before the worker, and no record
+// claims a run.
+func TestLearningCaptureFailureWritesNoRecord(t *testing.T) {
+	h := newHarness(t)
+	h.learning(true)
+	put(t, filepath.Join(h.root, ".git", "index"), "not an index")
+	out, err := h.run("implement")
+	if err == nil || !strings.Contains(err.Error(), "learning") {
+		t.Fatal(out, err)
+	}
+	h.requireCalls(0)
+	if recs := h.records(); len(recs) != 0 {
+		t.Fatalf("%+v", recs)
 	}
 }
