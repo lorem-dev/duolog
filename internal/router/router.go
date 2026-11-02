@@ -23,6 +23,10 @@ type Route struct {
 type Options struct {
 	AllowManualModel bool
 	Lead             *config.Target
+	// Use replaces the role's use target for this call; unavailable agents fall back as for a role.
+	Use *config.Target
+	// NoSelf forces Self to false so the target runs as a real worker even when it equals the lead.
+	NoSelf bool
 }
 
 // Resolve chooses a configured fallback, or derives one from the model map.
@@ -33,26 +37,30 @@ func Resolve(cfg *config.Config, role string, unavailable map[string]bool, opts 
 	if !ok {
 		return Route{}, fmt.Errorf("unknown role %q", role)
 	}
-	route := Route{Target: spec.Use, Sandbox: spec.Sandbox, Context: spec.Context, Session: spec.Session}
+	use := spec.Use
+	if opts.Use != nil {
+		use = *opts.Use
+	}
+	route := Route{Target: use, Sandbox: spec.Sandbox, Context: spec.Context, Session: spec.Session}
 	if unavailable[route.Agent] {
 		route.IsFallback = true
 		route.Target = spec.Fallback
-		if route.Agent == "" || route.Agent == spec.Use.Agent || unavailable[route.Agent] || route.Model == "" {
+		if route.Agent == "" || route.Agent == use.Agent || unavailable[route.Agent] || route.Model == "" {
 			agent := "claude"
-			if spec.Use.Agent == "claude" {
+			if use.Agent == "claude" {
 				agent = "codex"
 			}
 			if unavailable[agent] {
 				return Route{}, fmt.Errorf("role %s: no available agent", role)
 			}
-			model, err := mappedModel(cfg, spec.Use, agent)
+			model, err := mappedModel(cfg, use, agent)
 			if err != nil {
 				return Route{}, fmt.Errorf("role %s: %w", role, err)
 			}
-			route.Target = config.Target{Agent: agent, Model: model, Effort: spec.Use.Effort}
+			route.Target = config.Target{Agent: agent, Model: model, Effort: use.Effort}
 		}
 		if route.Effort == "" {
-			route.Effort = spec.Use.Effort
+			route.Effort = use.Effort
 		}
 		route.InLead = opts.Lead != nil && route.Agent == opts.Lead.Agent
 	}
@@ -63,7 +71,7 @@ func Resolve(cfg *config.Config, role string, unavailable map[string]bool, opts 
 	if opts.Lead != nil {
 		lead := opts.Lead
 		leadAlias := models.Normalize(lead.Agent, lead.Model)
-		route.Self = spec.Session == "resume" && route.Agent == lead.Agent && alias == leadAlias
+		route.Self = !opts.NoSelf && spec.Session == "resume" && route.Agent == lead.Agent && alias == leadAlias
 		if spec.Context == "minimal" {
 			leadModel, leadOK := cfg.Models[leadAlias]
 			roleModel, roleOK := cfg.Models[alias]

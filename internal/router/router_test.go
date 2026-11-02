@@ -195,3 +195,43 @@ func TestRoleWithNoEffortTakesTheLeadEffort(t *testing.T) {
 		t.Fatal(got, err)
 	}
 }
+
+func TestUseOverridesRoleTarget(t *testing.T) {
+	cfg := defaults(t)
+	use := config.Target{Agent: "claude", Model: "opus", Effort: "high"}
+	got, err := Resolve(cfg, "implement", nil, Options{Use: &use})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Target != use || got.Sandbox != "workspace-write" || got.IsFallback {
+		t.Fatalf("unexpected route: %+v", got)
+	}
+}
+
+func TestUseFallsBackWhenAgentUnavailable(t *testing.T) {
+	cfg := defaults(t)
+	use := config.Target{Agent: "claude", Model: "opus", Effort: "high"}
+	got, err := Resolve(cfg, "implement", map[string]bool{"claude": true}, Options{Use: &use})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.IsFallback || got.Agent != "codex" {
+		t.Fatalf("unexpected route: %+v", got)
+	}
+}
+
+func TestNoSelfRunsWorker(t *testing.T) {
+	cfg := defaults(t)
+	lead := &config.Target{Agent: "claude", Model: "opus", Effort: "high"}
+	with, err := Resolve(cfg, "plan", nil, Options{Lead: lead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	without, err := Resolve(cfg, "plan", nil, Options{Lead: lead, NoSelf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !with.Self || without.Self {
+		t.Fatalf("Self with=%v NoSelf=%v; want true, false", with.Self, without.Self)
+	}
+}
