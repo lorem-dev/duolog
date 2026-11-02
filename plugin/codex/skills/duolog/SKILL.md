@@ -69,7 +69,7 @@ in `needs`. Later run `duolog allow <n>` or `duolog deny <n>`, and
 ## Live sessions
 
 Live sessions need Rex. `duolog peer wait` returns for a question; answer it
-with `duolog peer answer <id> <option>`. Run each peer wait alone in the
-background.
+with `duolog peer answer <id> <option>`. Run each peer wait as its own
+background command.
 
 Never send `/model` or `/effort` to a Claude pane; they change its settings.
