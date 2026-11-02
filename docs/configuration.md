@@ -185,17 +185,35 @@ that the lead's config reads from a variable, such as `${JIRA_TOKEN}` or
 `bearer_token_env_var`, is read from the environment of `duolog delegate`. The
 Claude file is written with mode 0600 in the task folder and removed after the
 run. A Codex worker hides the new variables from its shell commands with
-`shell_environment_policy`. A Claude worker cannot hide them from its Bash
-tool.
+`shell_environment_policy`.
+
+A Claude worker's Bash tool can read the variables. Claude has two ways to
+hide variables, and neither fits:
+
+- `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` removes variables whose name or value
+  looks like a credential from Bash, hooks and stdio servers. In our check it
+  also emptied those variables in the `${VAR}` headers of an HTTP server, so
+  the server listed no tools. A name that does not look like a credential
+  still expands, but Bash sees it too.
+- `sandbox.credentials` removes variables from sandboxed Bash commands only.
+  It needs Claude's sandbox, which also limits the network of every command,
+  and a command that Claude retries outside the sandbox keeps them.
+
+With the gate on, commands that print the environment, such as `env`,
+`printenv` or `echo $VAR`, ask the lead. In `full` mode the gate allows what it
+would ask, so do not bridge a server to a Claude worker in `full` mode unless
+you accept that the worker can read its token.
 
 A Codex stdio server gets only a short default environment, so its variables
 pass under their own names with `env_vars`. A name that the worker already has
 with another value is not bridged.
 
-`mcp_tools` limits what a bridged server offers. Codex gets `enabled_tools`, so
-it sees only those tools. Claude gets `--allowedTools mcp__<server>__<tool>`;
-it still sees the other tools, and the gate asks the lead before each of them.
-Without a list, the whole server is bridged.
+`mcp_tools` limits what a server offers, bridged or the worker's own, and the
+same list allows those tools in the gate. Codex gets `enabled_tools`, so it
+sees only those tools. Claude gets `--allowedTools mcp__<server>__<tool>`; it
+still sees the other tools, and the gate asks the lead before each of them.
+Without a list, the whole server is bridged, and every tool asks. See
+[Permissions](permissions.md#how-a-workers-mcp-tool-calls-are-checked).
 
 A Claude worker whose only MCP needs are bridged starts with those servers and
 no others (`--strict-mcp-config`). When the task also needs one of the

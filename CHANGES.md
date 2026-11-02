@@ -46,6 +46,8 @@
 
 - `on_missing.mcp: bridge` lends a lead's MCP server to a worker of the other
   agent, credentials in env only; `duolog caps` shows what can be lent.
+- The gate checks MCP tool calls as `mcp` actions; `capabilities.mcp_tools` and
+  `duolog remember mcp:<server>/<tool>` allow tools without replacing rules.
 - duolog checks a worker's login and its MCP servers before it starts, runs the
   agent's login once, and hands the task to the lead when that fails.
 

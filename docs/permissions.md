@@ -104,28 +104,42 @@ project that sets its own `rules` replaces the allow rules, not the denies.
 
 ## How a worker's MCP tool calls are checked
 
-The gate does not know what an MCP tool does, so a call such as
-`mcp__jira__get_issue` is an `unknown` action and asks the lead. A lead that
-waits for its foreground `delegate` cannot answer, so the call is denied. That
-holds for a worker's own servers and for servers bridged from the lead (see
-[Configuration](configuration.md#how-a-worker-borrows-the-leads-mcp-server)).
-`capabilities.mcp_tools` limits which tools a bridged server offers; it does
-not allow them in the gate.
+An MCP tool call is an `mcp` action. Its target is `<server>/<tool>`, such as
+`jira/get_issue`. Both agents send the hook the name
+`mcp__<server>__<tool>`; Codex writes `-` in a server name as `_`, so rules
+compare names with `-` and `_` as the same character.
 
-To let workers call a tool without a question, add a rule with the action
-`unknown` and the tool name the gate saw, which `duolog decisions` shows:
+duolog cannot tell whether a tool reads or writes. So an MCP tool runs only
+when a rule names it. No mode or role allows one by itself, and `full` mode
+does not turn the question into an allow. An unlisted tool asks the lead, and
+a lead that waits for its foreground `delegate` denies it at once. The worker
+then stops with `mcp:<server>/<tool>` in `needs`. A deny in the lead's own
+Claude settings, such as `mcp__jira__create_issue` or `mcp__jira`, holds for
+workers too.
 
-```yaml
-policy:
-  rules:
-    - {action: unknown, match: "mcp__jira__get_issue", decision: allow}
-```
+Three things add allow rules. None replaces the default rules:
 
-A `rules` list in your config replaces the default allow rules, so copy them
-from `internal/config/config.default.yaml` first. The default denies stay in
-any case. We saw a bridged server's tool run in a Codex and in a Claude worker
-in a folder where the gate was off. Whether Codex sends MCP calls to the gate
-is NOT VERIFIED.
+| Where | Applies to |
+|---|---|
+| `capabilities.mcp_tools: {jira: [get_issue]}` | Every role. The same list limits the tools the server offers, bridged or the worker's own |
+| `duolog remember mcp:jira/get_issue` | The writing roles, or the roles named with `--role`. It saves the rule in `.duolog/learned.yaml` |
+| An `mcp` rule in `policy.rules`, such as `{action: mcp, match: "jira/get_*", decision: allow, roles: [implement]}` | What the rule says. This list replaces the default rules, so copy them first |
+
+List read tools only, unless a worker should change things in that service.
+`duolog remember --native` also adds `mcp__<server>__<tool>`, or
+`mcp__<server>` for `<server>/*`, to `.claude/settings.local.json`. Codex sets
+MCP tool approval per server in its own `config.toml`, so duolog writes no
+Codex rule.
+
+Claude loads a deferred MCP tool with its `ToolSearch` tool first. The gate
+allows `ToolSearch`, because it only loads a tool definition; the call of the
+tool is checked on its own.
+
+We checked this live with the gate on (OBSERVED, Codex 0.165.0 and Claude
+Code 2.1.316). A Codex worker sent `mcp__mcp_jira__jira_get_issue` to the gate,
+and a Claude worker sent `mcp__confluence__confluence_search` with the server
+name in `mcp_server.name`. Listed tools ran; an unlisted tool was denied with
+the line above.
 
 ## How a worker asks the lead
 
