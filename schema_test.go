@@ -128,6 +128,7 @@ func TestSchemaRejectsMistakes(t *testing.T) {
 		{"agent", "roles: {plan: {use: {agent: gemini}}}"},
 		{"unknown key", "roles: {plan: {use: {effrot: high}}}"},
 		{"session", "roles: {plan: {session: maybe}}"},
+		{"priority", "learning: {classes: {x: {priority: speed}}}"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := s.Validate(yamlDocument(t, []byte(tc.yaml))); err == nil {

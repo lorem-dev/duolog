@@ -26,6 +26,7 @@ type Config struct {
 	Sync           Sync             `yaml:"sync" jsonschema_description:"Settings for generating agent and skill files; automatic sync defaults to true."`
 	EnvPassthrough []string         `yaml:"env_passthrough" jsonschema_description:"Environment variables passed to workers; defaults include native OS login, API keys and agent config directories."`
 	Rex            Rex              `yaml:"rex" jsonschema_description:"Terminal capture and startup settings; defaults to 20 lines and 120 seconds."`
+	Learning       Learning         `yaml:"learning" jsonschema_description:"Learning mode: task classes, classification rules, ladders and priors; off by default."`
 }
 
 type Coauthors struct {
@@ -192,6 +193,14 @@ func Load(root string) (*Config, error) {
 	}
 	cfg.Policy.Rules = append(cfg.Policy.Rules, learned...)
 	cfg.Policy.Rules = append(cfg.Policy.Rules, MCPToolRules(cfg.Capabilities.MCPTools)...)
+	if err := validateLearning(&cfg); err != nil {
+		return nil, err
+	}
+	routing, err := ReadLearnedRouting(root)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Learning.Learned = routing.Ladders
 	return &cfg, nil
 }
 

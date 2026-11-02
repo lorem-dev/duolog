@@ -1,0 +1,184 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+func keysOf(entries []LadderEntry) []string {
+	var keys []string
+	for _, e := range entries {
+		keys = append(keys, e.Key())
+	}
+	return keys
+}
+
+func loadWithProject(t *testing.T, project string) (*Config, string, error) {
+	t.Helper()
+	root := isolatedRoot(t)
+	if project != "" {
+		writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), project)
+	}
+	cfg, err := Load(root)
+	return cfg, root, err
+}
+
+func TestLearningDefaultsLoad(t *testing.T) {
+	cfg, err := Load(isolatedRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := cfg.Learning
+	if l.Enabled || l.Threshold != 2.5 || l.QualityMargin != 0.25 || l.PriorRuns != 2 || l.Uncertainty != 0.5 || l.ProfileBelowRuns != 3 {
+		t.Fatalf("unexpected defaults: %+v", l)
+	}
+	for _, name := range []string{"skeleton", "plan_review", "debug_multi", "feature", "implement", "debug", "tests", "review", "mechanical", "docs"} {
+		if _, ok := l.Classes[name]; !ok {
+			t.Errorf("class %s missing", name)
+		}
+	}
+	if got := keysOf(l.Classes["debug"].Ladder); !slices.Equal(got, []string{"codex/terra/medium", "codex/sol/medium", "claude/opus/high"}) {
+		t.Fatalf("debug ladder: %v", got)
+	}
+	if got := l.Classes["skeleton"].Steps["plan"][0].Key(); got != "claude/opus/high" {
+		t.Fatalf("skeleton plan first: %s", got)
+	}
+	for name, c := range l.Classes {
+		all := append([]LadderEntry{}, c.Ladder...)
+		for _, s := range c.Steps {
+			all = append(all, s...)
+		}
+		for _, e := range all {
+			if e.Effort != "low" && e.Effort != "medium" && e.Effort != "high" {
+				t.Errorf("%s: effort %s above high", name, e.Effort)
+			}
+		}
+	}
+}
+
+func TestLearningRejectsRuleForUnknownClass(t *testing.T) {
+	_, _, err := loadWithProject(t, "learning:\n  classify:\n    - {when: {output: code}, class: nope}\n")
+	if err == nil || !strings.Contains(err.Error(), `learning.classify[0]: unknown class "nope"`) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestLearningRejectsUnknownFeature(t *testing.T) {
+	_, _, err := loadWithProject(t, "learning:\n  classify:\n    - {when: {colour: red}, class: debug}\n")
+	if err == nil || !strings.Contains(err.Error(), `unknown feature "colour"`) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestLearningRejectsUnknownFeatureValue(t *testing.T) {
+	_, _, err := loadWithProject(t, "learning:\n  classify:\n    - {when: {output: poem}, class: debug}\n")
+	if err == nil || !strings.Contains(err.Error(), `output: "poem"`) || !strings.Contains(err.Error(), "code, plan, review, tests, docs, diagnosis") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestLearningRejectsUnknownLadderModel(t *testing.T) {
+	_, _, err := loadWithProject(t, "learning:\n  classes:\n    debug:\n      ladder: [{agent: codex, model: nova, effort: low}]\n")
+	if err == nil || !strings.Contains(err.Error(), `learning.classes.debug: unknown model "nova"`) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestLearningRejectsStepForRoleNotInClass(t *testing.T) {
+	_, _, err := loadWithProject(t, "learning:\n  classes:\n    tests:\n      steps:\n        plan: [{agent: codex, model: sol, effort: low}]\n")
+	if err == nil || !strings.Contains(err.Error(), `step role "plan" is not in roles`) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestProjectAddsClassByMerge(t *testing.T) {
+	cfg, _, err := loadWithProject(t, "learning:\n  classify:\n    - {when: {role: docs}, class: migrations}\n  classes:\n    migrations:\n      priority: cost\n      roles: [implement]\n      ladder: [{agent: codex, model: terra, effort: low, prior: 2.9}]\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := cfg.Learning
+	if len(l.Classes) != 11 || l.Classes["migrations"].Priority != "cost" || l.Classes["debug"].Priority != "cost" {
+		t.Fatalf("classes not merged: %d", len(l.Classes))
+	}
+	if len(l.Classify) != 1 || l.Classify[0].Class != "migrations" {
+		t.Fatalf("classify not replaced as a whole: %+v", l.Classify)
+	}
+}
+
+func writeLearned(t *testing.T, root, body string) {
+	t.Helper()
+	writeConfig(t, filepath.Join(root, ".duolog", LearnedRoutingFile), body)
+}
+
+func TestLadderPutsLearnedOrderFirst(t *testing.T) {
+	root := isolatedRoot(t)
+	writeLearned(t, root, "ladders:\n  debug:\n    order: [codex/sol/medium, claude/sonnet/high]\n")
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, entries := cfg.Learning.Ladder("debug", "debug_hard")
+	want := []string{"codex/sol/medium", "claude/sonnet/high", "codex/terra/medium", "claude/opus/high"}
+	if key != "debug" || !slices.Equal(keysOf(entries), want) {
+		t.Fatalf("got %s %v", key, keysOf(entries))
+	}
+	if entries[1].Prior != 2.5 {
+		t.Fatalf("prior outside the ladder: %v", entries[1].Prior)
+	}
+}
+
+func TestLadderUsesStepLadder(t *testing.T) {
+	cfg, err := Load(isolatedRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, entries := cfg.Learning.Ladder("skeleton", "plan")
+	if key != "skeleton.plan" || entries[0].Key() != "claude/opus/high" {
+		t.Fatalf("plan: %s %v", key, keysOf(entries))
+	}
+	key, entries = cfg.Learning.Ladder("skeleton", "implement_complex")
+	if key != "skeleton" || entries[0].Key() != "codex/sol/high" {
+		t.Fatalf("implement_complex: %s %v", key, keysOf(entries))
+	}
+	if key, entries := cfg.Learning.Ladder("nope", "plan"); key != "" || entries != nil {
+		t.Fatalf("unknown class: %q %v", key, entries)
+	}
+}
+
+func TestDeletingLearnedFileRestoresDefaults(t *testing.T) {
+	root := isolatedRoot(t)
+	writeLearned(t, root, "ladders:\n  debug:\n    order: [claude/opus/high]\n")
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, e := cfg.Learning.Ladder("debug", "debug_hard"); e[0].Key() != "claude/opus/high" {
+		t.Fatalf("learned order not applied: %v", keysOf(e))
+	}
+	if err := os.Remove(filepath.Join(root, ".duolog", LearnedRoutingFile)); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, e := cfg.Learning.Ladder("debug", "debug_hard")
+	if !slices.Equal(keysOf(e), []string{"codex/terra/medium", "codex/sol/medium", "claude/opus/high"}) {
+		t.Fatalf("defaults not restored: %v", keysOf(e))
+	}
+}
+
+func TestParseEntryKey(t *testing.T) {
+	e, err := ParseEntryKey("codex/sol/high")
+	if err != nil || e.Agent != "codex" || e.Model != "sol" || e.Effort != "high" {
+		t.Fatalf("got %+v %v", e, err)
+	}
+	for _, bad := range []string{"sol/high", "gemini/x/high", "codex/sol/hgh"} {
+		if _, err := ParseEntryKey(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}

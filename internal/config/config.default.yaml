@@ -208,3 +208,98 @@ rex:
       answer: Continue without trusting
   capture_lines: 20         # a capture checks state only; answers are read from files
   start_timeout_seconds: 120
+
+# Learning mode: each delegation gets a task class, and the class picks the target.
+# duolog keeps a local journal in .duolog/journal/ and changes the order of a ladder
+# only when you approve `duolog learn`. See docs/learning.md.
+# prior is a guessed quality, 0 to 3, worth prior_runs judged runs. Efforts stop at high:
+# the cost study saw no quality gain above it.
+learning:
+  enabled: false
+  threshold: 2.5          # cost-first: the cheapest entry whose quality minus margin reaches this
+  quality_margin: 0.25    # quality-first: a cheaper entry this close to the best one wins
+  prior_runs: 2
+  uncertainty: 0.5        # margin = uncertainty / sqrt(prior_runs + judged weight)
+  profile_below_runs: 3   # task finish offers to profile an entry with less judged weight
+  judges:                 # the first whose agent neither side used; else the first, order shuffled
+    - {agent: claude, model: opus, effort: high}
+    - {agent: codex, model: sol, effort: high}
+  classify:               # first match wins; no match keeps the role's own target
+    - {when: {role: planner}, class: feature}
+    - {when: {output: plan}, class: skeleton}
+    - {when: {exemplar: "no", output: code}, class: skeleton}
+    - {when: {output: review, target: plan}, class: plan_review}
+    - {when: {outside_evidence: "yes"}, class: debug_multi}
+    - {when: {output: diagnosis, components: "2+"}, class: debug_multi}
+    - {when: {output: diagnosis}, class: debug}
+    - {when: {output: tests}, class: tests}
+    - {when: {output: review}, class: review}
+    - {when: {output: docs}, class: docs}
+    - {when: {role: mechanical}, class: mechanical}
+    - {when: {output: code}, class: implement}
+  classes:
+    # Priors for skeleton, plan_review and debug_multi are the person's experience,
+    # not measurements; experiments still to run will replace them.
+    skeleton:
+      description: new project, module or layer; the structure must be invented; no pattern in the code to copy
+      priority: quality
+      roles: [plan, review_final, implement, implement_complex]
+      steps:
+        plan: [{agent: claude, model: opus, effort: high, prior: 2.8}, {agent: codex, model: sol, effort: high, prior: 2.3}]
+        review_final: [{agent: claude, model: opus, effort: high, prior: 2.8}, {agent: codex, model: sol, effort: high, prior: 2.3}]
+      ladder: [{agent: codex, model: sol, effort: high, prior: 2.7}, {agent: claude, model: opus, effort: high, prior: 2.7}]
+      rubric: [structure matches what was asked, "files, dependencies and settings nobody asked for (count)", decisions taken that should have been asked (count), templates and conventions given in advance and broken (count)]
+    plan_review:
+      description: find gaps, overreach and unrequested decisions in a plan or a first implementation
+      priority: quality
+      roles: [review_final, review_intermediate]
+      ladder: [{agent: claude, model: opus, effort: high, prior: 2.8}, {agent: codex, model: sol, effort: high, prior: 2.3}]
+      rubric: [real gaps found (count), invented gaps (count), unrequested decisions found (count)]
+    debug_multi:
+      description: the cause spans several components or needs outside evidence such as logs, stacks or dumps
+      priority: quality
+      roles: [debug_hard]
+      ladder: [{agent: claude, model: opus, effort: high, prior: 2.8}, {agent: codex, model: sol, effort: high, prior: 2.3}]
+      rubric: [root cause correct and shown with evidence, false claims (count)]
+    feature:
+      description: a whole feature from a brief, handed to planner, which plans, implements and checks
+      priority: cost
+      roles: [planner]
+      ladder: [{agent: codex, model: sol, effort: medium, prior: 2.9}, {agent: codex, model: sol, effort: high, prior: 2.9}]
+      rubric: &cost_rubric [correct against the tests and the brief, false claims (count)]
+    implement:
+      description: a change inside existing code with a clear brief and patterns to follow
+      priority: cost
+      roles: [implement, implement_complex]
+      ladder: [{agent: codex, model: sol, effort: medium, prior: 2.9}, {agent: codex, model: sol, effort: high, prior: 2.9}, {agent: claude, model: opus, effort: high, prior: 2.9}]
+      rubric: *cost_rubric
+    debug:
+      description: a root cause readable from one repository's code
+      priority: cost
+      roles: [debug_hard]
+      ladder: [{agent: codex, model: terra, effort: medium, prior: 2.9}, {agent: codex, model: sol, effort: medium, prior: 2.9}, {agent: claude, model: opus, effort: high, prior: 2.9}]
+      rubric: *cost_rubric
+    tests:
+      description: tests for existing behaviour
+      priority: cost
+      roles: [tests]
+      ladder: [{agent: codex, model: terra, effort: medium, prior: 2.9}, {agent: codex, model: sol, effort: medium, prior: 2.9}]
+      rubric: *cost_rubric
+    review:
+      description: a review of a diff
+      priority: cost
+      roles: [review_intermediate, review_final, security_review]
+      ladder: [{agent: codex, model: sol, effort: medium, prior: 2.9}, {agent: claude, model: opus, effort: high, prior: 2.9}]
+      rubric: *cost_rubric
+    mechanical:
+      description: renames, moves and repetitive edits across files to a given plan
+      priority: cost
+      roles: [mechanical]
+      ladder: [{agent: codex, model: terra, effort: low, prior: 2.9}, {agent: codex, model: terra, effort: medium, prior: 2.9}]
+      rubric: *cost_rubric
+    docs:
+      description: documentation and changelog
+      priority: cost
+      roles: [docs]
+      ladder: [{agent: claude, model: sonnet, effort: medium, prior: 2.9}, {agent: codex, model: terra, effort: medium, prior: 2.9}]
+      rubric: *cost_rubric

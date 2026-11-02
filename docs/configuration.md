@@ -330,6 +330,28 @@ with `codex exec` (OBSERVED, Codex 0.165.0 on macOS):
 
 Put the working forms in `.duolog/brief.md`, so that every worker uses them.
 
+## How learning mode chooses a target for each kind of work
+
+Learning mode gives each delegation a task class, and the class picks the
+target from a ladder of agent, model and effort entries. It is off by default,
+and with it off nothing changes. The `learning` keys and their defaults:
+
+| Key | Default | What it does |
+|---|---|---|
+| `enabled` | `false` | Turns learning mode on |
+| `threshold` | `2.5` | Cost-first: the cheapest entry whose quality minus the margin reaches this |
+| `quality_margin` | `0.25` | Quality-first: a cheaper entry this close to the best one wins |
+| `prior_runs` | `2` | How many judged runs a prior quality is worth |
+| `uncertainty` | `0.5` | The margin is this divided by the square root of prior runs plus judged weight |
+| `profile_below_runs` | `3` | Task finish offers to profile an entry with less judged weight |
+| `judges` | opus, then sol, both `high` | The first judge whose agent neither side used |
+| `classify` | twelve rules | Ordered rules from task features to a class; the first match wins |
+| `classes` | ten classes | Roles, ladders, priors and the judge rubric of each class |
+
+A layer replaces `classify` as a whole list, as YAML lists do, so a project
+that adds one rule restates the others. `classes` merge per class and field, so
+a project can add a class or change one ladder and keep the rest.
+
 ## Related pages
 
 - [Getting started](getting-started.md): install and first task

@@ -102,6 +102,79 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "Class": {
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "What kind of work the class covers; shown to the lead when it classifies a task."
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "quality",
+            "cost"
+          ],
+          "description": "quality picks the best entry unless a cheaper one is close; cost picks the cheapest good enough entry."
+        },
+        "roles": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Roles whose work this class routes."
+        },
+        "ladder": {
+          "items": {
+            "$ref": "#/$defs/LadderEntry"
+          },
+          "type": "array",
+          "description": "Targets in configured order, cheapest first unless priors say otherwise."
+        },
+        "steps": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/LadderEntry"
+            },
+            "type": "array"
+          },
+          "type": "object",
+          "description": "Ladders for single roles of the class, which override ladder for that role."
+        },
+        "rubric": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Questions the judge scores a run against."
+        },
+        "checks": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Commands or checks that count toward the score."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ClassRule": {
+      "properties": {
+        "when": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "Feature names and the values they must have; every pair must match."
+        },
+        "class": {
+          "type": "string",
+          "description": "Class chosen when every pair in when matches."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "Coauthors": {
       "properties": {
         "enabled": {
@@ -178,6 +251,95 @@
         "rex": {
           "$ref": "#/$defs/Rex",
           "description": "Terminal capture and startup settings; defaults to 20 lines and 120 seconds."
+        },
+        "learning": {
+          "$ref": "#/$defs/Learning",
+          "description": "Learning mode: task classes, classification rules, ladders and priors; off by default."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "LadderEntry": {
+      "properties": {
+        "agent": {
+          "type": "string",
+          "enum": [
+            "claude",
+            "codex"
+          ],
+          "description": "Agent that runs this entry."
+        },
+        "model": {
+          "type": "string",
+          "description": "Model alias from models, or a deliberate gpt- or claude- version pin."
+        },
+        "effort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "description": "Requested reasoning effort."
+        },
+        "prior": {
+          "type": "number",
+          "description": "Guessed quality from 0 to 3, worth prior_runs judged runs."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Learning": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turns learning mode on; defaults to false, and with it off nothing changes."
+        },
+        "threshold": {
+          "type": "number",
+          "description": "Cost-first classes pick the cheapest entry whose quality minus the margin reaches this, 0 to 3; defaults to 2.5."
+        },
+        "quality_margin": {
+          "type": "number",
+          "description": "Quality-first classes pick a cheaper entry within this distance of the best one; defaults to 0.25."
+        },
+        "prior_runs": {
+          "type": "number",
+          "description": "How many judged runs a prior quality is worth; defaults to 2."
+        },
+        "uncertainty": {
+          "type": "number",
+          "description": "The margin is this divided by the square root of prior runs plus judged weight; defaults to 0.5."
+        },
+        "profile_below_runs": {
+          "type": "integer",
+          "description": "Task finish offers to profile an entry with less judged weight than this; defaults to 3."
+        },
+        "judges": {
+          "items": {
+            "$ref": "#/$defs/LadderEntry"
+          },
+          "type": "array",
+          "description": "Judge targets in order; the first whose agent neither side used judges; replaced as a whole by a layer."
+        },
+        "classify": {
+          "items": {
+            "$ref": "#/$defs/ClassRule"
+          },
+          "type": "array",
+          "description": "Ordered rules that map task features to a class; the first match wins and a layer replaces the list as a whole."
+        },
+        "classes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Class"
+          },
+          "type": "object",
+          "description": "Task classes; overrides merge by class and field into the ten defaults, and a new name adds a class."
         }
       },
       "additionalProperties": false,
