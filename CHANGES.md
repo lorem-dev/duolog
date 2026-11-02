@@ -42,6 +42,8 @@
 
 ## Development
 
+## 1.1.0
+
 ### Added
 
 - `duolog remember` allows a command the user approved for workers from now
