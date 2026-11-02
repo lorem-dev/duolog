@@ -159,6 +159,7 @@ has limits; read [what is not proven yet](#what-is-not-proven-yet).
 | Need | What duolog does |
 |---|---|
 | Use the right model for each job | Sends each role to the agent, model and effort in your config |
+| Learn which model suits each kind of work | In [learning mode](docs/learning.md), journals each delegation, compares two models on a finished one, and changes routing only when you approve |
 | Spend few tokens between sessions | Sends one-line messages that point to files |
 | Avoid extra sessions | Reuses a live session and runs independent tasks once |
 | Control the second session | The binary allows or denies its actions, so a normal decision costs no tokens |

@@ -46,8 +46,16 @@
 
 - `duolog coauthors` credits workers by agent and model, with an optional
   commit message hook. Set `coauthors.enabled: false` to turn it off.
-- `duolog task start` opens a learning-mode task and records its base commit in
-  `.duolog/journal/`; with `learning.enabled` off it records nothing.
+- `learning.enabled` routes delegations by class, with model ladders,
+  escalation and a local journal; see [Learning mode](docs/learning.md).
+- `duolog task start`, `task finish` and `task outcome` mark tasks and report
+  which models ran, their results and their cost.
+- `duolog profile` replays a delegation in a worktree; a blind judge compares
+  results, and `duolog verdict` records your decision.
+- `duolog learn --apply` writes an approved model order per class to
+  `.duolog/routing.learned.yaml`.
+- `duolog learn --apply-class` adds a proposed task class or rule;
+  `--decline-class` stops offering that group.
 
 ### Changed
 
