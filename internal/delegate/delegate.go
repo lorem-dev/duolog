@@ -22,6 +22,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/coauthor"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/mode"
@@ -427,11 +428,30 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			if err = reg.SetWaiting(leadID, token, os.Getpid()); err != nil {
 				return out, err
 			}
+			creditBefore := before
 			for {
 				out.Result, err = func() (runner.Result, error) {
 					defer reg.SetWaiting(leadID, token, 0)
 					return runWorker(ctx, spec)
 				}()
+				var after map[string]string
+				var snapErr error
+				if before != nil {
+					after, snapErr = snapshot(root)
+				}
+				files := make(map[string]bool)
+				for _, name := range out.Result.Files {
+					files[name] = true
+				}
+				for _, name := range changes(creditBefore, after) {
+					files[name] = true
+				}
+				creditErr := coauthor.Append(s.Dir, cfg.Coauthors, coauthor.Record{Lead: leadID, Agent: route.Agent, Model: route.Model, Files: len(files)})
+				if snapErr != nil || creditErr != nil {
+					return out, errors.Join(err, snapErr, creditErr)
+				}
+				// A login retry is a new run with its own work-tree baseline.
+				creditBefore = after
 				if usageErr := appendUsage(s.Dir, role, route, out.Result); usageErr != nil {
 					return out, errors.Join(err, usageErr)
 				}

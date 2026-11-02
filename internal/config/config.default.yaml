@@ -4,6 +4,13 @@
 # and docs/research/2026-10-30-live-verification.md
 version: 1
 
+# Co-Authored-By lines for commits that hold a worker's changes. Set enabled
+# to false when the repository's rules forbid such lines.
+coauthors:
+  enabled: true
+  claude: "{name} <noreply@anthropic.com>"
+  codex: "OpenAI Codex {model} <noreply@openai.com>"
+
 wire:
   max_summary_bytes: 200
   max_line_bytes: 512

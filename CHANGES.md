@@ -42,6 +42,11 @@
 
 ## Development
 
+### Added
+
+- `duolog coauthors` credits workers by agent and model, with an optional
+  commit message hook. Set `coauthors.enabled: false` to turn it off.
+
 ### Changed
 
 - A lead session start removes task folders and `duolog put` snapshots unchanged

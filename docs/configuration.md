@@ -132,6 +132,7 @@ The lead's own settings are the ceiling:
 | `sync` | How agents and skills are generated. See [Sync](sync.md) |
 | `env_passthrough` | The only variables a worker inherits |
 | `rex` | Timeouts for live sessions. See [Rex](rex.md) |
+| `coauthors` | Enable worker credit and set commit co-author templates. See [Getting started](getting-started.md#how-to-credit-the-workers-in-commits) |
 
 ## What workers inherit
 

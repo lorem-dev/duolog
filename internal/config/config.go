@@ -14,6 +14,7 @@ import (
 )
 
 type Config struct {
+	Coauthors      Coauthors        `yaml:"coauthors" jsonschema_description:"Commit co-author templates for workers; enabled by default."`
 	Version        int              `yaml:"version" jsonschema_description:"Configuration format version; defaults to 1."`
 	Wire           Wire             `yaml:"wire" jsonschema_description:"Task and message encoding and size limits; defaults suit the file bus."`
 	Limits         Limits           `yaml:"limits" jsonschema_description:"Worker delegation limits; defaults permit one worker per agent."`
@@ -25,6 +26,12 @@ type Config struct {
 	Sync           Sync             `yaml:"sync" jsonschema_description:"Settings for generating agent and skill files; automatic sync defaults to true."`
 	EnvPassthrough []string         `yaml:"env_passthrough" jsonschema_description:"Environment variables passed to workers; defaults include native OS login, API keys and agent config directories."`
 	Rex            Rex              `yaml:"rex" jsonschema_description:"Terminal capture and startup settings; defaults to 20 lines and 120 seconds."`
+}
+
+type Coauthors struct {
+	Enabled bool   `yaml:"enabled" jsonschema_description:"Record worker changes and offer commit co-author lines; defaults to true."`
+	Claude  string `yaml:"claude" jsonschema_description:"Claude co-author template with {name} and {model}; defaults to a display name and noreply@anthropic.com."`
+	Codex   string `yaml:"codex" jsonschema_description:"Codex co-author template with {name} and {model}; defaults to OpenAI Codex, the model and noreply@openai.com."`
 }
 
 type Target struct {

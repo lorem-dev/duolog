@@ -712,3 +712,17 @@ func TestSessionStartPrunesOldTasks(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionStartCoauthorHint(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+			e, _, _ := setup(t, "claude")
+			write(t, filepath.Join(e.Root, ".duolog", "config.yaml"), fmt.Sprintf("coauthors:\n  enabled: %t\n", enabled))
+			c := content(t, SessionStart(context.Background(), e), "SessionStart")
+			line := strings.SplitN(c, "\n", 2)[0]
+			if strings.HasSuffix(line, "; commits: add duolog coauthors") != enabled {
+				t.Fatal(c)
+			}
+		})
+	}
+}

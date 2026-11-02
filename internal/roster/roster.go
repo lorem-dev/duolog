@@ -79,5 +79,8 @@ func StartNote(root string, lead session.Lead) string {
 	if !capability.HasDuolog(other, root) {
 		note += "; " + other + " has no duolog hooks: sandbox only"
 	}
+	if cfg, err := config.Load(root); err == nil && cfg.Coauthors.Enabled {
+		note += "; commits: add duolog coauthors"
+	}
 	return note
 }

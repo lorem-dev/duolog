@@ -18,6 +18,7 @@ func newRootCommand() *cobra.Command {
 		Short:        "Coordinate Claude Code and Codex tasks",
 		SilenceUsage: true,
 	}
+	cmd.AddCommand(newCoauthorsCommand())
 	cmd.AddCommand(&cobra.Command{Use: "version", Short: "Print the duolog version", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		_, err := fmt.Fprintln(cmd.OutOrStdout(), version)
 		return err

@@ -245,6 +245,31 @@ answer and the worker log. `duolog put` saves snapshots under
 and snapshots that nothing changed for 7 days. You do not need to run a
 command for this. The logs, such as `usage.ndjson`, stay.
 
+## How to credit the workers in commits
+
+Run `duolog coauthors` to print credit lines for workers that changed files
+since the current commit. Use `--since <rev>` to start from another commit.
+duolog records each worker's agent and resolved model when it changes files.
+
+To add the lines during each commit, save this hook in
+`.git/hooks/prepare-commit-msg`:
+
+```sh
+#!/bin/sh
+exec duolog coauthors --hook "$1"
+```
+
+On macOS and Linux, run `chmod +x .git/hooks/prepare-commit-msg` to make it
+executable. Git for Windows runs the hook with its own `sh`.
+The hook skips lines already present and never blocks a commit.
+It does not change a commit message inside a worker.
+
+Set `coauthors.enabled: false` in `.duolog/config.yaml` to stop recording
+worker credit and adding lines. Use this when the repository forbids them.
+The `coauthors.claude` and `coauthors.codex` templates accept `{model}` for
+the model ID and `{name}` for a display name such as `Claude Opus 5.5`.
+An empty template adds no line for that agent.
+
 ## Known limits
 
 - The first release is unpublished. There is no download.

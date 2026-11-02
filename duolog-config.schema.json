@@ -88,8 +88,30 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "Coauthors": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Record worker changes and offer commit co-author lines; defaults to true."
+        },
+        "claude": {
+          "type": "string",
+          "description": "Claude co-author template with {name} and {model}; defaults to a display name and noreply@anthropic.com."
+        },
+        "codex": {
+          "type": "string",
+          "description": "Codex co-author template with {name} and {model}; defaults to OpenAI Codex, the model and noreply@openai.com."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "Config": {
       "properties": {
+        "coauthors": {
+          "$ref": "#/$defs/Coauthors",
+          "description": "Commit co-author templates for workers; enabled by default."
+        },
         "version": {
           "type": "integer",
           "description": "Configuration format version; defaults to 1."

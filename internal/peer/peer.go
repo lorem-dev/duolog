@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/bus"
+	"github.com/lorem-dev/duolog/internal/coauthor"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/gate"
@@ -297,6 +298,13 @@ func Open(ctx context.Context, role string) (Entry, error) {
 		_ = e.rex.Close(ctx, block)
 		return Entry{}, fmt.Errorf("pane %s was opened but not recorded and was closed: %w", block, err)
 	}
+	// Keep the resolved version across commands; aliases may resolve differently
+	// by the time this pane first changes a file.
+	if e.cfg.Coauthors.Enabled {
+		if err := os.WriteFile(e.modelPath(entry), []byte(model), 0600); err != nil {
+			return Entry{}, err
+		}
+	}
 	return e.watch(ctx, entry, true)
 }
 
@@ -330,6 +338,9 @@ func (e *env) livePeers(ctx context.Context, leadID, agent string) ([]session.En
 // observe reads the pane once: is it there, did the program end, and what does
 // the bounded screen show.
 func (e *env) observe(ctx context.Context, entry session.Entry) (State, Screen, error) {
+	if err := e.credit(entry); err != nil {
+		return Starting, Screen{}, err
+	}
 	presence, err := e.rex.Probe(ctx, entry.Block)
 	if err != nil {
 		return Starting, Screen{}, err
@@ -415,6 +426,9 @@ func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Ent
 			stuck = 0
 			if worked || time.Since(begin) >= workGrace {
 				if idle++; idle >= 2 {
+					if err := e.credit(entry); err != nil {
+						return Entry{ID: entry.ID, State: Ready}, err
+					}
 					if _, err := e.update(entry.ID, func(x *session.Entry) { x.Task, x.Base = "", nil }); err != nil {
 						return Entry{ID: entry.ID, State: Ready}, err
 					}
@@ -515,7 +529,33 @@ func (e *env) changedFiles(entry session.Entry) (int, bool) {
 	return len(delegate.Changes(entry.Base, now)), true
 }
 
+func (e *env) modelPath(entry session.Entry) string {
+	return filepath.Join(e.dir, "coauthor-"+entry.ID+".model")
+}
+
+func (e *env) credit(entry session.Entry) error {
+	if !e.cfg.Coauthors.Enabled {
+		return nil
+	}
+	n, ok := e.changedFiles(entry)
+	if !ok || n == 0 {
+		return nil
+	}
+	model, err := os.ReadFile(e.modelPath(entry))
+	// Panes opened before co-author recording have no saved model.
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return coauthor.Append(e.dir, e.cfg.Coauthors, coauthor.Record{Lead: entry.Lead, Agent: entry.Agent, Model: string(model), Files: n, Peer: entry.ID})
+}
+
 func (e *env) endLine(entry session.Entry, state State) (string, error) {
+	if err := e.credit(entry); err != nil {
+		return "", err
+	}
 	line := fmt.Sprintf("%s %s", entry.ID, state)
 	if entry.Task != "" {
 		line += ": task " + entry.Task + " is unfinished"
@@ -899,6 +939,9 @@ func Close(ctx context.Context, id string) error {
 	}
 	entry, err := e.find(id)
 	if err != nil {
+		return err
+	}
+	if err := e.credit(entry); err != nil {
 		return err
 	}
 	closeErr := e.rex.Close(ctx, entry.Block)

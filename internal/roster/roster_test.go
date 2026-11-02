@@ -125,3 +125,21 @@ func TestRosterShowsAPinnedModel(t *testing.T) {
 		t.Fatal(line)
 	}
 }
+
+func TestStartNoteCoauthors(t *testing.T) {
+	setup(t)
+	root := t.TempDir()
+	dir := filepath.Join(root, ".duolog")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if note := StartNote(root, session.Lead{}); !strings.HasSuffix(note, "; commits: add duolog coauthors") {
+		t.Fatal(note)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("coauthors:\n  enabled: false\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if note := StartNote(root, session.Lead{}); strings.Contains(note, "commits:") {
+		t.Fatal(note)
+	}
+}
