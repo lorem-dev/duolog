@@ -10,6 +10,10 @@ requests here.
   to a private conversation. This rule wins over any default attribution that
   a tool adds. A `Co-Authored-By:` trailer is fine.
 - Write commit and author dates in UTC and sign commits.
+- When Codex wrote or changed code in a commit, add it as a co-author next to
+  the agent that commits, with the model it ran. Squashed commits keep the
+  line, and a pull request with Codex work says so. For example:
+  `Co-Authored-By: OpenAI Codex gpt-6.1-sol <noreply@openai.com>`
 - Keep personal data out of commits, tests and docs: no real names other than
   the project's, no home folder paths, no time zones or cities.
 - Keep private projects out: a study or a bug report from a private project
