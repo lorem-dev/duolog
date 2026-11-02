@@ -61,7 +61,11 @@ func newTaskStartCommand() *cobra.Command {
 			return err
 		}
 		if base == "" {
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "task %s started; not a Git repository, so it cannot be profiled\n", task.ID)
+			reason := "not a Git repository"
+			if journal.InGit(workRoot(root)) {
+				reason = "no commits yet"
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "task %s started; %s, so it cannot be profiled\n", task.ID, reason)
 		} else {
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "task %s started at %s\n", task.ID, base[:7])
 		}

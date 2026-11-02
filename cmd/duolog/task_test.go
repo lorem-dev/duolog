@@ -72,3 +72,15 @@ func TestTaskCommandRefusesWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestTaskStartNoCommitsYet(t *testing.T) {
+	root := learningRepo(t, true)
+	os.RemoveAll(filepath.Join(root, ".git"))
+	if out, err := exec.Command("git", "-C", root, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatal(string(out), err)
+	}
+	out, err := executeBusCommand(t, "task", "start")
+	if err != nil || !strings.Contains(out, "no commits yet") {
+		t.Fatal(out, err)
+	}
+}

@@ -95,3 +95,15 @@ func TestNewIDShape(t *testing.T) {
 		t.Fatal(id)
 	}
 }
+
+func TestAppendDropsPartialTail(t *testing.T) {
+	j := open(t)
+	os.WriteFile(filepath.Join(j.Dir, "delegations.ndjson"), []byte("{\"id\":\"a\"}\n{\"id\":\"b\",\"ro"), 0600)
+	if err := j.Append("delegations.ndjson", Delegation{ID: "c"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadAll[Delegation](j, "delegations.ndjson")
+	if err != nil || len(got) != 2 || got[0].ID != "a" || got[1].ID != "c" {
+		t.Fatal(got, err)
+	}
+}

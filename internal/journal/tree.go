@@ -25,6 +25,9 @@ func git(root string, env []string, stdin []byte, args ...string) ([]byte, error
 	return out, nil
 }
 
+// InGit reports whether root is inside a Git work tree.
+func InGit(root string) bool { return inGit(root) }
+
 func inGit(root string) bool {
 	out, err := git(root, nil, nil, "rev-parse", "--is-inside-work-tree")
 	return err == nil && strings.TrimSpace(string(out)) == "true"
@@ -88,13 +91,13 @@ func Diff(root, from, to string) ([]byte, error) {
 }
 
 func NumStat(root, from, to string) ([]FileChange, error) {
-	out, err := git(root, nil, nil, "diff", "--numstat", from, to)
+	out, err := git(root, nil, nil, "diff", "--numstat", "--no-renames", "-z", from, to)
 	if err != nil {
 		return nil, err
 	}
 	var files []FileChange
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		parts := strings.SplitN(line, "\t", 3)
+	for _, entry := range strings.Split(string(out), "\x00") {
+		parts := strings.SplitN(entry, "\t", 3)
 		if len(parts) != 3 {
 			continue
 		}

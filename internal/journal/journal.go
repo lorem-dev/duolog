@@ -162,11 +162,32 @@ func (j *Journal) Append(name string, record any) error {
 	if err != nil {
 		return err
 	}
+	if err := dropPartialTail(f); err != nil {
+		_ = f.Close()
+		return err
+	}
 	if _, err := f.Write(append(line, '\n')); err != nil {
 		_ = f.Close()
 		return err
 	}
 	return f.Close()
+}
+
+// dropPartialTail cuts an interrupted last line (no final newline) so the next
+// record starts on a clean line instead of merging into the fragment.
+func dropPartialTail(f *os.File) error {
+	info, err := f.Stat()
+	if err != nil || info.Size() == 0 {
+		return err
+	}
+	data, err := os.ReadFile(f.Name())
+	if err != nil {
+		return err
+	}
+	if data[len(data)-1] == '\n' {
+		return nil
+	}
+	return f.Truncate(int64(bytes.LastIndexByte(data, '\n') + 1))
 }
 
 // ReadAll reads every record of a file. A missing file is empty and a broken

@@ -99,3 +99,19 @@ func TestCaptureOutsideGit(t *testing.T) {
 		t.Fatal(head, err)
 	}
 }
+
+func TestNumStatExactPathsWithoutRenames(t *testing.T) {
+	dir := repo(t)
+	write(t, dir, "my file é.txt", "x\n")
+	run(t, dir, "add", ".")
+	run(t, dir, "commit", "-q", "-m", "more")
+	from, _ := Capture(dir)
+	run(t, dir, "mv", "a.txt", "b.txt")
+	write(t, dir, "my file é.txt", "x\ny\n")
+	to, _ := Capture(dir)
+	stat, err := NumStat(dir, from, to)
+	want := []FileChange{{Path: "a.txt", Added: 0, Removed: 3}, {Path: "b.txt", Added: 3, Removed: 0}, {Path: "my file é.txt", Added: 1, Removed: 0}}
+	if err != nil || !reflect.DeepEqual(stat, want) {
+		t.Fatal(stat, err)
+	}
+}
