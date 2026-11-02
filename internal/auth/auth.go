@@ -149,10 +149,12 @@ type checker struct {
 }
 
 func output(ctx context.Context, argv []string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	// The lead waits for this; a check that hangs passes rather than blocks.
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Stdin = strings.NewReader("")
+	cmd.WaitDelay = time.Second
 	return cmd.Output()
 }
 
@@ -168,9 +170,10 @@ func (c *checker) Agent(ctx context.Context, agent string) *Problem {
 		// Exits 0 only when logged in.
 		out, err = c.run(ctx, []string{"codex", "login", "status"})
 		if err != nil {
+			// No answer, a missing binary or a killed check is not a failed login.
 			var exit *exec.ExitError
-			if !errors.As(err, &exit) {
-				return nil // no answer is not a failed login
+			if !errors.As(err, &exit) || exit.ExitCode() <= 0 {
+				return nil
 			}
 			p.Reason = "codex login status says it is not logged in"
 			return &p

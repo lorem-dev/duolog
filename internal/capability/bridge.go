@@ -214,9 +214,11 @@ type builder struct {
 	n      int
 }
 
+var notAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)
+
 // secret stores value under a new DUOLOG_MCP_<SERVER>_<N> name and returns it.
 func (b *builder) secret(value string) string {
-	base := "DUOLOG_MCP_" + strings.ToUpper(regexp.MustCompile(`[^A-Za-z0-9]`).ReplaceAllString(b.server.Name, "_"))
+	base := "DUOLOG_MCP_" + strings.ToUpper(notAlnum.ReplaceAllString(b.server.Name, "_"))
 	for {
 		b.n++
 		name := fmt.Sprintf("%s_%d", base, b.n)
