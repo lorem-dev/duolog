@@ -42,6 +42,11 @@
 
 ## Development
 
+### Changed
+
+- A lead session start removes task folders and `duolog put` snapshots unchanged
+  for 7 days, and the sync records of removed worktrees.
+
 ## 1.2.0
 
 ### Added

@@ -237,6 +237,14 @@ The command reads `.duolog/usage.ndjson` and prints tokens and an estimated
 cost for each role, agent and model. The prices come from the config. They are
 estimates, not a bill.
 
+## What duolog keeps in .duolog
+
+Each delegation gets a folder under `.duolog/tasks/` with the task copy, the
+answer and the worker log. `duolog put` saves snapshots under
+`.duolog/artifacts/`. When a lead session starts, duolog removes the folders
+and snapshots that nothing changed for 7 days. You do not need to run a
+command for this. The logs, such as `usage.ndjson`, stay.
+
 ## Known limits
 
 - The first release is unpublished. There is no download.

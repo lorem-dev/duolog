@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestOpenCreatesStoreAndIsIdempotent(t *testing.T) {
@@ -81,6 +82,43 @@ func TestGitIgnoreKeepsOnlySharedFiles(t *testing.T) {
 	} {
 		if !ignored(name) {
 			t.Errorf("%s must stay out of Git", strings.TrimSpace(name))
+		}
+	}
+}
+
+// A delegation's folder and an artifact go once nothing has touched them for
+// KeepFor; newer ones, and a folder with a recent file, stay.
+func TestPruneRemovesOldTasksAndArtifacts(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), ".duolog")
+	now := time.Now()
+	old := now.Add(-KeepFor - time.Hour)
+	write := func(rel string, at time.Time) string {
+		t.Helper()
+		path := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		for p := path; p != dir; p = filepath.Dir(p) {
+			if err := os.Chtimes(p, at, at); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return path
+	}
+	write("tasks/task-old/task.md", old)
+	write("tasks/task-new/task.md", now)
+	write("tasks/task-busy/task.md", old)
+	write("tasks/task-busy/stdout.log", now)
+	write("artifacts/oldhash", old)
+	write("artifacts/newhash", now)
+	write("journal/tasks/t-1/d-1/task.md", old)
+	Prune(dir, now)
+	for rel, want := range map[string]bool{"tasks/task-old": false, "tasks/task-new": true, "tasks/task-busy": true, "artifacts/oldhash": false, "artifacts/newhash": true, "journal/tasks/t-1": true} {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); (err == nil) != want {
+			t.Errorf("%s: kept=%v, want %v", rel, err == nil, want)
 		}
 	}
 }

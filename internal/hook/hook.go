@@ -216,7 +216,22 @@ func deliver(ctx context.Context, e Env, event string, register, includeRoster b
 	return render(e.Agent, event, data)
 }
 func SessionStart(ctx context.Context, e Env) Output {
-	return deliver(ctx, e, "SessionStart", true, true, startTime(e), func() string { return syncStart(e) })
+	return deliver(ctx, e, "SessionStart", true, true, startTime(e), func() string {
+		prune(e)
+		return syncStart(e)
+	})
+}
+
+// prune lets a lead's session start remove the delegation folders and
+// artifacts that nothing reads any more. A worker never removes state.
+func prune(e Env) {
+	if worker(e) || (e.Agent != "claude" && e.Agent != "codex") {
+		return
+	}
+	dir := filepath.Join(e.Root, ".duolog")
+	if info, err := os.Stat(dir); err == nil && info.IsDir() {
+		store.Prune(dir, time.Now())
+	}
 }
 func Prompt(ctx context.Context, e Env) Output {
 	return deliver(ctx, e, "UserPromptSubmit", e.Agent == "codex", false, startTime(e), nil)

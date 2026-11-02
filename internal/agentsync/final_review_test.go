@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -190,5 +191,55 @@ func TestLinkedWorktreeKeepsCommittedGeneratedFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(work, ".duolog", "sync.lock.json")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A linked worktree keeps its sync record under the main checkout's .duolog/.
+// Once Git no longer lists the worktree, the next session start drops it, and
+// a folder that holds anything else stays.
+func TestSessionStartDropsRecordsOfRemovedWorktrees(t *testing.T) {
+	main := newProject(t)
+	cfg := syncCfg(t)
+	git := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	git(main, "init", "-q")
+	put(t, main, ".gitignore", ".duolog/\n", 0644)
+	put(t, main, ".claude/agents/a.md", agentMD("a", "opus"), 0644)
+	git(main, "add", "-A")
+	git(main, "commit", "-q", "-m", "start")
+	if rep, err := Run(main, cfg, Options{From: "claude"}); err != nil || len(rep.Conflicts) > 0 {
+		t.Fatal(rep, err)
+	}
+	kept, gone := filepath.Join(t.TempDir(), "kept"), filepath.Join(t.TempDir(), "gone")
+	for _, dir := range []string{kept, gone} {
+		git(main, "worktree", "add", "-q", dir)
+		if rep, err := Run(dir, cfg, Options{From: "claude"}); err != nil || len(rep.Conflicts) > 0 {
+			t.Fatal(rep, err)
+		}
+	}
+	keptLock, goneLock := LockPath(kept), LockPath(gone)
+	for _, path := range []string{keptLock, goneLock} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	other := filepath.Join(main, ".duolog", "worktrees", "0123456789abcdef")
+	put(t, other, "sync.lock.json", "{}\n", 0644)
+	put(t, other, "notes.txt", "kept\n", 0644)
+	git(main, "worktree", "remove", "--force", gone)
+	SessionStart(main, cfg)
+	if _, err := os.Stat(keptLock); err != nil {
+		t.Fatal("live worktree record removed:", err)
+	}
+	if _, err := os.Stat(filepath.Dir(goneLock)); !os.IsNotExist(err) {
+		t.Fatal("record of a removed worktree kept:", err)
+	}
+	if _, err := os.Stat(filepath.Join(other, "notes.txt")); err != nil {
+		t.Fatal("folder with other files removed:", err)
 	}
 }

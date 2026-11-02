@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // GitIgnore keeps shared settings in Git and everything a session writes out of it.
@@ -42,4 +43,49 @@ func Open(root string) (*Store, error) {
 		return nil, werr
 	}
 	return &Store{Dir: dir}, nil
+}
+
+// KeepFor is how long a delegation's folder under tasks/ and an artifact stay
+// after the last change to them. The lead reads an answer as soon as the
+// delegation returns, so a week leaves room for a resumed session.
+const KeepFor = 7 * 24 * time.Hour
+
+// Prune removes what duolog no longer reads: task folders and artifacts that
+// nothing changed for KeepFor. The hooks call it when a lead session starts, so
+// the folder stays small without anyone running a command. Errors are ignored:
+// a file that cannot go now goes at a later start.
+func Prune(dir string, now time.Time) {
+	for _, sub := range []string{"tasks", "artifacts"} {
+		parent := filepath.Join(dir, sub)
+		entries, err := os.ReadDir(parent)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			path := filepath.Join(parent, e.Name())
+			if now.Sub(lastChange(path)) > KeepFor {
+				_ = os.RemoveAll(path)
+			}
+		}
+	}
+}
+
+// lastChange is the newest modification time of path and, for a folder, of
+// the files directly in it: a running worker appends to its log.
+func lastChange(path string) time.Time {
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}
+	}
+	latest := info.ModTime()
+	if !info.IsDir() {
+		return latest
+	}
+	entries, _ := os.ReadDir(path)
+	for _, e := range entries {
+		if i, err := e.Info(); err == nil && i.ModTime().After(latest) {
+			latest = i.ModTime()
+		}
+	}
+	return latest
 }

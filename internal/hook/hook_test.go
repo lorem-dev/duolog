@@ -17,6 +17,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/session"
+	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -687,5 +688,27 @@ func TestHookKeepsKnownEffortWhenTranscriptHasNoObservation(t *testing.T) {
 	got, ok, err := r.Lead(id(e))
 	if err != nil || !ok || got.Effort != "low" {
 		t.Fatal(got, err)
+	}
+}
+
+// A lead's session start clears old delegation folders; a worker's leaves them.
+func TestSessionStartPrunesOldTasks(t *testing.T) {
+	for _, workerRun := range []bool{false, true} {
+		e, _, _ := setup(t, "claude")
+		if workerRun {
+			e.Environ = append(e.Environ, "DUOLOG_DEPTH=1")
+		}
+		old := filepath.Join(e.Root, ".duolog", "tasks", "task-old")
+		if err := os.MkdirAll(old, 0755); err != nil {
+			t.Fatal(err)
+		}
+		at := time.Now().Add(-store.KeepFor - time.Hour)
+		if err := os.Chtimes(old, at, at); err != nil {
+			t.Fatal(err)
+		}
+		SessionStart(context.Background(), e)
+		if _, err := os.Stat(old); (err == nil) != workerRun {
+			t.Fatalf("worker=%v: kept=%v", workerRun, err == nil)
+		}
 	}
 }

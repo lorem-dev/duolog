@@ -8,9 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
+	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 )
@@ -37,13 +40,80 @@ type FileEntry struct {
 func LockPath(root string) string {
 	stateRoot := project.StateRoot(root)
 	if stateRoot != filepath.Clean(root) {
-		canonical := filepath.Clean(root)
-		if real, err := filepath.EvalSymlinks(root); err == nil {
-			canonical = real
-		}
-		return filepath.Join(stateRoot, ".duolog", "worktrees", hashBytes([]byte(canonical))[:16], "sync.lock.json")
+		return filepath.Join(stateRoot, ".duolog", "worktrees", worktreeKey(root), "sync.lock.json")
 	}
 	return filepath.Join(root, ".duolog", "sync.lock.json")
+}
+
+// worktreeKey names the folder that holds a linked worktree's lock.
+func worktreeKey(root string) string {
+	canonical := filepath.Clean(root)
+	if real, err := filepath.EvalSymlinks(root); err == nil {
+		canonical = real
+	}
+	return hashBytes([]byte(canonical))[:16]
+}
+
+// pruneWorktreeLocks removes the lock folders of linked worktrees that Git no
+// longer lists, so that removed worktrees do not pile up under .duolog/. It
+// keeps every folder when Git cannot list the worktrees, a folder of any
+// spelling of a listed path, and a folder that holds anything but the lock.
+func pruneWorktreeLocks(root string) {
+	stateRoot := project.StateRoot(root)
+	dir := filepath.Join(stateRoot, ".duolog", "worktrees")
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) == 0 {
+		return
+	}
+	// A sync in a new worktree may be writing its first lock: try once, and
+	// leave the cleanup to a later session when the lock is held.
+	mutex := flock.New(filepath.Join(stateRoot, ".duolog", "sync.lock"))
+	if locked, err := mutex.TryLock(); err != nil || !locked {
+		mutex.Close()
+		return
+	}
+	defer mutex.Close()
+	out, err := exec.Command("git", "-C", stateRoot, "worktree", "list", "--porcelain").Output()
+	if err != nil {
+		return
+	}
+	live := map[string]bool{}
+	var path string
+	for _, line := range strings.Split(strings.ReplaceAll(string(out)+"\n", "\r\n", "\n"), "\n") {
+		switch {
+		case strings.HasPrefix(line, "worktree "):
+			path = strings.TrimPrefix(line, "worktree ")
+		case strings.HasPrefix(line, "prunable"):
+			// Git still lists a worktree whose folder is gone until it is pruned.
+			path = ""
+		case line == "" && path != "":
+			for _, p := range spellings(path) {
+				live[worktreeKey(p)] = true
+				live[hashBytes([]byte(p))[:16]] = true
+			}
+			path = ""
+		}
+	}
+	for _, e := range entries {
+		if !e.IsDir() || live[e.Name()] {
+			continue
+		}
+		folder := filepath.Join(dir, e.Name())
+		if err := os.Remove(filepath.Join(folder, "sync.lock.json")); err == nil || errors.Is(err, os.ErrNotExist) {
+			_ = os.Remove(folder) // fails, and keeps the folder, when it holds anything else
+		}
+	}
+}
+
+// spellings lists the forms of a path that LockPath may have hashed: Git
+// prints forward slashes, and Windows paths may differ in drive letter case.
+func spellings(path string) []string {
+	p := filepath.Clean(filepath.FromSlash(path))
+	out := []string{p}
+	if runtime.GOOS == "windows" && len(p) > 1 && p[1] == ':' {
+		out = append(out, strings.ToUpper(p[:1])+p[1:], strings.ToLower(p[:1])+p[1:])
+	}
+	return out
 }
 
 // LoadLock reads the lock file. A missing file gives an empty lock.

@@ -616,6 +616,7 @@ func Hook(root string, cfg config.Sync, path string) string {
 // by a shell, and a newer model behind an alias. It is silent unless a file
 // was refused.
 func SessionStart(root string, cfg config.Sync) string {
+	pruneWorktreeLocks(root)
 	if !cfg.Auto {
 		return ""
 	}
