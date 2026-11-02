@@ -305,7 +305,7 @@ func TestSkillIsShort(t *testing.T) {
 		if n := words(text); n >= 400 {
 			t.Errorf("%s skill has %d words", agent, n)
 		}
-		for _, rule := range []string{"Collect small changes into one pull request per batch unless the user asks\notherwise.", "Do steps that the rules or duolog settle without explaining them; report\nresults.", "duolog delegate", "task.md", "Goal", "Read", "Write", "Limits", "Check", "range", "run here: self", "run here: subagent", "duolog allow", "duolog deny", "duolog peer", "/model", "/effort"} {
+		for _, rule := range []string{"Batch small\nchanges into one pull request unless the user asks otherwise.", "Do settled steps without explaining them; report results.", "duolog delegate", "task.md", "Goal", "Read", "Write", "Limits", "Check", "range", "run here: self", "run here: subagent", "duolog allow", "duolog deny", "duolog peer", "/model", "/effort"} {
 			if !strings.Contains(text, rule) {
 				t.Errorf("%s skill lacks %q", agent, rule)
 			}
