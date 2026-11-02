@@ -28,10 +28,53 @@ var (
 		"--only-matching", "--passthru", "--path-separator", "--pretty", "--quiet", "--regex-size-limit", "--regexp", "--file", "--replace", "--smart-case", "--sort", "--sortr", "--stats",
 		"--text", "--threads", "--trim", "--type", "--type-list", "--type-not", "--unrestricted", "--vimgrep", "--with-filename", "--word-regexp", "--version",
 	}
-	rgValueShorts   = "ABCEMTdefgjmrt"
-	rgPlainShorts   = ".0FHILNPSUVabchilnopqsuvwx"
-	grepValueShorts = "ABCDXdefm"
+	rgValueShorts = "ABCEMTdefgjmrt"
+	rgPlainShorts = ".0FHILNPSUVabchilnopqsuvwx"
+	// -X takes a value only in GNU grep; in BSD grep and ugrep it is a flag, and
+	// reading the next word as its value would hide the file after it.
+	grepValueShorts = "ABCDdefm"
+	// jq options that only change the output. -f, -L, --rawfile and --slurpfile
+	// read other files, and an error message prints the program it read.
+	jqPlainLong = []string{"--null-input", "--raw-input", "--slurp", "--compact-output", "--raw-output", "--raw-output0", "--join-output", "--ascii-output",
+		"--sort-keys", "--color-output", "--monochrome-output", "--exit-status", "--tab", "--seq", "--stream", "--stream-errors"}
+	jqPlainShorts = "nrjascCMSeR"
+	// The number of words each jq option with values takes.
+	jqValueLong = map[string]int{"--indent": 1, "--arg": 2, "--argjson": 2}
 )
+
+// jqFiles returns the files a jq command reads, after its filter, and false
+// when an option is not known to be a plain read.
+func jqFiles(args []string) ([]string, bool) {
+	var files []string
+	filter, literal := false, false
+	for i := 0; i < len(args); i++ {
+		word := args[i]
+		switch {
+		case literal || word == "-" || !strings.HasPrefix(word, "-"):
+			// env, $ENV and $__prog_args print the worker's environment, API keys included.
+			if !filter && (strings.Contains(strings.ToLower(word), "env") || strings.Contains(word, "$")) {
+				return nil, false
+			}
+			if filter {
+				files = append(files, word)
+			}
+			filter = true
+		case word == "--":
+			literal = true
+		case jqValueLong[word] > 0:
+			i += jqValueLong[word]
+		case strings.HasPrefix(word, "--"):
+			if !slices.Contains(jqPlainLong, word) {
+				return nil, false
+			}
+		default:
+			if strings.Trim(word[1:], jqPlainShorts) != "" {
+				return nil, false
+			}
+		}
+	}
+	return files, true
+}
 
 func findOptionsKnown(words []string) bool {
 	for _, word := range words {
@@ -48,7 +91,8 @@ func findOptionsKnown(words []string) bool {
 }
 
 func rgOptionsKnown(words []string) bool {
-	for _, word := range words {
+	for i := 0; i < len(words); i++ {
+		word := words[i]
 		switch {
 		case word == "--":
 			return true
@@ -62,6 +106,10 @@ func rgOptionsKnown(words []string) bool {
 			if !rgShortsKnown(word[1:]) {
 				return false
 			}
+		}
+		// -e -- or --regexp -- : the next word is this option's value, not an option or the end of options.
+		if separateValue("rg", word) {
+			i++
 		}
 	}
 	return true
@@ -104,12 +152,16 @@ func readCommandTargets(command string) (targets []string, reason string) {
 			}
 		}
 		return checkTargets(targets)
+	case "jq":
+		files, _ := jqFiles(args)
+		return checkTargets(files)
 	}
 	if recursiveSearch(name, args) {
 		return nil, "a recursive search can read files that policy denies; name the files or use rg without --hidden, -u or --no-ignore"
 	}
+	// The first word is a search pattern, not a path.
 	skipPattern := name == "grep" || name == "rg" || name == "select-string"
-	if skipPattern && explicitPattern(args) {
+	if skipPattern && (explicitPattern(args) || name == "rg" && slices.Contains(args, "--files")) {
 		skipPattern = false
 	}
 	var values []string
@@ -129,6 +181,17 @@ func readCommandTargets(command string) (targets []string, reason string) {
 		case strings.HasPrefix(word, "-"):
 			if value := optionValue(name, word); value != "" {
 				values = append(values, value)
+			}
+			// -g X and --glob X: the next word is the option's value, not a path.
+			if separateValue(name, word) && i+1 < len(args) {
+				i++
+				if strings.ContainsAny(args[i], "*?[{") || strings.HasPrefix(args[i], "~") {
+					return nil, "a shell glob or brace in an option value can expand onto files that policy denies; name the files"
+				}
+				// Only -f/--file names a file; -e, -g, -A and the like take a pattern or a number.
+				if fileValue(name, word) {
+					values = append(values, args[i])
+				}
 			}
 			// The word after -Pattern is the pattern, not a path.
 			if strings.EqualFold(word, "-pattern") {
@@ -178,6 +241,10 @@ func mergeTargets(targets, values []string) ([]string, string) {
 	// An option value such as --include=*.go is a filter, not a shell glob, and
 	// only a value that names a plain path can be judged.
 	for _, value := range values {
+		// Braces expand even inside an option word: -f{x,.env} reads .env.
+		if strings.Contains(value, "{") {
+			return nil, "a brace in an option value can expand onto files that policy denies; name the files"
+		}
 		if !strings.ContainsAny(value, "*?[{") {
 			targets = append(targets, value)
 		}
@@ -243,6 +310,45 @@ func valueShort(command, word string) (rune, string) {
 	return 0, ""
 }
 
+var (
+	rgSeparateLong = []string{"--after-context", "--before-context", "--context", "--glob", "--iglob", "--type", "--type-not", "--max-count", "--max-depth", "--max-columns",
+		"--regexp", "--file", "--encoding", "--sort", "--sortr", "--threads", "--replace", "--engine", "--color", "--colors", "--context-separator", "--dfa-size-limit",
+		"--field-context-separator", "--field-match-separator", "--max-filesize", "--path-separator", "--regex-size-limit"}
+	// grep's --context and -C take an optional value that must be attached (--context=3, -C3), so they never consume the next word.
+	grepSeparateLong = []string{"--after-context", "--before-context", "--regexp", "--file", "--max-count", "--include", "--exclude", "--exclude-dir", "--label"}
+)
+
+// separateValue reports whether word is an option whose value is the next
+// word: a short cluster ending in a value letter, or a long option without =.
+func separateValue(command, word string) bool {
+	if command != "rg" && command != "grep" {
+		return false
+	}
+	if strings.HasPrefix(word, "--") {
+		if strings.Contains(word, "=") {
+			return false
+		}
+		if command == "rg" {
+			return slices.Contains(rgSeparateLong, word)
+		}
+		return slices.Contains(grepSeparateLong, word)
+	}
+	letter, value := valueShort(command, word)
+	if command == "grep" && letter == 'C' {
+		return false
+	}
+	return letter != 0 && value == ""
+}
+
+// fileValue reports whether an option's separate value is a file to read.
+func fileValue(command, word string) bool {
+	if strings.HasPrefix(word, "--") {
+		return word == "--file"
+	}
+	letter, _ := valueShort(command, word)
+	return letter == 'f'
+}
+
 func explicitPattern(args []string) bool {
 	for _, word := range args {
 		lower := strings.ToLower(word)
@@ -287,4 +393,98 @@ func recursiveSearch(command string, args []string) bool {
 		}
 	}
 	return false
+}
+
+// optionSpec lists the options of a read command that only change its output.
+// Anything else, or more file operands than maxFiles, makes the command not a
+// read. GNU accepts any unique prefix of a long option, so only exact names
+// are known.
+type optionSpec struct {
+	plainShorts, valueShorts string
+	plainLong                []string
+	valueLong                []string // the value is "=x" or the next word
+	attachedLong             []string // the value, if any, is "=x"
+	maxFiles                 int      // -1 for no limit
+}
+
+func (o optionSpec) known(words []string) bool {
+	files := 0
+	for i := 0; i < len(words); i++ {
+		word := words[i]
+		switch {
+		case word == "--":
+			files += len(words) - i - 1
+			i = len(words)
+		case word == "-" || !strings.HasPrefix(word, "-"):
+			// - is standard input and an operand like any other: uniq - OUT writes OUT.
+			files++
+		case strings.HasPrefix(word, "--"):
+			name, _, attached := strings.Cut(word, "=")
+			switch {
+			case slices.Contains(o.valueLong, name):
+				if !attached {
+					i++
+				}
+			case slices.Contains(o.attachedLong, name):
+			case slices.Contains(o.plainLong, name) && !attached:
+			default:
+				return false
+			}
+		default:
+			for j, letter := range word[1:] {
+				if strings.ContainsRune(o.valueShorts, letter) {
+					// The value is the rest of the word, or the next word.
+					if j == len(word)-2 {
+						i++
+					}
+					break
+				}
+				if !strings.ContainsRune(o.plainShorts, letter) {
+					return false
+				}
+			}
+		}
+	}
+	return o.maxFiles < 0 || files <= o.maxFiles
+}
+
+var checkedOptions = map[string]optionSpec{
+	// grep may be GNU, BSD or ugrep. ugrep's --filter runs programs and
+	// --save-config writes, so only options that GNU and BSD share are known.
+	// Recursive options are known here and still ask in readCommandTargets.
+	"grep": {
+		plainShorts: "0123456789EFGPiywxvcLlhHnboqsTZzUarRVIuJXMOSp", valueShorts: "ABCDdefm",
+		plainLong: []string{"--extended-regexp", "--fixed-strings", "--basic-regexp", "--perl-regexp", "--ignore-case", "--no-ignore-case", "--word-regexp", "--line-regexp",
+			"--null-data", "--no-messages", "--invert-match", "--byte-offset", "--line-number", "--line-buffered", "--with-filename", "--no-filename", "--only-matching",
+			"--quiet", "--silent", "--text", "--recursive", "--dereference-recursive", "--files-without-match", "--files-with-matches", "--count", "--initial-tab", "--null",
+			"--binary", "--version", "--help"},
+		valueLong: []string{"--regexp", "--file", "--max-count", "--label", "--binary-files", "--directories", "--devices", "--include", "--exclude", "--exclude-from",
+			"--exclude-dir", "--before-context", "--after-context", "--context"},
+		attachedLong: []string{"--color", "--colour"},
+		maxFiles:     -1,
+	},
+	// -o writes, --compress-program runs a program, and -T writes elsewhere.
+	"sort": {
+		plainShorts: "bdfghiMnRrVsuzcCm", valueShorts: "ktS",
+		plainLong: []string{"--ignore-leading-blanks", "--dictionary-order", "--ignore-case", "--general-numeric-sort", "--human-numeric-sort", "--ignore-nonprinting",
+			"--month-sort", "--numeric-sort", "--random-sort", "--reverse", "--version-sort", "--stable", "--unique", "--zero-terminated", "--merge", "--debug"},
+		valueLong:    []string{"--sort", "--key", "--field-separator", "--buffer-size", "--parallel"},
+		attachedLong: []string{"--check"},
+		maxFiles:     -1,
+	},
+	// A second operand is the output file.
+	"uniq": {
+		plainShorts: "cdDuiz", valueShorts: "fsw",
+		plainLong:    []string{"--count", "--repeated", "--unique", "--ignore-case", "--zero-terminated"},
+		valueLong:    []string{"--skip-fields", "--skip-chars", "--check-chars"},
+		attachedLong: []string{"--all-repeated", "--group"},
+		maxFiles:     1,
+	},
+	// -m and -f read another file and print its lines in errors; -C writes.
+	"file": {
+		plainShorts: "bikLhNnprszZ0E",
+		plainLong: []string{"--brief", "--mime", "--mime-type", "--mime-encoding", "--keep-going", "--dereference", "--no-dereference", "--no-pad", "--no-buffer",
+			"--raw", "--special-files", "--uncompress", "--uncompress-noreport", "--print0", "--extension", "--apple"},
+		maxFiles: -1,
+	},
 }

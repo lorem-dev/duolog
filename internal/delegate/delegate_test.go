@@ -217,6 +217,7 @@ func TestFreshRunsAreNotRegistered(t *testing.T) {
 }
 func TestResumeReusesThread(t *testing.T) {
 	h := newHarness(t)
+	put(t, filepath.Join(h.root, ".duolog", "brief.md"), "- BRIEF_RULE\n")
 	if _, e := h.run("plan"); e != nil {
 		t.Fatal(e)
 	}
@@ -226,6 +227,10 @@ func TestResumeReusesThread(t *testing.T) {
 	h.requireCalls(2)
 	if h.calls[1].ThreadID != "worker-id" {
 		t.Fatal(h.calls)
+	}
+	// The thread holds the brief from its first turn; a resumed turn does not repeat it.
+	if !strings.Contains(string(h.calls[0].Stdin), "BRIEF_RULE") || strings.Contains(string(h.calls[1].Stdin), "BRIEF_RULE") {
+		t.Fatalf("brief: first %q, resumed %q", h.calls[0].Stdin, h.calls[1].Stdin)
 	}
 	if strings.Contains(strings.Join(runner.Argv(h.calls[0]), " "), "--no-session-persistence") {
 		t.Fatal("initial resumable run cannot persist")
@@ -1129,5 +1134,29 @@ func TestResultLineKeepsNeedsAndWarnings(t *testing.T) {
 	short := resultLine(true, "", "Done.", "", "", "answer=x")
 	if short != "done=true summary=Done. files=" {
 		t.Fatal(short)
+	}
+}
+
+// The brief leads every worker's input and counts against the inline limit,
+// so a large brief leaves less room for Read files instead of growing input.
+func TestBriefLeadsStdinWithinTheInlineLimit(t *testing.T) {
+	h := newHarness(t)
+	put(t, filepath.Join(h.root, "a.go"), "PRIVATE_FILE_CONTENT\n")
+	put(t, filepath.Join(h.root, ".duolog", "brief.md"), "- Run tests with make check.\n")
+	if _, e := h.run("implement"); e != nil {
+		t.Fatal(e)
+	}
+	h.requireCalls(1)
+	stdin := string(h.calls[0].Stdin)
+	if !strings.HasPrefix(stdin, "Project brief from the lead") || !strings.Contains(stdin, "make check") || !strings.HasSuffix(stdin, workerLines) {
+		t.Fatalf("stdin: %q", stdin)
+	}
+	if len(stdin) > h.cfg.Wire.InlineMaxBytes {
+		t.Fatalf("stdin %d bytes over the limit %d", len(stdin), h.cfg.Wire.InlineMaxBytes)
+	}
+	h.cfg.Wire.InlineMaxBytes = 600
+	put(t, filepath.Join(h.root, ".duolog", "brief.md"), strings.Repeat("x", 500))
+	if _, e := h.run("implement"); e == nil || !strings.Contains(e.Error(), "shorten the brief") {
+		t.Fatalf("an oversized brief was sent: %v", e)
 	}
 }

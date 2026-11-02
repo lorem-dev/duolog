@@ -111,7 +111,10 @@ func ImportLead(root, agent string) (LeadRules, error) {
 			}
 			switch settings.Approval {
 			case "", "never":
-			case "on-request", "untrusted", "on-failure":
+			// Codex edits the project without asking under these; see session.CodexMode.
+			case "on-request", "on-failure":
+				lower(mode.Edits)
+			case "untrusted":
 				lower(mode.Ask)
 			default:
 				return rules, fmt.Errorf("%s: unknown approval_policy %q", path, settings.Approval)

@@ -42,6 +42,14 @@ roles:
     sandbox: read-only
     context: project
     session: resume
+  # A whole feature: investigate, plan, implement, check, report risks. Keeps its
+  # thread so follow-up rounds reuse the worker's cached context.
+  planner:
+    use: {agent: codex, model: sol, effort: medium}
+    fallback: {agent: claude, model: sonnet, effort: medium}
+    sandbox: workspace-write
+    context: minimal
+    session: resume
   implement:
     use: {agent: codex, model: sol, effort: medium}
     fallback: {agent: claude, model: sonnet, effort: medium}
@@ -113,14 +121,28 @@ policy:
     - {action: read,  match: "{**/.env,**/.env.*,**/*.pem,**/*.key,**/secrets/**}", decision: deny}
     - {action: write, match: "{**/.duolog/**,**/.git/**}", decision: deny}
     # A worker that changes these would change its own rules or the lead's hooks.
-    - {action: write, match: "{.claude/settings*.json,.claude/hooks/**,.codex/config.toml,.codex/hooks.json}", decision: deny}
-    - {action: write, match: "**", decision: allow, roles: [implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    # Codex itself keeps .codex/ read-only in workspace-write.
+    - {action: write, match: "{.claude/settings*.json,.claude/hooks/**,.codex/**}", decision: deny}
+    - {action: write, match: "**", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
     # Not run: go run and uv run start any program. A named test or lint script is fine.
-    - {action: exec,  match: "{go,cargo,npm,pnpm,uv,task,make} {test,lint,fmt,build}*", decision: allow, roles: [implement, implement_complex, mechanical, tests, docs, debug_hard]}
-    - {action: exec,  match: "{npm,pnpm} run {test,lint,fmt,build}*", decision: allow, roles: [implement, implement_complex, mechanical, tests, docs, debug_hard]}
-    - {action: exec,  match: "uv run {pytest,ruff,ty}*", decision: allow, roles: [implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    - {action: exec,  match: "{go,cargo,npm,pnpm,uv,task,make} {test,lint,fmt,build}*", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    - {action: exec,  match: "{npm,pnpm} run {test,lint,fmt,build}*", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    - {action: exec,  match: "{npm,pnpm} run {type,typecheck,type:*}", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    - {action: exec,  match: "uv run {pytest,ruff,ty}*", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    # Check tools as agents call them, per ecosystem. Writer roles only: these run
+    # project code or config (eslint configs, build scripts, test files).
+    - {action: exec,  match: "{./,}node_modules/.bin/{tsc,vue-tsc,eslint,prettier,biome,vitest,jest}*", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    - {action: exec,  match: "{.venv/bin/,}{pytest,ruff,black,mypy,pyright,basedpyright,ty}*", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    - {action: exec,  match: "{python,python3,.venv/bin/python} -m {pytest,ruff,mypy,black}*", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    - {action: exec,  match: "{go vet,go build,gofmt,staticcheck,golangci-lint run}*", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    - {action: exec,  match: "cargo {check,clippy,fmt,nextest}*", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    - {action: exec,  match: "{clang-format,clang-tidy,cppcheck,ctest,cmake --build,ninja -C}*", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    - {action: exec,  match: "make {check,typecheck,vet,format}*", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    - {action: exec,  match: "{./gradlew,gradle} --offline {test,check,build}*", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    - {action: exec,  match: "{./mvnw,mvn} -o {test,verify,compile}*", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    - {action: exec,  match: "dotnet {build,test} --no-restore*", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
     - {action: exec,  match: "git {status,diff,log,show}*", decision: allow}
-    - {action: exec,  match: "{cat,head,tail,ls,pwd,wc,rg,grep,find,Get-Content,Get-ChildItem,Get-Location,Test-Path,Select-String,Get-Item}*", decision: allow}
+    - {action: exec,  match: "{cat,head,tail,ls,pwd,wc,rg,grep,find,sed,jq,stat,file,du,tree,cut,nl,comm,sort,uniq,realpath,which,basename,dirname,shasum,md5,Get-Content,Get-ChildItem,Get-Location,Test-Path,Select-String,Get-Item}*", decision: allow}
     - {action: exec,  match: "git {push,reset --hard,clean,rebase}*", decision: deny}
     - {action: exec,  match: "rm -rf *", decision: deny}
     - {action: exec,  match: "remove-item -recurse *", decision: deny}

@@ -15,36 +15,40 @@ description: >-
    macOS/Linux:
 
    ```sh
-   curl -fsSL https://github.com/lorem-dev/duolog/releases/download/v1.0.0/install.sh | sh -s -- --version v1.0.0 && duolog install --scope project
+   curl -fsSL https://github.com/lorem-dev/duolog/releases/download/v1.1.0/install.sh | sh -s -- --version v1.1.0 && duolog install --scope project
    ```
 
    Windows PowerShell:
 
    ```powershell
-   $env:DUOLOG_VERSION = 'v1.0.0'; irm https://github.com/lorem-dev/duolog/releases/download/v1.0.0/install.ps1 | iex
+   $env:DUOLOG_VERSION = 'v1.1.0'; irm https://github.com/lorem-dev/duolog/releases/download/v1.1.0/install.ps1 | iex
    ```
 
    On Windows, add the printed directory to PATH, then run
    `duolog install --scope project`.
 2. Run `duolog doctor` once per session. If it says the rules are off, tell
-   the user what it names, such as `/hooks` for Codex, and follow its steps
-   before delegating.
+   the user what it names, such as `/hooks`, before delegating.
 
 ## Hand over
 
-1. Write `task.md` with sections Goal, Read, Write, Limits, Check, in order.
-2. List Read files by line range. Denied reads stay references; they are not
-   inlined.
-3. Run `duolog delegate <role> --task task.md`. Use a long timeout.
-4. Read the summary and needed file ranges. Long answers point to `answer.json`.
+1. Give a whole feature to `planner`: it reads, implements, checks and lists
+   hunks to review. Do a small fix here yourself.
+2. Write `.duolog/task.md` with sections Goal, Read, Write, Limits, Check.
+   Give files or line ranges you know. Put a changelog or docs under Write if
+   the worker edits them.
+3. Run `duolog delegate <role> --task .duolog/task.md` with a long timeout.
+   Wait for its notice; do not poll.
+4. Read the summary and `git diff --stat`; open only marked hunks. Skip
+   `answer.json` and full test suites.
+5. Keep hard parts and the final review, or use `review_final`.
 
-With several leads, pass `--lead <id>` from SessionStart.
+`.duolog/brief.md` holds rules for every worker. With several leads, pass
+`--lead <id>` from SessionStart.
 
 ## Running from Codex
 
-Use the binary's full path if the login shell resets PATH. A Claude worker on
-macOS needs Keychain access. `workspace-write` blocked login;
-`--sandbox danger-full-access` worked. API-key login is unverified.
+Run `duolog delegate` outside the sandbox, or workers cannot start. An old
+`duolog version` means PATH found an older copy; use the full path.
 
 ## When duolog says `run here`
 
@@ -55,20 +59,15 @@ macOS needs Keychain access. `workspace-write` blocked login;
 
 ## Permission requests
 
-Foreground delegate blocks its lead. An ask then denies immediately: the worker
-must stop with `done: false` and the decision in `needs`. Decide, adjust the
-task or permitted policy/mode, then re-run. A deny rule remains binding.
-
-When the lead is free, answer numbered requests with `duolog allow <n>` or
-`duolog deny <n>`. Read full commands with `duolog decisions`.
+A foreground delegate blocks you, so an ask denies: the worker retries
+plainer, then returns `done: false` with the command in `needs`. When free,
+answer with `duolog allow <n>` or `duolog deny <n>`. If the user allows a
+command for good, run `duolog remember '<command>'`.
 
 ## Live sessions
 
-On Windows use `duolog delegate`. Live sessions need Rex on macOS/Linux.
-`duolog peer wait` returns for a gate ask. Put long content in an artifact.
+Live sessions need Rex; `duolog peer wait` returns for an ask.
 
 ## Never
 
-Never send `/model` or `/effort` to a Claude pane. They change that session's
-settings. Set model and effort through duolog instead. Approve Codex hooks in
-`/hooks` before write work.
+Never send `/model` or `/effort` to a Claude pane; they change its settings.

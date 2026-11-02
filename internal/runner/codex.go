@@ -22,9 +22,16 @@ func codexArgv(s Spec) []string {
 	if s.Route.Effort != "" {
 		args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", s.Route.Effort))
 	}
-	args = append(args, "-c", "check_for_update_on_startup=false")
+	// A login shell reruns the user's profile, which can reset PATH and lose tools
+	// the lead found (node from nvm, for one); the worker keeps the PATH duolog sets.
+	args = append(args, "-c", "check_for_update_on_startup=false", "-c", "allow_login_shell=false")
 	if s.Route.Context == "minimal" {
+		// Minimal context also drops skill listings, unless the task needs a skill:
+		// a worker gets its rules from the task.
 		args = append(args, "-c", "project_doc_max_bytes=0")
+		if !s.KeepSkills {
+			args = append(args, "-c", "skills.include_instructions=false")
+		}
 	}
 	if s.ThreadID == "" && !s.Persistent {
 		args = append(args, "--ephemeral")

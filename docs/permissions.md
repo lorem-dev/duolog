@@ -29,9 +29,11 @@ See your lead's mode with `duolog mode`. Give a lower mode with
 
 Native names map to these modes. For Claude, `default` is `ask`, `acceptEdits`
 and `auto` are `edits`, and `bypassPermissions` is `full`. For Codex,
-`read-only` is `plan` and `workspace-write` is `ask`.
-`danger-full-access` is `full` only with approval policy `never`; otherwise
-it is `ask`. An unknown value counts as `ask`.
+`read-only` is `plan`. `workspace-write` is `edits` with approval policy
+`on-request`, `never` or `on-failure`, because Codex itself edits the project
+there without asking. `danger-full-access` is `full` with `never` and `edits`
+with the other two. Approval policy `untrusted` makes both `ask`. An unknown
+value counts as `ask`.
 
 ## The default rules
 
@@ -43,9 +45,11 @@ The rules are in the `policy` section of the config. A rule has an action
 | read | everything | allow |
 | read | `.env`, `*.pem`, `*.key`, `secrets/` | deny |
 | write | `.duolog` and `.git` folders, at any depth | deny |
-| write | `.claude/settings*.json`, `.claude/hooks/**`, `.codex/config.toml`, `.codex/hooks.json` | deny |
+| write | `.claude/settings*.json`, `.claude/hooks/**` and the `.codex` folder | deny |
 | write | everything, for the write roles | allow |
 | exec | `go test`, `make build`, `npm run test`, `uv run pytest` and the like, for write roles | allow |
+| exec | Check tools of each ecosystem, for write roles: `node_modules/.bin/eslint`, `.venv/bin/ruff`, `python -m pytest`, `go vet`, `cargo clippy`, `cmake --build`, offline `gradle` and `mvn`, `dotnet test --no-restore` and the like | allow |
+| exec | Read commands: `cat`, `head`, `tail`, `ls`, `wc`, `rg`, `grep`, `find`, `sed -n 'N,Mp'`, `jq`, `sort`, `stat`, `tree` and others | allow |
 | exec | `git status`, `git diff`, `git log`, `git show` | allow |
 | exec | `git push`, `git reset --hard`, `git clean`, `git rebase` | deny |
 | exec | `rm -rf *` | deny |
@@ -69,10 +73,25 @@ tool can still search a denied file that is neither hidden nor git-ignored:
 keep such files out of the tree or ignore them. `git diff` and `git log` with
 no path can also show a denied file that Git tracks, so do not commit one.
 
+Quotes that only group one word read as that word, so `grep -n "TODO" a.go`
+and `git log --format="%h"` are plain reads. Quoted text with a space, a glob,
+a brace, a tilde or a backslash still asks, and so does an empty quoted word
+or `$` and a backtick inside double quotes. The shell would split or expand
+such text, so the gate cannot read the words it passes on. A brace anywhere in
+a command asks for the same reason.
+
+`sed` reads only as `sed -n 'N,Mp' file`. `grep`, `jq`, `sort`, `uniq` and
+`file` pass only with options that change the output, so `jq -f`, `sort -o`,
+`uniq - out`, `file -m.env` and ugrep's `grep --filter` ask. A `jq` filter
+that names `env` or a `$` variable asks, because it can print the worker's
+API keys. `diff` and `yq` are not read commands, because `diff -r` prints
+denied files and `yq` can write them.
+
 A deny also holds inside any other command. `uv run git push` is denied like
 `git push`, and `sed -n p .env` is denied like `cat .env`. A directory change
-before another command, a shell glob and `git -c` ask in every mode, because the
-gate reads the command text and cannot see what they do. A path can match a deny
+before another command, a shell glob, a program path with `..` and `git -c`
+ask in every mode, because the gate reads the command text and cannot see what
+they do. A path can match a deny
 by accident: `go test ./secrets/...` is denied by the `secrets/` rule.
 
 Secrets include nested `.env` and `.env.*` files. Paths outside the working
@@ -91,10 +110,13 @@ and waits up to `ask_timeout_seconds` (120 by default). The wait is capped at
 warns about larger settings. Timeout and cancellation always deny.
 
 A lead waiting for its foreground `delegate` cannot answer a request. In that
-case the gate denies at once. The worker stops with `done: false` and the
-needed decision in `needs`. The lead decides, adjusts the task or permitted
-policy/mode, and re-runs. Deny rules still apply. When the lead is free, normal
-numbered asks work as below. `peer wait` returns at once for a pending gate ask.
+case the gate denies at once and names the command. The worker retries once
+with a plainer form, then stops with `done: false` and the command in `needs`.
+The lead decides, adjusts the task or permitted policy/mode, and re-runs. Deny
+rules still apply. When the lead is free, normal numbered asks work as below.
+`peer wait` returns at once for a pending gate ask. A worker that tries to ask
+the user, with Codex `request_user_input` or Claude `AskUserQuestion`, is
+denied, because only the lead talks to the user.
 
 The lead answers with:
 
@@ -106,6 +128,35 @@ duolog deny 3
 A worker cannot run these commands. See what duolog decided and why with
 `duolog decisions`. Long request summaries keep their head and tail, mark
 the cut, and point to this command for the full action.
+
+## How to allow a command for good
+
+When the user approves a command that workers will need again, the lead runs:
+
+```bash
+duolog remember '.venv/bin/ruff check app/a.py'
+```
+
+duolog saves an allow rule in `.duolog/learned.yaml` for every write role, or
+for the roles named with `--role`. The rule keeps the program and its plain
+subcommand words and lets the rest vary: this one allows
+`.venv/bin/ruff check *`. A program with no subcommand, a program that runs
+any code from its arguments, such as `python3.12` or `awk`, and a `run` or
+`exec` subcommand, such as `uv run`, are saved exactly as approved. Give your
+own glob with `--match`.
+
+The command refuses a rule that cannot make the command allowed: a deny still
+wins, and shell syntax that the gate cannot read always asks. A worker cannot
+run it. The file stays out of Git, like the rest of `.duolog/`.
+
+With `--native`, duolog also allows the command for the lead:
+`Bash(prefix:*)` in `.claude/settings.local.json` and a `prefix_rule` in
+`.codex/rules/duolog.rules`. Codex runs an allowed prefix outside its
+sandbox, which is more than the worker rule grants, so `--native` is off by
+default. A Codex rule matches a prefix, so an exact command gets no Codex
+rule. Give the options of `remember` before the command. We checked the Codex
+rule with `codex execpolicy check`; a live Codex session that reads it is not
+verified.
 
 ## Where the checks run
 
@@ -142,6 +193,13 @@ and both were measured on 2026-10-31 with Codex 0.165.0 (see the
 A Codex worker started by a Claude lead needs none of this. Claude starts it
 outside any Codex sandbox.
 
+A Codex worker has the same problem in the other direction. In the cost study,
+`duolog delegate` run inside a Codex lead's sandbox stopped with
+`failed to initialize in-process app-server client: Operation not permitted`.
+It worked once the lead ran the command outside the sandbox (OBSERVED). The
+lead's shell can also find an older `duolog` first on PATH, so check
+`duolog version`.
+
 ## Known limits
 
 These come from the research page and are OBSERVED, not VERIFIED:
@@ -154,8 +212,8 @@ These come from the research page and are OBSERVED, not VERIFIED:
   Claude.
 - Whether hooks fire for tools inside a Codex `spawn_agent` child is NOT
   VERIFIED.
-- Real agents on Windows have not been run. Native CI executes the generated
-  gate commands, but does not prove that agents discover or honor hooks.
+- Real agents ran on Windows 11 once, in Windows PowerShell 5.1: both agents
+  ran the hooks and the gate denied. PowerShell 7 and arm64 are unchecked.
 
 ## How PowerShell commands are checked
 

@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var version = "1.0.0"
+var version = "1.1.0"
 
 func newRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -22,7 +22,7 @@ func newRootCommand() *cobra.Command {
 		_, err := fmt.Fprintln(cmd.OutOrStdout(), version)
 		return err
 	}})
-	cmd.AddCommand(newConfigCommand(), newRouteCommand(), newSendCommand(), newInboxCommand(), newPutCommand(), newRefCommand(), newReadCommand(), newDelegateCommand(), newDoctorCommand(), newRosterCommand(), newStatsCommand(), newGateCommand(), newDecideCommand("allow"), newDecideCommand("deny"), newModeCommand(), newDecisionsCommand(), newHookCommand(), newSyncCommand(), newInstallCommand(), newUninstallCommand(), newPeerCommand(), newCapsCommand())
+	cmd.AddCommand(newConfigCommand(), newRouteCommand(), newSendCommand(), newInboxCommand(), newPutCommand(), newRefCommand(), newReadCommand(), newDelegateCommand(), newDoctorCommand(), newRosterCommand(), newStatsCommand(), newGateCommand(), newDecideCommand("allow"), newDecideCommand("deny"), newRememberCommand(), newModeCommand(), newDecisionsCommand(), newHookCommand(), newSyncCommand(), newInstallCommand(), newUninstallCommand(), newPeerCommand(), newCapsCommand())
 	return cmd
 }
 

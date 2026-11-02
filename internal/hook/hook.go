@@ -295,6 +295,10 @@ func Wake(ctx context.Context, e Env) int {
 				return 0
 			}
 			if len(data) > 0 {
+				// The session can end while the bus is read; an ended one must not wake.
+				if _, alive, err := s.reg.Lead(s.lead.ID); err != nil || !alive {
+					return 0
+				}
 				stderr := e.Stderr
 				if stderr == nil {
 					stderr = os.Stderr

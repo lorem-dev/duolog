@@ -45,7 +45,7 @@ func TestLayersLaterWins(t *testing.T) {
 		t.Fatal(err)
 	}
 	role := cfg.Roles["review_intermediate"]
-	if role.Use.Effort != "low" || role.Use.Model != "terra" || role.Fallback.Model != "sonnet" || len(cfg.Roles) != 10 {
+	if role.Use.Effort != "low" || role.Use.Model != "terra" || role.Fallback.Model != "sonnet" || len(cfg.Roles) != 11 {
 		t.Fatalf("layers lost or failed to override fields: %+v", cfg.Roles)
 	}
 	// Without the project layer, the user layer must win over embedded defaults.
@@ -79,8 +79,8 @@ func TestEmbeddedDefaultsAreValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Roles) != 10 {
-		t.Fatalf("got %d roles, want 10", len(cfg.Roles))
+	if len(cfg.Roles) != 11 {
+		t.Fatalf("got %d roles, want 11", len(cfg.Roles))
 	}
 	if cfg.Models["sol"].Family != "sol" || cfg.Models["sol"].PricedFor != "gpt-6.1-sol" || cfg.Models["haiku"].Note == "" {
 		t.Fatal("model metadata was lost")

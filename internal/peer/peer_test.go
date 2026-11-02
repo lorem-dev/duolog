@@ -484,6 +484,9 @@ func TestOpenSpawnDisablesUpdates(t *testing.T) {
 	}
 	r2 := newRig(t, withScreens(claudeIdle("")))
 	r2.open("plan")
+	if argv := r2.started(); !contains(argv, "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1") {
+		t.Fatal(argv)
+	}
 	if argv := r2.started(); !contains(argv, "DISABLE_AUTOUPDATER=1") {
 		t.Fatal(argv)
 	}

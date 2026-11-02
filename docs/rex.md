@@ -62,7 +62,6 @@ These come from the
   pane whose lead has ended.
 - Rex has no known Windows build. Live sessions are unavailable on Windows.
   `duolog peer` prints this limit; use `duolog delegate` instead.
-- Real agents on Windows have not been run.
 
 ## How to test the Rex flow by hand
 

@@ -11,13 +11,13 @@ the target stays as it is.
 | A message on the bus | At most 512 bytes | not measured yet |
 | A hook with no new message | 0 tokens | not measured yet |
 | The `SessionStart` line | At most 80 tokens | not measured yet |
-| An ordinary `gate` call | 0 tokens, under 50 ms | not measured yet |
+| An ordinary `gate` call | 0 tokens, under 50 ms | 0 tokens; 20 ms median on two macOS arm64 machines; 0.26 to 0.7 s through the Codex hook guard on Windows 11 |
 
-Code enforces the first target: the bus refuses a longer line. The other
-three need a live session, so they stay "not measured yet" until someone runs
-them.
+Code enforces the first target: the bus refuses a longer line. Two more need
+a live session, so they stay "not measured yet" until someone runs them. The
+gate meets its target on macOS and misses it on Windows, where the shell guard
+starts more processes.
 
-No live run gave a number for these four targets, so they stay as they are.
 The live run of 2026-10-31 did measure the cost of a handoff (`gpt-6-luna`, low
 effort, estimated USD per run):
 
@@ -43,10 +43,19 @@ the Codex folder trust need `DUOLOG_E2E_TRUST=1`. See
 
 `TestInlineCostsLessThanReference` repeats the handoff measurement from the
 research page through `duolog delegate`. It compares the cost of the inline
-form with the saved whole-file and range rows.
+form with the saved whole-file and range rows. Both sides are priced as if
+nothing was cached, because Codex decides per call whether a prompt comes from
+its cache, and that halved or doubled the cached price between runs.
+
+The cost of whole sessions, with and without duolog, is on
+[the cost study](research/2026-11-01-cost-study.md) page. It also found that
+effort above `high` raised no model's quality, while Opus at `max` cost six
+times Opus at `high`, so no default role asks for `xhigh` or `max`.
 
 ## Related pages
 
 - [Bus](bus.md): the message limits
 - [Live verification](research/2026-10-30-live-verification.md): the saved
   measurements
+- [Cost study](research/2026-11-01-cost-study.md): sessions with and without
+  duolog

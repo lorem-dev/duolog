@@ -18,7 +18,7 @@ type Config struct {
 	Wire           Wire             `yaml:"wire" jsonschema_description:"Task and message encoding and size limits; defaults suit the file bus."`
 	Limits         Limits           `yaml:"limits" jsonschema_description:"Worker delegation limits; defaults permit one worker per agent."`
 	Models         map[string]Model `yaml:"models" jsonschema_description:"Model aliases and price metadata; defaults include the eight vendor families."`
-	Roles          map[string]Role  `yaml:"roles" jsonschema_description:"Named task routes; overrides merge by role and field into the ten defaults."`
+	Roles          map[string]Role  `yaml:"roles" jsonschema_description:"Named task routes; overrides merge by role and field into the eleven defaults."`
 	Sessions       Sessions         `yaml:"sessions" jsonschema_description:"Thread lifetime limits; defaults close large or idle threads."`
 	Policy         Policy           `yaml:"policy" jsonschema_description:"Permission rules constrained by the lead; defaults ask for unmatched actions."`
 	Capabilities   Capabilities     `yaml:"capabilities" jsonschema_description:"Missing capability handling; defaults read skills and let the lead handle tools."`
@@ -159,7 +159,46 @@ func Load(root string) (*Config, error) {
 	if err := keepDefaultDenies(&cfg); err != nil {
 		return nil, err
 	}
+	learned, err := LearnedRules(root)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Policy.Rules = append(cfg.Policy.Rules, learned...)
 	return &cfg, nil
+}
+
+// LearnedFile holds the allow rules a person approved during work with
+// `duolog remember`. It is a separate file because a YAML layer replaces the
+// whole rule list, and remembered commands must add to the project's rules.
+const LearnedFile = "learned.yaml"
+
+type learnedRules struct {
+	Rules []Rule `yaml:"rules"`
+}
+
+// LearnedRules reads .duolog/learned.yaml. Only allow rules count: a remembered
+// command can widen what workers may run, never narrow or replace a deny, and
+// the gate checks every deny before any allow.
+func LearnedRules(root string) ([]Rule, error) {
+	path := filepath.Join(root, ".duolog", LearnedFile)
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	var file learnedRules
+	if err := yaml.Unmarshal(data, &file); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	var rules []Rule
+	for _, rule := range file.Rules {
+		if rule.Decision == "allow" && rule.Action == "exec" && strings.TrimSpace(rule.Match) != "" {
+			rules = append(rules, rule)
+		}
+	}
+	return rules, nil
 }
 
 // keepDefaultDenies holds every default deny when a layer replaces the rule list.

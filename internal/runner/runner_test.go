@@ -47,12 +47,36 @@ func containsArgs(t *testing.T, got []string, want ...string) {
 func TestCodexArgvMinimal(t *testing.T) {
 	s := spec(t, "codex")
 	a := Argv(s)
-	containsArgs(t, a, "codex", "exec", "-m", "gpt-6-luna", `model_reasoning_effort="low"`, "project_doc_max_bytes=0", "-s", "read-only", "--ephemeral", "-o", "--json", "Do the task in the stdin block.")
+	containsArgs(t, a, "codex", "exec", "-m", "gpt-6-luna", `model_reasoning_effort="low"`, "project_doc_max_bytes=0", "skills.include_instructions=false", "allow_login_shell=false", "-s", "read-only", "--ephemeral", "-o", "--json", "Do the task in the stdin block.")
 }
 func TestCodexArgvProjectContext(t *testing.T) {
 	s := spec(t, "codex")
 	s.Route.Context = "project"
-	if strings.Contains(strings.Join(Argv(s), " "), "project_doc_max_bytes") {
+	if line := strings.Join(Argv(s), " "); strings.Contains(line, "project_doc_max_bytes") || strings.Contains(line, "skills.include_instructions") {
+		t.Fatal(Argv(s))
+	}
+}
+
+// A minimal-context worker gets its rules from the task, not from skills.
+func TestClaudeArgvMinimalDropsSkills(t *testing.T) {
+	s := spec(t, "claude")
+	containsArgs(t, Argv(s), "--disable-slash-commands", "--settings", minimalSettings)
+	s.Route.Context = "project"
+	if line := strings.Join(Argv(s), " "); strings.Contains(line, "--disable-slash-commands") || strings.Contains(line, "claudeMdExcludes") {
+		t.Fatal(Argv(s))
+	}
+	// --setting-sources would also drop the user settings that enable the gate.
+	if strings.Contains(strings.Join(Argv(s), " "), "--setting-sources") {
+		t.Fatal(Argv(s))
+	}
+}
+
+// A worker gets MCP servers only when its task needs one.
+func TestClaudeArgvMCPOnlyWhenNeeded(t *testing.T) {
+	s := spec(t, "claude")
+	containsArgs(t, Argv(s), "--strict-mcp-config")
+	s.KeepMCP = true
+	if strings.Contains(strings.Join(Argv(s), " "), "--strict-mcp-config") {
 		t.Fatal(Argv(s))
 	}
 }
@@ -302,15 +326,16 @@ func TestSpawnDisablesUpdates(t *testing.T) {
 	containsArgs(t, Argv(s), "check_for_update_on_startup=false")
 	s = spec(t, "claude")
 	p := install(t, &s, testbin.Scenario{Stdout: `{"structured_output":` + goodAnswer + `}`})
-	s.Env = append(s.Env, "DISABLE_AUTOUPDATER=0")
+	s.Env = append(s.Env, "DISABLE_AUTOUPDATER=0", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=0")
 	if _, e := Run(context.Background(), s); e != nil {
 		t.Fatal(e)
 	}
 	var env []string
 	json.Unmarshal(read(t, p+".env.json"), &env)
-	containsArgs(t, env, "DISABLE_AUTOUPDATER=1")
+	// Auto memory is per project path: a worker's notes would reach the lead.
+	containsArgs(t, env, "DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
 	for _, v := range env {
-		if v == "DISABLE_AUTOUPDATER=0" {
+		if v == "DISABLE_AUTOUPDATER=0" || v == "CLAUDE_CODE_DISABLE_AUTO_MEMORY=0" {
 			t.Fatal(env)
 		}
 	}
@@ -598,12 +623,33 @@ func TestCancellationKillsDescendantHoldingOutput(t *testing.T) {
 		t.Skip("native Windows process-tree verification pending")
 	}
 	s := spec(t, "claude")
-	s.Timeout = 250 * time.Millisecond
+	s.Timeout = time.Minute
 	fake := install(t, &s, testbin.Scenario{SpawnChild: true, SleepMS: 60000})
-	started := time.Now()
-	got, err := Run(context.Background(), s)
-	if err == nil || !got.Interrupted || time.Since(started) > 3*time.Second {
-		t.Fatal(got, err, time.Since(started))
+	// Cancel once the descendant runs. A fixed short timeout could expire
+	// before a loaded machine started it, and the test then saw no child.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cancelled := make(chan time.Time, 1)
+	go func() {
+		for ctx.Err() == nil {
+			if _, err := os.Stat(fake + ".child-pid"); err == nil {
+				cancelled <- time.Now()
+				cancel()
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	got, err := Run(ctx, s)
+	var since time.Duration
+	select {
+	case at := <-cancelled:
+		since = time.Since(at)
+	default:
+		t.Fatal("the worker ended before its descendant started", got, err)
+	}
+	if err == nil || !got.Interrupted || since > 3*time.Second {
+		t.Fatal(got, err, since)
 	}
 	pidData, pidErr := os.ReadFile(fake + ".child-pid")
 	if pidErr != nil {
@@ -621,5 +667,20 @@ func TestCancellationKillsDescendantHoldingOutput(t *testing.T) {
 	time.Sleep(700 * time.Millisecond)
 	if _, err := os.Stat(fake + ".child-done"); !os.IsNotExist(err) {
 		t.Fatal("descendant survived cancellation", err)
+	}
+}
+
+// A minimal worker whose task needs a skill keeps the skill list.
+func TestMinimalKeepsSkillsForASkillNeed(t *testing.T) {
+	s := spec(t, "claude")
+	s.KeepSkills = true
+	line := strings.Join(Argv(s), " ")
+	if strings.Contains(line, "--disable-slash-commands") || !strings.Contains(line, "claudeMdExcludes") {
+		t.Fatal(line)
+	}
+	s = spec(t, "codex")
+	s.KeepSkills = true
+	if line := strings.Join(Argv(s), " "); strings.Contains(line, "skills.include_instructions") || !strings.Contains(line, "project_doc_max_bytes=0") {
+		t.Fatal(line)
 	}
 }

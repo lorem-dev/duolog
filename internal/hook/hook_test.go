@@ -193,7 +193,7 @@ func TestLeadStateFromTranscript(t *testing.T) {
 				if s.Model != "claude-opus-5-5" || s.Effort != "high" {
 					t.Fatal(s)
 				}
-			} else if s.Model != "gpt-6.1-terra" || s.Effort != "medium" || s.Mode != mode.Ask || s.ApprovalPolicy != "on-request" {
+			} else if s.Model != "gpt-6.1-terra" || s.Effort != "medium" || s.Mode != mode.Edits || s.ApprovalPolicy != "on-request" {
 				t.Fatal(s)
 			}
 		})
@@ -296,10 +296,8 @@ func TestLeadModeRecorded(t *testing.T) {
 		e, r, _ := setup(t, agent)
 		e = change(t, e, "permission_mode", "acceptEdits")
 		SessionStart(context.Background(), e)
+		// The Codex fixture runs in workspace-write with approval on-request.
 		want := mode.Edits
-		if agent == "codex" {
-			want = mode.Ask
-		}
 		if l := lead(t, r, e); l.Mode != want {
 			t.Fatal(l)
 		}
@@ -459,11 +457,25 @@ func TestWakeStopsAfterSessionEnd(t *testing.T) {
 }
 func TestCodexSandboxModeMapping(t *testing.T) {
 	e, _, _ := setup(t, "codex")
-	for native, want := range map[string]mode.Mode{"read-only": mode.Plan, "workspace-write": mode.Ask, "danger-full-access": mode.Ask} {
-		write(t, transcript(e), fmt.Sprintf("{\"type\":\"turn_context\",\"payload\":{\"sandbox_policy\":{\"type\":%q}}}\n", native))
+	for _, c := range []struct {
+		sandbox, approval string
+		want              mode.Mode
+	}{
+		{"read-only", "", mode.Plan},
+		{"workspace-write", "", mode.Ask},
+		{"danger-full-access", "", mode.Ask},
+		// Codex edits the project without asking here, so its workers may too.
+		{"workspace-write", "on-request", mode.Edits},
+		{"workspace-write", "never", mode.Edits},
+		{"workspace-write", "untrusted", mode.Ask},
+		{"danger-full-access", "on-request", mode.Edits},
+		{"danger-full-access", "never", mode.Full},
+		{"danger-full-access", "untrusted", mode.Ask},
+	} {
+		write(t, transcript(e), fmt.Sprintf("{\"type\":\"turn_context\",\"payload\":{\"approval_policy\":%q,\"sandbox_policy\":{\"type\":%q}}}\n", c.approval, c.sandbox))
 		s, err := session.ReadLeadState("codex", transcript(e))
-		if err != nil || s.Mode != want {
-			t.Fatal(native, s, err)
+		if err != nil || s.Mode != c.want {
+			t.Fatal(c, s, err)
 		}
 	}
 }

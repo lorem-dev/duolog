@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -136,7 +137,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	}
 	source, err := task.Resolve(root, lookup)
 	if err != nil {
-		return out, err
+		return out, fmt.Errorf("task file: %w; write it inside the project, such as .duolog/task.md, which Git ignores", err)
 	}
 	if err = task.Validate(source); err != nil {
 		return out, err
@@ -304,9 +305,16 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		if warning, err = trustWarning(route, role, state, folder); err != nil {
 			return out, err
 		}
+		// The brief and the worker lines count against the inline limit, so a large
+		// brief leaves less room for Read files instead of growing every handoff.
+		brief := workerBrief(root)
+		budget := cfg.Wire.InlineMaxBytes - len(brief) - len(workerLines)
+		if budget <= 0 {
+			return out, fmt.Errorf(".duolog/brief.md and the worker lines take %d of wire.inline_max_bytes (%d); shorten the brief", len(brief)+len(workerLines), cfg.Wire.InlineMaxBytes)
+		}
 		readRules := leadRules
 		readRules.RoleSandbox = route.Sandbox
-		inline, inlineErr := task.Inline(copyPath, root, cfg.Wire.InlineMaxBytes, func(path string) bool {
+		inline, inlineErr := task.Inline(copyPath, root, budget, func(path string) bool {
 			if pathutil.IsAbs(path) {
 				if rel, err := pathutil.Relative(root, path); err == nil {
 					path = rel
@@ -326,7 +334,8 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			}
 		} else {
 			route.Model = model
-			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: append(append([]byte{}, inline...), []byte("\n"+capability.NeedsLine+"\nIf the gate says the lead is waiting for foreground delegate, stop and return done false with the required decision in needs.\n")...), Env: workerEnv(cfg.EnvPassthrough, leadID, role), Persistent: route.Session == "resume"}
+			stdin := append(append(brief, inline...), workerLines...)
+			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Env: workerEnv(cfg.EnvPassthrough, leadID, role), Persistent: route.Session == "resume", KeepMCP: needsKind(opts.Needs, capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin)}
 			if route.Sandbox == "read-only" {
 				spec.Mode = mode.Plan
 			}
@@ -346,6 +355,8 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 						entry = nil
 					} else {
 						spec.ThreadID = entry.ThreadID
+						// The thread already holds the brief from its first turn.
+						spec.Stdin = append(append([]byte{}, inline...), workerLines...)
 					}
 				}
 			}
@@ -632,3 +643,50 @@ func changes(before, after map[string]string) []string {
 // which report unfinished work the same way a one-off worker does.
 func Snapshot(root string) (map[string]string, error)  { return snapshot(root) }
 func Changes(before, after map[string]string) []string { return changes(before, after) }
+
+// workerLines close every worker's input.
+var workerLines = "\n" + capability.NeedsLine + "\n" + gateRetryLine + "\n" + ownershipLine + "\n"
+
+// gateRetryLine keeps a worker going after a refusal it can avoid: most refused
+// commands only had quotes, globs or pipes the gate cannot read, and a stopped
+// worker costs the lead a full restart.
+const gateRetryLine = "If the gate refuses a command, retry once with a plainer form: one command, no pipes, globs, redirects or quoted text with spaces (search with rg -n -F word path). If that is refused too, stop and return done false with the decision in needs."
+
+// maxBriefBytes bounds the brief: it is sent to every worker.
+const maxBriefBytes = 32 * 1024
+
+// needsKind reports whether a task names a need of one of these kinds. A Claude
+// worker keeps MCP servers only for an mcp or plugin need, since a plugin can
+// bring a server, and a minimal worker keeps skills only for a skill or plugin
+// need.
+func needsKind(needs []string, kinds ...string) bool {
+	for _, need := range needs {
+		if kind, _, err := capability.ParseNeed(need); err == nil && slices.Contains(kinds, kind) {
+			return true
+		}
+	}
+	return false
+}
+
+// ownershipLine keeps the steps that need the user's or the lead's judgment
+// with the lead: a worker that commits or asks the user stalls or surprises the
+// run. Project rules often ask for a changelog entry or a ticket; the task's
+// Write section says whether this worker writes them.
+const ownershipLine = "Do not commit, push or ask the user. Edit a changelog or docs only if Write lists them; otherwise the lead writes them, so do not ask about a ticket or an entry. Put any other such step in needs; the lead does it."
+
+// workerBrief returns .duolog/brief.md, the project rules the lead keeps for
+// every worker, as the first part of the worker's input. The same prefix in
+// every task lets the provider serve it from its prompt cache.
+// It must be a regular file, not a link that could point at a secret, and small.
+func workerBrief(root string) []byte {
+	path := filepath.Join(project.StateRoot(root), ".duolog", "brief.md")
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxBriefBytes {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || len(bytes.TrimSpace(data)) == 0 {
+		return nil
+	}
+	return append(append([]byte("Project brief from the lead (applies to every task):\n\n"), data...), []byte("\n\n")...)
+}

@@ -101,13 +101,13 @@ func instructionEdits(root string) ([]edit, error) {
 			entry.SeparatorPrefix = string(clean)
 		}
 		state[rel] = entry
-		edits = append(edits, edit{path, data})
+		edits = append(edits, edit{path: path, data: data})
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return nil, err
 	}
-	return append(edits, edit{statePath, append(data, '\n')}), nil
+	return append(edits, edit{path: statePath, data: append(data, '\n')}), nil
 }
 
 func readInstructionState(path string) (map[string]instructionState, error) {
@@ -153,7 +153,7 @@ func removeInstructions(root string) error {
 		if len(clean) == 0 && entry.Created {
 			err = os.Remove(path)
 		} else {
-			_, err = apply(edit{path, clean})
+			_, err = apply(edit{path: path, data: clean, backup: projectBackup(root, path)})
 		}
 		if err != nil {
 			return err
