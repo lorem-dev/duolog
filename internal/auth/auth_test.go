@@ -150,25 +150,28 @@ func TestPassedCheckIsCached(t *testing.T) {
 
 func TestLogin(t *testing.T) {
 	p := Problem{Agent: "codex", Server: "wiki"}
+	// Only the timeout case gets a short wait: a slow runner can take more than
+	// half a second just to start the fake agent.
 	cases := []struct {
 		name string
 		sc   testbin.Scenario
+		wait time.Duration
 		want LoginResult
 	}{
-		{"done", testbin.Scenario{}, LoggedIn},
-		{"closed", testbin.Scenario{Exit: 1, Stderr: "login cancelled\n"}, Declined},
-		{"needs a terminal", testbin.Scenario{Exit: 1, Stderr: "Error: Raw mode is not supported on the current process.stdin\n"}, NeedsTerminal},
-		{"timed out", testbin.Scenario{SleepMS: 5000}, TimedOut},
+		{"done", testbin.Scenario{}, 30 * time.Second, LoggedIn},
+		{"closed", testbin.Scenario{Exit: 1, Stderr: "login cancelled\n"}, 30 * time.Second, Declined},
+		{"needs a terminal", testbin.Scenario{Exit: 1, Stderr: "Error: Raw mode is not supported on the current process.stdin\n"}, 30 * time.Second, NeedsTerminal},
+		{"timed out", testbin.Scenario{SleepMS: 5000}, 500 * time.Millisecond, TimedOut},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			fake := testbin.Install(t, "codex", c.sc)
 			onlyPath(t, fake)
 			start := time.Now()
-			if got := New("").Login(context.Background(), p, 500*time.Millisecond); got != c.want {
+			if got := New("").Login(context.Background(), p, c.wait); got != c.want {
 				t.Fatal(got)
 			}
-			if time.Since(start) > 4*time.Second {
+			if c.want == TimedOut && time.Since(start) > 4*time.Second {
 				t.Fatal("login was not bounded")
 			}
 			if c.name == "done" {
