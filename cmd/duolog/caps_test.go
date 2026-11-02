@@ -31,6 +31,19 @@ func TestCapsDiffAndJSON(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".claude", "settings.local.json"), []byte(`{"enabledMcpjsonServers":["only-claude"]}`), 0600); err != nil {
 		t.Fatal(err)
 	}
+	// The project's own settings approve nothing until the folder is trusted.
+	out, err = executeBusCommand(t, "caps", "--diff")
+	if err != nil || !strings.Contains(out, "not approved") {
+		t.Fatal(out, err)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, _ := json.Marshal(map[string]any{"projects": map[string]any{wd: map[string]any{"hasTrustDialogAccepted": true}}})
+	if err := os.WriteFile(filepath.Join(os.Getenv("HOME"), ".claude.json"), state, 0600); err != nil {
+		t.Fatal(err)
+	}
 	out, err = executeBusCommand(t, "caps", "--diff")
 	if err != nil || strings.TrimSpace(out) != "claude mcp only-claude bridgeable" {
 		t.Fatal(out, err)

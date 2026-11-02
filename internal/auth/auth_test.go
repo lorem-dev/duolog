@@ -158,7 +158,7 @@ func TestLogin(t *testing.T) {
 		{"done", testbin.Scenario{}, LoggedIn},
 		{"closed", testbin.Scenario{Exit: 1, Stderr: "login cancelled\n"}, Declined},
 		{"needs a terminal", testbin.Scenario{Exit: 1, Stderr: "Error: Raw mode is not supported on the current process.stdin\n"}, NeedsTerminal},
-		{"timed out", testbin.Scenario{SleepMS: 5000}, Declined},
+		{"timed out", testbin.Scenario{SleepMS: 5000}, TimedOut},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -201,5 +201,35 @@ func TestFromNeedsAndNames(t *testing.T) {
 	}
 	if (Problem{Agent: "claude"}).Command() != "claude auth login" {
 		t.Fatal()
+	}
+}
+
+// A redirect would carry the token headers to another url, so the check stops
+// at the first answer and does not count it as a rejection.
+func TestProbeDoesNotFollowRedirects(t *testing.T) {
+	var leaked string
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		leaked = r.Header.Get("X-Token")
+	}))
+	defer other.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+"/steal", http.StatusTemporaryRedirect)
+	}))
+	defer srv.Close()
+	def := capability.Server{Name: "svc", Agent: "codex", Transport: "http", URL: srv.URL, Headers: []capability.Pair{{Key: "X-Token", Value: token}}}
+	if p := New(t.TempDir()).Server(context.Background(), "claude", "svc", &def); p != nil || leaked != "" {
+		t.Fatal(p, leaked == token)
+	}
+}
+
+// The person pastes the login command into a shell, and a worker named the
+// server, so every word other than plain characters is quoted.
+func TestLoginCommandQuotesShellCharacters(t *testing.T) {
+	got := (Problem{Agent: "claude", Server: "svc;printf${IFS}x|sh"}).Command()
+	if got != `claude mcp login 'svc;printf${IFS}x|sh'` {
+		t.Fatal(got)
+	}
+	if got := (Problem{Agent: "codex", Server: "it's"}).Command(); got != `codex mcp login 'it'\''s'` {
+		t.Fatal(got)
 	}
 }

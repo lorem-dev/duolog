@@ -171,7 +171,7 @@ server to the worker for that one run:
 ```yaml
 capabilities:
   on_missing: {mcp: bridge}
-  mcp_tools: {jira: [get_issue, search]}   # optional
+  mcp_tools: {tracker: [get_issue, search]}   # optional
 ```
 
 Bridging is off by default because it gives the server's credentials to the
@@ -187,18 +187,23 @@ duolog reads the server from the lead's agent config and translates it:
 
 Only the servers the task names are bridged, never all of them. Claude's order
 applies: local scope, then project, then user. A `.mcp.json` server counts only
-after you approved it in Claude. Codex merges the project layer over the user
-layer, key by key.
+after you approved it in Claude, and the project's own `.claude/settings.json`
+and `settings.local.json` approve nothing until you trusted the folder. Codex
+merges the project layer over the user layer, key by key.
 
-No credential goes to a file or to the command line. Every env and header value
-of a bridged server moves into the worker's environment under a new name, such
-as `DUOLOG_MCP_JIRA_1`. The translated config names the variable:
-`env_http_headers` for Codex and `${DUOLOG_MCP_JIRA_1}` for Claude. A value
-that the lead's config reads from a variable, such as `${JIRA_TOKEN}` or
-`bearer_token_env_var`, is read from the environment of `duolog delegate`. The
-Claude file is written with mode 0600 in the task folder and removed after the
-run. A Codex worker hides the new variables from its shell commands with
-`shell_environment_policy`.
+Every env and header value of a bridged server moves into the worker's
+environment under a new name, such as `DUOLOG_MCP_TRACKER_1`. The translated
+config names the variable: `env_http_headers` for Codex and
+`${DUOLOG_MCP_TRACKER_1}` for Claude. A value that the lead's config reads
+from a variable, such as `${TRACKER_TOKEN}` or `bearer_token_env_var`, is read
+from the environment of `duolog delegate`. The Claude file is written with
+mode 0600 in the task folder and removed after the run. On Windows the mode
+only sets the read-only flag, and the file keeps the access rules of the task
+folder. A url and literal stdio args pass as written,
+so a token inside a url path reaches the worker as it is. A Codex worker hides
+the new variables from its shell commands with `shell_environment_policy`: as
+`filters`, or added to the `exclude` list when the worker's policy uses the
+older form, since Codex refuses both forms together.
 
 A Claude worker's Bash tool can read the variables. Claude has two ways to
 hide variables, and neither fits:
@@ -218,8 +223,11 @@ would ask, so do not bridge a server to a Claude worker in `full` mode unless
 you accept that the worker can read its token.
 
 A Codex stdio server gets only a short default environment, so its variables
-pass under their own names with `env_vars`. A name that the worker already has
-with another value is not bridged.
+pass under their own names with `env_vars`, and the worker's Codex gets them
+too. So a server is not bridged when it sets a name the worker already has with
+another value, a name the agents or the system read, such as
+`OPENAI_BASE_URL`, `CODEX_HOME`, `PATH` or a `*_PROXY`, or a `DUOLOG_` name.
+On Windows these names compare without case.
 
 `mcp_tools` limits what a server offers, bridged or the worker's own, and the
 same list allows those tools in the gate. Codex gets `enabled_tools`, so it
@@ -230,8 +238,11 @@ Without a list, the whole server is bridged, and every tool asks. See
 
 A Claude worker whose only MCP needs are bridged starts with those servers and
 no others (`--strict-mcp-config`). When the task also needs one of the
-worker's own servers, the bridged servers are added to its own. A Codex worker
-always keeps its own servers, and the bridged ones are added.
+worker's own servers, the bridged servers are added to its own. Then its
+other stdio servers start with the bridged variables in their environment too.
+A Codex worker always keeps its own servers, and the bridged ones are added. A
+server of the same name in the worker's Codex config, even a disabled one,
+stops the bridge, because the options would merge into it.
 
 Some servers cannot be bridged. The task then goes to the lead, as with
 `lead_first`, with one line that says why:
@@ -243,8 +254,9 @@ Some servers cannot be bridged. The task then goes to the lead, as with
 - Claude connectors and plugin servers, which no config file lists.
 - SSE and unknown transports. A Codex server with a `cwd` other than the
   project, because Claude cannot set one.
-- A url with a query or user info, and stdio args that read a variable, for a
-  Codex worker. Codex takes these as text, so the value would be in argv.
+- A url with a query or user info, a url that reads a variable, and stdio args
+  that read a variable, for a Codex worker. Codex takes these as text, so the
+  value would be in argv.
 - A variable that the lead's environment does not have.
 
 `duolog caps` marks each server `bridgeable` or says why it is not, and
@@ -270,7 +282,10 @@ otherwise end the run only after the lead waited for it.
 A passed check is kept for five minutes in `.duolog/cache/auth.json`, which
 holds only the time. A stdio server is not checked, because it would have to
 start. A server that checks its token only when a tool runs passes too; one
-server in our check accepted `initialize` with a wrong token. The worker is
+server in our check accepted `initialize` with a wrong token. The
+request does not follow a redirect, which would take the headers to another
+url. A `.mcp.json` server you did not approve, or one you turned off, gets no
+check at all. The worker is
 told to stop with `auth:mcp:<server>` in `needs` when a server refuses it, and
 duolog reads a refused agent login from the worker's errors. Both get the same
 treatment as a failed check. In our check, a Codex worker given a wrong token
@@ -287,14 +302,17 @@ this way stopped, and the lead got the line that names the config file.
 The login waits up to `login_timeout_seconds` (180 by default) for the person
 to finish it in the browser. When it needs a terminal that duolog does not
 have, the result line has `needs=auth:<agent>` or `needs=auth:mcp:<name>` and
-the command for the person, such as `! codex mcp login jira`.
+the command for the person, such as `! codex mcp login tracker`.
 
 When the person closes the login, or it times out or fails, the task goes to
 the lead, as with `on_missing.mcp: lead_first`. The line names the agent or the
-server and the reason, never the token. duolog does not ask for that login
-again until the lead's session ends. A server with a token in config has
-nothing to log in to: the line names the config entry that holds the token.
-duolog runs at most one login for each delegation.
+server and the reason, never the token. After a closed or failed login, duolog
+does not ask for it again until the lead's session ends; after a timeout it
+may, since the person can finish it from a terminal. Only a server the task
+named with `--needs` gets a login. The login command is quoted for a shell. A
+server with a token in config has nothing to log in to: the line names the
+config entry that holds the token. duolog runs at most one login for each
+delegation.
 
 ## What a Codex worker's sandbox blocks
 

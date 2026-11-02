@@ -362,10 +362,18 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		}
 		// A worker that cannot sign in would fail after the lead waited for it,
 		// so its agent and the servers it needs are checked first.
-		for _, p := range preflight(ctx, checker, route.Agent, leadAgent, root, opts.Needs, bridged) {
+		// The servers are checked only once the agent is logged in, so a login
+		// that works checks them next.
+		for problems := preflight(ctx, checker, route.Agent, leadAgent, root, opts.Needs, bridged); len(problems) > 0; {
+			p := problems[0]
 			ok, authErr := settleAuth(ctx, cfg, reg, checker, leadID, role, p, &loginTried, &out)
 			if authErr != nil || !ok {
 				return out, authErr
+			}
+			if p.Server == "" {
+				problems = preflight(ctx, checker, route.Agent, leadAgent, root, opts.Needs, bridged)
+			} else {
+				problems = problems[1:]
 			}
 		}
 		model, modelErr := resolveModel(ctx, cfg, filepath.Join(s.Dir, "cache"), route.Target)
@@ -427,7 +435,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				if usageErr := appendUsage(s.Dir, role, route, out.Result); usageErr != nil {
 					return out, errors.Join(err, usageErr)
 				}
-				problems := runProblems(route.Agent, leadAgent, root, out.Result, bridged)
+				problems := runProblems(route.Agent, leadAgent, root, out.Result, bridged, opts.Needs)
 				if len(problems) == 0 || out.Result.Interrupted || out.Result.QuotaEnded {
 					break
 				}
@@ -809,6 +817,11 @@ func preflight(ctx context.Context, checker auth.Checker, agent, leadAgent, root
 		} else if s, ok := own[name]; ok {
 			def = &s
 		}
+		if def != nil && def.Inactive {
+			// The agent would not start it; a check would send its credentials
+			// to a server the person never approved.
+			continue
+		}
 		if p := checker.Server(ctx, agent, name, def); p != nil {
 			out = append(out, *p)
 		}
@@ -818,8 +831,19 @@ func preflight(ctx context.Context, checker auth.Checker, agent, leadAgent, root
 
 // runProblems reads a refused login from a finished run: an error the runner
 // classified, or auth: entries the worker put in needs.
-func runProblems(agent, leadAgent, root string, r runner.Result, bridged *runner.MCP) []auth.Problem {
-	problems := auth.FromNeeds(agent, r.Needs)
+func runProblems(agent, leadAgent, root string, r runner.Result, bridged *runner.MCP, taskNeeds []string) []auth.Problem {
+	// A finished run stays finished, whatever its log said about a login.
+	if r.Done {
+		return nil
+	}
+	var problems []auth.Problem
+	for _, p := range auth.FromNeeds(agent, r.Needs) {
+		// The worker writes these needs, so a server counts only when the task
+		// named it: its name reaches a login command and the line for the lead.
+		if p.Server == "" || slices.Contains(taskNeeds, capability.KindMCP+":"+p.Server) {
+			problems = append(problems, p)
+		}
+	}
 	if r.AuthFailed {
 		p := auth.Problem{Agent: agent, Server: r.AuthServer, Reason: "the worker's agent refused its login"}
 		if p.Server != "" {
@@ -890,11 +914,14 @@ func settleAuth(ctx context.Context, cfg *config.Config, reg *session.Registry, 
 			out.Needs = []string{p.AuthNeed()}
 			out.Line = oneLine("role " + role + " waits for lead: " + reason + "; the login needs a terminal. Ask the person to run: ! " + command)
 			return false, nil
+		case auth.TimedOut:
+			// Not recorded as declined: the person may finish it from a terminal.
+			reason += "; the login timed out"
 		default:
 			if err := reg.DeclineAuth(leadID, p.Key()); err != nil {
 				return false, err
 			}
-			reason += "; the login was closed, timed out or failed"
+			reason += "; the login was closed or failed"
 		}
 	}
 	if command != "" {
@@ -917,6 +944,12 @@ func limitOwn(spec runner.Spec, needs []string, tools map[string][]string) *runn
 		if kind, name, err := capability.ParseNeed(need); err == nil && kind == capability.KindMCP {
 			own = append(own, name)
 		}
+	}
+	if spec.Route.Agent == "codex" {
+		// enabled_tools for a server Codex does not define, such as a plugin's,
+		// would make a table with no transport, which Codex refuses.
+		defs := capability.Servers("codex", spec.Cwd)
+		own = slices.DeleteFunc(own, func(name string) bool { _, ok := defs[name]; return !ok })
 	}
 	codexArgs, allowed := capability.Limit(spec.Route.Agent, own, tools)
 	m := spec.MCP

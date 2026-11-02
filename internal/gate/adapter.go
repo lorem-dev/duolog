@@ -42,7 +42,7 @@ func Normalize(agent string, input []byte) (Action, error) {
 		if name := hook.Server.Name; name != "" {
 			prefix := "mcp__" + claudeNameChars.ReplaceAllString(name, "_") + "__"
 			if tool, ok := strings.CutPrefix(hook.Tool, prefix); ok && tool != "" {
-				target = name + "/" + tool
+				return Action{Kind: "mcp", Target: name + "/" + tool, MCPExact: true}, nil
 			}
 		}
 		return Action{Kind: "mcp", Target: target}, nil

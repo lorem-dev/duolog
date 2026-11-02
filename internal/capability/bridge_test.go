@@ -286,7 +286,9 @@ func TestNotBridgeable(t *testing.T) {
 		{"claude args read a variable", "claude", `{"command":"x","args":["--token","${T}"]}`, "Codex cannot", map[string]string{"T": secretA}},
 		{"claude url with query", "claude", `{"type":"http","url":"https://x.example.com/mcp?key=` + secretA + `","headers":{"A":"b"}}`, "query", nil},
 		{"claude unset variable", "claude", `{"type":"http","url":"https://x.example.com","headers":{"A":"${NOT_SET}"}}`, "$NOT_SET", nil},
-		{"claude env collides", "claude", `{"command":"x","env":{"HOME":"/elsewhere"}}`, "already has", nil},
+		{"claude env collides", "claude", `{"command":"x","env":{"LANG":"C"}}`, "already has", nil},
+		{"claude env of the agent", "claude", `{"command":"x","env":{"OPENAI_BASE_URL":"https://llm.example.net/v1"}}`, "agent reads too", nil},
+		{"claude env of duolog in other case", "claude", `{"command":"x","env":{"duolog_depth":"0"}}`, "duolog keeps", nil},
 		{"claude env of duolog", "claude", `{"command":"x","env":{"DUOLOG_DEPTH":"0"}}`, "duolog keeps", nil},
 		{"codex auth", "codex", "url = \"https://x.example.com\"\nauth = \"oauth\"\nbearer_token_env_var = \"T\"\n", "OAuth", map[string]string{"T": "t"}},
 		{"codex oauth table", "codex", "url = \"https://x.example.com\"\n[mcp_servers.svc.oauth]\nclient_id = \"c\"\n", "OAuth", nil},
@@ -310,7 +312,7 @@ func TestNotBridgeable(t *testing.T) {
 			} else {
 				claudeState(t, home, root, `{"svc":`+c.def+`}`, "")
 			}
-			got, failed := Bridge(c.from, to, root, []string{"svc"}, nil, []string{"HOME=" + home})
+			got, failed := Bridge(c.from, to, root, []string{"svc"}, nil, []string{"HOME=" + home, "LANG=en_GB.UTF-8"})
 			if got != nil || !strings.Contains(failed["svc"], c.why) {
 				t.Fatalf("got %+v, failed %q, want reason with %q", got, failed, c.why)
 			}
@@ -451,5 +453,58 @@ func TestLimitOwnServers(t *testing.T) {
 	args, allowed = Limit("claude", []string{"jira", "bad name"}, tools)
 	if args != nil || strings.Join(allowed, ",") != "mcp__bad_name__x,mcp__jira__get_issue" {
 		t.Fatal(args, allowed)
+	}
+}
+
+// On Windows variable names ignore case, so a server's Path or duolog_depth
+// would replace the worker's own.
+func TestBridgeEnvNamesIgnoreCaseOnWindows(t *testing.T) {
+	old := windowsEnv
+	windowsEnv = true
+	t.Cleanup(func() { windowsEnv = old })
+	for _, def := range []string{`{"command":"x","env":{"Lang":"C"}}`, `{"command":"x","env":{"Duolog_Depth":"0"}}`} {
+		home, root := env(t)
+		claudeState(t, home, root, `{"svc":`+def+`}`, "")
+		if got, failed := Bridge("claude", "codex", root, []string{"svc"}, nil, []string{"LANG=en_GB.UTF-8", "DUOLOG_DEPTH=1"}); got != nil || failed["svc"] == "" {
+			t.Fatal(def, got, failed)
+		}
+	}
+}
+
+// Codex takes a url as text, so a Claude url that reads a variable stays.
+func TestBridgeRefusesURLWithVariableForCodex(t *testing.T) {
+	home, root := env(t)
+	leadEnv(t, map[string]string{"KEY": secretA})
+	claudeState(t, home, root, `{"svc":{"type":"http","url":"https://x.example.com/${KEY}/mcp","headers":{"A":"b"}}}`, "")
+	got, failed := Bridge("claude", "codex", root, []string{"svc"}, nil, nil)
+	if got != nil || !strings.Contains(failed["svc"], "url reads a variable") {
+		t.Fatal(got, failed)
+	}
+}
+
+// A worker whose Codex policy uses the older exclude list gets that list back,
+// extended: Codex refuses filters next to it.
+func TestBridgeKeepsLegacyShellPolicy(t *testing.T) {
+	home, root := env(t)
+	leadEnv(t, map[string]string{})
+	claudeState(t, home, root, `{"svc":{"type":"http","url":"https://x.example.com/mcp","headers":{"A":"`+secretA+`"}}}`, "")
+	put(t, filepath.Join(home, ".codex", "config.toml"), "[shell_environment_policy]\nexclude = [\"AWS_*\"]\n")
+	got, failed := Bridge("claude", "codex", root, []string{"svc"}, nil, nil)
+	if got == nil {
+		t.Fatal(failed)
+	}
+	if v, ok := codexValue(got.CodexArgs, "shell_environment_policy.exclude"); !ok || v != `["AWS_*","DUOLOG_MCP_*"]` || strings.Contains(strings.Join(got.CodexArgs, " "), "filters") {
+		t.Fatal(got.CodexArgs)
+	}
+}
+
+// -c keys would merge into a Codex table of the same name, a disabled one too.
+func TestBridgeRefusesNameTheWorkerHas(t *testing.T) {
+	home, root := env(t)
+	leadEnv(t, map[string]string{})
+	claudeState(t, home, root, `{"svc":{"type":"http","url":"https://x.example.com/mcp","headers":{"A":"b"}}}`, "")
+	put(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.svc]\ncommand = \"old\"\nenabled = false\n")
+	if got, failed := Bridge("claude", "codex", root, []string{"svc"}, nil, nil); got != nil || !strings.Contains(failed["svc"], "has a server of that name") {
+		t.Fatal(got, failed)
 	}
 }

@@ -241,4 +241,17 @@ func TestRememberMCPTool(t *testing.T) {
 	if _, err = rememberIn(t, "mcp:jira"); err == nil {
 		t.Fatal("a server with no tool was accepted")
 	}
+	// A glob or brace in the server has no Claude form, and the check of the
+	// new rule uses a tool it covers.
+	out, err = rememberIn(t, "--native", "mcp:{tracker,wiki}/read")
+	if err != nil || !strings.Contains(out, "claude: no rule") {
+		t.Fatal(out, err)
+	}
+	if out, err = rememberIn(t, "--native", "mcp:tracker*/*"); err != nil || !strings.Contains(out, "claude: no rule") {
+		t.Fatal(out, err)
+	}
+	data, _ = os.ReadFile(filepath.Join(root, ".claude", "settings.local.json"))
+	if strings.Contains(string(data), "tracker") || strings.Contains(string(data), "mcp___") {
+		t.Fatal(string(data))
+	}
 }

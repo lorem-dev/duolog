@@ -196,7 +196,7 @@ func nativePrefix(match string) (prefix string, anyArgs bool) {
 func rememberMCP(cmd *cobra.Command, root string, cfg *config.Config, tool string, roles []string, native bool) error {
 	server, name, ok := strings.Cut(tool, "/")
 	if !ok || server == "" || name == "" || strings.ContainsAny(tool, " \t") {
-		return fmt.Errorf("name the tool as mcp:<server>/<tool>, such as mcp:jira/get_issue")
+		return fmt.Errorf("name the tool as mcp:<server>/<tool>, such as mcp:tracker/get_issue")
 	}
 	if len(roles) == 0 {
 		roles = writerRoles(cfg)
@@ -208,7 +208,7 @@ func rememberMCP(cmd *cobra.Command, root string, cfg *config.Config, tool strin
 		if _, ok := cfg.Roles[role]; !ok {
 			return fmt.Errorf("unknown role %q", role)
 		}
-		if d := gate.Evaluate(policy, gate.LeadRules{}, mode.Edits, gate.Action{Kind: "mcp", Target: tool, Role: role}); d.Kind != gate.Allow {
+		if d := gate.Evaluate(policy, gate.LeadRules{}, mode.Edits, gate.Action{Kind: "mcp", Target: sampleTool(tool), Role: role}); d.Kind != gate.Allow {
 			return fmt.Errorf("a rule cannot allow mcp:%s for %s: %s (%s)", tool, role, d.Reason, d.Rule)
 		}
 	}
@@ -233,6 +233,8 @@ func rememberMCP(cmd *cobra.Command, root string, cfg *config.Config, tool strin
 	// covers every tool of the server. Other globs have no Claude form.
 	entry := "mcp__" + claudeName(server)
 	switch {
+	case strings.ContainsAny(server, "*?[{"):
+		entry = ""
 	case name == "*":
 	case !strings.ContainsAny(name, "*?[{"):
 		entry += "__" + claudeName(name)
@@ -328,4 +330,17 @@ func addCodexRule(path, match string) (string, error) {
 	defer f.Close()
 	_, err = f.WriteString(rule)
 	return strings.TrimSpace(rule), err
+}
+
+var firstAlternative = regexp.MustCompile(`\{([^,}]*)[^}]*\}|\[[^]]*\]|[*?]`)
+
+// sampleTool turns a pattern such as {tracker,wiki}/get_* into one tool it
+// covers, tracker/get_x, for the check that the new rule allows it.
+func sampleTool(pattern string) string {
+	return firstAlternative.ReplaceAllStringFunc(pattern, func(m string) string {
+		if strings.HasPrefix(m, "{") {
+			return firstAlternative.FindStringSubmatch(m)[1]
+		}
+		return "x"
+	})
 }

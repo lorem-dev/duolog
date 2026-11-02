@@ -31,6 +31,9 @@ type Action struct {
 	// Work and Cwd resolve the paths inside a read command. They are not logged.
 	Work string `json:"-"`
 	Cwd  string `json:"-"`
+	// MCPExact means the hook named the MCP server as configured, so Target
+	// holds its exact name rather than the folded one.
+	MCPExact bool `json:"-"`
 }
 
 type Decision struct {
@@ -228,7 +231,7 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 // checked before.
 func mcpDecision(p config.Policy, a Action, decision func(kind, reason, rule string) Decision) Decision {
 	for _, rule := range p.Rules {
-		if rule.Decision != Deny && matches(rule, a) {
+		if rule.Decision != Deny && mcpRuleAllows(rule, a) {
 			if rule.Decision == Allow {
 				return decision(Allow, "matched project policy", rule.Action+" "+rule.Match)
 			}
@@ -261,6 +264,9 @@ func cleanPath(path string) string {
 }
 
 func matches(r config.Rule, a Action) bool {
+	if legacyMCP(r, a) {
+		return true
+	}
 	if r.Action != a.Kind || len(r.Roles) > 0 && !slices.Contains(r.Roles, a.Role) {
 		return false
 	}
@@ -276,7 +282,7 @@ func matches(r config.Rule, a Action) bool {
 				return true
 			}
 		} else if a.Kind == "mcp" {
-			if starMatch(MCPName(pattern), MCPName(a.Target)) {
+			if starMatch(mcpFlat(pattern), mcpFlat(a.Target)) {
 				return true
 			}
 		} else if starMatch(execCase(pattern, a.Shell), execCase(a.Target, a.Shell)) {
@@ -744,4 +750,57 @@ func denyPowerShell(command string) string {
 		}
 	}
 	return denyCommand(command)
+}
+
+// mcpFlat writes server/tool as the agents name the tool, mcp__<server>__<tool>,
+// folded. Denies compare in this form, so that a name with __ in it, such as
+// the server my__wiki, cannot slip past a deny written for the full tool name.
+func mcpFlat(s string) string {
+	server, tool, _ := strings.Cut(s, "/")
+	return "mcp__" + MCPName(server) + "__" + MCPName(tool)
+}
+
+// mcpRuleAllows reports whether an allow or ask rule covers a. When the hook
+// named the server, the server must match as written: trusted-api and
+// trusted_api are two servers. Codex gives only the folded tool name, so a
+// name with more than one place to split matches only a rule without a star.
+func mcpRuleAllows(r config.Rule, a Action) bool {
+	if legacyMCP(r, a) {
+		return true
+	}
+	if r.Action != a.Kind || len(r.Roles) > 0 && !slices.Contains(r.Roles, a.Role) {
+		return false
+	}
+	flat := mcpFlat(a.Target)
+	for _, pattern := range expandBraces(r.Match) {
+		switch {
+		case a.MCPExact:
+			ps, pt, _ := strings.Cut(pattern, "/")
+			as, at, _ := strings.Cut(a.Target, "/")
+			if starMatch(ps, as) && starMatch(MCPName(pt), MCPName(at)) {
+				return true
+			}
+		case strings.Count(flat, "__") > 2:
+			if !strings.Contains(pattern, "*") && mcpFlat(pattern) == flat {
+				return true
+			}
+		case starMatch(mcpFlat(pattern), flat):
+			return true
+		}
+	}
+	return false
+}
+
+// legacyMCP keeps a rule written before MCP tools had their own action, such
+// as {action: unknown, match: "mcp__tracker__*"}: it still covers those tools.
+func legacyMCP(r config.Rule, a Action) bool {
+	if r.Action != "unknown" || a.Kind != "mcp" || len(r.Roles) > 0 && !slices.Contains(r.Roles, a.Role) {
+		return false
+	}
+	for _, pattern := range expandBraces(r.Match) {
+		if strings.HasPrefix(pattern, "mcp__") && starMatch(MCPName(pattern), mcpFlat(a.Target)) {
+			return true
+		}
+	}
+	return false
 }

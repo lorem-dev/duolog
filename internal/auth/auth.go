@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -99,11 +100,13 @@ func (p Problem) LoginArgv() []string {
 	return nil
 }
 
-// Command is the login as one line for the lead to show the person.
+// Command is the login as one line for the lead to show the person. The
+// person runs it in a shell, so every word other than plain characters is
+// quoted: a server name comes from a worker's needs.
 func (p Problem) Command() string {
 	argv := p.LoginArgv()
 	for i, a := range argv {
-		if strings.ContainsAny(a, " \t'\"") {
+		if a == "" || !plainWord.MatchString(a) {
 			argv[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
 		}
 	}
@@ -118,8 +121,11 @@ const (
 	LoggedIn LoginResult = iota
 	// NeedsTerminal means the command needs a terminal that duolog lacks.
 	NeedsTerminal
-	// Declined covers a closed, refused, timed out or failed login.
+	// Declined covers a closed, refused or failed login.
 	Declined
+	// TimedOut means the person did not finish within the timeout, perhaps
+	// because no browser opened; it may work from a terminal.
+	TimedOut
 )
 
 // Checker is what delegate needs; tests replace it.
@@ -137,7 +143,10 @@ type Checker interface {
 
 // New returns the real checker. cacheDir is .duolog/cache, or empty for none.
 func New(cacheDir string) Checker {
-	return &checker{dir: cacheDir, client: &http.Client{Timeout: 15 * time.Second}, run: output, now: time.Now}
+	// A redirect would take the credential headers to another url, so the
+	// check reads the first answer only.
+	client := &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	return &checker{dir: cacheDir, client: client, run: output, now: time.Now}
 }
 
 type checker struct {
@@ -307,6 +316,8 @@ func (c *checker) claudeStatus(ctx context.Context, p Problem) *Problem {
 	return nil
 }
 
+var plainWord = regexp.MustCompile(`^[A-Za-z0-9_./:@%+=,-]+$`)
+
 var terminalWords = regexp.MustCompile(`(?i)\btty\b|terminal|raw mode|interactive`)
 
 func (c *checker) Login(ctx context.Context, p Problem, timeout time.Duration) LoginResult {
@@ -320,6 +331,8 @@ func (c *checker) Login(ctx context.Context, p Problem, timeout time.Duration) L
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	// A login may start a helper, such as a browser bridge; a timeout ends it too.
+	runner.ProcessTree(cmd)
 	cmd.Stdin = strings.NewReader("")
 	// The output may hold a sign-in url; it is read for the terminal check only.
 	var out bytes.Buffer
@@ -332,6 +345,8 @@ func (c *checker) Login(ctx context.Context, p Problem, timeout time.Duration) L
 		return LoggedIn
 	case ctx.Err() == nil && terminalWords.Match(out.Bytes()):
 		return NeedsTerminal
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return TimedOut
 	}
 	return Declined
 }

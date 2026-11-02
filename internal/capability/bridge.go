@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -54,10 +55,18 @@ func staticWhy(s Server, to, root string) string {
 		if !codexName.MatchString(s.Name) {
 			return "its name has characters that a Codex -c key cannot hold"
 		}
+		if codexHas(root, s.Name) {
+			// -c keys would merge into that table, a disabled one too.
+			return "the worker's Codex config has a server of that name"
+		}
 		for _, p := range s.Env {
 			if !envName.MatchString(p.Key) {
 				return "an env name is not a plain variable name"
 			}
+		}
+		if s.Transport == "http" && claudeRef.MatchString(s.URL) {
+			// Codex takes the url as text, so an expanded value would land in argv.
+			return "its url reads a variable, which Codex would get in argv"
 		}
 		if s.Transport == "stdio" {
 			for _, arg := range append([]string{s.Command}, s.Args...) {
@@ -178,9 +187,16 @@ func Bridge(from, to, root string, names []string, tools map[string][]string, wo
 	if to == "codex" && len(out.Names) > 0 {
 		// Codex shell commands inherit the worker's environment by default, so
 		// the bridged values are kept from the model's shell.
-		out.CodexArgs = append(out.CodexArgs, "-c", `shell_environment_policy.filters.DUOLOG_MCP_*="exclude"`)
+		hidden := []string{"DUOLOG_MCP_*"}
 		for _, kv := range out.Env {
 			if k, _, _ := strings.Cut(kv, "="); !strings.HasPrefix(k, "DUOLOG_MCP_") {
+				hidden = append(hidden, k)
+			}
+		}
+		if exclude, legacy := codexShellPolicy(root); legacy {
+			out.CodexArgs = append(out.CodexArgs, "-c", "shell_environment_policy.exclude="+tomlArray(append(exclude, hidden...)))
+		} else {
+			for _, k := range hidden {
 				out.CodexArgs = append(out.CodexArgs, "-c", "shell_environment_policy.filters."+k+`="exclude"`)
 			}
 		}
@@ -222,10 +238,10 @@ func (b *builder) secret(value string) string {
 	for {
 		b.n++
 		name := fmt.Sprintf("%s_%d", base, b.n)
-		if _, used := b.taken[name]; used {
+		if _, used := envGet(b.taken, name); used {
 			continue
 		}
-		if _, used := b.env[name]; used {
+		if _, used := envGet(b.env, name); used {
 			continue
 		}
 		b.set(name, value)
@@ -241,13 +257,22 @@ func (b *builder) set(name, value string) {
 // keep passes a stdio variable under its own name, which the server reads. A
 // name the worker already has with another value, or one of duolog's, fails.
 func (b *builder) keep(name, value string) error {
-	if strings.HasPrefix(name, "DUOLOG_") || strings.HasPrefix(name, "REX_") {
+	if upper := strings.ToUpper(name); strings.HasPrefix(upper, "DUOLOG_") || strings.HasPrefix(upper, "REX_") {
 		return fmt.Errorf("it sets $%s, a name duolog keeps for itself", name)
 	}
-	if old, ok := b.taken[name]; ok && old != value {
-		return fmt.Errorf("it sets $%s, which the worker already has with another value", name)
+	if agentVariable(name) {
+		// The variable would reach the worker's agent too: OPENAI_BASE_URL
+		// would send its model traffic, and its token, to the server's host.
+		return fmt.Errorf("it sets $%s, which the worker's agent reads too", name)
 	}
-	if _, ok := b.env[name]; !ok {
+	if old, ok := envGet(b.taken, name); ok {
+		if old != value {
+			return fmt.Errorf("it sets $%s, which the worker already has with another value", name)
+		}
+		// The worker has it already; its shell keeps it too.
+		return nil
+	}
+	if _, ok := envGet(b.env, name); !ok {
 		b.set(name, value)
 	}
 	return nil
@@ -492,4 +517,38 @@ func Limit(agent string, names []string, tools map[string][]string) (codexArgs, 
 		}
 	}
 	return codexArgs, allowedTools
+}
+
+// windowsEnv says whether variable names ignore case, as on Windows, where the
+// later of Path and PATH wins; tests set it.
+var windowsEnv = runtime.GOOS == "windows"
+
+// envGet looks a variable up by name, ignoring case where the system does, so
+// that a server cannot set duolog_depth or Path past the worker's own.
+func envGet(m map[string]string, name string) (string, bool) {
+	if v, ok := m[name]; ok || !windowsEnv {
+		return v, ok
+	}
+	for k, v := range m {
+		if strings.EqualFold(k, name) {
+			return v, true
+		}
+	}
+	return "", false
+}
+
+// agentVariable reports a name that an agent, its runtime or the system reads,
+// which a bridged stdio server must not set for the whole worker.
+func agentVariable(name string) bool {
+	upper := strings.ToUpper(name)
+	for _, prefix := range []string{"CODEX_", "OPENAI_", "ANTHROPIC_", "CLAUDE_", "SSL_", "LD_", "DYLD_", "NODE_", "GIT_"} {
+		if strings.HasPrefix(upper, prefix) {
+			return true
+		}
+	}
+	switch upper {
+	case "HOME", "PATH", "USERPROFILE", "APPDATA", "XDG_CONFIG_HOME", "TMPDIR", "SHELL", "RUST_LOG", "NO_PROXY":
+		return true
+	}
+	return strings.HasSuffix(upper, "_PROXY")
 }

@@ -108,11 +108,23 @@ func TestOwnServerLimitedByToolList(t *testing.T) {
 	h := bridgeHarness(t)
 	h.cfg.Capabilities.MCPTools = map[string][]string{"mine": {"read"}}
 	h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "mine"}}}, capability.Inventory{Agent: "claude"})
+	// A server Codex does not define, such as a plugin's, gets no enabled_tools:
+	// the table would have no transport.
 	if _, e := h.runNeeds("implement", "mcp:mine"); e != nil {
 		t.Fatal(e)
 	}
 	h.requireCalls(1)
-	m := h.calls[0].MCP
+	if m := h.calls[0].MCP; m != nil {
+		t.Fatalf("%+v", m)
+	}
+	config := filepath.Join(os.Getenv("HOME"), ".codex", "config.toml")
+	old := read(t, config)
+	put(t, config, old+"\n[mcp_servers.mine]\ncommand = \"mine\"\n")
+	if _, e := h.runNeeds("implement", "mcp:mine"); e != nil {
+		t.Fatal(e)
+	}
+	h.requireCalls(2)
+	m := h.calls[1].MCP
 	if m == nil || len(m.Names) != 0 || strings.Join(m.CodexArgs, " ") != `-c mcp_servers.mine.enabled_tools=["read"]` {
 		t.Fatalf("%+v", m)
 	}

@@ -55,7 +55,7 @@ type MCP struct {
 	// a 0600 file in the task folder and removes the file after the run.
 	ClaudeConfig []byte
 	// AllowedTools and DisallowedTools are Claude tool names, such as
-	// mcp__jira__get_issue.
+	// mcp__tracker__get_issue.
 	AllowedTools, DisallowedTools []string
 	// Env holds NAME=value pairs for the worker process.
 	Env []string
@@ -409,3 +409,7 @@ func ResetTime(text string, now time.Time) time.Time {
 	}
 	return codexResetTime(text, now)
 }
+
+// ProcessTree makes cancelling cmd end the processes it started too, as for a
+// worker.
+func ProcessTree(cmd *exec.Cmd) { configureProcess(cmd) }
