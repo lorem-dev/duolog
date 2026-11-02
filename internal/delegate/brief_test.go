@@ -72,3 +72,15 @@ func TestGateRetryLineTellsWorkerToRetryPlainer(t *testing.T) {
 		t.Fatalf("gate retry line: %q", gateRetryLine)
 	}
 }
+
+func TestNeedsServers(t *testing.T) {
+	for needs, want := range map[string]bool{"": false, "skill:x": false, "mcp:jira": true, "plugin:x": true, "MCP:jira": true, "bad": false} {
+		var list []string
+		if needs != "" {
+			list = []string{needs}
+		}
+		if got := needsServers(list); got != want {
+			t.Errorf("%q: %t, want %t", needs, got, want)
+		}
+	}
+}

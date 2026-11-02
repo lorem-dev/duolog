@@ -65,8 +65,8 @@
   edit, as Codex does; `untrusted` still asks.
 - A gate denial names the command, and the worker retries once in a plainer
   form before it stops.
-- Workers are told not to commit or ask the user, and a `minimal` worker gets
-  no skill list.
+- Workers are told not to commit or ask the user; Claude workers skip auto
+  memory and unneeded MCP servers, and `minimal` skips skills and CLAUDE.md.
 - `duolog install` keeps backups of project files under `.duolog/backup/`,
   which Git ignores.
 - A task may use `# Goal` or `### Goal` headings as well as `## Goal`.

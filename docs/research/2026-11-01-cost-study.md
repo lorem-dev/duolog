@@ -103,17 +103,42 @@ programs, `jq -f` could print a secret in its error, and `diff -r` and `yq`
 could reach denied files. 1.1.0 checks the options of `jq` and `sort` and
 leaves out `diff` and `yq`.
 
+## Which model to give a worker task
+
+The study also ran worker tasks without duolog, two runs for each cell, on
+simple tasks: the cause or the bug sat in one or two files. Cost is the mean
+USD per run.
+
+| Task | `gpt-6.1-terra` | `gpt-6.1-sol` | Opus |
+|---|---|---|---|
+| Write tests (4 mutants to catch) | 0.056, caught 4 of 4 | 0.158, caught 4 of 4 | 0.980, caught 4 of 4 |
+| Review a diff with a planted bug | 0.045, found 2 of 2, 1 false remark | 0.092, found 2 of 2 | 0.652, found 2 of 2 |
+| Find the cause of a bug | 0.043, right | 0.099, right | 0.449, right |
+
+On four harder bugs, where the symptom was far from the cause, each model ran
+at five effort levels (84 runs). A blind grader scored each answer from 0 to 3.
+
+| Effort | `gpt-6.1-terra` | `gpt-6.1-sol` | Opus |
+|---|---|---|---|
+| low | 2.75, 0.06 USD | 3.0, 0.15 USD | 2.75, 0.23 USD |
+| medium | 3.0, 0.06 USD | 3.0, 0.18 USD | 2.88, 0.44 USD |
+| high | 2.75, 0.07 USD | 3.0, 0.27 USD | 3.0, 0.52 USD |
+| max | 3.0, 0.25 USD | 3.0, 0.35 USD | 3.0, 2.97 USD |
+
+Effort above `high` raised no model's score, and Opus at `max` cost six times
+Opus at `high`. No default role asks for `xhigh` or `max`. Only one of the four
+bugs told the models apart. The bugs were still easier than a real
+investigation with logs and several services, so the defaults keep Opus for
+hard debugging until such cases are measured.
+
 ## What the study did not show
 
 - Each setup ran once per task. Runs of one task can differ up to 30 times in
   tokens (Bai et al. 2026, arxiv.org/html/2604.22750), so 3 to 5 repeats are
   needed before these numbers are averages.
-- On simple worker tasks (tests, review, finding a cause), `gpt-6.1-terra`
-  matched Opus at a tenth of the price or less. On four harder bugs,
-  `gpt-6.1-sol` found the right cause at every effort level. These bugs were
-  still easier than a real investigation with logs and several services.
-- With every MCP server on, each Claude model call carried 7.4 thousand more
-  tokens. duolog does not yet start workers with only the servers they need.
+- The worker tasks ran twice per cell, and the matrix covers simple tasks
+  only. Whether a cheaper model can take the default review or debug roles
+  needs more runs.
 
 ## Related pages
 

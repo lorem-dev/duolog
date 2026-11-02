@@ -34,7 +34,9 @@ type Spec struct {
 	Env                            []string
 	Stdin                          []byte
 	Persistent                     bool
-	Timeout                        time.Duration
+	// KeepMCP keeps the agent's MCP servers for a task that needs one.
+	KeepMCP bool
+	Timeout time.Duration
 }
 
 type Usage struct{ Input, Cached, Output int64 }
@@ -135,11 +137,13 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	if s.Route.Agent == "claude" {
 		env := cmd.Env[:0]
 		for _, v := range cmd.Env {
-			if !strings.HasPrefix(v, "DISABLE_AUTOUPDATER=") {
+			if !strings.HasPrefix(v, "DISABLE_AUTOUPDATER=") && !strings.HasPrefix(v, "CLAUDE_CODE_DISABLE_AUTO_MEMORY=") {
 				env = append(env, v)
 			}
 		}
-		cmd.Env = append(env, "DISABLE_AUTOUPDATER=1")
+		// Auto memory is kept per project path, so a worker's notes would reach the
+		// lead and every later session of the project.
+		cmd.Env = append(env, "DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
 	}
 	runErr := cmd.Run()
 	closeErr := log.Close()

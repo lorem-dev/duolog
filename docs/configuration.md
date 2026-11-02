@@ -43,7 +43,7 @@ A role names a kind of work. It has these fields:
 | `use` | The agent, model alias and effort that do the work |
 | `fallback` | Where the work goes when the `use` agent is unavailable |
 | `sandbox` | `read-only` or `workspace-write`. The most the worker may do to files |
-| `context` | `minimal` drops the project instructions and the skill list; `project` keeps them |
+| `context` | `minimal` drops the project instructions, the skill list and, for Claude, every `CLAUDE.md`; `project` keeps them |
 | `session` | `fresh` starts a new run; `resume` continues a thread |
 
 To see the result for one role, run:
@@ -134,6 +134,14 @@ use the OS home directory, including USERPROFILE on Windows.
 A Codex worker runs its commands with `allow_login_shell=false`. A login shell
 reruns your profile, which can reset PATH and lose tools such as `node` from
 nvm. The worker keeps the PATH that duolog passes.
+
+A Claude worker starts with auto memory off. Claude keeps that memory per
+project path, so a worker's notes would reach the lead and every later session
+of the project. It also starts with no MCP servers, because the user's servers
+added 7.4 thousand tokens to every call in the cost study. A task that names an
+`mcp:` or `plugin:` need keeps them. A `minimal` Claude worker skips every
+`CLAUDE.md`, the one in your home folder too: Claude loads that file as project
+instructions when the project is inside the home folder.
 
 ## What a Codex worker's sandbox blocks
 

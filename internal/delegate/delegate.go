@@ -328,7 +328,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			route.Model = model
 			stdin := append(workerBrief(root), inline...)
 			stdin = append(stdin, []byte("\n"+capability.NeedsLine+"\n"+gateRetryLine+"\n"+ownershipLine+"\n")...)
-			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Env: workerEnv(cfg.EnvPassthrough, leadID, role), Persistent: route.Session == "resume"}
+			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Env: workerEnv(cfg.EnvPassthrough, leadID, role), Persistent: route.Session == "resume", KeepMCP: needsServers(opts.Needs)}
 			if route.Sandbox == "read-only" {
 				spec.Mode = mode.Plan
 			}
@@ -643,11 +643,22 @@ const gateRetryLine = "If the gate refuses a command, retry once with a plainer 
 // maxBriefBytes bounds the brief: it is sent to every worker.
 const maxBriefBytes = 32 * 1024
 
+// needsServers reports whether a task relies on an MCP server, which a plugin can
+// also bring. Without one, a Claude worker starts with no MCP servers.
+func needsServers(needs []string) bool {
+	for _, need := range needs {
+		if kind, _, err := capability.ParseNeed(need); err == nil && (kind == capability.KindMCP || kind == capability.KindPlugin) {
+			return true
+		}
+	}
+	return false
+}
+
 // ownershipLine keeps the steps that need the user's or the lead's judgment
 // with the lead: a worker that commits or asks the user stalls or surprises the
 // run. Project rules often ask for a changelog entry or a ticket; the task's
 // Write section says whether this worker writes them.
-const ownershipLine = "Do not commit, push or ask the user. Edit a changelog or docs only if Write lists them. Put any other such step in needs; the lead does it."
+const ownershipLine = "Do not commit, push or ask the user. Edit a changelog or docs only if Write lists them; otherwise the lead writes them, so do not ask about a ticket or an entry. Put any other such step in needs; the lead does it."
 
 // workerBrief returns .duolog/brief.md, the project rules the lead keeps for
 // every worker, as the first part of the worker's input. The same prefix in

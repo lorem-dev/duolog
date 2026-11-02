@@ -41,7 +41,8 @@ func agentArgv(route router.Route, m mode.Mode) []string {
 func agentEnv(cfg *config.Config, agent, leadID string, roles ...string) []string {
 	pairs := workerenv.Passthrough(cfg.EnvPassthrough)
 	if agent == "claude" {
-		pairs = append(pairs, "DISABLE_AUTOUPDATER=1")
+		// A worker's auto memory would land in the project's memory, read by the lead.
+		pairs = append(pairs, "DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
 	}
 	role := ""
 	if len(roles) > 0 {

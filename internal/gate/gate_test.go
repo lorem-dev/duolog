@@ -10,6 +10,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -421,6 +422,34 @@ func TestClaudeAbsoluteDriveSelectors(t *testing.T) {
 		got, err := claudePathPattern(selector, `C:/Project`, `C:/Users/me`, `C:/Project`)
 		if err != nil || got != "restricted/**" {
 			t.Fatalf("%s: %q %v", selector, got, err)
+		}
+	}
+}
+
+// A Codex lead in workspace-write with on-request gives edits. The worker then
+// edits inside the project, asks outside it, and never writes protected paths.
+func TestCodexEditsLeadKeepsProtectedPaths(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	writeSetting(t, filepath.Join(root, ".codex/config.toml"), "sandbox_mode = 'workspace-write'\napproval_policy = 'on-request'\n")
+	lead, err := ImportLead(root, "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := session.CodexMode("workspace-write", "on-request")
+	for target, want := range map[string]string{
+		"src/a.go":                    Allow,
+		"../other/a.go":               Ask,
+		"/etc/hosts":                  Ask,
+		".duolog/config.yaml":         Deny,
+		".duolog/learned.yaml":        Deny,
+		".codex/rules/duolog.rules":   Deny,
+		".codex/config.toml":          Deny,
+		".claude/settings.local.json": Deny,
+		".git/hooks/pre-commit":       Deny,
+	} {
+		if d := Evaluate(p, lead, m, Action{Kind: "write", Target: target, Role: "implement"}); d.Kind != want {
+			t.Errorf("%s: %s (%s), want %s", target, d.Kind, d.Reason, want)
 		}
 	}
 }

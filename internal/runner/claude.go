@@ -11,6 +11,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/mode"
 )
 
+// minimalSettings excludes instruction files. --setting-sources would do more, but
+// it also drops the user settings that enable the duolog plugin and its gate.
+const minimalSettings = `{"claudeMdExcludes":["**/CLAUDE.md","**/CLAUDE.local.md","**/.claude/rules/**"]}`
+
 func claudeArgv(s Spec) []string {
 	args := []string{"claude", "-p", "--model", s.Route.Model}
 	if s.Route.Effort != "" {
@@ -18,8 +22,15 @@ func claudeArgv(s Spec) []string {
 	}
 	args = append(args, "--output-format", "json", "--json-schema", answerSchema)
 	args = append(args, mode.Args("claude", s.Mode, s.Route.Sandbox)...)
+	// In the cost study the user's MCP servers added 7.4 thousand tokens to every
+	// call, so a worker gets them only when its task needs one.
+	if !s.KeepMCP {
+		args = append(args, "--strict-mcp-config")
+	}
 	if s.Route.Context == "minimal" {
-		args = append(args, "--disable-slash-commands")
+		// Minimal context drops skills and every CLAUDE.md, the user's too: a project
+		// under the home folder would otherwise load it as project instructions.
+		args = append(args, "--disable-slash-commands", "--settings", minimalSettings)
 	}
 	if s.ThreadID == "" {
 		if !s.Persistent {

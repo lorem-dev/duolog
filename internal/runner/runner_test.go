@@ -60,9 +60,23 @@ func TestCodexArgvProjectContext(t *testing.T) {
 // A minimal-context worker gets its rules from the task, not from skills.
 func TestClaudeArgvMinimalDropsSkills(t *testing.T) {
 	s := spec(t, "claude")
-	containsArgs(t, Argv(s), "--disable-slash-commands")
+	containsArgs(t, Argv(s), "--disable-slash-commands", "--settings", minimalSettings)
 	s.Route.Context = "project"
-	if strings.Contains(strings.Join(Argv(s), " "), "--disable-slash-commands") {
+	if line := strings.Join(Argv(s), " "); strings.Contains(line, "--disable-slash-commands") || strings.Contains(line, "claudeMdExcludes") {
+		t.Fatal(Argv(s))
+	}
+	// --setting-sources would also drop the user settings that enable the gate.
+	if strings.Contains(strings.Join(Argv(s), " "), "--setting-sources") {
+		t.Fatal(Argv(s))
+	}
+}
+
+// A worker gets MCP servers only when its task needs one.
+func TestClaudeArgvMCPOnlyWhenNeeded(t *testing.T) {
+	s := spec(t, "claude")
+	containsArgs(t, Argv(s), "--strict-mcp-config")
+	s.KeepMCP = true
+	if strings.Contains(strings.Join(Argv(s), " "), "--strict-mcp-config") {
 		t.Fatal(Argv(s))
 	}
 }
@@ -312,15 +326,16 @@ func TestSpawnDisablesUpdates(t *testing.T) {
 	containsArgs(t, Argv(s), "check_for_update_on_startup=false")
 	s = spec(t, "claude")
 	p := install(t, &s, testbin.Scenario{Stdout: `{"structured_output":` + goodAnswer + `}`})
-	s.Env = append(s.Env, "DISABLE_AUTOUPDATER=0")
+	s.Env = append(s.Env, "DISABLE_AUTOUPDATER=0", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=0")
 	if _, e := Run(context.Background(), s); e != nil {
 		t.Fatal(e)
 	}
 	var env []string
 	json.Unmarshal(read(t, p+".env.json"), &env)
-	containsArgs(t, env, "DISABLE_AUTOUPDATER=1")
+	// Auto memory is per project path: a worker's notes would reach the lead.
+	containsArgs(t, env, "DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
 	for _, v := range env {
-		if v == "DISABLE_AUTOUPDATER=0" {
+		if v == "DISABLE_AUTOUPDATER=0" || v == "CLAUDE_CODE_DISABLE_AUTO_MEMORY=0" {
 			t.Fatal(env)
 		}
 	}

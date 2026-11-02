@@ -48,7 +48,9 @@ nothing was cached, because Codex decides per call whether a prompt comes from
 its cache, and that halved or doubled the cached price between runs.
 
 The cost of whole sessions, with and without duolog, is on
-[the cost study](research/2026-11-01-cost-study.md) page.
+[the cost study](research/2026-11-01-cost-study.md) page. It also found that
+effort above `high` raised no model's quality, while Opus at `max` cost six
+times Opus at `high`, so no default role asks for `xhigh` or `max`.
 
 ## Related pages
 
