@@ -316,3 +316,22 @@ func TestProjectRulesCannotDropDefaultDenies(t *testing.T) {
 		}
 	}
 }
+
+// Bridging hands credentials to the other vendor's agent, so it is opt-in.
+func TestMCPBridgeIsOptIn(t *testing.T) {
+	root := isolatedRoot(t)
+	cfg, err := Load(root)
+	if err != nil || cfg.Capabilities.OnMissing.MCP != "lead_first" || len(cfg.Capabilities.MCPTools) != 0 {
+		t.Fatal(cfg.Capabilities, err)
+	}
+	path := filepath.Join(root, ".duolog", "config.yaml")
+	writeConfig(t, path, "capabilities:\n  on_missing: {mcp: bridge}\n  mcp_tools: {jira: [get_issue, search]}\n")
+	cfg, err = Load(root)
+	if err != nil || cfg.Capabilities.OnMissing.MCP != "bridge" || cfg.Capabilities.OnMissing.Skill != "read_source" || strings.Join(cfg.Capabilities.MCPTools["jira"], ",") != "get_issue,search" {
+		t.Fatal(cfg.Capabilities, err)
+	}
+	writeConfig(t, path, "capabilities:\n  on_missing: {mcp: brige}\n")
+	if _, err = Load(root); err == nil || !strings.Contains(err.Error(), "brige") {
+		t.Fatal(err)
+	}
+}

@@ -87,6 +87,17 @@ func run() error {
 			return err
 		}
 	}
+	// A Claude worker's bridged MCP config exists only while it runs; keep a
+	// copy and its mode so that tests can check both.
+	for _, arg := range os.Args[1:] {
+		if file, ok := strings.CutPrefix(arg, "--mcp-config="); ok {
+			if info, err := os.Stat(file); err == nil {
+				data, _ := os.ReadFile(file)
+				_ = os.WriteFile(path+".mcp-config.json", data, 0600)
+				_ = os.WriteFile(path+".mcp-config.mode", []byte(info.Mode().Perm().String()), 0600)
+			}
+		}
+	}
 	if s.SpawnChild {
 		child := exec.Command(path, "--duolog-test-child", path)
 		child.Stdout, child.Stderr = os.Stdout, os.Stderr

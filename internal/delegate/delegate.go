@@ -71,6 +71,7 @@ var runWorker = runner.Run
 var resolveModel = models.Resolve
 var readLeadState = session.ReadLeadState
 var scanCapabilities = capability.Scan
+var bridgeMCP = capability.Bridge
 
 func Place(cfg *config.Config, taskPath string, route router.Route) (Placement, error) {
 	root, err := os.Getwd()
@@ -239,6 +240,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			return out, nil
 		}
 		capNotes = ""
+		env := workerEnv(cfg.EnvPassthrough, leadID, role)
+		var bridge []string
+		var bridged *runner.MCP
 		if len(opts.Needs) > 0 {
 			target, scanErr := scanCapabilities(ctx, route.Agent, root)
 			if scanErr != nil {
@@ -252,8 +256,11 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			}
 			var notes, lacking []string
 			reroute := false
+			bridge = nil
 			for _, r := range capability.Resolve(target, lead, opts.Needs, cfg.Capabilities) {
 				switch r.Action {
+				case capability.ActionBridge:
+					bridge = append(bridge, strings.TrimPrefix(r.Need, capability.KindMCP+":"))
 				case capability.ActionRefuse:
 					out.Line = oneLine("role " + role + ": " + r.Hint)
 					return out, fmt.Errorf("capability %s missing: %s", r.Need, r.Hint)
@@ -266,6 +273,18 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				default:
 					if r.Hint != "" {
 						notes = append(notes, r.Hint)
+					}
+				}
+			}
+			bridged = nil
+			if len(bridge) > 0 {
+				var failed map[string]string
+				bridged, failed = bridgeMCP(leadAgent, route.Agent, root, bridge, cfg.Capabilities.MCPTools, env)
+				for _, name := range bridge {
+					if why, ok := failed[name]; ok {
+						need := capability.KindMCP + ":" + name
+						lacking = append(lacking, need)
+						notes = append(notes, capability.BridgeFallback(need, route.Agent, why))
 					}
 				}
 			}
@@ -305,6 +324,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		if warning, err = trustWarning(route, role, state, folder); err != nil {
 			return out, err
 		}
+		if bridged != nil {
+			warning += "; bridged mcp:" + strings.Join(bridged.Names, ",mcp:") + " from " + leadAgent
+		}
 		// The brief and the worker lines count against the inline limit, so a large
 		// brief leaves less room for Read files instead of growing every handoff.
 		brief := workerBrief(root)
@@ -335,7 +357,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		} else {
 			route.Model = model
 			stdin := append(append(brief, inline...), workerLines...)
-			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Env: workerEnv(cfg.EnvPassthrough, leadID, role), Persistent: route.Session == "resume", KeepMCP: needsKind(opts.Needs, capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin)}
+			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Env: env, Persistent: route.Session == "resume", KeepMCP: needsKind(withoutBridged(opts.Needs, bridged), capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin), MCP: bridged}
 			if route.Sandbox == "read-only" {
 				spec.Mode = mode.Plan
 			}
@@ -666,6 +688,23 @@ func needsKind(needs []string, kinds ...string) bool {
 		}
 	}
 	return false
+}
+
+// withoutBridged drops the needs that bridged servers meet: a Claude worker
+// whose only MCP needs are bridged starts with those servers and no others.
+func withoutBridged(needs []string, bridged *runner.MCP) []string {
+	if bridged == nil {
+		return needs
+	}
+	var out []string
+	for _, need := range needs {
+		kind, name, err := capability.ParseNeed(need)
+		if err == nil && kind == capability.KindMCP && slices.Contains(bridged.Names, name) {
+			continue
+		}
+		out = append(out, need)
+	}
+	return out
 }
 
 // ownershipLine keeps the steps that need the user's or the lead's judgment

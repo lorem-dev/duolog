@@ -60,6 +60,16 @@
           },
           "type": "object",
           "description": "One-line guidance keyed by capability name; defaults to an empty map."
+        },
+        "mcp_tools": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "object",
+          "description": "Tools a bridged MCP server offers the worker, keyed by server name; a server not listed is bridged whole. Defaults to an empty map."
         }
       },
       "additionalProperties": false,
@@ -157,7 +167,13 @@
         },
         "mcp": {
           "type": "string",
-          "description": "Handling for a missing MCP server; defaults to lead_first."
+          "enum": [
+            "lead_first",
+            "bridge",
+            "reroute",
+            "refuse"
+          ],
+          "description": "Handling for a missing MCP server; defaults to lead_first. bridge hands the lead's server, with its credentials, to the worker for one run."
         },
         "plugin": {
           "type": "string",

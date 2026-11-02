@@ -153,8 +153,11 @@ policy:
 # lead_first: start nothing; the lead does that part and passes the result as an artifact.
 # reroute: give the role to the agent that has it. refuse: stop with the name.
 capabilities:
+  # mcp: bridge hands the lead's server, with its credentials, to a worker of
+  # the other agent for one run. It is off by default for that reason.
   on_missing: {skill: read_source, mcp: lead_first, plugin: lead_first}
   hints: {}             # name: a one-line hint that replaces the default text
+  mcp_tools: {}         # server: [tool, ...]; limits what a bridged server offers
 
 # `duolog sync --from claude|codex` picks the direction; hooks then keep the target up to date.
 # Skills and agents are always generated as plain files, never symlinks.

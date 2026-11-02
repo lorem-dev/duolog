@@ -44,7 +44,14 @@ func newCapsCommand() *cobra.Command {
 				continue
 			}
 			for _, it := range i.Items {
-				if _, err := fmt.Fprintf(out, "%s %s %s\n", i.Agent, it.Kind, it.Name); err != nil {
+				// Bridging hands a server to the other agent; see capabilities.on_missing.mcp.
+				note := ""
+				if it.Bridgeable {
+					note = " bridgeable"
+				} else if it.NoBridge != "" {
+					note = " not bridgeable: " + it.NoBridge
+				}
+				if _, err := fmt.Fprintf(out, "%s %s %s%s\n", i.Agent, it.Kind, it.Name, note); err != nil {
 					return err
 				}
 			}

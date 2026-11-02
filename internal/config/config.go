@@ -85,11 +85,12 @@ type Rule struct {
 type Capabilities struct {
 	OnMissing MissingCapabilities `yaml:"on_missing" jsonschema_description:"Fallback for each missing capability kind; defaults to read_source for skills and lead_first for tools."`
 	Hints     map[string]string   `yaml:"hints" jsonschema_description:"One-line guidance keyed by capability name; defaults to an empty map."`
+	MCPTools  map[string][]string `yaml:"mcp_tools" jsonschema_description:"Tools a bridged MCP server offers the worker, keyed by server name; a server not listed is bridged whole. Defaults to an empty map."`
 }
 
 type MissingCapabilities struct {
 	Skill  string `yaml:"skill" jsonschema_description:"Handling for a missing skill; defaults to read_source to read its SKILL.md."`
-	MCP    string `yaml:"mcp" jsonschema_description:"Handling for a missing MCP server; defaults to lead_first."`
+	MCP    string `yaml:"mcp" jsonschema_description:"Handling for a missing MCP server; defaults to lead_first. bridge hands the lead's server, with its credentials, to the worker for one run." jsonschema:"enum=lead_first,enum=bridge,enum=reroute,enum=refuse"`
 	Plugin string `yaml:"plugin" jsonschema_description:"Handling for a missing plugin; defaults to lead_first."`
 }
 

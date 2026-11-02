@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -30,10 +31,36 @@ const (
 
 // Item holds names only. Source is the absolute SKILL.md path of a skill and
 // is empty for the other kinds. No env, header or token is ever stored.
+// Bridgeable marks an MCP server from a config file that a worker of the other
+// agent can borrow; NoBridge says why one cannot be.
 type Item struct {
-	Kind   string `json:"kind"`
-	Name   string `json:"name"`
-	Source string `json:"source,omitempty"`
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	Source     string `json:"source,omitempty"`
+	Bridgeable bool   `json:"bridgeable,omitempty"`
+	NoBridge   string `json:"no_bridge,omitempty"`
+}
+
+// markBridge adds the servers from config files with what bridging can do.
+func markBridge(agent, root string, items []Item) []Item {
+	ok, not := Bridgeable(agent, root)
+	for _, name := range ok {
+		items = append(items, Item{Kind: KindMCP, Name: name})
+	}
+	for name := range not {
+		items = append(items, Item{Kind: KindMCP, Name: name})
+	}
+	for i := range items {
+		if items[i].Kind != KindMCP {
+			continue
+		}
+		if why, found := not[items[i].Name]; found {
+			items[i].NoBridge = why
+		} else {
+			items[i].Bridgeable = slices.Contains(ok, items[i].Name)
+		}
+	}
+	return items
 }
 
 // Inventory is what one agent has. Unknown means the list could not be read
@@ -103,7 +130,7 @@ func Scan(ctx context.Context, agent, root string) (Inventory, error) {
 	default:
 		inv.Unknown = true
 	}
-	inv.Items = normalize(items)
+	inv.Items = normalize(markBridge(agent, root, items))
 	path := filepath.Join(project.StateRoot(root), ".duolog", "cache", "inventory-"+agent+".json")
 	// An uninitialized project gets no cache, so that a read-only command does not
 	// create .duolog/ with no .gitignore, which hooks would then treat as set up.

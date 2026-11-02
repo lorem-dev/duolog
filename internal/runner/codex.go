@@ -33,6 +33,9 @@ func codexArgv(s Spec) []string {
 			args = append(args, "-c", "skills.include_instructions=false")
 		}
 	}
+	if s.MCP != nil {
+		args = append(args, s.MCP.CodexArgs...)
+	}
 	if s.ThreadID == "" && !s.Persistent {
 		args = append(args, "--ephemeral")
 	}

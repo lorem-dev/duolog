@@ -39,6 +39,28 @@ type Spec struct {
 	// KeepSkills keeps the skill list of a minimal worker whose task needs a skill.
 	KeepSkills bool
 	Timeout    time.Duration
+	// MCP holds servers bridged from the lead's agent for this run, or nil.
+	MCP *MCP
+}
+
+// MCP is what a worker needs to start servers bridged from the lead's agent.
+// The config parts refer to values by variable name only; the values are in
+// Env, which reaches the worker process and nothing else.
+type MCP struct {
+	// Names are the bridged servers.
+	Names []string
+	// CodexArgs are -c overrides for a Codex worker.
+	CodexArgs []string
+	// ClaudeConfig is the --mcp-config JSON for a Claude worker. Run writes it to
+	// a 0600 file in the task folder and removes the file after the run.
+	ClaudeConfig []byte
+	// AllowedTools and DisallowedTools are Claude tool names, such as
+	// mcp__jira__get_issue.
+	AllowedTools, DisallowedTools []string
+	// Env holds NAME=value pairs for the worker process.
+	Env []string
+	// configPath is where Run wrote ClaudeConfig.
+	configPath string
 }
 
 type Usage struct{ Input, Cached, Output int64 }
@@ -92,6 +114,14 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	if err = os.Remove(answerPath); err != nil && !os.IsNotExist(err) {
 		return result, err
 	}
+	if s.MCP != nil && s.Route.Agent == "claude" && len(s.MCP.ClaudeConfig) > 0 {
+		bridged := *s.MCP
+		if bridged.configPath, err = writeMCPConfig(s.TaskDir, bridged.ClaudeConfig); err != nil {
+			return result, err
+		}
+		defer os.Remove(bridged.configPath)
+		s.MCP = &bridged
+	}
 	argv := Argv(s)
 	if len(argv) == 0 {
 		return result, fmt.Errorf("unknown agent %q", s.Route.Agent)
@@ -136,6 +166,10 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 		*stream.dest = io.MultiWriter(log, capture)
 	}
 	cmd.Env = append([]string{}, s.Env...)
+	if s.MCP != nil {
+		// Added after env_passthrough, which never filters them.
+		cmd.Env = append(cmd.Env, s.MCP.Env...)
+	}
 	if s.Route.Agent == "claude" {
 		env := cmd.Env[:0]
 		for _, v := range cmd.Env {
@@ -213,6 +247,22 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	result.Files = parsed.Files
 	result.Needs = parsed.Needs
 	return result, nil
+}
+
+// writeMCPConfig writes the bridged servers for --mcp-config. CreateTemp makes
+// the file 0600; the chmod keeps it so on a system that does otherwise.
+func writeMCPConfig(dir string, data []byte) (string, error) {
+	f, err := os.CreateTemp(dir, "mcp-*.json")
+	if err != nil {
+		return "", err
+	}
+	_, writeErr := f.Write(data)
+	closeErr := f.Close()
+	if err = errors.Join(writeErr, closeErr, os.Chmod(f.Name(), 0600)); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
 }
 
 func readLog(path, agent string, stderr bool, result *Result) error {

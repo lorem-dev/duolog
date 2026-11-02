@@ -30,11 +30,15 @@ type settings struct {
 }
 
 func read() (settings, error) {
-	var s settings
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return s, err
+		return settings{}, err
 	}
+	return readIn(home)
+}
+
+func readIn(home string) (settings, error) {
+	var s settings
 	data, err := os.ReadFile(filepath.Join(CodexHome(home), "config.toml"))
 	if os.IsNotExist(err) {
 		return s, nil
@@ -49,7 +53,17 @@ func Folder(agent, root string) (bool, error) {
 	if agent == "claude" {
 		return true, nil
 	}
-	s, err := read()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false, err
+	}
+	return FolderIn(home, root)
+}
+
+// FolderIn reports whether Codex trusts the folder root, reading the Codex
+// config under home. Codex loads a project's .codex/ layer only then.
+func FolderIn(home, root string) (bool, error) {
+	s, err := readIn(home)
 	if err != nil {
 		return false, err
 	}

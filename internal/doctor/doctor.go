@@ -112,6 +112,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 			add("warning", fmt.Sprintf("%s %s is newer than fixture version %s", agent, version, baseline[agent]))
 		}
 	}
+	add("info", bridgeLine(cfg, root, available))
 	var entries []catalogEntry
 	if available["codex"] {
 		var err error
@@ -169,6 +170,28 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 		}
 	}
 	return out
+}
+
+// bridgeLine names the MCP servers each agent could hand to a worker of the
+// other, and whether bridging is on. Names only: no value is read out.
+func bridgeLine(cfg *config.Config, root string, available map[string]bool) string {
+	state := "off (capabilities.on_missing.mcp: " + cfg.Capabilities.OnMissing.MCP + ")"
+	if cfg.Capabilities.OnMissing.MCP == capability.ActionBridge {
+		state = "on"
+	}
+	parts := []string{"MCP bridge " + state}
+	for _, agent := range []string{"claude", "codex"} {
+		if !available[agent] {
+			continue
+		}
+		ok, _ := capability.Bridgeable(agent, root)
+		names := "none"
+		if len(ok) > 0 {
+			names = strings.Join(ok, ", ")
+		}
+		parts = append(parts, agent+" can lend: "+names)
+	}
+	return strings.Join(parts, "; ")
 }
 
 func metadata(ctx context.Context, agent string, args ...string) ([]byte, error) {
