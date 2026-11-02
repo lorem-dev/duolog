@@ -132,7 +132,10 @@ func TestHookCatalogHasDeadlineAndRecovers(t *testing.T) {
 	_ = fake
 	started := time.Now()
 	line := SessionStart(root, cfg)
-	if time.Since(started) > 3*time.Second {
+	// The fake sleeps 60 s and the hook gives up after 2 s. Ending the process
+	// tree takes seconds on a busy Windows runner, so the bound only proves
+	// that the hook did not wait for the fake.
+	if time.Since(started) > 10*time.Second {
 		t.Fatal(line, time.Since(started))
 	}
 }
