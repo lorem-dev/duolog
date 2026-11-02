@@ -74,7 +74,8 @@
 ### Fixed
 
 - `duolog sync` waits up to 15 seconds for another run, not 2, on a slow disk.
-- A hook no longer ignores input that starts with a byte order mark.
+- A hook no longer ignores input that starts with a byte order mark, and an
+  ended session no longer wakes for a message that came as it ended.
 - Codex workers keep the PATH that duolog passes; a login shell no longer
   resets it.
 
