@@ -335,3 +335,15 @@ func TestMCPBridgeIsOptIn(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAuthFailureDefaults(t *testing.T) {
+	root := isolatedRoot(t)
+	cfg, err := Load(root)
+	if err != nil || cfg.Capabilities.OnAuthFailure != "login_then_lead" || cfg.Capabilities.LoginTimeoutSeconds != 180 {
+		t.Fatal(cfg.Capabilities, err)
+	}
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "capabilities:\n  on_auth_failure: retry\n")
+	if _, err = Load(root); err == nil || !strings.Contains(err.Error(), "retry") {
+		t.Fatal(err)
+	}
+}

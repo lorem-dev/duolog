@@ -18,6 +18,7 @@ import (
 
 	"crypto/sha256"
 	"github.com/gofrs/flock"
+	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
@@ -72,6 +73,7 @@ var resolveModel = models.Resolve
 var readLeadState = session.ReadLeadState
 var scanCapabilities = capability.Scan
 var bridgeMCP = capability.Bridge
+var newChecker = auth.New
 
 func Place(cfg *config.Config, taskPath string, route router.Route) (Placement, error) {
 	root, err := os.Getwd()
@@ -208,6 +210,8 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	}
 	priorAgent := ""
 	placementTask := taskPath
+	checker := newChecker(filepath.Join(s.Dir, "cache"))
+	loginTried := false
 	capNotes := ""
 	for attempt := 0; attempt < 2; attempt++ {
 		route, routeErr := router.Resolve(cfg, role, unavailable, router.Options{Lead: leadTarget, AllowManualModel: opts.AllowManualModel})
@@ -301,6 +305,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				unavailable[route.Agent] = true
 				continue
 			}
+			if needsKind(opts.Needs, capability.KindMCP) {
+				notes = append(notes, auth.WorkerLine)
+			}
 			for _, n := range notes {
 				capNotes += n + "\n"
 			}
@@ -346,6 +353,14 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		})
 		if inlineErr != nil {
 			return out, inlineErr
+		}
+		// A worker that cannot sign in would fail after the lead waited for it,
+		// so its agent and the servers it needs are checked first.
+		for _, p := range preflight(ctx, checker, route.Agent, leadAgent, root, opts.Needs, bridged) {
+			ok, authErr := settleAuth(ctx, cfg, reg, checker, leadID, role, p, &loginTried, &out)
+			if authErr != nil || !ok {
+				return out, authErr
+			}
 		}
 		model, modelErr := resolveModel(ctx, cfg, filepath.Join(s.Dir, "cache"), route.Target)
 		if modelErr != nil {
@@ -397,12 +412,28 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			if err = reg.SetWaiting(leadID, token, os.Getpid()); err != nil {
 				return out, err
 			}
-			out.Result, err = func() (runner.Result, error) {
-				defer reg.SetWaiting(leadID, token, 0)
-				return runWorker(ctx, spec)
-			}()
-			if usageErr := appendUsage(s.Dir, role, route, out.Result); usageErr != nil {
-				return out, errors.Join(err, usageErr)
+			for {
+				out.Result, err = func() (runner.Result, error) {
+					defer reg.SetWaiting(leadID, token, 0)
+					return runWorker(ctx, spec)
+				}()
+				if usageErr := appendUsage(s.Dir, role, route, out.Result); usageErr != nil {
+					return out, errors.Join(err, usageErr)
+				}
+				problems := runProblems(route.Agent, leadAgent, root, out.Result, bridged)
+				if len(problems) == 0 || out.Result.Interrupted || out.Result.QuotaEnded {
+					break
+				}
+				// A login that works lets the worker run once more; settleAuth
+				// tries one login per delegation, so this ends.
+				ok, authErr := settleAuth(ctx, cfg, reg, checker, leadID, role, problems[0], &loginTried, &out)
+				if authErr != nil || !ok {
+					out.Result = runner.Result{}
+					return out, authErr
+				}
+				if err = reg.SetWaiting(leadID, token, os.Getpid()); err != nil {
+					return out, err
+				}
 			}
 			if out.Result.Interrupted {
 				out.Line = "role " + role + " interrupted"
@@ -728,4 +759,129 @@ func workerBrief(root string) []byte {
 		return nil
 	}
 	return append(append([]byte("Project brief from the lead (applies to every task):\n\n"), data...), []byte("\n\n")...)
+}
+
+// preflight checks the worker's login and the login of every MCP server the
+// task needs, bridged or the worker's own. A bridged server is checked with
+// the lead's definition, which is what the worker gets.
+func preflight(ctx context.Context, checker auth.Checker, agent, leadAgent, root string, needs []string, bridged *runner.MCP) []auth.Problem {
+	var out []auth.Problem
+	if p := checker.Agent(ctx, agent); p != nil {
+		return append(out, *p)
+	}
+	own, lent := capability.Servers(agent, root), map[string]capability.Server{}
+	if bridged != nil {
+		lent = capability.Servers(leadAgent, root)
+	}
+	for _, need := range needs {
+		kind, name, err := capability.ParseNeed(need)
+		if err != nil || kind != capability.KindMCP {
+			continue
+		}
+		var def *capability.Server
+		if bridged != nil && slices.Contains(bridged.Names, name) {
+			if s, ok := lent[name]; ok {
+				def = &s
+			}
+		} else if s, ok := own[name]; ok {
+			def = &s
+		}
+		if p := checker.Server(ctx, agent, name, def); p != nil {
+			out = append(out, *p)
+		}
+	}
+	return out
+}
+
+// runProblems reads a refused login from a finished run: an error the runner
+// classified, or auth: entries the worker put in needs.
+func runProblems(agent, leadAgent, root string, r runner.Result, bridged *runner.MCP) []auth.Problem {
+	problems := auth.FromNeeds(agent, r.Needs)
+	if r.AuthFailed {
+		p := auth.Problem{Agent: agent, Server: r.AuthServer, Reason: "the worker's agent refused its login"}
+		if p.Server != "" {
+			p.Reason = "the server refused the worker's credentials"
+		}
+		problems = append([]auth.Problem{p}, problems...)
+	}
+	for i, p := range problems {
+		if p.Server == "" {
+			continue
+		}
+		defs := capability.Servers(agent, root)
+		if bridged != nil && slices.Contains(bridged.Names, p.Server) {
+			defs = capability.Servers(leadAgent, root)
+		}
+		if def, ok := defs[p.Server]; ok && def.Transport == "http" && def.Static() {
+			problems[i].Static, problems[i].Where = true, def.File
+		} else if ok && def.Transport != "http" {
+			// A stdio server has no login to run: its credentials are in env.
+			problems[i].Static, problems[i].Where = true, def.File
+		}
+	}
+	return problems
+}
+
+// settleAuth decides what a refused login does to the run. It returns true
+// when the worker may start, after a login that worked. Otherwise the task goes
+// to the lead, as with on_missing lead_first, and out says why; the reason
+// names the agent or server and the config entry, never a value.
+func settleAuth(ctx context.Context, cfg *config.Config, reg *session.Registry, checker auth.Checker, leadID, role string, p auth.Problem, tried *bool, out *Outcome) (bool, error) {
+	action := cfg.Capabilities.OnAuthFailure
+	if action == "" {
+		action = auth.LoginThenLead
+	}
+	reason := p.Subject() + ": " + p.Reason
+	if action == auth.Fail {
+		return false, fmt.Errorf("%s", reason)
+	}
+	command := p.Command()
+	switch {
+	case p.Static:
+		reason += "; fix the credential in " + p.Where
+		command = ""
+	case action == auth.LoginThenLead && !*tried:
+		declined, err := reg.AuthDeclined(leadID, p.Key())
+		if err != nil {
+			return false, err
+		}
+		if declined {
+			reason += "; the login was declined earlier in this session"
+			break
+		}
+		*tried = true
+		timeout := time.Duration(cfg.Capabilities.LoginTimeoutSeconds) * time.Second
+		switch checker.Login(ctx, p, timeout) {
+		case auth.LoggedIn:
+			var again *auth.Problem
+			if p.Server == "" {
+				again = checker.Agent(ctx, p.Agent)
+			} else if !p.Static {
+				again = checker.Server(ctx, p.Agent, p.Server, nil)
+			}
+			if again == nil {
+				return true, nil
+			}
+			reason += "; still refused after the login"
+		case auth.NeedsTerminal:
+			out.Needs = []string{p.AuthNeed()}
+			out.Line = oneLine("role " + role + " waits for lead: " + reason + "; the login needs a terminal. Ask the person to run: ! " + command)
+			return false, nil
+		default:
+			if err := reg.DeclineAuth(leadID, p.Key()); err != nil {
+				return false, err
+			}
+			reason += "; the login was closed, timed out or failed"
+		}
+	}
+	if command != "" {
+		reason += "; to log in, run: ! " + command
+	}
+	tail := " Do this part first and pass the artifact in Read."
+	if p.Server == "" {
+		tail = " Do the task here, or log in and delegate again."
+	}
+	out.Needs = []string{p.Need()}
+	out.Line = oneLine("role " + role + " waits for lead: " + reason + "." + tail)
+	return false, nil
 }

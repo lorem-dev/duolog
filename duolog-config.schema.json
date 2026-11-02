@@ -61,6 +61,19 @@
           "type": "object",
           "description": "One-line guidance keyed by capability name; defaults to an empty map."
         },
+        "on_auth_failure": {
+          "type": "string",
+          "enum": [
+            "login_then_lead",
+            "lead",
+            "fail"
+          ],
+          "description": "What happens when a worker cannot sign in to its agent or to an MCP server; defaults to login_then_lead, which runs the agent's login once and hands the task to the lead when that fails."
+        },
+        "login_timeout_seconds": {
+          "type": "integer",
+          "description": "Seconds to wait for a login the person must finish; defaults to 180."
+        },
         "mcp_tools": {
           "additionalProperties": {
             "items": {

@@ -83,9 +83,11 @@ type Rule struct {
 }
 
 type Capabilities struct {
-	OnMissing MissingCapabilities `yaml:"on_missing" jsonschema_description:"Fallback for each missing capability kind; defaults to read_source for skills and lead_first for tools."`
-	Hints     map[string]string   `yaml:"hints" jsonschema_description:"One-line guidance keyed by capability name; defaults to an empty map."`
-	MCPTools  map[string][]string `yaml:"mcp_tools" jsonschema_description:"Tools a bridged MCP server offers the worker, keyed by server name; a server not listed is bridged whole. Defaults to an empty map."`
+	OnMissing           MissingCapabilities `yaml:"on_missing" jsonschema_description:"Fallback for each missing capability kind; defaults to read_source for skills and lead_first for tools."`
+	Hints               map[string]string   `yaml:"hints" jsonschema_description:"One-line guidance keyed by capability name; defaults to an empty map."`
+	OnAuthFailure       string              `yaml:"on_auth_failure" jsonschema_description:"What happens when a worker cannot sign in to its agent or to an MCP server; defaults to login_then_lead, which runs the agent's login once and hands the task to the lead when that fails." jsonschema:"enum=login_then_lead,enum=lead,enum=fail"`
+	LoginTimeoutSeconds int                 `yaml:"login_timeout_seconds" jsonschema_description:"Seconds to wait for a login the person must finish; defaults to 180."`
+	MCPTools            map[string][]string `yaml:"mcp_tools" jsonschema_description:"Tools a bridged MCP server offers the worker, keyed by server name; a server not listed is bridged whole. Defaults to an empty map."`
 }
 
 type MissingCapabilities struct {

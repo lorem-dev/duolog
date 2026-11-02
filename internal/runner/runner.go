@@ -75,6 +75,10 @@ type Result struct {
 	Usage       Usage
 	QuotaEnded  bool
 	ExitCode    int
+	// AuthFailed means an error said the worker's agent or a server refused
+	// its credentials. AuthServer names the server, when the error did.
+	AuthFailed bool
+	AuthServer string
 }
 
 // Argv includes the executable. Route.Model is already resolved by the caller;
@@ -294,6 +298,12 @@ func readLog(path, agent string, stderr bool, result *Result) error {
 		}
 		// Ordinary stdout can contain tool output or model answers about quotas.
 		// Only stderr on failure or an explicit error event is authoritative.
+		if !result.AuthFailed && authFailure(text) {
+			result.AuthFailed = true
+			if m := mcpServerPattern.FindStringSubmatch(text); m != nil {
+				result.AuthServer = m[1]
+			}
+		}
 		if quotaFailure(text) {
 			result.QuotaEnded = true
 			if reset := resetTime(text, time.Now()); !reset.IsZero() {
@@ -310,6 +320,21 @@ func readLog(path, agent string, stderr bool, result *Result) error {
 		}
 	}
 }
+
+// authFailure finds a refused login in an error. Like quotaFailure it reads
+// only authoritative text: stderr of a failed run and error events.
+func authFailure(text string) bool {
+	text = strings.ToLower(text)
+	for _, phrase := range []string{"not logged in", "please run /login", "invalid api key", "oauth token has expired", "authentication_error", "401 unauthorized", "codex login", "token_expired", "invalid_token", "refresh token"} {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// mcpServerPattern names the server in Codex's MCP start-up errors.
+var mcpServerPattern = regexp.MustCompile("MCP client for [`'\"]?([A-Za-z0-9_.-]+)[`'\"]? failed")
 
 func quotaFailure(text string) bool {
 	text = strings.ToLower(text)

@@ -119,3 +119,29 @@ func TestCodexWorkerGetsBridgedServers(t *testing.T) {
 		t.Fatal("a Codex worker needs no file", matches)
 	}
 }
+
+func TestAuthFailureClassified(t *testing.T) {
+	cases := []struct {
+		agent, stderr, server string
+		failed                bool
+	}{
+		{"claude", "Invalid API key · Please run /login\n", "", true},
+		{"codex", "ERROR: MCP client for `jira` failed to start: handshake: 401 Unauthorized\n", "jira", true},
+		{"codex", "Error: unexpected status 401 Unauthorized: token_expired\n", "", true},
+		{"codex", "panic: something else\n", "", false},
+	}
+	for _, c := range cases {
+		s := spec(t, c.agent)
+		install(t, &s, testbin.Scenario{Exit: 1, Stderr: c.stderr})
+		r, _ := Run(context.Background(), s)
+		if r.AuthFailed != c.failed || r.AuthServer != c.server {
+			t.Fatalf("%q: %+v", c.stderr, r)
+		}
+	}
+	// Output of a run that went well is not authoritative.
+	s := spec(t, "codex")
+	install(t, &s, testbin.Scenario{Stderr: "tool said: 401 Unauthorized\n", Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): goodAnswer}})
+	if r, _ := Run(context.Background(), s); r.AuthFailed {
+		t.Fatal(r)
+	}
+}

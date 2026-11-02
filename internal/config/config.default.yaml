@@ -158,6 +158,10 @@ capabilities:
   on_missing: {skill: read_source, mcp: lead_first, plugin: lead_first}
   hints: {}             # name: a one-line hint that replaces the default text
   mcp_tools: {}         # server: [tool, ...]; limits what a bridged server offers
+  # A worker that cannot sign in: login_then_lead runs the agent's own login
+  # once, then hands the task to the lead; lead hands it over at once; fail stops.
+  on_auth_failure: login_then_lead
+  login_timeout_seconds: 180
 
 # `duolog sync --from claude|codex` picks the direction; hooks then keep the target up to date.
 # Skills and agents are always generated as plain files, never symlinks.

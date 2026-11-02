@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
@@ -36,6 +37,7 @@ type harness struct {
 	results    []runner.Result
 	errs       []error
 	change     string
+	auth       *fakeChecker
 }
 
 func put(t *testing.T, p, s string) {
@@ -95,8 +97,10 @@ func newHarness(t *testing.T) *harness {
 	if err := h.reg.RegisterLead(session.Lead{ID: "lead-123456", Target: config.Target{Agent: "codex", Model: "lead-model"}, Mode: mode.Ask}); err != nil {
 		t.Fatal(err)
 	}
-	oldRun, oldResolve := runWorker, resolveModel
-	t.Cleanup(func() { runWorker = oldRun; resolveModel = oldResolve })
+	oldRun, oldResolve, oldChecker := runWorker, resolveModel, newChecker
+	t.Cleanup(func() { runWorker = oldRun; resolveModel = oldResolve; newChecker = oldChecker })
+	h.auth = &fakeChecker{}
+	newChecker = func(string) auth.Checker { return h.auth }
 	runWorker = func(_ context.Context, s runner.Spec) (runner.Result, error) {
 		i := len(h.calls)
 		h.calls = append(h.calls, s)

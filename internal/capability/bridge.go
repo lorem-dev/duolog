@@ -431,3 +431,38 @@ func tomlTable(m map[string]string) string {
 	}
 	return "{" + strings.Join(parts, ",") + "}"
 }
+
+// Request returns the url and headers that the agent sends to an HTTP server,
+// with every reference read from the lead's environment. It is for a check of
+// the credentials only; the result must not be logged or stored.
+func (s Server) Request() (string, map[string]string, error) {
+	if s.Transport != "http" {
+		return "", nil, fmt.Errorf("it is not an HTTP server")
+	}
+	b := &builder{server: s}
+	u, err := b.value(s.URL)
+	if err != nil {
+		return "", nil, err
+	}
+	headers := map[string]string{}
+	for _, p := range s.Headers {
+		v, err := b.value(p.Value)
+		if err != nil {
+			return "", nil, err
+		}
+		headers[p.Key] = v
+	}
+	for _, p := range s.EnvHeaders {
+		if v, ok := lookupEnv(p.Value); ok {
+			headers[p.Key] = v
+		}
+	}
+	if s.BearerVar != "" {
+		v, ok := lookupEnv(s.BearerVar)
+		if !ok {
+			return "", nil, fmt.Errorf("it reads $%s, which the lead does not have", s.BearerVar)
+		}
+		headers["Authorization"] = "Bearer " + v
+	}
+	return u, headers, nil
+}
