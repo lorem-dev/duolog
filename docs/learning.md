@@ -105,9 +105,41 @@ journal is read.
 ## How a profiling run compares two targets
 
 A profiling run repeats the recorded work on another target from the same
-starting tree. A judge compares both results without seeing which target made
-each one. The person confirms or corrects the scores before they affect
-quality estimates.
+starting tree. After the person chooses an offer, run:
+
+```bash
+duolog profile <delegation-id> --entry codex/sol/high
+```
+
+The entry names the agent, model and effort. Add `--chain` to replay later
+steps of the same task and class. The chain stops at the next class. Only
+the first step changes target; later steps use the targets that ran before.
+Replays and provider limits do not count as chain steps.
+
+The command uses a separate Git worktree, a checkout that shares Git history.
+It rebuilds the recorded starting tree from the base commit and saved patch.
+The main checkout and its staged changes stay as they were. A record without
+a base commit or saved starting patch cannot be replayed.
+
+The command prints both summaries, costs, patch statistics and check results.
+It runs the class's `checks` commands on both results. Commands use spaces
+to separate arguments; shell operators and quoting have no special meaning.
+A missing program has exit code `-1` and does not stop the comparison.
+
+The worktree uses the fixed path `.duolog/profile/worktree` under the shared
+state root. The command removes it on success, failure or interruption. It
+cleans a stale worktree before the next run. If Codex refuses untrusted hooks,
+the error names the path. Open `/hooks` there once to trust the hooks, then
+run the command again.
+
+Each run saves `side.patch` and `answer.json` in a new `profile-<n>` folder
+inside `.duolog/journal/tasks/<task-id>/<delegation-id>/`. Pass `--lead <id>`
+when several leads are active. Use `--allow-manual-model` for a deliberate
+model version pin that is absent from the live model list. Workers cannot
+run profiling commands.
+
+This command currently reports the replay and checks. A later step adds a
+blind judge and asks the person to confirm or correct the scores.
 
 ## How duolog learn changes the order
 
