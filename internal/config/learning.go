@@ -206,6 +206,9 @@ func validModel(cfg *Config, model string) bool {
 
 func validateLearning(cfg *Config) error {
 	l := cfg.Learning
+	if l.PriorRuns <= 0 {
+		return fmt.Errorf("learning.prior_runs: must be greater than zero")
+	}
 	for i, rule := range l.Classify {
 		where := fmt.Sprintf("learning.classify[%d]", i)
 		if _, ok := l.Classes[rule.Class]; !ok {

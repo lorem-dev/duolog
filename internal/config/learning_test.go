@@ -222,3 +222,12 @@ func TestLearningRejectsUnknownJudgeModel(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestLearningRejectsNonPositivePriorRuns(t *testing.T) {
+	for _, value := range []string{"0", "-1"} {
+		_, _, err := loadWithProject(t, "learning:\n  prior_runs: "+value+"\n")
+		if err == nil || !strings.Contains(err.Error(), "prior_runs") {
+			t.Fatalf("%s: %v", value, err)
+		}
+	}
+}
