@@ -139,3 +139,19 @@ func TestMCPLegacyUnknownRules(t *testing.T) {
 	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "mcp", Target: "tracker/get_issue"}, Allow)
 	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "mcp", Target: "wiki/get"}, Ask)
 }
+
+// Claude keeps - apart from _ in a tool name, so an allow keeps them apart too.
+func TestMCPAllowKeepsClaudeToolIdentity(t *testing.T) {
+	p := config.Policy{OnUnmatched: Ask, Rules: []config.Rule{{Action: "mcp", Match: "svc/read-data", Decision: Allow}, {Action: "mcp", Match: "svc/list.*", Decision: Allow}}}
+	for input, want := range map[string]string{
+		`{"tool_name":"mcp__svc__read-data","tool_input":{},"mcp_server":{"name":"svc"}}`: Allow,
+		`{"tool_name":"mcp__svc__read_data","tool_input":{},"mcp_server":{"name":"svc"}}`: Ask,
+		`{"tool_name":"mcp__svc__list_all","tool_input":{},"mcp_server":{"name":"svc"}}`:  Allow,
+	} {
+		a, err := Normalize("claude", []byte(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		check(t, p, LeadRules{}, mode.Edits, a, want)
+	}
+}

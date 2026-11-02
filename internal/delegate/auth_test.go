@@ -206,3 +206,14 @@ func TestPreflightSkipsUnapprovedServer(t *testing.T) {
 		t.Fatal(got, h.auth.checked)
 	}
 }
+
+// A server named only in the worker's errors gets no login unless the task
+// named it.
+func TestErrorNamedServerMustBeInTask(t *testing.T) {
+	h := authHarness(t)
+	h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "wiki"}}}, capability.Inventory{Agent: "claude"})
+	h.results = []runner.Result{{Done: false, Summary: "x", Files: []string{}, Needs: []string{}, AuthFailed: true, AuthServer: "other"}}
+	if _, e := h.runNeeds("implement", "mcp:wiki"); e != nil || len(h.auth.logins) != 0 {
+		t.Fatal(e, h.auth.logins)
+	}
+}

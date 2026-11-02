@@ -844,7 +844,9 @@ func runProblems(agent, leadAgent, root string, r runner.Result, bridged *runner
 			problems = append(problems, p)
 		}
 	}
-	if r.AuthFailed {
+	// The server name comes from the worker's errors, so it too counts only
+	// when the task named it.
+	if r.AuthFailed && (r.AuthServer == "" || slices.Contains(taskNeeds, capability.KindMCP+":"+r.AuthServer)) {
 		p := auth.Problem{Agent: agent, Server: r.AuthServer, Reason: "the worker's agent refused its login"}
 		if p.Server != "" {
 			p.Reason = "the server refused the worker's credentials"

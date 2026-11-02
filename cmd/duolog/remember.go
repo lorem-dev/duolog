@@ -208,7 +208,7 @@ func rememberMCP(cmd *cobra.Command, root string, cfg *config.Config, tool strin
 		if _, ok := cfg.Roles[role]; !ok {
 			return fmt.Errorf("unknown role %q", role)
 		}
-		if d := gate.Evaluate(policy, gate.LeadRules{}, mode.Edits, gate.Action{Kind: "mcp", Target: sampleTool(tool), Role: role}); d.Kind != gate.Allow {
+		if d := gate.Evaluate(policy, gate.LeadRules{}, mode.Edits, gate.Action{Kind: "mcp", Target: sampleTool(tool), Role: role, MCPExact: true}); d.Kind != gate.Allow {
 			return fmt.Errorf("a rule cannot allow mcp:%s for %s: %s (%s)", tool, role, d.Reason, d.Rule)
 		}
 	}

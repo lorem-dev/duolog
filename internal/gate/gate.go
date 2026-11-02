@@ -762,7 +762,8 @@ func mcpFlat(s string) string {
 
 // mcpRuleAllows reports whether an allow or ask rule covers a. When the hook
 // named the server, the server must match as written: trusted-api and
-// trusted_api are two servers. Codex gives only the folded tool name, so a
+// trusted_api are two servers. The tool is compared as Claude names it, which
+// keeps - apart from _. Codex gives only the folded tool name, so a
 // name with more than one place to split matches only a rule without a star.
 func mcpRuleAllows(r config.Rule, a Action) bool {
 	if legacyMCP(r, a) {
@@ -777,7 +778,7 @@ func mcpRuleAllows(r config.Rule, a Action) bool {
 		case a.MCPExact:
 			ps, pt, _ := strings.Cut(pattern, "/")
 			as, at, _ := strings.Cut(a.Target, "/")
-			if starMatch(ps, as) && starMatch(MCPName(pt), MCPName(at)) {
+			if starMatch(ps, as) && starMatch(claudePattern.ReplaceAllString(pt, "_"), at) {
 				return true
 			}
 		case strings.Count(flat, "__") > 2:
@@ -804,3 +805,7 @@ func legacyMCP(r config.Rule, a Action) bool {
 	}
 	return false
 }
+
+// claudePattern folds a rule's tool pattern as Claude folds tool names, keeping
+// the star.
+var claudePattern = regexp.MustCompile(`[^A-Za-z0-9_*-]`)

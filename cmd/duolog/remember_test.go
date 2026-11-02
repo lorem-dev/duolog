@@ -255,3 +255,13 @@ func TestRememberMCPTool(t *testing.T) {
 		t.Fatal(string(data))
 	}
 }
+
+// A whole server with __ in its name can be remembered: the check knows the
+// server as written.
+func TestRememberServerWithDoubleUnderscore(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	if out, err := rememberIn(t, "--native", "mcp:my__wiki/*"); err != nil || !strings.Contains(out, "claude: mcp__my__wiki") {
+		t.Fatal(out, err)
+	}
+}
