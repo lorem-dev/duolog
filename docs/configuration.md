@@ -141,11 +141,83 @@ A Claude worker starts with auto memory off. Claude keeps that memory per
 project path, so a worker's notes would reach the lead and every later session
 of the project. It also starts with no MCP servers, because the user's servers
 added 7.4 thousand tokens to every call in the cost study. A task that names an
-`mcp:` or `plugin:` need keeps them. A `minimal` Claude worker skips every
-`CLAUDE.md`, the one in your home folder too: Claude loads that file as project
-instructions when the project is inside the home folder. A `minimal` worker of
-either agent keeps its skills only when the task names a `skill:` or
-`plugin:` need.
+`mcp:` or `plugin:` need keeps them, unless every MCP need is bridged. A
+`minimal` Claude worker skips every `CLAUDE.md`, the one in your home folder
+too: Claude loads that file as project instructions when the project is inside
+the home folder. A `minimal` worker of either agent keeps its skills only when
+the task names a `skill:` or `plugin:` need.
+
+## How a worker borrows the lead's MCP server
+
+A task names the MCP servers it relies on with `duolog delegate --needs
+mcp:<name>`. By default, when the worker's agent lacks that server, duolog does
+not start the worker. It tells the lead to do that part first
+(`on_missing.mcp: lead_first`). With `bridge`, duolog instead hands the lead's
+server to the worker for that one run:
+
+```yaml
+capabilities:
+  on_missing: {mcp: bridge}
+  mcp_tools: {jira: [get_issue, search]}   # optional
+```
+
+Bridging is off by default because it gives the server's credentials to the
+other vendor's agent. Turn it on only for servers you would also configure in
+that agent yourself.
+
+duolog reads the server from the lead's agent config and translates it:
+
+| Lead | Where duolog reads it | Worker gets it as |
+|---|---|---|
+| Claude | `~/.claude.json` (user and local scope) and the project's `.mcp.json` | `-c mcp_servers.<name>.<field>=...` options of `codex exec` |
+| Codex | `config.toml` in `CODEX_HOME`, and the project's `.codex/config.toml` when Codex trusts the folder | A temporary file for `--mcp-config` |
+
+Only the servers the task names are bridged, never all of them. Claude's order
+applies: local scope, then project, then user. A `.mcp.json` server counts only
+after you approved it in Claude. Codex merges the project layer over the user
+layer, key by key.
+
+No credential goes to a file or to the command line. Every env and header value
+of a bridged server moves into the worker's environment under a new name, such
+as `DUOLOG_MCP_JIRA_1`. The translated config names the variable:
+`env_http_headers` for Codex and `${DUOLOG_MCP_JIRA_1}` for Claude. A value
+that the lead's config reads from a variable, such as `${JIRA_TOKEN}` or
+`bearer_token_env_var`, is read from the environment of `duolog delegate`. The
+Claude file is written with mode 0600 in the task folder and removed after the
+run. A Codex worker hides the new variables from its shell commands with
+`shell_environment_policy`. A Claude worker cannot hide them from its Bash
+tool.
+
+A Codex stdio server gets only a short default environment, so its variables
+pass under their own names with `env_vars`. A name that the worker already has
+with another value is not bridged.
+
+`mcp_tools` limits what a bridged server offers. Codex gets `enabled_tools`, so
+it sees only those tools. Claude gets `--allowedTools mcp__<server>__<tool>`;
+it still sees the other tools, and the gate asks the lead before each of them.
+Without a list, the whole server is bridged.
+
+A Claude worker whose only MCP needs are bridged starts with those servers and
+no others (`--strict-mcp-config`). When the task also needs one of the
+worker's own servers, the bridged servers are added to its own. A Codex worker
+always keeps its own servers, and the bridged ones are added.
+
+Some servers cannot be bridged. The task then goes to the lead, as with
+`lead_first`, with one line that says why:
+
+- A server that signs in with OAuth, such as Codex `auth`, `oauth` or `scopes`
+  and Claude `oauth`. A remote server with no credentials in config counts as
+  OAuth too, because a public server and an OAuth server look the same.
+- A server whose headers come from a helper command.
+- Claude connectors and plugin servers, which no config file lists.
+- SSE and unknown transports. A Codex server with a `cwd` other than the
+  project, because Claude cannot set one.
+- A url with a query or user info, and stdio args that read a variable, for a
+  Codex worker. Codex takes these as text, so the value would be in argv.
+- A variable that the lead's environment does not have.
+
+`duolog caps` marks each server `bridgeable` or says why it is not, and
+`duolog doctor` names the servers each agent can lend.
 
 ## What a Codex worker's sandbox blocks
 

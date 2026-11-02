@@ -42,6 +42,11 @@
 
 ## Development
 
+### Added
+
+- `on_missing.mcp: bridge` lends a lead's MCP server to a worker of the other
+  agent, credentials in env only; `duolog caps` shows what can be lent.
+
 ## 1.1.0
 
 ### Added
