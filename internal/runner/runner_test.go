@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -68,6 +69,20 @@ func TestClaudeArgvMinimalDropsSkills(t *testing.T) {
 	// --setting-sources would also drop the user settings that enable the gate.
 	if strings.Contains(strings.Join(Argv(s), " "), "--setting-sources") {
 		t.Fatal(Argv(s))
+	}
+}
+
+// Auto memory stays off in either context: its folder belongs to the project
+// path, so a worker's note would reach the lead.
+func TestClaudeArgvNoAutoMemory(t *testing.T) {
+	s := spec(t, "claude")
+	for _, context := range []string{"minimal", "project"} {
+		s.Route.Context = context
+		a := Argv(s)
+		i := slices.Index(a, "--settings")
+		if i < 0 || !strings.Contains(a[i+1], `"autoMemoryEnabled":false`) {
+			t.Fatal(context, a)
+		}
 	}
 }
 
@@ -682,5 +697,21 @@ func TestMinimalKeepsSkillsForASkillNeed(t *testing.T) {
 	s.KeepSkills = true
 	if line := strings.Join(Argv(s), " "); strings.Contains(line, "skills.include_instructions") || !strings.Contains(line, "project_doc_max_bytes=0") {
 		t.Fatal(line)
+	}
+}
+
+// Both agents return the worker's own decisions; an answer without them, from a
+// worker of an older thread, still parses.
+func TestAnswerKeepsDecisions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "answer.json")
+	r, err := codexAnswer([]byte("Here:\n"+`{"done":true,"summary":"s","files":[],"needs":[],"decisions":["used slog"]}`), path, Result{})
+	if err != nil || strings.Join(r.Decisions, ",") != "used slog" || !strings.Contains(string(read(t, path)), `"decisions":["used slog"]`) {
+		t.Fatal(r, err)
+	}
+	if r, err = codexAnswer([]byte(goodAnswer), path, Result{}); err != nil || r.Decisions != nil || string(read(t, path)) != goodAnswer {
+		t.Fatal(r, err)
+	}
+	if !strings.Contains(answerSchema, `"decisions"`) || !strings.Contains(codexAnswerInstruction, "decisions") {
+		t.Fatal("the answer format misses decisions")
 	}
 }

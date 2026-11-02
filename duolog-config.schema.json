@@ -60,6 +60,29 @@
           },
           "type": "object",
           "description": "One-line guidance keyed by capability name; defaults to an empty map."
+        },
+        "on_auth_failure": {
+          "type": "string",
+          "enum": [
+            "login_then_lead",
+            "lead",
+            "fail"
+          ],
+          "description": "What happens when a worker cannot sign in to its agent or to an MCP server; defaults to login_then_lead, which runs the agent's login once and hands the task to the lead when that fails."
+        },
+        "login_timeout_seconds": {
+          "type": "integer",
+          "description": "Seconds to wait for a login the person must finish; defaults to 180."
+        },
+        "mcp_tools": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "object",
+          "description": "Tools a bridged MCP server offers the worker, keyed by server name; a server not listed is bridged whole. Defaults to an empty map."
         }
       },
       "additionalProperties": false,
@@ -157,7 +180,13 @@
         },
         "mcp": {
           "type": "string",
-          "description": "Handling for a missing MCP server; defaults to lead_first."
+          "enum": [
+            "lead_first",
+            "bridge",
+            "reroute",
+            "refuse"
+          ],
+          "description": "Handling for a missing MCP server; defaults to lead_first. bridge hands the lead's server, with its credentials, to the worker for one run."
         },
         "plugin": {
           "type": "string",
@@ -277,7 +306,7 @@
             "fresh",
             "resume"
           ],
-          "description": "Thread reuse policy; defaults to fresh except plan and debug_hard, which resume."
+          "description": "Thread reuse policy; defaults to fresh except plan, debug and debug_hard, which resume."
         }
       },
       "additionalProperties": false,
@@ -287,7 +316,7 @@
       "properties": {
         "action": {
           "type": "string",
-          "description": "Action type matched by this rule, such as read, write, exec or net."
+          "description": "Action type matched by this rule, such as read, write, exec, net or mcp (match server/tool)."
         },
         "match": {
           "type": "string",

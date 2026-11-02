@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -24,7 +25,7 @@ func newRememberCommand() *cobra.Command {
 	var match string
 	var roles []string
 	native := false
-	cmd := &cobra.Command{Use: "remember <command>", Short: "Allow a command for workers from now on", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "remember <command> | mcp:<server>/<tool>", Short: "Allow a command or an MCP tool for workers from now on", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if isWorker() {
 			return fmt.Errorf("workers cannot change the policy")
 		}
@@ -39,6 +40,9 @@ func newRememberCommand() *cobra.Command {
 		cfg, err := config.Load(root)
 		if err != nil {
 			return err
+		}
+		if tool, ok := strings.CutPrefix(command, "mcp:"); ok {
+			return rememberMCP(cmd, root, cfg, tool, roles, native)
 		}
 		if match == "" {
 			match = rememberPattern(command)
@@ -186,6 +190,76 @@ func nativePrefix(match string) (prefix string, anyArgs bool) {
 	return match, false
 }
 
+// rememberMCP saves an allow rule for one MCP tool, or a glob of tools, of
+// one server. duolog cannot tell whether a tool writes, so the default roles
+// are the writing roles, as for commands; --role names others.
+func rememberMCP(cmd *cobra.Command, root string, cfg *config.Config, tool string, roles []string, native bool) error {
+	server, name, ok := strings.Cut(tool, "/")
+	if !ok || server == "" || name == "" || strings.ContainsAny(tool, " \t") {
+		return fmt.Errorf("name the tool as mcp:<server>/<tool>, such as mcp:tracker/get_issue")
+	}
+	if len(roles) == 0 {
+		roles = writerRoles(cfg)
+	}
+	rule := config.Rule{Action: "mcp", Match: tool, Decision: gate.Allow, Roles: roles}
+	policy := cfg.Policy
+	policy.Rules = append(slices.Clone(policy.Rules), rule)
+	for _, role := range roles {
+		if _, ok := cfg.Roles[role]; !ok {
+			return fmt.Errorf("unknown role %q", role)
+		}
+		if d := gate.Evaluate(policy, gate.LeadRules{}, mode.Edits, gate.Action{Kind: "mcp", Target: sampleTool(tool), Role: role, MCPExact: true}); d.Kind != gate.Allow {
+			return fmt.Errorf("a rule cannot allow mcp:%s for %s: %s (%s)", tool, role, d.Reason, d.Rule)
+		}
+	}
+	if _, err := store.Open(root); err != nil {
+		return err
+	}
+	path := filepath.Join(root, ".duolog", config.LearnedFile)
+	added, err := addLearnedRule(path, rule)
+	if err != nil {
+		return err
+	}
+	out := cmd.OutOrStdout()
+	if !added {
+		fmt.Fprintf(out, "already remembered for workers: mcp %s\n", tool)
+	} else {
+		fmt.Fprintf(out, "remembered for workers: mcp %q allow for %s in %s\n", tool, strings.Join(roles, ", "), path)
+	}
+	if !native {
+		return nil
+	}
+	// Claude names the tool mcp__<server>__<tool>; a rule of mcp__<server>
+	// covers every tool of the server. Other globs have no Claude form.
+	entry := "mcp__" + claudeName(server)
+	switch {
+	case strings.ContainsAny(server, "*?[{"):
+		entry = ""
+	case name == "*":
+	case !strings.ContainsAny(name, "*?[{"):
+		entry += "__" + claudeName(name)
+	default:
+		entry = ""
+	}
+	if entry == "" {
+		fmt.Fprintln(out, "claude: no rule; Claude allows one MCP tool or a whole server, not a glob")
+	} else {
+		claude, err := addClaudeEntry(filepath.Join(root, ".claude", "settings.local.json"), entry)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "claude: %s\n", claude)
+	}
+	// Codex approves MCP tools per server in config.toml, and an entry there
+	// for a server the project does not define would add a broken server.
+	fmt.Fprintln(out, "codex: no rule; Codex sets MCP tool approval per server in its own config.toml")
+	return nil
+}
+
+var claudeNameChars = regexp.MustCompile(`[^A-Za-z0-9_-]`)
+
+func claudeName(s string) string { return claudeNameChars.ReplaceAllString(s, "_") }
+
 // addClaudeAllow adds Bash(prefix:*) or Bash(command) to permissions.allow,
 // keeping every other setting in the file.
 func addClaudeAllow(path, match string) (string, error) {
@@ -194,6 +268,11 @@ func addClaudeAllow(path, match string) (string, error) {
 	if anyArgs {
 		entry = "Bash(" + prefix + ":*)"
 	}
+	return addClaudeEntry(path, entry)
+}
+
+// addClaudeEntry adds entry to permissions.allow, keeping every other setting.
+func addClaudeEntry(path, entry string) (string, error) {
 	settings := map[string]any{}
 	if data, err := os.ReadFile(path); err == nil {
 		if err := json.Unmarshal(data, &settings); err != nil {
@@ -251,4 +330,17 @@ func addCodexRule(path, match string) (string, error) {
 	defer f.Close()
 	_, err = f.WriteString(rule)
 	return strings.TrimSpace(rule), err
+}
+
+var firstAlternative = regexp.MustCompile(`\{([^,}]*)[^}]*\}|\[[^]]*\]|[*?]`)
+
+// sampleTool turns a pattern such as {tracker,wiki}/get_* into one tool it
+// covers, tracker/get_x, for the check that the new rule allows it.
+func sampleTool(pattern string) string {
+	return firstAlternative.ReplaceAllStringFunc(pattern, func(m string) string {
+		if strings.HasPrefix(m, "{") {
+			return firstAlternative.FindStringSubmatch(m)[1]
+		}
+		return "x"
+	})
 }

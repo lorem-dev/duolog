@@ -17,7 +17,9 @@ import (
 	"unicode/utf8"
 
 	"crypto/sha256"
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gofrs/flock"
+	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
@@ -71,6 +73,8 @@ var runWorker = runner.Run
 var resolveModel = models.Resolve
 var readLeadState = session.ReadLeadState
 var scanCapabilities = capability.Scan
+var bridgeMCP = capability.Bridge
+var newChecker = auth.New
 
 func Place(cfg *config.Config, taskPath string, route router.Route) (Placement, error) {
 	root, err := os.Getwd()
@@ -142,6 +146,11 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	if err = task.Validate(source); err != nil {
 		return out, err
 	}
+	// The paths Write lists, to name what the worker changed outside them.
+	writes, err := task.WritePaths(source)
+	if err != nil {
+		return out, err
+	}
 	original, err := os.ReadFile(source)
 	if err != nil {
 		return out, err
@@ -207,6 +216,8 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	}
 	priorAgent := ""
 	placementTask := taskPath
+	checker := newChecker(filepath.Join(s.Dir, "cache"))
+	loginTried := false
 	capNotes := ""
 	for attempt := 0; attempt < 2; attempt++ {
 		route, routeErr := router.Resolve(cfg, role, unavailable, router.Options{Lead: leadTarget, AllowManualModel: opts.AllowManualModel})
@@ -239,6 +250,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			return out, nil
 		}
 		capNotes = ""
+		env := workerEnv(cfg.EnvPassthrough, leadID, role)
+		var bridge []string
+		var bridged *runner.MCP
 		if len(opts.Needs) > 0 {
 			target, scanErr := scanCapabilities(ctx, route.Agent, root)
 			if scanErr != nil {
@@ -252,8 +266,11 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			}
 			var notes, lacking []string
 			reroute := false
+			bridge = nil
 			for _, r := range capability.Resolve(target, lead, opts.Needs, cfg.Capabilities) {
 				switch r.Action {
+				case capability.ActionBridge:
+					bridge = append(bridge, strings.TrimPrefix(r.Need, capability.KindMCP+":"))
 				case capability.ActionRefuse:
 					out.Line = oneLine("role " + role + ": " + r.Hint)
 					return out, fmt.Errorf("capability %s missing: %s", r.Need, r.Hint)
@@ -269,6 +286,18 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					}
 				}
 			}
+			bridged = nil
+			if len(bridge) > 0 {
+				var failed map[string]string
+				bridged, failed = bridgeMCP(leadAgent, route.Agent, root, bridge, cfg.Capabilities.MCPTools, env)
+				for _, name := range bridge {
+					if why, ok := failed[name]; ok {
+						need := capability.KindMCP + ":" + name
+						lacking = append(lacking, need)
+						notes = append(notes, capability.BridgeFallback(need, route.Agent, why))
+					}
+				}
+			}
 			if len(lacking) > 0 {
 				out.Needs = lacking
 				out.Line = oneLine("role " + role + " waits for lead: " + strings.Join(notes, " "))
@@ -281,6 +310,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				priorAgent = route.Agent
 				unavailable[route.Agent] = true
 				continue
+			}
+			if needsKind(opts.Needs, capability.KindMCP) {
+				notes = append(notes, auth.WorkerLine)
 			}
 			for _, n := range notes {
 				capNotes += n + "\n"
@@ -305,6 +337,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		if warning, err = trustWarning(route, role, state, folder); err != nil {
 			return out, err
 		}
+		if bridged != nil {
+			warning += "; bridged mcp:" + strings.Join(bridged.Names, ",mcp:") + " from " + leadAgent
+		}
 		// The brief and the worker lines count against the inline limit, so a large
 		// brief leaves less room for Read files instead of growing every handoff.
 		brief := workerBrief(root)
@@ -325,6 +360,22 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		if inlineErr != nil {
 			return out, inlineErr
 		}
+		// A worker that cannot sign in would fail after the lead waited for it,
+		// so its agent and the servers it needs are checked first.
+		// The servers are checked only once the agent is logged in, so a login
+		// that works checks them next.
+		for problems := preflight(ctx, checker, route.Agent, leadAgent, root, opts.Needs, bridged); len(problems) > 0; {
+			p := problems[0]
+			ok, authErr := settleAuth(ctx, cfg, reg, checker, leadID, role, p, &loginTried, &out)
+			if authErr != nil || !ok {
+				return out, authErr
+			}
+			if p.Server == "" {
+				problems = preflight(ctx, checker, route.Agent, leadAgent, root, opts.Needs, bridged)
+			} else {
+				problems = problems[1:]
+			}
+		}
 		model, modelErr := resolveModel(ctx, cfg, filepath.Join(s.Dir, "cache"), route.Target)
 		if modelErr != nil {
 			if missingBinary(modelErr) {
@@ -335,7 +386,8 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		} else {
 			route.Model = model
 			stdin := append(append(brief, inline...), workerLines...)
-			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Env: workerEnv(cfg.EnvPassthrough, leadID, role), Persistent: route.Session == "resume", KeepMCP: needsKind(opts.Needs, capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin)}
+			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Env: env, Persistent: route.Session == "resume", KeepMCP: needsKind(withoutBridged(opts.Needs, bridged), capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin), MCP: bridged}
+			spec.MCP = limitOwn(spec, opts.Needs, cfg.Capabilities.MCPTools)
 			if route.Sandbox == "read-only" {
 				spec.Mode = mode.Plan
 			}
@@ -375,12 +427,28 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			if err = reg.SetWaiting(leadID, token, os.Getpid()); err != nil {
 				return out, err
 			}
-			out.Result, err = func() (runner.Result, error) {
-				defer reg.SetWaiting(leadID, token, 0)
-				return runWorker(ctx, spec)
-			}()
-			if usageErr := appendUsage(s.Dir, role, route, out.Result); usageErr != nil {
-				return out, errors.Join(err, usageErr)
+			for {
+				out.Result, err = func() (runner.Result, error) {
+					defer reg.SetWaiting(leadID, token, 0)
+					return runWorker(ctx, spec)
+				}()
+				if usageErr := appendUsage(s.Dir, role, route, out.Result); usageErr != nil {
+					return out, errors.Join(err, usageErr)
+				}
+				problems := runProblems(route.Agent, leadAgent, root, out.Result, bridged, opts.Needs)
+				if len(problems) == 0 || out.Result.Interrupted || out.Result.QuotaEnded {
+					break
+				}
+				// A login that works lets the worker run once more; settleAuth
+				// tries one login per delegation, so this ends.
+				ok, authErr := settleAuth(ctx, cfg, reg, checker, leadID, role, problems[0], &loginTried, &out)
+				if authErr != nil || !ok {
+					out.Result = runner.Result{}
+					return out, authErr
+				}
+				if err = reg.SetWaiting(leadID, token, os.Getpid()); err != nil {
+					return out, err
+				}
 			}
 			if out.Result.Interrupted {
 				out.Line = "role " + role + " interrupted"
@@ -412,7 +480,18 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					out.Needs = out.Result.Needs
 					needs = " needs=" + strings.Join(out.Result.Needs, ",")
 				}
-				out.Line = resultLine(out.Result.Done, needs, out.Result.Summary, strings.Join(out.Result.Files, ","), warning, answerPointer(dir))
+				if len(out.Result.Decisions) > 0 {
+					needs += fmt.Sprintf(" decisions=%d", len(out.Result.Decisions))
+				}
+				lineWarning := warning
+				if before != nil {
+					if after, snapErr := snapshot(root); snapErr == nil {
+						if outside := outsideWrite(changes(before, after), writes); len(outside) > 0 {
+							lineWarning += "; outside=" + strings.Join(outside, ",")
+						}
+					}
+				}
+				out.Line = resultLine(out.Result.Done, needs, out.Result.Summary, strings.Join(out.Result.Files, ","), lineWarning, answerPointer(dir))
 				return out, nil
 			}
 			if out.Result.QuotaEnded {
@@ -645,7 +724,12 @@ func Snapshot(root string) (map[string]string, error)  { return snapshot(root) }
 func Changes(before, after map[string]string) []string { return changes(before, after) }
 
 // workerLines close every worker's input.
-var workerLines = "\n" + capability.NeedsLine + "\n" + gateRetryLine + "\n" + ownershipLine + "\n"
+var workerLines = "\n" + capability.NeedsLine + "\n" + gateRetryLine + "\n" + ownershipLine + "\n" + decisionsLine + "\n"
+
+// decisionsLine makes a worker name what it settled alone. In the cost study
+// Codex workers decided one to three open points of a skeleton without saying
+// so, and the lead could not see them in the diff.
+const decisionsLine = "List in decisions each choice the task left open that you made yourself, such as a library, a name, a file layout or a default. Leave it empty when the task settled everything."
 
 // gateRetryLine keeps a worker going after a refusal it can avoid: most refused
 // commands only had quotes, globs or pipes the gate cannot read, and a stopped
@@ -666,6 +750,23 @@ func needsKind(needs []string, kinds ...string) bool {
 		}
 	}
 	return false
+}
+
+// withoutBridged drops the needs that bridged servers meet: a Claude worker
+// whose only MCP needs are bridged starts with those servers and no others.
+func withoutBridged(needs []string, bridged *runner.MCP) []string {
+	if bridged == nil {
+		return needs
+	}
+	var out []string
+	for _, need := range needs {
+		kind, name, err := capability.ParseNeed(need)
+		if err == nil && kind == capability.KindMCP && slices.Contains(bridged.Names, name) {
+			continue
+		}
+		out = append(out, need)
+	}
+	return out
 }
 
 // ownershipLine keeps the steps that need the user's or the lead's judgment
@@ -689,4 +790,207 @@ func workerBrief(root string) []byte {
 		return nil
 	}
 	return append(append([]byte("Project brief from the lead (applies to every task):\n\n"), data...), []byte("\n\n")...)
+}
+
+// preflight checks the worker's login and the login of every MCP server the
+// task needs, bridged or the worker's own. A bridged server is checked with
+// the lead's definition, which is what the worker gets.
+func preflight(ctx context.Context, checker auth.Checker, agent, leadAgent, root string, needs []string, bridged *runner.MCP) []auth.Problem {
+	var out []auth.Problem
+	if p := checker.Agent(ctx, agent); p != nil {
+		return append(out, *p)
+	}
+	own, lent := capability.Servers(agent, root), map[string]capability.Server{}
+	if bridged != nil {
+		lent = capability.Servers(leadAgent, root)
+	}
+	for _, need := range needs {
+		kind, name, err := capability.ParseNeed(need)
+		if err != nil || kind != capability.KindMCP {
+			continue
+		}
+		var def *capability.Server
+		if bridged != nil && slices.Contains(bridged.Names, name) {
+			if s, ok := lent[name]; ok {
+				def = &s
+			}
+		} else if s, ok := own[name]; ok {
+			def = &s
+		}
+		if def != nil && def.Inactive {
+			// The agent would not start it; a check would send its credentials
+			// to a server the person never approved.
+			continue
+		}
+		if p := checker.Server(ctx, agent, name, def); p != nil {
+			out = append(out, *p)
+		}
+	}
+	return out
+}
+
+// runProblems reads a refused login from a finished run: an error the runner
+// classified, or auth: entries the worker put in needs.
+func runProblems(agent, leadAgent, root string, r runner.Result, bridged *runner.MCP, taskNeeds []string) []auth.Problem {
+	// A finished run stays finished, whatever its log said about a login.
+	if r.Done {
+		return nil
+	}
+	var problems []auth.Problem
+	for _, p := range auth.FromNeeds(agent, r.Needs) {
+		// The worker writes these needs, so a server counts only when the task
+		// named it: its name reaches a login command and the line for the lead.
+		if p.Server == "" || slices.Contains(taskNeeds, capability.KindMCP+":"+p.Server) {
+			problems = append(problems, p)
+		}
+	}
+	// The server name comes from the worker's errors, so it too counts only
+	// when the task named it.
+	if r.AuthFailed && (r.AuthServer == "" || slices.Contains(taskNeeds, capability.KindMCP+":"+r.AuthServer)) {
+		p := auth.Problem{Agent: agent, Server: r.AuthServer, Reason: "the worker's agent refused its login"}
+		if p.Server != "" {
+			p.Reason = "the server refused the worker's credentials"
+		}
+		problems = append([]auth.Problem{p}, problems...)
+	}
+	for i, p := range problems {
+		if p.Server == "" {
+			continue
+		}
+		defs := capability.Servers(agent, root)
+		if bridged != nil && slices.Contains(bridged.Names, p.Server) {
+			defs = capability.Servers(leadAgent, root)
+		}
+		if def, ok := defs[p.Server]; ok && def.Transport == "http" && def.Static() {
+			problems[i].Static, problems[i].Where = true, def.File
+		} else if ok && def.Transport != "http" {
+			// A stdio server has no login to run: its credentials are in env.
+			problems[i].Static, problems[i].Where = true, def.File
+		}
+	}
+	return problems
+}
+
+// settleAuth decides what a refused login does to the run. It returns true
+// when the worker may start, after a login that worked. Otherwise the task goes
+// to the lead, as with on_missing lead_first, and out says why; the reason
+// names the agent or server and the config entry, never a value.
+func settleAuth(ctx context.Context, cfg *config.Config, reg *session.Registry, checker auth.Checker, leadID, role string, p auth.Problem, tried *bool, out *Outcome) (bool, error) {
+	action := cfg.Capabilities.OnAuthFailure
+	if action == "" {
+		action = auth.LoginThenLead
+	}
+	reason := p.Subject() + ": " + p.Reason
+	if action == auth.Fail {
+		return false, fmt.Errorf("%s", reason)
+	}
+	command := p.Command()
+	switch {
+	case p.Static:
+		reason += "; fix the credential in " + p.Where
+		command = ""
+	case action == auth.LoginThenLead && !*tried:
+		declined, err := reg.AuthDeclined(leadID, p.Key())
+		if err != nil {
+			return false, err
+		}
+		if declined {
+			reason += "; the login was declined earlier in this session"
+			break
+		}
+		*tried = true
+		timeout := time.Duration(cfg.Capabilities.LoginTimeoutSeconds) * time.Second
+		switch checker.Login(ctx, p, timeout) {
+		case auth.LoggedIn:
+			var again *auth.Problem
+			if p.Server == "" {
+				again = checker.Agent(ctx, p.Agent)
+			} else if !p.Static {
+				again = checker.Server(ctx, p.Agent, p.Server, nil)
+			}
+			if again == nil {
+				return true, nil
+			}
+			reason += "; still refused after the login"
+		case auth.NeedsTerminal:
+			out.Needs = []string{p.AuthNeed()}
+			out.Line = oneLine("role " + role + " waits for lead: " + reason + "; the login needs a terminal. Ask the person to run: ! " + command)
+			return false, nil
+		case auth.TimedOut:
+			// Not recorded as declined: the person may finish it from a terminal.
+			reason += "; the login timed out"
+		default:
+			if err := reg.DeclineAuth(leadID, p.Key()); err != nil {
+				return false, err
+			}
+			reason += "; the login was closed or failed"
+		}
+	}
+	if command != "" {
+		reason += "; to log in, run: ! " + command
+	}
+	tail := " Do this part first and pass the artifact in Read."
+	if p.Server == "" {
+		tail = " Do the task here, or log in and delegate again."
+	}
+	out.Needs = []string{p.Need()}
+	out.Line = oneLine("role " + role + " waits for lead: " + reason + "." + tail)
+	return false, nil
+}
+
+// limitOwn adds capabilities.mcp_tools for the worker's own servers that the
+// task needs, so that the list filters them as it filters a bridged server.
+func limitOwn(spec runner.Spec, needs []string, tools map[string][]string) *runner.MCP {
+	var own []string
+	for _, need := range withoutBridged(needs, spec.MCP) {
+		if kind, name, err := capability.ParseNeed(need); err == nil && kind == capability.KindMCP {
+			own = append(own, name)
+		}
+	}
+	if spec.Route.Agent == "codex" {
+		// enabled_tools for a server Codex does not define, such as a plugin's,
+		// would make a table with no transport, which Codex refuses.
+		defs := capability.Servers("codex", spec.Cwd)
+		own = slices.DeleteFunc(own, func(name string) bool { _, ok := defs[name]; return !ok })
+	}
+	codexArgs, allowed := capability.Limit(spec.Route.Agent, own, tools)
+	m := spec.MCP
+	if m == nil {
+		if len(codexArgs) == 0 && len(allowed) == 0 {
+			return nil
+		}
+		m = &runner.MCP{}
+	} else {
+		copied := *m
+		m = &copied
+	}
+	m.CodexArgs = append(append([]string(nil), m.CodexArgs...), codexArgs...)
+	m.AllowedTools = append(append([]string(nil), m.AllowedTools...), allowed...)
+	return m
+}
+
+// outsideWrite lists the changed paths that no Write entry covers: a file, a
+// folder that holds it, or a glob. A task whose Write lists no path gets no
+// list, since it did not say what the worker may change. A change the lead
+// made while the worker ran shows up here too.
+func outsideWrite(changed, writes []string) []string {
+	if len(writes) == 0 {
+		return nil
+	}
+	var outside []string
+	for _, name := range changed {
+		clean := pathutil.Clean(name)
+		covered := false
+		for _, w := range writes {
+			match, _ := doublestar.Match(w, clean)
+			if match || w == "." || clean == w || strings.HasPrefix(clean, w+"/") {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			outside = append(outside, name)
+		}
+	}
+	return outside
 }

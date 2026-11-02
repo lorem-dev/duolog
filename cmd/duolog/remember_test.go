@@ -194,3 +194,74 @@ func TestRememberTakesUnquotedOptions(t *testing.T) {
 		t.Fatalf("learned: %s", data)
 	}
 }
+
+// An MCP tool is remembered as an mcp rule that adds to the policy, for the
+// writing roles unless --role names others.
+func TestRememberMCPTool(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	out, err := rememberIn(t, "mcp:jira/get_issue")
+	if err != nil || !strings.Contains(out, `mcp "jira/get_issue" allow`) {
+		t.Fatal(out, err)
+	}
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := gate.Evaluate(cfg.Policy, gate.LeadRules{}, mode.Ask, gate.Action{Kind: "mcp", Target: "jira/get_issue", Role: "implement"}); d.Kind != gate.Allow {
+		t.Fatal(d)
+	}
+	// A read-only role gets nothing it was not given by name.
+	if d := gate.Evaluate(cfg.Policy, gate.LeadRules{}, mode.Ask, gate.Action{Kind: "mcp", Target: "jira/get_issue", Role: "review_final"}); d.Kind != gate.Ask {
+		t.Fatal(d)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".claude", "settings.local.json")); !os.IsNotExist(err) {
+		t.Fatal("native files changed without --native")
+	}
+	// The default rules are all still there: the learned rule adds to them.
+	if d := gate.Evaluate(cfg.Policy, gate.LeadRules{}, mode.Ask, gate.Action{Kind: "exec", Target: "git status", Role: "implement"}); d.Kind != gate.Allow {
+		t.Fatal(d)
+	}
+	out, err = rememberIn(t, "--native", "--role", "review_final", "mcp:my-wiki/*")
+	if err != nil || !strings.Contains(out, "claude: mcp__my-wiki") || !strings.Contains(out, "codex: no rule") {
+		t.Fatal(out, err)
+	}
+	cfg, _ = config.Load(root)
+	if d := gate.Evaluate(cfg.Policy, gate.LeadRules{}, mode.Ask, gate.Action{Kind: "mcp", Target: "my_wiki/search", Role: "review_final"}); d.Kind != gate.Allow {
+		t.Fatal(d)
+	}
+	out, err = rememberIn(t, "--native", "mcp:jira/get_*")
+	if err != nil || !strings.Contains(out, "claude: no rule") {
+		t.Fatal(out, err)
+	}
+	data, _ := os.ReadFile(filepath.Join(root, ".claude", "settings.local.json"))
+	if strings.Contains(string(data), "get_*") || !strings.Contains(string(data), `"mcp__my-wiki"`) {
+		t.Fatal(string(data))
+	}
+	if _, err = rememberIn(t, "mcp:jira"); err == nil {
+		t.Fatal("a server with no tool was accepted")
+	}
+	// A glob or brace in the server has no Claude form, and the check of the
+	// new rule uses a tool it covers.
+	out, err = rememberIn(t, "--native", "mcp:{tracker,wiki}/read")
+	if err != nil || !strings.Contains(out, "claude: no rule") {
+		t.Fatal(out, err)
+	}
+	if out, err = rememberIn(t, "--native", "mcp:tracker*/*"); err != nil || !strings.Contains(out, "claude: no rule") {
+		t.Fatal(out, err)
+	}
+	data, _ = os.ReadFile(filepath.Join(root, ".claude", "settings.local.json"))
+	if strings.Contains(string(data), "tracker") || strings.Contains(string(data), "mcp___") {
+		t.Fatal(string(data))
+	}
+}
+
+// A whole server with __ in its name can be remembered: the check knows the
+// server as written.
+func TestRememberServerWithDoubleUnderscore(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	if out, err := rememberIn(t, "--native", "mcp:my__wiki/*"); err != nil || !strings.Contains(out, "claude: mcp__my__wiki") {
+		t.Fatal(out, err)
+	}
+}

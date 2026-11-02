@@ -315,7 +315,8 @@ func TestDelegateInterruptReportsAndStopsDescendant(t *testing.T) {
 	if err := os.WriteFile("task.md", []byte(task), 0600); err != nil {
 		t.Fatal(err)
 	}
-	fake := testbin.Install(t, "claude", testbin.Scenario{SpawnChild: true, SleepMS: 60000})
+	// The login check before the worker answers at once; the worker hangs.
+	fake := testbin.Install(t, "claude", testbin.Scenario{SpawnChild: true, SleepMS: 60000, Responses: map[string]testbin.Scenario{"auth status": {Stdout: `{"loggedIn":true}`}}})
 	var output bytes.Buffer
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

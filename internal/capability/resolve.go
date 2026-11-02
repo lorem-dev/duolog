@@ -50,6 +50,17 @@ func Resolve(target, source Inventory, needs []string, cfg config.Capabilities) 
 			out = append(out, Resolution{Need: need, Action: ActionPresent})
 			continue
 		}
+		// With bridge on, a server from the lead's config files counts as missing
+		// in the worker even where the worker's list is incomplete: the user chose
+		// that the name means the lead's server.
+		if item, ok := find(source, kind, name); ok && kind == KindMCP && cfg.OnMissing.MCP == ActionBridge && (item.Bridgeable || item.NoBridge != "") {
+			if item.Bridgeable {
+				out = append(out, Resolution{Need: need, Action: ActionBridge})
+			} else {
+				out = append(out, Resolution{Need: need, Action: ActionLeadFirst, Hint: hint(cfg, kind, name, BridgeFallback(need, target.Agent, item.NoBridge))})
+			}
+			continue
+		}
 		if target.KindUnknown(kind) {
 			out = append(out, Resolution{Need: need, Action: ActionPresent, Hint: NeedsLine})
 			continue
@@ -82,6 +93,11 @@ func Resolve(target, source Inventory, needs []string, cfg config.Capabilities) 
 		out = append(out, Resolution{Need: need, Action: action, Hint: hint(cfg, kind, name, text)})
 	}
 	return out
+}
+
+// BridgeFallback is the lead_first line for a server that cannot be bridged.
+func BridgeFallback(need, agent, why string) string {
+	return need + " is missing in " + agent + " and cannot be bridged: " + why + ". Do this part first and pass the artifact in Read."
 }
 
 // hint lets a project line replace the default text.

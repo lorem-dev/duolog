@@ -74,8 +74,10 @@ roles:
     sandbox: workspace-write
     context: project
     session: fresh
+  # In the cost study sol made no false findings on reviews; terra cost half as
+  # much but made a false one in half of its runs.
   review_intermediate:
-    use: {agent: codex, model: terra, effort: medium}
+    use: {agent: codex, model: sol, effort: medium}
     fallback: {agent: claude, model: sonnet, effort: medium}
     sandbox: read-only
     context: project
@@ -86,6 +88,15 @@ roles:
     sandbox: read-only
     context: project
     session: fresh
+  # Finding a cause by reading one repository. In the cost study sol found it on
+  # four hard bugs at every effort, for a third to a sixteenth of what opus cost.
+  debug:
+    use: {agent: codex, model: sol, effort: medium}
+    fallback: {agent: claude, model: opus, effort: high}
+    sandbox: read-only
+    context: project
+    session: resume
+  # Several components, logs or other evidence from outside the repository.
   debug_hard:
     use: {agent: claude, model: opus, effort: high}
     fallback: {agent: codex, model: sol, effort: high}
@@ -153,8 +164,15 @@ policy:
 # lead_first: start nothing; the lead does that part and passes the result as an artifact.
 # reroute: give the role to the agent that has it. refuse: stop with the name.
 capabilities:
+  # mcp: bridge hands the lead's server, with its credentials, to a worker of
+  # the other agent for one run. It is off by default for that reason.
   on_missing: {skill: read_source, mcp: lead_first, plugin: lead_first}
   hints: {}             # name: a one-line hint that replaces the default text
+  mcp_tools: {}         # server: [tool, ...]; limits what a bridged server offers
+  # A worker that cannot sign in: login_then_lead runs the agent's own login
+  # once, then hands the task to the lead; lead hands it over at once; fail stops.
+  on_auth_failure: login_then_lead
+  login_timeout_seconds: 180
 
 # `duolog sync --from claude|codex` picks the direction; hooks then keep the target up to date.
 # Skills and agents are always generated as plain files, never symlinks.

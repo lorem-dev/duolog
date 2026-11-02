@@ -23,9 +23,9 @@ import (
 )
 
 const taskInstruction = "Do the task in the stdin block."
-const codexAnswerInstruction = "Reply with only one JSON object with the keys done, summary, files and needs. done is true or false, summary is a string, files and needs are arrays of strings."
+const codexAnswerInstruction = "Reply with only one JSON object with the keys done, summary, files, needs and decisions. done is true or false, summary is a string, files, needs and decisions are arrays of strings."
 const defaultTimeout = 30 * time.Minute
-const answerSchema = `{"type":"object","properties":{"done":{"type":"boolean"},"summary":{"type":"string"},"files":{"type":"array","items":{"type":"string"}},"needs":{"type":"array","items":{"type":"string"}}},"required":["done","summary","files","needs"],"additionalProperties":false}`
+const answerSchema = `{"type":"object","properties":{"done":{"type":"boolean"},"summary":{"type":"string"},"files":{"type":"array","items":{"type":"string"}},"needs":{"type":"array","items":{"type":"string"}},"decisions":{"type":"array","items":{"type":"string"}}},"required":["done","summary","files","needs","decisions"],"additionalProperties":false}`
 
 type Spec struct {
 	Route                          router.Route
@@ -39,20 +39,48 @@ type Spec struct {
 	// KeepSkills keeps the skill list of a minimal worker whose task needs a skill.
 	KeepSkills bool
 	Timeout    time.Duration
+	// MCP holds servers bridged from the lead's agent for this run, or nil.
+	MCP *MCP
+}
+
+// MCP is what a worker needs to start servers bridged from the lead's agent.
+// The config parts refer to values by variable name only; the values are in
+// Env, which reaches the worker process and nothing else.
+type MCP struct {
+	// Names are the bridged servers.
+	Names []string
+	// CodexArgs are -c overrides for a Codex worker.
+	CodexArgs []string
+	// ClaudeConfig is the --mcp-config JSON for a Claude worker. Run writes it to
+	// a 0600 file in the task folder and removes the file after the run.
+	ClaudeConfig []byte
+	// AllowedTools and DisallowedTools are Claude tool names, such as
+	// mcp__tracker__get_issue.
+	AllowedTools, DisallowedTools []string
+	// Env holds NAME=value pairs for the worker process.
+	Env []string
+	// configPath is where Run wrote ClaudeConfig.
+	configPath string
 }
 
 type Usage struct{ Input, Cached, Output int64 }
 type Result struct {
-	Done        bool
-	Summary     string
-	Files       []string
-	Needs       []string
+	Done    bool
+	Summary string
+	Files   []string
+	Needs   []string
+	// Decisions are the choices the task left open that the worker made itself.
+	Decisions   []string
 	Interrupted bool
 	ResetAt     time.Time
 	SessionID   string
 	Usage       Usage
 	QuotaEnded  bool
 	ExitCode    int
+	// AuthFailed means an error said the worker's agent or a server refused
+	// its credentials. AuthServer names the server, when the error did.
+	AuthFailed bool
+	AuthServer string
 }
 
 // Argv includes the executable. Route.Model is already resolved by the caller;
@@ -91,6 +119,14 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	// A previous run must never supply this invocation's answer.
 	if err = os.Remove(answerPath); err != nil && !os.IsNotExist(err) {
 		return result, err
+	}
+	if s.MCP != nil && s.Route.Agent == "claude" && len(s.MCP.ClaudeConfig) > 0 {
+		bridged := *s.MCP
+		if bridged.configPath, err = writeMCPConfig(s.TaskDir, bridged.ClaudeConfig); err != nil {
+			return result, err
+		}
+		defer os.Remove(bridged.configPath)
+		s.MCP = &bridged
 	}
 	argv := Argv(s)
 	if len(argv) == 0 {
@@ -136,6 +172,10 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 		*stream.dest = io.MultiWriter(log, capture)
 	}
 	cmd.Env = append([]string{}, s.Env...)
+	if s.MCP != nil {
+		// Added after env_passthrough, which never filters them.
+		cmd.Env = append(cmd.Env, s.MCP.Env...)
+	}
 	if s.Route.Agent == "claude" {
 		env := cmd.Env[:0]
 		for _, v := range cmd.Env {
@@ -191,10 +231,11 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 		return codexAnswer(answer, answerPath, result)
 	}
 	var parsed struct {
-		Done    *bool    `json:"done"`
-		Summary *string  `json:"summary"`
-		Files   []string `json:"files"`
-		Needs   []string `json:"needs"`
+		Done      *bool    `json:"done"`
+		Summary   *string  `json:"summary"`
+		Files     []string `json:"files"`
+		Needs     []string `json:"needs"`
+		Decisions []string `json:"decisions"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(answer))
 	decoder.DisallowUnknownFields()
@@ -212,7 +253,24 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	result.Summary = *parsed.Summary
 	result.Files = parsed.Files
 	result.Needs = parsed.Needs
+	result.Decisions = parsed.Decisions
 	return result, nil
+}
+
+// writeMCPConfig writes the bridged servers for --mcp-config. CreateTemp makes
+// the file 0600; the chmod keeps it so on a system that does otherwise.
+func writeMCPConfig(dir string, data []byte) (string, error) {
+	f, err := os.CreateTemp(dir, "mcp-*.json")
+	if err != nil {
+		return "", err
+	}
+	_, writeErr := f.Write(data)
+	closeErr := f.Close()
+	if err = errors.Join(writeErr, closeErr, os.Chmod(f.Name(), 0600)); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
 }
 
 func readLog(path, agent string, stderr bool, result *Result) error {
@@ -244,6 +302,12 @@ func readLog(path, agent string, stderr bool, result *Result) error {
 		}
 		// Ordinary stdout can contain tool output or model answers about quotas.
 		// Only stderr on failure or an explicit error event is authoritative.
+		if !result.AuthFailed && authFailure(text) {
+			result.AuthFailed = true
+			if m := mcpServerPattern.FindStringSubmatch(text); m != nil {
+				result.AuthServer = m[1]
+			}
+		}
 		if quotaFailure(text) {
 			result.QuotaEnded = true
 			if reset := resetTime(text, time.Now()); !reset.IsZero() {
@@ -260,6 +324,21 @@ func readLog(path, agent string, stderr bool, result *Result) error {
 		}
 	}
 }
+
+// authFailure finds a refused login in an error. Like quotaFailure it reads
+// only authoritative text: stderr of a failed run and error events.
+func authFailure(text string) bool {
+	text = strings.ToLower(text)
+	for _, phrase := range []string{"not logged in", "please run /login", "invalid api key", "oauth token has expired", "authentication_error", "401 unauthorized", "codex login", "token_expired", "invalid_token", "refresh token"} {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// mcpServerPattern names the server in Codex's MCP start-up errors.
+var mcpServerPattern = regexp.MustCompile("MCP client for [`'\"]?([A-Za-z0-9_.-]+)[`'\"]? failed")
 
 func quotaFailure(text string) bool {
 	text = strings.ToLower(text)
@@ -330,3 +409,7 @@ func ResetTime(text string, now time.Time) time.Time {
 	}
 	return codexResetTime(text, now)
 }
+
+// ProcessTree makes cancelling cmd end the processes it started too, as for a
+// worker.
+func ProcessTree(cmd *exec.Cmd) { configureProcess(cmd) }

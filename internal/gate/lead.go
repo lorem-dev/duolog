@@ -172,6 +172,17 @@ func claudeDeny(entry string) (config.Rule, error) {
 		pattern = "**"
 	}
 	kind := ""
+	// A lead deny of mcp__server or mcp__server__tool holds for workers too.
+	// mcp__my__wiki may name the server my__wiki, so it also covers every tool
+	// whose full name starts with it.
+	if server, ok := strings.CutPrefix(tool, "mcp__"); ok && !hasPattern {
+		match := server + "/*"
+		if target, ok := MCPTarget(tool); ok {
+			match = "{" + target + "," + target + "__*}"
+		}
+		rule := config.Rule{Action: "mcp", Match: match, Decision: Deny}
+		return rule, validateRule(rule)
+	}
 	switch tool {
 	case "Bash", "PowerShell":
 		kind = "exec"

@@ -15,13 +15,13 @@ description: >-
    macOS/Linux:
 
    ```sh
-   curl -fsSL https://github.com/lorem-dev/duolog/releases/download/v1.1.0/install.sh | sh -s -- --version v1.1.0 && duolog install --scope project
+   curl -fsSL https://github.com/lorem-dev/duolog/releases/download/v1.2.0/install.sh | sh -s -- --version v1.2.0 && duolog install --scope project
    ```
 
    Windows PowerShell:
 
    ```powershell
-   $env:DUOLOG_VERSION = 'v1.1.0'; irm https://github.com/lorem-dev/duolog/releases/download/v1.1.0/install.ps1 | iex
+   $env:DUOLOG_VERSION = 'v1.2.0'; irm https://github.com/lorem-dev/duolog/releases/download/v1.2.0/install.ps1 | iex
    ```
 
    On Windows, add the printed directory to PATH, then run
@@ -32,14 +32,14 @@ description: >-
 ## Hand over
 
 1. Give a whole feature to `planner`: it reads, implements, checks and lists
-   hunks to review. Do a small fix here yourself.
+   hunks to review. Do small fixes yourself.
 2. Write `.duolog/task.md` with sections Goal, Read, Write, Limits, Check.
    Give files or line ranges you know. Put a changelog or docs under Write if
    the worker edits them.
 3. Run `duolog delegate <role> --task .duolog/task.md` with a long timeout.
    Wait for its notice; do not poll.
-4. Read the summary and `git diff --stat`; open only marked hunks. Skip
-   `answer.json` and full test suites.
+4. Read the summary and `git diff --stat`; open only marked hunks. Read
+   `answer.json` only for `decisions=`. Skip full test suites.
 5. Keep hard parts and the final review, or use `review_final`.
 
 `.duolog/brief.md` holds rules for every worker. With several leads, pass

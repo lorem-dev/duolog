@@ -106,7 +106,7 @@ func TestMatchingFindingRejectsUnrelatedDiagnostics(t *testing.T) {
 }
 func TestDoctorFlagsAliasWithNoModel(t *testing.T) {
 	cfg, opts, _ := setup(t)
-	requireFinding(t, Run(context.Background(), cfg, opts), "Alias terra has no visible model", "tests", "review_intermediate", "docs")
+	requireFinding(t, Run(context.Background(), cfg, opts), "Alias terra has no visible model", "docs", "tests")
 }
 func TestDoctorFlagsOldPin(t *testing.T) {
 	cfg, opts, _ := setup(t)
@@ -214,6 +214,18 @@ func TestDoctorReportsTrustAndRexWithoutCallingRex(t *testing.T) {
 		rexMessage = "Live sessions are not available on Windows; use duolog delegate."
 	}
 	contains(t, findings(t, cfg, opts), "hooks approved=false", "folder trusted=false", "changed after review cannot be detected", "Codex itself will skip", rexMessage)
+}
+
+// A Perl tool named rex in PATH hides the Rex CLI; doctor names both.
+func TestDoctorNamesShadowingRex(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no live sessions on Windows")
+	}
+	cfg, opts, _ := setup(t)
+	opts.RexShadow, opts.RexBin = "/usr/local/bin/rex", "/Applications/Rex.app/rex"
+	contains(t, findings(t, cfg, opts), "rex in PATH (/usr/local/bin/rex) is a script, not the Rex CLI", "duolog uses /Applications/Rex.app/rex")
+	opts.RexBin = ""
+	contains(t, findings(t, cfg, opts), "set REX_BIN_DIR")
 }
 
 // The retained catalog fixture has the shape of real `codex debug models`:

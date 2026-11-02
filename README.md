@@ -51,7 +51,7 @@ PATH and open a new terminal if needed. Neither installer edits PATH.
 Pin a version with `--version`, or choose a directory with `--dir`:
 
 ```sh
-curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.1.0
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.2.0
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --dir "$HOME/bin"
 ```
 
@@ -59,7 +59,7 @@ The POSIX installer also accepts `DUOLOG_VERSION` and `DUOLOG_INSTALL_DIR`.
 On Windows, set those variables before running the installer:
 
 ```powershell
-$env:DUOLOG_VERSION = 'v1.1.0'
+$env:DUOLOG_VERSION = 'v1.2.0'
 $env:DUOLOG_INSTALL_DIR = "$env:LOCALAPPDATA\Programs\duolog"
 irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
 ```
@@ -194,7 +194,8 @@ duolog delegate review_intermediate --task .duolog/task.md
 Planning and the final review use Opus, because a mistake costs the most there.
 Routine work uses cheaper Codex models. A whole feature goes to `planner`, which
 reads, implements and checks on Codex, so the lead does not read the code
-itself. The rules are in
+itself. `debug` finds the cause of a bug in one repository on Codex; a bug
+that crosses components goes to `debug_hard` on Opus. The rules are in
 [internal/config/config.default.yaml](internal/config/config.default.yaml).
 A project can change any of them.
 

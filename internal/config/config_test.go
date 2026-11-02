@@ -45,7 +45,7 @@ func TestLayersLaterWins(t *testing.T) {
 		t.Fatal(err)
 	}
 	role := cfg.Roles["review_intermediate"]
-	if role.Use.Effort != "low" || role.Use.Model != "terra" || role.Fallback.Model != "sonnet" || len(cfg.Roles) != 11 {
+	if role.Use.Effort != "low" || role.Use.Model != "sol" || role.Fallback.Model != "sonnet" || len(cfg.Roles) != 12 {
 		t.Fatalf("layers lost or failed to override fields: %+v", cfg.Roles)
 	}
 	// Without the project layer, the user layer must win over embedded defaults.
@@ -79,8 +79,8 @@ func TestEmbeddedDefaultsAreValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Roles) != 11 {
-		t.Fatalf("got %d roles, want 11", len(cfg.Roles))
+	if len(cfg.Roles) != 12 {
+		t.Fatalf("got %d roles, want 12", len(cfg.Roles))
 	}
 	if cfg.Models["sol"].Family != "sol" || cfg.Models["sol"].PricedFor != "gpt-6.1-sol" || cfg.Models["haiku"].Note == "" {
 		t.Fatal("model metadata was lost")
@@ -314,5 +314,62 @@ func TestProjectRulesCannotDropDefaultDenies(t *testing.T) {
 		if !found[want] {
 			t.Errorf("default deny %q was dropped", want)
 		}
+	}
+}
+
+// Bridging hands credentials to the other vendor's agent, so it is opt-in.
+func TestMCPBridgeIsOptIn(t *testing.T) {
+	root := isolatedRoot(t)
+	cfg, err := Load(root)
+	if err != nil || cfg.Capabilities.OnMissing.MCP != "lead_first" || len(cfg.Capabilities.MCPTools) != 0 {
+		t.Fatal(cfg.Capabilities, err)
+	}
+	path := filepath.Join(root, ".duolog", "config.yaml")
+	writeConfig(t, path, "capabilities:\n  on_missing: {mcp: bridge}\n  mcp_tools: {jira: [get_issue, search]}\n")
+	cfg, err = Load(root)
+	if err != nil || cfg.Capabilities.OnMissing.MCP != "bridge" || cfg.Capabilities.OnMissing.Skill != "read_source" || strings.Join(cfg.Capabilities.MCPTools["jira"], ",") != "get_issue,search" {
+		t.Fatal(cfg.Capabilities, err)
+	}
+	writeConfig(t, path, "capabilities:\n  on_missing: {mcp: brige}\n")
+	if _, err = Load(root); err == nil || !strings.Contains(err.Error(), "brige") {
+		t.Fatal(err)
+	}
+}
+
+func TestAuthFailureDefaults(t *testing.T) {
+	root := isolatedRoot(t)
+	cfg, err := Load(root)
+	if err != nil || cfg.Capabilities.OnAuthFailure != "login_then_lead" || cfg.Capabilities.LoginTimeoutSeconds != 180 {
+		t.Fatal(cfg.Capabilities, err)
+	}
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "capabilities:\n  on_auth_failure: retry\n")
+	if _, err = Load(root); err == nil || !strings.Contains(err.Error(), "retry") {
+		t.Fatal(err)
+	}
+}
+
+// mcp_tools and remembered MCP tools add gate allows to the policy; they do
+// not replace the default rules.
+func TestMCPRulesAddToPolicy(t *testing.T) {
+	root := isolatedRoot(t)
+	base, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "capabilities:\n  mcp_tools: {jira: [get_issue, search]}\n")
+	writeConfig(t, filepath.Join(root, ".duolog", LearnedFile), "rules:\n  - {action: mcp, match: wiki/read, decision: allow}\n  - {action: mcp, match: wiki/delete, decision: deny}\n")
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Policy.Rules) != len(base.Policy.Rules)+3 {
+		t.Fatal(len(cfg.Policy.Rules), len(base.Policy.Rules))
+	}
+	var got []string
+	for _, r := range cfg.Policy.Rules[len(base.Policy.Rules):] {
+		got = append(got, r.Action+" "+r.Match+" "+r.Decision)
+	}
+	if strings.Join(got, "; ") != "mcp wiki/read allow; mcp jira/get_issue allow; mcp jira/search allow" {
+		t.Fatal(got)
 	}
 }

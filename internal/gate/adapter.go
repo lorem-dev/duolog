@@ -3,8 +3,10 @@ package gate
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/lorem-dev/duolog/internal/pathutil"
+	"regexp"
 	"strings"
+
+	"github.com/lorem-dev/duolog/internal/pathutil"
 )
 
 // Normalize accepts the shared hook envelope, not model-facing tool names.
@@ -13,8 +15,12 @@ func Normalize(agent string, input []byte) (Action, error) {
 		return Action{}, fmt.Errorf("unknown agent %q", agent)
 	}
 	var hook struct {
-		Tool  string `json:"tool_name"`
-		Cwd   string `json:"cwd"`
+		Tool string `json:"tool_name"`
+		Cwd  string `json:"cwd"`
+		// Claude also names the server as configured, which may hold __.
+		Server struct {
+			Name string `json:"name"`
+		} `json:"mcp_server"`
 		Input struct {
 			Command    string `json:"command"`
 			Path       string `json:"file_path"`
@@ -30,6 +36,17 @@ func Normalize(agent string, input []byte) (Action, error) {
 	}
 	// Accept known Codex hook names, including the native Windows shell tool.
 	// Other Claude tool names cannot confer permissions on an unknown Codex tool.
+	// Both agents name an MCP tool mcp__<server>__<tool> (checked live with
+	// Codex 0.165.0 and Claude Code 2.1.316); Codex writes - in a server name as _.
+	if target, ok := MCPTarget(hook.Tool); ok {
+		if name := hook.Server.Name; name != "" {
+			prefix := "mcp__" + claudeNameChars.ReplaceAllString(name, "_") + "__"
+			if tool, ok := strings.CutPrefix(hook.Tool, prefix); ok && tool != "" {
+				return Action{Kind: "mcp", Target: name + "/" + tool, MCPExact: true}, nil
+			}
+		}
+		return Action{Kind: "mcp", Target: target}, nil
+	}
 	if agent == "codex" && hook.Tool != "" && hook.Tool != "Bash" && hook.Tool != "PowerShell" && hook.Tool != "collaborationspawn_agent" && hook.Tool != "spawn_agent" && hook.Tool != "apply_patch" {
 		return Action{Kind: "unknown", Target: hook.Tool}, nil
 	}
@@ -74,7 +91,9 @@ func Normalize(agent string, input []byte) (Action, error) {
 			}
 			a.Target = cleanPath(paths[0])
 		}
-	case "TodoWrite", "Skill":
+	case "TodoWrite", "Skill", "ToolSearch":
+		// ToolSearch only loads the definition of a deferred tool, such as an
+		// MCP tool; calling the tool is checked on its own.
 		a.Kind, a.Target = "internal", hook.Tool
 	case "StructuredOutput":
 		// Claude's own tool for returning the schema answer; without it a worker
@@ -178,4 +197,35 @@ func NormalizeAll(agent string, input []byte) ([]Action, error) {
 		actions = append(actions, action)
 	}
 	return actions, nil
+}
+
+var claudeNameChars = regexp.MustCompile(`[^A-Za-z0-9_-]`)
+
+// MCPTarget turns mcp__<server>__<tool> into <server>/<tool>. The server is
+// what comes before the first __ after the prefix.
+func MCPTarget(tool string) (string, bool) {
+	rest, ok := strings.CutPrefix(tool, "mcp__")
+	if !ok {
+		return "", false
+	}
+	server, name, ok := strings.Cut(rest, "__")
+	if !ok || server == "" || name == "" {
+		return "", false
+	}
+	return server + "/" + name, true
+}
+
+// MCPName folds a server or tool name the way the agents do in tool names:
+// Claude turns characters other than letters, digits, _ and - into _, and
+// Codex turns - into _ as well. Rules and actions compare in this form.
+func MCPName(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r == '*' || r == '/' || r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
 }

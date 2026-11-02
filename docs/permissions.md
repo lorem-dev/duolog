@@ -102,6 +102,52 @@ A deny wins over an allow. When no rule matches, the decision is
 `on_unmatched`, which is `ask` by default. The default denies always apply: a
 project that sets its own `rules` replaces the allow rules, not the denies.
 
+## How a worker's MCP tool calls are checked
+
+An MCP tool call is an `mcp` action. Its target is `<server>/<tool>`, such as
+`tracker/get_issue`. Both agents send the hook the name
+`mcp__<server>__<tool>`. Claude also sends the server name as configured, so
+an allow must name that server exactly: a rule for `team-api` does not allow
+`team_api`. Codex writes `-` in a server name as `_` and sends nothing more, so
+for Codex `-` and `_` count as one character, and a name with `__` inside the
+server or the tool matches only a rule without `*`. A deny compares the full
+folded name, `mcp__<server>__<tool>`, so a server named `my__wiki` cannot slip
+past a deny of `mcp__my__wiki__delete`. A 1.1.0 rule such as
+`{action: unknown, match: "mcp__tracker__*"}` still covers those tools.
+
+duolog cannot tell whether a tool reads or writes. So an MCP tool runs only
+when a rule names it. No mode or role allows one by itself, and `full` mode
+does not turn the question into an allow. An unlisted tool asks the lead, and
+a lead that waits for its foreground `delegate` denies it at once. The worker
+then stops with `mcp:<server>/<tool>` in `needs`. A deny in the lead's own
+Claude settings, such as `mcp__tracker__create_issue` or `mcp__tracker`,
+holds for workers too.
+
+Three things add allow rules. None replaces the default rules:
+
+| Where | Applies to |
+|---|---|
+| `capabilities.mcp_tools: {tracker: [get_issue]}` | Every role. The same list limits the tools the server offers, bridged or the worker's own |
+| `duolog remember mcp:tracker/get_issue` | The writing roles, or the roles named with `--role`. It saves the rule in `.duolog/learned.yaml` |
+| An `mcp` rule in `policy.rules`, such as `{action: mcp, match: "tracker/get_*", decision: allow, roles: [implement]}` | What the rule says. This list replaces the default rules, so copy them first |
+
+List read tools only, unless a worker should change things in that service.
+`duolog remember --native` also adds `mcp__<server>__<tool>`, or
+`mcp__<server>` for `<server>/*`, to `.claude/settings.local.json`; a glob in
+the server name has no Claude form. Codex sets
+MCP tool approval per server in its own `config.toml`, so duolog writes no
+Codex rule.
+
+Claude loads a deferred MCP tool with its `ToolSearch` tool first. The gate
+allows `ToolSearch`, because it only loads a tool definition; the call of the
+tool is checked on its own.
+
+We checked this live with the gate on (OBSERVED, Codex 0.165.0 and Claude
+Code 2.1.316). A Codex worker sent `mcp__<server>__<tool>` for an HTTP server
+to the gate, and a Claude worker sent the same form with the server name in
+`mcp_server.name`. Listed tools ran; an unlisted tool was denied with
+the line above.
+
 ## How a worker asks the lead
 
 For an `ask` decision, duolog sends a numbered request to the lead on the bus

@@ -111,3 +111,14 @@ func TestRejectsTaskMissingSection(t *testing.T) {
 		}
 	}
 }
+
+func TestWritePathsTakesPathsNotProse(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "task.md")
+	if err := os.WriteFile(p, []byte("## Goal\nx\n## Read\n## Write\n- `internal/a.go`: the limiter\n- docs/\n- cmd/x.go:10-20\n- the changelog entry\n* internal/**/*_test.go\nprose line.go\n## Limits\n## Check\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := WritePaths(p)
+	if err != nil || strings.Join(got, " ") != "internal/a.go docs cmd/x.go internal/**/*_test.go" {
+		t.Fatal(got, err)
+	}
+}

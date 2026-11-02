@@ -370,3 +370,30 @@ func TestLimitNeverHidesARunningPane(t *testing.T) {
 		}
 	}
 }
+
+// A declined login is remembered for the lead's session and dropped when the
+// lead ends.
+func TestAuthDeclinedLastsUntilLeadEnds(t *testing.T) {
+	r, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = r.RegisterLead(Lead{ID: "lead-1", Target: config.Target{Agent: "claude"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err = r.DeclineAuth("lead-1", "agent:codex"); err != nil {
+		t.Fatal(err)
+	}
+	if d, _ := r.AuthDeclined("lead-1", "agent:codex"); !d {
+		t.Fatal("not recorded")
+	}
+	if d, _ := r.AuthDeclined("lead-2", "agent:codex"); d {
+		t.Fatal("recorded for another lead")
+	}
+	if _, err = r.ObserveLead(LeadObservation{ID: "lead-1", Agent: "claude", Ended: true}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if d, _ := r.AuthDeclined("lead-1", "agent:codex"); d {
+		t.Fatal("kept after the lead ended")
+	}
+}

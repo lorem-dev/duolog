@@ -119,6 +119,46 @@ func References(path string) ([]Reference, error) {
 	return refs, nil
 }
 
+// WritePaths returns the files, folders and globs that Write lists, one per
+// list item. An item counts only when it is quoted with backticks or looks like
+// a path, so prose such as "- the changelog entry" names nothing.
+func WritePaths(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	parts, err := parse(data)
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, line := range strings.Split(parts["Write"], "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "- ") && !strings.HasPrefix(line, "* ") {
+			continue
+		}
+		line = strings.TrimSpace(line[2:])
+		var name string
+		if strings.HasPrefix(line, "`") {
+			end := strings.Index(line[1:], "`")
+			if end < 0 {
+				continue
+			}
+			name = line[1 : end+1]
+		} else if fields := strings.Fields(line); len(fields) > 0 && strings.ContainsAny(fields[0], "/.*") {
+			name = fields[0]
+		}
+		name = strings.TrimSuffix(name, ":")
+		if match := rangeSuffix.FindStringSubmatch(name); match != nil {
+			name = match[1]
+		}
+		if name != "" {
+			paths = append(paths, pathutil.Clean(name))
+		}
+	}
+	return paths, nil
+}
+
 // Resolve refuses traversal and symlinks before opening any task input.
 func Resolve(root, path string) (string, error) {
 	path = pathutil.Native(path)

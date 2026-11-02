@@ -7,13 +7,20 @@ import (
 	"io"
 	"math"
 	"os"
+	"strings"
 
 	"github.com/lorem-dev/duolog/internal/mode"
 )
 
-// minimalSettings excludes instruction files. --setting-sources would do more, but
-// it also drops the user settings that enable the duolog plugin and its gate.
-const minimalSettings = `{"claudeMdExcludes":["**/CLAUDE.md","**/CLAUDE.local.md","**/.claude/rules/**"]}`
+// workerSettings turns off auto memory, which CLAUDE_CODE_DISABLE_AUTO_MEMORY
+// also does: the memory folder belongs to the project path, so a worker's note
+// would reach the lead and later sessions. minimalSettings also excludes
+// instruction files. --setting-sources would do more, but it also drops the user
+// settings that enable the duolog plugin and its gate.
+const (
+	workerSettings  = `{"autoMemoryEnabled":false}`
+	minimalSettings = `{"autoMemoryEnabled":false,"claudeMdExcludes":["**/CLAUDE.md","**/CLAUDE.local.md","**/.claude/rules/**"]}`
+)
 
 func claudeArgv(s Spec) []string {
 	args := []string{"claude", "-p", "--model", s.Route.Model}
@@ -23,9 +30,22 @@ func claudeArgv(s Spec) []string {
 	args = append(args, "--output-format", "json", "--json-schema", answerSchema)
 	args = append(args, mode.Args("claude", s.Mode, s.Route.Sandbox)...)
 	// In the cost study the user's MCP servers added 7.4 thousand tokens to every
-	// call, so a worker gets them only when its task needs one.
+	// call, so a worker gets them only when its task needs one. Bridged servers
+	// add to the worker's own when it keeps them, and are the only ones otherwise.
 	if !s.KeepMCP {
 		args = append(args, "--strict-mcp-config")
+	}
+	if s.MCP != nil {
+		// These options take a list, so each gets one comma-joined value with =.
+		if s.MCP.configPath != "" {
+			args = append(args, "--mcp-config="+s.MCP.configPath)
+		}
+		if len(s.MCP.AllowedTools) > 0 {
+			args = append(args, "--allowedTools="+strings.Join(s.MCP.AllowedTools, ","))
+		}
+		if len(s.MCP.DisallowedTools) > 0 {
+			args = append(args, "--disallowedTools="+strings.Join(s.MCP.DisallowedTools, ","))
+		}
 	}
 	if s.Route.Context == "minimal" {
 		// Minimal context drops every CLAUDE.md, the user's too, and skills unless the
@@ -35,6 +55,8 @@ func claudeArgv(s Spec) []string {
 		if !s.KeepSkills {
 			args = append(args, "--disable-slash-commands")
 		}
+	} else {
+		args = append(args, "--settings", workerSettings)
 	}
 	if s.ThreadID == "" {
 		if !s.Persistent {

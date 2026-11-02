@@ -72,6 +72,9 @@ type state struct {
 	ModeLimits   map[string]mode.Mode            `json:"mode_limits,omitempty"`
 	Ended        map[string]bool                 `json:"ended,omitempty"`
 	Observations map[string]leadObservationTimes `json:"observations,omitempty"`
+	// AuthDeclined holds, per lead, the logins the person closed or that
+	// failed, so that duolog does not ask again until the lead ends.
+	AuthDeclined map[string]map[string]time.Time `json:"auth_declined,omitempty"`
 }
 
 func Open(dir string) (*Registry, error) {
@@ -294,6 +297,7 @@ func (s *state) observeLead(o LeadObservation, started time.Time) (Lead, error) 
 		s.Observations[o.ID] = times
 		s.Ended[o.ID] = true
 		delete(s.Leads, o.ID)
+		delete(s.AuthDeclined, o.ID)
 		delete(s.ModeLimits, o.ID)
 		for agent, owner := range s.LimitOwners {
 			if owner == o.ID && s.Unavailable[agent].IsZero() {
@@ -440,6 +444,31 @@ func (r *Registry) ClearUnavailable(agent string) error {
 
 // Entries returns a snapshot including closed entries so surviving panes can be
 // associated with their leads after Close has marked their entries closed.
+// DeclineAuth records that a login for key was closed or failed while lead
+// lives.
+func (r *Registry) DeclineAuth(lead, key string) error {
+	return r.access(true, func(s *state) error {
+		if s.AuthDeclined == nil {
+			s.AuthDeclined = make(map[string]map[string]time.Time)
+		}
+		if s.AuthDeclined[lead] == nil {
+			s.AuthDeclined[lead] = make(map[string]time.Time)
+		}
+		s.AuthDeclined[lead][key] = time.Now().UTC()
+		return nil
+	})
+}
+
+// AuthDeclined reports whether a login for key was declined while lead lives.
+func (r *Registry) AuthDeclined(lead, key string) (bool, error) {
+	declined := false
+	err := r.access(false, func(s *state) error {
+		_, declined = s.AuthDeclined[lead][key]
+		return nil
+	})
+	return declined, err
+}
+
 func (r *Registry) Entries() ([]Entry, error) {
 	var entries []Entry
 	err := r.access(false, func(s *state) error {

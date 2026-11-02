@@ -38,7 +38,7 @@ type Role struct {
 	Fallback Target `yaml:"fallback" jsonschema_description:"Alternative target when the preferred agent is unavailable; defaults use the other vendor."`
 	Sandbox  string `yaml:"sandbox" jsonschema_description:"Maximum file access for the role; defaults to read-only for reviews and workspace-write for edits." jsonschema:"enum=read-only,enum=workspace-write"`
 	Context  string `yaml:"context" jsonschema_description:"Project instruction scope; defaults to project for code work and minimal for small tasks." jsonschema:"enum=minimal,enum=project"`
-	Session  string `yaml:"session" jsonschema_description:"Thread reuse policy; defaults to fresh except plan and debug_hard, which resume." jsonschema:"enum=fresh,enum=resume"`
+	Session  string `yaml:"session" jsonschema_description:"Thread reuse policy; defaults to fresh except plan, debug and debug_hard, which resume." jsonschema:"enum=fresh,enum=resume"`
 }
 
 type Wire struct {
@@ -76,20 +76,23 @@ type Policy struct {
 }
 
 type Rule struct {
-	Action   string   `yaml:"action" jsonschema_description:"Action type matched by this rule, such as read, write, exec or net."`
+	Action   string   `yaml:"action" jsonschema_description:"Action type matched by this rule, such as read, write, exec, net or mcp (match server/tool)."`
 	Match    string   `yaml:"match" jsonschema_description:"Glob expression selecting paths or commands; ** matches all paths."`
 	Decision string   `yaml:"decision" jsonschema_description:"Permission result for a matching rule; deny takes precedence over allow." jsonschema:"enum=allow,enum=deny,enum=ask"`
 	Roles    []string `yaml:"roles" jsonschema_description:"Roles to which the rule applies; an omitted list applies to every role."`
 }
 
 type Capabilities struct {
-	OnMissing MissingCapabilities `yaml:"on_missing" jsonschema_description:"Fallback for each missing capability kind; defaults to read_source for skills and lead_first for tools."`
-	Hints     map[string]string   `yaml:"hints" jsonschema_description:"One-line guidance keyed by capability name; defaults to an empty map."`
+	OnMissing           MissingCapabilities `yaml:"on_missing" jsonschema_description:"Fallback for each missing capability kind; defaults to read_source for skills and lead_first for tools."`
+	Hints               map[string]string   `yaml:"hints" jsonschema_description:"One-line guidance keyed by capability name; defaults to an empty map."`
+	OnAuthFailure       string              `yaml:"on_auth_failure" jsonschema_description:"What happens when a worker cannot sign in to its agent or to an MCP server; defaults to login_then_lead, which runs the agent's login once and hands the task to the lead when that fails." jsonschema:"enum=login_then_lead,enum=lead,enum=fail"`
+	LoginTimeoutSeconds int                 `yaml:"login_timeout_seconds" jsonschema_description:"Seconds to wait for a login the person must finish; defaults to 180."`
+	MCPTools            map[string][]string `yaml:"mcp_tools" jsonschema_description:"Tools a bridged MCP server offers the worker, keyed by server name; a server not listed is bridged whole. Defaults to an empty map."`
 }
 
 type MissingCapabilities struct {
 	Skill  string `yaml:"skill" jsonschema_description:"Handling for a missing skill; defaults to read_source to read its SKILL.md."`
-	MCP    string `yaml:"mcp" jsonschema_description:"Handling for a missing MCP server; defaults to lead_first."`
+	MCP    string `yaml:"mcp" jsonschema_description:"Handling for a missing MCP server; defaults to lead_first. bridge hands the lead's server, with its credentials, to the worker for one run." jsonschema:"enum=lead_first,enum=bridge,enum=reroute,enum=refuse"`
 	Plugin string `yaml:"plugin" jsonschema_description:"Handling for a missing plugin; defaults to lead_first."`
 }
 
@@ -164,7 +167,28 @@ func Load(root string) (*Config, error) {
 		return nil, err
 	}
 	cfg.Policy.Rules = append(cfg.Policy.Rules, learned...)
+	cfg.Policy.Rules = append(cfg.Policy.Rules, MCPToolRules(cfg.Capabilities.MCPTools)...)
 	return &cfg, nil
+}
+
+// MCPToolRules turns capabilities.mcp_tools into gate allows: the tools a
+// person listed for a server are the ones a worker may call without asking.
+// They add to the policy rules, like learned rules, and a deny still wins.
+func MCPToolRules(tools map[string][]string) []Rule {
+	servers := make([]string, 0, len(tools))
+	for server := range tools {
+		servers = append(servers, server)
+	}
+	slices.Sort(servers)
+	var rules []Rule
+	for _, server := range servers {
+		for _, tool := range tools[server] {
+			if strings.TrimSpace(tool) != "" {
+				rules = append(rules, Rule{Action: "mcp", Match: server + "/" + tool, Decision: "allow"})
+			}
+		}
+	}
+	return rules
 }
 
 // LearnedFile holds the allow rules a person approved during work with
@@ -194,7 +218,7 @@ func LearnedRules(root string) ([]Rule, error) {
 	}
 	var rules []Rule
 	for _, rule := range file.Rules {
-		if rule.Decision == "allow" && rule.Action == "exec" && strings.TrimSpace(rule.Match) != "" {
+		if rule.Decision == "allow" && (rule.Action == "exec" || rule.Action == "mcp") && strings.TrimSpace(rule.Match) != "" {
 			rules = append(rules, rule)
 		}
 	}

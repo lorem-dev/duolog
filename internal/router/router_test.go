@@ -38,7 +38,7 @@ func checkRoute(t *testing.T, role string, unavailable map[string]bool, lead *co
 	}
 }
 func TestPrimaryRoute(t *testing.T) {
-	checkRoute(t, "review_intermediate", nil, nil, nil, config.Target{Agent: "codex", Model: "terra", Effort: "medium"}, false, false, false, false)
+	checkRoute(t, "review_intermediate", nil, nil, nil, config.Target{Agent: "codex", Model: "sol", Effort: "medium"}, false, false, false, false)
 }
 func TestFallbackWhenUnavailable(t *testing.T) {
 	checkRoute(t, "review_intermediate", map[string]bool{"codex": true}, nil, nil, config.Target{Agent: "claude", Model: "sonnet", Effort: "medium"}, true, false, false, false)
@@ -51,7 +51,7 @@ func TestFallbackToOtherAgentIsReplaced(t *testing.T) {
 		r := cfg.Roles["review_intermediate"]
 		r.Fallback = config.Target{Agent: "codex", Model: "sol", Effort: "high"}
 		cfg.Roles["review_intermediate"] = r
-	}, config.Target{Agent: "claude", Model: "sonnet", Effort: "medium"}, true, false, true, false)
+	}, config.Target{Agent: "claude", Model: "opus", Effort: "medium"}, true, false, true, false)
 }
 func TestMissingFallbackDerivedFromMap(t *testing.T) {
 	checkRoute(t, "implement_complex", map[string]bool{"codex": true}, nil, func(cfg *config.Config) {

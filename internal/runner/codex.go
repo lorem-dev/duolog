@@ -33,6 +33,9 @@ func codexArgv(s Spec) []string {
 			args = append(args, "-c", "skills.include_instructions=false")
 		}
 	}
+	if s.MCP != nil {
+		args = append(args, s.MCP.CodexArgs...)
+	}
 	if s.ThreadID == "" && !s.Persistent {
 		args = append(args, "--ephemeral")
 	}
@@ -68,10 +71,11 @@ func codexEvent(data []byte, result *Result) {
 // result is not done, with the start of the message as the summary.
 func codexAnswer(message []byte, answerPath string, result Result) (Result, error) {
 	type answer struct {
-		Done    *bool    `json:"done"`
-		Summary *string  `json:"summary"`
-		Files   []string `json:"files"`
-		Needs   []string `json:"needs"`
+		Done      *bool    `json:"done"`
+		Summary   *string  `json:"summary"`
+		Files     []string `json:"files"`
+		Needs     []string `json:"needs"`
+		Decisions []string `json:"decisions"`
 	}
 	var found *answer
 	for i := 0; i < len(message); i++ {
@@ -99,11 +103,12 @@ func codexAnswer(message []byte, answerPath string, result Result) (Result, erro
 		return result, fmt.Errorf("invalid answer: no JSON object with done, summary, files and needs in the final message; see %s", filepath.Join(filepath.Dir(answerPath), "stdout.log"))
 	}
 	clean, err := json.Marshal(struct {
-		Done    bool     `json:"done"`
-		Summary string   `json:"summary"`
-		Files   []string `json:"files"`
-		Needs   []string `json:"needs"`
-	}{*found.Done, *found.Summary, found.Files, found.Needs})
+		Done      bool     `json:"done"`
+		Summary   string   `json:"summary"`
+		Files     []string `json:"files"`
+		Needs     []string `json:"needs"`
+		Decisions []string `json:"decisions,omitempty"`
+	}{*found.Done, *found.Summary, found.Files, found.Needs, found.Decisions})
 	if err == nil {
 		err = os.WriteFile(answerPath, clean, 0600)
 	}
@@ -111,5 +116,6 @@ func codexAnswer(message []byte, answerPath string, result Result) (Result, erro
 		return result, err
 	}
 	result.Done, result.Summary, result.Files, result.Needs = *found.Done, *found.Summary, found.Files, found.Needs
+	result.Decisions = found.Decisions
 	return result, nil
 }

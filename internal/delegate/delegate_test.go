@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
@@ -36,6 +37,7 @@ type harness struct {
 	results    []runner.Result
 	errs       []error
 	change     string
+	auth       *fakeChecker
 }
 
 func put(t *testing.T, p, s string) {
@@ -95,8 +97,10 @@ func newHarness(t *testing.T) *harness {
 	if err := h.reg.RegisterLead(session.Lead{ID: "lead-123456", Target: config.Target{Agent: "codex", Model: "lead-model"}, Mode: mode.Ask}); err != nil {
 		t.Fatal(err)
 	}
-	oldRun, oldResolve := runWorker, resolveModel
-	t.Cleanup(func() { runWorker = oldRun; resolveModel = oldResolve })
+	oldRun, oldResolve, oldChecker := runWorker, resolveModel, newChecker
+	t.Cleanup(func() { runWorker = oldRun; resolveModel = oldResolve; newChecker = oldChecker })
+	h.auth = &fakeChecker{}
+	newChecker = func(string) auth.Checker { return h.auth }
 	runWorker = func(_ context.Context, s runner.Spec) (runner.Result, error) {
 		i := len(h.calls)
 		h.calls = append(h.calls, s)
@@ -446,7 +450,7 @@ func TestRunnerGetsConcreteCodexModel(t *testing.T) {
 	if _, err := h.run("review_intermediate"); err != nil {
 		t.Fatal(err)
 	}
-	requireArgPair(t, fake, "-m", "gpt-6.1-terra")
+	requireArgPair(t, fake, "-m", "gpt-6.1-sol")
 }
 
 func TestRunnerGetsClaudeAlias(t *testing.T) {
@@ -1158,5 +1162,51 @@ func TestBriefLeadsStdinWithinTheInlineLimit(t *testing.T) {
 	put(t, filepath.Join(h.root, ".duolog", "brief.md"), strings.Repeat("x", 500))
 	if _, e := h.run("implement"); e == nil || !strings.Contains(e.Error(), "shorten the brief") {
 		t.Fatalf("an oversized brief was sent: %v", e)
+	}
+}
+
+// The lead learns that a worker changed a file Write does not list.
+func TestResultLineNamesChangesOutsideWrite(t *testing.T) {
+	h := newHarness(t)
+	h.gitRepo()
+	h.change = "a.go"
+	out, e := h.run("implement")
+	if e != nil || strings.Contains(out.Line, "outside=") {
+		t.Fatal(out.Line, e)
+	}
+	h.change = "other/b.go"
+	out, e = h.run("implement")
+	if e != nil || !strings.Contains(out.Line, "; outside=other/b.go") {
+		t.Fatal(out.Line, e)
+	}
+	// A read-only role takes no snapshot, so it names nothing.
+	out, e = h.run("review_intermediate")
+	if e != nil || strings.Contains(out.Line, "outside=") {
+		t.Fatal(out.Line, e)
+	}
+}
+
+func TestOutsideWriteCoversFoldersAndGlobs(t *testing.T) {
+	writes := []string{"a.go", "docs", "internal/**/*_test.go"}
+	got := outsideWrite([]string{"a.go", "docs/x.md", "internal/gate/gate_test.go", "internal/gate/gate.go", "ab.go"}, writes)
+	if strings.Join(got, ",") != "internal/gate/gate.go,ab.go" {
+		t.Fatal(got)
+	}
+	if got := outsideWrite([]string{"x.go"}, nil); got != nil {
+		t.Fatal("no Write paths, no list:", got)
+	}
+}
+
+// The count of a worker's own decisions reaches the lead; the text stays in
+// answer.json.
+func TestResultLineCountsDecisions(t *testing.T) {
+	h := newHarness(t)
+	h.results = []runner.Result{{Done: true, Summary: "Done.", Files: []string{"a.go"}, Needs: []string{}, Decisions: []string{"used slog", "named it Limiter"}}}
+	out, e := h.run("implement")
+	if e != nil || !strings.Contains(out.Line, " decisions=2 ") {
+		t.Fatal(out.Line, e)
+	}
+	if !strings.Contains(string(h.calls[0].Stdin), decisionsLine) {
+		t.Fatal("worker input misses the decisions line")
 	}
 }

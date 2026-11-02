@@ -14,7 +14,7 @@ that directory is missing from `PATH` and never edits your shell profile.
 Pin a release or choose another directory:
 
 ```sh
-curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.1.0
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.2.0
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | DUOLOG_INSTALL_DIR="$HOME/bin" sh
 ```
 
@@ -37,7 +37,7 @@ An invalid download leaves an existing binary unchanged.
 To pin a Windows release or choose a directory:
 
 ```powershell
-$env:DUOLOG_VERSION = 'v1.1.0'
+$env:DUOLOG_VERSION = 'v1.2.0'
 $env:DUOLOG_INSTALL_DIR = "$env:LOCALAPPDATA\Programs\duolog"
 irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
 ```
@@ -208,6 +208,16 @@ done=true summary=<one line> files=<comma separated paths>
 
 The worker must write `answer.json`. duolog takes the result only from that
 file. An exit code of 0 from the agent does not mean success.
+
+The line can also carry two fields:
+
+| Field | What it means |
+|---|---|
+| `decisions=<n>` | The worker made n choices that the task left open, such as a library or a name. They are listed under `decisions` in `answer.json` |
+| `outside=<paths>` | Files that changed during the run but are not under any path that Write lists. A change the lead made meanwhile shows up too |
+
+`outside` needs Git, a role that can write and a Write section that lists
+paths.
 
 A line that starts with `run here:` means duolog did not start a worker. The
 role points to the lead's own agent and model, or it needs little context and
