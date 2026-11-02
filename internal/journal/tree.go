@@ -74,7 +74,12 @@ func Capture(root string) (string, error) {
 		return "", err
 	}
 	env := []string{"GIT_INDEX_FILE=" + name}
-	if _, err := git(root, env, nil, "add", "-A", "--", ".", ":(exclude).duolog"); err != nil {
+	// git add refuses a pathspec naming an ignored path, and projects ignore
+	// .duolog, so it is added with the rest and then dropped from this index.
+	if _, err := git(root, env, nil, "add", "-A", "--", "."); err != nil {
+		return "", err
+	}
+	if _, err := git(root, env, nil, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", ".duolog"); err != nil {
 		return "", err
 	}
 	tree, err := git(root, env, nil, "write-tree")

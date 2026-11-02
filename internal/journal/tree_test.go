@@ -52,6 +52,21 @@ func TestCaptureIncludesUntrackedAndSkipsDuolog(t *testing.T) {
 	}
 }
 
+// Projects ignore .duolog/, and git add refuses a pathspec that names an
+// ignored path, so the capture must not name it.
+func TestCaptureWithIgnoredDuolog(t *testing.T) {
+	dir := repo(t)
+	write(t, dir, ".gitignore", "ignored.txt\n.duolog/\n")
+	write(t, dir, ".duolog/x", "x")
+	tree, err := Capture(dir)
+	if err != nil || tree == "" {
+		t.Fatal(tree, err)
+	}
+	if files := run(t, dir, "ls-tree", "-r", "--name-only", tree); files != ".gitignore\na.txt\n" {
+		t.Fatalf("tree files %q", files)
+	}
+}
+
 func TestCaptureLeavesIndexUntouched(t *testing.T) {
 	dir := repo(t)
 	write(t, dir, "new.txt", "n")

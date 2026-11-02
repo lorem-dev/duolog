@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -61,6 +63,48 @@ func TestDelegateCommandRefusalIsOneLine(t *testing.T) {
 	t.Setenv("DUOLOG_DEPTH", "1")
 	out, e := executeBusCommand(t, "delegate", "implement", "--task", "task.md")
 	if e == nil || strings.Count(out, "\n") != 1 || !strings.Contains(out, "nested") {
+		t.Fatal(out, e)
+	}
+}
+
+func TestDelegateRejectsBadFeatures(t *testing.T) {
+	isolatedRouteConfig(t)
+	t.Chdir(t.TempDir())
+	t.Setenv("DUOLOG_DEPTH", "")
+	ran := false
+	old := runDelegate
+	t.Cleanup(func() { runDelegate = old })
+	runDelegate = func(context.Context, *config.Config, *store.Store, string, string, string) (delegate.Outcome, error) {
+		ran = true
+		return delegate.Outcome{}, nil
+	}
+	out, e := executeBusCommand(t, "delegate", "debug_hard", "--task", "task.md", "--features", "output=poem")
+	if e == nil || ran || strings.Count(out, "\n") != 1 || !strings.Contains(out, "diagnosis") {
+		t.Fatal(out, e)
+	}
+}
+
+func TestDelegateUseFlag(t *testing.T) {
+	isolatedRouteConfig(t)
+	t.Chdir(t.TempDir())
+	t.Setenv("DUOLOG_DEPTH", "")
+	var got delegate.Options
+	old := runDelegate
+	t.Cleanup(func() { runDelegate = old })
+	runDelegate = func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
+		got = delegate.OptionsFrom(ctx)
+		return delegate.Outcome{Line: "done=true"}, nil
+	}
+	out, e := executeBusCommand(t, "delegate", "debug_hard", "--task", "task.md", "--use", "codex/sol/high", "--features", "output=diagnosis", "--class", "debug")
+	if e != nil || out != "done=true\n" {
+		t.Fatal(out, e)
+	}
+	if got.Entry == nil || *got.Entry != (config.Target{Agent: "codex", Model: "sol", Effort: "high"}) || !got.Person || got.Features["output"] != "diagnosis" || got.Class != "debug" {
+		t.Fatalf("%+v", got)
+	}
+	got = delegate.Options{}
+	out, e = executeBusCommand(t, "delegate", "debug_hard", "--task", "task.md", "--use", "sol/high")
+	if e == nil || got.Entry != nil || strings.Count(out, "\n") != 1 || !strings.Contains(out, "agent/model/effort") {
 		t.Fatal(out, e)
 	}
 }

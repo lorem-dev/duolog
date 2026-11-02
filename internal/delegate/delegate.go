@@ -63,11 +63,32 @@ type Options struct {
 	AllowManualModel bool
 	// Needs lists "kind:name" capabilities the task relies on.
 	Needs []string
+	// Features and Class classify the delegation in learning mode.
+	Features map[string]string
+	Class    string // stated class, --class
+	// Entry is a forced target: profile replays, the judge, the person's --use.
+	Entry *config.Target
+	// Person says Entry is the person's explicit choice (--use): Why "person".
+	Person bool
+	// ReplayOf is the delegation id this run replays; it needs no open task.
+	ReplayOf string
+	// Judge runs are never journalled.
+	Judge bool
+	// WorkRoot is the directory the worker runs in and trees are taken from;
+	// it defaults to the current work root.
+	WorkRoot                     string
+	EscalateFrom, EscalateReason string
 }
 type optionsKey struct{}
 
 func WithOptions(ctx context.Context, opts Options) context.Context {
 	return context.WithValue(ctx, optionsKey{}, opts)
+}
+
+// OptionsFrom returns the options Run takes from ctx.
+func OptionsFrom(ctx context.Context) Options {
+	opts, _ := ctx.Value(optionsKey{}).(Options)
+	return opts
 }
 
 var runWorker = runner.Run
@@ -120,7 +141,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	if workerenv.IsWorker() {
 		return out, fmt.Errorf("nested delegation refused (DUOLOG_DEPTH=%s)", os.Getenv("DUOLOG_DEPTH"))
 	}
-	opts, _ := ctx.Value(optionsKey{}).(Options)
+	opts := OptionsFrom(ctx)
 	for _, need := range opts.Needs {
 		if _, _, err = capability.ParseNeed(need); err != nil {
 			return out, err
@@ -156,6 +177,11 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	if err != nil {
 		return out, err
 	}
+	if opts.WorkRoot != "" {
+		if root, err = workRootOf(s, opts); err != nil {
+			return out, err
+		}
+	}
 	tasksDir := filepath.Join(s.Dir, "tasks")
 	if err = os.MkdirAll(tasksDir, 0755); err != nil {
 		return out, err
@@ -183,6 +209,16 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	leadID, leadAgent, address := lead.ID, lead.Agent, session.Address(lead)
 	leadTarget := &lead.Target
 	reg.LeadID = leadID
+	lr, err := beginLearning(cfg, s, leadID, role, filepath.Base(dir), opts)
+	if err != nil {
+		return out, err
+	}
+	// Runs last, after the line is final: a journal error never hides the answer.
+	defer func() {
+		if learnErr := lr.finish(root, dir, copyPath, out); learnErr != nil {
+			err = errors.Join(err, fmt.Errorf("learning: %w", learnErr))
+		}
+	}()
 	leadRules, err := gate.ImportLead(root, lead.Agent)
 	if err != nil {
 		return out, fmt.Errorf("lead permissions: %w", err)
@@ -221,15 +257,25 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	loginTried := false
 	capNotes := ""
 	for attempt := 0; attempt < 2; attempt++ {
-		route, routeErr := router.Resolve(cfg, role, unavailable, router.Options{Lead: leadTarget, AllowManualModel: opts.AllowManualModel})
+		ro := router.Options{Lead: leadTarget, AllowManualModel: opts.AllowManualModel}
+		if opts.Entry != nil {
+			ro.Use, ro.NoSelf = opts.Entry, sameModel(*opts.Entry, leadTarget)
+		} else {
+			lr.route(cfg, role, unavailable, &ro)
+		}
+		route, routeErr := router.Resolve(cfg, role, unavailable, ro)
 		if routeErr != nil {
 			return out, routeErr
 		}
+		lr.resolved(route)
 		worker = route.Agent + "/" + role
 		if route.IsFallback {
 			from := priorAgent
 			if from == "" {
 				from = cfg.Roles[role].Use.Agent
+				if ro.Use != nil {
+					from = ro.Use.Agent
+				}
 			}
 			if err = send(worker, address, "status", fmt.Sprintf("role %s moved from %s to %s model=%s effort=%s", role, from, route.Agent, route.Model, route.Effort), ref); err != nil {
 				return out, err
@@ -424,6 +470,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					return out, snapErr
 				}
 			}
+			if err = lr.start(root); err != nil {
+				return out, err
+			}
 			token := filepath.Base(dir)
 			if err = reg.SetWaiting(leadID, token, os.Getpid()); err != nil {
 				return out, err
@@ -452,6 +501,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				}
 				// A login retry is a new run with its own work-tree baseline.
 				creditBefore = after
+				lr.add(out.Result)
 				if usageErr := appendUsage(s.Dir, role, route, out.Result); usageErr != nil {
 					return out, errors.Join(err, usageErr)
 				}
@@ -511,6 +561,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 						}
 					}
 				}
+				lineWarning += lr.note()
 				out.Line = resultLine(out.Result.Done, needs, out.Result.Summary, strings.Join(out.Result.Files, ","), lineWarning, answerPointer(dir))
 				return out, nil
 			}
