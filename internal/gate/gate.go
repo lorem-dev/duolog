@@ -414,7 +414,9 @@ func shellParts(command string) ([]string, bool) {
 				parts = append(parts, strings.Join(words, " "))
 			}
 		}
-		if strings.ContainsAny(word, "=*?[]{}~") {
+		// A program path with .. could start anything under a rule such as
+		// node_modules/.bin/tsc*.
+		if strings.ContainsAny(word, "=*?[]{}~") || slices.Contains(strings.Split(pathutil.Slashes(word), "/"), "..") {
 			review()
 			return
 		}

@@ -12,6 +12,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v3"
 )
@@ -55,6 +56,10 @@ func newRememberCommand() *cobra.Command {
 			if d := gate.Evaluate(policy, gate.LeadRules{}, mode.Edits, gate.Action{Kind: "exec", Target: command, Role: role}); d.Kind != gate.Allow {
 				return fmt.Errorf("a rule cannot allow %q for %s: %s (%s)", command, role, d.Reason, d.Rule)
 			}
+		}
+		// Open writes .duolog/.gitignore first, so the file stays out of Git.
+		if _, err := store.Open(root); err != nil {
+			return err
 		}
 		path := filepath.Join(root, ".duolog", config.LearnedFile)
 		added, err := addLearnedRule(path, rule)

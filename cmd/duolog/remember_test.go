@@ -64,6 +64,9 @@ func TestRememberAllowsWorkersOnly(t *testing.T) {
 			t.Fatalf("%s was written without --native", path)
 		}
 	}
+	if _, err := os.Stat(filepath.Join(root, ".duolog", ".gitignore")); err != nil {
+		t.Fatal("learned rules can reach Git:", err)
+	}
 }
 
 // A deny wins over any allow, and syntax the gate cannot read always asks.

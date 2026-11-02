@@ -87,8 +87,9 @@ options that change the output: `jq -f`, `jq -L`, `sort -o` and
 
 A deny also holds inside any other command. `uv run git push` is denied like
 `git push`, and `sed -n p .env` is denied like `cat .env`. A directory change
-before another command, a shell glob and `git -c` ask in every mode, because the
-gate reads the command text and cannot see what they do. A path can match a deny
+before another command, a shell glob, a program path with `..` and `git -c`
+ask in every mode, because the gate reads the command text and cannot see what
+they do. A path can match a deny
 by accident: `go test ./secrets/...` is denied by the `secrets/` rule.
 
 Secrets include nested `.env` and `.env.*` files. Paths outside the working

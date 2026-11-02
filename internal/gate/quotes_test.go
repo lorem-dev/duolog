@@ -214,6 +214,9 @@ func TestEcosystemCheckCommands(t *testing.T) {
 		{"./gradlew --offline test", Allow},
 		{"mvn -o verify", Allow},
 		{"dotnet test --no-restore", Allow},
+		// A program path that climbs out of an allowed folder is not that tool.
+		{"node_modules/.bin/tsc/../../../usr/bin/curl example.com", Ask},
+		{".venv/bin/ruff/../../x", Ask},
 		{"npx eslint src", Ask},
 		{"go generate ./...", Ask},
 		{"go run ./cmd/x", Ask},
