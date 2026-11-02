@@ -219,6 +219,12 @@ Some servers cannot be bridged. The task then goes to the lead, as with
 `duolog caps` marks each server `bridgeable` or says why it is not, and
 `duolog doctor` names the servers each agent can lend.
 
+We checked both directions with Codex 0.165.0 and Claude Code 2.1.316
+(OBSERVED). A Codex worker called a tool of an HTTP server with a token header
+from the Claude lead's `~/.claude.json`. A Claude worker called a tool of an
+HTTP server with a token header from the Codex lead's `config.toml`. The token
+was in no file under `.duolog/` and in no argument of the worker.
+
 ## What happens when a worker cannot sign in
 
 Before a worker starts, duolog checks two logins. A failed login would
@@ -232,10 +238,12 @@ otherwise end the run only after the lead waited for it.
 
 A passed check is kept for five minutes in `.duolog/cache/auth.json`, which
 holds only the time. A stdio server is not checked, because it would have to
-start. A server that checks its token only when a tool runs passes too. The
-worker is told to stop with `auth:mcp:<server>` in `needs` when a server
-refuses it, and duolog reads a refused agent login from the worker's errors.
-Both get the same treatment as a failed check.
+start. A server that checks its token only when a tool runs passes too; one
+server in our check accepted `initialize` with a wrong token. The worker is
+told to stop with `auth:mcp:<server>` in `needs` when a server refuses it, and
+duolog reads a refused agent login from the worker's errors. Both get the same
+treatment as a failed check. In our check, a Codex worker given a wrong token
+this way stopped, and the lead got the line that names the config file.
 
 `capabilities.on_auth_failure` decides what happens next:
 

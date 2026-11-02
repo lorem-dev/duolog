@@ -102,6 +102,31 @@ A deny wins over an allow. When no rule matches, the decision is
 `on_unmatched`, which is `ask` by default. The default denies always apply: a
 project that sets its own `rules` replaces the allow rules, not the denies.
 
+## How a worker's MCP tool calls are checked
+
+The gate does not know what an MCP tool does, so a call such as
+`mcp__jira__get_issue` is an `unknown` action and asks the lead. A lead that
+waits for its foreground `delegate` cannot answer, so the call is denied. That
+holds for a worker's own servers and for servers bridged from the lead (see
+[Configuration](configuration.md#how-a-worker-borrows-the-leads-mcp-server)).
+`capabilities.mcp_tools` limits which tools a bridged server offers; it does
+not allow them in the gate.
+
+To let workers call a tool without a question, add a rule with the action
+`unknown` and the tool name the gate saw, which `duolog decisions` shows:
+
+```yaml
+policy:
+  rules:
+    - {action: unknown, match: "mcp__jira__get_issue", decision: allow}
+```
+
+A `rules` list in your config replaces the default allow rules, so copy them
+from `internal/config/config.default.yaml` first. The default denies stay in
+any case. We saw a bridged server's tool run in a Codex and in a Claude worker
+in a folder where the gate was off. Whether Codex sends MCP calls to the gate
+is NOT VERIFIED.
+
 ## How a worker asks the lead
 
 For an `ask` decision, duolog sends a numbered request to the lead on the bus
