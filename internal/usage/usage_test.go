@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"github.com/lorem-dev/duolog/internal/config"
 	"math"
 	"os"
 	"path/filepath"
@@ -92,5 +93,19 @@ func TestStatsClaudeAliasHasUnknownActualVersion(t *testing.T) {
 	warning := strings.Join(table.Warnings, "\n")
 	if !strings.Contains(warning, "prices for claude-opus-5-5") || !strings.Contains(warning, "actual version unknown") || strings.Contains(warning, "version that ran was opus") {
 		t.Fatal(warning)
+	}
+}
+
+func TestCostMatchesSummarize(t *testing.T) {
+	logFile(t, "")
+	cfg, err := config.Load(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usd, ok := Cost(cfg, "codex", "gpt-6.1-sol", 1_000_000, 0, 0); !ok || math.Abs(usd-2.00) > 1e-9 {
+		t.Fatal(usd, ok)
+	}
+	if _, ok := Cost(cfg, "codex", "no-such-model", 1, 0, 0); ok {
+		t.Fatal("unknown model priced")
 	}
 }

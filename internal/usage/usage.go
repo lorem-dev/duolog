@@ -28,6 +28,16 @@ type Table struct {
 	Warnings []string
 }
 
+// Cost prices a run in USD; false means the model has no price for the agent.
+// Input includes cached reads, so the cached subset is charged only once.
+func Cost(cfg *config.Config, agent, model string, input, cached, output int64) (float64, bool) {
+	price, ok := cfg.Models[models.Normalize(agent, model)]
+	if !ok || price.Agent != agent {
+		return 0, false
+	}
+	return (float64(input-cached)*price.Input + float64(cached)*price.Cached + float64(output)*price.Output) / 1e6, true
+}
+
 // Summarize loads prices for the project containing .duolog/usage.ndjson.
 // Input includes cached reads, so the cached subset is charged only once.
 func Summarize(path string) (Table, error) {
@@ -59,11 +69,11 @@ func Summarize(path string) (Table, error) {
 			return Table{}, fmt.Errorf("usage line %d: invalid token counts", line)
 		}
 		alias := models.Normalize(record.Agent, record.Model)
-		price, ok := cfg.Models[alias]
-		if !ok || price.Agent != record.Agent {
+		price := cfg.Models[alias]
+		if cost, priced := Cost(cfg, record.Agent, record.Model, record.Input, record.Cached, record.Output); !priced {
 			warnings[fmt.Sprintf("No price for %s model %s; cost excluded", record.Agent, record.Model)] = true
 		} else {
-			record.Cost = (float64(record.Input-record.Cached)*price.Input + float64(record.Cached)*price.Cached + float64(record.Output)*price.Output) / 1e6
+			record.Cost = cost
 			if alias == record.Model {
 				warnings[fmt.Sprintf("Estimated %s using prices for %s; actual version unknown (usage records the routed alias)", alias, price.PricedFor)] = true
 			} else if price.PricedFor != record.Model {

@@ -63,6 +63,9 @@
 
 ### Added
 
+- `duolog task start` opens a learning-mode task and records its base commit in
+  the journal under `.duolog/journal/`. With `learning.enabled` off it records
+  nothing.
 - `on_missing.mcp: bridge` lends a lead's MCP server to a worker of the other
   agent, credentials in env only; `duolog caps` shows what can be lent.
 - The gate checks MCP tool calls as `mcp` actions; `capabilities.mcp_tools` and
