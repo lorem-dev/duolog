@@ -9,9 +9,16 @@ import (
 	"strings"
 )
 
-// DefaultTargets takes the price endpoints of each available agent's catalog.
-// Config has prices rather than capability ranks; the upper endpoint is the
-// strongest tier. Explicit model lists can choose intermediate tiers.
+// manualOnly reports whether the router refuses alias without
+// --allow-manual-model.
+func manualOnly(cfg *config.Config, alias string) bool {
+	return alias == "fable" || alias == "astra" || slices.Contains(cfg.Limits.ManualOnlyModels, alias)
+}
+
+// DefaultTargets takes the price endpoints of each available agent's catalog,
+// leaving out manual-only models. Config has prices rather than capability
+// ranks; the upper endpoint is the strongest tier. Explicit model lists can
+// choose intermediate tiers.
 func DefaultTargets(cfg *config.Config, unavailable map[string]bool) []config.Target {
 	var targets []config.Target
 	for _, agent := range []string{"claude", "codex"} {
@@ -20,7 +27,7 @@ func DefaultTargets(cfg *config.Config, unavailable map[string]bool) []config.Ta
 		}
 		var names []string
 		for name, m := range cfg.Models {
-			if m.Agent == agent {
+			if m.Agent == agent && !manualOnly(cfg, name) {
 				names = append(names, name)
 			}
 		}
@@ -52,7 +59,9 @@ func DefaultTargets(cfg *config.Config, unavailable map[string]bool) []config.Ta
 
 var safeModel = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
-func ParseTargets(cfg *config.Config, text string) ([]config.Target, error) {
+// ParseTargets reads agent/model/effort runs. A manual-only model needs
+// allowManual, as for delegation.
+func ParseTargets(cfg *config.Config, text string, allowManual bool) ([]config.Target, error) {
 	var targets []config.Target
 	for _, entry := range strings.Split(text, ",") {
 		parts := strings.Split(strings.TrimSpace(entry), "/")
@@ -66,9 +75,13 @@ func ParseTargets(cfg *config.Config, text string) ([]config.Target, error) {
 		if !slices.Contains([]string{"low", "medium", "high", "xhigh", "max", "ultra"}, t.Effort) {
 			return nil, fmt.Errorf("unknown effort %q", t.Effort)
 		}
-		price, ok := cfg.Models[models.Normalize(t.Agent, t.Model)]
+		alias := models.Normalize(t.Agent, t.Model)
+		price, ok := cfg.Models[alias]
 		if !ok || price.Agent != t.Agent {
 			return nil, fmt.Errorf("no configured price for %s/%s", t.Agent, t.Model)
+		}
+		if !allowManual && manualOnly(cfg, alias) {
+			return nil, fmt.Errorf("model %s requires --allow-manual-model", t.Model)
 		}
 		if !slices.Contains(targets, t) {
 			targets = append(targets, t)

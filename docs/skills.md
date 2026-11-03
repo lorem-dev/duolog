@@ -46,9 +46,11 @@ duolog skill test path/to/SKILL.md --models claude/haiku/low,codex/sol/high --ye
 
 The default uses each available agent's cheapest and strongest configured
 model at low and high effort. Availability uses the router's provider state
-and installed commands. The price endpoints select the model tiers. This
-includes the strongest manual tiers; check the printed run list before
-approving. `--models` chooses explicit agent/model/effort triples instead.
+and installed commands. The price endpoints select the model tiers. Models in
+`limits.manual_only_models` (and `fable` and `astra`) are skipped, so the
+strongest tier is the strongest model that is not manual-only. `--models`
+chooses explicit agent/model/effort triples instead; it names a manual-only
+model only together with `--allow-manual-model`, as `duolog delegate` does.
 Codex aliases resolve to the newest visible version, as for delegation.
 
 The command prints the run count and a cost estimate before asking to start.
@@ -62,7 +64,10 @@ disabled. Each run returns one JSON object keyed by situation id. The final
 table shows `ok`, `--` or `..`, a score per run and costs from recorded usage.
 
 Raw answers overwrite `.duolog/skill-tests/<skill>/<run>.json` on the next
-run of that target. The files include failed checks and process errors.
+run of that target. The files include failed checks and process errors. When
+a run fails, its stdout and stderr are copied to
+`.duolog/skill-tests/<skill>/<run>.log` and the error line points there; a
+later run of that target removes an old log.
 Usage also goes to `.duolog/usage.ndjson`, as for delegation, and appears in
 `duolog stats`. In linked worktrees, usage and provider availability share
 the main checkout's state. Plans, preferences and answers use the current

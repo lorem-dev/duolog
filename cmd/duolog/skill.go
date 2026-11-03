@@ -32,7 +32,7 @@ import (
 func newSkillCommand() *cobra.Command {
 	parent := &cobra.Command{Use: "skill", Short: "Test skill instructions across models"}
 	var planPath, modelList, remember string
-	var yes bool
+	var yes, allowManual bool
 	cmd := &cobra.Command{Use: "test <SKILL.md>", Short: "Run a situation plan without tools", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if isWorker() {
 			return fmt.Errorf("workers cannot run skill tests or change their preference")
@@ -44,7 +44,7 @@ func newSkillCommand() *cobra.Command {
 		stateRoot := root
 		root = workRoot(root)
 		if cmd.Flags().Changed("remember") {
-			if len(args) != 0 || planPath != "" || modelList != "" || yes {
+			if len(args) != 0 || planPath != "" || modelList != "" || yes || allowManual {
 				return fmt.Errorf("--remember is used alone")
 			}
 			return rememberSkillTests(root, remember)
@@ -102,7 +102,7 @@ func newSkillCommand() *cobra.Command {
 		}
 		targets := skilltest.DefaultTargets(cfg, unavailable)
 		if modelList != "" {
-			targets, err = skilltest.ParseTargets(cfg, modelList)
+			targets, err = skilltest.ParseTargets(cfg, modelList, allowManual)
 			if err != nil {
 				return err
 			}
@@ -151,6 +151,7 @@ func newSkillCommand() *cobra.Command {
 	cmd.Flags().StringVar(&modelList, "models", "", "Comma-separated agent/model/effort runs")
 	cmd.Flags().StringVar(&remember, "remember", "", "Save ask, always or never for this repository")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Approve the printed test cost without prompting")
+	cmd.Flags().BoolVar(&allowManual, "allow-manual-model", false, "Allow --models to name models reserved for manual selection")
 	parent.AddCommand(cmd)
 	return parent
 }
@@ -219,8 +220,12 @@ func runSkillTests(cmd *cobra.Command, root, stateRoot, name string, cfg *config
 		}
 		label := target.Agent + "/" + target.Model + "/" + target.Effort
 		rawPath := filepath.Join(dir, strings.ReplaceAll(label, "/", "-")+".json")
-		// Clear earlier answers even if model resolution or process startup fails.
+		logPath := strings.TrimSuffix(rawPath, ".json") + ".log"
+		// Clear earlier answers and logs even if model resolution or process startup fails.
 		if err := os.WriteFile(rawPath, []byte("{}\n"), 0600); err != nil {
+			return err
+		}
+		if err := os.Remove(logPath); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 		work, err := os.MkdirTemp("", "duolog-skill-test-")
@@ -233,6 +238,9 @@ func runSkillTests(cmd *cobra.Command, root, stateRoot, name string, cfg *config
 		var runErr error
 		if len(selected.Situations) > 0 {
 			result, route, runErr = askSkill(cmd, cfg, root, work, selected.Prompt(skill), target)
+		}
+		if runErr != nil {
+			runErr = keepRunLog(runErr, filepath.Join(work, "stdout.log"), logPath)
 		}
 		graded := selected.Grade(result.RawAnswer)
 		if runErr != nil {
@@ -303,6 +311,20 @@ func runSkillTests(cmd *cobra.Command, root, stateRoot, name string, cfg *config
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Total cost USD (from recorded usage): %.6f\nRaw answers: %s\n", total, dir)
 	return errors.Join(runErrors...)
+}
+
+// keepRunLog copies the run's combined stdout and stderr out of the temporary
+// folder and points the error at the copy. Without a log to copy, the error
+// stays as it is.
+func keepRunLog(runErr error, tempLog, logPath string) error {
+	data, err := os.ReadFile(tempLog)
+	if err != nil {
+		return runErr
+	}
+	if err := os.WriteFile(logPath, data, 0600); err != nil {
+		return errors.Join(runErr, err)
+	}
+	return errors.New(strings.ReplaceAll(runErr.Error(), tempLog, logPath))
 }
 
 func askSkill(cmd *cobra.Command, cfg *config.Config, root, work, prompt string, target config.Target) (runner.Result, router.Route, error) {

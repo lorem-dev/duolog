@@ -58,6 +58,44 @@ func TestSkillTestCodexAndOverwrite(t *testing.T) {
 	}
 }
 
+func TestSkillTestFailureKeepsLog(t *testing.T) {
+	root := skillProject(t)
+	testbin.Install(t, "claude", testbin.Scenario{Stdout: `{"result":"oops","is_error":true}`, Stderr: "boom from stderr", Exit: 1})
+	out, err := executeBusCommand(t, "skill", "test", "skills/demo/SKILL.md", "--models", "claude/haiku/low", "--yes")
+	logPath := filepath.Join(root, ".duolog/skill-tests/demo/claude-haiku-low.log")
+	if err == nil || !strings.Contains(err.Error(), "see "+logPath) || strings.Contains(err.Error(), "duolog-skill-test-") {
+		t.Fatalf("%s %v", out, err)
+	}
+	data, readErr := os.ReadFile(logPath)
+	if readErr != nil || !bytes.Contains(data, []byte("boom from stderr")) || !bytes.Contains(data, []byte("oops")) {
+		t.Fatalf("%s %v", data, readErr)
+	}
+	// A later successful run leaves no stale log behind.
+	testbin.Install(t, "claude", testbin.Scenario{Stdout: `{"result":"{\"s1\":\"yes\"}"}`})
+	if out, err := executeBusCommand(t, "skill", "test", "skills/demo/SKILL.md", "--models", "claude/haiku/low", "--yes"); err != nil {
+		t.Fatalf("%s %v", out, err)
+	}
+	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+		t.Fatalf("stale log remains: %v", err)
+	}
+}
+
+func TestSkillTestManualModelNeedsFlag(t *testing.T) {
+	skillProject(t)
+	fake := testbin.Install(t, "claude", testbin.Scenario{Stdout: `{"result":"{\"s1\":\"yes\"}"}`})
+	_, err := executeBusCommand(t, "skill", "test", "skills/demo/SKILL.md", "--models", "claude/fable/low", "--yes")
+	if err == nil || !strings.Contains(err.Error(), "--allow-manual-model") {
+		t.Fatalf("%v", err)
+	}
+	if _, statErr := os.Stat(fake + ".args.json"); !os.IsNotExist(statErr) {
+		t.Fatal("ran a manual-only model without permission")
+	}
+	out, err := executeBusCommand(t, "skill", "test", "skills/demo/SKILL.md", "--models", "claude/fable/low", "--allow-manual-model", "--yes")
+	if err != nil || !strings.Contains(out, "1/1") {
+		t.Fatalf("%s %v", out, err)
+	}
+}
+
 func TestSkillTestSkipsOtherAgents(t *testing.T) {
 	root := skillProject(t)
 	plan := `situations:
