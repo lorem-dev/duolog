@@ -259,6 +259,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	for attempt := 0; attempt < 2; attempt++ {
 		ro := router.Options{Lead: leadTarget, AllowManualModel: opts.AllowManualModel}
 		if opts.Entry != nil {
+			if unavailable[opts.Entry.Agent] {
+				return out, fmt.Errorf("requested target %s/%s/%s is unavailable; ask the person before choosing another target", opts.Entry.Agent, opts.Entry.Model, opts.Entry.Effort)
+			}
 			ro.Use, ro.NoSelf = opts.Entry, true
 		} else if err := lr.route(cfg, role, unavailable, &ro); err != nil {
 			return out, err

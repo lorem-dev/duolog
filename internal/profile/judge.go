@@ -58,7 +58,7 @@ func JudgeTask(dir string, c config.Class, original []byte, first, second Side) 
 	for _, name := range []string{"original-task.md", "a.patch", "a.answer.txt", "b.patch", "b.answer.txt"} {
 		fmt.Fprintf(&text, "- `%s/%s`\n", strings.TrimSuffix(filepath.ToSlash(dir), "/"), name)
 	}
-	text.WriteString("\n## Write\nNone.\n\n## Limits\nScore every criterion from 0 to 3 for A and B. Give nonnegative counts for criteria marked (count). Give one reason per criterion. Do not guess which model wrote either side. Read only the listed files and do not search for the identity or history of either side.\n\n## Check\nThe answer's summary must contain one JSON object with this shape:\n")
+	text.WriteString("\n## Write\nNone.\n\n## Limits\nScore every criterion from 0 to 3 for A and B: 3 is best, 0 is worst. For (count) criteria, fewer is better; the score measures quality, not the count. Give nonnegative counts for criteria marked (count). Give one reason per criterion. Do not guess which model wrote either side. Read only the listed files and do not search for the identity or history of either side.\n\n## Check\nThe answer's summary must contain one JSON object with this shape:\n")
 	text.WriteString("```json\n{\"scores\":[{\"criterion\":\"rubric criterion\",\"a\":0,\"b\":0,\"count_a\":0,\"count_b\":0,\"reason\":\"one reason\"}]}\n```\n")
 	return []byte(text.String()), files
 }

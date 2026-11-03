@@ -44,7 +44,7 @@ The rules are in the `policy` section of the config. A rule has an action
 |---|---|---|
 | read | everything | allow |
 | read | `.env`, `*.pem`, `*.key`, `secrets/` | deny |
-| write | `.duolog` and `.git` folders, at any depth | deny |
+| write | `.duolog` folders and `.git` files or folders, at any depth | deny |
 | write | `.claude/settings*.json`, `.claude/hooks/**` and the `.codex` folder | deny |
 | write | everything, for the write roles | allow |
 | exec | `go test`, `make build`, `npm run test`, `uv run pytest` and the like, for write roles | allow |

@@ -137,7 +137,7 @@ policy:
   rules:
     - {action: read,  match: "**", decision: allow}
     - {action: read,  match: "{**/.env,**/.env.*,**/*.pem,**/*.key,**/secrets/**}", decision: deny}
-    - {action: write, match: "{**/.duolog/**,**/.git/**}", decision: deny}
+    - {action: write, match: "{**/.duolog/**,**/.git,**/.git/**}", decision: deny}
     # A worker that changes these would change its own rules or the lead's hooks.
     # Codex itself keeps .codex/ read-only in workspace-write.
     - {action: write, match: "{.claude/settings*.json,.claude/hooks/**,.codex/**}", decision: deny}
@@ -276,7 +276,7 @@ learning:
     debug:
       description: a root cause readable from one repository's code
       priority: cost
-      roles: [debug_hard]
+      roles: [debug, debug_hard]
       ladder: [{agent: codex, model: terra, effort: medium, prior: 2.9}, {agent: codex, model: sol, effort: medium, prior: 2.9}, {agent: claude, model: opus, effort: high, prior: 2.9}]
       rubric: *cost_rubric
     tests:

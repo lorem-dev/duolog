@@ -153,9 +153,10 @@ func Offers(cfg *config.Config, task []journal.Delegation, st Stats, vs []journa
 		judgeUSD /= float64(judgeRuns)
 	}
 	for _, d := range taskSteps(task) {
-		if d.ProfileOf != "" || d.Outcome == journal.OutcomeInfra || d.Outcome == journal.OutcomeLead || d.Why == "person" || d.Class == "" || d.Class == Unclassified {
+		if d.ProfileOf != "" || !d.QualityRun() || d.Why == "person" || d.Class == "" || d.Class == Unclassified {
 			continue
 		}
+		d.Entry = effectiveEntry(d)
 		key, entries := l.Ladder(d.Class, d.Role)
 		if key == "" {
 			continue

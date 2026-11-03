@@ -32,14 +32,15 @@ func Aggregate(cfg *config.Config, ds []journal.Delegation, ts []journal.Task, v
 	counts := map[string]map[string]count{}
 	escalated := map[string]int{}
 	for i, d := range ds {
-		if d.Outcome != journal.OutcomeInfra && d.Outcome != journal.OutcomeLead && d.ProfileOf == "" && d.EscalatedFrom != "" {
+		if d.QualityRun() && d.ProfileOf == "" && d.EscalatedFrom != "" {
 			escalated[d.EscalatedFrom] = i
 		}
 	}
 	for i, d := range ds {
-		if d.Outcome == journal.OutcomeInfra || d.Outcome == journal.OutcomeLead {
+		if !d.QualityRun() {
 			continue
 		}
+		d.Entry = effectiveEntry(d)
 		if d.Entry == "" || d.Class == "" || d.Class == Unclassified || (d.ProfileOf == "" && d.Task == "") {
 			continue
 		}
@@ -85,6 +86,16 @@ func Aggregate(cfg *config.Config, ds []journal.Delegation, ts []journal.Task, v
 		update(v.Ladder, v.Profile, func(s *config.EntryStat) { observe(s, b, 1) })
 	}
 	return st
+}
+
+func effectiveEntry(d journal.Delegation) string {
+	if d.EffortCapped {
+		if entry, err := config.ParseEntryKey(d.Entry); err == nil {
+			entry.Effort = d.Effort
+			return entry.Key()
+		}
+	}
+	return d.Entry
 }
 
 func observe(s *config.EntryStat, q, w float64) {

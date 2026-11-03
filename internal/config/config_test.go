@@ -310,7 +310,7 @@ func TestProjectRulesCannotDropDefaultDenies(t *testing.T) {
 			found[rule.Match] = true
 		}
 	}
-	for _, want := range []string{"{**/.duolog/**,**/.git/**}", "git {push,reset --hard,clean,rebase}*", "rm -rf *"} {
+	for _, want := range []string{"{**/.duolog/**,**/.git,**/.git/**}", "git {push,reset --hard,clean,rebase}*", "rm -rf *"} {
 		if !found[want] {
 			t.Errorf("default deny %q was dropped", want)
 		}

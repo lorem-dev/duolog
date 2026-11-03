@@ -83,12 +83,25 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, delegation str
 	if err != nil {
 		return replay, err
 	}
-	if err = removeWorktree(root, wt); err != nil {
+	inputs, err := prepareReplay(ctx, root, j, selected)
+	if err != nil {
 		return replay, err
+	}
+	last := selected[len(selected)-1]
+	var originalTreePatch []byte
+	if last.AfterTree != "" {
+		originalTreePatch, err = journal.Diff(root, first.Base, last.AfterTree)
+		if err != nil {
+			return replay, err
+		}
 	}
 	// Install cleanup before add, which can fail after creating the directory.
 	defer func() { err = errors.Join(err, removeWorktree(root, wt)) }()
-	if _, err = git(ctx, root, "worktree", "add", "--detach", wt, first.Base); err != nil {
+	if err = recreateWorktree(ctx, root, wt, first.Base); err != nil {
+		return replay, err
+	}
+	identity, err := os.ReadFile(filepath.Join(wt, ".git"))
+	if err != nil {
 		return replay, err
 	}
 	if err = apply(wt, beforePatch); err != nil {
@@ -98,8 +111,11 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, delegation str
 	if err != nil {
 		return replay, err
 	}
+	if first.BeforeTree != "" && before != first.BeforeTree {
+		return replay, fmt.Errorf("delegation %s starting patch differs from its recorded tree", first.ID)
+	}
 	replay.Task, replay.Class, replay.Ladder, replay.Role = first.Task, first.Class, first.Ladder, first.Role
-	replay.Original.Entry = first.Entry
+	replay.Original.Entry = recordEntry(first)
 	replay.Profile.Entry = entryKey(opts.Entry)
 	var summaries, originalSummaries []string
 	// Keep the existing worker answer shape for the combined profile answer.
@@ -115,15 +131,17 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, delegation str
 			return replay, err
 		}
 		replay.Delegations = append(replay.Delegations, rec.ID)
-		task, e := os.ReadFile(filepath.Join(j.TaskDir(rec.Task, rec.ID), "task.md"))
-		if e != nil {
-			return replay, e
+		if err = verifyWorktree(wt, identity); err != nil {
+			return replay, err
+		}
+		if err = apply(wt, inputs[i].leadDelta); err != nil {
+			return replay, fmt.Errorf("chain lead changes before %s conflict with the replay: %w", rec.ID, err)
 		}
 		taskPath := filepath.Join(wt, ".duolog", "task.md")
 		if err = os.MkdirAll(filepath.Dir(taskPath), 0700); err != nil {
 			return replay, err
 		}
-		if err = os.WriteFile(taskPath, task, 0600); err != nil {
+		if err = os.WriteFile(taskPath, inputs[i].task, 0600); err != nil {
 			return replay, err
 		}
 		entry := opts.Entry
@@ -144,7 +162,10 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, delegation str
 		if out.Result.Interrupted {
 			return replay, context.Canceled
 		}
-		if out.RunHere != nil || len(out.Needs) > 0 {
+		if err = verifyWorktree(wt, identity); err != nil {
+			return replay, err
+		}
+		if out.RunHere != nil || len(out.Needs) > 0 || len(out.Result.Needs) > 0 {
 			return replay, fmt.Errorf("replay %s did not run a worker: %s", rec.ID, out.Line)
 		}
 		summaries = append(summaries, out.Result.Summary)
@@ -172,6 +193,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, delegation str
 	for _, rec := range newRecords {
 		if !seen[rec.ID] && slices.Contains(replay.Delegations, rec.ProfileOf) {
 			replay.Profile.USD += rec.USD
+			if rec.ProfileOf == first.ID && rec.Entry != "" {
+				replay.Profile.Entry = recordEntry(rec)
+			}
 		}
 	}
 	commands := cfg.Learning.Classes[first.Class].Checks
@@ -179,37 +203,28 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, delegation str
 	if err = ctx.Err(); err != nil {
 		return replay, err
 	}
-	// Discard all replay and check changes, including untracked and ignored files.
-	if _, err = git(ctx, wt, "reset", "--hard", first.Base); err != nil {
+	// Always remove from the known state root. No destructive Git command runs
+	// inside a directory whose .git file a worker or check may have damaged.
+	if err = recreateWorktree(ctx, root, wt, first.Base); err != nil {
 		return replay, err
 	}
-	if _, err = git(ctx, wt, "clean", "-fdx"); err != nil {
-		return replay, err
-	}
-	if err = apply(wt, beforePatch); err != nil {
-		return replay, err
-	}
-	for _, rec := range selected {
-		dir := j.TaskDir(rec.Task, rec.ID)
-		patch, e := os.ReadFile(filepath.Join(dir, "result.patch"))
-		if e != nil {
-			return replay, e
-		}
-		if err = apply(wt, patch); err != nil {
+	if last.AfterTree != "" {
+		if err = apply(wt, originalTreePatch); err != nil {
 			return replay, err
 		}
-		data, e := os.ReadFile(filepath.Join(dir, "answer.json"))
-		if e != nil && !os.IsNotExist(e) {
-			return replay, e
+	} else {
+		// Single-step legacy records may have patches without tree metadata.
+		input := inputs[len(inputs)-1]
+		if err = apply(wt, input.before); err != nil {
+			return replay, err
 		}
-		if e == nil {
-			var original struct {
-				Summary string `json:"summary"`
-			}
-			if err = json.Unmarshal(data, &original); err != nil {
-				return replay, err
-			}
-			originalSummaries = append(originalSummaries, original.Summary)
+		if err = apply(wt, input.result); err != nil {
+			return replay, err
+		}
+	}
+	for i, rec := range selected {
+		if inputs[i].summary != "" {
+			originalSummaries = append(originalSummaries, inputs[i].summary)
 		}
 		replay.Original.USD += rec.USD
 	}
@@ -243,7 +258,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, delegation str
 
 func selectRecords(records []journal.Delegation, id string, chain bool) ([]journal.Delegation, error) {
 	i := slices.IndexFunc(records, func(r journal.Delegation) bool {
-		return r.ID == id && r.ProfileOf == "" && r.Outcome != journal.OutcomeInfra
+		return r.ID == id && r.ProfileOf == "" && r.QualityRun()
 	})
 	if i < 0 {
 		return nil, fmt.Errorf("delegation %s is not a live delegation in the journal", id)
@@ -255,7 +270,7 @@ func selectRecords(records []journal.Delegation, id string, chain bool) ([]journ
 	}
 	var following []journal.Delegation
 	for _, r := range records {
-		if r.Task == first.Task && r.Step > first.Step && r.ProfileOf == "" && r.Outcome != journal.OutcomeInfra {
+		if r.Task == first.Task && r.Step > first.Step && r.ProfileOf == "" && r.QualityRun() {
 			following = append(following, r)
 		}
 	}
@@ -279,6 +294,16 @@ func selectRecords(records []journal.Delegation, id string, chain bool) ([]journ
 
 func entryKey(t config.Target) string {
 	return (config.LadderEntry{Agent: t.Agent, Model: t.Model, Effort: t.Effort}).Key()
+}
+
+func recordEntry(rec journal.Delegation) string {
+	if rec.EffortCapped {
+		if entry, err := config.ParseEntryKey(rec.Entry); err == nil {
+			entry.Effort = rec.Effort
+			return entry.Key()
+		}
+	}
+	return rec.Entry
 }
 
 func apply(dir string, patch []byte) error {

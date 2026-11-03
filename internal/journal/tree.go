@@ -112,11 +112,11 @@ func Capture(root string) (string, error) {
 }
 
 func Diff(root, from, to string) ([]byte, error) {
-	return git(root, nil, nil, "diff", "--binary", from, to)
+	return git(root, nil, nil, "diff", "--no-ext-diff", "--no-color", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "--binary", "--full-index", from, to)
 }
 
 func NumStat(root, from, to string) ([]FileChange, error) {
-	out, err := git(root, nil, nil, "diff", "--numstat", "--no-renames", "-z", from, to)
+	out, err := git(root, nil, nil, "diff", "--no-ext-diff", "--no-color", "--no-textconv", "--numstat", "--no-renames", "-z", from, to)
 	if err != nil {
 		return nil, err
 	}

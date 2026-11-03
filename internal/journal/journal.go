@@ -34,6 +34,7 @@ type Delegation struct {
 	Class            string            `json:"class,omitempty"`
 	Ladder           string            `json:"ladder,omitempty"`
 	Entry            string            `json:"entry,omitempty"`
+	RequestedEntry   string            `json:"requested_entry,omitempty"`
 	Why              string            `json:"why,omitempty"`
 	RoleMismatch     bool              `json:"role_mismatch,omitempty"`
 	Agent            string            `json:"agent"`
@@ -48,6 +49,7 @@ type Delegation struct {
 	Seconds          float64           `json:"seconds"`
 	Done             bool              `json:"done"`
 	RunHere          bool              `json:"run_here,omitempty"`
+	Interrupted      bool              `json:"interrupted,omitempty"`
 	Needs            []string          `json:"needs,omitempty"`
 	GateDenials      int               `json:"gate_denials,omitempty"`
 	GateAsks         int               `json:"gate_asks,omitempty"`
@@ -66,9 +68,15 @@ type Delegation struct {
 const (
 	// OutcomeInfra: the run ended on a quota or rate limit.
 	OutcomeInfra = "infra"
-	// OutcomeLead: the task went back to the lead before any worker ran.
+	// OutcomeLead: control returned to the lead without a quality result.
 	OutcomeLead = "lead"
 )
+
+// QualityRun excludes returns to the lead, interruptions and questions. A real
+// worker failure remains eligible; only that failure says something on quality.
+func (d Delegation) QualityRun() bool {
+	return d.Outcome != OutcomeInfra && d.Outcome != OutcomeLead && !d.RunHere && !d.Interrupted && len(d.Needs) == 0
+}
 
 type Task struct {
 	Kind        string    `json:"kind"` // "finish" or "outcome"

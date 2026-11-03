@@ -155,7 +155,7 @@ func TestLearningOpensImplicitTask(t *testing.T) {
 	if err != nil || !ok || task.Base != h.head() || task.Title != "(implicit)" {
 		t.Fatal(task, ok, err)
 	}
-	if h.record().Task != task.ID || !strings.Contains(out.Line, "duolog task start") {
+	if h.record().Task != task.ID || !strings.Contains(out.Line, "duolog task finish") {
 		t.Fatal(h.record(), out.Line)
 	}
 }
@@ -688,7 +688,7 @@ func TestLearningRunHereAfterQuotaRecordsFinalAttempt(t *testing.T) {
 	}
 	h.requireCalls(1)
 	rec := h.record()
-	if !rec.RunHere || rec.Done || rec.Outcome != "" || rec.Input != 0 || rec.Output != 0 || rec.USD != 0 || rec.Agent != "claude" || models.Normalize("claude", rec.Model) != "sonnet" {
+	if !rec.RunHere || rec.Done || rec.Outcome != journal.OutcomeLead || rec.Input != 0 || rec.Output != 0 || rec.USD != 0 || rec.Agent != "claude" || models.Normalize("claude", rec.Model) != "sonnet" {
 		t.Fatalf("%+v", rec)
 	}
 }

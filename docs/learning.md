@@ -52,7 +52,9 @@ the role uses its own target and the journal records `unclassified`.
 
 If the person names a target, pass it with `--use agent/model/effort`. Ask if
 their choice is unclear. These runs count in the statistics, but receive no
-profiling offer. A subagent of the lead's own vendor uses the agent's own
+profiling offer. If that agent is unavailable, duolog refuses and says to ask
+the person before choosing another target. This also applies to `--entry`.
+A subagent of the lead's own vendor uses the agent's own
 tools when the person asks for one.
 
 For new structure, use three delegations with `--class skeleton`: `plan`,
@@ -62,6 +64,10 @@ To leave a failed run, pass `--escalate-from <id> --reason <signal>`. The
 result line supplies the delegation ID. Signals are `no_repro`, `no_lines`,
 `inconsistent`, `not_green` and `out_of_turns`. A provider limit is not a
 quality failure. Changing the person's explicit target needs their agreement.
+
+The lead's effort ceiling still applies. Escalation skips entries that would
+run on the same target and effort as the entry being left after that ceiling.
+The result line names a cap, and the journal credits the effort that ran.
 
 ## What the journal keeps and where
 
@@ -92,6 +98,9 @@ notice, and the outcome question.
 Each offer states its target, reason and estimated cost, including the judge.
 The person chooses one, both or none. There are no offers for replays,
 provider limits, tasks returned to the lead, or explicit person choices.
+Run-here results, interruptions and requests for clarification also get no
+offer. They add no quality or failure observations for a ladder entry and
+cannot be replayed.
 
 Record the person's outcome for the finished task:
 
@@ -116,6 +125,12 @@ The entry names the agent, model and effort. Add `--chain` to replay later
 steps of the same task and class. The chain stops at the next class. Only
 the first step changes target; later steps use the targets that ran before.
 Replays and provider limits do not count as chain steps.
+
+Each later step receives the lead's recorded file changes made between steps.
+The original side uses the last step's recorded result tree. A chain needs
+complete before and after trees for every step. Later tasks must read earlier
+outputs through files. If they embed original answers or reference original
+delegation artifacts, duolog refuses the chain before starting any worker.
 
 The command uses a separate Git worktree, a checkout that shares Git history.
 It rebuilds the recorded starting tree from the base commit and saved patch.
@@ -144,8 +159,10 @@ the entry names or learn which side is the original. The label order is
 random. The judge uses a vendor absent from both sides when possible.
 Otherwise it uses the first configured judge in `learning.judges`.
 
-The judge scores each criterion from 0 to 3. Criteria marked `(count)` also
-require a count for each side. Its task and inputs stay in
+The judge scores each criterion from 0 to 3: 3 is best and 0 is worst.
+For criteria marked `(count)`, fewer is better. They also require a raw count
+for each side; the quality score is separate from that count. Its task and
+inputs stay in
 `.duolog/judge/<verdict-id>/` under the current work root. An invalid answer
 creates no verdict. The error gives the saved answer path for inspection.
 

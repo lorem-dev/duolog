@@ -293,6 +293,12 @@ func TestRunChecksUsesArgumentsAndWorkingDirectory(t *testing.T) {
 
 func TestChainReplaysFollowingSteps(t *testing.T) {
 	f := newFixture(t)
+	tree, err := journal.Capture(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.rec.BeforeTree, f.rec.AfterTree = tree, tree
+	rewriteRecords(t, f, f.rec)
 	second := f.rec
 	second.ID, second.Step, second.Role = "d2", 2, "implement_complex"
 	// Routing had fallen back: the later step must use what actually ran.
@@ -316,6 +322,7 @@ func TestChainReplaysFollowingSteps(t *testing.T) {
 	}
 	dir := f.j.TaskDir(second.Task, second.ID)
 	writeTest(t, filepath.Join(dir, "task.md"), []byte("second task"))
+	writeTest(t, filepath.Join(dir, "before.patch"), readTest(t, filepath.Join(f.j.TaskDir(f.rec.Task, f.rec.ID), "before.patch")))
 	writeTest(t, filepath.Join(dir, "result.patch"), nil)
 	writeTest(t, filepath.Join(dir, "answer.json"), []byte(`{"summary":"second answer"}`))
 	var calls []string

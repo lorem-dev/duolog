@@ -37,7 +37,8 @@ type learnRun struct {
 	task     journal.OpenTask
 	implicit bool
 	// after is the entry an escalation leaves; route starts after it.
-	after string
+	after      string
+	leftTarget config.Target
 	// rec holds the classification; finish adds the route and the run.
 	rec  journal.Delegation
 	next learnRoute // chosen by route, before Resolve
@@ -53,8 +54,8 @@ type learnRun struct {
 }
 
 type learnRoute struct {
-	entry, ladder, why string
-	route              router.Route
+	entry, requested, ladder, why string
+	route                         router.Route
 }
 
 // workRootOf is the directory the worker runs in: opts.WorkRoot, or the
@@ -102,6 +103,15 @@ func beginLearning(cfg *config.Config, s *store.Store, leadID, role, id string, 
 		}
 	}
 	lr := &learnRun{j: j, stateDir: s.Dir, cfg: cfg, opts: opts, id: id, role: role, started: time.Now(), after: left.Entry}
+	if left.RequestedEntry != "" {
+		lr.after = left.RequestedEntry
+	}
+	if entry, err := config.ParseEntryKey(left.Entry); err == nil {
+		lr.leftTarget = entry.Target()
+		if left.EffortCapped {
+			lr.leftTarget.Effort = left.Effort
+		}
+	}
 	rec := journal.Delegation{ID: id, Lead: leadID, Role: role, Features: opts.Features, StatedClass: opts.Class, ProfileOf: opts.ReplayOf, EscalatedFrom: left.ID}
 	if left.ID != "" {
 		rec.EscalationReason = opts.EscalateReason
@@ -203,6 +213,9 @@ func escalated(j *journal.Journal, leadID string, opts Options) (journal.Delegat
 	if left.Outcome == journal.OutcomeLead {
 		return journal.Delegation{}, fmt.Errorf("delegation %s went back to the lead before a worker ran; there is no run to escalate from", left.ID)
 	}
+	if !left.QualityRun() {
+		return journal.Delegation{}, fmt.Errorf("delegation %s returned control to the lead without a quality result; there is no run to escalate from", left.ID)
+	}
 	if left.Entry == "" {
 		return journal.Delegation{}, fmt.Errorf("delegation %s ran on its role's own target, not on a ladder entry; delegate again with --class or --use", left.ID)
 	}
@@ -225,7 +238,26 @@ func (lr *learnRun) route(cfg *config.Config, role string, unavailable map[strin
 	if lr.rec.Class == learning.Unclassified {
 		return nil
 	}
-	choice, ok := learning.Choose(cfg.Learning, lr.rec.Class, role, unavailable, lr.after)
+	cursor := lr.after
+	var choice learning.Choice
+	var ok bool
+	for {
+		choice, ok = learning.Choose(cfg.Learning, lr.rec.Class, role, unavailable, cursor)
+		if !ok || lr.after == "" {
+			break
+		}
+		candidate := *ro
+		target := choice.Entry.Target()
+		candidate.Use = &target
+		route, err := router.Resolve(cfg, role, unavailable, candidate)
+		if err != nil {
+			return err
+		}
+		if route.Target != lr.leftTarget {
+			break
+		}
+		cursor = choice.Entry.Key()
+	}
 	if !ok {
 		if lr.after != "" {
 			return fmt.Errorf("class %s has no available entry after %s; do it yourself or name another role", lr.rec.Class, lr.after)
@@ -251,6 +283,13 @@ func (lr *learnRun) resolved(route router.Route) {
 	}
 	lr.cur = lr.next
 	lr.cur.route = route
+	if route.EffortCapped && lr.cur.entry != "" {
+		if entry, err := config.ParseEntryKey(lr.cur.entry); err == nil {
+			lr.cur.requested = lr.cur.entry
+			entry.Effort = route.Effort
+			lr.cur.entry = entry.Key()
+		}
+	}
 	lr.ran, lr.usage, lr.quota, lr.before = false, runner.Usage{}, false, ""
 }
 
@@ -293,8 +332,11 @@ func (lr *learnRun) note() string {
 	if st.entry != "" {
 		s += " entry=" + st.entry
 	}
+	if st.route.EffortCapped {
+		s += "; effort capped at " + st.route.Effort
+	}
 	if lr.implicit {
-		s += "; no task was open: opened one, run duolog task start next time"
+		s += "; no task was open: opened one, run duolog task finish when this task ends"
 	}
 	if lr.rec.Class == learning.Unclassified {
 		s += "; unclassified: add --features or --class"
@@ -317,10 +359,15 @@ func (lr *learnRun) finish(root, dir, copyPath string, out Outcome) error {
 	rec := lr.rec
 	rec.Time = lr.started.UTC()
 	rec.Entry, rec.Ladder, rec.Why = st.entry, st.ladder, st.why
+	rec.RequestedEntry = st.requested
 	rec.Agent, rec.Model, rec.Effort, rec.EffortCapped = st.route.Agent, st.route.Model, st.route.Effort, st.route.EffortCapped
 	rec.RunHere = out.RunHere != nil
+	rec.Interrupted = out.Result.Interrupted
 	rec.Needs = out.Needs
-	if !lr.ran && !rec.RunHere {
+	if len(rec.Needs) == 0 {
+		rec.Needs = out.Result.Needs
+	}
+	if !lr.ran || rec.RunHere || rec.Interrupted || len(rec.Needs) > 0 {
 		rec.Outcome = journal.OutcomeLead
 	}
 	var errs []error
@@ -336,7 +383,7 @@ func (lr *learnRun) finish(root, dir, copyPath string, out Outcome) error {
 		rec.GateDenials, rec.GateAsks, err = lr.gateCounts()
 		errs = append(errs, err)
 		if rec.ProfileOf == "" {
-			errs = append(errs, lr.keep(&rec, root, dir, copyPath, st.route.Sandbox == "read-only", len(out.Needs) > 0))
+			errs = append(errs, lr.keep(&rec, root, dir, copyPath, st.route.Sandbox == "read-only", len(rec.Needs) > 0))
 		}
 	}
 	if rec.ProfileOf == "" {
@@ -374,6 +421,7 @@ func (lr *learnRun) keep(rec *journal.Delegation, root, dir, copyPath string, re
 		return nil
 	}
 	rec.BeforeTree = lr.before
+	rec.AfterTree = lr.before
 	if rec.Base != "" {
 		patch, err := journal.Diff(root, rec.Base, lr.before)
 		if err != nil {
