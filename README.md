@@ -51,7 +51,7 @@ PATH and open a new terminal if needed. Neither installer edits PATH.
 Pin a version with `--version`, or choose a directory with `--dir`:
 
 ```sh
-curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.2.0
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.3.0
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --dir "$HOME/bin"
 ```
 
@@ -59,7 +59,7 @@ The POSIX installer also accepts `DUOLOG_VERSION` and `DUOLOG_INSTALL_DIR`.
 On Windows, set those variables before running the installer:
 
 ```powershell
-$env:DUOLOG_VERSION = 'v1.2.0'
+$env:DUOLOG_VERSION = 'v1.3.0'
 $env:DUOLOG_INSTALL_DIR = "$env:LOCALAPPDATA\Programs\duolog"
 irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
 ```

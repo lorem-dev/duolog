@@ -42,6 +42,8 @@
 
 ## Development
 
+## 1.3.0
+
 ### Added
 
 - `duolog skill test` checks skills across models with plans and cost approval;
