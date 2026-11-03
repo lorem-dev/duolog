@@ -3,6 +3,7 @@
 # Evidence and sources: docs/research/2026-10-30-practices-and-models.md
 # and docs/research/2026-10-30-live-verification.md
 version: 1
+skill_tests: ask
 
 # Co-Authored-By lines for commits that hold a worker's changes. Set enabled
 # to false when the repository's rules forbid such lines.
@@ -135,6 +136,17 @@ policy:
   on_unmatched: ask
   ask_timeout_seconds: 120
   rules:
+    # CodeGraph reads only the code index. Exact names cover every role and
+    # Codex's folded MCP names; a wildcard does not match those tool names.
+    - {action: mcp, match: "codegraph/codegraph_search", decision: allow}
+    - {action: mcp, match: "codegraph/codegraph_context", decision: allow}
+    - {action: mcp, match: "codegraph/codegraph_explore", decision: allow}
+    - {action: mcp, match: "codegraph/codegraph_node", decision: allow}
+    - {action: mcp, match: "codegraph/codegraph_callers", decision: allow}
+    - {action: mcp, match: "codegraph/codegraph_callees", decision: allow}
+    - {action: mcp, match: "codegraph/codegraph_impact", decision: allow}
+    - {action: mcp, match: "codegraph/codegraph_files", decision: allow}
+    - {action: mcp, match: "codegraph/codegraph_status", decision: allow}
     - {action: read,  match: "**", decision: allow}
     - {action: read,  match: "{**/.env,**/.env.*,**/*.pem,**/*.key,**/secrets/**}", decision: deny}
     - {action: write, match: "{**/.duolog/**,**/.git,**/.git/**}", decision: deny}
@@ -203,6 +215,7 @@ sync:
 # Defaults come from the OS and include native login and CLI config variables.
 
 rex:
+  stuck_notify_minutes: 5
   auto_answers:
     - match: Hooks need review
       answer: Continue without trusting

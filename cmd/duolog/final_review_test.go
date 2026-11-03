@@ -84,7 +84,7 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 			transcript := filepath.Join(root, "lead.jsonl")
 			text := "{\"type\":\"assistant\",\"message\":{\"model\":\"haiku\"},\"effort\":\"low\"}\n"
 			if leadAgent == "codex" {
-				text = "{\"type\":\"session_meta\",\"payload\":{\"originator\":\"codex-tui\"}}\n{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-6-sol\",\"effort\":\"low\",\"approval_policy\":\"never\",\"sandbox_policy\":{\"type\":\"danger-full-access\"}}}\n"
+				text = "{\"type\":\"session_meta\",\"payload\":{\"originator\":\"codex-tui\"}}\n{\"type\":\"turn_context\",\"payload\":{\"model\":\"sol\",\"effort\":\"low\",\"approval_policy\":\"never\",\"sandbox_policy\":{\"type\":\"danger-full-access\"}}}\n"
 			}
 			if err := os.WriteFile(transcript, []byte(text), 0600); err != nil {
 				t.Fatal(err)
@@ -140,7 +140,7 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 				// sandbox and session policies. This covers both providers symmetrically.
 				cfg := fmt.Sprintf("version: 1\nroles:\n  docs:\n    context: project\n    use: {agent: %s, model: sonnet}\n  review_intermediate:\n    use: {agent: %s, model: sonnet}\n", workerAgent, workerAgent)
 				if workerAgent == "codex" {
-					cfg = strings.ReplaceAll(cfg, "model: sonnet", "model: gpt-6-sol")
+					cfg = strings.ReplaceAll(cfg, "model: sonnet", "model: sol")
 				}
 				if err := os.WriteFile(filepath.Join(root, ".duolog", "config.yaml"), []byte(cfg), 0600); err != nil {
 					t.Fatal(err)
@@ -163,6 +163,8 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 				scenario := testbin.Scenario{Hooks: []testbin.HookCommand{hook}, Answer: answer}
 				if workerAgent == "claude" {
 					scenario.Stdout = `{"structured_output":` + answer + `}`
+				} else {
+					scenario = withTestModelCatalog(t, scenario, "sol")
 				}
 				fake := testbin.Install(t, workerAgent, scenario)
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -304,7 +306,7 @@ func TestDelegateInterruptReportsAndStopsDescendant(t *testing.T) {
 		t.Fatal(err)
 	}
 	lead.Agent = "codex"
-	lead.Model = "gpt-6-sol"
+	lead.Model = "sol"
 	if err := reg.RegisterLead(lead); err != nil {
 		t.Fatal(err)
 	}

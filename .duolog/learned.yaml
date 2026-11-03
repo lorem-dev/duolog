@@ -17,3 +17,10 @@ rules:
       match: go run ./scripts/thirdparty -check
       decision: allow
       roles: [debug_hard, docs, implement, implement_complex, mechanical, planner, tests]
+    # Help and version of the agent CLIs only read; workers need them for flags.
+    - action: exec
+      match: "{codex,claude,rex} *--help*"
+      decision: allow
+    - action: exec
+      match: "{codex,claude,rex} --version"
+      decision: allow

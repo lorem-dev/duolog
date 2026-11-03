@@ -32,7 +32,7 @@ func TestDoctorProbeFlag(t *testing.T) {
 	t.Chdir(t.TempDir())
 	codex := testbin.Install(t, "codex", testbin.Scenario{Responses: map[string]testbin.Scenario{
 		"--version":    {Stdout: "codex-cli 0.165.0"},
-		"debug models": {Stdout: `{"models":[{"slug":"gpt-6-luna","visibility":"list","supported_reasoning_levels":[{"effort":"low","description":"d"}]}]}`},
+		"debug models": {Stdout: testModelCatalog(t, "luna")},
 		"exec":         {Writes: map[string]string{"answer.json": "ok"}},
 	}})
 	claude := testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{

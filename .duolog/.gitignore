@@ -4,3 +4,6 @@
 !.gitignore
 !config.yaml
 !learned.yaml
+!skill-tests/
+skill-tests/*
+!skill-tests/*.plan.yaml

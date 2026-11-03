@@ -124,6 +124,7 @@ The lead's own settings are the ceiling:
 | Section | What it sets |
 |---|---|
 | `wire` | The bus line limits and the inline size |
+| `skill_tests` | `ask` (default), `always` or `never` for cross-model skill tests. Save a local preference with `duolog skill test --remember`. See [Skill tests](skills.md) |
 | `limits` | Live sessions and the size of a task the lead may do itself |
 | `models` | The agent and the prices for each alias. Prices drive `duolog stats` |
 | `sessions` | When a resumed thread closes |
@@ -132,6 +133,7 @@ The lead's own settings are the ceiling:
 | `sync` | How agents and skills are generated. See [Sync](sync.md) |
 | `env_passthrough` | The only variables a worker inherits |
 | `rex` | Timeouts and capture settings for live sessions. See [Rex](rex.md) |
+| `rex.stuck_notify_minutes` | Minutes before `peer wait` sends one reminder for an unanswered question. Default: `5`; `0` disables reminders |
 | `rex.auto_answers` | Ordered `{match, answer}` rules for safe peer questions. Defaults to answering `Hooks need review` with `Continue without trusting`. A project list replaces the defaults; `[]` disables it. Trust and persistent approval grants are refused |
 | `coauthors` | Enable worker credit and set commit co-author templates. See [Getting started](getting-started.md#how-to-credit-the-workers-in-commits) |
 

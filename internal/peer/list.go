@@ -6,7 +6,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/rex"
 )
 
-// ListedPeer is a snapshot of a lead's peer in the current Rex session.
+// ListedPeer is a snapshot of a lead's peer in this project's registry.
 type ListedPeer struct {
 	ID    string `json:"id"`
 	State State  `json:"state"`
@@ -25,10 +25,10 @@ func List(ctx context.Context) ([]ListedPeer, error) {
 	}
 	peers := []ListedPeer{}
 	for _, entry := range entries {
-		if entry.Block == "" || entry.Closed || entry.Lead != e.leadID || entry.RexSession != "" && entry.RexSession != e.rex.Session {
+		if entry.Block == "" || entry.Closed || entry.Lead != e.leadID {
 			continue
 		}
-		presence, err := e.rex.Probe(ctx, entry.Block)
+		presence, err := e.clientFor(entry).Probe(ctx, entry.Block)
 		if err != nil {
 			return nil, err
 		}

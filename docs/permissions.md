@@ -38,7 +38,8 @@ value counts as `ask`.
 ## The default rules
 
 The rules are in the `policy` section of the config. A rule has an action
-(`read`, `write`, `exec` or `net`), a glob, a decision and optional roles.
+(`read`, `write`, `exec`, `net` or `mcp`), a glob, a decision and optional
+roles.
 
 | Action | Match | Decision |
 |---|---|---|
@@ -53,6 +54,7 @@ The rules are in the `policy` section of the config. A rule has an action
 | exec | `git status`, `git diff`, `git log`, `git show` | allow |
 | exec | `git push`, `git reset --hard`, `git clean`, `git rebase` | deny |
 | exec | `rm -rf *` | deny |
+| mcp | Nine named CodeGraph tools that read the code index, for every role | allow |
 | net | everything | ask |
 
 A read-only role can execute only commands named by a read-only allow rule,
@@ -103,6 +105,13 @@ A deny wins over an allow. When no rule matches, the decision is
 project that sets its own `rules` replaces the allow rules, not the denies.
 
 ## How a worker's MCP tool calls are checked
+
+The defaults allow CodeGraph's read tools for every role: `codegraph_search`,
+`codegraph_context`, `codegraph_explore`, `codegraph_node`,
+`codegraph_callers`, `codegraph_callees`, `codegraph_impact`, `codegraph_files`
+and `codegraph_status`. Each has its own exact `codegraph/<tool>` rule. These
+tools only read the code index. Exact rules also match Codex's MCP names;
+a wildcard rule would not match these tool names. Other CodeGraph tools ask.
 
 An MCP tool call is an `mcp` action. Its target is `<server>/<tool>`, such as
 `tracker/get_issue`. Both agents send the hook the name

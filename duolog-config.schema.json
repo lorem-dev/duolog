@@ -195,6 +195,15 @@
     },
     "Config": {
       "properties": {
+        "skill_tests": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "always",
+            "never"
+          ],
+          "description": "Cross-model skill testing preference: ask before each change, always test, or never test; defaults to ask."
+        },
         "coauthors": {
           "$ref": "#/$defs/Coauthors",
           "description": "Commit co-author templates for workers; enabled by default."
@@ -460,6 +469,11 @@
     },
     "Rex": {
       "properties": {
+        "stuck_notify_minutes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Minutes an unanswered peer question waits before one notification from peer wait; defaults to 5. Zero disables reminders."
+        },
         "auto_answers": {
           "items": {
             "$ref": "#/$defs/AutoAnswer"

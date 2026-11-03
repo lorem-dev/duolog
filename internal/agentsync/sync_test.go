@@ -558,6 +558,8 @@ func TestOwnInstalledSkillIsNotSynced(t *testing.T) {
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
 	put(t, root, ".claude/skills/duolog/SKILL.md", "---\nname: duolog\ndescription: d\n---\nclaude copy\n", 0o644)
 	put(t, root, ".agents/skills/duolog/SKILL.md", "---\nname: duolog\ndescription: d\n---\ncodex copy\n", 0o644)
+	put(t, root, ".claude/skills/duolog-skill-check/SKILL.md", "---\nname: duolog-skill-check\ndescription: d\n---\nclaude copy\n", 0o644)
+	put(t, root, ".agents/skills/duolog-skill-check/SKILL.md", "---\nname: duolog-skill-check\ndescription: d\n---\ncodex copy\n", 0o644)
 	put(t, root, ".claude/skills/mine/SKILL.md", "---\nname: mine\ndescription: d\n---\nx\n", 0o644)
 	for _, from := range []string{"claude", "codex"} {
 		rep, err := Run(root, syncCfg(t), Options{From: from, SwitchDirection: true})
@@ -566,6 +568,9 @@ func TestOwnInstalledSkillIsNotSynced(t *testing.T) {
 		}
 		if !strings.Contains(read(t, root, ".agents/skills/duolog/SKILL.md"), "codex copy") || !strings.Contains(read(t, root, ".claude/skills/duolog/SKILL.md"), "claude copy") {
 			t.Fatalf("%s: own skill was touched", from)
+		}
+		if !strings.Contains(read(t, root, ".agents/skills/duolog-skill-check/SKILL.md"), "codex copy") || !strings.Contains(read(t, root, ".claude/skills/duolog-skill-check/SKILL.md"), "claude copy") {
+			t.Fatalf("%s: skill check was touched", from)
 		}
 	}
 }

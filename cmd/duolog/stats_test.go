@@ -15,7 +15,7 @@ func TestStatsCommand(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ".duolog"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".duolog", "usage.ndjson"), []byte("{\"agent\":\"codex\",\"model\":\"gpt-6-luna\",\"input\":1000000}\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".duolog", "usage.ndjson"), []byte("{\"agent\":\"codex\",\"model\":\"luna\",\"input\":1000000}\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	out, err := executeBusCommand(t, "stats")

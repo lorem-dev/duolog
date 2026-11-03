@@ -310,6 +310,9 @@ func TestNewWindowUsesSessionAndCommand(t *testing.T) {
 	if has(got[0], "-b") {
 		t.Fatal("new tab anchored to a pane")
 	}
+	if strings.Index(args, "--focus=false") > strings.Index(args, " -- ") {
+		t.Fatal("focus option was passed to the agent instead of Rex")
+	}
 }
 
 func TestWindowIDReadsBlockOwner(t *testing.T) {

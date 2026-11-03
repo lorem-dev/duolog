@@ -44,6 +44,8 @@
 
 ### Added
 
+- `duolog skill test` checks skills across models with plans and cost approval;
+  `duolog-skill-check` guides testing after changes.
 - `duolog coauthors` credits workers by agent and model, with an optional
   commit message hook. Set `coauthors.enabled: false` to turn it off.
 - `learning.enabled` routes delegations by class, with model ladders,
@@ -59,6 +61,10 @@
 
 ### Changed
 
+- Peers use detached project Rex sessions and disable native notifications;
+  `peer wait` reminds once after `rex.stuck_notify_minutes` (default 5).
+- Parallel work uses separate worktrees and peer tabs without taking focus;
+  CodeGraph read tools are allowed for every role by default.
 - A lead session start removes task folders and `duolog put` snapshots unchanged
   for 7 days, and the sync records of removed worktrees.
 - `duolog peer` settles safe prompts and gates commands; `rex.auto_answers`

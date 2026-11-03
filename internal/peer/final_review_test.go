@@ -81,7 +81,7 @@ func TestPeerUsesLinkedWorkRootForPane(t *testing.T) {
 	if _, err := Open(r.ctx, "implement"); err != nil {
 		t.Fatal(err)
 	}
-	args := r.named("split")
+	args := r.spawns()
 	if len(args) != 1 {
 		t.Fatal(args)
 	}

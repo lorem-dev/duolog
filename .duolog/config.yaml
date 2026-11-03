@@ -29,3 +29,6 @@ env_passthrough:
   - GOMODCACHE
   - GOCACHE
   - ASDF_GOLANG_VERSION
+
+# Test the duolog skills on several models after each change (duolog skill test).
+skill_tests: always

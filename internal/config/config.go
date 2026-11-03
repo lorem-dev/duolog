@@ -14,6 +14,7 @@ import (
 )
 
 type Config struct {
+	SkillTests     string           `yaml:"skill_tests" jsonschema_description:"Cross-model skill testing preference: ask before each change, always test, or never test; defaults to ask." jsonschema:"enum=ask,enum=always,enum=never"`
 	Coauthors      Coauthors        `yaml:"coauthors" jsonschema_description:"Commit co-author templates for workers; enabled by default."`
 	Version        int              `yaml:"version" jsonschema_description:"Configuration format version; defaults to 1."`
 	Wire           Wire             `yaml:"wire" jsonschema_description:"Task and message encoding and size limits; defaults suit the file bus."`
@@ -135,6 +136,7 @@ func SafeAutoAnswer(answer string) bool {
 }
 
 type Rex struct {
+	StuckNotifyMinutes  int          `yaml:"stuck_notify_minutes" jsonschema_description:"Minutes an unanswered peer question waits before one notification from peer wait; defaults to 5. Zero disables reminders." jsonschema:"minimum=0"`
 	AutoAnswers         []AutoAnswer `yaml:"auto_answers" jsonschema_description:"Ordered question and option rules; replaces defaults, and an empty list disables them. Defaults to continuing without trusting Codex hooks."`
 	CaptureLines        int          `yaml:"capture_lines" jsonschema_description:"Terminal lines captured to inspect state; defaults to 20. Answers are read from files."`
 	StartTimeoutSeconds int          `yaml:"start_timeout_seconds" jsonschema_description:"Seconds to wait for terminal startup; defaults to 120."`
@@ -170,6 +172,9 @@ func Load(root string) (*Config, error) {
 	var cfg Config
 	if err := merged.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("merged config: %w", err)
+	}
+	if cfg.Rex.StuckNotifyMinutes < 0 {
+		return nil, fmt.Errorf("rex.stuck_notify_minutes must be zero or greater")
 	}
 	for name, role := range cfg.Roles {
 		for _, target := range []Target{role.Use, role.Fallback} {

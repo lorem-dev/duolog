@@ -23,7 +23,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
-const splitReply = `{"anchor_id":"block:lead","block_ids":["block:peer"],"split_ids":["split:s"],"revision":4}`
+const splitReply = `{"session_id":"session:peers","anchor_id":"block:lead","block_ids":["block:peer"],"split_ids":["split:s"],"revision":4}`
 
 type sleepAt struct {
 	calls int
@@ -46,7 +46,8 @@ type rig struct {
 
 func baseScript() map[string]testbin.Scenario {
 	return map[string]testbin.Scenario{
-		"split":         {Stdout: splitReply},
+		"new":           {Stdout: splitReply},
+		"kill":          {},
 		"window new":    {Stdout: splitReply},
 		"block inspect": {Stdout: `{"block":{"id":"block:peer","window_id":"window:lead"}}`},
 		"wait":          {Exit: 1, Stderr: "Error: wait timed out after 500ms: context deadline exceeded"},
@@ -98,6 +99,9 @@ func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
 		t.Fatal(err)
 	}
 	r.cfg.Rex.StartTimeoutSeconds = 5
+	// Most tests exercise immediate question reporting without reminders.
+	// Notification tests enable and drive the timed watcher explicitly.
+	r.cfg.Rex.StuckNotifyMinutes = 0
 	s, err := store.Open(r.root)
 	if err != nil {
 		t.Fatal(err)
@@ -186,10 +190,21 @@ func (r *rig) keys() []string {
 	return keys
 }
 
-// started is the program line that was given to rex split, after the separator.
+// spawns lists peer commands created in new sessions or tabs.
+func (r *rig) spawns() [][]string {
+	var out [][]string
+	for _, args := range r.calls() {
+		if len(args) > 0 && (args[0] == "new" || len(args) > 1 && args[0] == "window" && args[1] == "new") {
+			out = append(out, args)
+		}
+	}
+	return out
+}
+
+// started is the program line given to a new session or tab.
 func (r *rig) started() []string {
 	r.t.Helper()
-	splits := append(r.named("split"), r.named("window new")...)
+	splits := r.spawns()
 	if len(splits) == 0 {
 		r.t.Fatal("no peer pane was opened")
 	}
@@ -348,7 +363,7 @@ func TestPeerOpenRefusedForWorker(t *testing.T) {
 	if _, err := Open(r.ctx, "implement"); err == nil || !strings.Contains(err.Error(), "worker") {
 		t.Fatalf("%v", err)
 	}
-	if len(r.named("split")) != 0 {
+	if len(r.spawns()) != 0 {
 		t.Fatal("a worker opened a pane")
 	}
 }
@@ -367,7 +382,7 @@ func TestAnswerRefusedForWorker(t *testing.T) {
 
 func TestSocketUnreachableIsOneLine(t *testing.T) {
 	script := baseScript()
-	script["split"] = testbin.Scenario{Exit: 4, Stderr: "connecting to Rex server\nfailed to WebSocket dial\n"}
+	script["new"] = testbin.Scenario{Exit: 4, Stderr: "connecting to Rex server\nfailed to WebSocket dial\n"}
 	r := newRig(t, script)
 	_, err := Open(r.ctx, "implement")
 	if !errors.Is(err, rex.ErrSocket) || strings.Contains(err.Error(), "\n") || !strings.Contains(err.Error(), "sandbox") {
@@ -375,24 +390,30 @@ func TestSocketUnreachableIsOneLine(t *testing.T) {
 	}
 }
 
-func TestSplitDoesNotStealFocus(t *testing.T) {
+func TestFirstPeerOpensDetachedSession(t *testing.T) {
 	r := newRig(t, baseScript())
 	r.ready()
-	split := r.named("split")[0]
+	split := r.spawns()[0]
 	joined := strings.Join(split, " ")
-	for _, want := range []string{"--focus=false", "--json", "--shell=none", "-s sess", "-c " + r.root} {
+	for _, want := range []string{"new duolog | " + filepath.Base(r.root), "--json", "--shell=none", "--window duolog | codex-implement", "-c " + r.root} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("%q missing from %s", want, joined)
 		}
 	}
+	if contains(split, "sess") || contains(split, "block:lead") || len(r.named("split")) != 0 {
+		t.Fatalf("lead's session changed: %v", r.calls())
+	}
 }
 
-func TestOpenRecordsBlockAndIDRightAfterSplit(t *testing.T) {
+func TestOpenRecordsBlockAndSessionRightAfterCreation(t *testing.T) {
 	r := newRig(t, withScreens(codexIdle(""), codexIdle("")))
 	e := r.ready()
 	got := r.entry(e.ID)
 	if got.Block != "block:peer" || got.Lead != "lead-1" || got.Agent != "codex" || got.Role != "implement" || got.Closed || got.Mode != mode.Ask {
 		t.Fatalf("%+v", got)
+	}
+	if got.RexSession != "session:peers" {
+		t.Fatal("managed session was not recorded", got)
 	}
 }
 
@@ -403,7 +424,7 @@ func TestOpenReturnsExistingLiveSession(t *testing.T) {
 	if second.ID != first.ID || second.State != Ready {
 		t.Fatalf("%+v %+v", first, second)
 	}
-	if n := len(r.named("split")); n != 1 {
+	if n := len(r.spawns()); n != 1 {
 		t.Fatalf("%d splits, want 1", n)
 	}
 	// max_live_sessions is 1 per agent: another role on the same agent must not
@@ -412,7 +433,7 @@ func TestOpenReturnsExistingLiveSession(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "max_live_sessions") || !strings.Contains(err.Error(), first.ID) {
 		t.Fatalf("%v", err)
 	}
-	if n := len(r.named("split")); n != 1 {
+	if n := len(r.spawns()); n != 1 {
 		t.Fatalf("%d splits, want 1", n)
 	}
 	if r.entry(first.ID).Closed {
@@ -425,10 +446,10 @@ func TestOpenReplacesDeadSession(t *testing.T) {
 	first := r.ready()
 	script := baseScript()
 	script["block inspect"] = testbin.Scenario{Sequence: []testbin.Scenario{gone, {Stdout: `{"block":{"window_id":"window:lead"}}`}}}
-	script["split"] = testbin.Scenario{Stdout: strings.ReplaceAll(splitReply, "block:peer", "block:second")}
+	script["window new"] = testbin.Scenario{Stdout: strings.ReplaceAll(splitReply, "block:peer", "block:second")}
 	r.rex(script)
 	second := r.open("implement")
-	if second.ID == first.ID || second.State != Ready || len(r.named("split")) != 1 {
+	if second.ID == first.ID || second.State != Ready || len(r.spawns()) != 1 {
 		t.Fatalf("%+v %+v", first, second)
 	}
 	if !r.entry(first.ID).Closed || r.entry(second.ID).Block != "block:second" {
@@ -535,8 +556,8 @@ func TestPeerGetsDepthAndLeadEnv(t *testing.T) {
 			t.Fatal("REX_SESSION was passed on")
 		}
 	}
-	if !contains(r.named("split")[0], "block:lead") {
-		t.Fatal("the pane is not placed beside the lead's own pane")
+	if contains(r.spawns()[0], "block:lead") || contains(r.spawns()[0], "sess") {
+		t.Fatal("the peer changed the lead's pane")
 	}
 }
 
@@ -563,7 +584,7 @@ func TestOpenReturnsOnQuestion(t *testing.T) {
 	if e.State != Question || e.ID == "" || !strings.Contains(e.Question, "Trust this folder?") {
 		t.Fatalf("%+v", e)
 	}
-	if len(r.named("block close")) != 0 || len(r.named("split")) != 1 {
+	if len(r.named("block close")) != 0 || len(r.spawns()) != 1 {
 		t.Fatal("the pane must stay")
 	}
 	if r.entry(e.ID).Block == "" {
@@ -1104,15 +1125,15 @@ func TestNoAutomaticReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = Send(r.ctx, e.ID, r.task())
-	if n := len(r.named("split")); n != 0 {
+	if n := len(r.spawns()); n != 0 {
 		t.Fatalf("%d panes were opened after the close", n)
 	}
 	// Only a new call from the lead opens one.
 	script = baseScript()
-	script["split"] = testbin.Scenario{Stdout: strings.ReplaceAll(splitReply, "block:peer", "block:second")}
+	script["window new"] = testbin.Scenario{Stdout: strings.ReplaceAll(splitReply, "block:peer", "block:second")}
 	r.rex(script)
 	next := r.open("implement")
-	if next.ID == e.ID || len(r.named("split")) != 1 {
+	if next.ID == e.ID || len(r.spawns()) != 1 {
 		t.Fatalf("%+v", next)
 	}
 }
@@ -1153,10 +1174,10 @@ func TestOpenAfterCloseIsNotLimited(t *testing.T) {
 		t.Fatal(err)
 	}
 	script := baseScript()
-	script["split"] = testbin.Scenario{Stdout: strings.ReplaceAll(splitReply, "block:peer", "block:second")}
+	script["new"] = testbin.Scenario{Stdout: strings.ReplaceAll(splitReply, "block:peer", "block:second")}
 	r.rex(script)
 	second := r.open("mechanical")
-	if second.ID == first.ID || second.State != Ready || len(r.named("split")) != 1 {
+	if second.ID == first.ID || second.State != Ready || len(r.spawns()) != 1 {
 		t.Fatalf("%+v", second)
 	}
 }
@@ -1225,7 +1246,7 @@ func TestPlanModeRefusesWriteRole(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "mode plan refuses write role implement") {
 		t.Fatalf("%v", err)
 	}
-	if len(r.named("split")) != 0 {
+	if len(r.spawns()) != 0 {
 		t.Fatal("a pane was opened for a write role in plan mode")
 	}
 }
@@ -1248,7 +1269,7 @@ func TestLimitMarksAgentUnavailable(t *testing.T) {
 	r.rex(withScreens(claudeIdle("")))
 	r.cfg.Rex.StartTimeoutSeconds = 1
 	next, err := Open(r.ctx, "implement")
-	if err != nil || next.State != Ready || len(r.named("window new")) != 1 || len(r.named("split")) != 0 {
+	if err != nil || next.State != Ready || len(r.named("window new")) != 1 || len(r.named("new")) != 0 {
 		t.Fatalf("%+v %v", next, err)
 	}
 	if argv := r.started(); !slices.Contains(argv, "claude") || slices.Contains(argv, "codex") {
@@ -1274,7 +1295,7 @@ func TestWaitReturnsRunHereOnLimit(t *testing.T) {
 	if err != nil || got.State != Limited || !strings.HasPrefix(got.Note, "run here: ") || !strings.Contains(got.Note, path) || strings.Contains(got.Note, "\n") {
 		t.Fatalf("%+v %v", got, err)
 	}
-	if len(r.named("split")) != 0 {
+	if len(r.spawns()) != 0 {
 		t.Fatal("a new session was opened on a limit")
 	}
 }
@@ -1291,7 +1312,7 @@ func TestSendToLimitedPeerReturnsRunHere(t *testing.T) {
 	if !errors.As(err, &here) || !strings.HasPrefix(here.Line, "run here: ") || !strings.Contains(here.Line, path) {
 		t.Fatalf("%v", err)
 	}
-	if len(r.named("send")) != 0 || len(r.named("split")) != 0 {
+	if len(r.named("send")) != 0 || len(r.spawns()) != 0 {
 		t.Fatal("text was sent or a session opened")
 	}
 }
@@ -1586,6 +1607,17 @@ func TestOpenDoesNotReuseAnotherWorktree(t *testing.T) {
 	if again := r.open("implement"); again.ID != second.ID {
 		t.Fatal("did not reuse same worktree")
 	}
+	if len(r.named("new")) != 1 || len(r.named("window new")) != 1 {
+		t.Fatalf("worktrees did not get separate panes and tabs: %v", r.calls())
+	}
+	for _, name := range []string{"window new"} {
+		args := r.named(name)[0]
+		separator := slices.Index(args, "--")
+		focus := slices.Index(args, "--focus=false")
+		if focus < 0 || separator < 0 || focus > separator || slices.Contains(args[:separator], "--focus=true") {
+			t.Fatalf("%s takes focus: %v", name, args)
+		}
+	}
 }
 
 const queuedQuestion = "Queued follow-up inputs\nMCP server needs an answer\n? 1 question\nshift+left to answer\n"
@@ -1615,11 +1647,11 @@ func TestSecondPeerOpensNewTabAcrossAgents(t *testing.T) {
 	script["window new"] = testbin.Scenario{Stdout: `{"window_id":"window:other","block_ids":["block:second"]}`}
 	r.rex(script)
 	next := r.open("plan")
-	if next.State != Ready || len(r.named("window new")) != 1 || len(r.named("split")) != 0 {
+	if next.State != Ready || len(r.named("window new")) != 1 || len(r.named("new")) != 0 {
 		t.Fatalf("%+v calls=%v", next, r.calls())
 	}
 	args := strings.Join(r.named("window new")[0], " ")
-	for _, want := range []string{"-s sess", "--focus=false", "--shell=none", r.root} {
+	for _, want := range []string{"-s session:peers", "--focus=false", "--shell=none", r.root} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("missing %s: %s", want, args)
 		}
@@ -1641,15 +1673,15 @@ func TestQueuedQuestionCanAutoAnswer(t *testing.T) {
 	}
 }
 
-func TestMovedPeerLeavesLeadWindowAvailable(t *testing.T) {
+func TestMovedPeerStillUsesProjectSession(t *testing.T) {
 	r := newRig(t, baseScript())
 	t.Setenv("REX_BLOCK", "block:lead")
 	r.ready()
 	script := withScreens(claudeIdle(""))
-	script["block inspect -s sess --json block:peer"] = testbin.Scenario{Stdout: `{"block":{"window_id":"window:elsewhere"}}`}
+	script["block inspect -s session:peers --json block:peer"] = testbin.Scenario{Stdout: `{"block":{"window_id":"window:elsewhere"}}`}
 	r.rex(script)
 	r.open("plan")
-	if len(r.named("split")) != 1 || len(r.named("window new")) != 0 {
+	if len(r.named("new")) != 0 || len(r.named("window new")) != 1 {
 		t.Fatal(r.calls())
 	}
 }

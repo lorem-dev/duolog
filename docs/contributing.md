@@ -146,9 +146,12 @@ uv run scripts/version/version.py check --tag v1.2.3
 ```
 
 The repository has `bump-version`, `check-version` and `check-changes` skills
-that run these commands. Edit a skill in `.claude/skills/`, then run
-`go run ./cmd/duolog sync --from claude`. That command generates the copy in
-`.agents/skills/` that Codex reads, and CI fails if the copy is out of date.
+that run these commands. Edit a skill in `.claude/skills/`. In a fresh clone,
+first delete its generated skill folders under `.agents/skills/`, as CI does.
+Keep the installed `duolog` and `duolog-skill-check` folders. The sync lock
+is local, so sync otherwise refuses the committed copies. Then run
+`go run ./cmd/duolog sync --from claude` to generate the copies Codex reads.
+CI fails if a generated copy is out of date.
 
 ## How to add a dependency
 

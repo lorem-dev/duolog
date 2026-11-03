@@ -1,0 +1,14 @@
+{
+  "exclude": [
+    ".duolog/",
+    ".github/",
+    ".agents/",
+    ".claude/",
+    ".codex/",
+    ".goreleaser.yaml",
+    ".pymarkdown.yaml",
+    "scripts/bench/",
+    "scripts/icon/"
+  ],
+  "deprioritize": ["scripts/", "test/"]
+}

@@ -5,18 +5,24 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
 func TestRosterAliasesAndVersions(t *testing.T) {
 	isolatedRouteConfig(t)
 	routeLead(t)
-	binary := testbin.Install(t, "codex", testbin.Scenario{Stdout: `{"models":[{"slug":"gpt-99-sol","visibility":"list"}]}`})
+	cfg, err := config.Load(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	modelID := cfg.Models["sol"].PricedFor
+	binary := testbin.Install(t, "codex", withTestModelCatalog(t, testbin.Scenario{}, "sol"))
 	out, err := executeBusCommand(t, "roster")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "implement=sol") || strings.Contains(out, "gpt-") {
+	if !strings.Contains(out, "implement=sol") || strings.Contains(out, modelID) {
 		t.Fatal(out)
 	}
 	if _, err := os.Stat(binary + ".args.json"); !os.IsNotExist(err) {
@@ -26,7 +32,7 @@ func TestRosterAliasesAndVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "gpt-99-sol") {
+	if !strings.Contains(out, modelID) {
 		t.Fatal(out)
 	}
 }

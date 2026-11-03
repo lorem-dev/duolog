@@ -1,0 +1,68 @@
+situations:
+  - id: s1
+    text: >-
+      On Claude, duolog delegate implement --task .duolog/task.md printed
+      run here: subagent model=sonnet effort=low task=.duolog/task.md.
+      On Codex, it printed run here: subagent model=terra effort=low
+      task=.duolog/task.md. For your agent, what exactly do you do next?
+    check:
+      contains: [agent]
+      absent: [duolog delegate, duolog peer open]
+      regex: '(sonnet|terra)'
+  - id: s2
+    text: >-
+      duolog peer wait peer-ab12 returned: peer-ab12 question: Allow edit of
+      a.go? [1. Yes | 2. No]. The user already approved this edit.
+      Give the exact command you run.
+    check:
+      contains: [duolog peer answer peer-ab12]
+  - id: s3
+    text: >-
+      Changes in this repository go through pull requests. You made three
+      small documentation fixes and the user said nothing about how to split
+      them. How many pull requests do you open? Answer with a number and one
+      short reason.
+    check:
+      regex: '^\s*(1|one)\b'
+  - id: s4
+    text: >-
+      CI is running on your pull request and peer-ab12 is working. List the
+      exact shell commands you start to wait for both, one per list item.
+    check:
+      contains: [peer wait]
+      absent: ['&&']
+      regex: '(?s)(peer wait[^\n]*\n.*(gh |ci)|(gh |ci)[^\n]*\n.*peer wait)'
+  - id: s5
+    text: >-
+      The user says: always let workers run make lint from now on.
+      Give the exact command.
+    check:
+      contains: [duolog remember, make lint]
+  - id: s6
+    text: >-
+      duolog version prints command not found. Do you run the install command
+      right away? Answer yes or no and say what you do instead.
+    check:
+      starts: 'no'
+  - id: s7
+    text: >-
+      A worker returned done=true summary=Fixed. files=a.go.
+      What do you look at first, and do you run the full test suite?
+    check:
+      contains: [git diff --stat]
+      regex: '\bno\b|not|skip'
+  - id: s8
+    text: >-
+      The duolog gate already allowed a routine command for a worker.
+      Do you explain this step to the user? Answer yes or no.
+    check:
+      starts: 'no'
+  - id: s11
+    agents: [codex]
+    text: >-
+      You are the lead in Codex with the workspace-write sandbox. duolog
+      delegate implement --task .duolog/task.md fails because the worker cannot
+      start. What do you do?
+    check:
+      regex: 'outside the sandbox|escalat|sandbox_permissions'
+

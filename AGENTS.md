@@ -20,6 +20,12 @@ requests here.
   stays anonymised, with no names, paths, ticket ids or code from it.
 - Collect small changes into one pull request per batch unless the user asks
   otherwise.
+- Run independent tasks in parallel, each in its own linked worktree under
+  git-ignored `.worktrees/`, with one worker and its own peer; duolog keeps
+  peers in their own Rex session, out of the person's windows. Stack work that
+  needs an open pull request on that branch rather than waiting for CI. Never
+  put two workers in one worktree; run full test suites one at a time. Run
+  each peer or CI wait as its own background command.
 - Follow `docs/contributing.md` for README and `docs/`.
 - Bring every change to `develop` and `main` through a pull request: one into
   `develop`, and one from `develop` into `main` for a release. Squash locally

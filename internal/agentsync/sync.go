@@ -488,7 +488,7 @@ func (r *runner) skillUnits() []unit {
 			continue
 		}
 		// duolog installs its own skill on both sides; it is never synced.
-		if !e.IsDir() || e.Name() == ownSkill || !r.inScope(base) {
+		if !e.IsDir() || e.Name() == ownSkill || e.Name() == "duolog-skill-check" || !r.inScope(base) {
 			continue
 		}
 		if _, err := os.Stat(r.abs(base + "/SKILL.md")); err != nil {

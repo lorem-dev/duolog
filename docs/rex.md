@@ -1,4 +1,4 @@
-# How to run a second session beside you with Rex
+# How to run live peers with Rex
 
 This page explains `duolog peer`. It opens a second agent session using the
 Rex command line and drives it with short messages.
@@ -32,10 +32,16 @@ A peer belongs to its role and work root. Opening that role again in the same
 worktree reuses the peer. Opening it in another worktree starts a new peer.
 For peers, `max_live_sessions` applies per lead, agent and work root.
 
-The first peer splits beside the lead. If the lead's window already holds a
-peer pane, the next peer opens in a new tab of the same Rex session. Duolog
-keeps the lead's focus. Closing a peer removes its session entry; repeating
-that close is harmless.
+The first peer creates a separate Rex session for the project, named
+`duolog | <project folder name>`. It stays detached: duolog does not show it
+on a client or select it. The person's session, windows, panes and focus stay
+as they were. Every peer gets a tab named `duolog | <pane label>`, such as
+`duolog | codex-planner`. Leads and linked worktrees share that project
+session. Commands use the session recorded for each peer.
+
+Closing a peer removes its session entry; repeating that close is harmless.
+Closing the last peer closes the project session too. If that close fails,
+duolog keeps its identity and another close retries the cleanup.
 
 Each command prints one line, such as `<id> <state>: <question or note>`. The
 lead decides questions that the rules do not settle.
@@ -48,7 +54,32 @@ The peer's answer stays in its pane, and in any files it
 wrote. duolog reads the pane only to learn its state. When the lead needs the
 answer as data, use `duolog delegate`, which returns it and records its spend.
 
+## How to run several peers at once
+
+Run independent tasks in parallel. Give each task its own linked worktree
+under `.worktrees/`, and keep that directory git-ignored. Each task gets one
+worker and its own peer in a separate Rex tab. Never put two workers in one
+worktree. Run full test suites one at a time.
+
+When work needs an open pull request, stack its branch on that pull request's
+branch. Start the work while its dependency's CI runs.
+
+Run each wait as its own background command: one for each peer and one for
+each CI run. Do not chain them. New peer tabs stay in the detached project
+session and keep the person's current window and pane focused.
+
 ## How duolog settles routine questions
+
+Peers start with Codex's `tui.notifications=false` and `notify=[]`, or Claude's
+`preferredNotifChannel: notifications_disabled`. These settings apply only
+to the peer. The lead keeps its own notification settings.
+
+`peer wait` sends questions to the lead on the bus at once. With reminders
+enabled, it keeps watching until the question clears or a reminder is due.
+After `rex.stuck_notify_minutes` (5 by default), it sends one OS notification
+with the peer id and the question. Another wait does not repeat it. A new
+question gets its own timer. Set the value to `0` to turn reminders off and
+return questions at once. Missing OS notification tools are skipped silently.
 
 `rex.auto_answers` lists rules with `match` text and an `answer` option label.
 Duolog checks them in order and records each automatic answer. The first rule
@@ -101,8 +132,8 @@ With Claude as the lead:
 
 - [ ] In Rex, run `duolog install --scope project`.
 - [ ] Start a new Claude session in the project.
-- [ ] Run `duolog peer open review_intermediate`. A second Codex opens beside
-  the lead.
+- [ ] Run `duolog peer open review_intermediate`. A Codex peer starts in the
+  project's detached Rex session. Check that your window and pane stay focused.
 - [ ] If the line shows a question, answer it with `duolog peer answer`,
   giving the session id and the option.
 - [ ] Write a task file and run `duolog peer send <id> task.md`.

@@ -14,6 +14,9 @@ __pycache__/
 .duolog/*
 !.duolog/config.yaml
 !.duolog/learned.yaml
+!.duolog/skill-tests/
+.duolog/skill-tests/*
+!.duolog/skill-tests/*.plan.yaml
 
 # Local to each checkout: the code index, the skills scripts/dev/bin/duolog copies
 # from plugin/, and personal Claude settings.
@@ -21,3 +24,6 @@ __pycache__/
 .claude/skills/duolog/
 .agents/skills/duolog/
 .claude/settings.local.json
+
+# Linked worktrees for parallel work; inside the repository so tools find its index.
+.worktrees/

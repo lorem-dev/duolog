@@ -76,11 +76,15 @@ func Run(o Options) (Report, error) {
 		if err != nil {
 			return Report{}, err
 		}
-		skill, err := plugin.FS.ReadFile(agent + "/skills/duolog/SKILL.md")
-		if err != nil {
-			return Report{}, err
+		edits = append(edits, edit{path: path, data: data})
+		for _, name := range []string{"duolog", "duolog-skill-check"} {
+			skill, err := plugin.FS.ReadFile(agent + "/skills/" + name + "/SKILL.md")
+			if err != nil {
+				return Report{}, err
+			}
+			skillPath := filepath.Join(filepath.Dir(filepath.Dir(installedSkillPath(o, base, agent))), name, "SKILL.md")
+			edits = append(edits, edit{path: skillPath, data: skill})
 		}
-		edits = append(edits, edit{path: path, data: data}, edit{path: installedSkillPath(o, base, agent), data: skill})
 	}
 	if o.Scope != "user" {
 		if _, err := store.Open(o.Root); err != nil {
@@ -154,19 +158,21 @@ func Remove(o Options) error {
 		}
 	}
 	for _, agent := range agents {
-		skill := installedSkillPath(o, base, agent)
-		// A skill with other content is not the one Run wrote, so it stays.
-		ours, err := plugin.FS.ReadFile(agent + "/skills/duolog/SKILL.md")
-		if err != nil {
-			return err
+		for _, name := range []string{"duolog", "duolog-skill-check"} {
+			skill := filepath.Join(filepath.Dir(filepath.Dir(installedSkillPath(o, base, agent))), name, "SKILL.md")
+			// A skill with other content is not the one Run wrote, so it stays.
+			ours, err := plugin.FS.ReadFile(agent + "/skills/" + name + "/SKILL.md")
+			if err != nil {
+				return err
+			}
+			if have, err := os.ReadFile(skill); err != nil || !bytes.Equal(have, ours) {
+				continue
+			}
+			if err := os.Remove(skill); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			_ = os.Remove(filepath.Dir(skill)) // only succeeds when empty
 		}
-		if have, err := os.ReadFile(skill); err != nil || !bytes.Equal(have, ours) {
-			continue
-		}
-		if err := os.Remove(skill); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		_ = os.Remove(filepath.Dir(skill)) // only succeeds when empty
 	}
 	if o.Scope != "user" {
 		return removeInstructions(o.Root)

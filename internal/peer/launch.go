@@ -21,7 +21,7 @@ func agentArgv(route router.Route, m mode.Mode) []string {
 		if route.Effort != "" {
 			args = append(args, "-c", `model_reasoning_effort="`+route.Effort+`"`)
 		}
-		args = append(args, "-c", "check_for_update_on_startup=false")
+		args = append(args, "-c", "check_for_update_on_startup=false", "-c", "tui.notifications=false", "-c", "notify=[]")
 		if route.Context == "minimal" {
 			args = append(args, "-c", "project_doc_max_bytes=0")
 		}
@@ -31,6 +31,7 @@ func agentArgv(route router.Route, m mode.Mode) []string {
 		if route.Effort != "" {
 			args = append(args, "--effort", route.Effort)
 		}
+		args = append(args, "--settings", `{"autoMemoryEnabled":false,"preferredNotifChannel":"notifications_disabled"}`)
 		return append(args, mode.Args("claude", m, route.Sandbox)...)
 	}
 	return nil

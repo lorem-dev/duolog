@@ -104,14 +104,15 @@ func WithOptions(ctx context.Context, opts Options) context.Context {
 }
 
 type env struct {
-	opts   Options
-	root   string
-	dir    string
-	cfg    *config.Config
-	reg    *session.Registry
-	bus    *bus.Bus
-	rex    rex.Client
-	leadID string
+	opts           Options
+	root           string
+	dir            string
+	cfg            *config.Config
+	reg            *session.Registry
+	bus            *bus.Bus
+	rex            rex.Client
+	leadID         string
+	watchQuestions bool
 }
 
 type leadInfo struct {
@@ -303,27 +304,17 @@ func Open(ctx context.Context, role string) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	client := e.rex
-	client.Label = route.Agent + "-" + role
-	newTab, err := e.needsNewTab(ctx, lead.id)
+	block, rexSession, err := e.openProjectPeer(ctx, route.Agent+"-"+role, launchArgv(exe, envFile, agentArgv(route, lead.mode)))
 	if err != nil {
 		_ = os.Remove(envFile)
 		return Entry{}, err
 	}
-	open := client.Split
-	if newTab {
-		open = client.NewWindow
-	}
-	block, err := open(ctx, launchArgv(exe, envFile, agentArgv(route, lead.mode)))
-	if err != nil {
-		_ = os.Remove(envFile)
-		return Entry{}, err
-	}
-	entry := session.Entry{ID: newID(), Lead: lead.id, Agent: route.Agent, Role: role, Thread: peerThread, Block: block, WorkRoot: e.root, RexSession: e.rex.Session, Mode: lead.mode, UpdatedAt: time.Now()}
+	entry := session.Entry{ID: newID(), Lead: lead.id, Agent: route.Agent, Role: role, Thread: peerThread, Block: block, WorkRoot: e.root, RexSession: rexSession, Mode: lead.mode, UpdatedAt: time.Now()}
 	if err := e.reg.RecordLimited(entry, e.cfg.Limits.MaxLiveSessions); err != nil {
 		// The pane exists but nothing records it: do not leave it unowned.
-		_ = e.rex.Close(ctx, block)
-		return Entry{}, fmt.Errorf("pane %s was opened but not recorded and was closed: %w", block, err)
+		closeErr := e.clientFor(entry).Close(ctx, block)
+		cleanupErr := e.cleanupProjectSession(ctx)
+		return Entry{}, fmt.Errorf("pane %s was opened but not recorded: %w", block, errors.Join(err, closeErr, cleanupErr))
 	}
 	// Keep the resolved version across commands; aliases may resolve differently
 	// by the time this pane first changes a file.
@@ -350,7 +341,7 @@ func (e *env) livePeers(ctx context.Context, leadID, agent string) ([]session.En
 		if x.Block == "" || x.Closed || x.Lead != leadID || x.Agent != agent {
 			continue
 		}
-		alive, err := e.rex.Alive(ctx, x.Block, e.cfg.Rex.CaptureLines)
+		alive, err := e.clientFor(x).Alive(ctx, x.Block, e.cfg.Rex.CaptureLines)
 		if err != nil {
 			return nil, err
 		}
@@ -371,7 +362,7 @@ func (e *env) observe(ctx context.Context, entry session.Entry) (State, Screen, 
 	if err := e.credit(entry); err != nil {
 		return Starting, Screen{}, err
 	}
-	presence, err := e.rex.Probe(ctx, entry.Block)
+	presence, err := e.clientFor(entry).Probe(ctx, entry.Block)
 	if err != nil {
 		return Starting, Screen{}, err
 	}
@@ -395,7 +386,7 @@ func (e *env) observe(ctx context.Context, entry session.Entry) (State, Screen, 
 				return Question, screen, fmt.Errorf("peer %s: queued question did not open", entry.ID)
 			}
 			if !queuedOpened {
-				if err := e.rex.SendKey(ctx, entry.Block, "shift+left"); err != nil {
+				if err := e.clientFor(entry).SendKey(ctx, entry.Block, "shift+left"); err != nil {
 					return Question, screen, err
 				}
 				queuedOpened = true
@@ -429,7 +420,7 @@ func (e *env) observe(ctx context.Context, entry session.Entry) (State, Screen, 
 }
 
 func (e *env) screen(ctx context.Context, entry session.Entry) (Screen, error) {
-	raw, err := e.rex.Capture(ctx, entry.Block, e.cfg.Rex.CaptureLines)
+	raw, err := e.clientFor(entry).Capture(ctx, entry.Block, e.cfg.Rex.CaptureLines)
 	if err != nil {
 		return Screen{}, err
 	}
@@ -470,6 +461,18 @@ func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Ent
 		case Question:
 			if err := e.ask(entry, screen.Question); err != nil {
 				return Entry{ID: entry.ID, State: state}, err
+			}
+			if e.watchQuestions {
+				if err := e.notifyStuck(ctx, entry, time.Now()); err != nil {
+					return Entry{ID: entry.ID, State: state}, err
+				}
+			}
+			entry, err = e.find(entry.ID)
+			if err != nil {
+				return Entry{}, err
+			}
+			if e.watchQuestions && e.cfg.Rex.StuckNotifyMinutes > 0 && !entry.QuestionNotified {
+				break
 			}
 			return Entry{ID: entry.ID, State: Question, Question: screen.Question}, nil
 		case Limited:
@@ -536,7 +539,8 @@ func Wait(ctx context.Context, id string) (Entry, error) {
 		line, err := e.endLine(entry, Closed)
 		return Entry{ID: entry.ID, State: Closed, Note: line}, err
 	}
-	return e.watch(ctx, entry, entry.Task == "")
+	e.watchQuestions = true
+	return e.watch(ctx, entry, false)
 }
 
 // stuckInput reports an idle input line that still holds the sent task line.
@@ -553,7 +557,18 @@ func probe(text string) string { return cut(text, 40) }
 
 // ask sends a question to the lead once. Nothing is pressed in the pane.
 func (e *env) ask(entry session.Entry, question string) error {
-	if question == "" || entry.Asked == question {
+	if question == "" {
+		return nil
+	}
+	if entry.Asked == question {
+		if entry.QuestionSince.IsZero() {
+			_, err := e.update(entry.ID, func(x *session.Entry) {
+				if x.Asked == question && x.QuestionSince.IsZero() {
+					x.QuestionSince = time.Now()
+				}
+			})
+			return err
+		}
 		return nil
 	}
 	text := question
@@ -568,7 +583,13 @@ func (e *env) ask(entry session.Entry, question string) error {
 		}
 		break
 	}
-	_, err := e.update(entry.ID, func(x *session.Entry) { x.Asked = question })
+	_, err := e.update(entry.ID, func(x *session.Entry) {
+		if x.Asked != question {
+			x.Asked = question
+			x.QuestionSince = time.Now()
+			x.QuestionNotified = false
+		}
+	})
 	return err
 }
 
@@ -770,7 +791,7 @@ func (e *env) settle(ctx context.Context, entry session.Entry, taskPath string) 
 func (e *env) deliver(ctx context.Context, entry session.Entry, text string) error {
 	head := probe(text)
 	for try := 1; try <= 3; try++ {
-		if err := e.rex.Send(ctx, entry.Block, text); err != nil {
+		if err := e.clientFor(entry).Send(ctx, entry.Block, text); err != nil {
 			return err
 		}
 		if err := sleep(ctx, sendDelay); err != nil {
@@ -783,7 +804,7 @@ func (e *env) deliver(ctx context.Context, entry session.Entry, text string) err
 		if screen.Composer && strings.HasPrefix(screen.Input, head) {
 			return e.submit(ctx, entry, head)
 		}
-		if err := e.rex.SendKey(ctx, entry.Block, "ctrl+u"); err != nil {
+		if err := e.clientFor(entry).SendKey(ctx, entry.Block, "ctrl+u"); err != nil {
 			return err
 		}
 		if err := sleep(ctx, keyDelay); err != nil {
@@ -797,7 +818,7 @@ func (e *env) deliver(ctx context.Context, entry session.Entry, text string) err
 // enter is pressed once more.
 func (e *env) submit(ctx context.Context, entry session.Entry, head string) error {
 	for press := 1; press <= 2; press++ {
-		if err := e.rex.SendKey(ctx, entry.Block, "enter"); err != nil {
+		if err := e.clientFor(entry).SendKey(ctx, entry.Block, "enter"); err != nil {
 			return err
 		}
 		if err := sleep(ctx, sendDelay); err != nil {
@@ -945,7 +966,7 @@ func (e *env) selectOption(ctx context.Context, entry session.Entry, screen Scre
 		key, steps = "up", -steps
 	}
 	for i := 0; i < steps; i++ {
-		if err := e.rex.SendKey(ctx, entry.Block, key); err != nil {
+		if err := e.clientFor(entry).SendKey(ctx, entry.Block, key); err != nil {
 			return err
 		}
 		if err := sleep(ctx, keyDelay); err != nil {
@@ -962,7 +983,7 @@ func (e *env) selectOption(ctx context.Context, entry session.Entry, screen Scre
 			return fmt.Errorf("peer %s: the cursor did not reach %q, so enter was not pressed", entry.ID, screen.Options[target].Label)
 		}
 	}
-	if err := e.rex.SendKey(ctx, entry.Block, "enter"); err != nil {
+	if err := e.clientFor(entry).SendKey(ctx, entry.Block, "enter"); err != nil {
 		return err
 	}
 	if err := sleep(ctx, sendDelay); err != nil {
@@ -1017,6 +1038,12 @@ func Close(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	closing := flock.New(filepath.Join(e.dir, "peer-open.lock"))
+	if err := closing.Lock(); err != nil {
+		_ = closing.Close()
+		return err
+	}
+	defer closing.Close()
 	entry, err := e.find(id)
 	if err != nil {
 		removed, lookupErr := e.reg.PeerRemoved(id)
@@ -1024,17 +1051,20 @@ func Close(ctx context.Context, id string) error {
 			return lookupErr
 		}
 		if removed {
-			return nil
+			return e.cleanupProjectSession(ctx)
 		}
 		return err
 	}
 	if err := e.credit(entry); err != nil {
 		return err
 	}
-	if err := e.rex.Close(ctx, entry.Block); err != nil {
+	if err := e.clientFor(entry).Close(ctx, entry.Block); err != nil {
 		return err
 	}
-	return e.reg.RemovePeer(entry.ID)
+	if err := e.reg.RemovePeer(entry.ID); err != nil {
+		return err
+	}
+	return e.cleanupProjectSession(ctx)
 }
 
 // pendingAsk never advances the delivery cursor; the lead hook still receives
@@ -1090,39 +1120,4 @@ func sameWorkRoot(a, b string) bool {
 	left, le := os.Stat(a)
 	right, re := os.Stat(b)
 	return le == nil && re == nil && os.SameFile(left, right)
-}
-
-// needsNewTab checks actual pane locations, including peers of other agents or
-// leads. A peer moved to another window no longer occupies the lead's window.
-func (e *env) needsNewTab(ctx context.Context, leadID string) (bool, error) {
-	window, err := e.rex.WindowID(ctx, e.rex.Anchor)
-	if err != nil {
-		return false, err
-	}
-	all, err := e.reg.Entries()
-	if err != nil {
-		return false, err
-	}
-	for _, p := range all {
-		if p.Block == "" || p.Closed {
-			continue
-		}
-		if p.RexSession != "" && p.RexSession != e.rex.Session {
-			continue
-		}
-		if p.RexSession == "" && p.Lead != leadID {
-			continue
-		}
-		owner, err := e.rex.WindowID(ctx, p.Block)
-		if rex.IsNotFound(err) {
-			continue
-		}
-		if err != nil {
-			return false, err
-		}
-		if owner == window {
-			return true, nil
-		}
-	}
-	return false, nil
 }

@@ -45,7 +45,7 @@ func TestCoauthorsCommand(t *testing.T) {
 	if err := coauthor.Append(s.Dir, cfg.Coauthors, coauthor.Record{Time: time.Date(2019, 1, 1, 0, 0, 0, 0, time.UTC), Agent: "codex", Model: "old", Files: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := coauthor.Append(s.Dir, cfg.Coauthors, coauthor.Record{Agent: "codex", Model: "gpt-6.1-sol", Files: 1}); err != nil {
+	if err := coauthor.Append(s.Dir, cfg.Coauthors, coauthor.Record{Agent: "codex", Model: "sol", Files: 1}); err != nil {
 		t.Fatal(err)
 	}
 	run := func(args ...string) (string, error) {
@@ -61,7 +61,7 @@ func TestCoauthorsCommand(t *testing.T) {
 		t.Fatalf("unborn: %q %v", got, err)
 	}
 	git("-c", "commit.gpgsign=false", "commit", "--allow-empty", "-qm", "example")
-	line := "Co-Authored-By: OpenAI Codex gpt-6.1-sol <noreply@openai.com>\n"
+	line := "Co-Authored-By: OpenAI Codex sol <noreply@openai.com>\n"
 	if got, err := run(); err != nil || got != line {
 		t.Fatalf("HEAD: %q %v", got, err)
 	}

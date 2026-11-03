@@ -733,6 +733,11 @@ type usageRecord struct {
 	Output       int64  `json:"output"`
 }
 
+// RecordUsage appends the same locked usage record as a delegation.
+func RecordUsage(dir, role string, route router.Route, result runner.Result) error {
+	return appendUsage(dir, role, route, result)
+}
+
 func appendUsage(dir, role string, route router.Route, result runner.Result) error {
 	lock := flock.New(filepath.Join(dir, "usage.lock"))
 	if err := lock.Lock(); err != nil {

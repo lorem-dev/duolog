@@ -39,6 +39,8 @@ type Spec struct {
 	// KeepSkills keeps the skill list of a minimal worker whose task needs a skill.
 	KeepSkills bool
 	Timeout    time.Duration
+	// SkillTest asks for raw situation answers without tools or a worker schema.
+	SkillTest bool
 	// MCP holds servers bridged from the lead's agent for this run, or nil.
 	MCP *MCP
 }
@@ -65,10 +67,11 @@ type MCP struct {
 
 type Usage struct{ Input, Cached, Output int64 }
 type Result struct {
-	Done    bool
-	Summary string
-	Files   []string
-	Needs   []string
+	RawAnswer string
+	Done      bool
+	Summary   string
+	Files     []string
+	Needs     []string
 	// Decisions are the choices the task left open that the worker made itself.
 	Decisions   []string
 	Interrupted bool
@@ -86,6 +89,9 @@ type Result struct {
 // Argv includes the executable. Route.Model is already resolved by the caller;
 // version discovery and policy hook installation are outside this package.
 func Argv(s Spec) []string {
+	if s.SkillTest {
+		return skillArgv(s)
+	}
 	switch s.Route.Agent {
 	case "codex":
 		return codexArgv(s)
@@ -150,7 +156,7 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	cmd.WaitDelay = 2 * time.Second
 	cmd.Dir = s.Cwd
 	stdin := s.Stdin
-	if s.Route.Agent == "codex" {
+	if s.Route.Agent == "codex" && !s.SkillTest {
 		// --output-schema loses the prompt cache, so Codex is asked in plain text.
 		stdin = append(append([]byte{}, s.Stdin...), []byte("\n"+codexAnswerInstruction+"\n")...)
 	}
@@ -204,6 +210,13 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	}
 	if err = readLog(stderrPath, s.Route.Agent, true, &result); err != nil {
 		return result, err
+	}
+	if s.SkillTest {
+		result, err = skillResult(s, stdoutPath, answerPath, result)
+		if errors.Is(runErr, exec.ErrWaitDelay) && result.ExitCode == 0 {
+			runErr = nil
+		}
+		return result, errors.Join(runErr, closeErr, err)
 	}
 	// A worker that exits 0 and leaves a background child holding its output
 	// has still finished: its answer is complete.

@@ -14,7 +14,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
-const peerSplitReply = `{"anchor_id":"block:lead","block_ids":["block:peer"],"split_ids":["split:s"],"revision":4}`
+const peerSplitReply = `{"session_id":"session:peers","block_ids":["block:peer"]}`
 
 func startupFixture(t *testing.T, name string) string {
 	t.Helper()
@@ -73,7 +73,9 @@ func peerProject(t *testing.T, capture testbin.Scenario) (root, rex string) {
 		t.Fatal(err)
 	}
 	rex = testbin.Install(t, "rex", testbin.Scenario{Exit: 99, Stderr: "unexpected rex command", Responses: map[string]testbin.Scenario{
-		"split":         {Stdout: peerSplitReply},
+		"new":           {Stdout: peerSplitReply},
+		"window new":    {Stdout: peerSplitReply},
+		"kill":          {},
 		"block inspect": {Stdout: `{"block":{"window_id":"window:lead"}}`},
 		"wait":          {Exit: 1, Stderr: "Error: wait timed out after 500ms: context deadline exceeded"},
 		"capture":       capture,
@@ -201,7 +203,7 @@ func TestPeerSendOnLimitPrintsRunHere(t *testing.T) {
 		t.Fatalf("%q %v", out, err)
 	}
 	for _, c := range rexCalls(t, rex) {
-		if c[0] == "send" || c[0] == "split" || c[0] == "send-key" {
+		if c[0] == "send" || c[0] == "new" || c[0] == "split" || c[0] == "send-key" {
 			t.Fatalf("rex %v ran on a limit", c)
 		}
 	}
