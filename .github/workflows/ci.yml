@@ -40,10 +40,11 @@ jobs:
       - name: Vet the end-to-end tests (do not run them)
         run: go vet -tags=e2e ./test/e2e/
       - name: Unit and native generated-command tests
-        timeout-minutes: 4
-        # A healthy package takes under a minute on every runner. The timeout
-        # names the test that hangs and prints its stack.
-        run: go test ${{ matrix.race }} -timeout 2m ./...
+        timeout-minutes: 8
+        # Most packages take under a minute; delegate, with its learning-mode
+        # Git repositories, takes about two on Windows. The timeout names the
+        # test that hangs and prints its stack.
+        run: go test ${{ matrix.race }} -timeout 4m ./...
       - name: Every place states the same version, and CHANGES.md keeps its limits
         run: uv run scripts/version/version.py check
       - name: Version tool tests

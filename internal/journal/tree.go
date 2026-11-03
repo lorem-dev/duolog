@@ -2,6 +2,7 @@ package journal
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,8 +11,15 @@ import (
 	"strings"
 )
 
+// GitCommand runs git in dir with line-ending conversion off, so that trees
+// hash the bytes on disk and patches apply byte for byte whatever the
+// person's core.autocrlf (true on Windows by default).
+func GitCommand(ctx context.Context, dir string, args ...string) *exec.Cmd {
+	return exec.CommandContext(ctx, "git", append([]string{"-C", dir, "-c", "core.autocrlf=false"}, args...)...)
+}
+
 func git(root string, env []string, stdin []byte, args ...string) ([]byte, error) {
-	cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
+	cmd := GitCommand(context.Background(), root, args...)
 	cmd.Env = append(os.Environ(), env...)
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
@@ -33,9 +41,6 @@ func InGit(root string) bool {
 
 // Head returns the HEAD commit; outside Git, or before the first commit, it is empty.
 func Head(root string) (string, error) {
-	if !InGit(root) {
-		return "", nil
-	}
 	out, err := git(root, nil, nil, "rev-parse", "--verify", "-q", "HEAD")
 	if err != nil {
 		return "", nil
@@ -45,15 +50,17 @@ func Head(root string) (string, error) {
 
 // Capture hashes the working tree (untracked files included, .duolog excluded)
 // through a temporary index, so the real index stays untouched.
+// Each git call is a process, slow to start on Windows, so Capture uses few.
 func Capture(root string) (string, error) {
-	if !InGit(root) {
+	out, err := git(root, nil, nil, "rev-parse", "--is-inside-work-tree", "--git-path", "index")
+	if err != nil {
 		return "", nil
 	}
-	out, err := git(root, nil, nil, "rev-parse", "--git-path", "index")
-	if err != nil {
-		return "", err
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) != 2 || lines[0] != "true" {
+		return "", nil
 	}
-	index := strings.TrimSpace(string(out))
+	index := strings.TrimSpace(lines[1])
 	if !filepath.IsAbs(index) {
 		index = filepath.Join(root, index)
 	}
@@ -74,30 +81,17 @@ func Capture(root string) (string, error) {
 		return "", err
 	}
 	env := []string{"GIT_INDEX_FILE=" + name}
-	// git add refuses a pathspec naming an ignored path, and projects ignore
-	// .duolog, so it is added with the rest. Then the .duolog paths the project
-	// does not track (duolog's own state) are dropped from this index; tracked
+	// git add refuses a pathspec naming an ignored path, even to exclude it,
+	// and projects ignore .duolog, so it is added with the rest. Then the
+	// .duolog paths the project does not track (duolog's own state) that add
+	// picked up, the untracked ones it does not ignore, are dropped; tracked
 	// ones, such as a committed config.yaml, stay with their working-tree content.
-	tracked, err := git(root, env, nil, "ls-files", "-z", "--", ".duolog")
+	drop, err := git(root, env, nil, "ls-files", "-z", "--others", "--exclude-standard", "--", ".duolog")
 	if err != nil {
 		return "", err
 	}
 	if _, err := git(root, env, nil, "add", "-A", "--", "."); err != nil {
 		return "", err
-	}
-	added, err := git(root, env, nil, "ls-files", "-z", "--", ".duolog")
-	if err != nil {
-		return "", err
-	}
-	keep := map[string]bool{}
-	for _, path := range strings.Split(string(tracked), "\x00") {
-		keep[path] = true
-	}
-	var drop []byte
-	for _, path := range strings.Split(string(added), "\x00") {
-		if path != "" && !keep[path] {
-			drop = append(append(drop, path...), 0)
-		}
 	}
 	if len(drop) > 0 {
 		if _, err := git(root, env, drop, "update-index", "--force-remove", "-z", "--stdin"); err != nil {

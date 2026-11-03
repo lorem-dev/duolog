@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -175,11 +176,17 @@ func (j *Journal) Append(name string, record any) error {
 		return err
 	}
 	defer l.Close()
-	f, err := os.OpenFile(filepath.Join(j.Dir, name), os.O_APPEND|os.O_CREATE|os.O_RDWR, 0600)
+	// No O_APPEND: on Windows it opens the file without the right to truncate
+	// it. The lock keeps writers apart, so writing at the end is enough.
+	f, err := os.OpenFile(filepath.Join(j.Dir, name), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return err
 	}
 	if err := dropPartialTail(f); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if _, err := f.Seek(0, io.SeekEnd); err != nil {
 		_ = f.Close()
 		return err
 	}
@@ -227,7 +234,7 @@ func dropPartialTail(f *os.File) error {
 		}
 	}
 	if json.Valid(tail) {
-		_, err := f.Write([]byte{'\n'})
+		_, err := f.WriteAt([]byte{'\n'}, size)
 		return err
 	}
 	return f.Truncate(start)

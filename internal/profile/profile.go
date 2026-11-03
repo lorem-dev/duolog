@@ -314,8 +314,7 @@ func apply(dir string, patch []byte) error {
 }
 
 func git(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	out, err := cmd.CombinedOutput()
+	out, err := journal.GitCommand(ctx, dir, args...).CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(string(out)))
 	}

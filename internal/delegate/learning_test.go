@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +24,7 @@ import (
 
 func gitIn(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main"}, args...)...)
+	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main", "-c", "core.autocrlf=false"}, args...)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, out)
@@ -271,12 +272,13 @@ func TestLearningRecordsReplayFiles(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if info.Mode().Perm() != 0600 {
+		// Windows keeps only a read-only bit, so there the file need only exist.
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 			t.Fatalf("%s mode %v", name, info.Mode())
 		}
 	}
-	if info, err := os.Stat(dir); err != nil || info.Mode().Perm() != 0700 {
-		t.Fatal(info.Mode(), err)
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() || runtime.GOOS != "windows" && info.Mode().Perm() != 0700 {
+		t.Fatal(info, err)
 	}
 	if read(t, filepath.Join(dir, "task.md")) != read(t, filepath.Join(h.calls[0].TaskDir, "task.md")) {
 		t.Fatal("task copy differs")
