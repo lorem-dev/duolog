@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
+	"sort"
 
 	"github.com/lorem-dev/duolog/internal/rex"
 )
@@ -44,7 +46,38 @@ func (e *env) openProjectPeer(ctx context.Context, label string, argv []string) 
 		client.Session = created.Session
 		return "", "", errors.Join(err, client.KillSession(ctx))
 	}
+	e.renameProjectSessions(ctx)
 	return created.Block, created.Session, nil
+}
+
+// renameProjectSessions is best effort. Rex session IDs are time-ordered, so
+// sorting them preserves creation order regardless of the listing's order.
+func (e *env) renameProjectSessions(ctx context.Context) {
+	sessions, err := e.rex.ListSessions(ctx)
+	if err != nil {
+		return
+	}
+	label := "duolog | " + filepath.Base(filepath.Clean(e.opts.Root))
+	match := regexp.MustCompile("^" + regexp.QuoteMeta(label) + `(?: \([0-9]+\))?$`)
+	var peers []rex.SessionInfo
+	for _, session := range sessions {
+		if session.ID != e.rex.Session && match.MatchString(session.Label) {
+			peers = append(peers, session)
+		}
+	}
+	sort.Slice(peers, func(i, j int) bool { return peers[i].ID < peers[j].ID })
+	for i, session := range peers {
+		name := label
+		if len(peers) > 1 {
+			name += fmt.Sprintf(" (%d)", i+1)
+		}
+		if session.Label == name {
+			continue
+		}
+		client := e.rex
+		client.Session = session.ID
+		_ = client.RenameSession(ctx, name)
+	}
 }
 
 // cleanupProjectSession runs under peer-open.lock. A failed kill leaves its
@@ -71,5 +104,6 @@ func (e *env) cleanupProjectSession(ctx context.Context) error {
 	if err := client.KillSession(ctx); err != nil {
 		return err
 	}
+	e.renameProjectSessions(ctx)
 	return e.reg.SetPeerRexSession("")
 }

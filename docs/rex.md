@@ -39,6 +39,12 @@ as they were. Every peer gets a tab named `duolog | <pane label>`, such as
 `duolog | codex-planner`. Leads and linked worktrees share that project
 session. Commands use the session recorded for each peer.
 
+If Rex has several duolog sessions for the same project folder name, their
+names end in `(1)`, `(2)`, and so on, in creation order. Creating or closing a
+project session updates these numbers. A single session has no number.
+Renaming is best effort; a failed rename does not stop opening or closing a
+peer. Peer tab names stay the same.
+
 Closing a peer removes its session entry; repeating that close is harmless.
 Closing the last peer closes the project session too. If that close fails,
 duolog keeps its identity and another close retries the cleanup.

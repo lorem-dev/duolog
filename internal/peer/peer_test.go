@@ -46,15 +46,17 @@ type rig struct {
 
 func baseScript() map[string]testbin.Scenario {
 	return map[string]testbin.Scenario{
-		"new":           {Stdout: splitReply},
-		"kill":          {},
-		"window new":    {Stdout: splitReply},
-		"block inspect": {Stdout: `{"block":{"id":"block:peer","window_id":"window:lead"}}`},
-		"wait":          {Exit: 1, Stderr: "Error: wait timed out after 500ms: context deadline exceeded"},
-		"capture":       {Stdout: codexIdle("")},
-		"send":          {},
-		"send-key":      {},
-		"block close":   {},
+		"new":            {Stdout: splitReply},
+		"kill":           {},
+		"window new":     {Stdout: splitReply},
+		"session list":   {Stdout: `{"sessions":[]}`},
+		"session rename": {},
+		"block inspect":  {Stdout: `{"block":{"id":"block:peer","window_id":"window:lead"}}`},
+		"wait":           {Exit: 1, Stderr: "Error: wait timed out after 500ms: context deadline exceeded"},
+		"capture":        {Stdout: codexIdle("")},
+		"send":           {},
+		"send-key":       {},
+		"block close":    {},
 	}
 }
 

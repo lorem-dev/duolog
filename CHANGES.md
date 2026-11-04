@@ -42,6 +42,16 @@
 
 ## Development
 
+### Changed
+
+- Several duolog Rex sessions of one project are named `duolog | <project> (n)`
+  in creation order; a single session keeps its plain name.
+
+### Fixed
+
+- `duolog peer open` reads the first block from the current `rex new` reply
+  and no longer fails with "could not identify its terminal block".
+
 ## 1.3.0
 
 ### Added
