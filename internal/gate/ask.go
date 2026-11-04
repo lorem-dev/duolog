@@ -52,10 +52,12 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout ti
 	address := session.Address(l)
 	from := "duolog/ask." + rand.Text()
 	fullSummary := strings.Join(strings.Fields(a.Kind+" "+a.Target), " ")
+	// A peer pane names itself, so that peer wait stops only for its own asks.
+	peer := os.Getenv("DUOLOG_PEER")
 	var n int64
 	for budget := 200; ; budget-- {
 		summary := askSummary(fullSummary, budget)
-		n, err = b.Send(bus.Message{From: from, To: address, K: Ask, S: summary, P: person})
+		n, err = b.Send(bus.Message{From: from, To: address, K: Ask, Ref: peer, S: summary, P: person})
 		if !errors.Is(err, bus.ErrTooLong) || budget == 0 {
 			break
 		}

@@ -96,7 +96,7 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	parts := []string{a.Target}
 	uncertain := false
 	if a.Kind == "exec" {
-		parts, uncertain = ShellParts(a.Target, a.Shell)
+		parts, uncertain = readShellParts(a.Target, a.Shell)
 		uncertain = uncertain || needsReview(parts)
 		if recursiveStateRead(a, parts, uncertain) {
 			return decision(Deny, "duolog state is not readable by workers", RuleState)
@@ -416,16 +416,63 @@ func basenameCommand(command string) string {
 // shell never expands. A backslash is refused because removing the quotes
 // removes it too. Double quotes also expand $ and backticks; single quotes keep
 // them literal.
+// A read command may still quote a word with spaces: quotedWords keeps it one word.
 const (
 	quotedLiteralUnsafe       = " \t\n\r\v\f*?[]{}~'\"\\"
 	doubleQuotedLiteralUnsafe = quotedLiteralUnsafe + "$`"
 )
 
+// quotedSpace stands for a space inside quotes, so that strings.Fields keeps
+// the quoted word whole; readCommandTargets turns it back into a space. A
+// command that holds it itself is uncertain.
+const quotedSpace = "\x00"
+
+// devNullRedirects only throw output away. A read command may carry them; any
+// other redirect can write a file.
+var devNullRedirects = []string{"2>/dev/null", ">/dev/null", "2>&1"}
+
+// devNullRedirect returns the length of a devNullRedirects word at command[i],
+// or 0.
+func devNullRedirect(command string, i int) int {
+	if i == 0 || command[i-1] != ' ' && command[i-1] != '\t' {
+		return 0
+	}
+	for _, redirect := range devNullRedirects {
+		end := i + len(redirect)
+		if strings.HasPrefix(command[i:], redirect) && (end == len(command) || strings.IndexByte(" \t;|&\n", command[end]) >= 0) {
+			return len(redirect)
+		}
+	}
+	return 0
+}
+
+// quotedWords splits a part whose quotes only group literal text into the
+// words the shell passes on, with quotedSpace for each space inside quotes.
+func quotedWords(part string) []string {
+	var b strings.Builder
+	var quote byte
+	for i := 0; i < len(part); i++ {
+		c := part[i]
+		switch {
+		case quote == 0 && (c == '\'' || c == '"'):
+			quote = c
+		case c == quote:
+			quote = 0
+		case quote != 0 && c == ' ':
+			b.WriteString(quotedSpace)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return strings.Fields(b.String())
+}
+
 // literalQuotes reports whether the quotes in part only group literal text,
 // so that removing them leaves the same words the shell passes on: they are
 // balanced, each quoted run is non-empty and holds none of quotedLiteralUnsafe,
-// and nothing outside them redirects, substitutes or escapes.
-func literalQuotes(part string) bool {
+// and nothing outside them redirects, substitutes or escapes. With spaces, a
+// quoted run may hold spaces, which quotedWords keeps inside one word.
+func literalQuotes(part string, spaces bool) bool {
 	for i := 0; i < len(part); i++ {
 		c := part[i]
 		if c != '\'' && c != '"' {
@@ -438,6 +485,9 @@ func literalQuotes(part string) bool {
 		if c == '"' {
 			unsafe = doubleQuotedLiteralUnsafe
 		}
+		if spaces {
+			unsafe = strings.Replace(unsafe, " ", "", 1)
+		}
 		end := strings.IndexByte(part[i+1:], c)
 		if end <= 0 || strings.ContainsAny(part[i+1:i+1+end], unsafe) {
 			return false
@@ -447,22 +497,34 @@ func literalQuotes(part string) bool {
 	return true
 }
 
-// ShellParts splits a command using the gate's conservative shell parser.
+// ShellParts splits a command using the gate's conservative shell parser. A
+// quoted word with spaces and a /dev/null redirect stay uncertain here; the
+// lead guard looks inside uncertain commands for duolog allow.
 func ShellParts(command, shell string) ([]string, bool) {
 	if shell == "powershell" {
 		return powershellParts(command)
 	}
-	return shellParts(command)
+	return shellParts(command, false)
+}
+
+// readShellParts is ShellParts for Evaluate: a read command may also quote a
+// word with spaces and throw its output into /dev/null.
+func readShellParts(command, shell string) ([]string, bool) {
+	if shell == "powershell" {
+		return powershellParts(command)
+	}
+	return shellParts(command, true)
 }
 
 // shellParts is deliberately conservative, not a shell interpreter. Quoted
 // separators remain arguments; substitutions and unsupported syntax need review.
-func shellParts(command string) ([]string, bool) {
+// With reads, a read command's quoted spaces and /dev/null redirects are read.
+func shellParts(command string, reads bool) ([]string, bool) {
 	var parts []string
-	start := 0
+	start, redirect := 0, -1
 	var quote byte
 	escaped, uncertain := false, false
-	appendPart := func(part string) {
+	appendPart := func(part string, redirected bool) {
 		if strings.HasPrefix(strings.TrimSpace(part), "rg ") {
 			part = unquoteRgGlobs(part)
 		}
@@ -476,12 +538,22 @@ func shellParts(command string) ([]string, bool) {
 		if strings.ContainsAny(part, "'\"\\$`<>()") {
 			stripped := strings.NewReplacer("'", "", "\"", "", "\\", "").Replace(part)
 			words = strings.Fields(stripped)
-			if !literalQuotes(part) || len(words) == 0 {
+			switch {
+			case literalQuotes(part, false) && len(words) > 0:
+			case reads && literalQuotes(part, true) && readOnlyCommand(strings.Join(quotedWords(part), " ")):
+				words = quotedWords(part)
+			default:
 				uncertain = true
 				parts = append(parts, strings.Join(words, " "))
 				return
 			}
 			quoted = true
+		}
+		// A redirect into /dev/null writes nothing only on a read command.
+		if redirected && !readOnlyCommand(strings.Join(words, " ")) {
+			uncertain = true
+			parts = append(parts, strings.Join(words, " "))
+			return
 		}
 		word := words[0]
 		// A quoted part still reaches the deny checks when it needs review.
@@ -505,8 +577,14 @@ func shellParts(command string) ([]string, bool) {
 		}
 		parts = append(parts, strings.Join(words, " "))
 	}
+	// Redirects into /dev/null are blanked out of the words and noted per part.
+	blanked := []byte(command)
+	redirected := false
 	for i := 0; i < len(command); i++ {
 		c := command[i]
+		if c == quotedSpace[0] {
+			uncertain = true
+		}
 		if escaped {
 			escaped = false
 			continue
@@ -529,23 +607,36 @@ func shellParts(command string) ([]string, bool) {
 			quote = c
 			continue
 		}
+		if n := devNullRedirect(command, i); reads && n > 0 {
+			for j := i; j < i+n; j++ {
+				blanked[j] = ' '
+			}
+			redirected = true
+			i += n - 1
+			continue
+		}
 		// Brace expansion turns one word into several, so a word the gate reads can become a denied path.
 		if strings.ContainsRune("<>(){", rune(c)) {
 			uncertain = true
 		}
+		if c == '>' {
+			redirect = i
+		}
 		if c == '&' && (i+1 >= len(command) || command[i+1] != '&') {
 			uncertain = true
 		}
-		if c != '&' && c != '|' && c != ';' && c != '\n' {
+		// >| is a clobber redirect, so the word after it is a file, not a program.
+		if c != '&' && c != '|' && c != ';' && c != '\n' || c == '|' && redirect == i-1 {
 			continue
 		}
-		appendPart(command[start:i])
+		appendPart(string(blanked[start:i]), redirected)
+		redirected = false
 		if (c == '&' || c == '|') && i+1 < len(command) && command[i+1] == c {
 			i++
 		}
 		start = i + 1
 	}
-	appendPart(command[start:])
+	appendPart(string(blanked[start:]), redirected)
 	return parts, uncertain || escaped || quote != 0
 }
 
@@ -678,7 +769,7 @@ func readCommandDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action,
 			continue
 		}
 		targets, reason := readCommandTargets(part)
-		words := strings.Fields(part)
+		words := commandWords(part)
 		if words[0] == "rg" && readGlobMatchesDeny(p, lead, a, rgGlobs(words[1:])) && asked == nil {
 			asked = &Decision{Ask, "a search glob can read a file that policy denies; name the files", "read command", m}
 		}

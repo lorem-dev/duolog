@@ -215,6 +215,44 @@ func TestWorkingLineIsBusyWithoutInterruptHint(t *testing.T) {
 	}
 }
 
+// workingScreens show an agent at work without the full interrupt hint: the
+// status line in its other blink frame and cut at the pane's edge, a running
+// hook, and a background terminal.
+var workingScreens = []struct{ agent, line string }{
+	{"codex", "◦ Working (1m 02s • esc to inte…"},
+	{"codex", "• Running PreToolUse hook"},
+	{"codex", "• Running PostToolUse hook: duolog gate"},
+	{"claude", "  ⎿  Running PostToolUse hooks… (1/2 done)"},
+	{"codex", "  1 background terminal running · /ps to view · /stop to close"},
+	{"codex", "• Waiting for background terminal"},
+}
+
+func idleFor(agent string) string {
+	if agent == "claude" {
+		return claudeIdle("")
+	}
+	return codexIdle("")
+}
+
+func TestWorkingMarkersAreNotIdle(t *testing.T) {
+	for _, tc := range workingScreens {
+		s := Parse(tc.agent, []byte(tc.line+"\n"+idleFor(tc.agent)))
+		if s.State == Ready || !s.Working {
+			t.Errorf("%s %q: %+v", tc.agent, tc.line, s)
+		}
+	}
+	// The same words in the agent's own text do not keep it busy.
+	for _, line := range []string{
+		"• Working tree is clean; nothing to commit.",
+		"• I ran the hook tests and they pass.",
+		"• The background terminal from the last step was closed.",
+	} {
+		if s := Parse("codex", []byte(line+"\n"+codexIdle(""))); s.State != Ready || s.Working {
+			t.Errorf("%q: %+v", line, s)
+		}
+	}
+}
+
 func TestQueuedPanelReportsQuestionInsteadOfCount(t *testing.T) {
 	raw := "Queued follow-up inputs\n? 1 question\nWhich environment should I use?\n› 1. Staging\n  2. Production\nshift+left to answer\n"
 	s := Parse("codex", []byte(raw))

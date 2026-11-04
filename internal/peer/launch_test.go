@@ -4,12 +4,27 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/router"
 )
+
+// A peer cannot delegate, so a Claude peer starts without the subagent tools.
+func TestClaudePeerDisallowsSubagents(t *testing.T) {
+	route := router.Route{Target: config.Target{Agent: "claude", Model: "opus"}}
+	if args := agentArgv(route, mode.Ask, t.TempDir()); !slices.Contains(args, "--disallowedTools=Agent,Task") {
+		t.Fatal(args)
+	}
+	route.Agent, route.Model = "codex", "sol"
+	for _, a := range agentArgv(route, mode.Ask, t.TempDir()) {
+		if strings.Contains(a, "disallowedTools") || strings.Contains(a, "Agent") {
+			t.Fatal(a)
+		}
+	}
+}
 
 func TestClaudePeerSettingsDenyStateAndKeepNotifications(t *testing.T) {
 	root := t.TempDir()

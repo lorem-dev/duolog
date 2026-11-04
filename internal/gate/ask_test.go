@@ -214,6 +214,26 @@ func TestAskGoesToSpawningLead(t *testing.T) {
 		t.Fatal(ms)
 	}
 }
+
+// The ask names the peer pane whose worker sent it, so that waiting on another
+// peer of the same lead does not stop on it.
+func TestAskNamesItsPeer(t *testing.T) {
+	b, _, dir := askSetup(t)
+	t.Setenv("DUOLOG_PEER", "peer-abc123")
+	Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, askSendWait, false)
+	ms := askMessages(t, dir)
+	if len(ms) != 1 || ms[0].Ref != "peer-abc123" {
+		t.Fatal(ms)
+	}
+	// A worker outside a peer pane sends an ask that names no peer.
+	b, _, dir = askSetup(t)
+	t.Setenv("DUOLOG_PEER", "")
+	Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, askSendWait, false)
+	if ms := askMessages(t, dir); len(ms) != 1 || ms[0].Ref != "" {
+		t.Fatal(ms)
+	}
+}
+
 func TestAskToEndedLeadDeniesAtOnce(t *testing.T) {
 	b, r, dir := askSetup(t)
 	if err := r.Close("first-123456"); err != nil {

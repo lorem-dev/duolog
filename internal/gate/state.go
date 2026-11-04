@@ -122,7 +122,7 @@ func recursiveStateRead(a Action, parts []string, uncertain bool) bool {
 		if !readOnlyCommand(part) {
 			continue
 		}
-		words := strings.Fields(part)
+		words := commandWords(part)
 		name := strings.ToLower(words[0])
 		recursive := recursiveSearch(name, words[1:])
 		override := name == "rg" && stateOverride(rgGlobs(words[1:]))

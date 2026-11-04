@@ -158,6 +158,37 @@ func TestReadOnlyFindAndRgAllowOnlyKnownOptions(t *testing.T) {
 	}
 }
 
+// Context options take a number and only change what is printed.
+func TestReadOnlyContextOptionsTakeANumber(t *testing.T) {
+	p := policy(t)
+	lead := LeadRules{RoleSandbox: "read-only"}
+	for _, command := range []string{
+		"rg -n -F X -A45 internal", "grep -n X -C3 internal/gate/gate.go", "rg --context=2 x .",
+		"rg -A 3 x .", "rg -nB2 x .", "rg --after-context 4 x .", "rg --before-context=4 x .", "rg --context 4 x .",
+		"grep -n X -A14 internal/gate/gate.go", "grep -B 2 x internal/gate/gate.go", "grep --after-context=2 x internal/gate/gate.go",
+		"grep --before-context 2 x internal/gate/gate.go", "grep --context=2 x internal/gate/gate.go",
+	} {
+		if !readOnlyCommand(command) {
+			t.Errorf("%q is not a read-only command", command)
+		}
+		check(t, p, lead, mode.Full, Action{Kind: "exec", Target: command, Role: "review_final"}, Allow)
+	}
+	check(t, p, lead, mode.Full, Action{Kind: "exec", Target: "grep -n X -A14 internal/gate/gate.go | head", Role: "review_final"}, Allow)
+	state := t.TempDir()
+	got := Evaluate(p, lead, mode.Full, Action{Kind: "exec", Target: "rg -A45 x .duolog", Role: "review_final", Work: state, Cwd: state, State: state})
+	if got.Kind != Deny || got.Rule != RuleState {
+		t.Errorf("rg -A45 x .duolog: %s (%s, %s), want a state deny", got.Kind, got.Reason, got.Rule)
+	}
+	for _, command := range []string{
+		"grep -A notanumber x f", "grep -Anotanumber x f", "grep --after-context=x f g", "grep --context notanumber x f",
+		"rg -A notanumber x f", "rg -Ax f", "rg --context=x f g", "rg -C -1 x f",
+	} {
+		if readOnlyCommand(command) {
+			t.Errorf("%q is a read-only command", command)
+		}
+	}
+}
+
 func TestGlobAndGrepPatternsAreReadTargets(t *testing.T) {
 	p := policy(t)
 	for _, tc := range []struct {

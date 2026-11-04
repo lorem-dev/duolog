@@ -91,8 +91,9 @@ func pathWord(word string) string {
 func ExecOutside(a Action) bool {
 	parts, uncertain := ShellParts(a.Target, a.Shell)
 	if uncertain || len(parts) == 0 {
-		// Uncertain syntax can omit wrapped commands; retain their operands.
-		parts = rawExecParts(a.Target)
+		// Uncertain syntax can omit wrapped commands; retain their operands, and
+		// keep the parsed parts, whose operands have their quotes removed.
+		parts = append(rawExecParts(a.Target), parts...)
 	}
 	for _, part := range parts {
 		words := strings.Fields(part)
@@ -134,7 +135,7 @@ func ExecOutside(a Action) bool {
 func rawExecParts(command string) []string {
 	var parts []string
 	var quote byte
-	start := 0
+	start, redirect := 0, -1
 	escaped := false
 	for i := 0; i < len(command); i++ {
 		c := command[i]
@@ -156,7 +157,11 @@ func rawExecParts(command string) []string {
 			quote = c
 			continue
 		}
-		if c != ';' && c != '|' && c != '\n' && !(c == '&' && i+1 < len(command) && command[i+1] == '&') {
+		if c == '>' {
+			redirect = i
+		}
+		// >| is a clobber redirect, not a pipe.
+		if c != ';' && c != '|' && c != '\n' && !(c == '&' && i+1 < len(command) && command[i+1] == '&') || c == '|' && redirect == i-1 {
 			continue
 		}
 		parts = append(parts, command[start:i])

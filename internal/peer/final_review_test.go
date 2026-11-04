@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/testbin"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -39,6 +41,44 @@ func TestPeerWaitReturnsPendingGateAskWithoutCapture(t *testing.T) {
 		t.Fatal("wait consumed lead delivery cursor", err)
 	}
 	_ = n
+}
+
+// A gate ask names the peer whose worker sent it: waiting on another peer of
+// the same lead must not stop on it.
+func TestPeerWaitStopsOnlyOnItsOwnGateAsk(t *testing.T) {
+	r := newRig(t, baseScript())
+	r.cfg.Limits.MaxLiveSessions = 2
+	first := r.open("implement")
+	script := baseScript()
+	script["window new"] = testbin.Scenario{Stdout: strings.ReplaceAll(splitReply, "block:peer", "block:second")}
+	r.rex(script)
+	second := r.open("mechanical")
+	if first.State != Ready || second.State != Ready || first.ID == second.ID {
+		t.Fatal(first, second)
+	}
+	b, err := bus.Open(r.reg.Dir, r.cfg.Wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Send(bus.Message{From: "duolog/ask.first", To: "codex/lead.lead-1", K: "ask", Ref: first.ID, S: "exec make deploy"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Wait(r.ctx, second.ID)
+	if err != nil || got.ID != second.ID || got.State != Ready || strings.Contains(got.Question, "make deploy") {
+		t.Fatalf("the other peer's ask stopped this wait: %+v %v", got, err)
+	}
+	got, err = Wait(r.ctx, first.ID)
+	if err != nil || got.ID != first.ID || got.State != Question || !strings.Contains(got.Question, "make deploy") {
+		t.Fatalf("the peer's own ask did not stop its wait: %+v %v", got, err)
+	}
+}
+
+func TestPeerEnvironmentNamesThePeer(t *testing.T) {
+	r := newRig(t, baseScript())
+	e := r.open("implement")
+	if !slices.Contains(r.started(), "DUOLOG_PEER="+e.ID) {
+		t.Fatal("peer id missing from pane environment", r.started())
+	}
 }
 
 func TestPeerEnvironmentReachesSpawnWithRole(t *testing.T) {
@@ -104,11 +144,11 @@ func TestExpiredAskIsNoLongerPending(t *testing.T) {
 		}
 	}
 	write(time.Now().Add(-(gate.MaxAskWait+30*time.Second)-time.Second), 1)
-	if got, err := pendingAsk(dir, address); err != nil || got != "" {
+	if got, err := pendingAsk(dir, address, "peer-test"); err != nil || got != "" {
 		t.Fatal(got, err)
 	}
 	write(time.Now(), 2)
-	if got, err := pendingAsk(dir, address); err != nil || got == "" {
+	if got, err := pendingAsk(dir, address, "peer-test"); err != nil || got == "" {
 		t.Fatal(got, err)
 	}
 }

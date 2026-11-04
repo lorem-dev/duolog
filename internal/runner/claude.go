@@ -36,6 +36,9 @@ func claudeArgv(s Spec) []string {
 	if !s.KeepMCP {
 		args = append(args, "--strict-mcp-config")
 	}
+	// A worker cannot delegate. The gate denies a spawn anyway; without the tools
+	// the worker does not spend turns trying.
+	disallowed := []string{"Agent", "Task"}
 	if s.MCP != nil {
 		// These options take a list, so each gets one comma-joined value with =.
 		if s.MCP.configPath != "" {
@@ -44,10 +47,9 @@ func claudeArgv(s Spec) []string {
 		if len(s.MCP.AllowedTools) > 0 {
 			args = append(args, "--allowedTools="+strings.Join(s.MCP.AllowedTools, ","))
 		}
-		if len(s.MCP.DisallowedTools) > 0 {
-			args = append(args, "--disallowedTools="+strings.Join(s.MCP.DisallowedTools, ","))
-		}
+		disallowed = append(disallowed, s.MCP.DisallowedTools...)
 	}
+	args = append(args, "--disallowedTools="+strings.Join(disallowed, ","))
 	args = append(args, "--settings", claudeWorkerSettings(project.StateRoot(s.Cwd), s.Route.Context == "minimal"))
 	if s.Route.Context == "minimal" {
 		// Minimal context drops every CLAUDE.md, the user's too, and skills unless the

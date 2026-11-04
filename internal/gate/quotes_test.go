@@ -1,9 +1,11 @@
 package gate
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
 )
 
@@ -31,9 +33,11 @@ func TestLiteralQuotesAndTheirBypasses(t *testing.T) {
 		{`grep "" README.md`, Ask, Deny},
 		{`rg '' secrets/prod.key`, Ask, Deny},
 		{`grep -- '' README.md`, Ask, Deny},
-		// Spaces or globs inside quotes are not single literal words.
-		{`grep "a b" README.md`, Ask, Deny},
-		{`rg '^|a -g' .e*`, Ask, Deny},
+		// A quoted word with spaces is one argument of a read command; globs inside quotes are not literal words.
+		{`grep "a b" README.md`, Allow, Allow},
+		{`go test -run 'a b' ./...`, Ask, Deny},
+		// The quoted -g stays in the pattern; the glob operand still asks.
+		{`rg '^|a -g' .e*`, Ask, Ask},
 		{`rg --files src -g '*test*'`, Allow, Allow},
 		// A glob or brace in a separate option value expands onto other files.
 		{`grep ^ -A {1,.env}`, Ask, Deny},
@@ -61,6 +65,136 @@ func TestLiteralQuotesAndTheirBypasses(t *testing.T) {
 		got = Evaluate(p, LeadRules{RoleSandbox: "read-only"}, mode.Full, Action{Kind: "exec", Target: tc.command, Role: "review_final"})
 		if got.Kind != tc.readOnly {
 			t.Errorf("read-only %q: %s (%s), want %s", tc.command, got.Kind, got.Reason, tc.readOnly)
+		}
+	}
+}
+
+// A quoted word with spaces stays one argument of a read command, and a read
+// command may drop its output into /dev/null. Other redirects still write.
+func TestQuotedSpacesAndDevNullRedirectsInReads(t *testing.T) {
+	p := policy(t)
+	readOnly := LeadRules{RoleSandbox: "read-only"}
+	for _, tc := range []struct{ command, want string }{
+		{`rg -n "a b" internal`, Allow},
+		{`cat "a b"`, Allow},
+		{`rg -n -F "a b" -A45 internal`, Allow},
+		{`rg -n -F 'a b' -A45 internal`, Allow},
+		{`grep -n "a b" -A14 internal/gate/gate.go | head -50`, Allow},
+		{`grep -n 'a b' -A14 internal/gate/gate.go`, Allow},
+		{`rg -n -F X -A45 internal 2>/dev/null`, Allow},
+		{`rg -n x internal >/dev/null 2>&1`, Allow},
+		{`rg -n x internal 2>/dev/null | head -5`, Allow},
+		{`cat "$HOME/x"`, Deny},
+		{`rg "a\"b" .`, Deny},
+		{`rg "a	b" .`, Deny},
+		{`rg "a *" .`, Deny},
+		{`rg x . > out.txt`, Deny},
+		{`rg x . >out.txt`, Deny},
+		{`rg x . 2>err.txt`, Deny},
+		{`rg x . >/dev/null2`, Deny},
+		{`rg x . 2>/dev/null >out.txt`, Deny},
+		{`cat ".duolog/bus.ndjson"`, Deny},
+		{`cat ".duolog/bus ndjson"`, Deny},
+		{`cat "secrets dir/.env"`, Deny},
+	} {
+		got := Evaluate(p, readOnly, mode.Full, Action{Kind: "exec", Target: tc.command, Role: "review_final"})
+		if got.Kind != tc.want {
+			t.Errorf("read-only %q: %s (%s), want %s", tc.command, got.Kind, got.Reason, tc.want)
+		}
+	}
+	for _, command := range []string{`cat ".duolog/bus.ndjson"`, `cat ".duolog/bus ndjson"`} {
+		got := Evaluate(p, readOnly, mode.Full, Action{Kind: "exec", Target: command, Role: "review_final"})
+		if got.Rule != RuleState {
+			t.Errorf("%q: %s (%s, %s), want a state deny", command, got.Kind, got.Reason, got.Rule)
+		}
+	}
+	lead := LeadRules{RoleSandbox: "read-only", Deny: []config.Rule{{Action: "read", Match: "private/**", Decision: Deny}}}
+	if got := Evaluate(p, lead, mode.Full, Action{Kind: "exec", Target: `cat "private/a b.txt"`, Role: "review_final"}); got.Kind != Deny {
+		t.Errorf("a quoted path with a space must meet read denies: %s (%s)", got.Kind, got.Reason)
+	}
+	// Only read commands drop a /dev/null redirect; anything else still asks.
+	for _, command := range []string{`go test ./... >/dev/null 2>&1`, `rm "a b"`} {
+		if got := Evaluate(p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: command, Role: "implement"}); got.Kind != Ask {
+			t.Errorf("writer %q: %s (%s), want ask", command, got.Kind, got.Reason)
+		}
+	}
+	// The quoted word is one argument: the pattern is not a path, and a quoted path keeps its space.
+	for _, tc := range []struct {
+		command string
+		want    []string
+	}{
+		{`rg -n "a b" internal`, []string{"internal"}},
+		{`cat "src/my file.go" README.md`, []string{"src/my file.go", "README.md"}},
+		{`grep 'x y' "src/a b.go" 2>/dev/null`, []string{"src/a b.go"}},
+	} {
+		// The lead guard looks inside uncertain commands, so ShellParts stays conservative.
+		if _, uncertain := ShellParts(tc.command, ""); !uncertain {
+			t.Errorf("ShellParts %q is certain", tc.command)
+		}
+		parts, uncertain := readShellParts(tc.command, "")
+		if uncertain || len(parts) != 1 {
+			t.Errorf("%q: %q, uncertain %v", tc.command, parts, uncertain)
+			continue
+		}
+		if targets, reason := readCommandTargets(parts[0]); !slices.Equal(targets, tc.want) || reason != "" {
+			t.Errorf("%q: %q (%s), want %q", tc.command, targets, reason, tc.want)
+		}
+	}
+}
+
+// A quoted rg glob or path with spaces reaches the same read denies and state
+// deny as an unquoted one: rg receives the space, so the gate must compare it.
+func TestQuotedGlobsAndPathsMeetReadDenies(t *testing.T) {
+	p := policy(t)
+	denies := []config.Rule{
+		{Action: "read", Match: "private notes.txt", Decision: Deny},
+		{Action: "read", Match: "secret dir/**", Decision: Deny},
+		{Action: "read", Match: "private_notes.txt", Decision: Deny},
+		{Action: "read", Match: "secret_dir/**", Decision: Deny},
+	}
+	for _, tc := range []struct{ command, unquoted, want string }{
+		// A glob that can reach a denied file asks, as its unquoted twin does.
+		{`rg -n -F "a b" -g "private notes.txt" .`, `rg -n -F a -g private_notes.txt .`, Ask},
+		{`rg -n -F 'a b' -g 'private notes.txt' .`, `rg -n -F a -g private_notes.txt .`, Ask},
+		{`rg -n -F "a b" --glob "private notes.txt" .`, `rg -n -F a --glob private_notes.txt .`, Ask},
+		{`rg -n -F "a b" --iglob="Private Notes.txt" .`, `rg -n -F a --iglob=Private_Notes.txt .`, Ask},
+		{`rg -n -F "a b" -g "secret dir" .`, `rg -n -F a -g secret_dir .`, Ask},
+		// A path operand meets the deny itself.
+		{`rg -n -F "a b" "private notes.txt"`, `rg -n -F a private_notes.txt`, Deny},
+		{`rg -n -F "a b" "secret dir"`, `rg -n -F a secret_dir`, Deny},
+		{`cat "secret dir/a b.txt"`, `cat secret_dir/a_b.txt`, Deny},
+		// Other quoted globs and paths with spaces are still plain reads.
+		{`rg -n -F "a b" -g "public notes.txt" .`, `rg -n -F a -g public_notes.txt .`, Allow},
+		{`rg -n -F "a b" "public notes.txt"`, `rg -n -F a public_notes.txt`, Allow},
+	} {
+		for _, lead := range []struct {
+			name  string
+			rules LeadRules
+			m     mode.Mode
+			role  string
+		}{
+			{"read-only", LeadRules{RoleSandbox: "read-only", Deny: denies}, mode.Full, "review_final"},
+			{"writer", LeadRules{Deny: denies}, mode.Edits, "implement"},
+		} {
+			twin := Evaluate(p, lead.rules, lead.m, Action{Kind: "exec", Target: tc.unquoted, Role: lead.role})
+			got := Evaluate(p, lead.rules, lead.m, Action{Kind: "exec", Target: tc.command, Role: lead.role})
+			if got.Kind != tc.want || twin.Kind != tc.want {
+				t.Errorf("%s %q: %s (%s), unquoted %s (%s), want %s", lead.name, tc.command, got.Kind, got.Reason, twin.Kind, twin.Reason, tc.want)
+			}
+		}
+	}
+	// A quoted .duolog glob opens the state folder to rg, as an unquoted one does.
+	work := t.TempDir()
+	for _, command := range []string{
+		`rg -n -F "a b" -g ".duolog" .`,
+		`rg -n -F "a b" -g ".duolog/**" .`,
+		`rg -n -F "a b" -g "a b/.duolog" .`,
+		`rg -n -F "a b" --glob=".DUOLOG" .`,
+		`rg -n -F "a b" ".duolog/bus ndjson"`,
+	} {
+		got := Evaluate(p, LeadRules{RoleSandbox: "read-only"}, mode.Full, Action{Kind: "exec", Target: command, Role: "review_final", Work: work, Cwd: work, State: work})
+		if got.Kind != Deny || got.Rule != RuleState {
+			t.Errorf("%q: %s (%s, %s), want a state deny", command, got.Kind, got.Reason, got.Rule)
 		}
 	}
 }

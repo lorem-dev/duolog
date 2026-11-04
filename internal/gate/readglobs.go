@@ -59,9 +59,9 @@ func globLastSegment(pattern string) string {
 func unquotedRgGlob(command, shell string) bool {
 	// Mask quoted option values before looking for shell expansions.
 	masked := quotedRgGlob.ReplaceAllString(command, "${1}literal")
-	parts, _ := ShellParts(masked, shell)
+	parts, _ := readShellParts(masked, shell)
 	for _, part := range parts {
-		words := strings.Fields(part)
+		words := commandWords(part)
 		if len(words) == 0 || words[0] != "rg" {
 			continue
 		}

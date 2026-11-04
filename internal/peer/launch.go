@@ -32,6 +32,9 @@ func agentArgv(route router.Route, m mode.Mode, stateDir string) []string {
 			args = append(args, "--effort", route.Effort)
 		}
 		args = append(args, "--settings", workerenv.ClaudeSettings(stateDir, route.Context == "minimal", map[string]any{"preferredNotifChannel": "notifications_disabled"}))
+		// A peer cannot delegate: the gate denies a spawn, and without the tools the
+		// peer does not spend turns trying. One value with =, as the option takes a list.
+		args = append(args, "--disallowedTools=Agent,Task")
 		return append(args, mode.Args("claude", m, route.Sandbox)...)
 	}
 	return nil
@@ -39,17 +42,14 @@ func agentArgv(route router.Route, m mode.Mode, stateDir string) []string {
 
 // agentEnv lists NAME=VALUE pairs for the pane. REX_ names never pass on: a
 // worker that learns the session could rename or rearrange the lead's terminal.
-func agentEnv(cfg *config.Config, agent, leadID string, roles ...string) []string {
+// DUOLOG_PEER names the pane's entry, which the gate puts on the worker's asks.
+func agentEnv(cfg *config.Config, agent, leadID, role, peerID string) []string {
 	pairs := workerenv.Passthrough(cfg.EnvPassthrough)
 	if agent == "claude" {
 		// A worker's auto memory would land in the project's memory, read by the lead.
 		pairs = append(pairs, "DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
 	}
-	role := ""
-	if len(roles) > 0 {
-		role = roles[0]
-	}
-	return append(pairs, workerenv.Path(), "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+leadID, "DUOLOG_ROLE="+role)
+	return append(pairs, workerenv.Path(), "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+leadID, "DUOLOG_ROLE="+role, "DUOLOG_PEER="+peerID)
 }
 
 // writeEnvFile stores the pane's variables for duolog peer launch, which deletes

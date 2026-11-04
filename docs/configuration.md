@@ -182,6 +182,17 @@ Bridging is off by default because it gives the server's credentials to the
 other vendor's agent. Turn it on only for servers you would also configure in
 that agent yourself.
 
+A worker never installs a plugin. When Claude Code in a peer pane offers one,
+such as its LSP plugin recommendation, duolog selects `No, not now` and never
+`Yes, install`, `Never for this plugin` or `Disable all ...`, because those
+change your own settings. With `on_missing.plugin: lead_first`, the default,
+the lead gets one `note` on the bus per peer and plugin. It names the plugin,
+its marketplace and what triggered the offer, with the command to install it
+yourself, such as `claude plugin install gopls-lsp@claude-plugins-official`.
+With any other value the offer is declined and the lead is not told. A
+`rex.auto_answers` rule cannot answer these offers. An offer with no option
+that declines for now goes to the lead as a question.
+
 duolog reads the server from the lead's agent config and translates it:
 
 | Lead | Where duolog reads it | Worker gets it as |

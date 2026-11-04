@@ -205,11 +205,15 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 		}
 		return result, runErr
 	}
-	if err = readLog(stdoutPath, s.Route.Agent, false, &result); err != nil {
+	var fallback time.Time
+	if err = readLog(stdoutPath, s.Route.Agent, false, &result, &fallback); err != nil {
 		return result, err
 	}
-	if err = readLog(stderrPath, s.Route.Agent, true, &result); err != nil {
+	if err = readLog(stderrPath, s.Route.Agent, true, &result, &fallback); err != nil {
 		return result, err
+	}
+	if result.QuotaEnded && result.ResetAt.IsZero() {
+		result.ResetAt = fallback
 	}
 	if s.SkillTest {
 		result, err = skillResult(s, stdoutPath, answerPath, result)
@@ -286,7 +290,9 @@ func writeMCPConfig(dir string, data []byte) (string, error) {
 	return f.Name(), nil
 }
 
-func readLog(path, agent string, stderr bool, result *Result) error {
+// readLog keeps in fallback the furthest fallbackReset of a limit line that names
+// no reset, for Run to use when no line names one.
+func readLog(path, agent string, stderr bool, result *Result, fallback *time.Time) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
@@ -323,10 +329,10 @@ func readLog(path, agent string, stderr bool, result *Result) error {
 		}
 		if quotaFailure(text) {
 			result.QuotaEnded = true
-			if reset := resetTime(text, time.Now()); !reset.IsZero() {
+			if reset := namedReset(text, time.Now()); !reset.IsZero() {
 				result.ResetAt = reset
-			} else if reset := codexResetTime(text, time.Now()); !reset.IsZero() {
-				result.ResetAt = reset
+			} else if reset := fallbackReset(text, time.Now()); reset.After(*fallback) {
+				*fallback = reset
 			}
 		}
 		if errors.Is(readErr, io.EOF) {
@@ -363,31 +369,74 @@ func quotaFailure(text string) bool {
 	return false
 }
 
-var resetPattern = regexp.MustCompile(`resets ([0-9]{1,2})(am|pm) \(([^)]+)\)`)
+// The zone may follow on the next line of a pane; a parenthesis that is not a
+// zone name, such as "(error type rate_limit, HTTP 429)", is not taken for one.
+var resetPattern = regexp.MustCompile(`resets (?:([A-Za-z]{3,9}) ([0-9]{1,2})(?:,| at)? )?([0-9]{1,2})(?::([0-9]{2}))? ?(am|pm)(?:\s+\(([A-Za-z_]+(?:/[A-Za-z0-9_+-]+)*)\))?`)
 
+// resetTime parses Claude's "resets 8:40pm (Europe/London)" as the next such
+// time in that zone, or in the zone of now when the text names none. A weekly
+// reset that names a day, as "resets Nov 10, 5pm", is the next such day.
 func resetTime(text string, now time.Time) time.Time {
 	match := resetPattern.FindStringSubmatch(text)
 	if match == nil {
 		return time.Time{}
 	}
-	hour, _ := strconv.Atoi(match[1])
-	if hour < 1 || hour > 12 {
+	hour, _ := strconv.Atoi(match[3])
+	minute := 0
+	if match[4] != "" {
+		minute, _ = strconv.Atoi(match[4])
+	}
+	if hour < 1 || hour > 12 || minute > 59 {
 		return time.Time{}
 	}
-	loc, err := time.LoadLocation(match[3])
-	if err != nil {
-		return time.Time{}
+	loc := now.Location()
+	if match[6] != "" {
+		var err error
+		if loc, err = time.LoadLocation(match[6]); err != nil {
+			return time.Time{}
+		}
 	}
 	hour %= 12
-	if match[2] == "pm" {
+	if match[5] == "pm" {
 		hour += 12
 	}
 	local := now.In(loc)
-	reset := time.Date(local.Year(), local.Month(), local.Day(), hour, 0, 0, 0, loc)
-	if !reset.After(now) {
-		reset = reset.AddDate(0, 0, 1)
+	if match[1] == "" {
+		reset := time.Date(local.Year(), local.Month(), local.Day(), hour, minute, 0, 0, loc)
+		if !reset.After(now) {
+			reset = reset.AddDate(0, 0, 1)
+		}
+		return reset
 	}
-	return reset
+	month, err := time.Parse("Jan", match[1])
+	if err != nil {
+		if month, err = time.Parse("January", match[1]); err != nil {
+			return time.Time{}
+		}
+	}
+	day, _ := strconv.Atoi(match[2])
+	for year := local.Year(); year <= local.Year()+1; year++ {
+		reset := time.Date(year, month.Month(), day, hour, minute, 0, 0, loc)
+		if reset.Month() != month.Month() || reset.Day() != day {
+			return time.Time{}
+		}
+		if reset.After(now) {
+			return reset
+		}
+	}
+	return time.Time{}
+}
+
+var fiveHourPattern = regexp.MustCompile(`(?i)\b(?:5|five)[- ]hour`)
+
+// fallbackReset is how long a limit without a readable reset is kept: the
+// whole window for a five-hour limit, an hour otherwise, so that it ends by
+// itself rather than staying until a probe.
+func fallbackReset(text string, now time.Time) time.Time {
+	if fiveHourPattern.MatchString(text) {
+		return now.Add(5 * time.Hour)
+	}
+	return now.Add(time.Hour)
 }
 
 var codexResetPattern = regexp.MustCompile(`(?i)try again at ([0-9]{1,2}):([0-9]{2}) ?(am|pm)`)
@@ -415,8 +464,16 @@ func codexResetTime(text string, now time.Time) time.Time {
 }
 
 // ResetTime parses the time a provider limit message says the quota returns,
-// for either agent. It returns the zero time when the text names none.
+// for either agent. When the text names none it returns fallbackReset, never
+// the zero time.
 func ResetTime(text string, now time.Time) time.Time {
+	if reset := namedReset(text, now); !reset.IsZero() {
+		return reset
+	}
+	return fallbackReset(text, now)
+}
+
+func namedReset(text string, now time.Time) time.Time {
 	if reset := resetTime(text, now); !reset.IsZero() {
 		return reset
 	}

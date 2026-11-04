@@ -41,7 +41,23 @@ var (
 	jqPlainShorts = "nrjascCMSeR"
 	// The number of words each jq option with values takes.
 	jqValueLong = map[string]int{"--indent": 1, "--arg": 2, "--argjson": 2}
+	// grep and rg context options take a number of lines.
+	contextShorts = "ABC"
+	contextLong   = []string{"--after-context", "--before-context", "--context"}
 )
+
+func isNumber(value string) bool {
+	return value != "" && strings.Trim(value, "0123456789") == ""
+}
+
+// optionArgument returns the value of the option at words[i]: the value
+// written in the word, or else the next word.
+func optionArgument(words []string, i int, value string, inWord bool) string {
+	if inWord || i+1 >= len(words) {
+		return value
+	}
+	return words[i+1]
+}
 
 // jqFiles returns the files a jq command reads, after its filter, and false
 // when an option is not known to be a plain read.
@@ -99,12 +115,18 @@ func rgOptionsKnown(words []string) bool {
 			return true
 		case !strings.HasPrefix(word, "-") || word == "-":
 		case strings.HasPrefix(word, "--"):
-			name, _, _ := strings.Cut(word, "=")
+			name, value, attached := strings.Cut(word, "=")
 			if !slices.Contains(rgLongOptions, name) {
+				return false
+			}
+			if slices.Contains(contextLong, name) && !isNumber(optionArgument(words, i, value, attached)) {
 				return false
 			}
 		default:
 			if !rgShortsKnown(word[1:]) {
+				return false
+			}
+			if letter, value := valueShort("rg", word); strings.ContainsRune(contextShorts, letter) && !isNumber(optionArgument(words, i, value, value != "")) {
 				return false
 			}
 		}
@@ -130,10 +152,21 @@ func rgShortsKnown(cluster string) bool {
 	return true
 }
 
+// commandWords splits a part into the arguments the shell passes on. A quoted
+// word with spaces is one argument, and a path or glob in it keeps its spaces,
+// so every policy comparison sees what the program receives.
+func commandWords(part string) []string {
+	words := strings.Fields(part)
+	for i := range words {
+		words[i] = strings.ReplaceAll(words[i], quotedSpace, " ")
+	}
+	return words
+}
+
 // readCommandTargets lists the paths a read-only command reads. A non-empty
 // reason means that a person has to decide, even when named paths are known.
 func readCommandTargets(command string) (targets []string, reason string) {
-	words := strings.Fields(command)
+	words := commandWords(command)
 	if len(words) == 0 {
 		return nil, ""
 	}
@@ -493,7 +526,9 @@ type optionSpec struct {
 	plainLong                []string
 	valueLong                []string // the value is "=x" or the next word
 	attachedLong             []string // the value, if any, is "=x"
-	maxFiles                 int      // -1 for no limit
+	numberShorts             string   // value options whose value must be a number
+	numberLong               []string
+	maxFiles                 int // -1 for no limit
 }
 
 func (o optionSpec) known(words []string) bool {
@@ -508,9 +543,12 @@ func (o optionSpec) known(words []string) bool {
 			// - is standard input and an operand like any other: uniq - OUT writes OUT.
 			files++
 		case strings.HasPrefix(word, "--"):
-			name, _, attached := strings.Cut(word, "=")
+			name, value, attached := strings.Cut(word, "=")
 			switch {
 			case slices.Contains(o.valueLong, name):
+				if slices.Contains(o.numberLong, name) && !isNumber(optionArgument(words, i, value, attached)) {
+					return false
+				}
 				if !attached {
 					i++
 				}
@@ -523,6 +561,9 @@ func (o optionSpec) known(words []string) bool {
 			for j, letter := range word[1:] {
 				if strings.ContainsRune(o.valueShorts, letter) {
 					// The value is the rest of the word, or the next word.
+					if strings.ContainsRune(o.numberShorts, letter) && !isNumber(optionArgument(words, i, word[j+2:], j < len(word)-2)) {
+						return false
+					}
 					if j == len(word)-2 {
 						i++
 					}
@@ -550,6 +591,8 @@ var checkedOptions = map[string]optionSpec{
 		valueLong: []string{"--regexp", "--file", "--max-count", "--label", "--binary-files", "--directories", "--devices", "--include", "--exclude", "--exclude-from",
 			"--exclude-dir", "--before-context", "--after-context", "--context"},
 		attachedLong: []string{"--color", "--colour"},
+		numberShorts: contextShorts,
+		numberLong:   contextLong,
 		maxFiles:     -1,
 	},
 	// -o writes, --compress-program runs a program, and -T writes elsewhere.

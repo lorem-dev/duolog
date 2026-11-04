@@ -46,9 +46,18 @@
 
 - Several duolog Rex sessions of one project are named `duolog | <project> (n)`
   in creation order; a single session keeps its plain name.
+- Peer panes decline plugin install offers and tell the lead.
 
 ### Fixed
 
+- Read-only roles can use quoted patterns and `/dev/null` redirects without
+  asking.
+- A gate ask stays tied to its peer, and a busy peer pane no longer looks
+  finished.
+- Claude workers start without the Agent and Task tools, so they cannot bypass
+  the gate with native subagents.
+- Limit reset times with a zone are parsed, and a limit mark without a reset
+  time expires.
 - `duolog peer open` reads the first block from the current `rex new` reply
   and no longer fails with "could not identify its terminal block".
 
@@ -57,7 +66,8 @@
 - Workers cannot read duolog state files; recursive searches that reach
   `.duolog` are denied, including glob overrides.
 - Asks that name paths outside the project need the person; the lead's
-  approval hook keeps those asks for them.
+  approval hook keeps those asks for them, including quoted parent paths.
+- A clobber redirect (`>|`) to a path outside the project needs the person.
 - Claude workers list duolog state files in `sandbox.filesystem.denyRead`;
   this binds only when the person's sandbox is already on.
 

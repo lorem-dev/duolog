@@ -103,6 +103,11 @@ selects `Yes, proceed`; a deny selects `No`. Only an ask reaches the lead, with
 the command shown. Text rules cannot override a command decision. The peer
 keeps its own sandbox; this only answers its prompt.
 
+Claude's offers to install a plugin are declined with `No, not now`, and text
+rules cannot override that. See
+[Configuration](configuration.md#how-a-worker-borrows-the-leads-mcp-server)
+for what the lead is told.
+
 A new session can also ask whether to trust the folder. For Claude, pressing
 Enter alone quits. For Codex, the default is to trust. Duolog leaves that choice
 to the lead and selects options by label rather than pressing a default.

@@ -125,6 +125,56 @@ func TestWorkersCannotChangeRulesOrHooks(t *testing.T) {
 	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "write", Target: ".claude/skills/x/SKILL.md", Role: "implement"}, Allow)
 }
 
+// A quoted operand and a clobber redirect name the same outside path as their
+// plain spellings, so only the person can answer them.
+func TestExecOutsideReadsQuotedOperandsAndClobberRedirects(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	other := absoluteTestPath(root, "/other/out")
+	for _, tc := range []struct {
+		command string
+		person  bool
+	}{
+		{"cp '..'/outside/file local >/dev/null", true},
+		{"cp \"..\"/outside/file local >/dev/null", true},
+		{"make test >| " + other, true},
+		{"make test >|" + other, true},
+		{"make test 2>| " + other, true},
+		{"make test &>| " + other, true},
+		{"make test >| /dev/null", false},
+		{"go test ./... >/dev/null && /bin/echo done", false},
+	} {
+		a := Action{Kind: "exec", Target: tc.command, Role: "implement", Work: root, Cwd: root}
+		if got := ExecOutside(a); got != tc.person {
+			t.Errorf("%q: outside=%v, want %v", tc.command, got, tc.person)
+		}
+		if d := Evaluate(p, LeadRules{}, mode.Ask, a); d.Kind != Ask || PersonOnly(d) != tc.person {
+			t.Errorf("%q: %+v, person=%v", tc.command, d, tc.person)
+		}
+	}
+}
+
+func TestClobberRedirectIsNotAPipe(t *testing.T) {
+	for _, tc := range []struct {
+		command string
+		parts   int
+	}{
+		{"make test >| out", 1},
+		{"make test >|out", 1},
+		{"make test 2>| out", 1},
+		{"echo '>'| cat", 2},
+		{"echo \\>| cat", 2},
+		{"make test > out | cat", 2},
+	} {
+		if parts, _ := shellParts(tc.command, false); len(parts) != tc.parts {
+			t.Errorf("shellParts %q: %q, want %d parts", tc.command, parts, tc.parts)
+		}
+		if parts := rawExecParts(tc.command); len(parts) != tc.parts {
+			t.Errorf("rawExecParts %q: %q, want %d parts", tc.command, parts, tc.parts)
+		}
+	}
+}
+
 func TestLeadHomeDenyHoldsForACommand(t *testing.T) {
 	p := policy(t)
 	home, err := os.UserHomeDir()

@@ -300,7 +300,9 @@ func Open(ctx context.Context, role string) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	envFile, err := writeEnvFile(e.dir, agentEnv(e.cfg, route.Agent, lead.id, role))
+	// The ID goes into the pane's environment, so it is chosen before the pane exists.
+	id := newID()
+	envFile, err := writeEnvFile(e.dir, agentEnv(e.cfg, route.Agent, lead.id, role, id))
 	if err != nil {
 		return Entry{}, err
 	}
@@ -309,7 +311,7 @@ func Open(ctx context.Context, role string) (Entry, error) {
 		_ = os.Remove(envFile)
 		return Entry{}, err
 	}
-	entry := session.Entry{ID: newID(), Lead: lead.id, Agent: route.Agent, Role: role, Thread: peerThread, Block: block, WorkRoot: e.root, RexSession: rexSession, Mode: lead.mode, UpdatedAt: time.Now()}
+	entry := session.Entry{ID: id, Lead: lead.id, Agent: route.Agent, Role: role, Thread: peerThread, Block: block, WorkRoot: e.root, RexSession: rexSession, Mode: lead.mode, UpdatedAt: time.Now()}
 	if err := e.reg.RecordLimited(entry, e.cfg.Limits.MaxLiveSessions); err != nil {
 		// The pane exists but nothing records it: do not leave it unowned.
 		closeErr := e.clientFor(entry).Close(ctx, block)
@@ -438,7 +440,7 @@ func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Ent
 	var idle, stuck int
 	worked := false
 	for {
-		if question, err := pendingAsk(e.dir, e.address(e.leadID)); err != nil {
+		if question, err := pendingAsk(e.dir, e.address(e.leadID), entry.ID); err != nil {
 			return Entry{}, err
 		} else if question != "" {
 			return Entry{ID: entry.ID, State: Question, Question: question}, nil
@@ -1069,7 +1071,10 @@ func Close(ctx context.Context, id string) error {
 
 // pendingAsk never advances the delivery cursor; the lead hook still receives
 // the request. Replies are matched by ref so answered requests do not stop wait.
-func pendingAsk(dir, address string) (string, error) {
+// An ask whose ref names another peer belongs to that peer's wait. An ask that
+// names no peer, from a pane opened before asks named their peer or from a
+// worker outside a pane, stops every wait as before.
+func pendingAsk(dir, address, peer string) (string, error) {
 	f, err := os.Open(filepath.Join(dir, "bus.ndjson"))
 	if os.IsNotExist(err) {
 		return "", nil
@@ -1092,7 +1097,7 @@ func pendingAsk(dir, address string) (string, error) {
 		if err := json.Unmarshal(line, &m); err != nil {
 			return "", err
 		}
-		if m.K == "ask" && m.To == address && strings.HasPrefix(m.From, "duolog/ask.") && !gate.AskExpired(m.T) {
+		if m.K == "ask" && m.To == address && strings.HasPrefix(m.From, "duolog/ask.") && (m.Ref == "" || m.Ref == peer) && !gate.AskExpired(m.T) {
 			pending[strconv.FormatInt(m.N, 10)] = fmt.Sprintf("ask %d: %s", m.N, m.S)
 			if m.P {
 				pending[strconv.FormatInt(m.N, 10)] = fmt.Sprintf("ask %d (needs the person): %s", m.N, m.S)

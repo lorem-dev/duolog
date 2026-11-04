@@ -95,6 +95,35 @@ func TestClaudeArgvMCPOnlyWhenNeeded(t *testing.T) {
 		t.Fatal(Argv(s))
 	}
 }
+// A worker cannot delegate, so it starts without the tools that start subagents
+// and never plans around them. The list option takes one value, MCP tools
+// included.
+func TestClaudeArgvDisallowsSubagents(t *testing.T) {
+	s := spec(t, "claude")
+	for _, disallowed := range [][]string{nil, {"mcp__jira__delete_issue"}} {
+		s.MCP = &MCP{DisallowedTools: disallowed}
+		var values []string
+		for _, a := range Argv(s) {
+			if v, ok := strings.CutPrefix(a, "--disallowedTools="); ok {
+				values = append(values, v)
+			}
+		}
+		if len(values) != 1 {
+			t.Fatal(disallowed, Argv(s))
+		}
+		tools := strings.Split(values[0], ",")
+		for _, want := range append([]string{"Agent", "Task"}, disallowed...) {
+			if !slices.Contains(tools, want) {
+				t.Fatal(want, values)
+			}
+		}
+	}
+	s.MCP = nil
+	containsArgs(t, Argv(s), "--disallowedTools=Agent,Task")
+	if line := strings.Join(Argv(spec(t, "codex")), " "); strings.Contains(line, "disallowedTools") || strings.Contains(line, "Agent") {
+		t.Fatal(line)
+	}
+}
 func TestCodexArgvResume(t *testing.T) {
 	s := spec(t, "codex")
 	s.ThreadID = "thread-123"
@@ -248,12 +277,13 @@ func TestRealClaudeLimitText(t *testing.T) {
 	}
 }
 func TestLimitWithoutResetTime(t *testing.T) {
-	for _, text := range []string{"usage limit", "usage limit resets tomorrow", "usage limit resets 25am (Europe/London)", "usage limit resets 3am (Invalid/Zone)"} {
+	for text, wait := range map[string]time.Duration{"usage limit": time.Hour, "usage limit resets tomorrow": time.Hour, "usage limit resets 25am (Europe/London)": time.Hour, "usage limit resets 3am (Invalid/Zone)": time.Hour, "You've hit your 5-hour limit": 5 * time.Hour} {
 		s := spec(t, "claude")
 		install(t, &s, testbin.Scenario{Exit: 1, Stderr: text})
+		before := time.Now()
 		r, _ := Run(context.Background(), s)
-		if !r.QuotaEnded || !r.ResetAt.IsZero() {
-			t.Fatalf("%+v", r)
+		if !r.QuotaEnded || r.ResetAt.Before(before.Add(wait)) || r.ResetAt.After(time.Now().Add(wait)) {
+			t.Fatalf("%q: %+v", text, r)
 		}
 	}
 }

@@ -15,9 +15,18 @@ import (
 
 const commandQuestion = "Would you like to run the following command?"
 
-// autoAnswer gives command prompts to the gate before considering text rules.
-// A missing command or option leaves the question for the lead.
+// autoAnswer gives command prompts to the gate and declines Claude's plugin
+// offers before considering text rules. A missing command or option leaves the
+// question for the lead, and a plugin install question never reaches text rules.
 func (e *env) autoAnswer(ctx context.Context, entry session.Entry, screen Screen) (bool, error) {
+	if entry.Agent == "claude" {
+		if offer, ok := readPluginOffer(screen); ok {
+			return e.declinePlugin(ctx, entry, screen, offer)
+		}
+		if installQuestion(screen) {
+			return e.declinePlugin(ctx, entry, screen, pluginOffer{})
+		}
+	}
 	choice := ""
 	action := gate.Action{Kind: "answer", Role: entry.Role}
 	decision := gate.Decision{Kind: gate.Allow, Reason: "configured peer answer", Rule: "rex.auto_answers"}
@@ -58,6 +67,9 @@ func (e *env) autoAnswer(ctx context.Context, entry session.Entry, screen Screen
 			return false, nil
 		}
 	} else {
+		if installQuestion(screen) {
+			return false, nil
+		}
 		for _, rule := range e.cfg.Rex.AutoAnswers {
 			if strings.Contains(screen.Question, rule.Match) {
 				if !config.SafeAutoAnswer(rule.Answer) {

@@ -34,7 +34,8 @@ type Screen struct {
 	State    State
 	Question string
 	Options  []Option
-	// Working is true while the agent shows that it can be interrupted.
+	// Working is true while the agent shows that it is at work: an interrupt
+	// hint, its working line, a running hook or a background terminal.
 	Working bool
 	// Queued means Codex has a question behind its follow-up input panel.
 	Queued bool
@@ -53,9 +54,12 @@ const (
 	maxHeadBytes     = 120
 )
 
+// workingRe: the working line may start with any spinner or blink frame and be
+// cut at the pane's edge. Hook and terminal lines start the line, so the same
+// words in the agent's own text do not count.
 var (
 	queuedCountRe = regexp.MustCompile(`\?\s+[1-9][0-9]*\s+questions?\b`)
-	workingRe     = regexp.MustCompile(`(?i)\besc to interrupt\b|\bctrl\+c to interrupt\b|^\s*[•·]?\s*Working\s*\(`)
+	workingRe     = regexp.MustCompile(`(?i)\besc to interrupt\b|\bctrl\+c to interrupt\b|^\s*\W?\s*Working\s*\(|^[\s\W]*running (?:\S+ )?hooks?\b|\b\d+ background terminals? running\b|^[\s\W]*waiting for background terminals?\b`)
 	updatingRe    = regexp.MustCompile(`(?i)==> (?:upgrading|installing|downloading|fetching|pouring)|updating (?:codex|claude)|brew upgrade|installing update|downloading update`)
 	limitRe       = regexp.MustCompile(`(?i)you.ve hit your [^\n]*limit`)
 	yesNoRe       = regexp.MustCompile(`(?i)\((?:y/n|yes/no)\)|\[(?:y/n|yes/no)\]`)

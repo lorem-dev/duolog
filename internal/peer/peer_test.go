@@ -41,7 +41,7 @@ func TestPendingAskNeedsThePerson(t *testing.T) {
 		if person {
 			want = fmt.Sprintf("ask %d (needs the person): read ../notes.txt", n)
 		}
-		if got, err := pendingAsk(dir, "codex/lead.test"); err != nil || got != want {
+		if got, err := pendingAsk(dir, "codex/lead.test", "peer-test"); err != nil || got != want {
 			t.Fatal(got, err)
 		}
 	}
@@ -1025,6 +1025,38 @@ func TestWaitReturnsWhenTaskFinishes(t *testing.T) {
 	}
 	if r.entry(e.ID).Task != "" {
 		t.Fatal("a finished task is still recorded as unfinished")
+	}
+}
+
+// A pane that shows a working line, a running hook or a background terminal
+// above its prompt is still at work, so the task is not finished.
+func TestWaitKeepsWaitingWhileWorkingMarkersShow(t *testing.T) {
+	r := newRig(t, baseScript())
+	e := r.ready()
+	path := r.task()
+	script := baseScript()
+	script["capture"] = screens(sendOK(path)...)
+	r.rex(script)
+	if err := Send(r.ctx, e.ID, path); err != nil {
+		t.Fatal(err)
+	}
+	var list []string
+	for _, tc := range workingScreens {
+		if tc.agent == "codex" {
+			list = append(list, tc.line+"\n"+codexIdle(""), tc.line+"\n"+codexIdle(""))
+		}
+	}
+	busy := len(list)
+	list = append(list, codexIdle(""), codexIdle(""))
+	script = baseScript()
+	script["capture"] = screens(list...)
+	r.rex(script)
+	got, err := Wait(r.ctx, e.ID)
+	if err != nil || got.State != Ready || !strings.Contains(got.Note, "finished") {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if n := len(r.named("capture")); n != busy+2 {
+		t.Fatalf("task finished after %d captures, while %d showed the agent at work", n, busy)
 	}
 }
 
