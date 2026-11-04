@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -78,7 +79,29 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	stdin, err := io.ReadAll(os.Stdin)
+	var stdin []byte
+	if s.RPCResponses != nil {
+		scanner := bufio.NewScanner(os.Stdin)
+		for scanner.Scan() {
+			stdin = append(stdin, scanner.Bytes()...)
+			stdin = append(stdin, '\n')
+			if err := os.WriteFile(path+".stdin", stdin, 0600); err != nil {
+				return err
+			}
+			var request struct {
+				Method string `json:"method"`
+			}
+			if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
+				return err
+			}
+			if response, ok := s.RPCResponses[request.Method]; ok {
+				fmt.Fprintln(os.Stdout, response)
+			}
+		}
+		err = scanner.Err()
+	} else {
+		stdin, err = io.ReadAll(os.Stdin)
+	}
 	if err != nil {
 		return err
 	}

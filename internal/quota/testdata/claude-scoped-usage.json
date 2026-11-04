@@ -1,0 +1,14 @@
+{
+  "usage_report": {
+    "rate_limits": {
+      "limits": [
+        {"kind":"session","group":"session","percent":15,"resets_at":"2099-01-01T00:00:00Z"},
+        {"kind":"weekly_all","group":"weekly","percent":50,"resets_at":"2099-01-08T00:00:00Z"},
+        {"kind":"weekly_scoped","group":"weekly","scope":{"model":{"display_name":"Fable"},"surface":null},"percent":0,"resets_at":"2099-01-08T00:00:00Z"},
+        {"kind":"future_weekly","group":"weekly","percent":2,"resets_at":"2099-01-08T00:00:00Z"},
+        {"kind":"future_session","group":"session","scope":{"model":{"display_name":"Fable"}},"percent":3,"resets_at":"2099-01-01T00:00:00Z"},
+        {"kind":"unknown","percent":4,"resets_at":"2099-01-01T00:00:00Z"}
+      ]
+    }
+  }
+}

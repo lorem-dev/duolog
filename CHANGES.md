@@ -42,6 +42,11 @@
 
 ## Development
 
+### Added
+
+- `duolog quota [--json]` reads Claude and Codex subscription limits without a
+  model call and clears stale unavailable marks when quota is available.
+
 ### Changed
 
 - Several duolog Rex sessions of one project are named `duolog | <project> (n)`

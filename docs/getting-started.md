@@ -237,6 +237,28 @@ The command reads `.duolog/usage.ndjson` and prints tokens and an estimated
 cost for each role, agent and model. The prices come from the config. They are
 estimates, not a bill.
 
+## How to check the remaining subscription quota
+
+Run `duolog quota` to see Claude and Codex quota without a model call:
+
+```bash
+duolog quota
+duolog quota --json
+```
+
+Each agent shows its plan, used percentage and reset time for each window.
+Claude also shows extra usage. Codex also shows credits and per-model limits
+when available. The command never uses reset credits or reads auth files.
+
+Each read has a 15-second timeout. If an agent is missing, signed out or fails
+to answer, its block says `unavailable` and gives the reason. The other agent
+still prints. Exit code 0 means at least one read worked; 1 means neither did.
+The `--json` output is one object with `claude` and `codex` entries.
+
+A successful read clears a stale unavailable mark when every reported window
+has quota left, has a future reset time and is not rejected. The output says
+`cleared unavailable mark`, or sets `cleared_unavailable` in JSON.
+
 ## What duolog keeps in .duolog
 
 Each delegation gets a folder under `.duolog/tasks/` with the task copy, the

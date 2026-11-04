@@ -1,0 +1,266 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/lorem-dev/duolog/internal/quota"
+	"github.com/lorem-dev/duolog/internal/session"
+	"github.com/lorem-dev/duolog/internal/testbin"
+)
+
+func TestQuotaCommand(t *testing.T) {
+	for _, mode := range []string{"text", "json", "missing", "both missing", "rejected", "logged out", "spend control"} {
+		t.Run(mode, func(t *testing.T) {
+			isolatedRouteConfig(t)
+			t.Chdir(t.TempDir())
+			reg, err := session.Open(".duolog")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := reg.MarkUnavailable("claude", time.Time{}); err != nil {
+				t.Fatal(err)
+			}
+			if err := reg.MarkUnavailable("codex", time.Time{}); err != nil {
+				t.Fatal(err)
+			}
+			var dirs []string
+			if mode != "both missing" {
+				status := `{"loggedIn":true,"subscriptionType":"pro"}`
+				if mode == "logged out" {
+					status = `{"loggedIn":false}`
+				}
+				bin := testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{
+					"-p":                 {Stdout: `{"usage_report":{"rate_limits":{"limits":[{"kind":"session","percent":15,"resets_at":"2099-01-01T00:00:00Z"}],"extra_usage":{"is_enabled":false}}}}`},
+					"auth status --json": {Stdout: status},
+				}})
+				dirs = append(dirs, filepath.Dir(bin))
+			}
+			if mode != "missing" && mode != "both missing" {
+				used := "13"
+				if mode == "rejected" {
+					used = "100"
+				}
+				flags := ""
+				if mode == "spend control" {
+					flags = `,"spendControlReached":true`
+				}
+				bin := testbin.Install(t, "codex", testbin.Scenario{RPCResponses: map[string]string{
+					"initialize":              `{"id":1,"result":{}}`,
+					"account/rateLimits/read": `{"id":2,"result":{"rateLimits":{"planType":"plus","primary":{"usedPercent":` + used + `,"windowDurationMins":300,"resetsAt":4070908800}` + flags + `}}}`,
+				}})
+				dirs = append(dirs, filepath.Dir(bin))
+			}
+			// Restrict PATH after building fakes, so no real agent is reachable.
+			t.Setenv("PATH", strings.Join(dirs, string(os.PathListSeparator)))
+			args := []string{"quota"}
+			if mode == "json" {
+				args = append(args, "--json")
+			}
+			out, err := executeBusCommand(t, args...)
+			if mode == "both missing" {
+				if err == nil || exitCode(err) != 1 {
+					t.Fatal(out, err)
+				}
+			} else if err != nil {
+				t.Fatal(out, err)
+			}
+			if mode == "json" {
+				var result map[string]struct {
+					Plan    string `json:"plan"`
+					Cleared bool   `json:"cleared_unavailable"`
+				}
+				if err := json.Unmarshal([]byte(out), &result); err != nil {
+					t.Fatal(out, err)
+				}
+				if len(result) != 2 || result["claude"].Plan != "pro" || !result["codex"].Cleared {
+					t.Fatal(out)
+				}
+			} else {
+				if !strings.Contains(out, "claude") || !strings.Contains(out, "codex") {
+					t.Fatal(out)
+				}
+				if mode == "missing" && !strings.Contains(out, "codex   unavailable: not installed") {
+					t.Fatal(out)
+				}
+				if mode == "text" && (!strings.Contains(out, "5h") || !strings.Contains(out, "15% used") || !strings.Contains(out, "extra usage off") || !strings.Contains(out, "cleared unavailable mark")) {
+					t.Fatal(out)
+				}
+			}
+			unavailable, err := reg.Unavailable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if unavailable["claude"] != (mode == "both missing" || mode == "logged out") {
+				t.Fatal(out, unavailable)
+			}
+			if unavailable["codex"] != (mode == "missing" || mode == "both missing" || mode == "rejected" || mode == "spend control") {
+				t.Fatal(out, unavailable)
+			}
+		})
+	}
+}
+
+func TestQuotaDuplicateOutput(t *testing.T) {
+	isolatedRouteConfig(t)
+	data, err := os.ReadFile("../../internal/quota/testdata/codex-duplicate-limits.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, data); err != nil {
+		t.Fatal(err)
+	}
+	bin := testbin.Install(t, "codex", testbin.Scenario{RPCResponses: map[string]string{
+		"initialize":              `{"id":1,"result":{}}`,
+		"account/rateLimits/read": `{"id":2,"result":` + compact.String() + `}`,
+	}})
+	t.Setenv("PATH", filepath.Dir(bin))
+	t.Chdir(t.TempDir())
+	out, err := executeBusCommand(t, "quota")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(out, "26% used") != 1 || strings.Count(out, "42% used") != 1 || !strings.Contains(out, "sol 5h") || strings.Contains(out, "credits available") {
+		t.Fatal(out)
+	}
+	out, err = executeBusCommand(t, "quota", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result map[string]struct {
+		ModelLimits map[string]json.RawMessage `json:"model_limits"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatal(out, err)
+	}
+	if limits := result["codex"].ModelLimits; len(limits) != 1 || limits["sol"] == nil {
+		t.Fatal(out)
+	}
+}
+
+func TestQuotaCreditsVisibility(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		has, unlimited bool
+		balance        *string
+		want           bool
+	}{
+		{"absent", false, false, nil, false},
+		{"zero", false, false, quotaBalance("0"), false},
+		{"decimal zero", false, false, quotaBalance("-0.00"), false},
+		{"exponent zero", false, false, quotaBalance("0e2"), false},
+		{"has credits", true, false, quotaBalance("0"), true},
+		{"unlimited", false, true, nil, true},
+		{"balance", false, false, quotaBalance("0.25"), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var credits *quota.Credits
+			if tc.name != "absent" {
+				credits = &quota.Credits{HasCredits: tc.has, Unlimited: tc.unlimited, Balance: tc.balance}
+			}
+			var out bytes.Buffer
+			err := printQuota(&out, map[string]quotaResult{
+				"claude": {Snapshot: &quota.Snapshot{ExtraUsage: &quota.ExtraUsage{Enabled: false}}},
+				"codex":  {Snapshot: &quota.Snapshot{Credits: credits}},
+			}, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(out.String(), "credits available") != tc.want || !strings.Contains(out.String(), "extra usage off") {
+				t.Fatal(out.String())
+			}
+		})
+	}
+}
+
+func quotaBalance(value string) *string { return &value }
+
+func TestQuotaClaudeScopedWindow(t *testing.T) {
+	isolatedRouteConfig(t)
+	data, err := os.ReadFile("../../internal/quota/testdata/claude-scoped-usage.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, data); err != nil {
+		t.Fatal(err)
+	}
+	bin := testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{
+		"-p":                 {Stdout: compact.String() + "\n"},
+		"auth status --json": {Stdout: `{"loggedIn":true,"subscriptionType":"max"}`},
+	}})
+	t.Setenv("PATH", filepath.Dir(bin))
+	t.Chdir(t.TempDir())
+	out, err := executeBusCommand(t, "quota")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, label := range []string{"weekly fable 0% used", "weekly  2% used", "session fable 3% used", "other   4% used"} {
+		if !strings.Contains(out, label) {
+			t.Fatalf("missing %q:\n%s", label, out)
+		}
+	}
+	out, err = executeBusCommand(t, "quota", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result map[string]struct {
+		Windows []struct {
+			Model    string `json:"model"`
+			Duration int    `json:"duration_minutes"`
+		} `json:"windows"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatal(out, err)
+	}
+	windows := result["claude"].Windows
+	if len(windows) != 6 || windows[2].Model != "fable" || windows[4].Model != "fable" || windows[2].Duration != 10080 || windows[4].Duration != 300 {
+		t.Fatal(out)
+	}
+	if windows[0].Model != "" || windows[3].Model != "" || windows[5].Model != "" {
+		t.Fatal(out)
+	}
+}
+
+func TestQuotaWithoutProjectStateCreatesNothing(t *testing.T) {
+	isolatedRouteConfig(t)
+	bin := testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{
+		"-p":                 {Stdout: `{"usage_report":{"rate_limits":{"limits":[{"kind":"session","percent":15,"resets_at":"2099-01-01T00:00:00Z"}]}}}`},
+		"auth status --json": {Stdout: `{"loggedIn":true}`},
+	}})
+	t.Setenv("PATH", filepath.Dir(bin))
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if _, err := executeBusCommand(t, "quota"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".duolog")); !os.IsNotExist(err) {
+		t.Fatal("quota created .duolog:", err)
+	}
+}
+
+func TestQuotaWeeklyFamilyKindLabels(t *testing.T) {
+	var out bytes.Buffer
+	reset := time.Now().Add(time.Hour)
+	err := printQuota(&out, map[string]quotaResult{
+		"claude": {Snapshot: &quota.Snapshot{Windows: []quota.Window{
+			{Kind: "weekly_opus", UsedPercent: 1, ResetsAt: reset},
+			{Kind: "weekly_sonnet", UsedPercent: 2, ResetsAt: reset},
+		}}},
+		"codex": {Unavailable: "not installed"},
+	}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"weekly opus 1% used", "weekly sonnet 2% used"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing %q:\n%s", want, out.String())
+		}
+	}
+}

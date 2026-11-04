@@ -26,8 +26,10 @@ type HookCommand struct {
 }
 
 type Scenario struct {
-	SpawnChild bool
-	Hooks      []HookCommand
+	// RPCResponses answers each JSON-RPC method before stdin closes.
+	RPCResponses map[string]string
+	SpawnChild   bool
+	Hooks        []HookCommand
 	// Answer writes the Codex -o destination, discovered from real runner argv.
 	Answer string
 	// Responses selects a scenario by the longest matching argument prefix.
