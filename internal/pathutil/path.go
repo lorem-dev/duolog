@@ -61,6 +61,13 @@ func Relative(root, target string) (string, error) {
 			return "", fmt.Errorf("different path volumes")
 		}
 		a, b := strings.Split(strings.TrimSuffix(root, "/"), "/"), strings.Split(strings.TrimSuffix(target, "/"), "/")
+		// A relative current-directory spelling has no path components.
+		if root == "." {
+			a = nil
+		}
+		if target == "." {
+			b = nil
+		}
 		i := 0
 		for i < len(a) && i < len(b) && a[i] == b[i] {
 			i++

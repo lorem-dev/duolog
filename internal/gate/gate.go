@@ -23,6 +23,8 @@ const (
 	Ask   = "ask"
 )
 
+const RuleOutside = "outside work root"
+
 type Action struct {
 	Kind   string `json:"kind"`
 	Target string `json:"target"`
@@ -31,6 +33,10 @@ type Action struct {
 	// Work and Cwd resolve the paths inside a read command. They are not logged.
 	Work string `json:"-"`
 	Cwd  string `json:"-"`
+	// State is the project root whose .duolog folder recursive reads must avoid.
+	State  string `json:"-"`
+	Search bool   `json:"-"`
+	Glob   string `json:"-"`
 	// MCPExact means the hook named the MCP server as configured, so Target
 	// holds its exact name rather than the folded one.
 	MCPExact bool `json:"-"`
@@ -43,13 +49,21 @@ type Decision struct {
 	Mode   mode.Mode `json:"mode"`
 }
 
+// PersonOnly identifies an outside-work-root ask that needs the person's answer.
+func PersonOnly(d Decision) bool { return d.Kind == Ask && d.Rule == RuleOutside }
+
 // Evaluate applies denies before role and mode limits. Lead restrictions always
 // apply: no project setting can grant access that the lead does not have.
 func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	if lead.Mode != "" {
 		m = mode.Lower(m, lead.Mode)
 	}
-	decision := func(kind, reason, rule string) Decision { return Decision{kind, reason, rule, m} }
+	decision := func(kind, reason, rule string) Decision {
+		if kind == Ask && a.Kind == "exec" && ExecOutside(a) {
+			rule = RuleOutside
+		}
+		return Decision{kind, reason, rule, m}
+	}
 	for _, rule := range p.Rules {
 		if err := validateRule(rule); err != nil {
 			return decision(Deny, err.Error(), "invalid policy")
@@ -76,14 +90,17 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	if a.Kind == "spawn" {
 		return decision(Deny, "workers cannot delegate", "worker depth")
 	}
+	if a.Kind == "read" && stateReadAction(a) {
+		return decision(Deny, "duolog state is not readable by workers", RuleState)
+	}
 	parts := []string{a.Target}
 	uncertain := false
 	if a.Kind == "exec" {
-		parts, uncertain = shellParts(a.Target)
-		if a.Shell == "powershell" {
-			parts, uncertain = powershellParts(a.Target)
-		}
+		parts, uncertain = ShellParts(a.Target, a.Shell)
 		uncertain = uncertain || needsReview(parts)
+		if recursiveStateRead(a, parts, uncertain) {
+			return decision(Deny, "duolog state is not readable by workers", RuleState)
+		}
 	}
 	// Check every part for a deny before any ask or allow can return.
 	for _, part := range parts {
@@ -115,10 +132,18 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	}
 
 	// Reading by command honours the rules of reading by tool. A deny stands even
-	// when the shell syntax is uncertain.
+	// when the shell syntax is uncertain. Asks wait for role and mode checks.
+	var readAsk *Decision
+	if a.Kind == "read" && a.Search && readGlobMatchesDeny(p, lead, a, []string{a.Glob}) {
+		d := decision(Ask, "a search glob can read a file that policy denies; name the files", "read command")
+		readAsk = &d
+	}
 	if a.Kind == "exec" {
 		if d, ok := readCommandDecision(p, lead, m, a, parts, uncertain); ok {
-			return d
+			if d.Kind == Deny {
+				return d
+			}
+			readAsk = &d
 		}
 	}
 
@@ -170,11 +195,11 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 				return decision(rule.Decision, "explicit outside path rule", rule.Action+" "+rule.Match)
 			}
 		}
-		return decision(Ask, "path outside work root requires approval", "outside work root")
+		return decision(Ask, "path outside work root requires approval", RuleOutside)
 	}
 	// apply_patch and other writes without a verified target cannot be allowed,
-	// including in full mode.
-	if a.Target == "" || uncertain {
+	// including in full mode. A known read ask still needs the mode check below.
+	if readAsk == nil && (a.Target == "" || uncertain) {
 		return decision(Ask, "tool target or shell syntax requires approval", "unverified action")
 	}
 	if m == mode.Plan && a.Kind != "read" {
@@ -185,6 +210,9 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 		if !safe {
 			return decision(Deny, "plan mode permits only reads", "mode plan")
 		}
+	}
+	if readAsk != nil {
+		return *readAsk
 	}
 	if a.Kind == "write" && m == mode.Ask {
 		return decision(Ask, "ask mode requires approval for writes", "mode ask")
@@ -419,6 +447,14 @@ func literalQuotes(part string) bool {
 	return true
 }
 
+// ShellParts splits a command using the gate's conservative shell parser.
+func ShellParts(command, shell string) ([]string, bool) {
+	if shell == "powershell" {
+		return powershellParts(command)
+	}
+	return shellParts(command)
+}
+
 // shellParts is deliberately conservative, not a shell interpreter. Quoted
 // separators remain arguments; substitutions and unsupported syntax need review.
 func shellParts(command string) ([]string, bool) {
@@ -427,6 +463,9 @@ func shellParts(command string) ([]string, bool) {
 	var quote byte
 	escaped, uncertain := false, false
 	appendPart := func(part string) {
+		if strings.HasPrefix(strings.TrimSpace(part), "rg ") {
+			part = unquoteRgGlobs(part)
+		}
 		words := strings.Fields(part)
 		quoted := false
 		// Only literal words can be matched safely without interpreting a shell.
@@ -631,11 +670,18 @@ func readCommandDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action,
 		shell = "windows"
 	}
 	var asked *Decision
+	if unquotedRgGlob(a.Target, a.Shell) {
+		asked = &Decision{Ask, "a shell glob in an rg option can expand onto denied files; quote the glob", "read command", m}
+	}
 	for _, part := range parts {
 		if !readOnlyCommand(part) {
 			continue
 		}
 		targets, reason := readCommandTargets(part)
+		words := strings.Fields(part)
+		if words[0] == "rg" && readGlobMatchesDeny(p, lead, a, rgGlobs(words[1:])) && asked == nil {
+			asked = &Decision{Ask, "a search glob can read a file that policy denies; name the files", "read command", m}
+		}
 		if reason != "" && asked == nil {
 			asked = &Decision{Ask, reason, "read command", m}
 		}
@@ -643,18 +689,24 @@ func readCommandDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action,
 			if a.Work != "" {
 				target = RelativeTarget(a.Work, a.Cwd, expandHome(target))
 			}
+			if strings.ContainsAny(target, "*?[{") {
+				if statePattern(target) {
+					return Decision{Deny, "duolog state is not readable by workers", RuleState, m}, true
+				}
+				continue
+			}
 			d := Evaluate(p, lead, m, Action{Kind: "read", Target: target, Role: a.Role, Shell: shell})
 			if d.Kind == Deny {
 				d.Reason = "read command: " + d.Reason
 				return d, true
 			}
-			if d.Kind != Allow && asked == nil {
+			if d.Kind != Allow && (asked == nil || PersonOnly(d)) {
 				d.Reason = "read command: " + d.Reason
 				asked = &d
 			}
 		}
 	}
-	if asked != nil && !uncertain {
+	if asked != nil && (!uncertain || PersonOnly(*asked)) {
 		return *asked, true
 	}
 	return Decision{}, false

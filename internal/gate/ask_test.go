@@ -65,7 +65,7 @@ func askReply(t *testing.T, kind, from string, unknown bool, want string) {
 	defer cancel()
 	result := make(chan Decision, 1)
 	go func() {
-		result <- Escalate(ctx, b, "first-123456", Action{Kind: "exec", Target: "custom-command", Role: "implement"}, 1100*time.Millisecond)
+		result <- Escalate(ctx, b, "first-123456", Action{Kind: "exec", Target: "custom-command", Role: "implement"}, 1100*time.Millisecond, false)
 	}()
 	var request bus.Message
 	deadline := time.Now().Add(time.Second)
@@ -101,18 +101,92 @@ func askReply(t *testing.T, kind, from string, unknown bool, want string) {
 const askSendWait = time.Second
 
 func TestAskSendsOneLine(t *testing.T) {
-	b, _, dir := askSetup(t)
-	d := Escalate(context.Background(), b, "first-123456", Action{Kind: "exec", Target: strings.Repeat("界\n\"", 400), Role: "implement"}, askSendWait)
-	ms := askMessages(t, dir)
-	if d.Kind != Deny || len(ms) != 1 {
-		t.Fatal(d, ms)
+	for _, person := range []bool{false, true} {
+		t.Run(strconv.FormatBool(person), func(t *testing.T) {
+			b, _, dir := askSetup(t)
+			d := Escalate(context.Background(), b, "first-123456", Action{Kind: "exec", Target: strings.Repeat("界\n\"", 400), Role: "implement"}, askSendWait, person)
+			ms := askMessages(t, dir)
+			if d.Kind != Deny || len(ms) != 1 {
+				t.Fatal(d, ms)
+			}
+			data, err := os.ReadFile(filepath.Join(dir, "bus.ndjson"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(data) > 512 || strings.Count(string(data), "\n") != 1 || len(ms[0].S) > 200 || !utf8.ValidString(ms[0].S) || strings.ContainsAny(ms[0].S, "\r\n") || ms[0].K != "ask" {
+				t.Fatalf("bad ask: %s", data)
+			}
+			if ms[0].P != person || strings.Contains(string(data), `"p":true`) != person || !person && strings.Contains(string(data), `"p":`) {
+				t.Fatalf("bad person flag: %s", data)
+			}
+		})
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "bus.ndjson"))
-	if err != nil {
-		t.Fatal(err)
+}
+
+func TestOutsideAskIsPersonOnly(t *testing.T) {
+	p := policy(t)
+	d := Evaluate(p, LeadRules{}, mode.Edits, Action{Kind: "read", Target: "/elsewhere/notes.txt", Role: "implement"})
+	if !PersonOnly(d) {
+		t.Fatal(d)
 	}
-	if len(data) > 512 || strings.Count(string(data), "\n") != 1 || len(ms[0].S) > 200 || !utf8.ValidString(ms[0].S) || strings.ContainsAny(ms[0].S, "\r\n") || ms[0].K != "ask" {
-		t.Fatalf("bad ask: %s", data)
+	d = Evaluate(p, LeadRules{}, mode.Edits, Action{Kind: "net", Target: "https://example.com", Role: "implement"})
+	if PersonOnly(d) {
+		t.Fatal("a web ask stays with the lead:", d)
+	}
+	d = Evaluate(p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: "cat /elsewhere/notes.txt", Role: "implement"})
+	if !PersonOnly(d) {
+		t.Fatal("a read command outside the work root needs the person:", d)
+	}
+	d = Evaluate(p, LeadRules{}, mode.Edits, Action{Kind: "write", Target: "/elsewhere/notes.txt", Role: "implement"})
+	if !PersonOnly(d) {
+		t.Fatal("a write outside the work root needs the person:", d)
+	}
+}
+
+func TestPersonOnlyReadCommandsKeepOutsideRule(t *testing.T) {
+	p := policy(t)
+	for _, command := range []string{
+		"cat *.go; cat /elsewhere/notes.txt",
+		"cat $(pwd)/notes.txt; cat /elsewhere/notes.txt",
+	} {
+		d := Evaluate(p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: command, Role: "implement"})
+		if !PersonOnly(d) {
+			t.Errorf("%q: %+v", command, d)
+		}
+	}
+}
+
+func TestPersonOnlyAskCannotBypassRoleOrPlanDeny(t *testing.T) {
+	p := policy(t)
+	for _, tc := range []struct {
+		name, command, role, rule string
+		lead                      LeadRules
+		m                         mode.Mode
+	}{
+		{"role-sandbox", "cat $(pwd)/x; cat /elsewhere/n", "implement", "role sandbox", LeadRules{RoleSandbox: "read-only"}, mode.Edits},
+		{"read-only-role", "cat $(pwd)/x; cat /elsewhere/n", "review_final", "role sandbox", LeadRules{}, mode.Full},
+		{"plan-uncertain", "touch f; cat $(x) /elsewhere/n", "implement", "mode plan", LeadRules{}, mode.Plan},
+		{"plan-write", "touch f; cat /elsewhere/n", "implement", "mode plan", LeadRules{}, mode.Plan},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := Evaluate(p, tc.lead, tc.m, Action{Kind: "exec", Target: tc.command, Role: tc.role})
+			if d.Kind != Deny || d.Rule != tc.rule || PersonOnly(d) {
+				t.Fatal(d)
+			}
+		})
+	}
+}
+
+func TestExplicitOutsideApprovalIsNotPersonOnly(t *testing.T) {
+	p := policy(t)
+	p.Rules = append([]config.Rule{{Action: "read", Match: "/elsewhere/**", Decision: Allow}}, p.Rules...)
+	d := Evaluate(p, LeadRules{}, mode.Edits, Action{Kind: "read", Target: "/elsewhere/notes.txt", Role: "implement"})
+	if d.Kind != Allow || PersonOnly(d) {
+		t.Fatal(d)
+	}
+	d = Evaluate(p, LeadRules{}, mode.Edits, Action{Kind: "read", Target: "/elsewhere/secret.key", Role: "implement"})
+	if d.Kind != Deny || PersonOnly(d) {
+		t.Fatal(d)
 	}
 }
 func TestAllowAccepted(t *testing.T) { askReply(t, Allow, "codex/lead.first-", false, Allow) }
@@ -127,14 +201,14 @@ func TestAllowForUnknownRequestIgnored(t *testing.T) {
 func TestTimeoutDenies(t *testing.T) {
 	b, _, _ := askSetup(t)
 	start := time.Now()
-	d := Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, 30*time.Millisecond)
+	d := Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, 30*time.Millisecond, false)
 	if d.Kind != Deny || !strings.Contains(d.Reason, "timeout") || time.Since(start) > time.Second {
 		t.Fatal(d)
 	}
 }
 func TestAskGoesToSpawningLead(t *testing.T) {
 	b, _, dir := askSetup(t)
-	Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, askSendWait)
+	Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, askSendWait, false)
 	ms := askMessages(t, dir)
 	if len(ms) != 1 || ms[0].To != "codex/lead.first-" {
 		t.Fatal(ms)
@@ -146,7 +220,7 @@ func TestAskToEndedLeadDeniesAtOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	d := Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, time.Minute)
+	d := Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, time.Minute, false)
 	if d.Kind != Deny || time.Since(start) > time.Second || len(askMessages(t, dir)) != 0 {
 		t.Fatal(d)
 	}
@@ -154,7 +228,7 @@ func TestAskToEndedLeadDeniesAtOnce(t *testing.T) {
 func TestNoLeadEnvDenies(t *testing.T) {
 	b, _, dir := askSetup(t)
 	t.Setenv("DUOLOG_LEAD", "")
-	d := Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, time.Minute)
+	d := Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, time.Minute, false)
 	if d.Kind != Deny || len(askMessages(t, dir)) != 0 {
 		t.Fatal(d)
 	}
@@ -164,7 +238,7 @@ func TestAskCancellationDenies(t *testing.T) {
 	b, _, dir := askSetup(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	d := Escalate(ctx, b, "first-123456", Action{Kind: "exec"}, time.Minute)
+	d := Escalate(ctx, b, "first-123456", Action{Kind: "exec"}, time.Minute, false)
 	if d.Kind != Deny || len(askMessages(t, dir)) != 0 {
 		t.Fatal(d)
 	}
@@ -176,7 +250,7 @@ func TestAskHonorsSmallerWireLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	Escalate(context.Background(), b, "first-123456", Action{Kind: "exec", Target: strings.Repeat("\"", 500), Role: "implement"}, askSendWait)
+	Escalate(context.Background(), b, "first-123456", Action{Kind: "exec", Target: strings.Repeat("\"", 500), Role: "implement"}, askSendWait, false)
 	data, err := os.ReadFile(filepath.Join(dir, "bus.ndjson"))
 	if err != nil {
 		t.Fatal(err)

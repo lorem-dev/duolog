@@ -52,6 +52,15 @@
 - `duolog peer open` reads the first block from the current `rex new` reply
   and no longer fails with "could not identify its terminal block".
 
+### Security
+
+- Workers cannot read duolog state files; recursive searches that reach
+  `.duolog` are denied, including glob overrides.
+- Asks that name paths outside the project need the person; the lead's
+  approval hook keeps those asks for them.
+- Claude workers list duolog state files in `sandbox.filesystem.denyRead`;
+  this binds only when the person's sandbox is already on.
+
 ## 1.3.0
 
 ### Added

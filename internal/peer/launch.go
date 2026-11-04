@@ -13,7 +13,7 @@ import (
 // agentArgv is the interactive command of a peer. The lead's mode picks the
 // native permission flags, and updates are switched off the way task 1 proved:
 // a Codex setting and a Claude variable. Nothing here bypasses the sandbox.
-func agentArgv(route router.Route, m mode.Mode) []string {
+func agentArgv(route router.Route, m mode.Mode, stateDir string) []string {
 	switch route.Agent {
 	case "codex":
 		args := []string{"codex", "-m", route.Model}
@@ -31,7 +31,7 @@ func agentArgv(route router.Route, m mode.Mode) []string {
 		if route.Effort != "" {
 			args = append(args, "--effort", route.Effort)
 		}
-		args = append(args, "--settings", `{"autoMemoryEnabled":false,"preferredNotifChannel":"notifications_disabled"}`)
+		args = append(args, "--settings", workerenv.ClaudeSettings(stateDir, route.Context == "minimal", map[string]any{"preferredNotifChannel": "notifications_disabled"}))
 		return append(args, mode.Args("claude", m, route.Sandbox)...)
 	}
 	return nil

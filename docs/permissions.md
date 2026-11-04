@@ -45,6 +45,7 @@ roles.
 |---|---|---|
 | read | everything | allow |
 | read | `.env`, `*.pem`, `*.key`, `secrets/` | deny |
+| read | duolog state in `.duolog`, except task Markdown and shared rules | deny |
 | write | `.duolog` folders and `.git` files or folders, at any depth | deny |
 | write | `.claude/settings*.json`, `.claude/hooks/**` and the `.codex` folder | deny |
 | write | everything, for the write roles | allow |
@@ -68,12 +69,18 @@ project's own code, so a write role is only as safe as the code it can edit.
 A wildcard rule for read commands grants reads only, for every role. `find`
 and `rg` pass with known read options, so `find . -delete` or an unknown `rg`
 option does not. Paths named by a read command follow the read rules, so
-`cat .env` is denied and `cat ~/.ssh/id_rsa` asks. A shell glob in a path, a
-recursive `grep` and `rg` with `--hidden`, `-u` or `--no-ignore` ask, because
-they can reach denied files without naming them. Plain `rg` and the `Grep`
-tool can still search a denied file that is neither hidden nor git-ignored:
+`cat .env` is denied and `cat /outside/notes.txt` asks. A shell glob in a
+path asks because it can expand onto denied files. Recursive `grep` and `rg`
+with `--hidden`, `-u` or `--no-ignore` ask unless their roots reach duolog
+state. The state checks below deny those recursive commands. Plain `rg` and
+the `Grep` tool can still search a denied file that is neither hidden nor
+git-ignored:
 keep such files out of the tree or ignore them. `git diff` and `git log` with
 no path can also show a denied file that Git tracks, so do not commit one.
+
+rg override globs and the `Grep` tool's glob ask when they match a sample name
+from a read deny. These probes do not prove full overlap: a Go glob can still
+read a denied hidden file such as `.env.go`.
 
 Quotes that only group one word read as that word, so `grep -n "TODO" a.go`
 and `git log --format="%h"` are plain reads. Quoted text with a space, a glob,
@@ -103,6 +110,65 @@ tree ask in every mode, unless an explicit outside-path rule applies. A broad
 A deny wins over an allow. When no rule matches, the decision is
 `on_unmatched`, which is `ask` by default. The default denies always apply: a
 project that sets its own `rules` replaces the allow rules, not the denies.
+
+## Workers cannot read duolog state
+
+The gate denies reads of duolog state before any policy allow. This protects
+other workers' commands, answers and session data. The rule is `duolog state`.
+It applies to `.duolog` folders at any depth, including outside the work root.
+
+A worker may list the `.duolog` folder itself. Inside it, these files stay
+readable:
+
+- Markdown files at any depth, including task files and briefs.
+- `config.yaml`, `config.local.yaml`, `learned.yaml` and
+  `skill-tests/*.plan.yaml` at the paths shown.
+
+All other reads under `.duolog` are denied. These include logs, session files,
+cursors, the journal, `routing.learned.yaml` and task output captures.
+The rule covers read tools and paths named by read commands such as `cat`.
+
+Recursive `grep` and unrestricted `rg` searches are denied when their roots
+contain the project's state folder. Searches rooted inside any `.duolog`
+folder are denied too, including plain `rg token .duolog`.
+Plain `rg token .` stays allowed because it skips hidden and ignored state.
+A recursive search with unknown roots is denied when its working folder
+contains state. Other recursive searches still ask.
+
+Claude workers and peers also receive a `sandbox.filesystem.denyRead` list.
+It names the shared project's logs, session file, cursors, journal and routing
+data. It blocks reads by child programs only when the person's Claude sandbox
+is already on. duolog never writes `sandbox.enabled` or turns a sandbox on.
+
+## Reads and writes outside the work root need the person
+
+An outside-path ask is marked `p: true` on the bus. The peer's pending-ask
+line says `needs the person`. This covers read tools, writes and exec asks
+that name outside paths, such as `cat /outside/notes.txt` or
+`git -C /other log`. An explicit outside-path rule still applies
+as written; a broad `**` allow does not approve outside paths.
+
+The lead's own hook guards shell commands that may run `duolog allow N`.
+For a Claude lead, it asks Claude Code to prompt the person. For a Codex lead,
+it denies the command. The hint names the owning lead and the project folder.
+The person runs `duolog allow N --lead ID` there in their own terminal.
+The lead may still deny the request. Web asks and asks inside the project
+stay with the lead.
+
+The guard also checks wrapped and compound commands. If it cannot read a
+named request, it asks the person or gives the Codex terminal hint. Without a
+known request number, it guards only while a person-only ask is pending, or
+when it cannot read the bus. A pending ask has not expired or been answered.
+
+The gate sees what an agent asks for, not what a program it runs reads.
+Project code run by a write role, such as `go test`, can read files without
+naming them in the command. The gate alone cannot stop those reads.
+Claude's deny list adds protection only where the sandbox is already on.
+duolog does not sandbox the lead itself. A lead that edits the bus or other
+state files directly can bypass the hook's approval guard.
+The guard also cannot see `duolog allow N` inside a script file, a Makefile
+target or a renamed binary. It is a best-effort check on the lead model,
+not a sandbox.
 
 ## How a worker's MCP tool calls are checked
 
@@ -173,12 +239,15 @@ rules still apply. When the lead is free, normal numbered asks work as below.
 the user, with Codex `request_user_input` or Claude `AskUserQuestion`, is
 denied, because only the lead talks to the user.
 
-The lead answers with:
+For ordinary asks, the lead answers with:
 
 ```bash
 duolog allow 3
 duolog deny 3
 ```
+
+Outside-path asks need the person's approval as described above. A lead may
+deny any ask.
 
 A worker cannot run these commands. See what duolog decided and why with
 `duolog decisions`. Long request summaries keep their head and tail, mark

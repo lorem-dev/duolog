@@ -61,7 +61,7 @@ func TestCodexArgvProjectContext(t *testing.T) {
 // A minimal-context worker gets its rules from the task, not from skills.
 func TestClaudeArgvMinimalDropsSkills(t *testing.T) {
 	s := spec(t, "claude")
-	containsArgs(t, Argv(s), "--disable-slash-commands", "--settings", minimalSettings)
+	containsArgs(t, Argv(s), "--disable-slash-commands", "--settings", claudeWorkerSettings(s.Cwd, true))
 	s.Route.Context = "project"
 	if line := strings.Join(Argv(s), " "); strings.Contains(line, "--disable-slash-commands") || strings.Contains(line, "claudeMdExcludes") {
 		t.Fatal(Argv(s))

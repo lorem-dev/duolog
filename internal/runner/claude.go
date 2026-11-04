@@ -10,17 +10,18 @@ import (
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/project"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
-// workerSettings turns off auto memory, which CLAUDE_CODE_DISABLE_AUTO_MEMORY
+// claudeWorkerSettings turns off auto memory, which CLAUDE_CODE_DISABLE_AUTO_MEMORY
 // also does: the memory folder belongs to the project path, so a worker's note
-// would reach the lead and later sessions. minimalSettings also excludes
+// would reach the lead and later sessions. Minimal context also excludes
 // instruction files. --setting-sources would do more, but it also drops the user
 // settings that enable the duolog plugin and its gate.
-const (
-	workerSettings  = `{"autoMemoryEnabled":false}`
-	minimalSettings = `{"autoMemoryEnabled":false,"claudeMdExcludes":["**/CLAUDE.md","**/CLAUDE.local.md","**/.claude/rules/**"]}`
-)
+func claudeWorkerSettings(stateDir string, minimal bool) string {
+	return workerenv.ClaudeSettings(stateDir, minimal, nil)
+}
 
 func claudeArgv(s Spec) []string {
 	args := []string{"claude", "-p", "--model", s.Route.Model}
@@ -47,16 +48,14 @@ func claudeArgv(s Spec) []string {
 			args = append(args, "--disallowedTools="+strings.Join(s.MCP.DisallowedTools, ","))
 		}
 	}
+	args = append(args, "--settings", claudeWorkerSettings(project.StateRoot(s.Cwd), s.Route.Context == "minimal"))
 	if s.Route.Context == "minimal" {
 		// Minimal context drops every CLAUDE.md, the user's too, and skills unless the
 		// task needs one: a project
 		// under the home folder would otherwise load it as project instructions.
-		args = append(args, "--settings", minimalSettings)
 		if !s.KeepSkills {
 			args = append(args, "--disable-slash-commands")
 		}
-	} else {
-		args = append(args, "--settings", workerSettings)
 	}
 	if s.ThreadID == "" {
 		if !s.Persistent {

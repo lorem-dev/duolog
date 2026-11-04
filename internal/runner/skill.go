@@ -10,7 +10,7 @@ import (
 func skillArgv(s Spec) []string {
 	switch s.Route.Agent {
 	case "claude":
-		return []string{"claude", "-p", "--model", s.Route.Model, "--effort", s.Route.Effort, "--tools", "", "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands", "--output-format", "json", "--settings", minimalSettings}
+		return []string{"claude", "-p", "--model", s.Route.Model, "--effort", s.Route.Effort, "--tools", "", "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands", "--output-format", "json", "--settings", claudeWorkerSettings("", true)}
 	case "codex":
 		args := []string{"codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "-m", s.Route.Model, "-c", fmt.Sprintf("model_reasoning_effort=%q", s.Route.Effort), "-c", "project_doc_max_bytes=0", "-c", "skills.include_instructions=false", "-c", "features.shell_tool=false", "-c", "features.apply_patch_freeform=false", "-c", `web_search="disabled"`}
 		if s.MCP != nil {

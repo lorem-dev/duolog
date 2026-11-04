@@ -19,7 +19,7 @@ import (
 // Escalate waits for a reply from the worker's spawning lead. Each request has
 // its own inbox so simultaneous hook processes cannot consume each other's reply.
 // The hook caller preserves the evaluated mode and logs the final decision.
-func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout time.Duration) Decision {
+func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout time.Duration, person bool) Decision {
 	decision := func(kind, reason string) Decision {
 		return Decision{Kind: kind, Reason: reason, Rule: "ask lead"}
 	}
@@ -55,7 +55,7 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout ti
 	var n int64
 	for budget := 200; ; budget-- {
 		summary := askSummary(fullSummary, budget)
-		n, err = b.Send(bus.Message{From: from, To: address, K: Ask, S: summary})
+		n, err = b.Send(bus.Message{From: from, To: address, K: Ask, S: summary, P: person})
 		if !errors.Is(err, bus.ErrTooLong) || budget == 0 {
 			break
 		}

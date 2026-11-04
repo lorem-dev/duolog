@@ -304,7 +304,7 @@ func Open(ctx context.Context, role string) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	block, rexSession, err := e.openProjectPeer(ctx, route.Agent+"-"+role, launchArgv(exe, envFile, agentArgv(route, lead.mode)))
+	block, rexSession, err := e.openProjectPeer(ctx, route.Agent+"-"+role, launchArgv(exe, envFile, agentArgv(route, lead.mode, filepath.Dir(e.dir))))
 	if err != nil {
 		_ = os.Remove(envFile)
 		return Entry{}, err
@@ -1094,6 +1094,9 @@ func pendingAsk(dir, address string) (string, error) {
 		}
 		if m.K == "ask" && m.To == address && strings.HasPrefix(m.From, "duolog/ask.") && !gate.AskExpired(m.T) {
 			pending[strconv.FormatInt(m.N, 10)] = fmt.Sprintf("ask %d: %s", m.N, m.S)
+			if m.P {
+				pending[strconv.FormatInt(m.N, 10)] = fmt.Sprintf("ask %d (needs the person): %s", m.N, m.S)
+			}
 		}
 		if (m.K == "allow" || m.K == "deny") && m.From == address {
 			delete(pending, m.Ref)

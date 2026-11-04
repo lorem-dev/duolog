@@ -76,7 +76,7 @@ func TestNotificationTextIsNotExecutableSource(t *testing.T) {
 func TestAgentArgvDisablesNotifications(t *testing.T) {
 	for _, agent := range []string{"claude", "codex"} {
 		t.Run(agent, func(t *testing.T) {
-			args := agentArgv(router.Route{Target: config.Target{Agent: agent, Model: "sol", Effort: "high"}}, mode.Ask)
+			args := agentArgv(router.Route{Target: config.Target{Agent: agent, Model: "sol", Effort: "high"}}, mode.Ask, t.TempDir())
 			if agent == "codex" {
 				i := slices.Index(args, "tui.notifications=false")
 				if i < 1 || args[i-1] != "-c" {

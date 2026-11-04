@@ -34,7 +34,7 @@ func TestLiteralQuotesAndTheirBypasses(t *testing.T) {
 		// Spaces or globs inside quotes are not single literal words.
 		{`grep "a b" README.md`, Ask, Deny},
 		{`rg '^|a -g' .e*`, Ask, Deny},
-		{`rg --files src -g '*test*'`, Ask, Deny},
+		{`rg --files src -g '*test*'`, Allow, Allow},
 		// A glob or brace in a separate option value expands onto other files.
 		{`grep ^ -A {1,.env}`, Ask, Deny},
 		{`rg ^ -g {x,.env}`, Ask, Deny},

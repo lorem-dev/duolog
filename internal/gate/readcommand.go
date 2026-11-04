@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 
@@ -130,7 +131,7 @@ func rgShortsKnown(cluster string) bool {
 }
 
 // readCommandTargets lists the paths a read-only command reads. A non-empty
-// reason means that no list of paths can be trusted, so a person has to decide.
+// reason means that a person has to decide, even when named paths are known.
 func readCommandTargets(command string) (targets []string, reason string) {
 	words := strings.Fields(command)
 	if len(words) == 0 {
@@ -156,8 +157,13 @@ func readCommandTargets(command string) (targets []string, reason string) {
 		files, _ := jqFiles(args)
 		return checkTargets(files)
 	}
-	if recursiveSearch(name, args) {
-		return nil, "a recursive search can read files that policy denies; name the files or use rg without --hidden, -u or --no-ignore"
+	recursive := recursiveSearch(name, args)
+	if recursive {
+		defer func() {
+			if reason == "" {
+				reason = "a recursive search can read files that policy denies; name the files or use rg without --hidden, -u or --no-ignore"
+			}
+		}()
 	}
 	// The first word is a search pattern, not a path.
 	skipPattern := name == "grep" || name == "rg" || name == "select-string"
@@ -177,8 +183,22 @@ func readCommandTargets(command string) (targets []string, reason string) {
 				}
 				targets = append(targets, rest)
 			}
-			return mergeTargets(targets, values)
+			i = len(args)
 		case strings.HasPrefix(word, "-"):
+			if name == "rg" {
+				if value, separate, ok := rgGlobOption(word); ok {
+					if separate {
+						i++
+						if i < len(args) {
+							value = args[i]
+						}
+					}
+					if strings.HasPrefix(value, ".") && strings.ContainsAny(value, "*?[{") {
+						reason = "a glob can name a hidden file that policy denies; name the files"
+					}
+					continue
+				}
+			}
 			if value := optionValue(name, word); value != "" {
 				values = append(values, value)
 			}
@@ -203,7 +223,16 @@ func readCommandTargets(command string) (targets []string, reason string) {
 			targets = append(targets, word)
 		}
 	}
-	return mergeTargets(targets, values)
+	// Option values can name additional files, but do not replace a recursive
+	// search's implicit working-directory root.
+	if recursive && len(targets) == 0 {
+		targets = []string{"."}
+	}
+	checked, why := mergeTargets(targets, values)
+	if why != "" {
+		return checked, why
+	}
+	return checked, reason
 }
 
 // gitTargets lists what a Git read names. A word may be a revision instead of a
@@ -235,30 +264,30 @@ func gitTargets(args []string) ([]string, string) {
 
 func mergeTargets(targets, values []string) ([]string, string) {
 	targets, reason := checkTargets(targets)
-	if reason != "" {
-		return nil, reason
-	}
 	// An option value such as --include=*.go is a filter, not a shell glob, and
 	// only a value that names a plain path can be judged.
 	for _, value := range values {
 		// Braces expand even inside an option word: -f{x,.env} reads .env.
 		if strings.Contains(value, "{") {
-			return nil, "a brace in an option value can expand onto files that policy denies; name the files"
+			if reason == "" {
+				reason = "a brace in an option value can expand onto files that policy denies; name the files"
+			}
+			continue
 		}
 		if !strings.ContainsAny(value, "*?[{") {
 			targets = append(targets, value)
 		}
 	}
-	return targets, ""
+	return targets, reason
 }
 
 func checkTargets(targets []string) ([]string, string) {
 	for _, target := range targets {
 		if strings.ContainsAny(target, "*?[{") {
-			return nil, "a shell glob can expand onto files that policy denies; name the files"
+			return targets, "a shell glob can expand onto files that policy denies; name the files"
 		}
 		if strings.HasPrefix(target, "~") && !strings.HasPrefix(target, "~/") {
-			return nil, "a path in another home folder requires approval"
+			return targets, "a path in another home folder requires approval"
 		}
 	}
 	return targets, ""
@@ -266,6 +295,52 @@ func checkTargets(targets []string) ([]string, string) {
 
 func isFindSymlinkOption(word string) bool {
 	return word == "-H" || word == "-L" || word == "-P" || word == "-h" || word == "-l" || word == "-p"
+}
+
+func rgGlobOption(word string) (string, bool, bool) {
+	if strings.HasPrefix(word, "--") {
+		name, value, attached := strings.Cut(word, "=")
+		if name == "--glob" || name == "--iglob" {
+			return value, !attached, true
+		}
+		return "", false, false
+	}
+	if letter, value := valueShort("rg", word); letter == 'g' {
+		return value, value == "", true
+	}
+	return "", false, false
+}
+
+func rgGlobs(args []string) []string {
+	var globs []string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--" {
+			break
+		}
+		if value, separate, ok := rgGlobOption(args[i]); ok {
+			if separate && i+1 < len(args) {
+				i++
+				value = args[i]
+			}
+			globs = append(globs, value)
+		} else if separateValue("rg", args[i]) {
+			i++
+		}
+	}
+	return globs
+}
+
+var quotedRgGlob = regexp.MustCompile("(--(?:glob|iglob)(?:=|[ \\t]+)|-g[ \\t]*)(?:'([^'\\s]+)'|\"([^\"\\s]+)\")")
+
+func unquoteRgGlobs(command string) string {
+	return quotedRgGlob.ReplaceAllStringFunc(command, func(match string) string {
+		groups := quotedRgGlob.FindStringSubmatch(match)
+		value := groups[2] + groups[3]
+		if strings.ContainsAny(value, "\\$`;|&<>()") {
+			return match
+		}
+		return groups[1] + value
+	})
 }
 
 // optionValue returns a value written inside an option word: --file=x, -f.env,
@@ -315,7 +390,7 @@ var (
 		"--regexp", "--file", "--encoding", "--sort", "--sortr", "--threads", "--replace", "--engine", "--color", "--colors", "--context-separator", "--dfa-size-limit",
 		"--field-context-separator", "--field-match-separator", "--max-filesize", "--path-separator", "--regex-size-limit"}
 	// grep's --context and -C take an optional value that must be attached (--context=3, -C3), so they never consume the next word.
-	grepSeparateLong = []string{"--after-context", "--before-context", "--regexp", "--file", "--max-count", "--include", "--exclude", "--exclude-dir", "--label"}
+	grepSeparateLong = []string{"--after-context", "--before-context", "--regexp", "--file", "--max-count", "--include", "--exclude", "--exclude-dir", "--label", "--directories"}
 )
 
 // separateValue reports whether word is an option whose value is the next
@@ -369,7 +444,8 @@ func explicitPattern(args []string) bool {
 }
 
 func recursiveSearch(command string, args []string) bool {
-	for _, word := range args {
+	for i := 0; i < len(args); i++ {
+		word := args[i]
 		if word == "--" {
 			return false
 		}
@@ -387,9 +463,22 @@ func recursiveSearch(command string, args []string) bool {
 				return true
 			}
 		case "rg":
-			if name == "--hidden" || name == "--unrestricted" || strings.HasPrefix(name, "--no-ignore") || !long && strings.ContainsAny(word, "u.") {
+			if name == "--hidden" || name == "--unrestricted" || strings.HasPrefix(name, "--no-ignore") {
 				return true
 			}
+			if !long {
+				for _, letter := range word[1:] {
+					if strings.ContainsRune(rgValueShorts, letter) {
+						break
+					}
+					if letter == 'u' || letter == '.' {
+						return true
+					}
+				}
+			}
+		}
+		if separateValue(command, word) {
+			i++
 		}
 	}
 	return false

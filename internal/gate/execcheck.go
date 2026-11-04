@@ -87,6 +87,114 @@ func pathWord(word string) string {
 	return strings.TrimPrefix(word, "@")
 }
 
+// ExecOutside checks file operands, not executable names or stream devices.
+func ExecOutside(a Action) bool {
+	parts, uncertain := ShellParts(a.Target, a.Shell)
+	if uncertain || len(parts) == 0 {
+		// Uncertain syntax can omit wrapped commands; retain their operands.
+		parts = rawExecParts(a.Target)
+	}
+	for _, part := range parts {
+		words := strings.Fields(part)
+		for i := execOperandStart(words); i < len(words); i++ {
+			word := strings.Trim(words[i], "'\"")
+			name, _, attached := strings.Cut(word, "=")
+			if slices.Contains([]string{"--grep", "--author", "--committer", "--format", "--pretty", "--regexp", "--glob", "--iglob"}, name) {
+				if !attached {
+					i++
+				}
+				continue
+			}
+			redirect := strings.TrimLeft(word, "0123456789")
+			if strings.HasPrefix(redirect, ">") || strings.HasPrefix(redirect, "<") || strings.HasPrefix(redirect, "&>") {
+				word = strings.TrimLeft(redirect, "<>&")
+			}
+			target := pathWord(word)
+			if target == "" {
+				continue
+			}
+			target = expandHome(target)
+			clean := pathutil.Clean(target)
+			if slices.Contains([]string{"/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"}, clean) || strings.HasPrefix(clean, "/dev/fd/") {
+				continue
+			}
+			if a.Work != "" {
+				target = RelativeTarget(a.Work, a.Cwd, target)
+			}
+			if outside(target) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// rawExecParts retains wrapped commands while splitting shell command lists.
+// Quoted and escaped separators are operands, not command boundaries.
+func rawExecParts(command string) []string {
+	var parts []string
+	var quote byte
+	start := 0
+	escaped := false
+	for i := 0; i < len(command); i++ {
+		c := command[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if c == '\\' && quote != '\'' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		if c == '\'' || c == '"' {
+			quote = c
+			continue
+		}
+		if c != ';' && c != '|' && c != '\n' && !(c == '&' && i+1 < len(command) && command[i+1] == '&') {
+			continue
+		}
+		parts = append(parts, command[start:i])
+		if (c == '&' || c == '|') && i+1 < len(command) && command[i+1] == c {
+			i++
+		}
+		start = i + 1
+	}
+	return append(parts, command[start:])
+}
+
+var execAssignment = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*=`)
+
+// execOperandStart skips assignments, wrappers and the executable they start.
+func execOperandStart(words []string) int {
+	for i := 0; i < len(words); {
+		word := strings.Trim(words[i], "'\"")
+		if execAssignment.MatchString(word) {
+			i++
+			continue
+		}
+		switch filepath.Base(word) {
+		case "command", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "powershell", "cmd",
+			"time", "nice", "ionice", "timeout", "nohup", "stdbuf", "setsid", "busybox", "doas", "watch", "parallel":
+			i++
+			for i < len(words) && strings.HasPrefix(words[i], "-") {
+				i++
+			}
+			if filepath.Base(word) == "timeout" && i < len(words) {
+				i++ // timeout's duration precedes the executable.
+			}
+		default:
+			return i + 1
+		}
+	}
+	return len(words)
+}
+
 func expandHome(target string) string {
 	if !strings.HasPrefix(target, "~/") {
 		return target

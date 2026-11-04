@@ -24,6 +24,21 @@ func TestWindowsPathsOnEveryHost(t *testing.T) {
 	}
 }
 
+func TestWindowsRelativeCurrentDirectory(t *testing.T) {
+	for _, tc := range []struct{ root, target, want string }{
+		{`.\`, `.duolog`, ".duolog"},
+		{`.\`, `.\`, "."},
+		{`.duolog`, `.\`, ".."},
+		{`.\`, `src\file`, "src/file"},
+		{`src\`, `.\`, ".."},
+	} {
+		got, err := Relative(tc.root, tc.target)
+		if err != nil || got != tc.want {
+			t.Errorf("Relative(%q, %q) = %q, %v; want %q", tc.root, tc.target, got, err, tc.want)
+		}
+	}
+}
+
 func TestWindowsRootsCannotBecomeRelative(t *testing.T) {
 	for _, tc := range []struct{ input, want string }{
 		{`C:\..\private`, "c:/private"},

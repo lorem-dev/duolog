@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +25,27 @@ import (
 )
 
 const splitReply = `{"session_id":"session:peers","anchor_id":"block:lead","block_ids":["block:peer"],"split_ids":["split:s"],"revision":4}`
+
+func TestPendingAskNeedsThePerson(t *testing.T) {
+	for _, person := range []bool{false, true} {
+		dir := t.TempDir()
+		b, err := bus.Open(dir, config.Wire{MaxLineBytes: 512, MaxSummaryBytes: 200})
+		if err != nil {
+			t.Fatal(err)
+		}
+		n, err := b.Send(bus.Message{From: "duolog/ask.pending", To: "codex/lead.test", K: "ask", S: "read ../notes.txt", P: person})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := fmt.Sprintf("ask %d: read ../notes.txt", n)
+		if person {
+			want = fmt.Sprintf("ask %d (needs the person): read ../notes.txt", n)
+		}
+		if got, err := pendingAsk(dir, "codex/lead.test"); err != nil || got != want {
+			t.Fatal(got, err)
+		}
+	}
+}
 
 type sleepAt struct {
 	calls int

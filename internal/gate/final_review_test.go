@@ -117,7 +117,7 @@ func TestAskSummaryAndForegroundWait(t *testing.T) {
 		t.Fatal(err)
 	}
 	started := time.Now()
-	d := Escalate(context.Background(), b, "first-123456", Action{Kind: "exec", Target: "unmatched"}, time.Minute)
+	d := Escalate(context.Background(), b, "first-123456", Action{Kind: "exec", Target: "unmatched"}, time.Minute, false)
 	if d.Kind != Deny || !strings.Contains(d.Reason, "lead is waiting") || time.Since(started) > time.Second {
 		t.Fatal(d)
 	}

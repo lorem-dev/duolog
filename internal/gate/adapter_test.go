@@ -106,6 +106,30 @@ func TestRenderMatchesEachAgentFormat(t *testing.T) {
 	}
 }
 
+func TestRenderLead(t *testing.T) {
+	for _, tc := range []struct{ agent, want string }{{"claude", Ask}, {"codex", Deny}} {
+		for _, kind := range []string{Ask, Deny} {
+			var got struct {
+				Output struct {
+					Event  string `json:"hookEventName"`
+					Kind   string `json:"permissionDecision"`
+					Reason string `json:"permissionDecisionReason"`
+				} `json:"hookSpecificOutput"`
+			}
+			data := RenderLead(tc.agent, Decision{Kind: kind, Reason: "only the person"})
+			if err := json.Unmarshal(data, &got); err != nil {
+				t.Fatal(err)
+			}
+			if got.Output.Event != "PreToolUse" || got.Output.Kind != tc.want || got.Output.Reason != "only the person" {
+				t.Fatalf("%s: %s", tc.agent, data)
+			}
+		}
+	}
+	if got := RenderLead("unknown", Decision{Kind: Ask}); got != nil {
+		t.Fatal(string(got))
+	}
+}
+
 // Found by the live test round: the gate asked about Claude's StructuredOutput
 // tool, so a worker could never return its answer.
 func TestStructuredOutputIsAllowedInEveryMode(t *testing.T) {

@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/session"
@@ -64,6 +66,144 @@ func TestLoweredModeAppliesNextCall(t *testing.T) {
 	}
 	if out := runGate(t, "custom-command"); !strings.Contains(out, `"permissionDecision":"deny"`) || !strings.Contains(out, "ask") {
 		t.Fatal(out)
+	}
+}
+
+func TestWorkerRecursiveGrepOfStateDenied(t *testing.T) {
+	gateSetup(t, mode.Full)
+	if out := runGate(t, "grep -r token ."); !strings.Contains(out, `"permissionDecision":"deny"`) || !strings.Contains(out, "duolog state") {
+		t.Fatal(out)
+	}
+}
+
+func TestLeadGateAsksBeforePersonOnlyAllow(t *testing.T) {
+	isolatedRouteConfig(t)
+	t.Setenv("DUOLOG_DEPTH", "")
+	dir := personOnlyBus(t)
+	t.Chdir(filepath.Dir(dir))
+	for _, tc := range []struct{ command, decision string }{
+		{"duolog allow 1", `"permissionDecision":"ask"`},
+		{"go test ./...", ""},
+		{"duolog allow 2", ""},
+		{"duolog deny 1", ""},
+	} {
+		out, err := gateCommand(t, string(bashInput("claude", tc.command)), "gate", "--agent", "claude", "--event", "PreToolUse")
+		if err != nil || tc.decision == "" && out != "" || tc.decision != "" && !strings.Contains(out, tc.decision) {
+			t.Fatal(tc.command, out, err)
+		}
+	}
+	out, err := gateCommand(t, string(bashInput("codex", "duolog allow 1")), "gate", "--agent", "codex", "--event", "PreToolUse")
+	if err != nil || !strings.Contains(out, `"permissionDecision":"deny"`) || !strings.Contains(out, "own terminal") {
+		t.Fatal(out, err)
+	}
+}
+
+type leadGuardErrorWriter struct{ writes int }
+
+type leadGuardOrderWriter struct {
+	bytes.Buffer
+	before func()
+}
+
+func (w *leadGuardOrderWriter) Write(data []byte) (int, error) {
+	w.before()
+	return w.Buffer.Write(data)
+}
+
+func TestLeadGuardWritesBeforeObservation(t *testing.T) {
+	r, root := gateSetup(t, mode.Ask)
+	t.Setenv("DUOLOG_DEPTH", "")
+	if err := r.RegisterLead(session.Lead{ID: "lead-123456", Target: config.Target{Agent: "claude"}, Mode: mode.Ask}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := bus.Open(filepath.Join(root, ".duolog"), config.Wire{MaxLineBytes: 512, MaxSummaryBytes: 200})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Send(bus.Message{K: "ask", P: true}); err != nil {
+		t.Fatal(err)
+	}
+	w := &leadGuardOrderWriter{before: func() {
+		lead, _, err := r.Lead("lead-123456")
+		if err != nil || lead.Mode != mode.Ask {
+			t.Error("observation ran before guard output", lead.Mode, err)
+		}
+	}}
+	cmd := newRootCommand()
+	cmd.SetOut(w)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetIn(strings.NewReader(`{"session_id":"lead-123456","permission_mode":"bypassPermissions","tool_name":"Bash","tool_input":{"command":"duolog allow 1"}}`))
+	cmd.SetArgs([]string{"gate", "--agent", "claude", "--event", "PreToolUse"})
+	if err := cmd.Execute(); err != nil || w.Len() == 0 {
+		t.Fatal(err, w.String())
+	}
+	lead, _, err := r.Lead("lead-123456")
+	if err != nil || lead.Mode != mode.Full {
+		t.Fatal("observation must still run", lead.Mode, err)
+	}
+}
+
+func (w *leadGuardErrorWriter) Write(p []byte) (int, error) {
+	w.writes++
+	return 0, io.ErrClosedPipe
+}
+
+func TestLeadGateIgnoresGuardWriteError(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		t.Run(agent, func(t *testing.T) {
+			isolatedRouteConfig(t)
+			t.Setenv("DUOLOG_DEPTH", "")
+			dir := personOnlyBus(t)
+			t.Chdir(filepath.Dir(dir))
+			cmd := newRootCommand()
+			writer := &leadGuardErrorWriter{}
+			cmd.SetOut(writer)
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetIn(strings.NewReader(string(bashInput(agent, "duolog allow 1"))))
+			cmd.SetArgs([]string{"gate", "--agent", agent, "--event", "PreToolUse"})
+			if err := cmd.Execute(); err != nil || writer.writes == 0 {
+				t.Fatal("lead hook must succeed after attempting output:", writer.writes, err)
+			}
+		})
+	}
+}
+
+func TestWorkerAskPersonOnly(t *testing.T) {
+	outside := filepath.ToSlash(filepath.Join(t.TempDir(), "outside"))
+	for _, tc := range []struct {
+		name, tool string
+		input      map[string]string
+		person     bool
+	}{
+		{"outside-last", "apply_patch", map[string]string{"patch": "*** Begin Patch\n*** Update File: inside.txt\n*** Update File: ../outside.txt\n*** End Patch"}, true},
+		{"outside-first", "apply_patch", map[string]string{"patch": "*** Begin Patch\n*** Update File: ../outside.txt\n*** Update File: inside.txt\n*** End Patch"}, true},
+		{"inside-only", "apply_patch", map[string]string{"patch": "*** Begin Patch\n*** Update File: inside.txt\n*** End Patch"}, false},
+		{"read-command", "Bash", map[string]string{"command": "cat ../outside.txt"}, true},
+		{"copy-outside", "Bash", map[string]string{"command": "cp ~/.ssh/k k"}, true},
+		{"archive-outside", "Bash", map[string]string{"command": "tar czf x.tgz ~/notes"}, true},
+		{"git-outside", "Bash", map[string]string{"command": "git -C " + outside + " log"}, true},
+		{"discard-test-output", "Bash", map[string]string{"command": "go test ./... >/dev/null"}, false},
+		{"discard-make-output", "Bash", map[string]string{"command": "make test > /dev/null 2>&1"}, false},
+		{"absolute-program", "Bash", map[string]string{"command": "/usr/bin/env go test"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, root := gateSetup(t, mode.Ask)
+			data, _ := json.Marshal(map[string]any{"tool_name": tc.tool, "cwd": root, "tool_input": tc.input})
+			if _, err := gateCommand(t, string(data), "gate", "--agent", "codex", "--event", "PreToolUse"); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(filepath.Join(root, ".duolog", "bus.ndjson"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var message bus.Message
+			if err := json.Unmarshal(bytes.TrimSpace(data), &message); err != nil {
+				t.Fatal(err)
+			}
+			if message.K != "ask" || message.P != tc.person || bytes.Contains(data, []byte(`"p":true`)) != tc.person {
+				t.Fatalf("person=%v: %s", tc.person, data)
+			}
+		})
 	}
 }
 func TestModeCommandCannotRaise(t *testing.T) {

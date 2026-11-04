@@ -29,6 +29,7 @@ func Normalize(agent string, input []byte) (Action, error) {
 			Patch      string `json:"patch"`
 			URL        string `json:"url"`
 			Query      string `json:"query"`
+			Glob       string `json:"glob"`
 		} `json:"tool_input"`
 	}
 	if err := json.Unmarshal(input, &hook); err != nil {
@@ -61,6 +62,9 @@ func Normalize(agent string, input []byte) (Action, error) {
 		a.Kind = "write"
 		if hook.Tool == "Read" || hook.Tool == "Grep" || hook.Tool == "Glob" || hook.Tool == "LS" {
 			a.Kind = "read"
+		}
+		if hook.Tool == "Grep" {
+			a.Search, a.Glob = true, hook.Input.Glob
 		}
 		if hook.Input.Path == "" {
 			hook.Input.Path = hook.Input.SearchPath
@@ -139,6 +143,24 @@ func Render(agent, event string, d Decision) []byte {
 		output["permissionDecisionReason"] = d.Reason
 	}
 	data, _ := json.Marshal(map[string]any{"hookSpecificOutput": output})
+	return append(data, '\n')
+}
+
+// RenderLead asks the person in Claude and directs Codex users to their terminal.
+func RenderLead(agent string, d Decision) []byte {
+	kind := Ask
+	switch agent {
+	case "claude":
+	case "codex":
+		kind = Deny
+	default:
+		return nil
+	}
+	data, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{
+		"hookEventName":            "PreToolUse",
+		"permissionDecision":       kind,
+		"permissionDecisionReason": d.Reason,
+	}})
 	return append(data, '\n')
 }
 

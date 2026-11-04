@@ -2,11 +2,35 @@ package gate
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
 )
+
+func TestRecursiveReadCommandTargets(t *testing.T) {
+	for _, tc := range []struct {
+		command string
+		want    []string
+	}{
+		{"grep -r token internal", []string{"internal"}},
+		{"grep -rn token -- internal .", []string{"internal", "."}},
+		{"grep --recursive -e token internal", []string{"internal"}},
+		{"grep -d recurse token .", []string{"."}},
+		{"grep --directories=recurse token .", []string{".", "recurse"}},
+		{"grep --directories recurse token internal", []string{"internal"}},
+		{"rg --hidden token internal .", []string{"internal", "."}},
+		{"rg -uu token", []string{"."}},
+		{"rg --hidden --regexp=token", []string{".", "token"}},
+		{"grep --directories=recurse token", []string{".", "recurse"}},
+	} {
+		targets, reason := readCommandTargets(tc.command)
+		if !slices.Equal(targets, tc.want) || reason == "" {
+			t.Errorf("%q: %v, %q; want %v and an ask reason", tc.command, targets, reason, tc.want)
+		}
+	}
+}
 
 // The read-command allow rule must not grant anything that only starts with a
 // read command, or that uses a read command to write or run something.

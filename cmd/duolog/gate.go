@@ -35,13 +35,18 @@ func newGateCommand() *cobra.Command {
 	var agent, event string
 	cmd := &cobra.Command{Use: "gate", Short: "Decide a worker hook request", SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
 		started := time.Now()
-		// A lead only records its live mode; it never receives a gate decision.
+		// A lead records its live mode and keeps person-only approvals for the person.
 		if !isWorker() {
 			defer func() { _ = recover() }()
 			root, err := projectRoot()
 			if err == nil {
 				data, readErr := readHookInput(cmd)
 				if readErr == nil && len(data) <= 4*1024*1024 {
+					if event == "PreToolUse" {
+						if d, ok := leadGuard(filepath.Join(root, ".duolog"), agent, data); ok {
+							_, _ = cmd.OutOrStdout().Write(gate.RenderLead(agent, d))
+						}
+					}
 					hook.Observe(cmd.Context(), hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ()})
 				}
 			}
@@ -112,8 +117,9 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 		if (action.Kind == "read" || action.Kind == "write") && action.Target != "" {
 			action.Target = gate.RelativeTarget(work, envelope.Cwd, action.Target)
 		}
-		if action.Kind == "exec" {
+		if action.Kind == "exec" || action.Search {
 			action.Work, action.Cwd = work, envelope.Cwd
+			action.State = root
 		}
 	}
 	a = actions[0]
@@ -165,9 +171,11 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 	}
 	d = gate.Decision{Kind: gate.Allow, Mode: m}
 	var asked []string
+	person := false
 	for _, action := range actions {
 		action.Role = a.Role
 		next := gate.Evaluate(cfg.Policy, rules, m, action)
+		person = person || gate.PersonOnly(next)
 		if next.Kind == gate.Deny {
 			return action, next, nil
 		}
@@ -189,7 +197,7 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 			return a, d, err
 		}
 		wait := gate.AskWait(cfg.Policy.AskTimeoutSeconds)
-		resolved := gate.Escalate(cmd.Context(), b, lead.ID, a, wait)
+		resolved := gate.Escalate(cmd.Context(), b, lead.ID, a, wait, person)
 		resolved.Mode = d.Mode
 		d = resolved
 	}

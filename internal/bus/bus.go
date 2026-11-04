@@ -31,6 +31,7 @@ type Message struct {
 	Th   string `json:"th,omitempty"`
 	Ref  string `json:"ref,omitempty"`
 	S    string `json:"s"`
+	P    bool   `json:"p,omitempty"`
 }
 
 type Bus struct {

@@ -37,32 +37,35 @@ changes into one pull request unless the user asks otherwise.
 
 1. Give whole features to `planner`; do small fixes yourself.
 2. Write `.duolog/task.md`: Goal, Read, Write, Limits, Check.
-   Give known files or ranges; list edited docs under Write.
+   List file ranges and edited docs under Write.
 3. Run `duolog delegate <role> --task .duolog/task.md` in the background;
    wait for its notice.
-4. Read summary, `git diff --stat` and marked hunks only. Read
-   `answer.json` for `decisions=` only. Skip full test suites.
-5. Keep hard parts; use `review_final` for final review.
+4. Read summary, `git diff --stat`, marked hunks and `answer.json`'s
+   `decisions=` only; skip full suites.
+5. Keep hard parts; finish with `review_final`.
 
 Put worker rules in `.duolog/brief.md`. With several leads, pass
 `--lead <id>` from SessionStart. Learning mode: run `duolog task start` first.
-Subagents of your own vendor use your tools, not duolog.
+Same-vendor subagents use your tools, not duolog.
 
 ## When duolog says `run here`
 
-- `run here: self`: do it here, reading only the listed ranges.
+- `run here: self`: read only the listed ranges.
 - `run here: subagent model=M effort=E`: use the Agent tool with model M, effort
   E and the task text. Never start another duolog session.
 
 ## Permission requests
 
-A foreground delegate denies asks; the worker retries, then lists the command
-in `needs`. Later run `duolog allow <n>` or `duolog deny <n>`, and
-`duolog remember '<command>'` if the user allows it for good.
+For `"p":true` bus asks, tell the person to answer; rewrite the task if needed,
+but never answer yourself.
+
+Foreground delegates deny asks; workers retry, then list commands in `needs`.
+For ordinary asks use `duolog allow <n>` or `duolog deny <n>`, or
+`duolog remember '<command>'` after the user's approval.
 
 ## Live sessions
 
-Live sessions need Rex. Answer a `duolog peer wait` question with
+Live sessions need Rex. Answer `duolog peer wait` with
 `duolog peer answer <id> <option>`. Run each peer or CI wait as its own
 background command. Run independent tasks in parallel, one worker per
 `.worktrees/` worktree; stack dependent work on the open PR branch.
