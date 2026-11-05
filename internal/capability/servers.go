@@ -264,6 +264,12 @@ func codexMerged(root, h string) (merged map[string]any, files map[string]string
 	return merged, files, user
 }
 
+// CodexHas reports whether the Codex config for root (user layer, and project
+// layer when trusted) has a table for name, even a disabled one. A -c override
+// for a name without a table creates an entry with no transport, which Codex
+// rejects while loading its config.
+func CodexHas(root, name string) bool { return codexHas(root, name) }
+
 // codexHas reports whether the worker's Codex config has a table for name,
 // even a disabled one: -c keys would merge into it.
 func codexHas(root, name string) bool {

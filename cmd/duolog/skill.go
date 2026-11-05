@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -327,6 +328,20 @@ func keepRunLog(runErr error, tempLog, logPath string) error {
 	return errors.New(strings.ReplaceAll(runErr.Error(), tempLog, logPath))
 }
 
+// codexServersOff returns -c overrides that switch off the named MCP servers
+// Codex has in its merged config. A name Codex lacks is skipped: an override
+// for it would create an entry with no transport, and Codex would refuse to
+// load its config.
+func codexServersOff(root string, names []string) []string {
+	var args []string
+	for _, name := range names {
+		if capability.CodexHas(root, name) {
+			args = append(args, "-c", fmt.Sprintf("mcp_servers.%q.enabled=false", name))
+		}
+	}
+	return args
+}
+
 func askSkill(cmd *cobra.Command, cfg *config.Config, root, work, prompt string, target config.Target) (runner.Result, router.Route, error) {
 	route := router.Route{Target: target}
 	model, err := models.Resolve(cmd.Context(), cfg, filepath.Join(root, ".duolog", "cache"), target)
@@ -339,9 +354,13 @@ func askSkill(cmd *cobra.Command, cfg *config.Config, root, work, prompt string,
 	// MCP server inherited from the user's Codex configuration.
 	bridge := &runner.MCP{}
 	if target.Agent == "codex" {
-		for name := range capability.Servers("codex", work) {
-			bridge.CodexArgs = append(bridge.CodexArgs, "-c", fmt.Sprintf("mcp_servers.%q.enabled=false", name))
+		names := map[string]bool{}
+		for _, agent := range []string{"codex", "claude"} {
+			for name := range capability.Servers(agent, work) {
+				names[name] = true
+			}
 		}
+		bridge.CodexArgs = codexServersOff(work, slices.Sorted(maps.Keys(names)))
 	}
 	result, err := runner.Run(cmd.Context(), runner.Spec{Route: route, SkillTest: true, TaskDir: work, Cwd: work, Stdin: []byte(prompt), Env: env, MCP: bridge, Timeout: 10 * time.Minute})
 	return result, route, err

@@ -247,3 +247,17 @@ func TestSkillTestWorkersAndMissingPlan(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexServersOffSkipsServersCodexLacks(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("[mcp_servers.private]\ncommand = 'never-start-this'\n[mcp_servers.parked]\ncommand = 'x'\nenabled = false\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(codexServersOff(t.TempDir(), []string{"claude-only", "parked", "private"}), "|")
+	want := `-c|mcp_servers."parked".enabled=false|-c|mcp_servers."private".enabled=false`
+	if got != want {
+		t.Fatalf("got %s, want %s", got, want)
+	}
+}
