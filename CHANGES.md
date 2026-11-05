@@ -42,10 +42,41 @@
 
 ## Development
 
+### Added
+
+- `duolog lead register` makes the current session the lead when the
+  project's hooks never ran, such as after a restart outside the folder.
+- `duolog peer answer --reason` types one line into a peer that the answer
+  left interrupted, such as why a permission was denied.
+- `duolog doctor` says whether Claude trusts the project folder; until it does,
+  Claude ignores the project's `permissions.allow`.
+- Each peer may write its report to `.duolog/tasks/<peer-id>/report.md`;
+  `peer status` and `wait` show the path.
+
 ### Fixed
 
 - `duolog stats`, telemetry and learning costs price Claude cache writes at
   1.25x or 2x input; `stats` shows a `CACHE WRITE` column.
+- `duolog peer status` reports a Claude peer stopped by a denied prompt as
+  `interrupted`; `peer send` types over Claude's dim input suggestion.
+- Workers may stop and read their own background tasks and read their own
+  saved tool results without asking.
+- `duolog skill test` on Codex turns off MCP servers by their bare names, as
+  Codex reads a `-c` key, and only the servers Codex has.
+- A calibration cell that uses more than `cell_max_tokens` ends as over the
+  limit; before, the cap only filtered cells by their estimate.
+- Live peers get a duolog run id, and two projects with the same folder name
+  no longer share Rex session numbers.
+- A release's `install.ps1` and `install.sh` install that release, not the
+  latest; `install.ps1` adds duolog to the user PATH and keeps other variables.
+- The gate reads the command behind a keyword such as `do` or a wrapper such
+  as `command`, and judges every redirect and every read of `.duolog`.
+- A worker can no longer approve its own ask by running `duolog.cmd` or
+  `duolog.ps1` on Windows.
+- Delegate warnings on a long result line are no longer cut off, and telemetry
+  runs one prune pass when many duolog processes start at once.
+- `install.sh` works with busybox `sh` and `wget`, so Alpine needs no curl or
+  bash; CI checks it and the static binaries on Alpine and old Linux.
 
 ## 1.4.0
 
