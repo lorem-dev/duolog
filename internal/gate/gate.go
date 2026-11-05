@@ -46,6 +46,10 @@ type Action struct {
 	// ProtectedRoots are the telemetry and balance roots. No worker path may
 	// reach them, whatever the policy or mode.
 	ProtectedRoots []string `json:"-"`
+	// OwnResult means a read targets the saved tool results of the worker's
+	// own Claude session; see OwnToolResults. The hook sets it from the
+	// session id, never the worker.
+	OwnResult bool `json:"-"`
 }
 
 type Decision struct {
@@ -198,6 +202,9 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 				return decision(Deny, "read-only role requires a named read-only command", "role sandbox")
 			}
 		}
+	}
+	if a.Kind == "read" && a.OwnResult && outside(a.Target) {
+		return decision(Allow, "the worker's own saved tool result", "own tool results")
 	}
 	if (a.Kind == "read" || a.Kind == "write") && outside(a.Target) {
 		for _, rule := range p.Rules {

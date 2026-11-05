@@ -113,6 +113,10 @@ by accident: `go test ./secrets/...` is denied by the `secrets/` rule.
 Secrets include nested `.env` and `.env.*` files. Paths outside the working
 tree ask in every mode, unless an explicit outside-path rule applies. A broad
 `**` allow does not cover them. On macOS and Windows, path rules ignore case.
+One exception: a Claude worker may read the large tool outputs Claude saved
+for its own session, under `projects/<project>/<its session id>/tool-results`
+in Claude's config folder. Another session's folder and every other path under
+`~/.claude` still ask, and denies still apply.
 
 A deny wins over an allow. When no rule matches, the decision is
 `on_unmatched`, which is `ask` by default. The default denies always apply: a
