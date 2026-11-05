@@ -15,5 +15,5 @@ func parentProcess(pid int) (int, string) {
 	if err != nil {
 		return 0, ""
 	}
-	return int(proc.Eproc.Ppid), ""
+	return int(proc.Eproc.Ppid), unix.ByteSliceToString(proc.Proc.P_comm[:])
 }

@@ -17,6 +17,26 @@ worker is enough.
 - The lead registered by its `SessionStart` hook. The `--lead` flag or the
   `DUOLOG_LEAD` variable names it.
 
+## How to register a lead that its hooks missed
+
+The project's hooks do not run for a session that started in another folder.
+They also miss a session resumed here after a restart. Then `duolog peer open`
+says `no live lead`. Ask that session to run this command in its own shell:
+
+```sh
+duolog lead register [plan|ask|edits|full]
+```
+
+duolog reads the session ID that the agent sets in its shell. Claude sets
+`CLAUDE_CODE_SESSION_ID`, and Codex sets `CODEX_THREAD_ID`. If the ID is
+missing, the command refuses. duolog records the agent process above the
+shell, as the hook does.
+
+The mode you give can only be at or below the mode that duolog observes in the
+session's transcript. Without that observation, the mode is at most `ask`.
+Without a mode, duolog uses the observed one, or `ask`. A worker cannot
+register a lead.
+
 ## How a live session works
 
 | Step | Command | What happens |
