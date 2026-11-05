@@ -134,6 +134,36 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
 
+  # A native arm64 runner is cheaper than QEMU: no emulation, and it runs in
+  # parallel with cross-build, so it adds no time to that job.
+  compat-arm64:
+    name: compat (linux/arm64 on Alpine and old Ubuntu)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build the arm64 binary
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: arm64
+        run: go build -o "$RUNNER_TEMP/duolog-linux-arm64" ./cmd/duolog
+      - name: The arm64 binary is static and runs on Alpine and old Ubuntu
+        shell: bash
+        run: |
+          file "$RUNNER_TEMP/duolog-linux-arm64" | grep -q 'statically linked'
+          for image in alpine:3.20 ubuntu:16.04; do
+            echo "== $image"
+            docker run --rm \
+              -v "$RUNNER_TEMP/duolog-linux-arm64:/usr/local/bin/duolog-under-test:ro" \
+              -v "$PWD/scripts/compat/smoke.sh:/smoke.sh:ro" \
+              "$image" sh /smoke.sh /usr/local/bin/duolog-under-test
+          done
+
   cross-build:
     name: cross-build (all release targets)
     runs-on: ubuntu-latest
@@ -162,13 +192,48 @@ jobs:
       - name: The Linux binary is static and runs on old systems and Alpine
         shell: bash
         run: |
-          file "$RUNNER_TEMP/duolog-linux-amd64" | grep -q 'statically linked'
+          for binary in duolog-linux-amd64 duolog-linux-arm64; do
+            file "$RUNNER_TEMP/$binary" | grep -q 'statically linked'
+          done
           for image in alpine:3.10 alpine:3.20 ubuntu:14.04 ubuntu:16.04 debian:9 centos:7; do
             echo "== $image"
             docker run --rm \
               -v "$RUNNER_TEMP/duolog-linux-amd64:/usr/local/bin/duolog-under-test:ro" \
               -v "$PWD/scripts/compat/smoke.sh:/smoke.sh:ro" \
               "$image" sh /smoke.sh /usr/local/bin/duolog-under-test
+          done
+      # The installer must work with busybox sh and wget (Alpine) and on old
+      # glibc. Serve the snapshot build from this runner: no GitHub needed.
+      - name: The installer runs on Alpine and old Ubuntu
+        shell: bash
+        run: |
+          version=$(sed -n 's/^var version = "\(.*\)"/\1/p' cmd/duolog/main.go)
+          go run ./scripts/render-install
+          serve="$RUNNER_TEMP/serve"
+          mkdir -p "$serve"
+          cp "$RUNNER_TEMP/duolog-linux-amd64" "$serve/duolog"
+          tar -C "$serve" -czf "$serve/duolog_${version}_linux_amd64.tar.gz" duolog
+          rm "$serve/duolog"
+          (cd "$serve" && sha256sum "duolog_${version}_linux_amd64.tar.gz" > checksums.txt)
+          (cd "$serve" && python3 -m http.server 8099 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            curl -fs "http://127.0.0.1:8099/checksums.txt" >/dev/null && break
+            sleep 0.5
+          done
+          for image in alpine:3.20 ubuntu:14.04; do
+            echo "== $image"
+            docker run --rm --network host \
+              -e DUOLOG_DOWNLOAD_BASE=http://127.0.0.1:8099 \
+              -e "VERSION=v$version" \
+              -v "$PWD/.release/install.sh:/install.sh:ro" \
+              "$image" sh -c '
+                set -eu
+                # Alpine has no curl; old Ubuntu may have only one of them.
+                if command -v curl >/dev/null 2>&1; then echo "fetcher: curl"; else echo "fetcher: wget"; fi
+                sh /install.sh --version "$VERSION" --dir /opt/duolog-bin
+                /opt/duolog-bin/duolog version
+                test "$(/opt/duolog-bin/duolog version | tr -d "v")" = "${VERSION#v}"
+              '
           done
       # A config check does not find a release that cannot run, so run it.
       - name: Install shellcheck for the release hooks

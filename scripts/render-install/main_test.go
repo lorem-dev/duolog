@@ -18,7 +18,7 @@ func TestInstaller(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX installer")
 	}
-	for _, scenario := range []string{"good", "tampered", "missing", "checksum-download", "pinned", "pinned-bare", "bad-version", "unsupported", "windows", "via-go", "update", "env", "dir", "tampered-existing"} {
+	for _, scenario := range []string{"good", "tampered", "missing", "checksum-download", "pinned", "pinned-bare", "bad-version", "unsupported", "windows", "via-go", "update", "env", "dir", "tampered-existing", "wget", "no-fetcher"} {
 		t.Run(scenario, func(t *testing.T) {
 			dir := t.TempDir()
 			script := filepath.Join(dir, "install.sh")
@@ -64,6 +64,37 @@ case "$4" in
  *) exit 22 ;;
 esac
 `)
+			// Alpine has busybox wget and often no curl. Give the script a PATH
+			// with the tools it needs and no curl.
+			noCurl := scenario == "wget" || scenario == "no-fetcher"
+			if noCurl {
+				if err := os.Remove(filepath.Join(bin, "curl")); err != nil {
+					t.Fatal(err)
+				}
+				tools := filepath.Join(dir, "tools")
+				if err := os.Mkdir(tools, 0755); err != nil {
+					t.Fatal(err)
+				}
+				for _, tool := range []string{"tr", "tar", "mktemp", "awk", "chmod", "mv", "cp", "rm", "mkdir", "sed", "head", "cat", "sha256sum", "shasum", "gzip", "dirname", "basename"} {
+					if found, err := exec.LookPath(tool); err == nil {
+						if err := os.Symlink(found, filepath.Join(tools, tool)); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+			}
+			if scenario == "wget" {
+				write(filepath.Join(bin, "wget"), `#!/bin/sh
+printf '%s\n' "$*" >> "$FIXTURE/urls"
+[ "$1" = -q ] && [ "$2" = -O ] || exit 9
+case "$4" in
+ https://api.github.com/repos/lorem-dev/duolog/releases/latest) printf '{\n  "tag_name": "v1.2.3",\n  "name": "v1.2.3"\n}\n' ;;
+ */checksums.txt) cp "$FIXTURE/checksums.txt" "$3" ;;
+ */duolog_1.2.3_linux_amd64.tar.gz) cp "$FIXTURE/archive.tar.gz" "$3" ;;
+ *) exit 1 ;;
+esac
+`)
+			}
 			var archive bytes.Buffer
 			gz := gzip.NewWriter(&archive)
 			tw := tar.NewWriter(gz)
@@ -140,12 +171,16 @@ esac
 			}
 			run := func() (string, error) {
 				cmd := exec.Command("sh", args...)
-				cmd.Env = append(os.Environ(), "HOME="+home, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "FIXTURE="+dir, "FAKE_ARCH="+arch, "FAKE_OS="+osName, "FAIL_CHECKSUM="+failChecksum, "DUOLOG_VERSION="+envVersion, "DUOLOG_INSTALL_DIR="+installDir)
+				path := bin + string(os.PathListSeparator) + os.Getenv("PATH")
+				if noCurl {
+					path = bin + string(os.PathListSeparator) + filepath.Join(dir, "tools")
+				}
+				cmd.Env = append(os.Environ(), "HOME="+home, "PATH="+path, "FIXTURE="+dir, "FAKE_ARCH="+arch, "FAKE_OS="+osName, "FAIL_CHECKSUM="+failChecksum, "DUOLOG_VERSION="+envVersion, "DUOLOG_INSTALL_DIR="+installDir)
 				out, err := cmd.CombinedOutput()
 				return string(out), err
 			}
 			out, err := run()
-			success := scenario == "good" || strings.HasPrefix(scenario, "pinned") || scenario == "update" || scenario == "env" || scenario == "dir"
+			success := scenario == "good" || strings.HasPrefix(scenario, "pinned") || scenario == "update" || scenario == "env" || scenario == "dir" || scenario == "wget"
 			if success {
 				if err != nil {
 					t.Fatalf("install: %v\n%s", err, out)
@@ -180,6 +215,15 @@ esac
 					if !strings.Contains(out, "go install github.com/lorem-dev/duolog/cmd/duolog@latest") {
 						t.Fatal(out)
 					}
+				}
+			}
+			if scenario == "no-fetcher" && !strings.Contains(out, "curl or wget") {
+				t.Fatal(out)
+			}
+			if scenario == "wget" {
+				urls, err := os.ReadFile(filepath.Join(dir, "urls"))
+				if err != nil || !bytes.Contains(urls, []byte("api.github.com/repos/lorem-dev/duolog/releases/latest")) {
+					t.Fatalf("wget urls %q: %v", urls, err)
 				}
 			}
 			if scenario == "pinned" {

@@ -17,8 +17,11 @@ duolog install --scope project
 ```
 
 The Linux binaries are static, so they need no libc of a given version. CI
-runs them on Alpine 3.10 and 3.20, Ubuntu 14.04 and 16.04, Debian 9 and
-CentOS 7. Claude Code and Codex have their own system requirements.
+runs the amd64 binary on Alpine 3.10 and 3.20, Ubuntu 14.04 and 16.04,
+Debian 9 and CentOS 7, and the arm64 binary on Alpine 3.20 and Ubuntu 16.04.
+The installer also works with busybox `sh` and `wget`, so Alpine needs no curl
+or bash; CI runs it on Alpine 3.20 and Ubuntu 14.04. Claude Code and Codex
+have their own system requirements.
 
 Pin a release or choose another directory:
 
