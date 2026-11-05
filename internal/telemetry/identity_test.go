@@ -174,6 +174,78 @@ func TestProjectIDVector(t *testing.T) {
 	})
 }
 
+func TestSaltHalfWrittenIsRemoved(t *testing.T) {
+	noOverride(t)
+	root := filepath.Join(tempBase(t), "telemetry")
+	r := mustOpenProtected(t, root)
+	salt := filepath.Join(root, "salt")
+
+	for _, fail := range []func(f *os.File, b []byte) (int, error){
+		func(f *os.File, b []byte) (int, error) { return f.Write(b[:16]) },
+		func(f *os.File, b []byte) (int, error) {
+			n, _ := f.Write(b[:5])
+			return n, &fs.PathError{Op: "write", Path: salt, Err: errors.New("disk full")}
+		},
+		func(*os.File, []byte) (int, error) { return 0, errors.New("io error") },
+	} {
+		setWriteFile(t, fail)
+		got, err := loadSalt(r)
+		if err == nil || got != [32]byte{} {
+			t.Fatalf("got %x, %v; want a failure", got, err)
+		}
+		noPath(t, err, root)
+		if _, err := os.Lstat(salt); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("the half-written salt stayed: %v", err)
+		}
+
+		// The next load creates the salt again.
+		setWriteFile(t, (*os.File).Write)
+		first, err := loadSalt(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if again, err := loadSalt(r); err != nil || again != first {
+			t.Fatalf("reload: %x, %v; want %x", again, err, first)
+		}
+		data := sameSalt(t, salt, mustLstat(t, salt))
+		if [32]byte(data) != first {
+			t.Fatalf("salt on disk %x, loaded %x", data, first)
+		}
+		if err := os.Remove(salt); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("a replaced salt is not removed", func(t *testing.T) {
+		// Someone else's file at the name stays where it is.
+		other := filepath.Join(filepath.Dir(salt), "other")
+		setWriteFile(t, func(f *os.File, b []byte) (int, error) {
+			if err := os.WriteFile(other, bytes.Repeat([]byte{1}, 32), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(other, salt); err != nil {
+				t.Skipf("cannot replace an open file here: %v", err)
+			}
+			return f.Write(b[:3])
+		})
+		if _, err := loadSalt(r); err == nil {
+			t.Fatal("a failed write succeeded")
+		}
+		if data, err := os.ReadFile(salt); err != nil || !bytes.Equal(data, bytes.Repeat([]byte{1}, 32)) {
+			t.Errorf("the replacement salt is %x, %v", data, err)
+		}
+	})
+}
+
+func mustLstat(t *testing.T, path string) os.FileInfo {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info
+}
+
 const saltTestEnv = "DUOLOG_SALT_TEST_DIR"
 
 // saltChild runs in a test-binary process: it loads the salt of
