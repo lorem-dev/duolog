@@ -170,8 +170,20 @@ func (rd *reader) partition(p string) {
 
 // lock takes the partition's lock shared, checked like every other file. A
 // partition with no lock file was never written by a store and is read
-// unlocked; Read never creates one.
+// unlocked; Read never creates one. A lock taken on a file that left the
+// name meanwhile, as a prune or purge removes the lock of a partition it
+// empties, is let go and taken once more on what is now there.
 func (rd *reader) lock(name string) (func(), error) {
+	unlock, err := rd.lockOnce(name)
+	if errors.Is(err, errMoved) {
+		unlock, err = rd.lockOnce(name)
+	}
+	return unlock, err
+}
+
+// lockOnce takes the lock and confirms after locking that the locked file is
+// the one checked and is still at name, as lockFile does.
+func (rd *reader) lockOnce(name string) (func(), error) {
 	f, err := openReading(rd.root, name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return func() {}, nil
@@ -193,6 +205,12 @@ func (rd *reader) lock(name string) (func(), error) {
 	if err != nil || !os.SameFile(locked, unwrap(checked)) {
 		l.Close()
 		return nil, errUnsafe
+	}
+	race("locked")
+	at, err := rd.root.Lstat(name)
+	if err != nil || !regular(at) || !os.SameFile(at, locked) {
+		l.Close()
+		return nil, errMoved
 	}
 	return func() { l.Close() }, nil
 }

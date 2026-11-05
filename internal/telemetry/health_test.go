@@ -37,10 +37,10 @@ func TestHealthSinceProcessStart(t *testing.T) {
 	}
 
 	// Failures leave no counter file: the root holds the salt, the backup
-	// tag and segments with their locks only.
+	// tag, the prune stamp and segments with their locks only.
 	s.Append(sampleRun())
 	root := storeRoot(t, base)
-	allowed := regexp.MustCompile(`^(?:salt|CACHEDIR\.TAG|v1|v1/(?:_account|[0-9a-f]{16})(?:/(?:telemetry\.lock|[0-9]{4}-[0-9]{2}-[0-9]{2}\.ndjson))?)$`)
+	allowed := regexp.MustCompile(`^(?:salt|CACHEDIR\.TAG|prune\.stamp|v1|v1/(?:_account|[0-9a-f]{16})(?:/(?:telemetry\.lock|[0-9]{4}-[0-9]{2}-[0-9]{2}\.ndjson))?)$`)
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || p == root {
 			return err

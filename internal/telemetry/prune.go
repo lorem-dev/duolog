@@ -1,7 +1,9 @@
 package telemetry
 
 import (
+	"cmp"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -14,15 +16,17 @@ import (
 	"github.com/gofrs/flock"
 )
 
-// stampName is the file whose mtime records the last completed prune.
+// stampName is the file whose mtime records the last completed prune. Its
+// flock is the global lock, and nothing removes it.
 const stampName = "prune.stamp"
 
 // Maintenance counts what one Prune did. Deleted counts the files removed:
-// expired segments and temporary files a crash left. Compressed counts the
-// closed days now held in gzip only. Skipped counts segments and temporary
-// files left in place: links, files with another name, and steps that failed,
-// which the next prune tries again. Bytes is what the pass freed on disk.
-// Entries maintenance does not recognise are left alone and not counted.
+// expired segments, segments evicted for the root cap and temporary files a
+// crash left. Compressed counts the closed days now held in gzip only.
+// Skipped counts segments and temporary files left in place: links, files
+// with another name, and steps that failed, which the next prune tries again.
+// Bytes is what the pass freed on disk. Entries maintenance does not
+// recognise are left alone and not counted.
 type Maintenance struct {
 	Deleted, Compressed, Skipped int
 	Bytes                        int64
@@ -35,13 +39,18 @@ var errPrune = errors.New("telemetry: prune failed")
 // tempName is a compression a crash or a failed step left behind.
 var tempName = regexp.MustCompile(`^([0-9]{4}-[0-9]{2}-[0-9]{2})\.ndjson\.gz\.tmp$`)
 
+// errMoved is a lock taken on a file that is no longer at its name: a prune
+// or purge removed it while the locker waited.
+var errMoved = fmt.Errorf("%w: lock file moved", errUnsafe)
+
 // Prune deletes the segments of every partition whose day D has now >= D +
 // retention, compresses each closed day before today, removes temporary files
-// a crash left and empty partitions. It runs when force is set, or when
-// prune.stamp is missing, at least PruneEveryHours old, or ahead of the clock;
-// otherwise it does nothing. The due check runs under the stamp's flock, so
-// of several due processes one prunes and the others find the stamp fresh.
-// Partitions are then locked one at a time.
+// a crash left and empty partitions, then evicts the oldest segments while
+// the root is over its cap. It runs when force is set, or when prune.stamp is
+// missing, at least PruneEveryHours old, or ahead of the clock; otherwise it
+// does nothing. The due check runs under the global lock, so of several due
+// processes one prunes and the others find the stamp fresh. Partitions are
+// then locked one at a time.
 //
 // The stamp's mtime is set to now only when a pass completes; a step that
 // fails on one file is skipped and retried by the next prune. No other clock
@@ -53,23 +62,7 @@ func (s *Store) Prune(force bool) (Maintenance, error) {
 	if s.root == nil {
 		return Maintenance{}, nil
 	}
-	var err error
-	if s.o.Enabled {
-		_, err = checkRoot(s.path)
-	} else {
-		// A store with collection off leaves the root's protection as it is.
-		_, _, err = inspectRoot(s.path)
-	}
-	if err != nil {
-		return Maintenance{}, pruneCategory(err)
-	}
-	if err := sameDir(s.root, s.path); err != nil {
-		return Maintenance{}, pruneCategory(err)
-	}
-	if err := s.newStamp(); err != nil {
-		return Maintenance{}, pruneCategory(err)
-	}
-	l, stamp, err := s.lockFile(stampName)
+	l, stamp, err := s.lockGlobal()
 	if err != nil {
 		return Maintenance{}, pruneCategory(err)
 	}
@@ -86,6 +79,9 @@ func (s *Store) Prune(force bool) (Maintenance, error) {
 	var m Maintenance
 	for _, p := range append([]string{accountPartition}, projects...) {
 		s.prunePartition(p, now, &m)
+	}
+	if _, err := s.fit(0, now.Format(time.DateOnly), "", &m); err != nil {
+		m.Skipped++
 	}
 	if err := s.setStamp(stamp, now); err != nil {
 		return m, pruneCategory(err)
@@ -130,10 +126,35 @@ func (s *Store) setStamp(locked os.FileInfo, now time.Time) error {
 	return scrub(s.root.Chtimes(stampName, now, now))
 }
 
+// lockGlobal checks the root and takes the global lock, the flock on
+// prune.stamp. Appends, prunes and purges hold it before they take any
+// partition lock, so none of them waits on a partition lock another holds
+// while a purge removes it. With collection off the root's protection is
+// left as it is.
+func (s *Store) lockGlobal() (*flock.Flock, os.FileInfo, error) {
+	var err error
+	if s.o.Enabled {
+		_, err = checkRoot(s.path)
+	} else {
+		_, _, err = inspectRoot(s.path)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := sameDir(s.root, s.path); err != nil {
+		return nil, nil, err
+	}
+	if err := s.newStamp(); err != nil {
+		return nil, nil, err
+	}
+	return s.lockFile(stampName)
+}
+
 // lockFile takes the exclusive flock on name, a file opened and checked like
 // every other, and confirms after locking that the locked file is the one
 // checked and is still at name, so a file removed or replaced meanwhile is
-// never trusted.
+// never trusted. A file that left the name while the lock was awaited fails
+// with errMoved.
 func (s *Store) lockFile(name string) (*flock.Flock, os.FileInfo, error) {
 	f, err := openRegular(s.root, name, os.O_CREATE|os.O_RDWR)
 	if err != nil {
@@ -155,10 +176,11 @@ func (s *Store) lockFile(name string) (*flock.Flock, os.FileInfo, error) {
 		l.Close()
 		return nil, nil, errUnsafe
 	}
+	race("locked")
 	at, err := s.root.Lstat(name)
 	if err != nil || !regular(at) || !os.SameFile(at, locked) {
 		l.Close()
-		return nil, nil, errUnsafe
+		return nil, nil, errMoved
 	}
 	return l, locked, nil
 }
@@ -273,10 +295,12 @@ func (s *Store) sizes(names ...string) int64 {
 	return n
 }
 
-// removeEmpty removes a partition that holds nothing but its lock file. On
-// Unix the lock file is removed while held. Windows refuses to remove a file
-// open anywhere, this lock's own handle included, so there the lock is
-// released first, and a writer that opened it meanwhile keeps the partition.
+// removeEmpty removes a partition that holds nothing but its lock file. The
+// caller holds the global lock, so no writer waits on this lock file; a
+// reader that does finds it gone and locks again. On Unix the lock file is
+// removed while held. Windows refuses to remove a file open anywhere, this
+// lock's own handle included, so there the lock is released first, and a
+// reader that opened it meanwhile keeps the partition.
 func (s *Store) removeEmpty(dir string, l *flock.Flock) {
 	entries, err := listDir(s.root, dir)
 	if err != nil {
@@ -302,6 +326,122 @@ func (s *Store) removeEmpty(dir string, l *flock.Flock) {
 	}
 	// Root.Remove removes only an empty directory.
 	_ = retried(func() error { return s.root.Remove(dir) })
+}
+
+// rootBytes adds up the size of every entry under the root but directories:
+// segments, metadata, locks, temporary and unrelated files all count against
+// the cap. Links count by their own size and are never followed, and the
+// walk never leaves the root.
+func rootBytes(r *os.Root) (int64, error) {
+	var n int64
+	err := fs.WalkDir(r.FS(), ".", func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		n += info.Size()
+		return nil
+	})
+	return n, scrub(err)
+}
+
+// evictable is a segment the root cap may evict.
+type evictable struct {
+	partition, day, name string
+	size                 int64
+}
+
+// fit makes room for n more bytes under the root cap of MaxMegabytes. When
+// the root would pass it, the regular segments of days before today go,
+// oldest day first across all partitions, until n fits; today's are never
+// evicted. When evicting all of them would not make room, fit evicts nothing
+// and reports false. The caller holds the global lock and, when held is set,
+// that partition's lock; any other partition is locked for its removals.
+func (s *Store) fit(n int64, today, held string, m *Maintenance) (bool, error) {
+	limit := int64(s.o.MaxMegabytes) * megabyte
+	total, err := rootBytes(s.root)
+	if err != nil {
+		return false, err
+	}
+	if total+n <= limit {
+		return true, nil
+	}
+	segments, err := s.evictable(today)
+	if err != nil {
+		return false, err
+	}
+	var all int64
+	for _, e := range segments {
+		all += e.size
+	}
+	if total-all+n > limit {
+		return false, nil
+	}
+	for _, e := range segments {
+		if total+n <= limit {
+			break
+		}
+		total -= s.evict(e, held, m)
+	}
+	return total+n <= limit, nil
+}
+
+// evictable lists the regular segments of days before today, oldest day
+// first. A partition that is missing, a link or fails a check holds none.
+func (s *Store) evictable(today string) ([]evictable, error) {
+	projects, err := projectPartitions(s.root)
+	if err != nil {
+		return nil, err
+	}
+	var out []evictable
+	for _, p := range append([]string{accountPartition}, projects...) {
+		dir := "v1/" + p
+		entries, err := listDir(s.root, dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			g := segmentName.FindStringSubmatch(e.Name())
+			if g == nil || !validDay(g[1]) || g[1] >= today {
+				continue
+			}
+			info, err := s.root.Lstat(dir + "/" + e.Name())
+			if err != nil || !regular(info) {
+				continue
+			}
+			out = append(out, evictable{partition: p, day: g[1], name: e.Name(), size: info.Size()})
+		}
+	}
+	slices.SortFunc(out, func(a, b evictable) int {
+		return cmp.Or(cmp.Compare(a.day, b.day), cmp.Compare(a.partition, b.partition), cmp.Compare(a.name, b.name))
+	})
+	return out, nil
+}
+
+// evict removes one segment under its partition's lock and returns the bytes
+// it freed; a partition the caller holds is not locked again.
+func (s *Store) evict(e evictable, held string, m *Maintenance) int64 {
+	dir := "v1/" + e.partition
+	if e.partition != held {
+		l, _, err := s.lockFile(dir + "/" + lockName)
+		if err != nil {
+			m.Skipped++
+			return 0
+		}
+		defer l.Close()
+	}
+	before := m.Bytes
+	s.removeFile(dir+"/"+e.name, m)
+	return m.Bytes - before
 }
 
 // retried runs a rename or removal again while Windows reports the sharing

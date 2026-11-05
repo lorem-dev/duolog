@@ -2,15 +2,13 @@ package telemetry
 
 import (
 	"bytes"
+	"compress/gzip"
 	"errors"
 	"io"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"regexp"
 	"time"
-
-	"github.com/gofrs/flock"
 )
 
 const (
@@ -19,6 +17,14 @@ const (
 	// epoch.
 	accountPartition = "_account"
 	lockName         = "telemetry.lock"
+)
+
+// The caps, in bytes: 1 MB is 1,000,000 bytes. A project writes at most
+// projectDayBytes raw per UTC day; the whole root, account included, holds at
+// most MaxMegabytes.
+const (
+	megabyte        = 1_000_000
+	projectDayBytes = 2 * megabyte
 )
 
 var (
@@ -34,6 +40,7 @@ var (
 	errDenied      = errors.New("telemetry: permission denied")
 	errWrite       = errors.New("telemetry: write failed")
 	errClosed      = errors.New("telemetry: store closed")
+	errCapped      = errors.New("telemetry: cap reached")
 )
 
 // writeFile and closeFile let tests fail a write or a close.
@@ -44,10 +51,12 @@ var (
 
 // Append writes e as one line to the segment of its partition for the UTC
 // day of the write. With collection off, or a project event with the project
-// off, it writes nothing and returns nil. A failure is counted in Health and
-// returned as a closed error; the caller carries on as if it had succeeded.
-// The partition lock is held only for this append, never across a vendor
-// call.
+// off, it writes nothing and returns nil. An event over a cap is dropped
+// whole: it is counted in Health as dropped and Append returns errCapped. A
+// failure is counted in Health and returned as a closed error; the caller
+// carries on as if it had succeeded. A due prune runs first, under its own
+// locks; the global and partition locks are then held only for this append,
+// never across a vendor call.
 func (s *Store) Append(e Event) error {
 	if !s.o.Enabled {
 		return nil
@@ -57,7 +66,10 @@ func (s *Store) Append(e Event) error {
 		return nil
 	}
 	err := s.append(e, account, known)
-	if err != nil {
+	switch {
+	case err == errCapped:
+		dropped.Add(1)
+	case err != nil:
 		countFailure()
 	}
 	return err
@@ -72,20 +84,19 @@ func (s *Store) append(e Event, account, known bool) error {
 	if err != nil {
 		return errRefused
 	}
-	partition := s.project
-	if account {
-		partition = accountPartition
-	}
 	day := now.Format(time.DateOnly)
-	if !partitionPattern.MatchString(partition) || !dayPattern.MatchString(day) || !validDay(day) {
+	if !dayPattern.MatchString(day) || !validDay(day) {
 		return errRefused
 	}
+	// Prune takes the locks itself, so it runs before the append's and
+	// never inside them. One that fails is tried again by the next write.
+	_, _ = s.Prune(false)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.root == nil {
 		return errClosed
 	}
-	return category(s.write("v1/"+partition, day, line))
+	return category(s.write(account, day, line))
 }
 
 // accountEvent sorts e into the account or a project partition; known is
@@ -100,16 +111,25 @@ func accountEvent(e Event) (account, known bool) {
 	return false, false
 }
 
-// write checks the root again, then appends under the partition lock:
-// repair the tail, seek to the end, one write, close. No fsync: a crash may
-// lose the last event.
-func (s *Store) write(dir, day string, line []byte) error {
-	if _, err := checkRoot(s.path); err != nil {
+// write checks the root again, then appends under the global lock and the
+// partition lock, taken in that order: repair the tail, check the caps, seek
+// to the end, one write, close. No fsync: a crash may lose the last event.
+func (s *Store) write(account bool, day string, line []byte) error {
+	global, _, err := s.lockGlobal()
+	if err != nil {
 		return err
 	}
-	if err := sameDir(s.root, s.path); err != nil {
-		return err
+	defer global.Close()
+	partition := accountPartition
+	if !account {
+		if partition, err = s.currentProject(); err != nil {
+			return err
+		}
 	}
+	if !partitionPattern.MatchString(partition) {
+		return errRefused
+	}
+	dir := "v1/" + partition
 	unlock, err := s.lock(dir + "/" + lockName)
 	if err != nil {
 		return err
@@ -122,37 +142,106 @@ func (s *Store) write(dir, day string, line []byte) error {
 		return err
 	}
 	race("append")
-	err = appendLine(f, line)
+	err = s.capped(f, partition, day, account, int64(len(line)))
+	if err == nil {
+		err = appendLine(f, line)
+	}
 	if cerr := closeFile(f); err == nil {
 		err = cerr
 	}
 	return err
 }
 
-// lock takes the partition's flock on a lock file checked like every other
-// file, and confirms the locked file is the one that was checked.
+// currentProject returns this store's project partition under the salt now
+// on disk, making a new salt when a purge removed it. The caller holds the
+// global lock, so a store opened before a purge writes under the new salt,
+// never under an id the purge ended.
+func (s *Store) currentProject() (string, error) {
+	salt, err := loadSalt(s.root)
+	if err != nil {
+		return "", err
+	}
+	s.project = ProjectID(salt, s.o.CanonicalStateRoot)
+	return s.project, nil
+}
+
+// lock takes the partition's flock with lockFile. A lock taken on a file that
+// left the name meanwhile, as a prune or purge removes the lock of a
+// partition it empties, is let go and taken once more on the file now there.
 func (s *Store) lock(name string) (func(), error) {
-	f, err := openRegular(s.root, name, os.O_CREATE|os.O_RDWR)
+	l, _, err := s.lockFile(name)
+	if errors.Is(err, errMoved) {
+		l, _, err = s.lockFile(name)
+	}
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
-	checked, err := fileInfo(f)
-	if err != nil {
-		return nil, scrub(err)
-	}
-	// Without O_CREATE flock cannot make a file in place of a removed one.
-	l := flock.New(filepath.Join(s.path, filepath.FromSlash(name)), flock.SetFlag(os.O_RDWR))
-	if err := l.Lock(); err != nil {
-		l.Close()
-		return nil, scrub(err)
-	}
-	locked, err := l.Stat()
-	if err != nil || !os.SameFile(locked, unwrap(checked)) {
-		l.Close()
-		return nil, errUnsafe
-	}
 	return func() { l.Close() }, nil
+}
+
+// capped repairs the tail of f, the segment of partition for day, and
+// returns errCapped when n more bytes would take a project's day past
+// projectDayBytes raw, or the root past its cap once fit has evicted what it
+// can. The bytes a repair cut never count; every byte that survives does.
+// The caller holds the global lock and the partition's lock.
+func (s *Store) capped(f *os.File, partition, day string, account bool, n int64) error {
+	if err := repairTail(f); err != nil {
+		return err
+	}
+	if !account {
+		raw, err := s.dayBytes(f, "v1/"+partition+"/"+day+".ndjson.gz")
+		if err != nil {
+			return err
+		}
+		if raw+n > projectDayBytes {
+			return errCapped
+		}
+	}
+	fits, err := s.fit(n, day, partition, &Maintenance{})
+	if err != nil {
+		return err
+	}
+	if !fits {
+		return errCapped
+	}
+	return nil
+}
+
+// dayBytes is the raw size of a project's day: the plain segment f plus what
+// a gzip copy of the same day holds, which a clock set back can leave.
+func (s *Store) dayBytes(f *os.File, gz string) (int64, error) {
+	info, err := f.Stat()
+	if err != nil {
+		return 0, err
+	}
+	g, err := openReading(s.root, gz)
+	if errors.Is(err, fs.ErrNotExist) {
+		return info.Size(), nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	defer g.Close()
+	return info.Size() + rawSize(g, projectDayBytes+1), nil
+}
+
+// rawSize is how many bytes the gzip file f holds, counted up to limit. A
+// copy that does not decompress counts at least its size on disk.
+func rawSize(f *os.File, limit int64) int64 {
+	var size int64
+	if info, err := f.Stat(); err == nil {
+		size = info.Size()
+	}
+	z, err := gzip.NewReader(f)
+	if err != nil {
+		return size
+	}
+	defer z.Close()
+	n, err := io.Copy(io.Discard, io.LimitReader(z, limit))
+	if err != nil {
+		return max(n, size)
+	}
+	return n
 }
 
 // appendLine writes line at the end of f after cutting an unterminated last
@@ -211,6 +300,8 @@ func category(err error) error {
 	switch {
 	case err == nil:
 		return nil
+	case err == errCapped:
+		return errCapped
 	case errors.Is(err, errBadName):
 		return errRefused
 	case errors.Is(err, errUnsafe), errors.Is(err, errOwner), errors.As(err, &refused):
