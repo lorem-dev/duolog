@@ -28,6 +28,8 @@ func (e *env) openProjectPeer(ctx context.Context, label string, argv []string) 
 		client.Session = id
 		block, err := client.NewWindow(ctx, argv)
 		if err == nil {
+			// A session from before roots were recorded joins its root's numbering.
+			_ = e.reg.SetPeerSessionRoot(id, canonicalRoot(e.opts.Root))
 			return block, id, nil
 		}
 		if !rex.IsNotFound(err) {
@@ -38,7 +40,7 @@ func (e *env) openProjectPeer(ctx context.Context, label string, argv []string) 
 		}
 	}
 	client.Session = e.rex.Session
-	created, err := client.NewSession(ctx, "duolog | "+filepath.Base(filepath.Clean(e.opts.Root)), argv)
+	created, err := client.NewSession(ctx, e.sessionLabel(), argv)
 	if err != nil {
 		return "", "", err
 	}
@@ -46,22 +48,49 @@ func (e *env) openProjectPeer(ctx context.Context, label string, argv []string) 
 		client.Session = created.Session
 		return "", "", errors.Join(err, client.KillSession(ctx))
 	}
+	// Best effort: without the record, the session is only left unnumbered.
+	_ = e.reg.SetPeerSessionRoot(created.Session, canonicalRoot(e.opts.Root))
 	e.renameProjectSessions(ctx)
 	return created.Block, created.Session, nil
 }
 
-// renameProjectSessions is best effort. Rex session IDs are time-ordered, so
-// sorting them preserves creation order regardless of the listing's order.
+// sessionLabel is the visible name of the project's peer session: the folder's
+// base name, as the person knows the project.
+func (e *env) sessionLabel() string {
+	return "duolog | " + filepath.Base(filepath.Clean(e.opts.Root))
+}
+
+// canonicalRoot is the project's full root with links resolved and cleaned. It,
+// not the base name, says which project a session belongs to.
+func canonicalRoot(root string) string {
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
+	}
+	return filepath.Clean(root)
+}
+
+// renameProjectSessions is best effort. It numbers only the sessions recorded
+// for this project's canonical root, so two projects whose folders share a base
+// name keep their own numbering. Rex session IDs are time-ordered, so sorting
+// them preserves creation order regardless of the listing's order.
 func (e *env) renameProjectSessions(ctx context.Context) {
 	sessions, err := e.rex.ListSessions(ctx)
 	if err != nil {
 		return
 	}
-	label := "duolog | " + filepath.Base(filepath.Clean(e.opts.Root))
+	roots, err := e.reg.PeerSessionRoots()
+	if err != nil {
+		return
+	}
+	root := canonicalRoot(e.opts.Root)
+	label := e.sessionLabel()
 	match := regexp.MustCompile("^" + regexp.QuoteMeta(label) + `(?: \([0-9]+\))?$`)
 	var peers []rex.SessionInfo
 	for _, session := range sessions {
-		if session.ID != e.rex.Session && match.MatchString(session.Label) {
+		if session.ID != e.rex.Session && roots[session.ID] == root && match.MatchString(session.Label) {
 			peers = append(peers, session)
 		}
 	}
@@ -104,6 +133,7 @@ func (e *env) cleanupProjectSession(ctx context.Context) error {
 	if err := client.KillSession(ctx); err != nil {
 		return err
 	}
+	_ = e.reg.SetPeerSessionRoot(id, "")
 	e.renameProjectSessions(ctx)
 	return e.reg.SetPeerRexSession("")
 }

@@ -106,11 +106,13 @@ type Options struct {
 }
 
 // Operation is one open, send or close as the library ran it: its agent, how
-// it ended and how long it took. It carries no screen, answer, id or path.
+// it ended and how long it took. It carries no screen, answer, peer id or path.
+// Run is the duolog run id of the peer's launch, the pane's DUOLOG_RUN; it is
+// empty when the operation failed before a peer was known.
 // Outcome is done, needs (a question), lead (run here), interrupted or failed.
 type Operation struct {
-	Op, Agent, Outcome string
-	Duration           time.Duration
+	Op, Agent, Run, Outcome string
+	Duration                time.Duration
 }
 
 // OperationObserver cannot change an operation: it returns nothing, and the
@@ -118,13 +120,14 @@ type Operation struct {
 type OperationObserver func(Operation)
 
 // observeOperation reports an operation that has ended. Agent is empty when
-// it failed before the agent was known.
-func observeOperation(ctx context.Context, op, agent string, started time.Time, state State, err error) {
+// it failed before the agent was known, and so is run before the peer's launch
+// drew one.
+func observeOperation(ctx context.Context, op, agent, run string, started time.Time, state State, err error) {
 	opts, _ := ctx.Value(optionsKey{}).(Options)
 	if opts.Observe == nil {
 		return
 	}
-	opts.Observe(Operation{Op: op, Agent: agent, Outcome: operationOutcome(state, err), Duration: time.Since(started)})
+	opts.Observe(Operation{Op: op, Agent: agent, Run: run, Outcome: operationOutcome(state, err), Duration: time.Since(started)})
 }
 
 func operationOutcome(state State, err error) string {
@@ -156,7 +159,7 @@ func (e *env) attempt(entry session.Entry, outcome, code string) {
 	if e.opts.ObserveAttempt == nil || entry.Task == "" {
 		return
 	}
-	a := delegate.Attempt{Number: 1, Role: entry.Role, Agent: entry.Agent, Placement: "peer", Outcome: outcome, ErrorCode: code, Reason: "none"}
+	a := delegate.Attempt{Number: 1, Role: entry.Role, Agent: entry.Agent, Run: entry.Run, Placement: "peer", Outcome: outcome, ErrorCode: code, Reason: "none"}
 	if code == runner.CodeQuota {
 		a.Reason = "quota"
 	}
@@ -339,8 +342,8 @@ func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 // right after rex split, then waits until the session is ready, asks a
 // question, has ended or the start time is over. The pane is never closed here.
 func Open(ctx context.Context, role string) (opened Entry, err error) {
-	started, agent := time.Now(), ""
-	defer func() { observeOperation(ctx, "open", agent, started, opened.State, err) }()
+	started, agent, run := time.Now(), "", ""
+	defer func() { observeOperation(ctx, "open", agent, run, started, opened.State, err) }()
 	e, err := setup(ctx)
 	if err != nil {
 		return Entry{}, err
@@ -378,6 +381,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	}
 	for _, p := range peers {
 		if p.Role == role && sameWorkRoot(p.WorkRoot, e.root) {
+			run = p.Run
 			if err := opening.Unlock(); err != nil {
 				return Entry{}, err
 			}
@@ -411,7 +415,8 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	noted := withNotice(strings.Join(notices, " "))
 	// The ID goes into the pane's environment, so it is chosen before the pane exists.
 	id := newID()
-	envFile, err := writeEnvFile(e.dir, agentEnv(e.cfg, route.Agent, lead.id, role, id))
+	run = delegate.NewRunID()
+	envFile, err := writeEnvFile(e.dir, agentEnv(e.cfg, route.Agent, lead.id, role, id, run))
 	if err != nil {
 		return noted(Entry{}, err)
 	}
@@ -420,7 +425,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 		_ = os.Remove(envFile)
 		return noted(Entry{}, err)
 	}
-	entry := session.Entry{ID: id, Lead: lead.id, Agent: route.Agent, Role: role, Thread: peerThread, Block: block, WorkRoot: e.root, RexSession: rexSession, Mode: lead.mode, UpdatedAt: time.Now()}
+	entry := session.Entry{ID: id, Lead: lead.id, Agent: route.Agent, Role: role, Thread: peerThread, Block: block, WorkRoot: e.root, RexSession: rexSession, Run: run, Mode: lead.mode, UpdatedAt: time.Now()}
 	if err := e.reg.RecordLimited(entry, e.cfg.Limits.MaxLiveSessions); err != nil {
 		// The pane exists but nothing records it: do not leave it unowned.
 		closeErr := e.clientFor(entry).Close(ctx, block)
@@ -853,8 +858,8 @@ func (e *env) runHere(entry session.Entry, taskPath, screenText string) (string,
 
 // Send passes one line, a reference to the task file, to a ready session.
 func Send(ctx context.Context, id, taskRef string) (err error) {
-	started, agent := time.Now(), ""
-	defer func() { observeOperation(ctx, "send", agent, started, Ready, err) }()
+	started, agent, run := time.Now(), "", ""
+	defer func() { observeOperation(ctx, "send", agent, run, started, Ready, err) }()
 	e, err := setup(ctx)
 	if err != nil {
 		return err
@@ -863,7 +868,7 @@ func Send(ctx context.Context, id, taskRef string) (err error) {
 	if err != nil {
 		return err
 	}
-	agent = entry.Agent
+	agent, run = entry.Agent, entry.Run
 	ref := strings.TrimSpace(taskRef)
 	if strings.HasPrefix(ref, "/") {
 		if info, err := os.Stat(ref); err != nil || !info.Mode().IsRegular() {
@@ -1221,8 +1226,8 @@ func pick(options []Option, choice string) (int, error) {
 // Close closes the pane and the record. The id may be a pane ID, which is what
 // doctor prints. A pane that is already gone is not an error, and files stay.
 func Close(ctx context.Context, id string) (err error) {
-	started, agent := time.Now(), ""
-	defer func() { observeOperation(ctx, "close", agent, started, Ready, err) }()
+	started, agent, run := time.Now(), "", ""
+	defer func() { observeOperation(ctx, "close", agent, run, started, Ready, err) }()
 	e, err := setupFor(ctx, false)
 	if err != nil {
 		return err
@@ -1244,7 +1249,7 @@ func Close(ctx context.Context, id string) (err error) {
 		}
 		return err
 	}
-	agent = entry.Agent
+	agent, run = entry.Agent, entry.Run
 	if err := e.credit(entry); err != nil {
 		return err
 	}
