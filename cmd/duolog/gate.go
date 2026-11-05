@@ -25,6 +25,10 @@ import (
 
 func isWorker() bool { return workerenv.IsWorker() }
 
+// askWait turns policy.ask_timeout_seconds into the wait for an answer. Tests
+// that only read the ask replace it, so they do not wait out a whole second.
+var askWait = gate.AskWait
+
 // readHookInput reads one hook's JSON, one byte over the limit so that callers can
 // refuse it. Windows PowerShell 5.1 can start a pipe with a byte order mark, which
 // JSON rejects: a hook then registered no lead and said nothing.
@@ -212,7 +216,7 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 		if err := gate.LogRequest(&store.Store{Dir: reg.Dir}, a, d); err != nil {
 			return a, d, err
 		}
-		wait := gate.AskWait(cfg.Policy.AskTimeoutSeconds)
+		wait := askWait(cfg.Policy.AskTimeoutSeconds)
 		// The store opens only once an ask has ended: allows and denies never
 		// reach telemetry.
 		ctx := gate.WithAskObserver(cmd.Context(), func(r gate.AskResult) {

@@ -45,6 +45,7 @@ func peerTelemetryProject(t *testing.T) (root, taskPath, telemetryRoot string) {
 // peerRex installs a fake rex whose pane shows the screens in turn.
 func peerRex(t *testing.T, screens ...string) {
 	t.Helper()
+	shortPeerPauses(t)
 	testbin.Install(t, "rex", testbin.Scenario{Exit: 99, Stderr: "unexpected rex command", Responses: map[string]testbin.Scenario{
 		"new":           {Stdout: peerSplitReply},
 		"window new":    {Stdout: peerSplitReply},
