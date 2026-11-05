@@ -209,6 +209,8 @@ jobs:
         run: |
           version=$(sed -n 's/^var version = "\(.*\)"/\1/p' cmd/duolog/main.go)
           go run ./scripts/render-install
+          # A release copy names its own tag; the run without --version uses it.
+          go run ./scripts/render-install -version "v$version" -o .release/install-pinned.sh
           serve="$RUNNER_TEMP/serve"
           mkdir -p "$serve"
           cp "$RUNNER_TEMP/duolog-linux-amd64" "$serve/duolog"
@@ -226,13 +228,22 @@ jobs:
               -e DUOLOG_DOWNLOAD_BASE=http://127.0.0.1:8099 \
               -e "VERSION=v$version" \
               -v "$PWD/.release/install.sh:/install.sh:ro" \
+              -v "$PWD/.release/install-pinned.sh:/install-pinned.sh:ro" \
               "$image" sh -c '
                 set -eu
-                # Alpine has no curl; old Ubuntu may have only one of them.
+                # Alpine has busybox wget. The Ubuntu image has neither curl
+                # nor wget, so give it wget, as a minimal system would have.
+                if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+                  apt-get update -qq && apt-get install -y -qq wget >/dev/null
+                fi
                 if command -v curl >/dev/null 2>&1; then echo "fetcher: curl"; else echo "fetcher: wget"; fi
                 sh /install.sh --version "$VERSION" --dir /opt/duolog-bin
                 /opt/duolog-bin/duolog version
                 test "$(/opt/duolog-bin/duolog version | tr -d "v")" = "${VERSION#v}"
+                # No --version and no DUOLOG_VERSION: the release pin decides.
+                rm -rf /opt/duolog-pinned
+                sh /install-pinned.sh --dir /opt/duolog-pinned
+                test "$(/opt/duolog-pinned/duolog version | tr -d "v")" = "${VERSION#v}"
               '
           done
       # A config check does not find a release that cannot run, so run it.

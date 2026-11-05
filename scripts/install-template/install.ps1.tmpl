@@ -14,8 +14,16 @@
     if (Get-Variable DuologInstallerBaseUrl -ErrorAction SilentlyContinue) {
         $base = $DuologInstallerBaseUrl.TrimEnd('/')
     }
+    # Internal test seam; not an installation option. The user's environment
+    # key, where the persistent PATH lives.
+    $envKey = 'HKCU:\Environment'
+    if (Get-Variable DuologInstallerEnvKey -ErrorAction SilentlyContinue) {
+        $envKey = $DuologInstallerEnvKey
+    }
+    # A release copy of this script names its own release here; the copy in
+    # the repository says latest. DUOLOG_VERSION always wins.
     $version = $env:DUOLOG_VERSION
-    if (-not $version) { $version = 'latest' }
+    if (-not $version) { $version = '{{.Version}}' }
     $installDir = $env:DUOLOG_INSTALL_DIR
     if (-not $installDir) {
         if (-not $env:LOCALAPPDATA) { throw 'LOCALAPPDATA is not set' }
@@ -80,7 +88,48 @@
         }
         $staged = $null
         Write-Output "Installed {{.BinaryName}} $version to $target"
-        Write-Output "Add $installDir to PATH in Windows Environment Variables."
+        if ($env:DUOLOG_NO_PATH) {
+            Write-Output "Skipped PATH (DUOLOG_NO_PATH is set). Add $installDir to PATH yourself."
+        } else {
+            # Edit the user's PATH only (HKCU), never the machine's. Keep the
+            # stored value unexpanded so %VARIABLES% in it survive.
+            $normalize = { param($p) [Environment]::ExpandEnvironmentVariables($p).Trim().TrimEnd('\', '/') }
+            $wanted = & $normalize $installDir
+            if ($envKey -match '^HKCU:\\(.+)$') { $subKey = $Matches[1] } else { throw "Unsupported environment key $envKey" }
+            # CreateSubKey opens the key when it exists and never replaces it,
+            # so the user's other variables stay. Only the Path value is written.
+            $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($subKey)
+            try {
+                $userPath = [string]$key.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+                $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
+                if ($key.GetValueNames() -contains 'Path') { $kind = $key.GetValueKind('Path') }
+                $present = $false
+                foreach ($entry in $userPath.Split(';')) {
+                    if ($entry.Trim() -and (& $normalize $entry) -ieq $wanted) { $present = $true }
+                }
+                if ($present) {
+                    Write-Output "$installDir is already on your user PATH."
+                } elseif ($kind -ne 'String' -and $kind -ne 'ExpandString') {
+                    Write-Output "Your user PATH is not a text value, so it was left alone. Add $installDir to PATH yourself."
+                } else {
+                    $newPath = $installDir
+                    if ($userPath.Trim()) { $newPath = $userPath.TrimEnd(';') + ';' + $installDir }
+                    # Keep the value's kind: REG_EXPAND_SZ stays REG_EXPAND_SZ.
+                    $key.SetValue('Path', $newPath, $kind)
+                    if ($envKey -eq 'HKCU:\Environment') {
+                        # Setting and clearing a user variable makes Windows tell
+                        # running programs that the environment changed. The
+                        # name is new each time, so no variable of the user's
+                        # is touched.
+                        $notify = 'DUOLOG_PATH_NOTIFY_' + [guid]::NewGuid().ToString('N')
+                        [Environment]::SetEnvironmentVariable($notify, '1', 'User')
+                        [Environment]::SetEnvironmentVariable($notify, $null, 'User')
+                    }
+                    $env:Path = $env:Path.TrimEnd(';') + ';' + $installDir
+                    Write-Output "Added $installDir to your user PATH. Set DUOLOG_NO_PATH=1 to skip this."
+                }
+            } finally { $key.Dispose() }
+        }
         Write-Output 'Open a new terminal, then: duolog install --scope project'
     } finally {
         if ($staged -and (Test-Path -LiteralPath $staged)) {

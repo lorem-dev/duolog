@@ -11,7 +11,7 @@ dist: .cache/dist
 # rendered to .release, which git ignores.
 before:
   hooks:
-    - make install-script
+    - make install-script RELEASE_TAG={{ .Tag }}
     - shellcheck -S error .release/install.sh
 
 builds:

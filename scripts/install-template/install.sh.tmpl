@@ -6,7 +6,9 @@ REPO="{{.Repo}}"
 BINARY="{{.BinaryName}}"
 GO_MODULE="{{.GoModulePath}}"
 SUPPORTED_PLATFORMS="{{.SupportedPlatforms}}"
-VERSION="${DUOLOG_VERSION:-latest}"
+# A release copy of this script names its own release here; the copy in the
+# repository says latest. DUOLOG_VERSION and --version win.
+VERSION="${DUOLOG_VERSION:-{{.Version}}}"
 INSTALL_DIR="${DUOLOG_INSTALL_DIR:-$HOME/.local/bin}"
 VIA_GO=0
 err() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -30,7 +32,7 @@ while [ "$#" -gt 0 ]; do
         -h|--help)
             cat <<HELP
 Usage: install.sh [--version VERSION] [--dir DIR] [--via-go] [-h]
-DUOLOG_VERSION defaults to latest; DUOLOG_INSTALL_DIR to ~/.local/bin.
+DUOLOG_VERSION defaults to {{.Version}}; DUOLOG_INSTALL_DIR to ~/.local/bin.
 --via-go prints the go install command and exits non-zero.
 HELP
             exit 0 ;;
@@ -96,6 +98,9 @@ if [ "$VERSION" = latest ]; then
         VERSION=${RESOLVED##*/}
     else
         # busybox wget cannot report the final URL, so read the tag from the API.
+        for tool in sed head; do
+            command -v "$tool" >/dev/null 2>&1 || err "missing required tool: $tool"
+        done
         RESOLVED=$(fetch "https://api.github.com/repos/$OWNER/$REPO/releases/latest" -) || err 'cannot resolve latest release'
         VERSION=$(printf '%s\n' "$RESOLVED" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
     fi

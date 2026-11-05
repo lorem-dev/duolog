@@ -1,8 +1,9 @@
 // render-install renders the POSIX and PowerShell installer templates to dist.
-// Both release assets resolve versions at runtime. With -template and/or -o,
+// A release passes its tag with -version so each asset installs its own
+// release; without it the assets resolve the latest release. With -template and/or -o,
 // it renders a single custom file instead.
 //
-// Usage: go run ./scripts/render-install [-template <path>] [-o <path>]
+// Usage: go run ./scripts/render-install [-version <tag>] [-template <path>] [-o <path>]
 package main
 
 import (
@@ -11,19 +12,31 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"text/template"
 )
 
 // templateData is what the template uses. Values are constant across
-// versions of duolog - the install script itself resolves the
-// version at runtime.
+// versions of duolog, except Version: the copy in the repository says
+// "latest", and a release copy names its own release tag.
 type templateData struct {
 	Owner              string
 	Repo               string
 	BinaryName         string
 	GoModulePath       string
 	SupportedPlatforms string
+	Version            string
+}
+
+var releaseVersion = regexp.MustCompile(`^v[0-9][0-9A-Za-z.+-]*$`)
+
+// checkVersion accepts "latest" or a release tag such as v1.4.0.
+func checkVersion(version string) error {
+	if version == "latest" || releaseVersion.MatchString(version) {
+		return nil
+	}
+	return fmt.Errorf("version %q is neither latest nor a release tag such as v1.4.0", version)
 }
 
 func defaultData() templateData {
@@ -34,6 +47,7 @@ func defaultData() templateData {
 		BinaryName:         "duolog",
 		GoModulePath:       "github.com/lorem-dev/duolog/cmd/duolog",
 		SupportedPlatforms: strings.Join(platforms, " "),
+		Version:            "latest",
 	}
 }
 
@@ -41,8 +55,15 @@ func main() {
 	var (
 		tmplFlag = flag.String("template", "", "path to template")
 		outFlag  = flag.String("o", "", "output path")
+		verFlag  = flag.String("version", "latest", "release tag the installers default to, or latest")
 	)
 	flag.Parse()
+	data := defaultData()
+	data.Version = *verFlag
+	if err := checkVersion(data.Version); err != nil {
+		fmt.Fprintf(os.Stderr, "render-install: %v\n", err)
+		os.Exit(1)
+	}
 
 	pairs := [][2]string{{"scripts/install-template/install.sh.tmpl", ".release/install.sh"}, {"scripts/install-template/install.ps1.tmpl", ".release/install.ps1"}}
 	if *tmplFlag != "" || *outFlag != "" {
@@ -55,7 +76,7 @@ func main() {
 		pairs = [][2]string{{*tmplFlag, *outFlag}}
 	}
 	for _, pair := range pairs {
-		if err := renderTemplate(pair[0], pair[1], defaultData()); err != nil {
+		if err := renderTemplate(pair[0], pair[1], data); err != nil {
 			fmt.Fprintf(os.Stderr, "render-install: %v\n", err)
 			os.Exit(1)
 		}

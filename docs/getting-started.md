@@ -30,7 +30,12 @@ curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | DUOLOG_INSTALL_DIR="$HOME/bin" sh
 ```
 
-`DUOLOG_VERSION` also pins a POSIX release; `--dir` also sets its directory.
+From the release after 1.4.0 on, an installer downloaded from a release page,
+such as `releases/download/v<version>/install.sh` or `install.ps1`, installs
+that release by default; the `releases/latest/download` links install the
+newest one.
+`DUOLOG_VERSION` and `--version` always win. `DUOLOG_VERSION` also pins a
+POSIX release; `--dir` also sets its directory.
 Use `--via-go` to print the source install command. The POSIX script supports
 macOS and Linux; use the PowerShell installer on Windows.
 
@@ -40,11 +45,13 @@ On Windows, use Windows PowerShell 5.1 or PowerShell 7 (`pwsh`):
 irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
 ```
 
-Add the printed directory to PATH in Windows Environment Variables, then open
-another terminal and run `duolog install --scope project`. The default folder
-is `$env:LOCALAPPDATA\Programs\duolog`. The installer does not edit PATH.
-Both installers select amd64 or arm64 and verify SHA-256 before installing.
-An invalid download leaves an existing binary unchanged.
+The installer adds its folder to your user PATH (in `HKCU`, never the machine
+PATH) when it is missing, and says so. Set `DUOLOG_NO_PATH=1` before running it
+to skip that and add the folder yourself. Then open another terminal and run
+`duolog install --scope project`. The default folder is
+`$env:LOCALAPPDATA\Programs\duolog`. Both installers select amd64 or arm64
+and verify SHA-256 before installing. An invalid download leaves an existing
+binary unchanged.
 
 To pin a Windows release or choose a directory:
 
