@@ -19,9 +19,9 @@ small file bus, so they do not paste large context at each other.
 
 ---
 
-## Install
+## How to install the binary
 
-Install the binary first. On macOS and Linux:
+On macOS and Linux:
 
 ```sh
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh
@@ -33,98 +33,48 @@ On Windows, use Windows PowerShell 5.1 or PowerShell 7:
 irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
 ```
 
-The binary links work after the first release. Until then, use Go:
+To build from source instead, use Go:
 
 ```sh
 go install github.com/lorem-dev/duolog/cmd/duolog@latest
 ```
-
-The Linux binaries are static, so they need no libc of a given version. CI runs
-them on Alpine 3.10 and 3.20, Ubuntu 14.04 and 16.04, Debian 9 and CentOS 7.
-Claude Code and Codex have their own system requirements.
 
 Both installers verify SHA-256 and select amd64 or arm64. Run the same command
 again to update. The default folder is `~/.local/bin` on macOS/Linux and
 `$env:LOCALAPPDATA\Programs\duolog` on Windows. Add the printed directory to
 PATH and open a new terminal if needed. Neither installer edits PATH.
 
-Pin a version with `--version`, or choose a directory with `--dir`:
+To pin a version on macOS/Linux, or on Windows:
 
 ```sh
-curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.3.0
-curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --dir "$HOME/bin"
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.4.0
 ```
 
-The POSIX installer also accepts `DUOLOG_VERSION` and `DUOLOG_INSTALL_DIR`.
-On Windows, set those variables before running the installer:
-
 ```powershell
-$env:DUOLOG_VERSION = 'v1.3.0'
-$env:DUOLOG_INSTALL_DIR = "$env:LOCALAPPDATA\Programs\duolog"
+$env:DUOLOG_VERSION = 'v1.4.0'
 irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
 ```
 
-### How to install the plugins from the duolog marketplace
+For custom install folders, plugin updates and shared setup, see
+[Getting started](docs/getting-started.md).
 
-Add this repository as a custom marketplace, then install the plugin from it.
-A marketplace is a Git repository that lists plugins. This repository is its
-own marketplace, named `duolog`. It is not in the official plugin directories
-yet, so each agent needs the address once. Install the binary first, because
-the plugins call it.
+## How to install the plugins
 
-In Claude Code, run these commands in a terminal:
+The plugins call the binary, so install it first. In Claude Code, run:
 
 ```sh
 claude plugin marketplace add lorem-dev/duolog
 claude plugin install duolog@duolog
 ```
 
-Or run the same steps inside a session:
-
-```text
-/plugin marketplace add lorem-dev/duolog
-/plugin install duolog@duolog
-```
-
-In Codex, run these commands in a terminal:
+In Codex, run:
 
 ```sh
 codex plugin marketplace add lorem-dev/duolog
 codex plugin add duolog@duolog
 ```
 
-Start a new session after the install, so that the agent loads the plugin. In
-`duolog@duolog`, the first word is the plugin and the second is the marketplace.
-
-The address can take other forms. Claude Code tries `lorem-dev/duolog` over SSH
-first and then HTTPS, so the HTTPS form only skips the failed first try.
-
-| Address | When to use it |
-|---|---|
-| `lorem-dev/duolog` | The normal case |
-| `https://github.com/lorem-dev/duolog.git` | You want HTTPS from the start |
-| `./path/to/duolog` | You test a local copy of this repository |
-
-Use these commands to update or remove the plugin:
-
-| Task | Claude Code | Codex |
-|---|---|---|
-| See what is installed | `claude plugin list` | `codex plugin list` |
-| Get the new marketplace list | `claude plugin marketplace update duolog` | `codex plugin marketplace upgrade duolog` |
-| Update the plugin | `claude plugin update duolog@duolog` | `codex plugin add duolog@duolog` |
-| Remove the plugin | `claude plugin uninstall duolog@duolog` | `codex plugin remove duolog@duolog` |
-| Remove the marketplace | `claude plugin marketplace remove duolog` | `codex plugin marketplace remove duolog` |
-
-To share the Claude Code plugin with a project, add `--scope project` to both
-Claude Code commands. They write the marketplace and the plugin to
-`.claude/settings.json`. Commit that file, so that other people get the same
-setup.
-
-The enabled Claude plugin supplies its hooks and skill on every OS. Claude does
-not need a separate hook install. If you run `duolog install`, it uses the
-enabled plugin and removes older duplicate native hooks.
-
-### How to install the hooks
+## How to install the hooks and approve them
 
 Install hooks for one project or for all your projects:
 
@@ -135,96 +85,30 @@ duolog install --scope user
 
 Codex needs this step because marketplace plugins do not install its hooks.
 It then needs one approval in `/hooks` (press `t`) and a trusted project
-folder. Claude needs this step if its plugin is not enabled. Both scopes
-install the skills too; project scope adds a starter config and an install
-offer in `AGENTS.md` and `CLAUDE.md`.
+folder. Claude needs this step only if its plugin is not enabled.
 
-Run `duolog doctor` to check the setup. For a project that already uses duolog,
-install the binary, use the project's skill, and follow doctor's named steps.
+After installing and approving the hooks, start a new Claude Code or Codex
+session in your project, so that the agent loads the plugin and the hooks.
+That session is the lead. Keep it open while you send tasks.
 
-A marketplace plugin's skill first checks `duolog version` and offers the
-binary install if it is missing. In a project someone else set up, the marked
-instruction line offers it when `.duolog/config.yaml` exists; the skill also
-checks. Both ask for agreement before running the install. If the binary is
-present but hooks are not approved, the skill runs `duolog doctor` once per
-session and reports what it names, such as `/hooks` for Codex. A hook cannot
-offer the install when the binary is missing.
+## How to check the setup
 
-Real agents on Windows have not been run. Native Windows CI checks are
-configured; hosted results for this change are pending. Codex as the lead
-has limits; read [what is not proven yet](#what-is-not-proven-yet).
-
-## What duolog does
-
-| Need | What duolog does |
-|---|---|
-| Use the right model for each job | Sends each role to the agent, model and effort in your config |
-| Learn which model suits each kind of work | In [learning mode](docs/learning.md), journals each delegation, compares two models on a finished one, and changes routing only when you approve |
-| Start a project with a measured model order | When you ask, [calibration](docs/calibration.md) replays past work on several models and proposes an order per kind of work |
-| Spend few tokens between sessions | Sends one-line messages that point to files |
-| Avoid extra sessions | Reuses a live session and runs independent tasks once |
-| Control the second session | The binary allows or denies its actions, so a normal decision costs no tokens |
-| Keep one source for agents and skills | Generates one agent's files from the other's, in the direction you choose |
-| Work in the Rex terminal | Lets one agent open the other beside it, with the Rex command line |
-| Stay on the newest models | Keeps only model aliases in the config and finds the newest version when it runs |
-| Handle a plugin that only one agent has | Tells the second session what to do, or asks the lead to do that part |
-| Keep working when a provider's limit ends | Moves the work to the lead's provider, with no new session |
-
-## How you use it
-
-1. Install duolog with `duolog install --scope project`, or `--scope user`
-   for all your projects. Choose which agent holds the source files with
-   `duolog sync --from claude`. Hooks then keep the other agent's files up to
-   date when you change a skill or an agent.
-2. Optionally, ask the lead to calibrate the project, for example "calibrate
-   duolog for this project". Calibration runs only when you ask for it. See
-   [Calibration](docs/calibration.md).
-3. Work with the lead, and send tasks to roles, for example
-   `duolog delegate review_intermediate --task .duolog/task.md`.
-4. With [learning mode](docs/learning.md) on, duolog refines the order from
-   real tasks.
-5. Review the proposals with `duolog learn`, and apply the ones you approve.
-
-## The default rules
-
-Planning and the final review use Opus, because a mistake costs the most there.
-Routine work uses cheaper Codex models. A whole feature goes to `planner`, which
-reads, implements and checks on Codex, so the lead does not read the code
-itself. `debug` finds the cause of a bug in one repository on Codex; a bug
-that crosses components goes to `debug_hard` on Opus. The rules are in
-[internal/config/config.default.yaml](internal/config/config.default.yaml).
-A project can change any of them.
-
-## How your editor checks the config
-
-The config has a JSON Schema, so your editor can suggest fields and find
-mistakes. Put this line first in `.duolog/config.yaml`:
-
-```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/lorem-dev/duolog/main/duolog-config.schema.json
+```sh
+duolog doctor
 ```
 
-The link points to `main`, so you do not need to change it after an upgrade.
-Each release will also include the schema, if you want a fixed version.
+Follow the steps that doctor names. Local telemetry is on by default; turn it
+off with `duolog telemetry off` (see [Telemetry](docs/telemetry.md)).
 
-duolog generates this file from its Go types, and `duolog config schema`
-prints it. The link works only after the public
-repository exists.
+## How to send the first task
 
-## What is not proven yet
+[Getting started](docs/getting-started.md#how-to-send-your-first-task) shows
+the task format and what the result line means. Write a task file, such as
+`.duolog/task.md`. Then, from the lead session, send it to a role:
 
-- Nothing is on a package registry.
-- Real agents ran on Windows 11 once, in Windows PowerShell 5.1: install,
-  hooks, workers and gate denies worked. PowerShell 7 and Windows on arm64
-  with real agents are not checked.
-- Live sessions require Rex on macOS or Linux. Windows uses `duolog delegate`.
-- Codex as the lead worked in the cost study, but `duolog delegate` had to run
-  outside its sandbox. Its shell could not find `rex` in our checks.
-- Most agent behavior behind the design is OBSERVED in a few runs, not
-  VERIFIED. The [live verification][lv] lists each answer with its label.
-- The cost study ran each setup once per task, on five tasks of one private
-  project. Repeats are needed before its numbers are averages. See
-  [Budgets](docs/budgets.md) and [the cost study][cs].
+```sh
+duolog delegate review_intermediate --task .duolog/task.md
+```
 
 ## License
 
@@ -232,8 +116,8 @@ duolog uses the [Apache License 2.0](LICENSE).
 
 ## Related pages
 
-- [Getting started](docs/getting-started.md): build, install and send a task
-- [Configuration](docs/configuration.md): roles, models and limits
+- [Getting started](docs/getting-started.md): install, set up and send a task
+- [Configuration](docs/configuration.md): roles, models, defaults and limits
 - [Learning mode](docs/learning.md): task classes and routing from local results
 - [Calibration](docs/calibration.md): a starting order from past work, on
   request
@@ -242,9 +126,9 @@ duolog uses the [Apache License 2.0](LICENSE).
 - [Permissions](docs/permissions.md): how duolog decides for a worker
 - [Rex](docs/rex.md): a live second session
 - [Budgets](docs/budgets.md): cost targets and what we measured
+- [Telemetry](docs/telemetry.md): the local history and how to turn it off
 - [Practices and models](docs/research/2026-10-30-practices-and-models.md): the
   evidence behind the default rules
+- [Live verification](docs/research/2026-10-30-live-verification.md): which
+  agent behavior is OBSERVED and which is VERIFIED
 - [How to write the documentation](docs/contributing.md): the writing rules
-
-[lv]: docs/research/2026-10-30-live-verification.md
-[cs]: docs/research/2026-11-01-cost-study.md

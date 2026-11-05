@@ -93,6 +93,12 @@ type Options struct {
 	// (Claude); 0 sets no cap.
 	MaxTurns                     int
 	EscalateFrom, EscalateReason string
+	// ProtectedRoots are the telemetry and balance roots the command resolved;
+	// they reach the worker's launch settings.
+	ProtectedRoots []string
+	// Observe receives every worker run, failed ones included, with learning
+	// on or off; nil observes nothing.
+	Observe Observer
 }
 type optionsKey struct{}
 
@@ -248,6 +254,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	if err != nil {
 		return out, err
 	}
+	att := newAttempts(opts, s.Dir, role, lr)
 	// Runs last, after the line is final: a journal error never hides the answer.
 	defer func() {
 		if learnErr := lr.finish(root, dir, copyPath, out); learnErr != nil {
@@ -355,7 +362,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			return out, nil
 		}
 		capNotes = ""
-		env := workerEnv(cfg.EnvPassthrough, leadID, role)
+		env := att.env(workerEnv(cfg.EnvPassthrough, leadID, role))
 		var bridge []string
 		var bridged *runner.MCP
 		if len(opts.Needs) > 0 {
@@ -496,7 +503,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		} else {
 			route.Model = model
 			stdin := append(append(brief, inline...), workerLines...)
-			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Env: env, Persistent: route.Session == "resume", KeepMCP: needsKind(withoutBridged(opts.Needs, bridged), capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin), MCP: bridged}
+			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Env: env, Persistent: route.Session == "resume", KeepMCP: needsKind(withoutBridged(opts.Needs, bridged), capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin), MCP: bridged, ProtectedRoots: opts.ProtectedRoots}
 			spec.MCP = limitOwn(spec, opts.Needs, cfg.Capabilities.MCPTools)
 			spec.MaxTurns = opts.MaxTurns
 			if route.Sandbox == "read-only" {
@@ -542,12 +549,14 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				return out, err
 			}
 			creditBefore := before
-			for {
+			for retry := false; ; retry = true {
+				run := att.begin()
 				workerStarted = true
 				out.Result, err = func() (runner.Result, error) {
 					defer reg.SetWaiting(leadID, token, 0)
 					return runWorker(ctx, spec)
 				}()
+				att.worker(run, route, retry, out.Result, err)
 				var after map[string]string
 				var snapErr error
 				if before != nil {

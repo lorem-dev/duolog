@@ -218,7 +218,13 @@ func deliver(ctx context.Context, e Env, event string, register, includeRoster b
 func SessionStart(ctx context.Context, e Env) Output {
 	return deliver(ctx, e, "SessionStart", true, true, startTime(e), func() string {
 		prune(e)
-		return syncStart(e)
+		var lines []string
+		for _, line := range []string{telemetryStart(ctx, e), syncStart(e)} {
+			if line != "" {
+				lines = append(lines, line)
+			}
+		}
+		return strings.Join(lines, "\n")
 	})
 }
 

@@ -12,8 +12,10 @@ duolog checks in this order and stops at the first answer:
 2. The limit of the role (`sandbox`).
 3. The lead's mode.
 
-A worker never gets more than the lead has. The lead's mode, the role's limit
-and the deny rules all narrow what the worker can do. None of them widens it.
+A worker's mode and role cannot go beyond the lead's limits. The lead's mode,
+the role's limit and the deny rules all narrow what the worker can do. None
+of them widens it. The gate checks what the worker asks for; see
+[What the gate cannot see](#what-the-gate-cannot-see).
 
 ## What the lead's mode means
 
@@ -45,7 +47,7 @@ roles.
 |---|---|---|
 | read | everything | allow |
 | read | `.env`, `*.pem`, `*.key`, `secrets/` | deny |
-| read | duolog state in `.duolog`, except task Markdown and shared rules | deny |
+| read | duolog state in `.duolog`, except Markdown, the configs, `learned.yaml` and skill test plans | deny |
 | write | `.duolog` folders and `.git` files or folders, at any depth | deny |
 | write | `.claude/settings*.json`, `.claude/hooks/**` and the `.codex` folder | deny |
 | write | everything, for the write roles | allow |
@@ -78,16 +80,19 @@ git-ignored:
 keep such files out of the tree or ignore them. `git diff` and `git log` with
 no path can also show a denied file that Git tracks, so do not commit one.
 
-rg override globs and the `Grep` tool's glob ask when they match a sample name
-from a read deny. These probes do not prove full overlap: a Go glob can still
-read a denied hidden file such as `.env.go`.
+A `--glob` option of `rg`, or the glob of the `Grep` tool, asks when it
+matches the name of a read deny, such as `.env`. The check is not complete:
+`rg -g '*.go'` can still read a denied hidden file such as `.env.go`.
 
-Quotes that only group one word read as that word, so `grep -n "TODO" a.go`
-and `git log --format="%h"` are plain reads. Quoted text with a space, a glob,
-a brace, a tilde or a backslash still asks, and so does an empty quoted word
-or `$` and a backtick inside double quotes. The shell would split or expand
-such text, so the gate cannot read the words it passes on. A brace anywhere in
-a command asks for the same reason.
+Quotes that only group literal text read as that text, so
+`grep -n "TODO" a.go` and `git log --format="%h"` are plain reads. Read
+commands can also quote literal patterns and paths with spaces, such as
+`grep "a b" README.md`. Other commands with quoted spaces ask. Quoted text with
+a glob, a brace, a tilde or a backslash still asks, and so does an empty
+quoted word or `$` and a backtick inside double quotes. The shell would expand
+such text, so the gate cannot read the words it passes on. A read-only role
+may be denied instead of asked. A brace anywhere in a command asks for the
+same reason. Quoted `rg` glob options follow the glob check above.
 
 `sed` reads only as `sed -n 'N,Mp' file`. `grep`, `jq`, `sort`, `uniq` and
 `file` pass only with options that change the output, so `jq -f`, `sort -o`,
@@ -140,6 +145,33 @@ It names the shared project's logs, session file, cursors, journal and routing
 data. It blocks reads by child programs only when the person's Claude sandbox
 is already on. duolog never writes `sandbox.enabled` or turns a sandbox on.
 
+## Workers cannot reach the telemetry and balance folders
+
+The gate denies every worker tool request and command path that it can see
+reaching the [telemetry](telemetry.md) folder or the balance folder beside
+it. The rule is
+`private usage store`. It comes before policy, modes and questions, so no rule
+or mode opens the folders, and the gate asks no one.
+
+The deny covers read and write tools, paths that commands name, and recursive
+searches whose roots contain either folder. The gate compares resolved paths,
+so a symbolic link, a junction, `/private/var` against `/var`, a change of
+case or a Windows short name does not get around it. A path that does not
+exist yet is placed by its closest existing folder.
+
+The gate also denies `duolog telemetry` and `duolog balance` to a worker, by
+any program path, in a pipeline or behind a wrapper such as `sh -c`. Global
+flags before the subcommand, such as `--lead L` or `--lead=L`, do not hide
+it. The commands refuse a worker too.
+
+Tests or a build that read the folder without naming it are not stopped; see
+[What the gate cannot see](#what-the-gate-cannot-see). Claude workers whose
+sandbox is already on also get both folders in `sandbox.filesystem.denyRead`.
+Codex workers and native Windows have the gate only.
+
+When a lead model runs `duolog telemetry` or reads the folder, a Claude lead
+asks you, and a Codex lead is told to have you run it in your terminal.
+
 ## Reads and writes outside the work root need the person
 
 An outside-path ask is marked `p: true` on the bus. The peer's pending-ask
@@ -160,15 +192,22 @@ named request, it asks the person or gives the Codex terminal hint. Without a
 known request number, it guards only while a person-only ask is pending, or
 when it cannot read the bus. A pending ask has not expired or been answered.
 
+The hook also guards `duolog remember` when the rule names a path outside the
+project. A Claude lead asks the person. A Codex lead is denied, and the
+person saves such a rule in their own terminal.
+
+## What the gate cannot see
+
 The gate sees what an agent asks for, not what a program it runs reads.
 Project code run by a write role, such as `go test`, can read files without
-naming them in the command. The gate alone cannot stop those reads.
+naming them in the command. The gate alone cannot stop those reads. This
+holds for duolog state, secrets and the telemetry folder alike.
 Claude's deny list adds protection only where the sandbox is already on.
+
 duolog does not sandbox the lead itself. A lead that edits the bus or other
-state files directly can bypass the hook's approval guard.
-The guard also cannot see `duolog allow N` inside a script file, a Makefile
-target or a renamed binary. It is a best-effort check on the lead model,
-not a sandbox.
+state files directly can bypass the hook's approval guard. The guard also
+cannot see `duolog allow N` inside a script file, a Makefile target or a
+renamed binary. It is a best-effort check on the lead model, not a sandbox.
 
 ## How a worker's MCP tool calls are checked
 
@@ -292,13 +331,13 @@ The gate is a hook. The command is `duolog gate --agent <agent> --event
 with `command` and `args`, without a shell. A missing binary does not block
 a tool in the measured `claude -p` run. It also cannot offer an install.
 
-Worker safety comes from launch: both delegate and peer put the directory of
-the running duolog executable first in the worker's PATH, even when the
-parent's PATH lacks it. The worker therefore finds that same binary for its
-gate. The requirement that a worker fails closed if the binary is absent
-holds through this launch guarantee, rather than a Claude shell guard.
-Codex keeps its POSIX and Windows guards. Interactive Claude display of a
-missing executable has not been measured.
+Both delegate and peer put the directory of the running duolog executable
+first in the worker's PATH, even when the parent's PATH lacks it, so the
+worker's hooks find that same binary. Keep that binary in place for the
+whole session. The measured Claude run did not fail closed when the
+executable was missing, and PATH order cannot change that. Codex keeps its
+POSIX and Windows guards. Interactive Claude display of a missing executable
+has not been measured.
 
 ## A Codex lead that starts a Claude worker
 
@@ -313,9 +352,12 @@ and both were measured on 2026-10-31 with Codex 0.165.0 (see the
    login lives in the Keychain, which the sandbox blocks. `codex sandbox claude
    auth status` shows `loggedIn: false` there and `true` with
    `sandbox_mode="danger-full-access"`. Adding `~/.claude` to the writable
-   roots did not help. So the lead must run with `--sandbox danger-full-access`
-   to delegate to Claude. A token passed in the environment may also work; we
-   did not test it.
+   roots did not help. So in this macOS setup, `duolog delegate` needs
+   permission to run outside the Codex sandbox, so that Claude can read its
+   login. Approve that command through the lead's normal approval flow,
+   rather than running the whole lead with `danger-full-access`. This check
+   does not establish the behavior on other OSes. A token passed in the
+   environment may also work; we did not test it.
 
 A Codex worker started by a Claude lead needs none of this. Claude starts it
 outside any Codex sandbox.
@@ -339,8 +381,9 @@ These come from the research page and are OBSERVED, not VERIFIED:
   Claude.
 - Whether hooks fire for tools inside a Codex `spawn_agent` child is NOT
   VERIFIED.
-- Real agents ran on Windows 11 once, in Windows PowerShell 5.1: both agents
-  ran the hooks and the gate denied. PowerShell 7 and arm64 are unchecked.
+- One reported Windows 11 check covered install, hooks, workers and gate
+  denies in Windows PowerShell 5.1. Real agents in PowerShell 7 and on
+  Windows arm64 remain unchecked.
 
 ## How PowerShell commands are checked
 
@@ -354,5 +397,6 @@ Windows drive letters, backslashes and case are normalized before path rules.
 ## Related pages
 
 - [Configuration](configuration.md): the `policy` section
+- [Telemetry](telemetry.md): what the private usage stores hold
 - [Rex](rex.md): permission questions in a live session
 - [Live verification](research/2026-10-30-live-verification.md): hook results

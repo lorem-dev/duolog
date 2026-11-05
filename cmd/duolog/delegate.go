@@ -37,6 +37,7 @@ func newDelegateCommand() *cobra.Command {
 			return errors.Join(err, writeErr)
 		}
 		opts.Features = parsed
+		opts.ProtectedRoots = launchProtectedRoots()
 		root, err := projectRoot()
 		if err != nil {
 			return err
@@ -48,6 +49,10 @@ func newDelegateCommand() *cobra.Command {
 		s, err := store.Open(root)
 		if err != nil {
 			return err
+		}
+		if tel := openTelemetry(cfg, root); tel != nil {
+			defer tel.Close()
+			opts.Observe = observeAttempt(tel, cfg)
 		}
 		ctx := delegate.WithOptions(cmd.Context(), opts)
 		out, err := runDelegate(ctx, cfg, s, args[0], taskPath, thread)

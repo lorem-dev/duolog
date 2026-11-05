@@ -119,7 +119,12 @@ func TestDocsPaidKeyMigration(t *testing.T) {
 		"billed per token",
 		"fast mode off",
 		`"fastMode": false`,
-		"claude workers no longer get ANTHROPIC_API_KEY by default. To let them use it, list it in env_passthrough explicitly.",
+		// The page quotes the 1.4.0 line with the defaults. The paid runs
+		// branch prints the paid_runs advice (workerenv.MigrationLine); the
+		// page moves to it when workers launch through workerenv.Build. An
+		// explicit list replaces the defaults, so the line keeps them all.
+		"claude workers no longer get ANTHROPIC_API_KEY by default. To let them use it, keep the default names and add the key, since an explicit list replaces the defaults: env_passthrough: [" +
+			strings.Join(append(config.DefaultEnvPassthrough("linux"), "ANTHROPIC_API_KEY"), ", ") + "]",
 		"`duolog doctor` warns",
 		"set in duolog's environment and not listed in `env_passthrough`",
 		"list it in an explicit `env_passthrough`",
@@ -144,8 +149,14 @@ func TestDocsPaidKeyMigration(t *testing.T) {
 	}
 	if b, err := os.ReadFile("CHANGES.md"); err != nil {
 		t.Fatal(err)
-	} else if dev, _, _ := strings.Cut(string(b), "\n## 1."); !strings.Contains(dev, "`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`") {
-		t.Error("CHANGES.md Development does not name the dropped keys")
+	} else {
+		// The note lives in Development until the release moves it under the
+		// newest version, so look at both.
+		dev, rest, _ := strings.Cut(string(b), "\n## 1.")
+		newest, _, _ := strings.Cut(rest, "\n## 1.")
+		if !strings.Contains(dev+newest, "`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`") {
+			t.Error("CHANGES.md Development and the newest version do not name the dropped keys")
+		}
 	}
 }
 

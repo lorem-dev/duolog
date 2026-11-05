@@ -257,6 +257,32 @@ func TestLearnPrintsDiffAndApplyWrites(t *testing.T) {
 		t.Fatal(out, err)
 	}
 }
+
+// With learning mode off, config.Load does not read the learned order, so an
+// applied order routes nothing. learn says so in one line, with the setting
+// that turns learning mode on, and still shows and saves the order.
+func TestLearnSaysLearningIsOff(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		root := learningRepo(t, enabled)
+		learnJournal(t, root, true)
+		for _, args := range [][]string{{"learn"}, {"learn", "--apply"}} {
+			out, err := executeBusCommand(t, args...)
+			if err != nil || !strings.Contains(out, "+    order:") {
+				t.Fatal(enabled, args, out, err)
+			}
+			if got := strings.Count(out, learningOffLine); enabled && got != 0 || !enabled && got != 1 {
+				t.Fatalf("learning enabled %t, %v: %d off lines, output:\n%s", enabled, args, got, out)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(root, ".duolog", config.LearnedRoutingFile)); err != nil {
+			t.Fatalf("learning enabled %t: the order was not saved: %v", enabled, err)
+		}
+	}
+	if !strings.Contains(learningOffLine, "learning.enabled: true") || strings.Contains(learningOffLine, "\n") {
+		t.Fatalf("the line does not say how to turn learning mode on: %q", learningOffLine)
+	}
+}
+
 func TestLearnNoChange(t *testing.T) {
 	root := learningRepo(t, true)
 	for _, args := range [][]string{{"learn"}, {"learn", "--apply"}} {

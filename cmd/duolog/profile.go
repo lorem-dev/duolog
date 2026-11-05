@@ -38,11 +38,16 @@ func newProfileCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		opts.ProtectedRoots = launchProtectedRoots()
+		if tel := openTelemetry(cfg, root); tel != nil {
+			defer tel.Close()
+			opts.Observe = observeAttempt(tel, cfg)
+		}
 		replay, err := profile.Run(cmd.Context(), cfg, s, args[0], opts)
 		if err != nil {
 			return err
 		}
-		ctx := delegate.WithOptions(cmd.Context(), delegate.Options{Lead: opts.Lead, AllowManualModel: opts.AllowManualModel})
+		ctx := delegate.WithOptions(cmd.Context(), delegate.Options{Lead: opts.Lead, AllowManualModel: opts.AllowManualModel, ProtectedRoots: opts.ProtectedRoots, Observe: opts.Observe})
 		verdict, err := profile.Judge(ctx, cfg, s, replay)
 		if err != nil {
 			return err

@@ -671,9 +671,17 @@ func TestClaudeTurnCapEndsRun(t *testing.T) {
 		if !errors.Is(err, ErrTurnCap) || !got.TurnsEnded || got.Done || got.QuotaEnded {
 			t.Fatalf("exit %d: %+v %v, want TurnsEnded and ErrTurnCap", exit, got, err)
 		}
-		if got.Usage != (Usage{Input: 40, Cached: 10, Output: 5}) {
-			t.Fatalf("exit %d: usage %+v, want 40 input, 10 cached, 5 output", exit, got.Usage)
+		if got.Usage != (Usage{Input: 40, Cached: 10, Output: 5}) || !got.UsageKnown {
+			t.Fatalf("exit %d: usage %+v known %v, want 40 input, 10 cached, 5 output, known", exit, got.Usage, got.UsageKnown)
 		}
+	}
+	// A capped run without usage is told from one with zero usage.
+	s := spec(t, "claude")
+	s.MaxTurns = 2
+	install(t, &s, testbin.Scenario{Exit: 1, Stdout: `{"type":"result","subtype":"error_max_turns","is_error":true,"session_id":"worker-1"}` + "\n"})
+	got, err := Run(context.Background(), s)
+	if !errors.Is(err, ErrTurnCap) || !got.TurnsEnded || got.UsageKnown || got.Usage != (Usage{}) {
+		t.Fatalf("without usage: %+v %v, want TurnsEnded with usage unknown", got, err)
 	}
 }
 

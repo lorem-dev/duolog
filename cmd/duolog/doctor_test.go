@@ -10,12 +10,21 @@ import (
 	"testing"
 )
 
+// fakeRexFirst puts a fake rex first on PATH, so doctor never finds the
+// machine's own rex, in PATH or in an installed Rex app. Call it after the
+// test sets its PATH.
+func fakeRexFirst(t *testing.T) string {
+	t.Helper()
+	return testbin.Install(t, "rex", testbin.Scenario{Stdout: `{"blocks":[]}`})
+}
+
 func TestDoctorExplainsHookTrustLimit(t *testing.T) {
 	isolatedRouteConfig(t)
 	t.Chdir(t.TempDir())
 	codex := testbin.Install(t, "codex", testbin.Scenario{Stdout: "{}"})
 	claude := testbin.Install(t, "claude", testbin.Scenario{})
 	t.Setenv("PATH", filepath.Dir(codex)+string(os.PathListSeparator)+filepath.Dir(claude))
+	fakeRexFirst(t)
 	out, err := executeBusCommand(t, "doctor")
 	if err != nil {
 		t.Fatal(err)
@@ -40,6 +49,7 @@ func TestDoctorProbeFlag(t *testing.T) {
 		"-p":        {Stdout: `{"is_error":false,"result":"ok"}`},
 	}})
 	t.Setenv("PATH", filepath.Dir(codex)+string(os.PathListSeparator)+filepath.Dir(claude))
+	fakeRexFirst(t)
 	out, err := executeBusCommand(t, "doctor", "--probe")
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +95,8 @@ func TestDoctorUsesRexInventoryAndLeadState(t *testing.T) {
 	rex := testbin.Install(t, "rex", testbin.Scenario{Exit: 2, Responses: map[string]testbin.Scenario{
 		"block ls -s session:s1 --json": {Stdout: `{"blocks":[{"block_id":"block:orphan-a","label":"shell"},{"block_id":"block:orphan-b"},{"block_id":"block:live"},{"block_id":"block:unrelated"},{"block_id":"block:trap"}]}`},
 	}})
-	// Rex is not in PATH, as in a real Rex session; REX_BIN_DIR finds it.
+	// Rex is not in PATH, as in a real Rex session; REX_BIN_DIR finds it. Its
+	// rex is a fake too, and Locate reads REX_BIN_DIR before any Rex app.
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("REX_BIN_DIR", filepath.Dir(rex))
 	t.Setenv("REX_SESSION", "session:s1")

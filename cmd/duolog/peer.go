@@ -31,12 +31,31 @@ func peerContext(cmd *cobra.Command, lead string, allowManual bool, timeout time
 	if err != nil {
 		return nil, nil, err
 	}
-	ctx := peer.WithOptions(cmd.Context(), peer.Options{Root: root, Config: cfg, Lead: lead, AllowManualModel: allowManual})
+	opts := peer.Options{Root: root, Config: cfg, Lead: lead, AllowManualModel: allowManual, ProtectedRoots: launchProtectedRoots()}
+	// Peer opens, sends and closes, and each task a peer ends, reach
+	// telemetry through these observers; a store that cannot open records none.
+	done := func() {}
+	if tel := openTelemetry(cfg, root); tel != nil {
+		opts.Observe, opts.ObserveAttempt = observePeer(tel), observeAttempt(tel, cfg)
+		done = func() { _ = tel.Close() }
+	}
+	ctx := peer.WithOptions(cmd.Context(), opts)
 	if timeout > 0 {
 		ctx, cancel := context.WithTimeout(ctx, timeout)
-		return ctx, cancel, nil
+		return ctx, func() { cancel(); done() }, nil
 	}
-	return ctx, func() {}, nil
+	return ctx, done, nil
+}
+
+// launchProtectedRoots names the telemetry and balance roots for a worker's or
+// peer's launch settings, collection on or off. Roots that cannot be placed
+// are left out: the worker gate then fails closed on every action.
+func launchProtectedRoots() []string {
+	roots, err := gateProtectedRoots()
+	if err != nil {
+		return nil
+	}
+	return roots
 }
 
 // entryLine is the one line a lead reads after open or wait. A run here line is

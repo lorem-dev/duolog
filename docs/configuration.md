@@ -31,8 +31,11 @@ The config has a JSON Schema. Put this line first in `.duolog/config.yaml`:
 # yaml-language-server: $schema=https://raw.githubusercontent.com/lorem-dev/duolog/main/duolog-config.schema.json
 ```
 
-The link works only after the public repository exists. Until then, run
-`duolog config schema > schema.json` and point your editor at that file.
+The link points to `main`, so you do not need to change it after an upgrade.
+The schema on `main` can describe a newer version than yours. For a schema
+that matches your installed binary, run `duolog config schema > schema.json`
+and point your editor at that file. duolog generates the schema from its Go
+types.
 
 ## How a role chooses an agent, model and effort
 
@@ -55,6 +58,14 @@ duolog route review_final --json
 
 To see every role and its model, run `duolog roster`. Add `--versions` to see
 which Codex version each alias resolves to.
+
+## Which models the default roles use
+
+Planning and the final review use Opus, because a mistake costs the most
+there. Routine work uses cheaper Codex models. The sections below explain the
+roles for a whole feature, for a bug and for reviews between tasks. A project
+can change any role. The default deny rules and the calibration caps stay in
+force, as the sections below say.
 
 ## Which role takes a whole feature
 
@@ -100,8 +111,9 @@ changelog or docs only if the task lists them under Write.
 The config uses `fable`, `opus`, `sonnet`, `haiku`, `astra`, `sol`, `terra`
 and `luna`. Claude Code resolves its own aliases when it runs. For Codex,
 duolog picks the newest visible `gpt-<version>-<family>` from
-`codex debug models`. A full model name in a role pins that version on
-purpose.
+`codex debug models`. duolog caches that list for up to 24 hours, and uses
+an older cached list when the command fails. A full model name in a role
+pins that version on purpose.
 
 The models `fable` and `astra` are for manual use. duolog refuses them unless
 you pass `--allow-manual-model`. The list is `limits.manual_only_models`.
@@ -126,7 +138,7 @@ The lead's own settings are the ceiling:
 | `wire` | The bus line limits and the inline size |
 | `skill_tests` | `ask` (default), `always` or `never` for cross-model skill tests. Save a local preference with `duolog skill test --remember`. See [Skill tests](skills.md) |
 | `limits` | Live sessions and the size of a task the lead may do itself |
-| `models` | The agent and the prices for each alias. Prices drive `duolog stats` |
+| `models` | The agent and the price estimates for each alias, for `duolog stats` and telemetry. Claude cache-write premiums are not modeled |
 | `sessions` | When a resumed thread closes |
 | `policy` | The rules for worker actions. See [Permissions](permissions.md) |
 | `capabilities` | What to do when the other agent lacks a skill, plugin or server |
@@ -136,6 +148,7 @@ The lead's own settings are the ceiling:
 | `rex.stuck_notify_minutes` | Minutes before `peer wait` sends one reminder for an unanswered question. Default: `5`; `0` disables reminders |
 | `rex.auto_answers` | Ordered `{match, answer}` rules for safe peer questions. Defaults to answering `Hooks need review` with `Continue without trusting`. A project list replaces the defaults; `[]` disables it. Trust and persistent approval grants are refused |
 | `coauthors` | Enable worker credit and set commit co-author templates. See [Getting started](getting-started.md#how-to-credit-the-workers-in-commits) |
+| `telemetry` | The local history of runs, quota and routing. See [below](#which-layers-may-change-telemetry) and [Telemetry](telemetry.md) |
 
 ## What workers inherit
 
@@ -143,9 +156,10 @@ The default environment includes PATH, HOME and USER, plus `CODEX_HOME` and
 `CLAUDE_CONFIG_DIR`. It leaves out `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`:
 a worker or peer that gets one is billed per token, even when you run on a
 subscription. Windows also keeps SYSTEMROOT, USERPROFILE, APPDATA,
-LOCALAPPDATA, TEMP, TMP, PATHEXT, COMSPEC and PSMODULEPATH. Without
-PSMODULEPATH, each PowerShell cmdlet that loads a module takes 18 to 30
-seconds. An explicit `env_passthrough` replaces these defaults.
+LOCALAPPDATA, TEMP, TMP, PATHEXT, COMSPEC and PSMODULEPATH. PSMODULEPATH
+lets PowerShell find its modules without a slow search; in one check, each
+cmdlet that loaded a module took 18 to 30 seconds without it. An explicit
+`env_passthrough` replaces these defaults.
 The worker always gets `DUOLOG_DEPTH=1`, its `DUOLOG_LEAD` and `DUOLOG_ROLE`.
 Codex trust, hooks and capabilities read `CODEX_HOME` when set. Claude hooks,
 permissions and capabilities read `CLAUDE_CONFIG_DIR` when set. Home lookups
@@ -157,26 +171,31 @@ nvm. The worker keeps the PATH that duolog passes.
 
 A Claude worker starts with auto memory off. Claude keeps that memory per
 project path, so a worker's notes would reach the lead and every later session
-of the project. It also starts with no MCP servers, because the user's servers
-added 7.4 thousand tokens to every call in the cost study. A task that names an
-`mcp:` or `plugin:` need keeps them, unless every MCP need is bridged. A
+of the project. It also starts with no MCP servers, because in the cost study
+the configured servers added 7.4 thousand tokens to every call. A task that
+names an `mcp:` or `plugin:` need keeps them, unless every MCP need is
+bridged. A
 `minimal` Claude worker skips every `CLAUDE.md`, the one in your home folder
 too: Claude loads that file as project instructions when the project is inside
 the home folder. A `minimal` worker of either agent keeps its skills only when
 the task names a `skill:` or `plugin:` need.
 
-Claude workers and peers start with fast mode off: their `--settings` JSON
-holds `"fastMode": false`. Fast mode draws on usage credits even inside a
+Claude workers and peers always start with fast mode off. Their `--settings`
+JSON holds `"fastMode": false`, and no duolog setting changes that. duolog
+turns it off because fast mode can draw on usage credits even inside a
 subscription window.
 
 ### If you use an API key on purpose
 
 While `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` is set in duolog's environment
 and not listed in `env_passthrough`, the first `delegate` or `peer open` of
-each lead session adds one line, and `duolog doctor` warns every time:
+each lead adds one line per key, and `duolog doctor` warns every time.
+Without a registered lead, every launch adds the line. It ends with the whole
+list to write: the list in force, which is the defaults unless you set one,
+plus the key. With the defaults on macOS or Linux it reads:
 
 ```text
-claude workers no longer get ANTHROPIC_API_KEY by default. To let them use it, list it in env_passthrough explicitly.
+claude workers no longer get ANTHROPIC_API_KEY by default. To let them use it, keep the default names and add the key, since an explicit list replaces the defaults: env_passthrough: [PATH, HOME, USER, CODEX_HOME, CLAUDE_CONFIG_DIR, ANTHROPIC_API_KEY]
 ```
 
 When the key was the agent's only login, the login check fails. duolog does not
@@ -191,9 +210,12 @@ replaces the defaults, so keep them all:
 env_passthrough: [PATH, HOME, USER, CODEX_HOME, CLAUDE_CONFIG_DIR, ANTHROPIC_API_KEY]
 ```
 
-On Windows, also keep the Windows names above. Then every worker and peer of
-that agent is billed per token for each run, and duolog does not cap that
-spend. The line and the warning stop once the key is listed.
+On Windows, also keep the Windows names above. The line shows them too.
+Then every worker and peer of that agent is billed per token for each run,
+and duolog does not cap that spend. The line and the warning stop once the
+key is listed. While either key is listed, `duolog calibrate run`, `resume`
+and `judge` refuse to start. See
+[Calibration](calibration.md#what-calibration-costs-and-how-it-limits-spend).
 
 ## How a worker borrows the lead's MCP server
 
@@ -401,14 +423,15 @@ a project can add a class or change one ladder and keep the rest.
 
 The `calibration` section caps what a calibration run may spend and which
 past commits it uses as tasks. Calibration runs only when you ask the lead for
-it; see [Calibration](calibration.md). The keys and their defaults:
+it; see [Calibration](calibration.md). The order it proposes routes tasks only
+while `learning.enabled` is `true`. The keys and their defaults:
 
 | Key | Default | What it does |
 |---|---|---|
-| `max_weekly_share` | `0.10` | The most of each agent's weekly window the whole calibration spends |
-| `max_window_share` | `0.5` | The share of a five-hour window at which the run pauses until it resets; at most `0.5` |
+| `max_weekly_share` | `0.10` | Estimated weekly spend allowance per agent for the whole calibration. Admission checks it before each call; actual spend can exceed it |
+| `max_window_share` | `0.5` | Estimated five-hour spend allowance before the run pauses until the window resets; at most `0.5`. Actual spend can exceed it |
 | `cell_max_minutes` | `45` | Time cap for one cell and for one run of its checks; a task estimated above it is left out |
-| `cell_max_tokens` | `1500000` | Token cap for one cell; a task estimated above it is left out |
+| `cell_max_tokens` | `1500000` | The highest token estimate a task may have to be admitted. It does not stop a running cell at this token count |
 | `cell_max_turns` | `100` | Turn cap for one cell: `--max-turns` for a Claude worker, advice in the brief for Codex, which has no such option |
 | `history_days` | `90` | Days of history mined first, widened when a class has fewer than 3 tasks |
 | `filter.min_files`, `filter.max_files` | `1`, `20` | Changed files of a mined commit, without generated and vendored files |
@@ -418,9 +441,26 @@ it; see [Calibration](calibration.md). The keys and their defaults:
 Set a cap lower to spend less. The lead does not raise the caps; only you
 edit them. The shared `.duolog/config.yaml` can only lower the two share
 caps: a higher value there is ignored, and `duolog calibrate status` names
-it. Raise a cap in `.duolog/config.local.yaml` or your user config. The lead
-reserve, 15% of the weekly and 10% of the five-hour window, applies on top
-and is not a setting.
+it. Raise the weekly cap, up to `1`, in `.duolog/config.local.yaml` or your
+user config. The five-hour cap is at most `0.5`; a higher value is an error.
+The lead reserve, 15% of the weekly and 10% of the five-hour window, applies
+on top and is not a setting. The caps limit estimated spend, so a run can
+spend more than them; see
+[Calibration](calibration.md#what-calibration-costs-and-how-it-limits-spend).
+
+## Which layers may change telemetry
+
+The `telemetry` section is yours, not the project's: only the embedded
+default and your user config set it. A project layer may set one key,
+`enabled: false`, which stops that project's run, permission and peer events.
+It cannot turn telemetry on or change the other keys, so pruning never
+depends on the project that runs it. `DUOLOG_TELEMETRY=off` turns telemetry
+off everywhere and cannot turn it on. The keys and their defaults are in
+[Telemetry](telemetry.md#how-long-data-stays).
+
+Turning telemetry off stops collection. Existing records remain until
+pruning removes them. Use `duolog telemetry purge` to delete this project's
+telemetry now; see [Telemetry](telemetry.md) for account-wide deletion.
 
 ## Related pages
 
@@ -428,6 +468,7 @@ and is not a setting.
 - [Permissions](permissions.md): policy rules and modes
 - [Learning mode](learning.md): task classes, the journal and learned orders
 - [Calibration](calibration.md): a starting order from past work, on request
+- [Telemetry](telemetry.md): the local history and how to turn it off
 - [Practices and models](research/2026-10-30-practices-and-models.md): the
   evidence behind the defaults
 - [Cost study](research/2026-11-01-cost-study.md): what duolog cost against

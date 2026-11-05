@@ -47,7 +47,7 @@ func codexEvent(data []byte, result *Result) {
 	var event struct {
 		Type     string `json:"type"`
 		ThreadID string `json:"thread_id"`
-		Usage    struct {
+		Usage    *struct {
 			Input  int64 `json:"input_tokens"`
 			Cached int64 `json:"cached_input_tokens"`
 			Output int64 `json:"output_tokens"`
@@ -60,9 +60,13 @@ func codexEvent(data []byte, result *Result) {
 	case "thread.started":
 		result.SessionID = event.ThreadID
 	case "turn.completed":
+		if event.Usage == nil {
+			return
+		}
 		result.Usage.Input += event.Usage.Input
 		result.Usage.Cached += event.Usage.Cached
 		result.Usage.Output += event.Usage.Output
+		result.UsageKnown = true
 	}
 }
 
@@ -100,6 +104,7 @@ func codexAnswer(message []byte, answerPath string, result Result) (Result, erro
 		}
 		result.Done = false
 		result.Summary = text
+		setCode(&result, CodeParse)
 		return result, fmt.Errorf("invalid answer: no JSON object with done, summary, files and needs in the final message; see %s", filepath.Join(filepath.Dir(answerPath), "stdout.log"))
 	}
 	clean, err := json.Marshal(struct {

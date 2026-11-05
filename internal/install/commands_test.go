@@ -181,6 +181,115 @@ func TestReinstallUpgradesOlderClaudeHooks(t *testing.T) {
 	}
 }
 
+// TestTelemetryInstallKeepsOneHookPerEvent: installing twice leaves one duolog
+// hook per event and command, and the person's sandbox exactly as it was. The
+// store roots go to workers' launch settings, never to installed settings.
+func TestTelemetryInstallKeepsOneHookPerEvent(t *testing.T) {
+	for _, scope := range []string{"user", "project"} {
+		t.Run(scope, func(t *testing.T) {
+			home, root := setup(t)
+			path := filepath.Join(root, ".claude", "settings.json")
+			if scope == "user" {
+				path = filepath.Join(home, ".claude", "settings.json")
+			}
+			const sandbox = `{"enabled":false,"filesystem":{"denyRead":["~/.ssh"]}}`
+			write(t, path, `{"sandbox":`+sandbox+`}`)
+			o := Options{Scope: scope, Agent: "claude", Home: home, Root: root}
+			run(t, o)
+			run(t, o)
+			var doc struct {
+				Sandbox json.RawMessage `json:"sandbox"`
+				Hooks   map[string][]struct {
+					Hooks []struct {
+						Command string   `json:"command"`
+						Args    []string `json:"args"`
+					} `json:"hooks"`
+				} `json:"hooks"`
+			}
+			got := read(t, path)
+			if err := json.Unmarshal([]byte(got), &doc); err != nil {
+				t.Fatal(err)
+			}
+			var compact bytes.Buffer
+			if err := json.Compact(&compact, doc.Sandbox); err != nil || compact.String() != sandbox {
+				t.Fatalf("sandbox changed: %s %v", doc.Sandbox, err)
+			}
+			if strings.Contains(got, "telemetry") || strings.Contains(got, "balance") {
+				t.Fatalf("installed settings name a store:\n%s", got)
+			}
+			for _, event := range []string{"SessionStart", "SessionEnd", "UserPromptSubmit", "PostToolUse", "PreToolUse", "PermissionRequest"} {
+				seen := map[string]int{}
+				for _, group := range doc.Hooks[event] {
+					for _, h := range group.Hooks {
+						if IsOurCommand(h.Command) {
+							seen[strings.Join(h.Args, " ")]++
+						}
+					}
+				}
+				if len(seen) == 0 {
+					t.Fatalf("%s has no duolog hook:\n%s", event, got)
+				}
+				for args, n := range seen {
+					if n != 1 {
+						t.Fatalf("%s: %q installed %d times", event, args, n)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestTelemetryLeadHookSeesEveryTool: the lead's PreToolUse hook has no
+// matcher, so every Read, Grep and shell call reaches the lead guard that
+// keeps telemetry and balance for the person, and the skill pre-allows no
+// telemetry or balance command.
+func TestTelemetryLeadHookSeesEveryTool(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		data, err := HooksJSON(agent, 150)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			Hooks map[string][]struct {
+				Matcher *string `json:"matcher"`
+				Hooks   []struct {
+					Command string   `json:"command"`
+					Args    []string `json:"args"`
+				} `json:"hooks"`
+			} `json:"hooks"`
+		}
+		if err := json.Unmarshal(data, &doc); err != nil {
+			t.Fatal(err)
+		}
+		gates := 0
+		for _, group := range doc.Hooks["PreToolUse"] {
+			for _, h := range group.Hooks {
+				if !strings.Contains(h.Command+" "+strings.Join(h.Args, " "), "gate") {
+					continue
+				}
+				gates++
+				if group.Matcher != nil && *group.Matcher != "" && *group.Matcher != "*" {
+					t.Fatalf("%s lead gate only sees %q", agent, *group.Matcher)
+				}
+			}
+		}
+		if gates == 0 {
+			t.Fatalf("%s has no PreToolUse gate:\n%s", agent, data)
+		}
+	}
+	for _, path := range []string{"claude/skills/duolog/SKILL.md", "codex/skills/duolog/SKILL.md"} {
+		data, err := plugin.FS.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for _, l := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(l, "allowed-tools:") && (strings.Contains(l, "telemetry") || strings.Contains(l, "balance")) {
+				t.Fatalf("%s pre-allows a person-only command: %s", path, l)
+			}
+		}
+	}
+}
+
 // A read-only list: nothing here starts a worker, decides for the lead or writes.
 func TestClaudeSkillAllowsOnlyReportCommands(t *testing.T) {
 	data, err := plugin.FS.ReadFile("claude/skills/duolog/SKILL.md")

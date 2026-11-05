@@ -329,6 +329,10 @@
           "$ref": "#/$defs/Learning",
           "description": "Learning mode: task classes, classification rules, ladders and priors; off by default."
         },
+        "telemetry": {
+          "$ref": "#/$defs/Telemetry",
+          "description": "Local telemetry that never leaves the machine; on by default. User level, except that a project may turn off its own events."
+        },
         "calibration": {
           "$ref": "#/$defs/Calibration",
           "description": "Project calibration caps and task filters; calibration runs only when the person asks the lead for it."
@@ -844,6 +848,32 @@
             "ultra"
           ],
           "description": "Requested reasoning effort; defaults by role and is capped by the lead when routed."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Telemetry": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Keep local telemetry on this machine; defaults to true. User level; a project may set false to stop its own run, gate and peer events, and DUOLOG_TELEMETRY=off turns it off everywhere."
+        },
+        "retention_days": {
+          "type": "integer",
+          "maximum": 30,
+          "minimum": 1,
+          "description": "Days a telemetry record lives, 1 to 30; defaults to 30. User level only; project layers cannot change it."
+        },
+        "prune_every_hours": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Hours between prunes triggered by a telemetry write; defaults to 6. User level only."
+        },
+        "max_megabytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Size cap of the whole telemetry store in megabytes, oldest segments removed first; defaults to 16. User level only."
         }
       },
       "additionalProperties": false,

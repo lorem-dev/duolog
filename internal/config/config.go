@@ -28,6 +28,7 @@ type Config struct {
 	EnvPassthrough []string         `yaml:"env_passthrough" jsonschema_description:"Environment variables passed to workers; defaults include native OS login and agent config directories, not API keys."`
 	Rex            Rex              `yaml:"rex" jsonschema_description:"Terminal capture and startup settings; defaults to 20 lines and 120 seconds."`
 	Learning       Learning         `yaml:"learning" jsonschema_description:"Learning mode: task classes, classification rules, ladders and priors; off by default."`
+	Telemetry      Telemetry        `yaml:"telemetry" jsonschema_description:"Local telemetry that never leaves the machine; on by default. User level, except that a project may turn off its own events."`
 	Calibration    Calibration      `yaml:"calibration" jsonschema_description:"Project calibration caps and task filters; calibration runs only when the person asks the lead for it."`
 	PaidRuns       PaidRuns         `yaml:"paid_runs" jsonschema_description:"Paid runs per agent with a daily USD cap, and the share of each window used on workspace accounts; paid runs are off by default."`
 	// Notices names the keys of the shared .duolog/config.yaml that Load
@@ -162,9 +163,18 @@ func Load(root string) (*Config, error) {
 		filepath.Join(root, ".duolog", "config.yaml"),
 		filepath.Join(root, ".duolog", "config.local.yaml"),
 	}
+	var userTelemetrySection Telemetry
+	projectTelemetryOff := false
 	layers := make([][]byte, len(paths))
 	var notices []ConfigNotice
 	for i, path := range paths {
+		if i == 1 {
+			// Telemetry is user level: keep the section as it stands before
+			// any project layer, which may only turn its own events off.
+			if userTelemetrySection, err = userTelemetry(&merged); err != nil {
+				return nil, err
+			}
+		}
 		data, err := os.ReadFile(path)
 		if os.IsNotExist(err) {
 			continue
@@ -185,6 +195,13 @@ func Load(root string) (*Config, error) {
 			notices = append(notices, found...)
 		}
 		mergeNode(&merged, node)
+		if i > 0 {
+			off, err := telemetryDisabled(data, path)
+			if err != nil {
+				return nil, err
+			}
+			projectTelemetryOff = projectTelemetryOff || off
+		}
 		layers[i] = data
 	}
 	var cfg Config
@@ -192,6 +209,10 @@ func Load(root string) (*Config, error) {
 		return nil, fmt.Errorf("merged config: %w", err)
 	}
 	cfg.Notices = notices
+	cfg.Telemetry = keepTelemetry(userTelemetrySection, projectTelemetryOff, telemetryEnvOff())
+	if err := validateTelemetry(cfg.Telemetry); err != nil {
+		return nil, err
+	}
 	if cfg.Rex.StuckNotifyMinutes < 0 {
 		return nil, fmt.Errorf("rex.stuck_notify_minutes must be zero or greater")
 	}

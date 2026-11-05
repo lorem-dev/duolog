@@ -53,7 +53,8 @@ func TestDroppedKeysSetOrListedNotAllowed(t *testing.T) {
 		}
 	}
 
-	// The way back is the paid_runs opt-in, no longer env_passthrough.
+	// The way back is the paid_runs opt-in, no longer env_passthrough. The
+	// paid env adds to env_passthrough, so the line needs no whole list.
 	if got, want := MigrationLine("claude", "ANTHROPIC_API_KEY"), "claude workers no longer get ANTHROPIC_API_KEY. To let them use it, set paid_runs.claude.allow: true with a daily_cap_usd above 0 and list the key in paid_runs.claude.env."; got != want {
 		t.Errorf("MigrationLine = %q, want %q", got, want)
 	}
@@ -63,6 +64,27 @@ func TestDroppedKeysSetOrListedNotAllowed(t *testing.T) {
 	for _, agent := range []string{"claude", "codex"} {
 		if line := MigrationLine(agent, "KEY"); strings.Contains(line, "env_passthrough") {
 			t.Errorf("MigrationLine still advises env_passthrough: %q", line)
+		}
+	}
+}
+
+// Calibration runs on the subscription only, so it needs to know which
+// billing keys env_passthrough hands to workers, whichever agent they belong
+// to.
+func TestListedKeys(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		names []string
+		want  []string
+	}{
+		{"defaults", []string{"PATH", "HOME", "USER", "CODEX_HOME", "CLAUDE_CONFIG_DIR"}, nil},
+		{"none", nil, nil},
+		{"claude key", []string{"PATH", "ANTHROPIC_API_KEY"}, []string{"ANTHROPIC_API_KEY"}},
+		{"both keys", []string{"OPENAI_API_KEY", "HOME", "ANTHROPIC_API_KEY"}, []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY"}},
+		{"similar names", []string{"ANTHROPIC_API_KEY_OLD", "XOPENAI_API_KEY"}, nil},
+	} {
+		if got := ListedKeys(c.names); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: ListedKeys = %v, want %v", c.name, got, c.want)
 		}
 	}
 }

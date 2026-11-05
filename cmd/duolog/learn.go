@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -15,6 +16,19 @@ import (
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/spf13/cobra"
 )
+
+// learningOffLine is what learn and calibrate propose say while learning mode
+// is off: config.Load then ignores the learned order, so it routes nothing.
+const learningOffLine = "learning mode is off: the order is saved but routes nothing until you set learning.enabled: true in .duolog/config.yaml"
+
+// sayLearningOff prints learningOffLine when cfg has learning mode off.
+func sayLearningOff(out io.Writer, cfg *config.Config) error {
+	if cfg.Learning.Enabled {
+		return nil
+	}
+	_, err := fmt.Fprintln(out, learningOffLine)
+	return err
+}
 
 func newLearnCommand() *cobra.Command {
 	var apply bool
@@ -107,6 +121,9 @@ func newLearnCommand() *cobra.Command {
 }
 
 func learnOrder(cmd *cobra.Command, root string, cfg *config.Config, ds []journal.Delegation, ts []journal.Task, vs []journal.Verdict, cs []journal.CalibrationResult, seed learning.Stats, apply bool) error {
+	if err := sayLearningOff(cmd.OutOrStdout(), cfg); err != nil {
+		return err
+	}
 	p, st, kept := learning.ProposeGated(cfg, ds, ts, vs, cs, seed)
 	for _, key := range slices.Sorted(maps.Keys(kept)) {
 		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s: %s, keeps the configured order\n", key, kept[key]); err != nil {

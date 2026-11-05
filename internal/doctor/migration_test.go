@@ -28,7 +28,7 @@ func TestDoctorRepeatsMigrationWhileKeyDropped(t *testing.T) {
 	example := "Example config: paid_runs: {claude: {allow: true, daily_cap_usd: 5, env: [CLAUDE_PAID_EXTRA, ANTHROPIC_API_KEY]}}"
 	warned := func(got []Finding, line string) bool {
 		for _, f := range got {
-			if f.Level == "warning" && strings.Contains(f.Message, line) && strings.Contains(f.Message, example) {
+			if f.Level == "warning" && f.Message == line+" "+example {
 				return true
 			}
 		}

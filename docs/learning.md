@@ -79,6 +79,7 @@ The local journal lives under `.duolog/journal/`:
 | `tasks.ndjson` | Finished tasks and the person's outcomes |
 | `verdicts.ndjson` | Comparison scores and the person's decisions |
 | `declined.ndjson` | Names of class and rule proposals the person declined |
+| `calibration.ndjson` | [Calibration](calibration.md) check results and dropped tasks; its decided comparisons stay in `verdicts.ndjson` |
 | `tasks/` | Local task files and patches for profiling |
 
 Subagents run with the agent's own tools are not journalled: duolog cannot
@@ -271,15 +272,21 @@ to `false` to turn learning mode off.
 
 ## How a new project gets a starting order
 
-A new project starts on the configured ladders. If you ask the lead for it,
+Learning mode is off by default. When you turn it on, a new project starts on
+the configured ladders. If you ask the lead for it,
 [calibration](calibration.md) replays past work on several targets and
 proposes a starting order per class. Its results join this journal, and
-`duolog learn` keeps refining from real tasks.
+`duolog learn` keeps refining from real tasks. The order routes nothing while
+learning mode is off; `duolog learn` and `duolog calibrate propose` then say
+so in one line.
+
+Calibration evidence can affect later proposals even after you remove its
+saved run folder. See [Calibration](calibration.md) before you delete local
+evidence.
 
 ## Related pages
 
-- [Calibration](calibration.md): a starting order from past work, on request
-
 - [Configuration](configuration.md): learning settings and project overrides
+- [Calibration](calibration.md): a starting order from past work, on request
 - [Getting started](getting-started.md): install duolog and delegate a task
 - [Permissions](permissions.md): the worker's access and permission requests

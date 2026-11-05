@@ -40,6 +40,25 @@ func leadGuard(stateDir, agent string, input []byte) (gate.Decision, bool) {
 			}
 		}
 	}
+	// Telemetry and balance are the person's: the paths are placed as the
+	// worker gate places them, against the work root and the hook's cwd.
+	root := filepath.Dir(stateDir)
+	cwd := envelope.Cwd
+	if cwd == "" {
+		cwd = root
+	}
+	work := project.WorkRoot(cwd, root)
+	placed := make([]gate.Action, len(actions))
+	for i, action := range actions {
+		action.Work, action.Cwd = work, cwd
+		if (action.Kind == "read" || action.Kind == "write") && action.Target != "" {
+			action.Target = gate.RelativeTarget(work, envelope.Cwd, action.Target)
+		}
+		placed[i] = action
+	}
+	if d, ok := telemetryLeadGuard(agent, placed); ok {
+		return d, true
+	}
 	decision := func(number string, request bus.Message) gate.Decision {
 		kind := gate.Ask
 		reason := "this command may allow an ask that reads or writes outside the project; only the person may allow it"

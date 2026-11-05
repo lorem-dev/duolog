@@ -22,6 +22,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/learning"
 	"github.com/lorem-dev/duolog/internal/profile"
 	"github.com/lorem-dev/duolog/internal/store"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/spf13/cobra"
 )
 
@@ -624,6 +625,20 @@ func newCalibrateResumeCommand() *cobra.Command {
 	return cmd
 }
 
+// subscriptionOnly refuses calibration while env_passthrough hands a billing
+// key to workers. A worker with a key is billed per token, outside the quota
+// that calibration's caps read, so the caps would not hold. It names both
+// agents' keys, since the one list reaches the workers and judges of both.
+// Every calibration cell is a free run; paid calibration, with
+// paid_runs.<agent>.calibrate, is not built yet and will need its own check.
+func subscriptionOnly(cfg *config.Config) error {
+	keys := workerenv.ListedKeys(cfg.EnvPassthrough)
+	if len(keys) == 0 {
+		return nil
+	}
+	return fmt.Errorf("calibration runs on your subscription only, but env_passthrough passes %s to workers, which bills per token outside the quota its caps read; remove it from env_passthrough in .duolog/config.local.yaml, .duolog/config.yaml or your user config, keep the other names, and run the command again", strings.Join(keys, " and "))
+}
+
 // withCalibrationRunner holds the calibration lock and calls f with a
 // Runner for the latest run, whose plan must be approved and unchanged.
 func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.Runner) error) error {
@@ -633,6 +648,10 @@ func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.
 	}
 	cfg, err := config.Load(root)
 	if err != nil {
+		return err
+	}
+	// Before the lock, the run and any quota reading: nothing is admitted.
+	if err := subscriptionOnly(cfg); err != nil {
 		return err
 	}
 	s, err := store.Open(root)
@@ -684,7 +703,8 @@ func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.
 	// The run and its cells keep to the approved caps and cell limits, or to
 	// the config's where they are stricter.
 	runCfg := p.Limit(planConfig(cfg, survey))
-	env := calibration.CellEnv{Root: root, StateDir: s.Dir, RunDir: runDir, Lead: lead, Cfg: runCfg, Store: s, Delegate: runDelegate, Checks: cellChecks}
+	env := cellEnv(root, s, runDir, lead, runCfg)
+	env.Checks = cellChecks
 	return f(&calibration.Runner{
 		StateDir: s.Dir, Root: root, Cfg: runCfg, Run: run, Plan: p, Manifest: m,
 		Quota: &calibration.QuotaCache{Read: quotaReader}, Now: time.Now,
@@ -695,6 +715,13 @@ func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.
 		Out:     cmd.OutOrStdout(),
 		Tree:    tree,
 	})
+}
+
+// cellEnv is what calibration cells and judge calls delegate with. Their
+// workers get the telemetry and balance roots in their launch settings, as
+// every other delegation does.
+func cellEnv(root string, s *store.Store, runDir, lead string, cfg *config.Config) calibration.CellEnv {
+	return calibration.CellEnv{Root: root, StateDir: s.Dir, RunDir: runDir, Lead: lead, Cfg: cfg, Store: s, Delegate: runDelegate, ProtectedRoots: launchProtectedRoots()}
 }
 
 // rewriteStatement asks the first judge for a statement written from a
@@ -735,7 +762,7 @@ func rewriteStatement(root string, cfg *config.Config, s *store.Store, runDir, l
 		if err := calibration.StartStep(start); err != nil {
 			return "", 0, err
 		}
-		ctx = delegate.WithOptions(ctx, delegate.Options{Lead: lead, Entry: &target, WorkRoot: work, Calibration: true})
+		ctx = delegate.WithOptions(ctx, delegate.Options{Lead: lead, Entry: &target, WorkRoot: work, Calibration: true, ProtectedRoots: launchProtectedRoots()})
 		out, err := runDelegate(ctx, cfg, s, "docs", taskPath, "")
 		tokens := out.Result.Usage.Input + out.Result.Usage.Output
 		if err != nil {
@@ -816,6 +843,10 @@ func newCalibrateJudgeCommand() *cobra.Command {
 		if _, ok := cfg.Learning.Classes[class]; class != "" && !ok {
 			return fmt.Errorf("unknown class %q", class)
 		}
+		// Judge calls spend quota too.
+		if err := subscriptionOnly(cfg); err != nil {
+			return err
+		}
 		s, err := store.Open(root)
 		if err != nil {
 			return err
@@ -864,7 +895,7 @@ func newCalibrateJudgeCommand() *cobra.Command {
 			}
 		}
 		env := calibration.JudgeEnv{
-			CellEnv: calibration.CellEnv{Root: root, StateDir: s.Dir, RunDir: runDir, Lead: lead, Cfg: cfg, Store: s, Delegate: runDelegate},
+			CellEnv: cellEnv(root, s, runDir, lead, cfg),
 			Journal: j,
 		}
 		var pairs []calibration.Pair
@@ -1064,6 +1095,9 @@ func newCalibrateProposeCommand() *cobra.Command {
 			if !slices.ContainsFunc(cs, func(c journal.CalibrationResult) bool { return c.Kind == "result" }) {
 				fmt.Fprintln(out, "seeded from the shared project part")
 			}
+		}
+		if err := sayLearningOff(out, cfg); err != nil {
+			return err
 		}
 		p, _, kept := learning.ProposeGated(cfg, ds, ts, vs, cs, seed)
 		orderChanged := learning.Changed(cfg, p)

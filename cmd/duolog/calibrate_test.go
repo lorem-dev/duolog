@@ -534,6 +534,68 @@ func TestCalibrateRunKeepsApprovedLimits(t *testing.T) {
 	}
 }
 
+// Calibration runs on the subscription only. While env_passthrough hands a
+// billing key to workers, run, resume and judge refuse before they read
+// quota, admit or charge anything, and say how to remove the key. A list
+// without keys still runs.
+func TestCalibrateRefusesAPIKeyPassthrough(t *testing.T) {
+	root := learningRepo(t, true)
+	fakeQuota(t)
+	stateDir := filepath.Join(root, ".duolog")
+	if run := approvedRun(t, stateDir); len(run.Cells) == 0 {
+		t.Fatal("the approved plan has no cells; nothing would show that none ran")
+	}
+	local := filepath.Join(stateDir, "config.local.yaml")
+	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY"} {
+		if err := os.WriteFile(local, []byte("env_passthrough: [PATH, HOME, USER, CODEX_HOME, CLAUDE_CONFIG_DIR, "+key+"]\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		for _, args := range [][]string{{"calibrate", "run"}, {"calibrate", "resume"}, {"calibrate", "judge"}} {
+			out, err := executeBusCommand(t, args...)
+			if err == nil {
+				t.Fatalf("%v with %s listed ran:\n%s", args, key, out)
+			}
+			for _, want := range []string{"subscription", key, "remove it from env_passthrough", "keep the other names"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("%v: error lacks %q: %v", args, want, err)
+				}
+			}
+		}
+		called := false
+		err := withCalibrationRunner(newCalibrateRunCommand(), "", func(*calibration.Runner) error {
+			called = true
+			return nil
+		})
+		if err == nil || called {
+			t.Fatalf("%s listed: runner called %t, err %v", key, called, err)
+		}
+	}
+	latest, _, err := calibration.LatestRun(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range latest.Cells {
+		if c.State != calibration.CellPending {
+			t.Fatalf("cell %+v ran while a key was listed", c)
+		}
+	}
+	if len(latest.Spend.WeeklyPct) != 0 {
+		t.Fatalf("spend admitted while a key was listed: %+v", latest.Spend)
+	}
+
+	// A list of its own without keys runs.
+	if err := os.WriteFile(local, []byte("env_passthrough: [PATH, HOME, USER, CODEX_HOME, CLAUDE_CONFIG_DIR, EXTRA_TOOL_HOME]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	if err := withCalibrationRunner(newCalibrateRunCommand(), "", func(*calibration.Runner) error {
+		called = true
+		return nil
+	}); err != nil || !called {
+		t.Fatalf("a list without keys: runner called %t, err %v", called, err)
+	}
+}
+
 func TestCalibrateFirstApprovalOfEmptyPlanRuns(t *testing.T) {
 	// A 5% cap cuts every cell. The first approval still leads to
 	// calibrate run, not past it to judge.
@@ -934,6 +996,22 @@ func TestCalibrateProposeShowsBothDiffs(t *testing.T) {
 	after, err := os.ReadFile(project)
 	if err != nil || string(after) != string(before) {
 		t.Fatalf("propose changed project.yaml: %v\n%s", err, after)
+	}
+}
+
+// A calibrated order routes nothing while learning mode is off; propose says
+// so in one line, and says nothing when learning mode is on.
+func TestCalibrateProposeSaysLearningIsOff(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		root := learningRepo(t, enabled)
+		judgedRun(t, root)
+		out, err := executeBusCommand(t, "calibrate", "propose")
+		if err != nil || !strings.Contains(out, "proposed .duolog/routing.learned.yaml:") {
+			t.Fatal(enabled, out, err)
+		}
+		if got := strings.Count(out, learningOffLine); enabled && got != 0 || !enabled && got != 1 {
+			t.Fatalf("learning enabled %t: %d off lines, output:\n%s", enabled, got, out)
+		}
 	}
 }
 

@@ -52,10 +52,12 @@ duolog keeps its identity and another close retries the cleanup.
 Each command prints one line, such as `<id> <state>: <question or note>`. The
 lead decides questions that the rules do not settle.
 
-`duolog peer send` presses enter only when the input holds the line and
-nothing else, read across the rows it wraps over. Otherwise it clears the
-input with ctrl+c and types the line again, three tries in all. An empty input
-gets no ctrl+c, because there it starts the agent's exit.
+`duolog peer send` checks the typed task line before it presses Enter. It
+presses Enter only when the input holds exactly the line, even when the line
+wraps over several rows. Otherwise it clears the input with ctrl+c and types
+the line again, three tries in all. If every try fails, it leaves the task
+unsubmitted and reports an error. An empty input gets no ctrl+c, because
+there it starts the agent's exit.
 
 `duolog peer wait` reports the state, not the result. `task finished` means the
 session went idle. A working or spinner line keeps it busy even when its
@@ -85,8 +87,11 @@ Peers start with Codex's `tui.notifications=false` and `notify=[]`, or Claude's
 `preferredNotifChannel: notifications_disabled`. These settings apply only
 to the peer. The lead keeps its own notification settings.
 
-`peer wait` sends questions to the lead on the bus at once. With reminders
-enabled, it keeps watching until the question clears or a reminder is due.
+`peer wait` sends questions to the lead on the bus at once. A pending duolog
+gate ask from this peer makes `peer wait` return at once; answer it before
+the asker's wait ends. Gate asks of other peers do not stop this wait. For a
+question in the agent's own screen, with reminders enabled, it keeps
+watching until the question clears or a reminder is due.
 After `rex.stuck_notify_minutes` (5 by default), it sends one OS notification
 with the peer id and the question. Another wait does not repeat it. A new
 question gets its own timer. Set the value to `0` to turn reminders off and
@@ -108,7 +113,8 @@ selects `Yes, proceed`; a deny selects `No`. Only an ask reaches the lead, with
 the command shown. Text rules cannot override a command decision. The peer
 keeps its own sandbox; this only answers its prompt.
 
-Claude's offers to install a plugin are declined with `No, not now`, and text
+duolog declines Claude's offers to install a plugin with `No, not now`, or
+`Not now` or `No` when that is the option that declines only for now. Text
 rules cannot override that. See
 [Configuration](configuration.md#how-a-worker-borrows-the-leads-mcp-server)
 for what the lead is told.
@@ -131,8 +137,9 @@ These come from the
 - Rex worked from Claude in our runs (OBSERVED). From Codex, the shell could
   not find `rex`, and one sandboxed run could not reach its socket
   (OBSERVED). So Codex as the lead is not proven for `duolog peer`.
-- Codex as the lead running `claude -p` through `duolog delegate` is not
-  proven either. Run the end-to-end test to find out.
+- One-shot delegation from a Codex lead worked outside its sandbox in the
+  cost study (OBSERVED). That does not verify live peers; follow the manual
+  check below for `duolog peer`.
 - Codex does not fire `SessionEnd` when its pane closes (OBSERVED), so a
   closed Codex pane can stay in the registry. `duolog doctor` warns about a
   pane whose lead has ended.

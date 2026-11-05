@@ -15,13 +15,13 @@ description: >-
    macOS/Linux:
 
    ```sh
-   curl -fsSL https://github.com/lorem-dev/duolog/releases/download/v1.3.0/install.sh | sh -s -- --version v1.3.0 && duolog install --scope project
+   curl -fsSL https://github.com/lorem-dev/duolog/releases/download/v1.4.0/install.sh | sh -s -- --version v1.4.0 && duolog install --scope project
    ```
 
    Windows PowerShell:
 
    ```powershell
-   $env:DUOLOG_VERSION = 'v1.3.0'; irm https://github.com/lorem-dev/duolog/releases/download/v1.3.0/install.ps1 | iex
+   $env:DUOLOG_VERSION = 'v1.4.0'; irm https://github.com/lorem-dev/duolog/releases/download/v1.4.0/install.ps1 | iex
    ```
 
    Windows: add the printed directory to PATH; run

@@ -95,6 +95,105 @@ type Options struct {
 	Config           *config.Config
 	Lead             string
 	AllowManualModel bool
+	// ProtectedRoots are the telemetry and balance roots the command resolved;
+	// they reach a Claude peer's launch settings.
+	ProtectedRoots []string
+	// Observe receives every open, send and close, failed ones included.
+	Observe OperationObserver
+	// ObserveAttempt receives each task a peer was sent, once it has ended, as
+	// a run placed on the peer.
+	ObserveAttempt delegate.Observer
+}
+
+// Operation is one open, send or close as the library ran it: its agent, how
+// it ended and how long it took. It carries no screen, answer, id or path.
+// Outcome is done, needs (a question), lead (run here), interrupted or failed.
+type Operation struct {
+	Op, Agent, Outcome string
+	Duration           time.Duration
+}
+
+// OperationObserver cannot change an operation: it returns nothing, and the
+// library neither waits for nor reads what it does.
+type OperationObserver func(Operation)
+
+// observeOperation reports an operation that has ended. Agent is empty when
+// it failed before the agent was known.
+func observeOperation(ctx context.Context, op, agent string, started time.Time, state State, err error) {
+	opts, _ := ctx.Value(optionsKey{}).(Options)
+	if opts.Observe == nil {
+		return
+	}
+	opts.Observe(Operation{Op: op, Agent: agent, Outcome: operationOutcome(state, err), Duration: time.Since(started)})
+}
+
+func operationOutcome(state State, err error) string {
+	var here *RunHereError
+	switch {
+	case errors.As(err, &here):
+		return "lead"
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return "interrupted"
+	case err != nil:
+		return "failed"
+	}
+	switch state {
+	case Ready:
+		return "done"
+	case Question:
+		return "needs"
+	case Limited:
+		return "lead"
+	}
+	// Closed, exited, or still starting when the start time ran out.
+	return "failed"
+}
+
+// attempt reports the task the peer was sent as one run, once it has ended:
+// finished, ended with the pane, or closed unfinished. The family and effort
+// are the role's, as the lead's route gives them now.
+func (e *env) attempt(entry session.Entry, outcome, code string) {
+	if e.opts.ObserveAttempt == nil || entry.Task == "" {
+		return
+	}
+	a := delegate.Attempt{Number: 1, Role: entry.Role, Agent: entry.Agent, Placement: "peer", Outcome: outcome, ErrorCode: code, Reason: "none"}
+	if code == runner.CodeQuota {
+		a.Reason = "quota"
+	}
+	if lead, err := e.lead(time.Now()); err == nil {
+		if route, err := router.Resolve(e.cfg, entry.Role, nil, router.Options{Lead: lead.target, AllowManualModel: e.opts.AllowManualModel}); err == nil && route.Agent == entry.Agent {
+			a.Family, a.Effort = models.Normalize(route.Agent, route.Model), route.Effort
+		}
+	}
+	if model, err := os.ReadFile(e.modelPath(entry)); err == nil {
+		a.Family = models.Normalize(entry.Agent, string(model))
+	}
+	if sent := e.sentAt(entry.ID); !sent.IsZero() {
+		a.Duration = time.Since(sent)
+	}
+	e.opts.ObserveAttempt(a)
+}
+
+// sentAt is when the lead last sent this peer a task, from the bus.
+func (e *env) sentAt(id string) time.Time {
+	f, err := os.Open(filepath.Join(e.dir, "bus.ndjson"))
+	if err != nil {
+		return time.Time{}
+	}
+	defer f.Close()
+	var at time.Time
+	scan := bufio.NewScanner(f)
+	scan.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for scan.Scan() {
+		var m bus.Message
+		if json.Unmarshal(scan.Bytes(), &m) != nil || m.K != "task" || m.Ref != id {
+			continue
+		}
+		if t, err := time.Parse(time.RFC3339Nano, m.T); err == nil {
+			at = t
+		}
+	}
+	return at
 }
 
 type optionsKey struct{}
@@ -239,7 +338,9 @@ func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 // Open starts a peer for the role, or returns the live one. It records the ID
 // right after rex split, then waits until the session is ready, asks a
 // question, has ended or the start time is over. The pane is never closed here.
-func Open(ctx context.Context, role string) (Entry, error) {
+func Open(ctx context.Context, role string) (opened Entry, err error) {
+	started, agent := time.Now(), ""
+	defer func() { observeOperation(ctx, "open", agent, started, opened.State, err) }()
 	e, err := setup(ctx)
 	if err != nil {
 		return Entry{}, err
@@ -256,6 +357,7 @@ func Open(ctx context.Context, role string) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
+	agent = route.Agent
 	if lead.mode == mode.Plan && route.Sandbox != "read-only" {
 		return Entry{}, fmt.Errorf("mode plan refuses write role %s", role)
 	}
@@ -313,7 +415,7 @@ func Open(ctx context.Context, role string) (Entry, error) {
 	if err != nil {
 		return noted(Entry{}, err)
 	}
-	block, rexSession, err := e.openProjectPeer(ctx, route.Agent+"-"+role, launchArgv(exe, envFile, agentArgv(route, lead.mode, filepath.Dir(e.dir))))
+	block, rexSession, err := e.openProjectPeer(ctx, route.Agent+"-"+role, launchArgv(exe, envFile, agentArgv(route, lead.mode, filepath.Dir(e.dir), e.opts.ProtectedRoots...)))
 	if err != nil {
 		_ = os.Remove(envFile)
 		return noted(Entry{}, err)
@@ -534,6 +636,7 @@ func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Ent
 					if _, err := e.update(entry.ID, func(x *session.Entry) { x.Task, x.Base = "", nil }); err != nil {
 						return Entry{ID: entry.ID, State: Ready}, err
 					}
+					e.attempt(entry, "done", runner.CodeNone)
 					return Entry{ID: entry.ID, State: Ready, Note: "task finished"}, nil
 				}
 			}
@@ -661,6 +764,8 @@ func (e *env) markEnded(entry session.Entry, state State) (string, error) {
 	if _, uerr := e.update(entry.ID, func(x *session.Entry) { x.Closed = true }); uerr != nil {
 		return line, uerr
 	}
+	// The pane ended under the task: that run failed, and only this first time.
+	e.attempt(entry, "failed", runner.CodeExit)
 	msg := bus.Message{From: entry.Agent + "/" + entry.Role, To: e.address(entry.Lead), K: "status", Ref: entry.ID, S: cut(line, e.cfg.Wire.MaxSummaryBytes)}
 	if _, serr := e.bus.Send(msg); serr != nil {
 		return line, errors.Join(err, serr)
@@ -747,7 +852,9 @@ func (e *env) runHere(entry session.Entry, taskPath, screenText string) (string,
 }
 
 // Send passes one line, a reference to the task file, to a ready session.
-func Send(ctx context.Context, id, taskRef string) error {
+func Send(ctx context.Context, id, taskRef string) (err error) {
+	started, agent := time.Now(), ""
+	defer func() { observeOperation(ctx, "send", agent, started, Ready, err) }()
 	e, err := setup(ctx)
 	if err != nil {
 		return err
@@ -756,6 +863,7 @@ func Send(ctx context.Context, id, taskRef string) error {
 	if err != nil {
 		return err
 	}
+	agent = entry.Agent
 	ref := strings.TrimSpace(taskRef)
 	if strings.HasPrefix(ref, "/") {
 		if info, err := os.Stat(ref); err != nil || !info.Mode().IsRegular() {
@@ -1112,7 +1220,9 @@ func pick(options []Option, choice string) (int, error) {
 
 // Close closes the pane and the record. The id may be a pane ID, which is what
 // doctor prints. A pane that is already gone is not an error, and files stay.
-func Close(ctx context.Context, id string) error {
+func Close(ctx context.Context, id string) (err error) {
+	started, agent := time.Now(), ""
+	defer func() { observeOperation(ctx, "close", agent, started, Ready, err) }()
 	e, err := setupFor(ctx, false)
 	if err != nil {
 		return err
@@ -1134,6 +1244,7 @@ func Close(ctx context.Context, id string) error {
 		}
 		return err
 	}
+	agent = entry.Agent
 	if err := e.credit(entry); err != nil {
 		return err
 	}
@@ -1142,6 +1253,14 @@ func Close(ctx context.Context, id string) error {
 	}
 	if err := e.reg.RemovePeer(entry.ID); err != nil {
 		return err
+	}
+	// A task still open ends with the pane. An ended pane reported its own.
+	if !entry.Closed {
+		outcome, code := "interrupted", runner.CodeNone
+		if unavailable, uerr := e.reg.Unavailable(); uerr == nil && unavailable[entry.Agent] {
+			outcome, code = "infra", runner.CodeQuota
+		}
+		e.attempt(entry, outcome, code)
 	}
 	return e.cleanupProjectSession(ctx)
 }

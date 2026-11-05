@@ -42,22 +42,27 @@
 
 ## Development
 
+## 1.4.0
+
 ### Added
 
 - `duolog quota [--json]` reads Claude and Codex subscription limits without a
   model call and clears stale unavailable marks when quota is available.
-- The `duolog-calibrate` skill runs calibration when you ask for it; see
-  docs/calibration.md.
-- `duolog calibrate` finds past tasks, plans a run within 10% of each weekly
-  window, replays it in isolated trees and can `resume` after a stop.
-- `duolog calibrate judge` and `propose`: blind judging you confirm, a
-  learned-order proposal per class, and a shared project part in Git.
+- `duolog calibrate`, run by the `duolog-calibrate` skill on request, replays
+  past tasks, has you confirm blind verdicts and proposes an order per class.
+- Calibration admits steps within an estimated 10% of each weekly window and
+  refuses to run while `env_passthrough` lists an API key.
+- With learning mode off, `duolog learn` and `calibrate propose` say that an
+  order routes nothing until `learning.enabled: true`.
+- Local telemetry is on by default and keeps usage for up to 30 days on this
+  machine; `duolog telemetry off` stops it. See docs/telemetry.md.
 
 ### Changed
 
-- Several duolog Rex sessions of one project are named `duolog | <project> (n)`
-  in creation order; a single session keeps its plain name.
-- Peer panes decline plugin install offers and tell the lead.
+- Duolog Rex sessions with the same project folder name get `(n)` suffixes in
+  creation order; a single session keeps its plain name.
+- Peer panes decline plugin install offers and, with the default
+  `on_missing.plugin: lead_first`, tell the lead.
 
 ### Fixed
 
@@ -74,12 +79,12 @@
 
 ### Security
 
-- Workers and peers no longer get `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, and
-  Claude fast mode is off for them; list a key in `env_passthrough` to pass it.
-- Workers cannot read duolog state files, also through recursive searches and
-  glob overrides; with the sandbox on, Claude's `denyRead` lists them too.
-- Asks that name paths outside the project, including `>|` redirects, need
-  the person; the lead's approval hook keeps those asks for them.
+- Workers get no `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` and no Claude fast
+  mode. Key-only logins fail; add a key to the default `env_passthrough` list.
+- The gate denies worker requests for private duolog state, recursive searches
+  included; see docs/permissions.md for its limits.
+- Asks that name paths outside the project, `>|` redirects included, need you:
+  a lead cannot allow them, and you run `duolog allow N --lead ID`.
 
 ## 1.3.0
 

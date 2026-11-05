@@ -21,9 +21,10 @@ import (
 // also does: the memory folder belongs to the project path, so a worker's note
 // would reach the lead and later sessions. Minimal context also excludes
 // instruction files. --setting-sources would do more, but it also drops the user
-// settings that enable the duolog plugin and its gate.
-func claudeWorkerSettings(stateDir string, minimal bool) string {
-	return workerenv.ClaudeSettings(stateDir, minimal, nil)
+// settings that enable the duolog plugin and its gate. roots join the denyRead
+// list of a sandbox the person already turned on.
+func claudeWorkerSettings(stateDir string, minimal bool, roots ...string) string {
+	return workerenv.ClaudeSettingsWithRoots(stateDir, minimal, nil, roots)
 }
 
 func claudeArgv(s Spec) []string {
@@ -58,7 +59,7 @@ func claudeArgv(s Spec) []string {
 		disallowed = append(disallowed, s.MCP.DisallowedTools...)
 	}
 	args = append(args, "--disallowedTools="+strings.Join(disallowed, ","))
-	args = append(args, "--settings", claudeWorkerSettings(project.StateRoot(s.Cwd), s.Route.Context == "minimal"))
+	args = append(args, "--settings", claudeWorkerSettings(project.StateRoot(s.Cwd), s.Route.Context == "minimal", s.ProtectedRoots...))
 	if s.Route.Context == "minimal" {
 		// Minimal context drops every CLAUDE.md, the user's too, and skills unless the
 		// task needs one: a project
@@ -98,8 +99,9 @@ type claudeOutput struct {
 	// Subtype is error_max_turns when the run stopped at --max-turns.
 	Subtype    string          `json:"subtype"`
 	Structured json.RawMessage `json:"structured_output"`
-	Usage      *claudeUsage    `json:"usage"`
-	Cost       json.RawMessage `json:"total_cost_usd"`
+	// A pointer, so that a result without usage is told from zero usage.
+	Usage *claudeUsage    `json:"usage"`
+	Cost  json.RawMessage `json:"total_cost_usd"`
 }
 
 // claudeStream folds the objects of Claude's stdout capture.
@@ -112,6 +114,9 @@ type claudeStream struct {
 	// repeats a message's usage for each of its content blocks.
 	messages map[string]Usage
 	unnamed  Usage
+	// known means an assistant message reported its usage, so the messages'
+	// sum is a count even when it is zero.
+	known bool
 }
 
 // add folds one object. Only the event types Claude itself writes count:
@@ -150,6 +155,7 @@ func (s *claudeStream) add(object []byte) {
 		if json.Unmarshal(event.Message, &message) != nil || message.Usage == nil {
 			return
 		}
+		s.known = true
 		if message.ID == "" {
 			s.unnamed = s.unnamed.add(message.Usage.usage())
 			return
@@ -228,7 +234,7 @@ func readClaudeStream(path string, result *Result) (json.RawMessage, error) {
 		output = stream.legacy
 	}
 	if output == nil {
-		result.Usage = stream.usage()
+		result.Usage, result.UsageKnown = stream.usage(), stream.known
 		if decodeErr != nil {
 			return nil, decodeErr
 		}
@@ -236,9 +242,9 @@ func readClaudeStream(path string, result *Result) (json.RawMessage, error) {
 	}
 	result.SessionID = output.SessionID
 	// The result's usage is the run's total; the messages' usage is part of it.
-	result.Usage = stream.usage()
+	result.Usage, result.UsageKnown = stream.usage(), stream.known
 	if output.Usage != nil {
-		result.Usage = output.Usage.usage()
+		result.Usage, result.UsageKnown = output.Usage.usage(), true
 	}
 	result.ReportedUSD = reportedUSD(output.Cost)
 	if output.Subtype == "error_max_turns" {

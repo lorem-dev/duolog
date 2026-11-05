@@ -192,7 +192,7 @@ func Judge(ctx context.Context, cfg *config.Config, s *store.Store, r Replay) (j
 			return v, err
 		}
 	}
-	ctxRun := delegate.WithOptions(ctx, delegate.Options{Judge: true, Entry: &target, WorkRoot: work, Lead: opts.Lead, AllowManualModel: opts.AllowManualModel})
+	ctxRun := delegate.WithOptions(ctx, delegate.Options{Judge: true, Entry: &target, WorkRoot: work, Lead: opts.Lead, AllowManualModel: opts.AllowManualModel, ProtectedRoots: opts.ProtectedRoots, Observe: opts.Observe})
 	out, err := runDelegate(ctxRun, cfg, s, "review_final", filepath.Join(dir, "task.md"), "")
 	if err != nil {
 		return v, fmt.Errorf("judge: %w", err)
