@@ -33,12 +33,14 @@ var (
 
 // loadSalt returns the store's salt, creating it with 32 random bytes when
 // there is none. The creator writes the whole salt in one write and closes
-// it before use; a process that finds a short salt waits for the creator and
-// never writes, truncates or removes the file itself.
+// it before use; a creator whose write falls short removes its own file, so
+// the next load creates the salt again. A process that finds a short salt
+// waits for the creator and never writes, truncates or removes the file
+// itself.
 func loadSalt(r *os.Root) ([32]byte, error) {
 	f, err := openRegular(r, saltName, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
 	if err == nil {
-		return writeSalt(f)
+		return writeSalt(r, f)
 	}
 	if !errors.Is(err, fs.ErrExist) {
 		return [saltSize]byte{}, err
@@ -58,18 +60,34 @@ func loadSalt(r *os.Root) ([32]byte, error) {
 	}
 }
 
-func writeSalt(f *os.File) ([saltSize]byte, error) {
+func writeSalt(r *os.Root, f *os.File) ([saltSize]byte, error) {
 	var salt [saltSize]byte
 	race("salt")
 	rand.Read(salt[:]) // never fails
-	_, err := f.Write(salt[:])
+	created, statErr := fileInfo(f)
+	n, err := writeFile(f, salt[:])
+	if err == nil && n < saltSize {
+		err = io.ErrShortWrite
+	}
 	if cerr := f.Close(); err == nil {
 		err = cerr
+	}
+	if n < saltSize && statErr == nil {
+		removeOwnSalt(r, created)
 	}
 	if err != nil {
 		return [saltSize]byte{}, scrub(err)
 	}
 	return salt, nil
+}
+
+// removeOwnSalt removes the salt only while the name still holds the file
+// this process created; a file put in its place stays.
+func removeOwnSalt(r *os.Root, created os.FileInfo) {
+	now, err := r.Lstat(saltName)
+	if err == nil && regular(now) && os.SameFile(unwrap(created), now) {
+		_ = r.Remove(saltName)
+	}
 }
 
 // readSalt reads at most one byte more than a salt and reports how many it
