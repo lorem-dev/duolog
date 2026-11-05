@@ -52,6 +52,8 @@
   window, replays it in isolated trees and can `resume` after a stop.
 - `duolog calibrate judge` and `propose`: blind judging you confirm, a
   learned-order proposal per class, and a shared project part in Git.
+- Local telemetry keeps run, quota and routing figures, never text, for 30 days
+  on this machine; `duolog telemetry off` stops it. See docs/telemetry.md.
 
 ### Changed
 

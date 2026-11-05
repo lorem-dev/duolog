@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -16,21 +17,66 @@ import (
 	"github.com/lorem-dev/duolog/internal/session"
 )
 
+// AskResult is how one escalated ask ended, in closed names only: Answer is
+// allow, deny or timeout; By is person or lead for an answer or a wait that
+// ran out, auto when duolog denied without asking anyone; Wait is how long
+// the worker waited.
+type AskResult struct {
+	Answer, By string
+	Wait       time.Duration
+}
+
+type askObserverKey struct{}
+
+// askObserver reports the first ask of one hook call and ignores the rest, so
+// a hook that escalates again in the same call cannot count an ask twice.
+type askObserver struct {
+	once sync.Once
+	f    func(AskResult)
+}
+
+// WithAskObserver returns a context whose Escalate calls report how their
+// ask ended to f, once per context. The observer cannot change the decision:
+// Escalate calls it after deciding and ignores what it does.
+func WithAskObserver(ctx context.Context, f func(AskResult)) context.Context {
+	if f == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, askObserverKey{}, &askObserver{f: f})
+}
+
+func observeAsk(ctx context.Context, r AskResult) {
+	if o, ok := ctx.Value(askObserverKey{}).(*askObserver); ok {
+		o.once.Do(func() { o.f(r) })
+	}
+}
+
 // Escalate waits for a reply from the worker's spawning lead. Each request has
 // its own inbox so simultaneous hook processes cannot consume each other's reply.
 // The hook caller preserves the evaluated mode and logs the final decision.
 func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout time.Duration, person bool) Decision {
+	started := time.Now()
+	asked := "lead"
+	if person {
+		asked = "person"
+	}
+	// Each way out reports who settled the ask; nothing reads the reason back.
+	settle := func(d Decision, answer, by string) Decision {
+		observeAsk(ctx, AskResult{Answer: answer, By: by, Wait: time.Since(started)})
+		return d
+	}
 	decision := func(kind, reason string) Decision {
 		return Decision{Kind: kind, Reason: reason, Rule: "ask lead"}
 	}
-	deny := func(reason string) Decision { return decision(Deny, reason) }
+	deny := func(reason string) Decision { return settle(decision(Deny, reason), Deny, "auto") }
+	timedOut := func() Decision { return settle(decision(Deny, "ask timeout or cancellation"), "timeout", asked) }
 	if lead == "" || session.CurrentLead(os.Environ()) != lead {
 		return deny("ask requires the spawning DUOLOG_LEAD")
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	if ctx.Err() != nil {
-		return deny("ask timeout or cancellation")
+	if waitCtx.Err() != nil {
+		return timedOut()
 	}
 	reg, err := session.Open(b.Directory())
 	if err != nil {
@@ -72,12 +118,12 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout ti
 	defer ticker.Stop()
 	for {
 		select {
-		case <-ctx.Done():
-			return deny("ask timeout or cancellation")
+		case <-waitCtx.Done():
+			return timedOut()
 		case <-ticker.C:
 		}
-		if ctx.Err() != nil {
-			return deny("ask timeout or cancellation")
+		if waitCtx.Err() != nil {
+			return timedOut()
 		}
 		if _, alive, err := reg.Lead(lead); err != nil || !alive {
 			return deny("ask lead is unavailable or has ended")
@@ -92,7 +138,7 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout ti
 				continue
 			}
 			if m.K == Allow || m.K == Deny {
-				return decision(m.K, fmt.Sprintf("lead %s answered %s for ask %d", lead, m.K, n))
+				return settle(decision(m.K, fmt.Sprintf("lead %s answered %s for ask %d", lead, m.K, n)), m.K, asked)
 			}
 		}
 	}

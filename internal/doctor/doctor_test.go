@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -48,7 +49,32 @@ func setup(t *testing.T) (*config.Config, Options, string) {
 	}})
 	// Keep all subprocesses isolated from real agents and Rex.
 	t.Setenv("PATH", filepath.Dir(claude)+string(os.PathListSeparator)+filepath.Dir(codex))
+	fakeRex(t)
 	return cfg, Options{Root: root, Registry: reg}, codex
+}
+
+// fakeRex puts a fake rex first on PATH, so no doctor test can find the
+// machine's own. Call it after the test sets its PATH.
+func fakeRex(t *testing.T) string {
+	t.Helper()
+	return testbin.Install(t, "rex", testbin.Scenario{Stdout: `{"blocks":[]}`})
+}
+
+// Every doctor test finds the fake rex first on PATH, and doctor never runs
+// it.
+func TestDoctorTestsFindFakeRex(t *testing.T) {
+	cfg, opts, _ := setup(t)
+	bin, err := exec.LookPath("rex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(bin + ".json"); err != nil {
+		t.Fatalf("rex in PATH is %s, not the fake: %v", bin, err)
+	}
+	findings(t, cfg, opts)
+	if _, err := os.Stat(bin + ".calls.ndjson"); !os.IsNotExist(err) {
+		t.Fatalf("doctor ran rex: %v", err)
+	}
 }
 func findings(t *testing.T, cfg *config.Config, opts Options) string {
 	t.Helper()
@@ -132,6 +158,7 @@ func TestDoctorListsPanesOfEndedLead(t *testing.T) {
 func TestDoctorFlagsMissingBinary(t *testing.T) {
 	cfg, opts, _ := setup(t)
 	t.Setenv("PATH", t.TempDir())
+	fakeRex(t)
 	notice := "Rex unavailable"
 	if runtime.GOOS == "windows" {
 		notice = "Live sessions are not available on Windows; use duolog delegate."

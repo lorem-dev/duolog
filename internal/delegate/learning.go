@@ -458,8 +458,10 @@ func copyFile(from, to string) error {
 }
 
 // gateCounts counts the deny and ask decisions for this role that the gate
-// appended during the run. The gate logs no worker id, so a parallel worker
-// of the same role counts too.
+// appended during the run. An ask the lead or the person settled is logged
+// with the rule "ask lead" and the answer's kind: it counts as an ask, and a
+// denied one as a denial too. The gate logs no worker id, so a parallel
+// worker of the same role counts too.
 func (lr *learnRun) gateCounts() (denials, asks int, err error) {
 	f, err := os.Open(filepath.Join(lr.stateDir, "decisions.ndjson"))
 	if os.IsNotExist(err) {
@@ -479,11 +481,11 @@ func (lr *learnRun) gateCounts() (denials, asks int, err error) {
 		if json.Unmarshal(scan.Bytes(), &r) != nil || r.Action.Role != lr.role {
 			continue
 		}
-		switch r.Kind {
-		case gate.Deny:
-			denials++
-		case gate.Ask:
+		if r.Kind == gate.Ask || r.Rule == "ask lead" {
 			asks++
+		}
+		if r.Kind == gate.Deny {
+			denials++
 		}
 	}
 	return denials, asks, scan.Err()

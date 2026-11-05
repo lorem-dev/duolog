@@ -50,6 +50,9 @@ type Spec struct {
 	SkillTest bool
 	// MCP holds servers bridged from the lead's agent for this run, or nil.
 	MCP *MCP
+	// ProtectedRoots are the telemetry and balance roots. A Claude worker's
+	// settings add them to the denyRead list of an already enabled sandbox.
+	ProtectedRoots []string
 }
 
 // MCP is what a worker needs to start servers bridged from the lead's agent.
@@ -73,6 +76,21 @@ type MCP struct {
 }
 
 type Usage struct{ Input, Cached, Output int64 }
+
+// Error codes say why a run failed. Run sets one where the run failed: the
+// process, the timeout, the logs it classified, the answer it parsed; never
+// from an error's text. The gate code is the caller's, which sees the gate's
+// decisions.
+const (
+	CodeNone    = "none"
+	CodeQuota   = "quota"
+	CodeAuth    = "auth"
+	CodeTimeout = "timeout"
+	CodeExit    = "exit"
+	CodeParse   = "parse"
+	CodeGate    = "gate"
+)
+
 type Result struct {
 	RawAnswer string
 	Done      bool
@@ -93,6 +111,19 @@ type Result struct {
 	// its credentials. AuthServer names the server, when the error did.
 	AuthFailed bool
 	AuthServer string
+	// UsageKnown means the vendor reported the usage; zero usage is then a
+	// count, not a gap.
+	UsageKnown bool
+	// ErrorCode is one of the Code constants; CodeNone after a run that did
+	// not fail.
+	ErrorCode string
+}
+
+// setCode keeps the first code set: the place the run failed first.
+func setCode(r *Result, code string) {
+	if r.ErrorCode == "" {
+		r.ErrorCode = code
+	}
 }
 
 // Argv includes the executable. Route.Model is already resolved by the caller;
@@ -116,8 +147,10 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	defer func() {
 		if err != nil {
 			result.Done = false
+			setCode(&result, CodeExit)
 			err = fmt.Errorf("worker failed; see %s: %w", logPath, err)
 		}
+		setCode(&result, CodeNone)
 	}()
 	if s.TaskDir == "" {
 		return result, fmt.Errorf("missing task directory")
@@ -209,6 +242,13 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	}
 	if ctx.Err() != nil || result.ExitCode < 0 {
 		result.Interrupted = true
+		switch {
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
+			setCode(&result, CodeTimeout)
+		case ctx.Err() != nil:
+			// The caller cancelled the run; it did not fail by itself.
+			setCode(&result, CodeNone)
+		}
 		if ctx.Err() != nil {
 			return result, ctx.Err()
 		}
@@ -223,6 +263,11 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	}
 	if result.QuotaEnded && result.ResetAt.IsZero() {
 		result.ResetAt = fallback
+	}
+	if result.QuotaEnded {
+		setCode(&result, CodeQuota)
+	} else if result.AuthFailed {
+		setCode(&result, CodeAuth)
 	}
 	if s.SkillTest {
 		result, err = skillResult(s, stdoutPath, answerPath, result)
@@ -247,6 +292,7 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 		var answer json.RawMessage
 		answer, err = claudeResult(stdoutPath, &result)
 		if err != nil {
+			setCode(&result, CodeParse)
 			return result, err
 		}
 		if err = os.WriteFile(answerPath, answer, 0600); err != nil {
@@ -255,6 +301,8 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	}
 	answer, err := os.ReadFile(answerPath)
 	if err != nil {
+		// The worker exited without leaving its answer.
+		setCode(&result, CodeParse)
 		return result, err
 	}
 	if s.Route.Agent == "codex" {
@@ -270,13 +318,16 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	decoder := json.NewDecoder(bytes.NewReader(answer))
 	decoder.DisallowUnknownFields()
 	if err = decoder.Decode(&parsed); err != nil {
+		setCode(&result, CodeParse)
 		return result, fmt.Errorf("invalid answer.json: %w", err)
 	}
 	var extra any
 	if err = decoder.Decode(&extra); err != io.EOF {
+		setCode(&result, CodeParse)
 		return result, fmt.Errorf("invalid answer.json: expected one JSON object")
 	}
 	if parsed.Done == nil || parsed.Summary == nil || parsed.Files == nil || parsed.Needs == nil {
+		setCode(&result, CodeParse)
 		return result, fmt.Errorf("invalid answer.json: required fields are missing or null")
 	}
 	result.Done = *parsed.Done

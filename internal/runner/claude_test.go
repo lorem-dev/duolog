@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/pathutil"
+	"github.com/lorem-dev/duolog/internal/project"
 )
 
 func TestClaudeArgvUsesSharedStateRoot(t *testing.T) {
@@ -40,6 +42,64 @@ func TestClaudeArgvUsesSharedStateRoot(t *testing.T) {
 		if !strings.Contains(args[i+1], filepath.ToSlash(pathutil.Resolved(root))+"/.duolog/decisions.ndjson") || strings.Contains(args[i+1], filepath.ToSlash(pathutil.Resolved(linked))+"/.duolog/") {
 			t.Fatal(context, args[i+1])
 		}
+	}
+}
+
+// TestProtectedRootsForwarded: the store roots in the Spec reach the Claude
+// worker's denyRead whether collection is on or off; a Codex worker has only
+// the gate, and the person's settings are never edited.
+func TestProtectedRootsForwarded(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	userSettings := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(userSettings), 0700); err != nil {
+		t.Fatal(err)
+	}
+	const installed = `{"sandbox":{"enabled":false}}`
+	if err := os.WriteFile(userSettings, []byte(installed), 0600); err != nil {
+		t.Fatal(err)
+	}
+	roots := []string{filepath.Join(home, "state", "duolog", "telemetry"), filepath.Join(home, "state", "duolog", "balance")}
+	for _, collection := range []string{"", "off"} {
+		t.Setenv("DUOLOG_TELEMETRY", collection)
+		for _, context := range []string{"minimal", "project"} {
+			s := spec(t, "claude")
+			s.Route.Context = context
+			s.ProtectedRoots = roots
+			args := Argv(s)
+			i := slices.Index(args, "--settings")
+			if i < 0 || i+1 == len(args) {
+				t.Fatal(args)
+			}
+			var settings map[string]any
+			if err := json.Unmarshal([]byte(args[i+1]), &settings); err != nil {
+				t.Fatal(err)
+			}
+			sandbox, _ := settings["sandbox"].(map[string]any)
+			if _, on := sandbox["enabled"]; on {
+				t.Fatal("duolog must never turn the sandbox on", args[i+1])
+			}
+			fs, _ := sandbox["filesystem"].(map[string]any)
+			denied, _ := fs["denyRead"].([]any)
+			for _, root := range roots {
+				if !slices.Contains(denied, any(filepath.ToSlash(root))) {
+					t.Fatal(collection, context, args[i+1])
+				}
+			}
+			if !slices.Contains(denied, any(filepath.ToSlash(project.StateRoot(s.Cwd))+"/.duolog/journal")) {
+				t.Fatal(args[i+1])
+			}
+		}
+		codex := spec(t, "codex")
+		codex.ProtectedRoots = roots
+		if line := strings.Join(Argv(codex), " "); strings.Contains(line, filepath.ToSlash(roots[0])) || strings.Contains(line, roots[0]) {
+			t.Fatal(line)
+		}
+	}
+	if data, err := os.ReadFile(userSettings); err != nil || string(data) != installed {
+		t.Fatalf("user settings changed: %s %v", data, err)
 	}
 }
 

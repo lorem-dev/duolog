@@ -242,6 +242,7 @@ duolog uses the [Apache License 2.0](LICENSE).
 - [Permissions](docs/permissions.md): how duolog decides for a worker
 - [Rex](docs/rex.md): a live second session
 - [Budgets](docs/budgets.md): cost targets and what we measured
+- [Telemetry](docs/telemetry.md): the local history and how to turn it off
 - [Practices and models](docs/research/2026-10-30-practices-and-models.md): the
   evidence behind the default rules
 - [How to write the documentation](docs/contributing.md): the writing rules

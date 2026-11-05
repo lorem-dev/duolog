@@ -39,6 +39,9 @@ type CellEnv struct {
 	Store                        *store.Store
 	Delegate                     DelegateFunc
 	Checks                       CheckRunner
+	// ProtectedRoots are the telemetry and balance roots the command
+	// resolved; they reach each cell's and judge's worker launch settings.
+	ProtectedRoots []string
 }
 
 // CellResult is one cell's outcome. result.json holds it without the patch
@@ -146,7 +149,7 @@ func RunCell(ctx context.Context, env CellEnv, c Cell, t TaskRecord, start Start
 	// The turn cap binds a Claude worker; Codex has no flag for it, so there
 	// it is the brief's advice and the time cap is the hard stop.
 	cellCtx = delegate.WithOptions(cellCtx, delegate.Options{Lead: env.Lead, Entry: &target, WorkRoot: tree, Calibration: true,
-		MaxTurns: env.Cfg.Calibration.CellMaxTurns})
+		MaxTurns: env.Cfg.Calibration.CellMaxTurns, ProtectedRoots: env.ProtectedRoots})
 	started := time.Now()
 	out, runErr := env.Delegate(cellCtx, env.Cfg, env.Store, cellRole(env.Cfg, t), taskPath, "calibration-"+c.ID)
 	r.Seconds = time.Since(started).Seconds()

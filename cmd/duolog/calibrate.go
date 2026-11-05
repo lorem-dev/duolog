@@ -684,7 +684,8 @@ func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.
 	// The run and its cells keep to the approved caps and cell limits, or to
 	// the config's where they are stricter.
 	runCfg := p.Limit(planConfig(cfg, survey))
-	env := calibration.CellEnv{Root: root, StateDir: s.Dir, RunDir: runDir, Lead: lead, Cfg: runCfg, Store: s, Delegate: runDelegate, Checks: cellChecks}
+	env := cellEnv(root, s, runDir, lead, runCfg)
+	env.Checks = cellChecks
 	return f(&calibration.Runner{
 		StateDir: s.Dir, Root: root, Cfg: runCfg, Run: run, Plan: p, Manifest: m,
 		Quota: &calibration.QuotaCache{Read: quotaReader}, Now: time.Now,
@@ -695,6 +696,13 @@ func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.
 		Out:     cmd.OutOrStdout(),
 		Tree:    tree,
 	})
+}
+
+// cellEnv is what calibration cells and judge calls delegate with. Their
+// workers get the telemetry and balance roots in their launch settings, as
+// every other delegation does.
+func cellEnv(root string, s *store.Store, runDir, lead string, cfg *config.Config) calibration.CellEnv {
+	return calibration.CellEnv{Root: root, StateDir: s.Dir, RunDir: runDir, Lead: lead, Cfg: cfg, Store: s, Delegate: runDelegate, ProtectedRoots: launchProtectedRoots()}
 }
 
 // rewriteStatement asks the first judge for a statement written from a
@@ -735,7 +743,7 @@ func rewriteStatement(root string, cfg *config.Config, s *store.Store, runDir, l
 		if err := calibration.StartStep(start); err != nil {
 			return "", 0, err
 		}
-		ctx = delegate.WithOptions(ctx, delegate.Options{Lead: lead, Entry: &target, WorkRoot: work, Calibration: true})
+		ctx = delegate.WithOptions(ctx, delegate.Options{Lead: lead, Entry: &target, WorkRoot: work, Calibration: true, ProtectedRoots: launchProtectedRoots()})
 		out, err := runDelegate(ctx, cfg, s, "docs", taskPath, "")
 		tokens := out.Result.Usage.Input + out.Result.Usage.Output
 		if err != nil {
@@ -864,7 +872,7 @@ func newCalibrateJudgeCommand() *cobra.Command {
 			}
 		}
 		env := calibration.JudgeEnv{
-			CellEnv: calibration.CellEnv{Root: root, StateDir: s.Dir, RunDir: runDir, Lead: lead, Cfg: cfg, Store: s, Delegate: runDelegate},
+			CellEnv: cellEnv(root, s, runDir, lead, cfg),
 			Journal: j,
 		}
 		var pairs []calibration.Pair

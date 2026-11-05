@@ -19,9 +19,10 @@ import (
 // also does: the memory folder belongs to the project path, so a worker's note
 // would reach the lead and later sessions. Minimal context also excludes
 // instruction files. --setting-sources would do more, but it also drops the user
-// settings that enable the duolog plugin and its gate.
-func claudeWorkerSettings(stateDir string, minimal bool) string {
-	return workerenv.ClaudeSettings(stateDir, minimal, nil)
+// settings that enable the duolog plugin and its gate. roots join the denyRead
+// list of a sandbox the person already turned on.
+func claudeWorkerSettings(stateDir string, minimal bool, roots ...string) string {
+	return workerenv.ClaudeSettingsWithRoots(stateDir, minimal, nil, roots)
 }
 
 func claudeArgv(s Spec) []string {
@@ -54,7 +55,7 @@ func claudeArgv(s Spec) []string {
 		disallowed = append(disallowed, s.MCP.DisallowedTools...)
 	}
 	args = append(args, "--disallowedTools="+strings.Join(disallowed, ","))
-	args = append(args, "--settings", claudeWorkerSettings(project.StateRoot(s.Cwd), s.Route.Context == "minimal"))
+	args = append(args, "--settings", claudeWorkerSettings(project.StateRoot(s.Cwd), s.Route.Context == "minimal", s.ProtectedRoots...))
 	if s.Route.Context == "minimal" {
 		// Minimal context drops every CLAUDE.md, the user's too, and skills unless the
 		// task needs one: a project
@@ -78,7 +79,8 @@ type claudeOutput struct {
 	// Subtype is error_max_turns when the run stopped at --max-turns.
 	Subtype    string          `json:"subtype"`
 	Structured json.RawMessage `json:"structured_output"`
-	Usage      struct {
+	// A pointer, so that a result without usage is told from zero usage.
+	Usage *struct {
 		Input    int64 `json:"input_tokens"`
 		Creation int64 `json:"cache_creation_input_tokens"`
 		Cached   int64 `json:"cache_read_input_tokens"`
@@ -124,7 +126,10 @@ func (output claudeOutput) read(result *Result) {
 	result.SessionID = output.SessionID
 	// Claude reports uncached, cache creation and cache reads separately; Input
 	// is total input for both vendors, with Cached being the included read subset.
-	result.Usage = Usage{Input: output.Usage.Input + output.Usage.Creation + output.Usage.Cached, Cached: output.Usage.Cached, Output: output.Usage.Output}
+	if u := output.Usage; u != nil {
+		result.Usage = Usage{Input: u.Input + u.Creation + u.Cached, Cached: u.Cached, Output: u.Output}
+		result.UsageKnown = true
+	}
 }
 
 // claudeTurnCap reports whether Claude's run at path stopped at --max-turns,

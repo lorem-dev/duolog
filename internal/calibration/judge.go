@@ -535,7 +535,7 @@ func judgeOnce(ctx context.Context, env JudgeEnv, c config.Class, dir string, n 
 	}
 	// Calibration keeps the task copy in the slot's own state, the only
 	// place task.Inline reads it from outside the work root.
-	ctxRun := delegate.WithOptions(ctx, delegate.Options{Judge: true, Calibration: true, Entry: &target, WorkRoot: slot, Lead: env.Lead})
+	ctxRun := delegate.WithOptions(ctx, delegate.Options{Judge: true, Calibration: true, Entry: &target, WorkRoot: slot, Lead: env.Lead, ProtectedRoots: env.ProtectedRoots})
 	var out delegate.Outcome
 	admitted, err := env.paid(ctx, target, func() (int64, error) {
 		var runErr error

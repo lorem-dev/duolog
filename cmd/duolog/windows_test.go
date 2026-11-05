@@ -13,7 +13,8 @@ func TestWindowsPeerNotice(t *testing.T) {
 	}
 	isolatedRouteConfig(t)
 	t.Chdir(t.TempDir())
-	t.Setenv("PATH", t.TempDir()) // No rex, agents, Bash or PowerShell required.
+	t.Setenv("PATH", t.TempDir()) // No agents, Bash or PowerShell required.
+	fakeRexFirst(t)
 	for _, args := range [][]string{{"peer"}, {"peer", "open", "plan"}, {"peer", "wait", "id"}, {"peer", "close", "id"}} {
 		out, err := executeBusCommand(t, args...)
 		if err != nil || out != peer.WindowsNotice+"\n" {

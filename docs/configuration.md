@@ -136,6 +136,7 @@ The lead's own settings are the ceiling:
 | `rex.stuck_notify_minutes` | Minutes before `peer wait` sends one reminder for an unanswered question. Default: `5`; `0` disables reminders |
 | `rex.auto_answers` | Ordered `{match, answer}` rules for safe peer questions. Defaults to answering `Hooks need review` with `Continue without trusting`. A project list replaces the defaults; `[]` disables it. Trust and persistent approval grants are refused |
 | `coauthors` | Enable worker credit and set commit co-author templates. See [Getting started](getting-started.md#how-to-credit-the-workers-in-commits) |
+| `telemetry` | The local history of runs, quota and routing. See [below](#which-layers-may-change-telemetry) and [Telemetry](telemetry.md) |
 
 ## What workers inherit
 
@@ -422,12 +423,32 @@ it. Raise a cap in `.duolog/config.local.yaml` or your user config. The lead
 reserve, 15% of the weekly and 10% of the five-hour window, applies on top
 and is not a setting.
 
+## Which layers may change telemetry
+
+The `telemetry` section is yours, not the project's: only the embedded
+default and your user config set it. A project layer may set one key,
+`enabled: false`, which stops that project's run, permission and peer events.
+It cannot turn telemetry on or change the other keys, so pruning never
+depends on the project that runs it. `DUOLOG_TELEMETRY=off` turns telemetry
+off everywhere and cannot turn it on.
+
+| Key | Default | What it does |
+|---|---|---|
+| `enabled` | `true` | Collect or not. `duolog telemetry on` and `off` set it in your user config |
+| `retention_days` | `30` | Days a record is kept, 1 to 30 |
+| `prune_every_hours` | `6` | Hours between automatic prunes |
+| `max_megabytes` | `16` | Size cap of the whole telemetry folder, in units of 1,000,000 bytes |
+
+Turning telemetry off stops writes only. Pruning goes on until the data is
+gone. See [Telemetry](telemetry.md) for what is kept and where.
+
 ## Related pages
 
 - [Getting started](getting-started.md): install and first task
 - [Permissions](permissions.md): policy rules and modes
 - [Learning mode](learning.md): task classes, the journal and learned orders
 - [Calibration](calibration.md): a starting order from past work, on request
+- [Telemetry](telemetry.md): the local history and how to turn it off
 - [Practices and models](research/2026-10-30-practices-and-models.md): the
   evidence behind the defaults
 - [Cost study](research/2026-11-01-cost-study.md): what duolog cost against

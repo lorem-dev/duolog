@@ -140,6 +140,33 @@ It names the shared project's logs, session file, cursors, journal and routing
 data. It blocks reads by child programs only when the person's Claude sandbox
 is already on. duolog never writes `sandbox.enabled` or turns a sandbox on.
 
+## Workers cannot reach the telemetry and balance folders
+
+The gate denies every worker action that reaches the
+[telemetry](telemetry.md) folder or the balance folder beside it. The rule is
+`private usage store`. It comes before policy, modes and questions, so no rule
+or mode opens the folders, and the gate asks no one.
+
+The deny covers read and write tools, paths that commands name, and recursive
+searches whose roots contain either folder. The gate compares resolved paths,
+so a symbolic link, a junction, `/private/var` against `/var`, a change of
+case or a Windows short name does not get around it. A path that does not
+exist yet is placed by its closest existing folder.
+
+The gate also denies `duolog telemetry` and `duolog balance` to a worker, by
+any program path, in a pipeline or behind a wrapper such as `sh -c`. Global
+flags before the subcommand, such as `--lead L` or `--lead=L`, do not hide
+it. The commands refuse a worker too.
+
+The gate sees what a worker asks for, not what a program it runs does. Tests
+or a build that read the folder without naming it are not stopped. Claude
+workers whose sandbox is already on also get both folders in
+`sandbox.filesystem.denyRead`. Codex workers and native Windows have the gate
+only.
+
+When a lead model runs `duolog telemetry` or reads the folder, a Claude lead
+asks you, and a Codex lead is told to have you run it in your terminal.
+
 ## Reads and writes outside the work root need the person
 
 An outside-path ask is marked `p: true` on the bus. The peer's pending-ask
@@ -354,5 +381,6 @@ Windows drive letters, backslashes and case are normalized before path rules.
 ## Related pages
 
 - [Configuration](configuration.md): the `policy` section
+- [Telemetry](telemetry.md): what the private usage stores hold
 - [Rex](rex.md): permission questions in a live session
 - [Live verification](research/2026-10-30-live-verification.md): hook results

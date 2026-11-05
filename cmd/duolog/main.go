@@ -26,7 +26,7 @@ func newRootCommand() *cobra.Command {
 		_, err := fmt.Fprintln(cmd.OutOrStdout(), version)
 		return err
 	}})
-	cmd.AddCommand(newConfigCommand(), newRouteCommand(), newSendCommand(), newInboxCommand(), newPutCommand(), newRefCommand(), newReadCommand(), newDelegateCommand(), newDoctorCommand(), newRosterCommand(), newStatsCommand(), newGateCommand(), newDecideCommand("allow"), newDecideCommand("deny"), newRememberCommand(), newModeCommand(), newDecisionsCommand(), newHookCommand(), newSyncCommand(), newInstallCommand(), newUninstallCommand(), newPeerCommand(), newCapsCommand(), newTaskCommand(), newLearnCommand(), newProfileCommand(), newVerdictCommand())
+	cmd.AddCommand(newConfigCommand(), newRouteCommand(), newSendCommand(), newInboxCommand(), newPutCommand(), newRefCommand(), newReadCommand(), newDelegateCommand(), newDoctorCommand(), newRosterCommand(), newStatsCommand(), newGateCommand(), newDecideCommand("allow"), newDecideCommand("deny"), newRememberCommand(), newModeCommand(), newDecisionsCommand(), newHookCommand(), newSyncCommand(), newInstallCommand(), newUninstallCommand(), newPeerCommand(), newCapsCommand(), newTaskCommand(), newLearnCommand(), newProfileCommand(), newVerdictCommand(), newTelemetryCommand())
 	return cmd
 }
 

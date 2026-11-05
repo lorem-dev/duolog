@@ -49,6 +49,27 @@ jobs:
         # their Git repositories, take two to four on Windows. The timeout
         # names the test that hangs and prints its stack.
         run: go test ${{ matrix.race }} -timeout 6m ./...
+      # The native evidence for telemetry, by name in each runner's log: the
+      # owner and mode or the Windows DACL, the macOS backup and index
+      # exclusions, the Linux cache tag and NFS probe, files held open on
+      # Windows, and several processes writing and pruning at once. A
+      # cross-build does not prove any of it.
+      - name: Native telemetry protection checks
+        run: go test ${{ matrix.race }} -count=1 -v -run '^Test(Root|PruneOpenWindowsFile|PurgeOpenWindowsFile|AppendWholeLines|SaltConcurrentCreation|MaintenanceWriterPurgeRace|PruneDoesNotFollowLinks)' ./internal/telemetry
+      # The NFS check above fakes statfs; this one mounts NFS over loopback
+      # and checks that the real probe refuses a root there.
+      - name: A real NFS mount refuses the telemetry root
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nfs-kernel-server
+          sudo mkdir -p /srv/duolog-nfs /mnt/duolog-nfs
+          sudo chown "$(id -u):$(id -g)" /srv/duolog-nfs
+          echo "/srv/duolog-nfs 127.0.0.1(rw,sync,no_subtree_check,all_squash,anonuid=$(id -u),anongid=$(id -g))" | sudo tee /etc/exports
+          sudo systemctl restart nfs-kernel-server
+          sudo exportfs -ra
+          sudo mount -t nfs -o vers=4 127.0.0.1:/srv/duolog-nfs /mnt/duolog-nfs
+          DUOLOG_TEST_NFS_DIR=/mnt/duolog-nfs go test -count=1 -v -run '^TestRootRefusalRealNFS$' ./internal/telemetry
       - name: Every place states the same version, and CHANGES.md keeps its limits
         run: uv run scripts/version/version.py check
       - name: Version tool tests

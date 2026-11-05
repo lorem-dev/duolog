@@ -232,6 +232,20 @@ func TestRewriteRunsInJudgeSlot(t *testing.T) {
 	if err != nil || !strings.Contains(string(stdin), "+func Parse() {}") {
 		t.Fatalf("worker input lacks the reference: %v\n%s", err, stdin)
 	}
+	// The rewrite worker's settings deny the telemetry and balance roots.
+	args, err := os.ReadFile(fake + ".args.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots, err := gateProtectedRoots()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, root := range roots {
+		if !strings.Contains(string(args), filepath.ToSlash(root)) {
+			t.Fatalf("rewrite worker argv lacks %s:\n%s", root, args)
+		}
+	}
 }
 
 // A Codex rewrite in a slot Codex does not trust is refused before any call.

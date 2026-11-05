@@ -28,6 +28,9 @@ type Options struct {
 	Entry                   config.Target
 	Chain, AllowManualModel bool
 	Lead                    string
+	// ProtectedRoots and Observe pass to each replayed delegation.
+	ProtectedRoots []string
+	Observe        delegate.Observer
 }
 
 type Side struct {
@@ -148,7 +151,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, delegation str
 		if i > 0 {
 			entry = config.Target{Agent: rec.Agent, Model: rec.Model, Effort: rec.Effort}
 		}
-		ctxRun := delegate.WithOptions(ctx, delegate.Options{Entry: &entry, ReplayOf: rec.ID, Lead: opts.Lead, AllowManualModel: opts.AllowManualModel, WorkRoot: wt})
+		ctxRun := delegate.WithOptions(ctx, delegate.Options{Entry: &entry, ReplayOf: rec.ID, Lead: opts.Lead, AllowManualModel: opts.AllowManualModel, WorkRoot: wt, ProtectedRoots: opts.ProtectedRoots, Observe: opts.Observe})
 		out, e := runDelegate(ctxRun, cfg, s, rec.Role, taskPath, "")
 		if e != nil {
 			if strings.Contains(e.Error(), "Codex hooks untrusted") {

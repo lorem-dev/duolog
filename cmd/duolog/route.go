@@ -52,9 +52,14 @@ func newRouteCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			route, err := router.Resolve(cfg, args[0], unavailable, router.Options{Lead: &lead.Target, AllowManualModel: allowManualModel})
+			opts := router.Options{Lead: &lead.Target, AllowManualModel: allowManualModel}
+			route, err := router.Resolve(cfg, args[0], unavailable, opts)
 			if err != nil {
 				return err
+			}
+			if tel := openAccountTelemetry(cfg, root); tel != nil {
+				observeBalance(tel).Route(routeObservation(cfg, args[0], route, opts))
+				tel.Close()
 			}
 			if asJSON {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{

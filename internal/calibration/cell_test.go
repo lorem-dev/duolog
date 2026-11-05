@@ -668,6 +668,47 @@ func TestRunCellClaudeTreeHasGate(t *testing.T) {
 	}
 }
 
+// A cell's worker gets the telemetry and balance roots as every delegated
+// worker does: the delegation carries them and the Claude worker's launch
+// settings deny them.
+func TestRunCellWorkerGetsProtectedRoots(t *testing.T) {
+	f := newCellFixture(t)
+	roots := []string{filepath.Join(f.home, "state", "duolog", "telemetry"), filepath.Join(f.home, "state", "duolog", "balance")}
+	f.env.ProtectedRoots = roots
+	var out delegate.Outcome
+	fake := f.realClaude(t, testbin.Scenario{Stdout: parseAnswer, Writes: map[string]string{"parse.go": "package widget\n\nfunc Parse(line string) []string { return nil }\n"}}, &out)
+	delegateRun := f.env.Delegate
+	f.env.Delegate = func(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath, thread string) (delegate.Outcome, error) {
+		if got := delegate.OptionsFrom(ctx).ProtectedRoots; !slices.Equal(got, roots) {
+			t.Errorf("delegation roots %q, want %q", got, roots)
+		}
+		return delegateRun(ctx, cfg, s, role, taskPath, thread)
+	}
+	if r := f.run(t); r.State != CellDone {
+		t.Fatalf("result %+v, want done (delegation line %q)", r, out.Line)
+	}
+	args := argv(t, fake)
+	i := slices.Index(args, "--settings")
+	if i < 0 || i+1 == len(args) {
+		t.Fatalf("worker argv %q has no settings", args)
+	}
+	var settings struct {
+		Sandbox struct {
+			Filesystem struct {
+				DenyRead []string `json:"denyRead"`
+			} `json:"filesystem"`
+		} `json:"sandbox"`
+	}
+	if err := json.Unmarshal([]byte(args[i+1]), &settings); err != nil {
+		t.Fatal(err)
+	}
+	for _, root := range roots {
+		if !slices.Contains(settings.Sandbox.Filesystem.DenyRead, filepath.ToSlash(root)) {
+			t.Fatalf("worker settings %s do not deny %s", args[i+1], root)
+		}
+	}
+}
+
 // disableAllHooks turns the gate off in every layer Claude loads: from the
 // replayed commit's project settings or from the person's user settings, it
 // refuses the cell before the worker starts. The export leaves a committed

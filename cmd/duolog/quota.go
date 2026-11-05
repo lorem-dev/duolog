@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/spf13/cobra"
@@ -41,6 +42,15 @@ func newQuotaCommand() *cobra.Command {
 		if reg != nil && regErr == nil {
 			unavailable, regErr = reg.Unavailable()
 		}
+		// Telemetry mirrors what this read finds and never reads a vendor
+		// itself; a config it cannot load only leaves it out.
+		var observe balanceObserver
+		if cfg, cfgErr := config.Load(root); cfgErr == nil {
+			if tel := openAccountTelemetry(cfg, root); tel != nil {
+				defer tel.Close()
+				observe = observeBalance(tel)
+			}
+		}
 		results := make(map[string]quotaResult)
 		read := 0
 		for _, agent := range []string{"claude", "codex"} {
@@ -51,6 +61,9 @@ func newQuotaCommand() *cobra.Command {
 			} else {
 				read++
 				result.Snapshot = &s
+				if observe.Quota != nil {
+					observe.Quota(quotaObservation(agent, s))
+				}
 				if regErr != nil {
 					result.RegistryError = "cannot read session registry"
 				} else if unavailable[agent] && s.Healthy(time.Now()) {
