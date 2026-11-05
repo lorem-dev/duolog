@@ -42,8 +42,8 @@ func readClaudeBilling(t *testing.T, usage string, auth testbin.Scenario) (Snaps
 	t.Helper()
 	isolate(t)
 	testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{
-		"-p":                 {Stdout: "{\"type\":\"system\"}\n" + usage + "\n"},
-		"auth status --json": auth,
+		freeClaude("-p"):                 {Stdout: "{\"type\":\"system\"}\n" + usage + "\n"},
+		freeClaude("auth status --json"): auth,
 	}})
 	return (Reader{Timeout: 3 * time.Second}).Read(context.Background(), "claude")
 }

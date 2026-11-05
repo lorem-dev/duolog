@@ -12,7 +12,14 @@ import (
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/testbin"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
+
+// freeClaudeRead is the reply key of a Claude quota read: the free worker's
+// --settings prefix, then args.
+func freeClaudeRead(args string) string {
+	return "--settings " + workerenv.ClaudeSettings("", false, nil) + " " + args
+}
 
 func TestQuotaCommand(t *testing.T) {
 	for _, mode := range []string{"text", "json", "missing", "both missing", "rejected", "logged out", "spend control"} {
@@ -36,8 +43,8 @@ func TestQuotaCommand(t *testing.T) {
 					status = `{"loggedIn":false}`
 				}
 				bin := testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{
-					"-p":                 {Stdout: `{"usage_report":{"rate_limits":{"limits":[{"kind":"session","percent":15,"resets_at":"2099-01-01T00:00:00Z"}],"extra_usage":{"is_enabled":false}}}}`},
-					"auth status --json": {Stdout: status},
+					freeClaudeRead("-p"):                 {Stdout: `{"usage_report":{"rate_limits":{"limits":[{"kind":"session","percent":15,"resets_at":"2099-01-01T00:00:00Z"}],"extra_usage":{"is_enabled":false}}}}`},
+					freeClaudeRead("auth status --json"): {Stdout: status},
 				}})
 				dirs = append(dirs, filepath.Dir(bin))
 			}
@@ -196,8 +203,8 @@ func TestQuotaClaudeScopedWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	bin := testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{
-		"-p":                 {Stdout: compact.String() + "\n"},
-		"auth status --json": {Stdout: `{"loggedIn":true,"subscriptionType":"max"}`},
+		freeClaudeRead("-p"):                 {Stdout: compact.String() + "\n"},
+		freeClaudeRead("auth status --json"): {Stdout: `{"loggedIn":true,"subscriptionType":"max"}`},
 	}})
 	t.Setenv("PATH", filepath.Dir(bin))
 	t.Chdir(t.TempDir())
@@ -235,8 +242,8 @@ func TestQuotaClaudeScopedWindow(t *testing.T) {
 func TestQuotaWithoutProjectStateCreatesNothing(t *testing.T) {
 	isolatedRouteConfig(t)
 	bin := testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{
-		"-p":                 {Stdout: `{"usage_report":{"rate_limits":{"limits":[{"kind":"session","percent":15,"resets_at":"2099-01-01T00:00:00Z"}]}}}`},
-		"auth status --json": {Stdout: `{"loggedIn":true}`},
+		freeClaudeRead("-p"):                 {Stdout: `{"usage_report":{"rate_limits":{"limits":[{"kind":"session","percent":15,"resets_at":"2099-01-01T00:00:00Z"}]}}}`},
+		freeClaudeRead("auth status --json"): {Stdout: `{"loggedIn":true}`},
 	}})
 	t.Setenv("PATH", filepath.Dir(bin))
 	dir := t.TempDir()

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/trust"
+	"github.com/lorem-dev/duolog/internal/pathutil"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -20,19 +20,23 @@ import (
 // output shows; Managed marks policy that duolog's --settings cannot
 // override. The argv layer holds the argument itself in Path: Claude's
 // --settings takes a file or JSON text, Codex's -c a key=value pair. An empty
-// Path is policy duolog found but cannot read.
+// Path is policy duolog found but cannot read. Profile is the Codex profile
+// the launch selects with --profile, which wins over the file's own profile
+// key; empty when the launch selects none.
 type Layer struct {
-	Name, Path string
-	Managed    bool
+	Name, Path, Profile string
+	Managed             bool
 }
 
 // LayerFacts is what one layer says about the billing route, by name only.
+// Layer is the layer's Name, for the signals Build derives from these facts.
 // EnvNames are the variable names the layer sets (Claude's env block) or
 // names as a credential (the env_key of Codex's selected provider);
 // EndpointEntries are the subscription_endpoints entries its base URLs
 // matched. FastMode is the layer's fastMode, nil when unset. Modified feeds
 // the verdict cache. An unreadable layer counts as paid.
 type LayerFacts struct {
+	Layer                     string
 	Signals                   []Signal
 	EnvNames, EndpointEntries []string
 	FastMode                  *bool
@@ -42,9 +46,11 @@ type LayerFacts struct {
 
 // Locations are the places the layers of one launch shape come from: the
 // home folder, the project root, the platform and the shape's environment.
+// Profile is the Codex profile the launch selects with --profile, taken from
+// its arguments.
 type Locations struct {
-	Home, Root, GOOS string
-	Environ          []string
+	Home, Root, GOOS, Profile string
+	Environ                   []string
 }
 
 var (
@@ -61,11 +67,14 @@ var (
 	}
 	// NonFilePolicy reports whether managed Claude policy exists outside
 	// files, such as a device management profile or the Windows registry.
-	// duolog cannot read it, so it adds an unreadable managed layer. The
-	// platform code that discovers such policy replaces it.
+	// duolog cannot read it, so it adds an unreadable managed layer. This
+	// release does not look for such policy (ruling 3): it finds none, runs
+	// are not refused for it, and doctor and the docs name it as a limit.
+	// The platform code that discovers such policy replaces it.
 	NonFilePolicy = func(goos string) bool { return false }
-	// codexTrusted reports whether Codex trusts the project folder.
-	codexTrusted = trust.FolderIn
+	// codexTrusted reports whether the Codex config in codexHome trusts the
+	// project folder root; tests replace it.
+	codexTrusted = codexTrustedIn
 )
 
 // SettingsLayers lists the settings files agent reads for a launch at loc,
@@ -140,16 +149,19 @@ func managedRoot(loc Locations) (string, string) {
 
 // codexLayers lists config.toml in CODEX_HOME, and the .codex/config.toml of
 // the project root and each folder above it when Codex trusts the project.
+// The shape's CODEX_HOME decides trust, as it does for Codex itself. Each
+// layer carries the profile the launch selects.
 func codexLayers(loc Locations) []Layer {
-	layers := []Layer{{Name: "user", Path: filepath.Join(codexHome(loc), "config.toml")}}
+	home := codexHome(loc)
+	layers := []Layer{{Name: "user", Path: filepath.Join(home, "config.toml"), Profile: loc.Profile}}
 	if loc.Root == "" {
 		return layers
 	}
-	if trusted, err := codexTrusted(loc.Home, loc.Root); err != nil || !trusted {
+	if trusted, err := codexTrusted(home, loc.Root); err != nil || !trusted {
 		return layers
 	}
 	for _, folder := range projectFolders(loc) {
-		layers = append(layers, Layer{Name: "project", Path: filepath.Join(folder, ".codex", "config.toml")})
+		layers = append(layers, Layer{Name: "project", Path: filepath.Join(folder, ".codex", "config.toml"), Profile: loc.Profile})
 	}
 	return layers
 }
@@ -159,6 +171,36 @@ func codexHome(loc Locations) string {
 		return dir
 	}
 	return filepath.Join(loc.Home, ".codex")
+}
+
+// codexTrustedIn reads the project trust of config.toml in codexHome, as
+// trust.FolderIn does for duolog's own CODEX_HOME.
+func codexTrustedIn(codexHome, root string) (bool, error) {
+	data, err := os.ReadFile(filepath.Join(codexHome, "config.toml"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var doc struct {
+		Projects map[string]struct {
+			TrustLevel string `toml:"trust_level"`
+		} `toml:"projects"`
+	}
+	if err := toml.Unmarshal(data, &doc); err != nil {
+		return false, err
+	}
+	if root, err = filepath.Abs(root); err != nil {
+		return false, err
+	}
+	want := pathutil.Clean(pathutil.Resolved(root))
+	for path, project := range doc.Projects {
+		if pathutil.Clean(pathutil.Resolved(path)) == want && project.TrustLevel == "trusted" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // projectFolders returns the project root and the folders above it, the
@@ -239,26 +281,31 @@ var errUnresolved = errors.New("unresolved policy")
 
 // ReadLayer reads the billing route fields of one layer: for Claude the env
 // names, apiKeyHelper present, forceLoginMethod and fastMode; for Codex the
-// login method, base URLs and the selected provider. Values are never kept or
-// returned; the only value compared is a Claude base URL, against endpoints.
-// Helpers are never run. A missing optional file is absent; a missing argv
-// file, a read error or malformed content is unreadable, which counts as
-// paid. Each layer stands alone: a later one never clears a route another
-// layer sets.
+// login method, base URLs, the selected provider and speed-shaped keys.
+// Values are never kept or returned; the only value compared is a Claude base
+// URL, against endpoints. Helpers are never run. A missing optional file is
+// absent; a missing argv file, a read error, a file that cannot be stat'ed
+// after its read, or malformed content is unreadable, which counts as paid.
+// Each layer stands alone: a later one never clears a route another layer
+// sets. Whether an ordinary fastMode true counts depends on the variant, so
+// Build decides that from FastMode.
 func ReadLayer(agent string, layer Layer, endpoints map[string]string,
 	read func(string) ([]byte, error), stat func(string) (os.FileInfo, error)) LayerFacts {
-	var facts LayerFacts
+	facts := LayerFacts{Layer: layer.Name}
 	data, inline, err := layerData(agent, layer, read)
 	if errors.Is(err, fs.ErrNotExist) && layer.Name != "argv" {
-		return LayerFacts{}
+		return facts
 	}
 	if err != nil {
 		return unreadable(layer)
 	}
 	if !inline {
-		if info, err := stat(layer.Path); err == nil {
-			facts.Modified = info.ModTime()
+		// Without a modification time the cache could keep a stale verdict.
+		info, err := stat(layer.Path)
+		if err != nil {
+			return unreadable(layer)
 		}
+		facts.Modified = info.ModTime()
 	}
 	ok := false
 	switch agent {
@@ -299,7 +346,7 @@ func layerData(agent string, layer Layer, read func(string) ([]byte, error)) ([]
 }
 
 func unreadable(layer Layer) LayerFacts {
-	return LayerFacts{Unreadable: true, Signals: []Signal{{Name: "unreadable", Layer: layer.Name}}}
+	return LayerFacts{Layer: layer.Name, Unreadable: true, Signals: []Signal{{Name: "unreadable", Layer: layer.Name}}}
 }
 
 // claudeFacts reads a Claude settings document. Env values stay raw JSON,
@@ -388,23 +435,33 @@ type codexDoc struct {
 	ModelProviders map[string]codexProvider `toml:"model_providers"`
 }
 
-// codexFacts reads a Codex config document and the profile it selects. A
-// login method other than chatgpt, a base URL override, and a selected
-// provider defined here that fails the first-party test are signals. A
-// provider defined in another layer is left to the provider list read.
+// codexFacts reads a Codex config document and the selected profile: the one
+// the launch names with --profile, else the file's profile key. A login
+// method other than chatgpt, a base URL override, a selected provider
+// defined here that fails the first-party test, and any speed-shaped key are
+// signals. A provider defined in another layer is left to the provider list
+// read.
 func codexFacts(facts *LayerFacts, layer Layer, data []byte) bool {
 	var doc codexDoc
-	if toml.Unmarshal(data, &doc) != nil {
+	var tree map[string]any
+	if toml.Unmarshal(data, &doc) != nil || toml.Unmarshal(data, &tree) != nil {
 		return false
 	}
+	selected := layer.Profile
+	if selected == "" && doc.Profile != nil {
+		selected = *doc.Profile
+	}
 	views := []codexView{doc.codexView}
-	if doc.Profile != nil {
-		if profile, ok := doc.Profiles[*doc.Profile]; ok {
-			views = append(views, profile)
-		}
+	if profile, ok := doc.Profiles[selected]; ok && selected != "" {
+		views = append(views, profile)
 	}
 	signal := func(name string) { facts.Signals = append(facts.Signals, Signal{Name: name, Layer: layer.Name}) }
-	selected := ""
+	profiles, _ := tree["profiles"].(map[string]any)
+	profile, _ := profiles[selected].(map[string]any)
+	if speedKey(tree) || selected != "" && speedKey(profile) {
+		signal("route:unknown-speed")
+	}
+	provider := ""
 	for _, view := range views {
 		if view.ForcedLoginMethod != nil && *view.ForcedLoginMethod != "chatgpt" {
 			signal("forced_login_method")
@@ -416,18 +473,42 @@ func codexFacts(facts *LayerFacts, layer Layer, data []byte) bool {
 			signal("chatgpt_base_url")
 		}
 		if view.ModelProvider != nil {
-			selected = *view.ModelProvider
+			provider = *view.ModelProvider
 		}
 	}
-	if provider, ok := doc.ModelProviders[selected]; ok && selected != "" {
-		if provider.EnvKey != "" {
-			facts.EnvNames = append(facts.EnvNames, provider.EnvKey)
+	if p, ok := doc.ModelProviders[provider]; ok && provider != "" {
+		if p.EnvKey != "" {
+			facts.EnvNames = append(facts.EnvNames, p.EnvKey)
 		}
-		if !provider.firstParty() {
+		if !p.firstParty() {
 			signal("model_provider")
 		}
 	}
 	return true
+}
+
+// codexNameTables hold entries keyed by the name of something else, a
+// profile, provider, MCP server, project, hook or variable, rather than
+// settings of the run: their keys say nothing about speed. Profiles count
+// only through the selected one.
+var codexNameTables = []string{"profiles", "model_providers", "mcp_servers", "projects", "hooks", "shell_environment_policy"}
+
+// speedKey reports whether a Codex settings table has a speed-shaped key at
+// any depth, whatever its value: false and empty count, since no setting is
+// confirmed and Codex may read any of them as a tier. Values are not kept.
+func speedKey(table map[string]any) bool {
+	for key, value := range table {
+		if slices.Contains(codexNameTables, key) {
+			continue
+		}
+		if speedShaped(key) {
+			return true
+		}
+		if sub, ok := value.(map[string]any); ok && speedKey(sub) {
+			return true
+		}
+	}
+	return false
 }
 
 // codexOverride turns a -c key=value pair into a TOML document. The value is

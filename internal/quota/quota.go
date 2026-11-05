@@ -11,11 +11,15 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 type Window struct {
@@ -85,16 +89,34 @@ type Reader struct {
 	Timeout time.Duration
 }
 
-// Read returns the agent's quota. On an error the snapshot holds only the
-// billing evidence the read saw, such as a reply without windows.
+// Read returns the agent's quota as a free worker sees it: the process that
+// workerenv.Build makes from duolog's environment and the default
+// env_passthrough. Callers that know the launch read with ReadProcess.
 func (r Reader) Read(ctx context.Context, agent string) (Snapshot, error) {
+	cfg := &config.Config{EnvPassthrough: config.DefaultEnvPassthrough(runtime.GOOS)}
+	p, err := workerenv.Build(workerenv.ProcessInput{Agent: agent, Shape: workerenv.Worker, Variant: workerenv.Free,
+		Config: cfg, Environ: os.Environ()})
+	if err != nil {
+		return Snapshot{}, errors.New("unknown agent")
+	}
+	return r.ReadProcess(ctx, p)
+}
+
+// ReadProcess returns the quota that process p sees. Every read runs p's
+// argv, its prefix and settings included, with exactly p's environment, and
+// finds the CLI in that environment's PATH. On an error the snapshot holds
+// only the billing evidence the read saw, such as a reply without windows.
+func (r Reader) ReadProcess(ctx context.Context, p workerenv.Process) (Snapshot, error) {
 	timeout := r.Timeout
 	if timeout <= 0 {
 		timeout = 15 * time.Second
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	bin, err := exec.LookPath(agent)
+	if len(p.Prefix) == 0 {
+		return Snapshot{}, errors.New("not installed")
+	}
+	bin, err := lookPath(p.Prefix[0], p.Env)
 	if err != nil {
 		return Snapshot{}, errors.New("not installed")
 	}
@@ -103,12 +125,13 @@ func (r Reader) Read(ctx context.Context, agent string) (Snapshot, error) {
 		return Snapshot{}, errors.New("cannot create temporary folder")
 	}
 	defer os.RemoveAll(dir)
+	run := runner{p: p, bin: bin, dir: dir}
 	var s Snapshot
-	switch agent {
+	switch p.Agent {
 	case "claude":
-		s, err = readClaude(ctx, bin, dir)
+		s, err = readClaude(ctx, run)
 	case "codex":
-		s, err = r.readCodex(ctx, bin, dir)
+		s, err = r.readCodex(ctx, run)
 	default:
 		err = errors.New("unknown agent")
 	}
@@ -122,16 +145,44 @@ func (r Reader) Read(ctx context.Context, agent string) (Snapshot, error) {
 	return s, nil
 }
 
-func command(ctx context.Context, bin, dir string, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Dir = dir
-	cmd.WaitDelay = 200 * time.Millisecond
-	for _, value := range os.Environ() {
-		if !strings.HasPrefix(value, "DUOLOG_DEPTH=") && !strings.HasPrefix(value, "DUOLOG_LEAD=") {
-			cmd.Env = append(cmd.Env, value)
+// lookPath finds name in the PATH of env, never in duolog's own. A name with
+// a separator is used as it is.
+func lookPath(name string, env []string) (string, error) {
+	if strings.ContainsAny(name, `/\`) {
+		return exec.LookPath(name)
+	}
+	path := ""
+	for _, pair := range env {
+		key, value, _ := strings.Cut(pair, "=")
+		if key == "PATH" || runtime.GOOS == "windows" && strings.EqualFold(key, "PATH") {
+			path = value
 		}
 	}
-	cmd.Env = append(cmd.Env, "DUOLOG_DEPTH=1", "DUOLOG_LEAD=")
+	for _, dir := range filepath.SplitList(path) {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+		if bin, err := exec.LookPath(filepath.Join(dir, name)); err == nil {
+			return bin, nil
+		}
+	}
+	return "", errors.New("not installed")
+}
+
+// runner starts the read subprocesses of one process from its executable, in
+// a temporary folder.
+type runner struct {
+	p        workerenv.Process
+	bin, dir string
+}
+
+// command runs the process's argv with args, and exactly its environment.
+func (r runner) command(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, r.bin, r.p.Argv(args...)[1:]...)
+	cmd.Dir = r.dir
+	cmd.WaitDelay = 200 * time.Millisecond
+	// Non-nil, so that an empty environment never means duolog's own.
+	cmd.Env = append([]string{}, r.p.Env...)
 	// Never surface stderr: it can contain account details or credentials.
 	cmd.Stderr = io.Discard
 	return cmd
@@ -217,8 +268,8 @@ func rpcReply(scanner *bufio.Scanner, id int) (json.RawMessage, error) {
 	return nil, errors.New("app-server ended without a quota reply")
 }
 
-func (r Reader) readCodex(ctx context.Context, bin, dir string) (Snapshot, error) {
-	cmd := command(ctx, bin, dir, "app-server")
+func (r Reader) readCodex(ctx context.Context, run runner) (Snapshot, error) {
+	cmd := run.command(ctx, "app-server")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return Snapshot{}, errors.New("cannot open app-server input")

@@ -1,10 +1,14 @@
 package workerenv
 
 import (
+	"encoding/json"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -313,5 +317,140 @@ requires_openai_auth = true
 		if !facts.Unreadable {
 			t.Errorf("codex %q readable", content)
 		}
+	}
+}
+
+// Codex has no confirmed speed or service tier setting, so any key shaped like
+// one in config.toml, in the selected inline or external profile or in a -c
+// override is route:unknown-speed from that layer, even false or empty. Only
+// presence is read: no value is kept, and no off flag is invented.
+func TestCodexFileSpeedIsUnknownRoute(t *testing.T) {
+	home := t.TempDir()
+	codexHome := filepath.Join(home, "codex-home")
+	stubSystem(t, nil, nil, false, true)
+	loc := Locations{Home: home, Root: filepath.Join(home, "repo"), GOOS: "linux", Environ: []string{"CODEX_HOME=" + codexHome}}
+	user := filepath.Join(codexHome, "config.toml")
+
+	// --profile selects an inline profile of every settings layer, and adds
+	// the external profile file.
+	loc.Profile = "picked"
+	layers := SettingsLayers("codex", loc)
+	if len(layers) != 2 || layers[0].Path != user || layers[0].Profile != "picked" || layers[1].Profile != "picked" {
+		t.Fatalf("codex layers = %+v", layers)
+	}
+	argv := ArgvLayers("codex", []string{"exec", "--profile", "picked", "-c", "service_tier=false",
+		"-c", `features.speed=""`, "-c", `model="gpt"`}, loc)
+	if len(argv) != 4 || argv[0].Name != "profile" || argv[0].Path != filepath.Join(codexHome, "picked.config.toml") {
+		t.Fatalf("argv layers = %+v", argv)
+	}
+
+	const value = "tier-secret-value"
+	userLayer := Layer{Name: "user", Path: user}
+	picked := Layer{Name: "user", Path: user, Profile: "picked"}
+	for _, c := range []struct {
+		name, content string
+		layer         Layer
+		speed         bool
+	}{
+		{"top level", `service_tier = "` + value + `"`, userLayer, true},
+		{"empty", `service_tier = ""`, userLayer, true},
+		{"false in a table", "[features]\nfast_mode = false", userLayer, true},
+		{"speed", `speed = "` + value + `"`, userLayer, true},
+		{"inline profile by key", "profile = \"inline\"\n[profiles.inline]\nspeed = \"" + value + "\"", userLayer, true},
+		{"unselected profile", "[profiles.unused]\nservice_tier = \"" + value + "\"", userLayer, false},
+		{"profile by argv", "profile = \"inline\"\n[profiles.inline]\nmodel = \"m\"\n[profiles.picked]\nservice_tier = \"\"", picked, true},
+		{"argv overrides the key", "profile = \"inline\"\n[profiles.inline]\nservice_tier = \"" + value + "\"\n[profiles.picked]\nmodel = \"m\"", picked, false},
+		{"same file, key profile", "profile = \"inline\"\n[profiles.inline]\nmodel = \"m\"\n[profiles.picked]\nservice_tier = \"\"", userLayer, false},
+		{"external profile", `service_tier = "` + value + `"`, argv[0], true},
+		{"project", "fast = true", Layer{Name: "project", Path: user}, true},
+		{"argv false", "", argv[1], true},
+		{"argv dotted empty", "", argv[2], true},
+		{"argv other", "", argv[3], false},
+		{"server env", "[mcp_servers.search.env]\nFAST_SEARCH_KEY = \"" + value + "\"", userLayer, false},
+		{"provider", "model_provider = \"corp\"\n[model_providers.corp]\nfast_lane = true\nrequires_openai_auth = true", userLayer, false},
+		{"none", `model = "gpt"`, userLayer, false},
+	} {
+		facts := ReadLayer("codex", c.layer, nil, fakeRead(map[string]string{c.layer.Path: c.content}), fakeStat)
+		var want []Signal
+		if c.speed {
+			want = []Signal{{Name: "route:unknown-speed", Layer: c.layer.Name}}
+		}
+		if facts.Unreadable || !slices.Equal(facts.Signals, want) || facts.Layer != c.layer.Name {
+			t.Errorf("%s: facts = %+v, want signals %v", c.name, facts, want)
+		}
+		data, _ := json.Marshal(facts)
+		if strings.Contains(string(data), value) {
+			t.Errorf("%s: facts JSON has the value: %s", c.name, data)
+		}
+	}
+
+	// The profile --profile selects also decides the provider: its route and
+	// env_key count, and the key's own profile does not.
+	content := "profile = \"inline\"\n[profiles.inline]\nmodel = \"m\"\n[profiles.picked]\nmodel_provider = \"corp\"\n" +
+		"[model_providers.corp]\nenv_key = \"CORP_LLM_KEY\"\nrequires_openai_auth = true"
+	facts := ReadLayer("codex", picked, nil, fakeRead(map[string]string{user: content}), fakeStat)
+	if !equal(signalNames(facts.Signals), []string{"model_provider"}) || !equal(facts.EnvNames, []string{"CORP_LLM_KEY"}) {
+		t.Errorf("selected provider: %+v", facts)
+	}
+
+	// Build carries the signal and adds no speed flag of its own; JSON holds
+	// names only.
+	files := fakeRead(map[string]string{user: `service_tier = "` + value + `"`})
+	in := ProcessInput{Agent: "codex", Shape: Worker, Variant: Free, Config: paidConfig(), Environ: paidEnviron(),
+		Layers: []LayerFacts{ReadLayer("codex", userLayer, nil, files, fakeStat), ReadLayer("codex", argv[1], nil, files, fakeStat)}}
+	p := mustBuild(t, in)
+	if want := []string{"route:unknown-speed@argv", "route:unknown-speed@user"}; !slices.Equal(processSignals(p), want) {
+		t.Errorf("signals = %v, want %v", processSignals(p), want)
+	}
+	if got := p.Argv("exec"); !slices.Equal(got, []string{"codex", "-c", "check_for_update_on_startup=false", "exec"}) || p.FastPinned {
+		t.Errorf("argv = %v pinned %v", got, p.FastPinned)
+	}
+	data, _ := json.Marshal(p)
+	if strings.Contains(string(data), value) || strings.Contains(string(data), "flex") {
+		t.Errorf("process JSON has a value: %s", data)
+	}
+}
+
+// A layer that was read but whose file cannot be stat'ed has no modification
+// time for the cache, so it counts as unreadable, as a failed read does. An
+// argv layer has no file to stat.
+func TestLayerStatFailureIsUnreadable(t *testing.T) {
+	failStat := func(string) (os.FileInfo, error) { return nil, fs.ErrPermission }
+	for agent, content := range map[string]string{"claude": `{"fastMode": false}`, "codex": `model = "gpt"`} {
+		facts := ReadLayer(agent, Layer{Name: "user", Path: "s"}, nil, fakeRead(map[string]string{"s": content}), failStat)
+		if !facts.Unreadable || !equal(signalNames(facts.Signals), []string{"unreadable"}) || facts.Layer != "user" {
+			t.Errorf("%s: facts = %+v, want unreadable", agent, facts)
+		}
+	}
+	facts := ReadLayer("claude", Layer{Name: "argv", Path: `{"fastMode": false}`}, nil, fakeRead(nil), failStat)
+	if facts.Unreadable {
+		t.Errorf("inline argv layer: %+v", facts)
+	}
+}
+
+// Codex trusts a project folder by the config.toml of the launch's own
+// CODEX_HOME, never by duolog's.
+func TestCodexTrustUsesShapeCodexHome(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, "repo")
+	shapeHome := filepath.Join(home, "shape-codex")
+	if err := os.MkdirAll(shapeHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	trusted := fmt.Sprintf("[projects.%q]\ntrust_level = \"trusted\"\n", root)
+	if err := os.WriteFile(filepath.Join(shapeHome, "config.toml"), []byte(trusted), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	project := Layer{Name: "project", Path: filepath.Join(root, ".codex", "config.toml")}
+
+	t.Setenv("CODEX_HOME", t.TempDir())
+	loc := Locations{Home: home, Root: root, GOOS: runtime.GOOS, Environ: []string{"CODEX_HOME=" + shapeHome}}
+	if got := SettingsLayers("codex", loc); !slices.Contains(got, project) {
+		t.Errorf("shape CODEX_HOME trusts the project, layers = %v", got)
+	}
+	t.Setenv("CODEX_HOME", shapeHome)
+	loc.Environ = nil
+	if got := SettingsLayers("codex", loc); slices.Contains(got, project) {
+		t.Errorf("duolog's CODEX_HOME decided trust, layers = %v", got)
 	}
 }

@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-func readClaude(ctx context.Context, bin, dir string) (Snapshot, error) {
-	cmd := command(ctx, bin, dir, "-p", "/usage", "--output-format", "stream-json", "--verbose", "--no-session-persistence")
+func readClaude(ctx context.Context, run runner) (Snapshot, error) {
+	cmd := run.command(ctx, "-p", "/usage", "--output-format", "stream-json", "--verbose", "--no-session-persistence")
 	cmd.Stdin = nil
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -50,7 +50,7 @@ func readClaude(ctx context.Context, bin, dir string) (Snapshot, error) {
 	} else if evidence != nil {
 		s = *evidence
 	}
-	if loggedIn := readClaudeAuth(ctx, bin, dir, &s); !loggedIn {
+	if loggedIn := readClaudeAuth(ctx, run, &s); !loggedIn {
 		return Snapshot{Billing: s.Billing}, errors.New("not logged in")
 	}
 	if found == nil {
@@ -62,10 +62,10 @@ func readClaude(ctx context.Context, bin, dir string) (Snapshot, error) {
 // readClaudeAuth adds the plan and route evidence of auth status to s. The
 // read is bounded separately so it stays cheap; a failed read is missing
 // route evidence. It reports false only for an explicit logged-out reply.
-func readClaudeAuth(ctx context.Context, bin, dir string, s *Snapshot) bool {
+func readClaudeAuth(ctx context.Context, run runner, s *Snapshot) bool {
 	authCtx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
-	auth := command(authCtx, bin, dir, "auth", "status", "--json")
+	auth := run.command(authCtx, "auth", "status", "--json")
 	pipe, err := auth.StdoutPipe()
 	if err != nil {
 		s.Billing.claudeRouteUnread()

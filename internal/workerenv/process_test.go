@@ -302,6 +302,46 @@ func TestBuildFastModeVariants(t *testing.T) {
 	}
 }
 
+// Ruling 2: the paid variant leaves fast mode to the person's settings and the
+// lead's settings are never changed, so an effective fastMode true there is a
+// paid signal, named after the layer that set it. Layers come lowest first,
+// so a later false clears an earlier true. The free variant pins fast mode
+// off over every ordinary layer and gets no signal for it.
+func TestBuildFastModeLayerIsPaidSignal(t *testing.T) {
+	read := fakeRead(map[string]string{"user.json": `{"fastMode": true}`, "local.json": `{"fastMode": false}`, "argv.json": `{"fastMode": true}`})
+	user := ReadLayer("claude", Layer{Name: "user", Path: "user.json"}, nil, read, fakeStat)
+	local := ReadLayer("claude", Layer{Name: "local", Path: "local.json"}, nil, read, fakeStat)
+	argv := ReadLayer("claude", Layer{Name: "argv", Path: "argv.json"}, nil, read, fakeStat)
+	if user.Layer != "user" || user.FastMode == nil || !*user.FastMode || len(user.Signals) != 0 {
+		t.Fatalf("user layer = %+v", user)
+	}
+	for _, c := range []struct {
+		name    string
+		shape   Shape
+		variant Variant
+		layers  []LayerFacts
+		want    []string
+	}{
+		{"paid worker", Worker, Paid, []LayerFacts{user}, []string{"fastMode@user"}},
+		{"paid peer, later argv", Peer, Paid, []LayerFacts{local, argv}, []string{"fastMode@argv"}},
+		{"paid, later false", Worker, Paid, []LayerFacts{user, local}, nil},
+		{"free worker", Worker, Free, []LayerFacts{user}, nil},
+		{"free peer", Peer, Free, []LayerFacts{local, argv}, nil},
+		{"lead", Lead, Free, []LayerFacts{user}, []string{"fastMode@user"}},
+		{"lead, later false", Lead, Free, []LayerFacts{user, local}, nil},
+	} {
+		in := ProcessInput{Agent: "claude", Shape: c.shape, Variant: c.variant, Config: paidConfig(),
+			Environ: []string{"PATH=/usr/bin"}, Layers: c.layers}
+		p := mustBuild(t, in)
+		if got := processSignals(p); !equal(got, c.want) {
+			t.Errorf("%s: signals = %v, want %v", c.name, got, c.want)
+		}
+		if c.shape != Lead && p.FastPinned != (c.variant == Free) {
+			t.Errorf("%s: pinned = %v", c.name, p.FastPinned)
+		}
+	}
+}
+
 // Codex's speed and service tiers are unconfirmed (open question 4), so
 // duolog adds no guessed flag to switch them off. A speed-shaped setting is
 // the route:unknown-speed signal instead. Only a setting recorded as

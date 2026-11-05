@@ -37,7 +37,9 @@ const (
 // ProcessInput describes one launch. Environ is the environment the process
 // is built from, duolog's own for a worker or peer and the observed one for
 // the lead. Layers are the agent's settings layers, already read with
-// ReadLayer. ProviderEnvKey is the env_key of Codex's default provider.
+// ReadLayer, from the lowest precedence to the highest: SettingsLayers'
+// order with the argv layers before managed policy. ProviderEnvKey is the
+// env_key of Codex's default provider.
 // Prefix is the program and its leading words, by default the agent's name;
 // for the lead it is the observed command and stays as it is.
 type ProcessInput struct {
@@ -59,7 +61,8 @@ type ProcessInput struct {
 // global overrides, and Claude's --settings JSON. Those three may hold values
 // and never reach JSON. The rest is names only: the route signals, the route
 // names withheld from the process (Dropped), the subscription endpoints that
-// matched, whether fast mode is pinned off, and a key for the verdict cache.
+// matched, whether fast mode is pinned off, the provider env_key the process
+// was built with, and a key for the verdict cache.
 type Process struct {
 	Agent                    string
 	Shape                    Shape
@@ -70,6 +73,7 @@ type Process struct {
 	Signals                  []Signal
 	Dropped, EndpointEntries []string
 	FastPinned               bool
+	ProviderEnvKey           string
 	CacheKey                 string
 }
 
@@ -93,6 +97,10 @@ var codexSpeedPins = map[string]string{}
 //
 // Lead: the environment and prefix come back as observed, with no worker
 // variables, settings or pin; only its signals are reported.
+//
+// Fast mode: where nothing pins it off, the paid variant and the lead, an
+// effective fastMode true of the layers is the fastMode signal of the layer
+// that set it. The caller's extras never set fast mode.
 func Build(in ProcessInput) (Process, error) {
 	if in.Agent != "claude" && in.Agent != "codex" {
 		return Process{}, fmt.Errorf("process: unknown agent %q", in.Agent)
@@ -114,7 +122,7 @@ func Build(in ProcessInput) (Process, error) {
 	if goos == "" {
 		goos = runtime.GOOS
 	}
-	p := Process{Agent: in.Agent, Shape: in.Shape, Variant: in.Variant}
+	p := Process{Agent: in.Agent, Shape: in.Shape, Variant: in.Variant, ProviderEnvKey: in.ProviderEnvKey}
 	prefix := slices.Clone(in.Prefix)
 	if len(prefix) == 0 {
 		prefix = []string{in.Agent}
@@ -122,6 +130,11 @@ func Build(in ProcessInput) (Process, error) {
 	for _, layer := range in.Layers {
 		p.Signals = append(p.Signals, layer.Signals...)
 		p.EndpointEntries = append(p.EndpointEntries, layer.EndpointEntries...)
+	}
+	if in.Shape == Lead || in.Variant == Paid {
+		if layer, on := effectiveFast(in.Layers); on {
+			p.Signals = append(p.Signals, Signal{Name: "fastMode", Layer: layer})
+		}
 	}
 	if in.Agent == "codex" {
 		p.Signals = append(p.Signals, codexArgvSpeed(in.Prefix, in.Locations)...)
@@ -179,6 +192,26 @@ func Build(in ProcessInput) (Process, error) {
 	p.Dropped, p.EndpointEntries = sortedUnique(p.Dropped), sortedUnique(p.EndpointEntries)
 	p.CacheKey = cacheKey(p, in, paid)
 	return p, nil
+}
+
+// effectiveFast reports whether the layers leave fast mode on, by the value
+// of the last layer that sets one, and names that layer. Managed policy comes
+// last, so it wins as it does in Claude. A layer that already holds the
+// signal, managed policy, needs no second one.
+func effectiveFast(layers []LayerFacts) (string, bool) {
+	var last *LayerFacts
+	for i := range layers {
+		if layers[i].FastMode != nil {
+			last = &layers[i]
+		}
+	}
+	if last == nil || !*last.FastMode || slices.ContainsFunc(last.Signals, func(s Signal) bool { return s.Name == "fastMode" }) {
+		return "", false
+	}
+	if last.Layer == "" {
+		return "settings", true
+	}
+	return last.Layer, true
 }
 
 func sortedUnique(list []string) []string {
@@ -411,16 +444,21 @@ func tomlValue(v any) (string, error) {
 // cacheKey hashes what the verdict of a launch depends on: the shape, the
 // names in its environment, the route names withheld, the matched entries,
 // the signals, each layer's modification time and facts, and the config
-// that selects the variant. Values never enter it.
+// that selects the variant. Values never enter it: a value that changes
+// under the same name changes the key through the facts that Build and
+// ReadLayer derive from it, such as a matched entry or a signal.
 func cacheKey(p Process, in ProcessInput, paid config.PaidAgent) string {
 	type layerKey struct {
-		Modified   int64
-		Unreadable bool
-		FastMode   *bool
+		Layer                     string
+		Modified                  int64
+		Unreadable                bool
+		FastMode                  *bool
+		EnvNames, EndpointEntries []string
 	}
 	var layers []layerKey
 	for _, layer := range in.Layers {
-		layers = append(layers, layerKey{layer.Modified.UnixNano(), layer.Unreadable, layer.FastMode})
+		layers = append(layers, layerKey{layer.Layer, layer.Modified.UnixNano(), layer.Unreadable, layer.FastMode,
+			layer.EnvNames, layer.EndpointEntries})
 	}
 	names := envNames(p.Env)
 	slices.Sort(names)

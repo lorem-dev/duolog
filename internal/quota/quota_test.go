@@ -29,8 +29,8 @@ func isolate(t *testing.T) {
 func TestReadBoth(t *testing.T) {
 	isolate(t)
 	claude := testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{
-		"-p":                 {Stdout: "{\"type\":\"system\"}\n" + claudeReply + "\n"},
-		"auth status --json": {Stdout: `{"loggedIn":true,"subscriptionType":"pro","email":"PRIVATE"}`},
+		freeClaude("-p"):                 {Stdout: "{\"type\":\"system\"}\n" + claudeReply + "\n"},
+		freeClaude("auth status --json"): {Stdout: `{"loggedIn":true,"subscriptionType":"pro","email":"PRIVATE"}`},
 	}})
 	codex := testbin.Install(t, "codex", testbin.Scenario{SleepMS: 10000, RPCResponses: map[string]string{
 		"initialize": `{"id":1,"result":{}}`, "account/rateLimits/read": codexReply,
@@ -57,7 +57,7 @@ func TestReadBoth(t *testing.T) {
 		}
 	}
 	args, _ := os.ReadFile(claude + ".calls.ndjson")
-	if !strings.Contains(string(args), `["-p","/usage","--output-format","stream-json","--verbose","--no-session-persistence"]`) {
+	if !strings.Contains(string(args), `,"-p","/usage","--output-format","stream-json","--verbose","--no-session-persistence"]`) {
 		t.Fatal(string(args))
 	}
 	cwd, _ := os.ReadFile(claude + ".cwd")
