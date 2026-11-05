@@ -22,6 +22,21 @@ limits:
   max_live_sessions: 1     # per agent; one-shot `fresh` runs do not count
   self_max_read_files: 3   # on a provider limit, the lead does a task this small itself
   self_max_read_lines: 200 # otherwise its own subagent does it
+  # Live sessions per account, across every lead and project: running workers
+  # and open peer panes. The shared .duolog/config.yaml may only lower these.
+  max_total_sessions: 10   # all agents together
+  sessions_by_tier:        # per agent, by its measured window; capped at these
+    small: 3               # unmeasured, paid, workspace, or a small plan
+    medium: 5              # a window about 5 times larger
+    large: 10              # a window about 20 times larger
+  session_wait_seconds: 60 # a delegation waits this long for a free slot
+
+# How far quota reads and learned window rates are trusted. The shared
+# .duolog/config.yaml may only make these stricter.
+balance:
+  max_age_seconds: 120     # an older quota read is read again or counts as paid
+  min_interval_share: 0.05 # window movement of one measured interval
+  margin: 0.2              # a tier steps up only this far past its cut
 
 # Aliases only. Claude Code resolves its own. For Codex, duolog picks the newest visible
 # gpt-<version>-<family> in `codex debug models`. A full name in a role is a deliberate pin.

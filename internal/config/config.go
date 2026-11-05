@@ -31,8 +31,10 @@ type Config struct {
 	Telemetry      Telemetry        `yaml:"telemetry" jsonschema_description:"Local telemetry that never leaves the machine; on by default. User level, except that a project may turn off its own events."`
 	Calibration    Calibration      `yaml:"calibration" jsonschema_description:"Project calibration caps and task filters; calibration runs only when the person asks the lead for it."`
 	PaidRuns       PaidRuns         `yaml:"paid_runs" jsonschema_description:"Paid runs per agent with a daily USD cap, and the share of each window used on workspace accounts; paid runs are off by default."`
-	// Notices names the keys of the shared .duolog/config.yaml that Load
-	// ignored because they would widen paid runs.
+	Balance        Balance          `yaml:"balance" jsonschema_description:"How quota reads and learned window rates are trusted: read age, interval size and the margin of a tier step up. The shared project config may only make these stricter."`
+	// Notices names the keys that Load ignored or capped: values of the
+	// shared .duolog/config.yaml that would widen paid runs or session
+	// limits, and session tiers above their defaults.
 	Notices []ConfigNotice `yaml:"-" json:"-" jsonschema:"-"`
 }
 
@@ -67,6 +69,11 @@ type Limits struct {
 	MaxLiveSessions  int      `yaml:"max_live_sessions" jsonschema_description:"Maximum live resumable sessions per agent; defaults to 1 and excludes fresh runs."`
 	SelfMaxReadFiles int      `yaml:"self_max_read_files" jsonschema_description:"Maximum files for work handled by the lead on a provider limit; defaults to 3."`
 	SelfMaxReadLines int      `yaml:"self_max_read_lines" jsonschema_description:"Maximum lines for work handled by the lead on a provider limit; defaults to 200."`
+	// The account session limits count running workers and open peer panes
+	// of every lead and project together.
+	MaxTotalSessions   int          `yaml:"max_total_sessions" jsonschema_description:"Most live sessions of all agents together: running workers and open peer panes of every lead and project; defaults to 10. The shared project config may only lower it." jsonschema:"minimum=1"`
+	SessionsByTier     SessionTiers `yaml:"sessions_by_tier" jsonschema_description:"Most live sessions per agent by its measured subscription tier; defaults to 3, 5 and 10. A value above its default is capped at the default."`
+	SessionWaitSeconds int          `yaml:"session_wait_seconds" jsonschema_description:"Seconds a delegation waits for a free session slot, first come first served; defaults to 60. The shared project config may only lower it." jsonschema:"minimum=0"`
 }
 
 type Model struct {
@@ -186,13 +193,18 @@ func Load(root string) (*Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		// The project layer is committed: it may only tighten paid runs.
+		// The project layer is committed: it may only tighten paid runs
+		// and the account session limits.
 		if i == 1 && node != nil {
-			found, err := restrictProjectPaid(merged.Content[0], node)
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", path, err)
+			for _, restrict := range []func(base, layer *yaml.Node) ([]ConfigNotice, error){
+				restrictProjectPaid, restrictProjectSessionLimits,
+			} {
+				found, err := restrict(merged.Content[0], node)
+				if err != nil {
+					return nil, fmt.Errorf("%s: %w", path, err)
+				}
+				notices = append(notices, found...)
 			}
-			notices = append(notices, found...)
 		}
 		mergeNode(&merged, node)
 		if i > 0 {
@@ -208,7 +220,10 @@ func Load(root string) (*Config, error) {
 	if err := merged.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("merged config: %w", err)
 	}
-	cfg.Notices = notices
+	if err := validateAccountLimits(&cfg); err != nil {
+		return nil, err
+	}
+	cfg.Notices = append(notices, capSessionTiers(&cfg)...)
 	cfg.Telemetry = keepTelemetry(userTelemetrySection, projectTelemetryOff, telemetryEnvOff())
 	if err := validateTelemetry(cfg.Telemetry); err != nil {
 		return nil, err
@@ -359,6 +374,9 @@ func parseLayer(data []byte, source string) (*yaml.Node, error) {
 		return nil, fmt.Errorf("%s: %w", source, err)
 	}
 	if err := validateEnums(effective, reflect.TypeFor[Config](), "config"); err != nil {
+		return nil, fmt.Errorf("%s: %w", source, err)
+	}
+	if err := checkAccountLimitNodes(effective); err != nil {
 		return nil, fmt.Errorf("%s: %w", source, err)
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))

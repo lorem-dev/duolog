@@ -62,6 +62,29 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "Balance": {
+      "properties": {
+        "max_age_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Oldest quota read, in seconds, that a verdict or an admission trusts; an older one is read again or counts as paid. Defaults to 120."
+        },
+        "min_interval_share": {
+          "type": "number",
+          "maximum": 1,
+          "exclusiveMinimum": 0,
+          "description": "Share of a window an interval must move before it measures a rate, above 0 and at most 1; a tier needs 3 such intervals. Defaults to 0.05."
+        },
+        "margin": {
+          "type": "number",
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "description": "How far past a tier cut a rate must be before the tier steps up, and how far a new rate may drift before older rates are dropped, 0 or more and below 1; a step down applies at once. Defaults to 0.2."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "Calibration": {
       "properties": {
         "max_weekly_share": {
@@ -340,6 +363,10 @@
         "paid_runs": {
           "$ref": "#/$defs/PaidRuns",
           "description": "Paid runs per agent with a daily USD cap, and the share of each window used on workspace accounts; paid runs are off by default."
+        },
+        "balance": {
+          "$ref": "#/$defs/Balance",
+          "description": "How quota reads and learned window rates are trusted: read age, interval size and the margin of a tier step up. The shared project config may only make these stricter."
         }
       },
       "additionalProperties": false,
@@ -450,6 +477,20 @@
         "self_max_read_lines": {
           "type": "integer",
           "description": "Maximum lines for work handled by the lead on a provider limit; defaults to 200."
+        },
+        "max_total_sessions": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Most live sessions of all agents together: running workers and open peer panes of every lead and project; defaults to 10. The shared project config may only lower it."
+        },
+        "sessions_by_tier": {
+          "$ref": "#/$defs/SessionTiers",
+          "description": "Most live sessions per agent by its measured subscription tier; defaults to 3, 5 and 10. A value above its default is capped at the default."
+        },
+        "session_wait_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Seconds a delegation waits for a free session slot, first come first served; defaults to 60. The shared project config may only lower it."
         }
       },
       "additionalProperties": false,
@@ -568,7 +609,7 @@
             "personal",
             "workspace"
           ],
-          "description": "Account kind: auto detects workspace evidence, personal uses whole windows, workspace uses usable_share of each; defaults to auto."
+          "description": "Account kind: workspace uses usable_share of each window; auto and personal use whole windows only while the quota read and the runs show no workspace evidence, which always wins; defaults to auto."
         }
       },
       "additionalProperties": false,
@@ -625,7 +666,7 @@
             "personal",
             "workspace"
           ],
-          "description": "Account kind: auto detects workspace evidence, personal uses whole windows, workspace uses usable_share of each; defaults to auto."
+          "description": "Account kind: workspace uses usable_share of each window; auto and personal use whole windows only while the quota read and the runs show no workspace evidence, which always wins; defaults to auto."
         },
         "subscription_endpoints": {
           "additionalProperties": {
@@ -773,6 +814,27 @@
           },
           "type": "array",
           "description": "Roles to which the rule applies; an omitted list applies to every role."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "SessionTiers": {
+      "properties": {
+        "small": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Live sessions of an agent at the small tier: unmeasured, paid, workspace or a window like a personal plan of about 20 USD a month; defaults to 3."
+        },
+        "medium": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Live sessions of an agent whose measured window is about 5 times the small one; defaults to 5."
+        },
+        "large": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Live sessions of an agent whose measured window is about 20 times the small one; defaults to 10."
         }
       },
       "additionalProperties": false,

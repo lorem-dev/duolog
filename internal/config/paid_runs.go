@@ -17,7 +17,7 @@ type PaidAgent struct {
 	DailyCapUSD float64  `yaml:"daily_cap_usd" jsonschema_description:"Most USD paid runs of this agent may spend in the last 24 hours; defaults to 0 and must be above 0 with allow." jsonschema:"minimum=0"`
 	Calibrate   bool     `yaml:"calibrate" jsonschema_description:"Allow calibration on a paid route; defaults to false and needs allow."`
 	Env         []string `yaml:"env" jsonschema_description:"Variables passed to this agent's processes only when paid runs are allowed; defaults to the agent's API key."`
-	Account     string   `yaml:"account" jsonschema_description:"Account kind: auto detects workspace evidence, personal uses whole windows, workspace uses usable_share of each; defaults to auto." jsonschema:"enum=auto,enum=personal,enum=workspace"`
+	Account     string   `yaml:"account" jsonschema_description:"Account kind: workspace uses usable_share of each window; auto and personal use whole windows only while the quota read and the runs show no workspace evidence, which always wins; defaults to auto." jsonschema:"enum=auto,enum=personal,enum=workspace"`
 }
 
 type PaidClaude struct {
@@ -31,8 +31,9 @@ type PaidRuns struct {
 	Codex       PaidAgent  `yaml:"codex" jsonschema_description:"Paid runs of Codex workers and peers; off by default."`
 }
 
-// ConfigNotice names a key of the shared .duolog/config.yaml that Load
-// ignored, and why.
+// ConfigNotice names a key that Load ignored or capped, and why: a key of the
+// shared .duolog/config.yaml that would widen a limit, or a session tier
+// above its default.
 type ConfigNotice struct {
 	Key, Reason string
 }
