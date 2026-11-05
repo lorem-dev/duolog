@@ -50,7 +50,11 @@ func readClaude(ctx context.Context, run runner) (Snapshot, error) {
 	} else if evidence != nil {
 		s = *evidence
 	}
-	if loggedIn := readClaudeAuth(ctx, run, &s); !loggedIn {
+	loggedIn, err := readClaudeAuth(ctx, run, &s)
+	if err != nil {
+		return Snapshot{Billing: s.Billing}, err
+	}
+	if !loggedIn {
 		return Snapshot{Billing: s.Billing}, errors.New("not logged in")
 	}
 	if found == nil {
@@ -62,18 +66,20 @@ func readClaude(ctx context.Context, run runner) (Snapshot, error) {
 // readClaudeAuth adds the plan and route evidence of auth status to s. The
 // read is bounded separately so it stays cheap; a failed read is missing
 // route evidence. It reports false only for an explicit logged-out reply.
-func readClaudeAuth(ctx context.Context, run runner, s *Snapshot) bool {
+// The account and org of a read reply go to the identity sink, whose error
+// it returns; a failed read hands it nothing.
+func readClaudeAuth(ctx context.Context, run runner, s *Snapshot) (bool, error) {
 	authCtx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	auth := run.command(authCtx, "auth", "status", "--json")
 	pipe, err := auth.StdoutPipe()
 	if err != nil {
 		s.Billing.claudeRouteUnread()
-		return true
+		return true, nil
 	}
 	if auth.Start() != nil {
 		s.Billing.claudeRouteUnread()
-		return true
+		return true, nil
 	}
 	closeAuthOnCancel := context.AfterFunc(authCtx, func() { _ = pipe.Close() })
 	defer closeAuthOnCancel()
@@ -88,15 +94,17 @@ func readClaudeAuth(ctx context.Context, run runner, s *Snapshot) bool {
 	}
 	parsed := readErr == nil && json.Unmarshal(data, &status) == nil
 	if parsed && status.LoggedIn != nil && !*status.LoggedIn {
-		return false
+		return false, nil
 	}
 	if !parsed || err != nil {
 		s.Billing.claudeRouteUnread()
-		return true
+		return true, nil
 	}
 	s.Plan = plan(status.SubscriptionType)
 	s.Billing.claudeRoute(status.AuthMethod, status.APIProvider)
-	return true
+	var identity fields
+	_ = json.Unmarshal(data, &identity)
+	return true, run.identify(identity.identity("email"), identity.identity("orgId"))
 }
 
 type claudeUsage struct {

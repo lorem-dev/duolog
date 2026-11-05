@@ -87,7 +87,22 @@ type Reader struct {
 	Version string
 	// Timeout bounds each agent, including startup, auth status and shutdown.
 	Timeout time.Duration
+	// IdentitySink receives the transient identity fields of a free reply,
+	// one call per kind, straight from the decoder: raw is nil when the reply
+	// has none. Nothing else keeps them. A read whose reply never arrived
+	// calls no sink, and a sink error fails the read. Nil skips identity.
+	IdentitySink func(agent, kind string, raw []byte) error
 }
+
+// Identity kinds handed to Reader.IdentitySink: the login's account, and the
+// organization or workspace it belongs to.
+const (
+	IdentityAccount = "account"
+	IdentityOrg     = "org"
+)
+
+// errIdentity hides the sink's error, which may quote the identity.
+var errIdentity = errors.New("account identity not recorded")
 
 // Read returns the agent's quota as a free worker sees it: the process that
 // workerenv.Build makes from duolog's environment and the default
@@ -126,6 +141,9 @@ func (r Reader) ReadProcess(ctx context.Context, p workerenv.Process) (Snapshot,
 	}
 	defer os.RemoveAll(dir)
 	run := runner{p: p, bin: bin, dir: dir}
+	if sink := r.IdentitySink; sink != nil {
+		run.identity = func(kind string, raw []byte) error { return sink(p.Agent, kind, raw) }
+	}
 	var s Snapshot
 	switch p.Agent {
 	case "claude":
@@ -174,6 +192,18 @@ func lookPath(name string, env []string) (string, error) {
 type runner struct {
 	p        workerenv.Process
 	bin, dir string
+	identity func(kind string, raw []byte) error
+}
+
+// identify hands one reply's identity fields to the sink, account first.
+func (r runner) identify(account, org []byte) error {
+	if r.identity == nil {
+		return nil
+	}
+	if r.identity(IdentityAccount, account) != nil || r.identity(IdentityOrg, org) != nil {
+		return errIdentity
+	}
+	return nil
 }
 
 // command runs the process's argv with args, and exactly its environment.
@@ -312,6 +342,9 @@ func (r Reader) readCodex(ctx context.Context, run runner) (Snapshot, error) {
 	account := unreadFacts("account:unread", codexAccountLayer)
 	if data, err := call(codexAccountID, "account/read", map[string]any{"refreshToken": false}); err == nil {
 		account, _ = parseCodexAccount(data)
+		if err := run.identify(codexIdentity(data)); err != nil {
+			return Snapshot{Billing: codexBilling(account, unreadFacts("provider:unread", codexProviderLayer), BillingFacts{})}, err
+		}
 	}
 	data, limitsErr := call(codexRateLimitsID, "account/rateLimits/read", nil)
 	provider := unreadFacts("provider:unread", codexProviderLayer)

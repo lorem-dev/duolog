@@ -72,6 +72,15 @@ func (f fields) text(names ...string) (string, bool) {
 	return "", false
 }
 
+// identity returns the first spelling that holds a string, as bytes for the
+// identity sink; nil when none does or the string is empty.
+func (f fields) identity(names ...string) []byte {
+	if v, ok := f.text(names...); ok && v != "" {
+		return []byte(v)
+	}
+	return nil
+}
+
 func (f fields) object(names ...string) fields {
 	for _, name := range names {
 		var o fields
@@ -148,6 +157,15 @@ func parseCodexAccount(data []byte) (BillingFacts, error) {
 		break
 	}
 	return b, nil
+}
+
+// codexIdentity returns the transient identity fields of `account/read`: the
+// account's email and its workspace name. They go to the identity sink only.
+func codexIdentity(data []byte) (account, org []byte) {
+	var reply fields
+	_ = json.Unmarshal(data, &reply)
+	a := reply.object("account")
+	return a.identity("email"), a.identity("workspaceName", "workspace_name")
 }
 
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
