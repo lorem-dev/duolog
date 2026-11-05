@@ -80,7 +80,7 @@ func (s *Store) Admit(ctx context.Context, in Admission) (Decision, error) {
 		return Decision{}, err
 	}
 	r := in.Reservation
-	r.AccountKey, r.Child = "", Owner{}
+	r.AccountKey, r.Child, r.Launching, r.Retained = "", Owner{}, false, ""
 	r.Paid = in.Assessment.Verdict == Paid
 	r.Workspace = in.Assessment.Account == "workspace"
 	if !r.Task {
@@ -187,11 +187,10 @@ func sessionKey(r Reservation) string {
 }
 
 // windowsFit reports whether r's task fits each of its windows at usable
-// share u, with what the agent's tasks in flight hold there as reserved.
+// share u, by FitsWindows, with reserved at least what the agent's tasks in
+// flight hold there.
 func (st *State) windowsFit(r Reservation, u float64) bool {
-	if len(r.Estimate.Windows) == 0 {
-		return false
-	}
+	costs := make([]WindowCost, 0, len(r.Estimate.Windows))
 	for _, w := range r.Estimate.Windows {
 		held := 0.0
 		for _, other := range st.Reservations {
@@ -204,11 +203,10 @@ func (st *State) windowsFit(r Reservation, u float64) bool {
 				}
 			}
 		}
-		if (w.Used+max(w.Reserved, held)+w.Cost)/u+w.Reserve > 1+usdEpsilon {
-			return false
-		}
+		w.Reserved = max(w.Reserved, held)
+		costs = append(costs, w)
 	}
-	return true
+	return FitsWindows(costs, u)
 }
 
 func sameWindowKey(a, b WindowKey) bool {

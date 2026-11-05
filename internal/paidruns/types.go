@@ -50,7 +50,9 @@ type Owner struct {
 
 // Reservation holds an admitted task or session until it settles or is
 // proven never to have started. AccountKey is a salted digest, never an
-// identity.
+// identity. Launching marks that its supervisor began to start the child,
+// so a dead supervisor no longer proves that nothing started. Retained says
+// why reconciliation kept it without a safe conclusion, "" when it did not.
 type Reservation struct {
 	ID         string            `json:"id"`
 	SessionID  string            `json:"session_id,omitempty"`
@@ -70,6 +72,8 @@ type Reservation struct {
 	Session    bool              `json:"session,omitempty"`
 	Task       bool              `json:"task,omitempty"`
 	Started    bool              `json:"started,omitempty"`
+	Launching  bool              `json:"launching,omitempty"`
+	Retained   string            `json:"retained,omitempty"`
 }
 
 // Settlement is the measured end of a reservation. The Store computes
