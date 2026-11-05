@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/session"
 	"path/filepath"
 	"time"
@@ -37,7 +38,7 @@ func newRouteCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			lead, _, err = gate.LeadMode(reg, lead.ID, time.Now())
+			lead, effective, err := gate.LeadMode(reg, lead.ID, time.Now())
 			if err != nil {
 				return err
 			}
@@ -61,14 +62,21 @@ func newRouteCommand() *cobra.Command {
 				observeBalance(tel).Route(routeObservation(cfg, args[0], route, opts))
 				tel.Close()
 			}
+			ceiling := mode.NewCeiling(lead.Agent, lead.Native, lead.Mode, effective)
+			request := cfg.WorkerModes.Request(args[0], config.Family(cfg, route.Model), route.Agent)
+			permission := mode.Resolve(route.Agent, request, ceiling, route.Sandbox)
 			if asJSON {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
-					"agent": route.Agent, "model": route.Model, "effort": route.Effort,
+					"permission": permission, "agent": route.Agent, "model": route.Model, "effort": route.Effort,
 					"sandbox": route.Sandbox, "context": route.Context, "session": route.Session,
 					"is_fallback": route.IsFallback, "self": route.Self, "in_lead": route.InLead, "effort_capped": route.EffortCapped,
 				})
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s\n", route.Agent, route.Model, route.Effort)
+			line := fmt.Sprintf("%s %s %s", route.Agent, route.Model, route.Effort)
+			if permission.Source != "default" {
+				line += fmt.Sprintf(" mode=%s native=%s (%s)", permission.Level, permission.Native, permission.Source)
+			}
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), line)
 			return err
 		},
 	}

@@ -105,6 +105,54 @@ func TestRouteManualModelFlag(t *testing.T) {
 	}
 }
 
+// runRoute runs newRootCommand with "route" and args and returns stdout.
+func runRoute(t *testing.T, args ...string) string {
+	t.Helper()
+	cmd := newRootCommand()
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	cmd.SetArgs(append([]string{"route"}, args...))
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	return output.String()
+}
+
+// writeUserConfig writes os.UserConfigDir()/duolog/config.yaml.
+func writeUserConfig(t *testing.T, body string) {
+	t.Helper()
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir = filepath.Join(dir, "duolog")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// review_intermediate is codex sol medium read-only (TestRouteJSON), so its
+// level is plan whatever the lead.
+func TestRoutePermissionJSON(t *testing.T) {
+	isolatedRouteConfig(t)
+	routeLead(t)
+	out := runRoute(t, "review_intermediate", "--json")
+	var got struct{ Permission map[string]string }
+	if err := json.Unmarshal([]byte(out), &got); err != nil || got.Permission["source"] != "default" || got.Permission["native"] != "read-only" || got.Permission["level"] != "plan" {
+		t.Fatal(out, err)
+	}
+	if text := runRoute(t, "review_intermediate"); strings.Contains(text, "native=") {
+		t.Fatal(text)
+	}
+	writeUserConfig(t, "worker_modes:\n  families:\n    sol: {codex: read-only}\n")
+	if text := runRoute(t, "review_intermediate"); !strings.Contains(text, "codex sol medium mode=plan native=read-only (family sol)") {
+		t.Fatal(text)
+	}
+}
+
 func routeLead(t *testing.T) {
 	t.Helper()
 	t.Chdir(t.TempDir())

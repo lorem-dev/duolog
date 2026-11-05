@@ -124,6 +124,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 		}
 	}
 	add("info", bridgeLine(cfg, root, available))
+	out = append(out, workerModeFindings(cfg, root)...)
 	// Said every time while the person sets a dropped key and does not list
 	// it, so the change is never silent. Names only, never values. An explicit
 	// list replaces the defaults, so the line's example is the current list
