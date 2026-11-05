@@ -341,3 +341,40 @@ func TestDoctorNeverMentionsCalibration(t *testing.T) {
 		}
 	}
 }
+
+func TestDoctorReportsClaudeFolderTrust(t *testing.T) {
+	cfg, opts, _ := setup(t)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(home, ".claude.json")
+	secret := "sk-should-never-be-printed"
+	for name, c := range map[string]struct{ body, want string }{
+		"unknown":     {"", "Claude folder trust: unknown"},
+		"unreadable":  {"{nope", "Claude folder trust: unknown"},
+		"not trusted": {fmt.Sprintf(`{"token":%q,"projects":{}}`, secret), "accept the trust dialog"},
+		"trusted":     {fmt.Sprintf(`{"token":%q,"projects":{%q:{"hasTrustDialogAccepted":true}}}`, secret, opts.Root), "Claude folder trust: trusted"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_ = os.Remove(state)
+			if c.body != "" {
+				if err := os.WriteFile(state, []byte(c.body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var text []string
+			for _, f := range Run(context.Background(), cfg, opts) {
+				text = append(text, f.Level+": "+f.Message)
+			}
+			got := strings.Join(text, "\n")
+			contains(t, got, c.want)
+			if strings.Contains(got, secret) {
+				t.Fatal("doctor printed other contents of the state file")
+			}
+			if strings.Contains(c.want, "unknown") && (strings.Contains(got, "warning: Claude folder trust") || strings.Contains(got, "error: Claude folder trust")) {
+				t.Fatal("unknown must be info")
+			}
+		})
+	}
+}

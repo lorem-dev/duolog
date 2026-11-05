@@ -235,8 +235,13 @@ duolog doctor
 ```
 
 The command prints one line for each finding. It checks the agent binaries and
-versions, whether hooks are installed, Codex trust, Rex, and the install offer
-(for information only). It makes no model call unless you add `--probe`.
+versions, whether hooks are installed, Codex trust, Claude trust, Rex, and the
+install offer (for information only). The Claude line reads only the trust flag
+of the project folder from Claude's user state. If the folder is not trusted,
+Claude ignores the project's `permissions.allow` entries; run Claude Code in
+the folder once and accept the trust dialog. If the state cannot be read, the
+line says `unknown` and is not a failure. It makes no model call unless you
+add `--probe`.
 Follow the steps it names. For a project that already uses duolog, install
 the binary, use the project's skill, and run doctor.
 

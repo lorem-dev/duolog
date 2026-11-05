@@ -242,3 +242,49 @@ func TestClaudeInstalledFollowsSettingsOrder(t *testing.T) {
 		})
 	}
 }
+
+func TestClaudeFolderTrust(t *testing.T) {
+	root := t.TempDir()
+	other := t.TempDir()
+	accepted := func(path string) string {
+		return fmt.Sprintf(`{"projects":{%q:{"hasTrustDialogAccepted":true}}}`, path)
+	}
+	for name, c := range map[string]struct {
+		body           string
+		trusted, known bool
+	}{
+		"missing file":    {"", false, false},
+		"not json":        {"{nope", false, false},
+		"no entry":        {accepted(other), false, true},
+		"refused":         {fmt.Sprintf(`{"projects":{%q:{"hasTrustDialogAccepted":false}}}`, root), false, true},
+		"accepted":        {accepted(root), true, true},
+		"accepted parent": {accepted(filepath.Dir(root)), true, true},
+		"no projects":     {`{"numStartups":3}`, false, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", "")
+			if c.body != "" {
+				if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(c.body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if trusted, known := ClaudeFolder(home, root); trusted != c.trusted || known != c.known {
+				t.Fatal(trusted, known)
+			}
+		})
+	}
+}
+
+func TestClaudeFolderTrustHonorsConfigDir(t *testing.T) {
+	root := t.TempDir()
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	body := fmt.Sprintf(`{"projects":{%q:{"hasTrustDialogAccepted":true}}}`, root)
+	if err := os.WriteFile(filepath.Join(dir, ".claude.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if trusted, known := ClaudeFolder(t.TempDir(), root); !trusted || !known {
+		t.Fatal(trusted, known)
+	}
+}
