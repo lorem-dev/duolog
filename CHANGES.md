@@ -42,10 +42,28 @@
 
 ## Development
 
+### Added
+
+- `duolog lead register` makes the current session the lead when the
+  project's hooks never ran, such as after a restart outside the folder.
+- `duolog peer answer --reason` types one line into a peer that the answer
+  left interrupted, such as why a permission was denied.
+
 ### Fixed
 
 - `duolog stats`, telemetry and learning costs price Claude cache writes at
   1.25x or 2x input; `stats` shows a `CACHE WRITE` column.
+- `duolog peer status`, `wait` and `list` report a Claude peer stopped by a
+  denied prompt as `interrupted` instead of ready with its task unfinished.
+- `duolog peer send` types over Claude's dim input suggestion instead of
+  refusing because the input line holds text.
+- Workers may stop and read their own background tasks without asking.
+- `duolog skill test` on Codex no longer breaks Codex's config by turning off
+  MCP servers that only Claude has.
+- A calibration cell that uses more than `cell_max_tokens` ends as over the
+  limit; before, the cap only filtered cells by their estimate.
+- Live peers get a duolog run id, and two projects with the same folder name
+  no longer share Rex session numbers.
 
 ## 1.4.0
 

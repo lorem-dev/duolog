@@ -1872,6 +1872,138 @@ func TestListPeersDoesNotAnswerQuestions(t *testing.T) {
 	}
 }
 
+// claudePeer opens a Claude peer and sends it the rig's task.
+func (r *rig) claudePeer() (Entry, string) {
+	r.t.Helper()
+	r.rex(withScreens(claudeIdle("")))
+	e := r.open("plan")
+	if e.State != Ready {
+		r.t.Fatalf("not ready: %+v", e)
+	}
+	path := r.task()
+	r.rex(withScreens(claudeIdle(""), claudeIdle(""), claudeIdle(line("task.md")), claudeWorking()))
+	if err := Send(r.ctx, e.ID, path); err != nil {
+		r.t.Fatal(err)
+	}
+	return e, path
+}
+
+// claudeTyped is the interrupted pane with text in its input line.
+func claudeTyped(text string) string {
+	screen := claudeInterrupted()
+	if !strings.Contains(screen, "\n❯\n") {
+		panic("claude-interrupted.txt has no empty input row")
+	}
+	return strings.Replace(screen, "\n❯\n", "\n❯ "+text+"\n", 1)
+}
+
+// A denied permission prompt leaves Claude interrupted. Wait, status and list
+// report that, the task stays unfinished, and a follow-up can be sent.
+func TestInterruptedPeerIsReported(t *testing.T) {
+	r := newRig(t, baseScript())
+	e, path := r.claudePeer()
+	r.rex(withScreens(claudeWorking(), claudeInterrupted()))
+	got, err := Wait(r.ctx, e.ID)
+	if err != nil || got.State != Interrupted || !strings.Contains(got.Note, "duolog peer send "+e.ID) || !strings.Contains(got.Note, path) {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if r.entry(e.ID).Task != path {
+		t.Fatal("an interrupted task counts as finished")
+	}
+	st, err := Status(r.ctx, e.ID)
+	if err != nil || st.State != Interrupted || !strings.Contains(st.Line, e.ID+" interrupted: ") || !strings.Contains(st.Line, "unfinished") || strings.Contains(st.Line, "\n") {
+		t.Fatalf("%+v %v", st, err)
+	}
+	peers, err := List(r.ctx)
+	if err != nil || len(peers) != 1 || peers[0].State != Interrupted {
+		t.Fatalf("%+v %v", peers, err)
+	}
+	// The follow-up is typed into the interrupted pane.
+	r.rex(withScreens(claudeInterrupted(), claudeInterrupted(), claudeTyped(line("task.md")), claudeWorking()))
+	if err := Send(r.ctx, e.ID, path); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(r.keys(), ","); got != "enter" {
+		t.Fatalf("keys %q", got)
+	}
+}
+
+// An input line that shows only Claude's dim suggestion is empty: the task
+// line is typed over it, with no ctrl+c, which on an empty line arms the exit.
+func TestSendTypesOverSuggestion(t *testing.T) {
+	r := newRig(t, withScreens(claudeIdle("")))
+	e := r.open("plan")
+	path := r.task()
+	suggestion := styledIdle("\x1b[7mf\x1b[27m" + grey + "ix typecheck errors\x1b[39m")
+	r.rex(withScreens(suggestion, suggestion, styledIdle(line("task.md")+cursor), claudeWorking()))
+	if err := Send(r.ctx, e.ID, path); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(r.keys(), ","); got != "enter" {
+		t.Fatalf("keys %q", got)
+	}
+	// Typed text is still refused.
+	r.rex(withScreens(styledIdle("fix typecheck errors" + cursor)))
+	err := Send(r.ctx, e.ID, path)
+	if err == nil || !strings.Contains(err.Error(), "holds text") || len(r.named("send")) != 0 {
+		t.Fatalf("%v after %d sends", err, len(r.named("send")))
+	}
+}
+
+// Denying a permission prompt with a reason types the reason into the pane
+// it leaves interrupted, so the peer goes on with it.
+func TestDenyWithReasonReplies(t *testing.T) {
+	r := newRig(t, withScreens(claudeIdle("")))
+	e := r.open("plan")
+	prompt := fixtureText("claude-approval-prompt.txt")
+	onNo := strings.Replace(strings.Replace(prompt, " ❯ 1. Yes", "   1. Yes", 1), "   4. No", " ❯ 4. No", 1)
+	reason := "Do not create files; report the plan instead."
+	r.rex(withScreens(prompt, onNo, claudeInterrupted(), claudeTyped(reason), claudeWorking()))
+	if err := AnswerWithReason(r.ctx, e.ID, "No", reason); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(r.keys(), ","); got != "down,down,down,enter,enter" {
+		t.Fatalf("keys %q", got)
+	}
+	sent := r.named("send")
+	if len(sent) != 1 || sent[0][len(sent[0])-1] != reason {
+		t.Fatalf("%v", sent)
+	}
+
+	// The pane may take a sample to leave the question.
+	r2 := newRig(t, withScreens(claudeIdle("")))
+	e2 := r2.open("plan")
+	r2.rex(withScreens(prompt, onNo, claudeWorking(), claudeInterrupted(), claudeTyped(reason), claudeWorking()))
+	if err := AnswerWithReason(r2.ctx, e2.ID, "No", reason); err != nil || len(r2.named("send")) != 1 {
+		t.Fatalf("%v after %d sends", err, len(r2.named("send")))
+	}
+}
+
+func TestDenyReasonNeedsAnInterruptedPane(t *testing.T) {
+	prompt := fixtureText("claude-approval-prompt.txt")
+	onNo := strings.Replace(strings.Replace(prompt, " ❯ 1. Yes", "   1. Yes", 1), "   4. No", " ❯ 4. No", 1)
+	r := newRig(t, withScreens(claudeIdle("")))
+	e := r.open("plan")
+	for _, reason := range []string{"/model sonnet", "one\ntwo"} {
+		r.rex(withScreens(prompt))
+		if err := AnswerWithReason(r.ctx, e.ID, "No", reason); err == nil || len(r.keys()) != 0 {
+			t.Fatalf("%q: %v, keys %v", reason, err, r.keys())
+		}
+	}
+	// A pane that goes on without an interrupt gets no text.
+	r.rex(withScreens(prompt, onNo, claudeIdle("")))
+	err := AnswerWithReason(r.ctx, e.ID, "No", "use the helper")
+	if err == nil || !strings.Contains(err.Error(), "not sent") || len(r.named("send")) != 0 {
+		t.Fatalf("%v after %d sends", err, len(r.named("send")))
+	}
+	// Nor does one whose input line holds text.
+	r.rex(withScreens(prompt, onNo, claudeTyped("draft")))
+	err = AnswerWithReason(r.ctx, e.ID, "No", "use the helper")
+	if err == nil || !strings.Contains(err.Error(), "holds text") || len(r.named("send")) != 0 {
+		t.Fatalf("%v after %d sends", err, len(r.named("send")))
+	}
+}
+
 func TestListPeersPreservesBusyState(t *testing.T) {
 	r := newRig(t, baseScript())
 	r.ready()

@@ -42,7 +42,7 @@ register a lead.
 | Step | Command | What happens |
 |---|---|---|
 | 1 | `duolog peer open <role>` | Opens a pane or tab with the agent of the role and waits until the session is ready or asks a question |
-| 2 | `duolog peer answer <id> <option>` | Answers the question that the session shows, by label or number |
+| 2 | `duolog peer answer <id> <option> [--reason <text>]` | Answers the question that the session shows, by label or number |
 | 3 | `duolog peer send <id> <task>` | Sends one short line that points to a task file, by its path from the pane's folder |
 | 4 | `duolog peer wait <id>` | Keeps waiting for the session. The default limit is 30 minutes |
 | 5 | `duolog peer status <id>` | Prints the state in one line |
@@ -78,6 +78,31 @@ wraps over several rows. Otherwise it clears the input with ctrl+c and types
 the line again, three tries in all. If every try fails, it leaves the task
 unsubmitted and reports an error. An empty input gets no ctrl+c, because
 there it starts the agent's exit.
+
+An input that shows only the agent's suggestion counts as empty, so
+`duolog peer send` types over it. duolog tells a suggestion from typed text
+by its look: Claude draws suggestions dim or grey. Claude's `Try "..."`
+placeholder also counts, even when it wraps or is cut at the pane's edge.
+Rex must keep the styles in its capture for other suggestions; without them,
+duolog takes the text for typed text and refuses to send.
+
+## What to do when a peer is interrupted
+
+A peer is `interrupted` when its last line above the input is the agent's
+interrupt notice. After a denied permission prompt or Esc, Claude prints
+`Interrupted` and asks what it should do instead. Codex prints
+`Conversation interrupted`. The agent then waits, and its task stays
+unfinished. `duolog peer status`, `wait` and `list` report this state, so the
+lead knows that the peer needs a follow-up.
+
+You have two ways to give that follow-up:
+
+- Deny with a reason: `duolog peer answer <id> No --reason "<one line>"`.
+  duolog selects `No`, waits for the interrupted input and types the reason.
+  The agent reads it as its reply and goes on. If the pane is not
+  interrupted, or its input holds text, duolog sends nothing and says so.
+- Send a task: `duolog peer send <id> <task>` works on an interrupted peer
+  as on a ready one.
 
 `duolog peer wait` reports the state, not the result. `task finished` means the
 session went idle. A working or spinner line keeps it busy even when its
