@@ -119,6 +119,7 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	// denies still apply; the project's state deny and the role and mode limits
 	// do not, so a read-only reviewer can hand back its report.
 	report := a.Kind == "write" && ReportTarget(a.Peer, a.Target)
+	lineWrites := a.Kind == "exec" && lineCanWrite(a.Target, parts)
 	// Check every part for a deny before any ask or allow can return.
 	for _, part := range parts {
 		partAction := a
@@ -141,8 +142,28 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 				return decision(Deny, "denied by project policy", rule.Action+" "+rule.Match)
 			}
 		}
+		if a.Kind == "exec" {
+			if d, ok := redirectDeny(p, lead, m, a, part); ok {
+				return d
+			}
+			if d, ok := inputDeny(p, lead, m, a, part); ok {
+				return d
+			}
+		}
 		if a.Kind == "exec" && !readOnlyCommand(part) {
-			if d, ok := hiddenDeny(p, lead, m, a, part); ok {
+			if d, ok := hiddenDeny(p, lead, m, a, part, lineWrites); ok {
+				return d
+			}
+		}
+	}
+	// The parser splits at a lone &, so >& file reaches the redirect checks
+	// only in the raw parts, which keep it whole.
+	if a.Kind == "exec" {
+		for _, part := range rawExecParts(a.Target) {
+			if d, ok := redirectDeny(p, lead, m, a, part); ok {
+				return d
+			}
+			if d, ok := inputDeny(p, lead, m, a, part); ok {
 				return d
 			}
 		}
@@ -539,6 +560,107 @@ func readShellParts(command, shell string) ([]string, bool) {
 	return shellParts(command, true)
 }
 
+// commandAfterKeywords drops the shell keywords in front of a command, since
+// the shell runs the command after them as it is: !, do, then, else, elif, if,
+// while, until, {, time and time -p, an opening (, a case header with its
+// first pattern, and a later case pattern such as b). Every rule then judges
+// the command itself. A part that is only keywords, such as done or a for
+// header, stays whole.
+func commandAfterKeywords(part string) string {
+	for {
+		word, after := nextShellWord(part)
+		subshell := strings.HasPrefix(word, "(") && !strings.HasPrefix(word, "((")
+		if subshell {
+			// (ls) and ( ls ) run ls.
+			inner := strings.TrimSuffix(strings.TrimPrefix(word, "("), ")")
+			switch {
+			case inner != "":
+				part = inner + after
+			case strings.TrimSpace(after) != "":
+				part = after
+			default:
+				return part
+			}
+			continue
+		}
+		next, _ := nextShellWord(after)
+		if next == "" {
+			return part
+		}
+		switch {
+		case slices.Contains([]string{"!", "do", "then", "else", "elif", "if", "while", "until", "{"}, word):
+			part = after
+		case word == "time":
+			// The keyword takes only -p; any other option is the time program's,
+			// which stays a wrapper for review.
+			option, rest := nextShellWord(after)
+			if option == "-p" {
+				option, _ = nextShellWord(rest)
+				after = rest
+			}
+			if option == "" || strings.HasPrefix(option, "-") {
+				return part
+			}
+			part = after
+		case word == "case":
+			_, rest := nextShellWord(after)
+			in, rest := nextShellWord(rest)
+			if in != "in" {
+				return part
+			}
+			// The first pattern runs up to the word that ends in ), as in a),
+			// a ) and a | b ). A part where none does stays whole, and
+			// canWrite takes it to write.
+			pattern := ""
+			for !strings.HasSuffix(pattern, ")") {
+				if pattern, rest = nextShellWord(rest); pattern == "" {
+					return part
+				}
+			}
+			if command, _ := nextShellWord(rest); command == "" {
+				return part
+			}
+			part = rest
+		case strings.HasPrefix(word, "(("):
+			return part
+		case strings.HasSuffix(word, ")"):
+			// A later case pattern; shellParts also judges the whole part,
+			// since the word may instead end a subshell.
+			part = after
+		case next == ")":
+			// A later case pattern with a space, as in b ). The parser has
+			// already split b | c ) at the |.
+			rest := after
+			for {
+				pattern, more := nextShellWord(rest)
+				if pattern == "" {
+					return part
+				}
+				rest = more
+				if strings.HasSuffix(pattern, ")") {
+					break
+				}
+			}
+			if command, _ := nextShellWord(rest); command == "" {
+				return part
+			}
+			part = rest
+		default:
+			return part
+		}
+	}
+}
+
+// nextShellWord returns the first word of s and the text after it.
+func nextShellWord(s string) (string, string) {
+	s = strings.TrimLeft(s, " \t\r\n")
+	end := strings.IndexAny(s, " \t\r\n")
+	if end < 0 {
+		return s, ""
+	}
+	return s[:end], s[end:]
+}
+
 // shellParts is deliberately conservative, not a shell interpreter. Quoted
 // separators remain arguments; substitutions and unsupported syntax need review.
 // With reads, a read command's quoted spaces and /dev/null redirects are read.
@@ -547,7 +669,18 @@ func shellParts(command string, reads bool) ([]string, bool) {
 	start, redirect := 0, -1
 	var quote byte
 	escaped, uncertain := false, false
+	var appendOne func(part string, redirected bool)
 	appendPart := func(part string, redirected bool) {
+		command := commandAfterKeywords(part)
+		// A word that ends in ) may be a case pattern or the end of a
+		// subshell, so a part with ) is judged both ways. Any ) makes the line
+		// uncertain, so the extra part can only add a deny or an ask.
+		if command != part && strings.Contains(part, ")") {
+			appendOne(part, redirected)
+		}
+		appendOne(command, redirected)
+	}
+	appendOne = func(part string, redirected bool) {
 		if strings.HasPrefix(strings.TrimSpace(part), "rg ") {
 			part = unquoteRgGlobs(part)
 		}
@@ -596,6 +729,12 @@ func shellParts(command string, reads bool) ([]string, bool) {
 		case "command", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "powershell", "cmd",
 			"time", "nice", "ionice", "timeout", "nohup", "stdbuf", "setsid", "busybox", "doas", "watch", "parallel":
 			review()
+			// The wrapper runs the command after it, which every deny must
+			// still see. The line is uncertain, so this part can only add a
+			// deny or an ask.
+			if start := execOperandStart(words) - 1; start > 0 && start < len(words) {
+				appendPart(strings.Join(words[start:], " "), redirected)
+			}
 			return
 		}
 		parts = append(parts, strings.Join(words, " "))

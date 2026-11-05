@@ -48,7 +48,7 @@ roles.
 | read | everything | allow |
 | read | `.env`, `*.pem`, `*.key`, `secrets/` | deny |
 | read | duolog state in `.duolog`, except Markdown, the configs, `learned.yaml` and skill test plans | deny |
-| write | `.duolog` folders and `.git` files or folders, at any depth; a command that cannot write, such as a loop header, `echo` without a redirect or a listing, is not judged by this rule | deny |
+| write | `.duolog` folders and `.git` files or folders, at any depth; a command that cannot write, such as `echo` without a redirect or a listing, is not judged by this rule. The words of a `for` or `select` header are, when any command of the line can write, and so is a redirect into such a path after any command, loop or group | deny |
 | write | `.claude/settings*.json`, `.claude/hooks/**` and the `.codex` folder | deny |
 | write | everything, for the write roles | allow |
 | exec | `go test`, `make build`, `npm run test`, `uv run pytest` and the like, for write roles | allow |

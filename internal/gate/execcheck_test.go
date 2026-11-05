@@ -3,6 +3,7 @@ package gate
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -37,10 +38,16 @@ func TestDeniesHoldInsideCommands(t *testing.T) {
 
 func TestCommandsThatHideTheirEffectAreNotConfirmedByFullMode(t *testing.T) {
 	p := policy(t)
+	// A wrapper runs the command after it, so a deny of that command stands.
+	for _, command := range []string{"nice git push", "timeout 5 git push origin main"} {
+		check(t, p, LeadRules{}, mode.Full, Action{Kind: "exec", Target: command, Role: "implement"}, Deny)
+	}
 	for _, command := range []string{
-		"nice git push",
-		"timeout 5 git push origin main",
-		"time rm -rf /",
+		"nice make x",
+		"timeout 5 make x",
+		// The time keyword is read through (see the keyword test); the program's
+		// own options still hide what it runs.
+		"time -o out make x",
 		"git -c alias.p=push p origin main",
 		"git --config-env=a=b status",
 		"cd sub && cat x",
@@ -83,6 +90,162 @@ func TestReadOnlyLoopNamingStateIsNotJudgedByTheWriteRule(t *testing.T) {
 		d := Evaluate(p, LeadRules{}, mode.Full, Action{Kind: "exec", Target: tc.command, Role: "implement"})
 		if d.Kind != tc.want {
 			t.Errorf("%s: %+v, want %s", tc.command, d, tc.want)
+		}
+	}
+}
+
+// A redirect after a loop, an if, a case or a group writes its target as
+// surely as one after a command, so a write deny holds for it. A redirect
+// into a file no rule denies stays what the rest of the command makes it.
+func TestRedirectOfCompoundCommandIsJudgedAsWrite(t *testing.T) {
+	forms := []string{
+		"for d in a; do printf x; done > %s",
+		"for d in a; do ls; done >> %s",
+		"while false; do printf x; done > %s",
+		"until true; do printf x; done 2> %s",
+		"if true; then printf x; fi > %s",
+		"if true; then ls; else ls; fi >%s",
+		"case a in a) printf x;; esac > %s",
+		"{ printf x; } > %s",
+		"{ ls; } &> %s",
+		"( printf x ) > %s",
+		"(ls) >| %s",
+		"ls > %s",
+		"ls a 1>%s",
+		"echo x >out>%s",
+		"echo x > out>>%s",
+		"ls 2>&1>%s",
+	}
+	for _, unmatched := range []string{"", Allow} {
+		p := policy(t)
+		if unmatched != "" {
+			p.OnUnmatched = unmatched
+		}
+		for _, form := range forms {
+			for _, denied := range []string{".git/config", ".duolog/bus.ndjson"} {
+				command := strings.ReplaceAll(form, "%s", denied)
+				d := Evaluate(p, LeadRules{}, mode.Full, Action{Kind: "exec", Target: command, Role: "implement"})
+				if d.Kind != Deny {
+					t.Errorf("on_unmatched %q: %s: %+v, want deny", unmatched, command, d)
+				}
+			}
+			command := strings.ReplaceAll(form, "%s", "out.txt")
+			d := Evaluate(p, LeadRules{}, mode.Full, Action{Kind: "exec", Target: command, Role: "implement"})
+			if d.Kind == Deny {
+				t.Errorf("on_unmatched %q: %s: %+v, want no deny", unmatched, command, d)
+			}
+		}
+	}
+}
+
+// A shell keyword runs the command after it as it is, so the command is judged
+// by every rule, the state read rule included.
+func TestKeywordInFrontOfCommandHidesNothing(t *testing.T) {
+	forms := []string{
+		"if cat %s; then :; fi",
+		"while cat %s; do :; done",
+		"until cat %s; do :; done",
+		"! cat %s",
+		"time cat %s",
+		"time -p cat %s",
+		"for f in a; do cat %s; done",
+		"if true; then sed -n 1,99p %s; fi",
+		"if true; then :; else cat %s; fi",
+		"if false; then :; elif cat %s; then :; fi",
+		"{ cat %s; }",
+		"( cat %s )",
+		"case x in a) cat %s;; esac",
+		"case x in a) :;; b) cat %s;; esac",
+	}
+	p := policy(t)
+	for _, m := range []mode.Mode{mode.Full, mode.Ask} {
+		for _, form := range forms {
+			command := strings.ReplaceAll(form, "%s", ".duolog/bus.ndjson")
+			d := Evaluate(p, LeadRules{}, m, Action{Kind: "exec", Target: command, Role: "implement"})
+			if d.Kind != Deny {
+				t.Errorf("%s: %s: %+v, want deny", m, command, d)
+			}
+			command = strings.ReplaceAll(form, "%s", "README.md")
+			d = Evaluate(p, LeadRules{}, m, Action{Kind: "exec", Target: command, Role: "implement"})
+			if d.Kind == Deny {
+				t.Errorf("%s: %s: %+v, want no deny", m, command, d)
+			}
+		}
+		// The lines the review measured, and a write in a case arm.
+		for _, command := range []string{
+			"! cat .duolog/bus.ndjson",
+			"for f in a; do cat .duolog/sessions.json; done",
+			"if true; then sed -n 1,99p .duolog/decisions.ndjson; fi",
+			"for d in a; do echo hi; done > .git/hooks/pre-commit",
+			"if true; then echo x; fi >> .duolog/bus.ndjson",
+			"case x in a) cp evil .git/hooks/pre-commit;; esac",
+			"case x in a) :;; b) cp evil .git/hooks/pre-commit;; esac",
+			"time rm -rf /",
+		} {
+			check(t, p, LeadRules{}, m, Action{Kind: "exec", Target: command, Role: "implement"}, Deny)
+		}
+	}
+}
+
+func TestCommandAfterKeywords(t *testing.T) {
+	for part, want := range map[string]string{
+		"do cat x":               "cat x",
+		"then ! cat x":           "cat x",
+		"elif while cat x":       "cat x",
+		"{ cat x":                "cat x",
+		"time -p cat x":          "cat x",
+		"time -o out make x":     "time -o out make x",
+		"time":                   "time",
+		"( cat x )":              "cat x )",
+		"(ls) > f":               "ls > f",
+		"case x in a) cat y":     "cat y",
+		"case x in a":            "case x in a",
+		"b) cp a .git/x":         "cp a .git/x",
+		"((n++))":                "((n++))",
+		"done > f":               "done > f",
+		"for d in a b":           "for d in a b",
+		"esac":                   "esac",
+		"do":                     "do",
+		"git push":               "git push",
+		"if duolog allow 3":      "duolog allow 3",
+		"until test -f x":        "test -f x",
+		"! time cat .duolog/bus": "cat .duolog/bus",
+	} {
+		if got := strings.TrimSpace(commandAfterKeywords(part)); got != want {
+			t.Errorf("%q: %q, want %q", part, got, want)
+		}
+	}
+	// A word ending in ) may end a subshell, so the whole part is judged too.
+	parts, _ := ShellParts("(x; reboot) > f", "")
+	if !slices.Contains(parts, "reboot) > f") {
+		t.Errorf("subshell end dropped: %q", parts)
+	}
+}
+
+func TestRedirectTargets(t *testing.T) {
+	for part, want := range map[string]string{
+		"done > a":           "a",
+		"fi >>a":             "a",
+		"} 2> a":             "a",
+		") &>a":              "a",
+		"esac >| a":          "a",
+		"ls x>a":             "a",
+		"exec 3<> a":         "a",
+		"ls 2>&1":            "",
+		"ls >&- 2>&1":        "",
+		"ls < a":             "",
+		"ls a b":             "",
+		"cmd > a 2>&1 >> b":  "a b",
+		"printf x >& c":      "c",
+		"printf x 1>&2 > ''": "",
+		"echo x >out>a":      "out a",
+		"echo x > out>a":     "out a",
+		"echo x >a>>b>|c":    "a b c",
+		"ls 2>&1>a":          "a",
+		"ls >a 2>&1>b":       "a b",
+	} {
+		if got := strings.Join(redirectTargets(part), " "); got != want {
+			t.Errorf("%q: %q, want %q", part, got, want)
 		}
 	}
 }
