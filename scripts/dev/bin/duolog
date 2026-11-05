@@ -2,7 +2,9 @@
 # duolog built from this checkout. The repository's own Claude and Codex hooks
 # call it, so working on duolog uses the code in the work tree, not a release.
 #
-# It builds .cache/dev/duolog only when missing, and on
+# It builds .cache/dev/duolog only when missing. If that build fails and there
+# is no earlier one, it runs the main checkout's build or an installed duolog
+# instead, and fails only when neither exists. On
 # SessionStart it also copies the skills from plugin/ and, for Claude, puts
 # this folder first on the lead's PATH, so that a plain `duolog` in the
 # session runs this build too.
@@ -15,6 +17,45 @@ case "$(uname -s 2>/dev/null)" in
 MINGW* | MSYS* | CYGWIN*) bin="$bin.exe" ;;
 esac
 
+# find_fallback prints the duolog to run when this checkout does not build and
+# has no earlier build, and says on stderr which one it chose: the build of the
+# main checkout of the same repository, else an installed duolog on PATH that
+# is not this script. It prints nothing when there is none.
+find_fallback() {
+	common=$(cd "$root" && git rev-parse --git-common-dir 2>/dev/null) || common=
+	if [ -n "$common" ]; then
+		common=$(cd "$root" && cd "$common" 2>/dev/null && pwd -P) || common=
+	fi
+	if [ -n "$common" ] && [ "$(basename "$common")" = .git ]; then
+		main=$(dirname "$common")
+		cand="$main/.cache/dev/duolog"
+		case "$bin" in *.exe) cand="$cand.exe" ;; esac
+		if [ "$cand" != "$bin" ] && [ -f "$cand" ] && [ -x "$cand" ]; then
+			echo "duolog: running the build of the main checkout, $cand" >&2
+			echo "$cand"
+			return 0
+		fi
+	fi
+	oldifs=$IFS
+	IFS=:
+	for dir in $PATH; do
+		[ -n "$dir" ] || continue
+		cand="$dir/duolog"
+		[ -f "$cand" ] && [ -x "$cand" ] || {
+			cand="$dir/duolog.exe"
+			[ -f "$cand" ] && [ -x "$cand" ] || continue
+		}
+		d=$(cd "$dir" 2>/dev/null && pwd -P) || continue
+		[ "$d" = "$here" ] && continue
+		IFS=$oldifs
+		echo "duolog: running the installed duolog, $cand" >&2
+		echo "$cand"
+		return 0
+	done
+	IFS=$oldifs
+	return 0
+}
+
 if [ ! -e "$bin" ]; then
 	mkdir -p "$root/.cache/dev"
 	# Parallel hooks may build at once: each writes its own file, then renames.
@@ -24,13 +65,18 @@ if [ ! -e "$bin" ]; then
 		mv -f "$tmp" "$bin"
 	else
 		rm -f "$tmp"
-		if [ ! -x "$bin" ]; then
+		if [ -x "$bin" ]; then
+			echo "duolog: the build failed; running the earlier build" >&2
+		else
 			echo "duolog: the build from $root failed and there is no earlier build" >&2
-			# A worker without its gate must stop, as the installed hooks do.
-			[ "${DUOLOG_DEPTH:-0}" -ge 1 ] 2>/dev/null && exit 2
-			exit 1
+			fallback=$(find_fallback)
+			if [ -z "$fallback" ]; then
+				# A worker without its gate must stop, as the installed hooks do.
+				[ "${DUOLOG_DEPTH:-0}" -ge 1 ] 2>/dev/null && exit 2
+				exit 1
+			fi
+			bin=$fallback
 		fi
-		echo "duolog: the build failed; running the earlier build" >&2
 	fi
 fi
 
