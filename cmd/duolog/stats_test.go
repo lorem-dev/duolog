@@ -27,6 +27,45 @@ func TestStatsCommand(t *testing.T) {
 	}
 }
 
+// A Claude record with cache writes shows them beside input and cached, and
+// costs more than an older record of the same tokens without them.
+func TestStatsShowsCacheWrites(t *testing.T) {
+	isolatedRouteConfig(t)
+	root := t.TempDir()
+	t.Chdir(root)
+	if err := os.MkdirAll(filepath.Join(root, ".duolog"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	records := `{"role":"review","agent":"claude","model":"opus","input":1000000,"cached":0,"cache_write":1000000,"output":0}` + "\n" +
+		`{"role":"implement","agent":"claude","model":"opus","input":1000000,"cached":0,"output":0}` + "\n"
+	if err := os.WriteFile(filepath.Join(root, ".duolog", "usage.ndjson"), []byte(records), 0600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := executeBusCommand(t, "stats")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(out, "\n")
+	if !strings.Contains(lines[0], "CACHED  CACHE WRITE  OUTPUT") {
+		t.Fatal(out)
+	}
+	for _, want := range [][]string{{"implement", "1000000", "0", "0", "0", "4.000000"}, {"review", "1000000", "0", "1000000", "0", "5.000000"}} {
+		found := false
+		for _, line := range lines {
+			fields := strings.Fields(line)
+			if len(fields) == 8 && fields[0] == want[0] && strings.Join(fields[3:], " ") == strings.Join(want[1:], " ") {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("no row %v in\n%s", want, out)
+		}
+	}
+	if !strings.Contains(out, "Total estimated USD: 9.000000") {
+		t.Fatal(out)
+	}
+}
+
 func TestStatsClasses(t *testing.T) {
 	root := learningRepo(t, true)
 	j, err := journal.Open(filepath.Join(root, ".duolog"))

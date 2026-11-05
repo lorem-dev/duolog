@@ -161,7 +161,7 @@ func TestLogin(t *testing.T) {
 		{"done", testbin.Scenario{}, 30 * time.Second, LoggedIn},
 		{"closed", testbin.Scenario{Exit: 1, Stderr: "login cancelled\n"}, 30 * time.Second, Declined},
 		{"needs a terminal", testbin.Scenario{Exit: 1, Stderr: "Error: Raw mode is not supported on the current process.stdin\n"}, 30 * time.Second, NeedsTerminal},
-		{"timed out", testbin.Scenario{SleepMS: 5000}, 500 * time.Millisecond, TimedOut},
+		{"timed out", testbin.Scenario{SleepMS: 60000}, 500 * time.Millisecond, TimedOut},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -171,7 +171,9 @@ func TestLogin(t *testing.T) {
 			if got := New("").Login(context.Background(), p, c.wait); got != c.want {
 				t.Fatal(got)
 			}
-			if c.want == TimedOut && time.Since(start) > 4*time.Second {
+			// The fake hangs for a minute; ending within 15 s of a 0.5 s wait
+			// leaves a slow runner room and still proves the login was bounded.
+			if c.want == TimedOut && time.Since(start) > 15*time.Second {
 				t.Fatal("login was not bounded")
 			}
 			if c.name == "done" {

@@ -122,7 +122,7 @@ func newSkillCommand() *cobra.Command {
 			}
 			runs++
 			prompt := selected.Prompt(string(skill))
-			cost, ok := usage.Cost(cfg, target.Agent, target.Model, int64((len(prompt)+3)/4), 0, int64(len(selected.Situations)*200))
+			cost, ok := usage.Cost(cfg, target.Agent, target.Model, usage.Tokens{Input: int64((len(prompt) + 3) / 4), Output: int64(len(selected.Situations) * 200)})
 			if !ok {
 				return fmt.Errorf("no configured price for %s", target.Model)
 			}
@@ -271,7 +271,7 @@ func runSkillTests(cmd *cobra.Command, root, stateRoot, name string, cfg *config
 				return err
 			}
 		}
-		cost, _ := usage.Cost(cfg, route.Agent, route.Model, result.Usage.Input, result.Usage.Cached, result.Usage.Output)
+		cost, _ := usage.Cost(cfg, route.Agent, route.Model, result.Usage)
 		total += cost
 		results = append(results, outcome{label, graded, cost})
 	}

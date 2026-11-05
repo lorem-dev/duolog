@@ -202,8 +202,10 @@ func TestTimeoutDenies(t *testing.T) {
 	b, _, _ := askSetup(t)
 	start := time.Now()
 	d := Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, 30*time.Millisecond, false)
-	if d.Kind != Deny || !strings.Contains(d.Reason, "timeout") || time.Since(start) > time.Second {
-		t.Fatal(d)
+	// The bound only shows that the 30 ms wait ended the ask, far below the
+	// minute the other asks wait; a windows-latest runner took 2.78 s here.
+	if took := time.Since(start); d.Kind != Deny || !strings.Contains(d.Reason, "timeout") || took > 10*time.Second {
+		t.Fatal(d, took)
 	}
 }
 func TestAskGoesToSpawningLead(t *testing.T) {
@@ -270,8 +272,9 @@ func TestAskToEndedLeadDeniesAtOnce(t *testing.T) {
 	}
 	start := time.Now()
 	d := Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, time.Minute, false)
-	if d.Kind != Deny || time.Since(start) > time.Second || len(askMessages(t, dir)) != 0 {
-		t.Fatal(d)
+	// Denied at once, not after the minute's wait; 10 s gives a slow runner room.
+	if took := time.Since(start); d.Kind != Deny || took > 10*time.Second || len(askMessages(t, dir)) != 0 {
+		t.Fatal(d, took)
 	}
 }
 func TestNoLeadEnvDenies(t *testing.T) {

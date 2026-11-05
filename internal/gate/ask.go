@@ -51,6 +51,10 @@ func observeAsk(ctx context.Context, r AskResult) {
 	}
 }
 
+// AskPoll is how often Escalate reads its inbox for the lead's reply. Tests
+// shorten it; the hook keeps the default.
+var AskPoll = 500 * time.Millisecond
+
 // Escalate waits for a reply from the worker's spawning lead. Each request has
 // its own inbox so simultaneous hook processes cannot consume each other's reply.
 // The hook caller preserves the evaluated mode and logs the final decision.
@@ -114,7 +118,7 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout ti
 		return deny("cannot send ask: " + err.Error())
 	}
 	ref := strconv.FormatInt(n, 10)
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(AskPoll)
 	defer ticker.Stop()
 	for {
 		select {

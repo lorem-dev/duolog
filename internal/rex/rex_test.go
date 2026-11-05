@@ -213,9 +213,11 @@ func TestStdinIsEmptyAndRunIsBounded(t *testing.T) {
 	old := CommandTimeout
 	CommandTimeout = 100 * time.Millisecond
 	t.Cleanup(func() { CommandTimeout = old })
-	c := install(t, testbin.Scenario{SleepMS: 3000})
+	// The fake hangs for a minute and the call must end at its 100 ms limit;
+	// 10 s leaves a slow runner room to end the process.
+	c := install(t, testbin.Scenario{SleepMS: 60000})
 	start := time.Now()
-	if err := c.Send(context.Background(), "b", "x"); err == nil || time.Since(start) > 2*time.Second {
+	if err := c.Send(context.Background(), "b", "x"); err == nil || time.Since(start) > 10*time.Second {
 		t.Fatalf("hung call returned %v after %v", err, time.Since(start))
 	}
 }

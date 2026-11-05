@@ -118,8 +118,9 @@ func TestAskSummaryAndForegroundWait(t *testing.T) {
 	}
 	started := time.Now()
 	d := Escalate(context.Background(), b, "first-123456", Action{Kind: "exec", Target: "unmatched"}, time.Minute, false)
-	if d.Kind != Deny || !strings.Contains(d.Reason, "lead is waiting") || time.Since(started) > time.Second {
-		t.Fatal(d)
+	// Denied at once, not after the minute's wait; 10 s gives a slow runner room.
+	if took := time.Since(started); d.Kind != Deny || !strings.Contains(d.Reason, "lead is waiting") || took > 10*time.Second {
+		t.Fatal(d, took)
 	}
 	if err := reg.SetWaiting("first-123456", "delegate", 0); err != nil {
 		t.Fatal(err)

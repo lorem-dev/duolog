@@ -234,7 +234,8 @@ func TestUsageParsed(t *testing.T) {
 				v["structured_output"] = json.RawMessage(goodAnswer)
 				b, _ := json.Marshal(v)
 				sc.Stdout = string(b)
-				want = Usage{Input: 32831, Cached: 28035, Output: 91}
+				// The recorded result wrote 4792 tokens to the one-hour cache.
+				want = Usage{Input: 32831, Cached: 28035, Write: 4792, WriteHour: 4792, Output: 91}
 				session = "00000000-0000-4000-8000-000000000043"
 			}
 			install(t, &s, sc)
@@ -403,8 +404,12 @@ func TestHungRunTimesOut(t *testing.T) {
 	s.Timeout = 3 * time.Second
 	start := time.Now()
 	r, e := Run(context.Background(), s)
-	if e == nil || !errors.Is(e, context.DeadlineExceeded) || !strings.Contains(e.Error(), filepath.Join(s.TaskDir, "stdout.log")) || time.Since(start) > 5*time.Second || r.Done || !r.Interrupted || r.QuotaEnded {
-		t.Fatalf("%+v %v", r, e)
+	// The fake sleeps a minute; the run must end at its 3 s timeout. Ending
+	// the process tree took 2 s on a windows-latest runner, so the bound
+	// leaves 15 s past the timeout and still proves the run did not wait.
+	took := time.Since(start)
+	if e == nil || !errors.Is(e, context.DeadlineExceeded) || !strings.Contains(e.Error(), filepath.Join(s.TaskDir, "stdout.log")) || took > s.Timeout+15*time.Second || r.Done || !r.Interrupted || r.QuotaEnded {
+		t.Fatalf("%+v %v after %s", r, e, took)
 	}
 	if _, e := os.Stat(p + ".args.json"); e != nil {
 		t.Fatal("fake did not start")
@@ -675,11 +680,19 @@ func TestClaudeTurnCapEndsRun(t *testing.T) {
 			t.Fatalf("exit %d: usage %+v known %v, want 40 input, 10 cached, 5 output, known", exit, got.Usage, got.UsageKnown)
 		}
 	}
-	// A capped run without usage is told from one with zero usage.
+	// Cache writes without a split by cache lifetime count as five-minute writes.
 	s := spec(t, "claude")
 	s.MaxTurns = 2
-	install(t, &s, testbin.Scenario{Exit: 1, Stdout: `{"type":"result","subtype":"error_max_turns","is_error":true,"session_id":"worker-1"}` + "\n"})
+	install(t, &s, testbin.Scenario{Exit: 1, Stdout: `{"type":"result","subtype":"error_max_turns","is_error":true,"session_id":"worker-1","usage":{"input_tokens":30,"cache_creation_input_tokens":20,"cache_read_input_tokens":10,"output_tokens":5}}` + "\n"})
 	got, err := Run(context.Background(), s)
+	if !errors.Is(err, ErrTurnCap) || got.Usage != (Usage{Input: 60, Cached: 10, Write: 20, Output: 5}) || !got.UsageKnown {
+		t.Fatalf("cache writes: usage %+v known %v %v, want 60 input, 10 cached, 20 five-minute writes", got.Usage, got.UsageKnown, err)
+	}
+	// A capped run without usage is told from one with zero usage.
+	s = spec(t, "claude")
+	s.MaxTurns = 2
+	install(t, &s, testbin.Scenario{Exit: 1, Stdout: `{"type":"result","subtype":"error_max_turns","is_error":true,"session_id":"worker-1"}` + "\n"})
+	got, err = Run(context.Background(), s)
 	if !errors.Is(err, ErrTurnCap) || !got.TurnsEnded || got.UsageKnown || got.Usage != (Usage{}) {
 		t.Fatalf("without usage: %+v %v, want TurnsEnded with usage unknown", got, err)
 	}
@@ -737,7 +750,9 @@ func TestCancellationKillsDescendantHoldingOutput(t *testing.T) {
 	default:
 		t.Fatal("the worker ended before its descendant started", got, err)
 	}
-	if err == nil || !got.Interrupted || since > 3*time.Second {
+	// The descendant holds the output for a minute; 15 s after the cancel
+	// leaves a slow runner room and still proves the run did not wait for it.
+	if err == nil || !got.Interrupted || since > 15*time.Second {
 		t.Fatal(got, err, since)
 	}
 	pidData, pidErr := os.ReadFile(fake + ".child-pid")

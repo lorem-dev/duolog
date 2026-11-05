@@ -96,7 +96,7 @@ func TestReadTimeout(t *testing.T) {
 	for _, agent := range []string{"claude", "codex"} {
 		t.Run(agent, func(t *testing.T) {
 			isolate(t)
-			scenario := testbin.Scenario{SleepMS: 10000}
+			scenario := testbin.Scenario{SleepMS: 60000}
 			if agent == "codex" {
 				scenario = testbin.Scenario{RPCResponses: map[string]string{"initialize": `{"id":1,"result":{}}`, "account/rateLimits/read": `{"id":3,"result":{}}`}}
 			}
@@ -106,7 +106,9 @@ func TestReadTimeout(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "timed out") {
 				t.Fatal(err)
 			}
-			if time.Since(start) > 3*time.Second {
+			// The fake hangs for a minute; 15 s past a 100 ms limit leaves a
+			// slow runner room and still proves the read was bounded.
+			if time.Since(start) > 15*time.Second {
 				t.Fatal("unbounded read")
 			}
 		})

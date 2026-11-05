@@ -102,10 +102,79 @@ func TestCostMatchesSummarize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if usd, ok := Cost(cfg, "codex", "gpt-6.1-sol", 1_000_000, 0, 0); !ok || math.Abs(usd-2.00) > 1e-9 {
+	if usd, ok := Cost(cfg, "codex", "gpt-6.1-sol", Tokens{Input: 1_000_000}); !ok || math.Abs(usd-2.00) > 1e-9 {
 		t.Fatal(usd, ok)
 	}
-	if _, ok := Cost(cfg, "codex", "no-such-model", 1, 0, 0); ok {
+	if _, ok := Cost(cfg, "codex", "no-such-model", Tokens{Input: 1}); ok {
 		t.Fatal("unknown model priced")
+	}
+}
+
+// Claude charges a five-minute cache write at 1.25x and a one-hour write at
+// 2x the input price, so the same tokens cost more as writes than as input.
+func TestCacheWritesCostMoreThanInput(t *testing.T) {
+	logFile(t, "")
+	cfg, err := config.Load(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cost := func(tokens Tokens) float64 {
+		t.Helper()
+		usd, ok := Cost(cfg, "claude", "opus", tokens)
+		if !ok {
+			t.Fatal("opus unpriced")
+		}
+		return usd
+	}
+	plain := cost(Tokens{Input: 1_000_000})
+	minute := cost(Tokens{Input: 1_000_000, Write: 1_000_000})
+	hour := cost(Tokens{Input: 1_000_000, Write: 1_000_000, WriteHour: 1_000_000})
+	if math.Abs(plain-4) > 1e-9 || math.Abs(minute-5) > 1e-9 || math.Abs(hour-8) > 1e-9 {
+		t.Fatalf("plain %v, five-minute writes %v, one-hour writes %v; want 4, 5, 8", plain, minute, hour)
+	}
+}
+
+// A recorded Claude result line, as delegate writes it to usage.ndjson, costs
+// what Claude reported for it: total_cost_usd 0.00128465 for Haiku with 4
+// input, 28035 cache reads, 4792 one-hour cache writes and 91 output tokens.
+// The same tokens as plain input, a record from before cache writes were
+// kept, cost less and as before.
+func TestStatsPricesRecordedClaudeCacheWrites(t *testing.T) {
+	recorded := `{"role":"mechanical","agent":"claude","model":"haiku","effort":"low","effort_capped":false,"input":32831,"cached":28035,"cache_write":4792,"cache_write_1h":4792,"output":91}`
+	old := `{"role":"mechanical","agent":"claude","model":"haiku","effort":"low","effort_capped":false,"input":32831,"cached":28035,"output":91}`
+	summarize := func(line string) Table {
+		t.Helper()
+		table, err := Summarize(logFile(t, line+"\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return table
+	}
+	withWrites, without := summarize(recorded), summarize(old)
+	if math.Abs(withWrites.Total-0.00128465) > 1e-9 {
+		t.Fatalf("recorded result costs %v, Claude reported 0.00128465", withWrites.Total)
+	}
+	// 4796 plain input at 0.10, 28035 reads at 0.01 and 91 output at 0.50 per 1M.
+	if math.Abs(without.Total-0.00080545) > 1e-9 || without.Total >= withWrites.Total {
+		t.Fatalf("old record costs %v, want 0.00080545 and less than %v", without.Total, withWrites.Total)
+	}
+	row := withWrites.Rows[0]
+	if row.Input != 32831 || row.Cached != 28035 || row.Write != 4792 || row.WriteHour != 4792 || row.Output != 91 {
+		t.Fatalf("%+v", row)
+	}
+	if without.Rows[0].Write != 0 {
+		t.Fatalf("old record has cache writes: %+v", without.Rows[0])
+	}
+}
+
+func TestStatsRejectsCacheWritesOutsideInput(t *testing.T) {
+	for _, line := range []string{
+		`{"agent":"claude","model":"opus","input":100,"cached":60,"cache_write":50}`,
+		`{"agent":"claude","model":"opus","input":100,"cache_write":10,"cache_write_1h":20}`,
+		`{"agent":"claude","model":"opus","input":100,"cache_write":-1}`,
+	} {
+		if _, err := Summarize(logFile(t, line+"\n")); err == nil {
+			t.Fatalf("%s: expected invalid token counts", line)
+		}
 	}
 }

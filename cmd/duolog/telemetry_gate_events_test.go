@@ -330,6 +330,9 @@ func TestTelemetryGateFailure(t *testing.T) {
 	run := func(t *testing.T, answer string, sink func(t *testing.T, telemetryRoot string)) outcome {
 		reg, root, telemetryRoot := gateTelemetrySetup(t, mode.Ask, "")
 		sink(t, telemetryRoot)
+		if answer == "" {
+			shortAskWait(t)
+		}
 		answerGateAsks(t, reg, root, answer)
 		out := gateHook(t, "codex", "Bash", map[string]string{"command": "custom-command"}, root)
 		decisions, err := os.ReadFile(filepath.Join(root, ".duolog", "decisions.ndjson"))

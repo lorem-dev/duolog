@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
@@ -36,6 +37,17 @@ func gateSetup(t *testing.T, m mode.Mode) (*session.Registry, string) {
 	}
 	return r, root
 }
+
+// shortAskWait makes an unanswered ask time out after 50 ms instead of the
+// configured second. Only a test that never answers the ask may use it: an
+// answer could come after the wait.
+func shortAskWait(t *testing.T) {
+	t.Helper()
+	old := askWait
+	askWait = func(int) time.Duration { return 50 * time.Millisecond }
+	t.Cleanup(func() { askWait = old })
+}
+
 func gateCommand(t *testing.T, input string, args ...string) (string, error) {
 	t.Helper()
 	cmd := newRootCommand()
@@ -188,6 +200,7 @@ func TestWorkerAskPersonOnly(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, root := gateSetup(t, mode.Ask)
+			shortAskWait(t)
 			data, _ := json.Marshal(map[string]any{"tool_name": tc.tool, "cwd": root, "tool_input": tc.input})
 			if _, err := gateCommand(t, string(data), "gate", "--agent", "codex", "--event", "PreToolUse"); err != nil {
 				t.Fatal(err)

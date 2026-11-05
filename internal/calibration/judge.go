@@ -569,8 +569,7 @@ func judgeOnce(ctx context.Context, env JudgeEnv, c config.Class, dir string, n 
 	if err != nil {
 		return Call{}, 0, fmt.Errorf("judge: %w; answer: %s", err, answerPath)
 	}
-	u := out.Result.Usage
-	usd, _ := usage.Cost(env.Cfg, target.Agent, target.Model, u.Input, u.Cached, u.Output)
+	usd, _ := usage.Cost(env.Cfg, target.Agent, target.Model, out.Result.Usage)
 	return Call{Judge: targetKey(target), AFirst: aFirst, Scores: scores}, usd, nil
 }
 

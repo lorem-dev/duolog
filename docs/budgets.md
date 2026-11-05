@@ -30,6 +30,9 @@ effort, estimated USD per run):
 ## How to measure
 
 The live tests print the usage of each run from `.duolog/usage.ndjson`.
+Estimated USD prices Claude cache writes at 1.25 times the input rate for the
+five-minute cache and 2 times for the one-hour cache. See [how to see what
+the work cost](getting-started.md#how-to-see-what-the-work-cost).
 Run them with real agents:
 
 ```bash

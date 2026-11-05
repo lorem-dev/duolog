@@ -316,9 +316,7 @@ func (lr *learnRun) add(r runner.Result) {
 	if lr == nil {
 		return
 	}
-	lr.usage.Input += r.Usage.Input
-	lr.usage.Cached += r.Usage.Cached
-	lr.usage.Output += r.Usage.Output
+	lr.usage.Add(r.Usage)
 	lr.quota = r.QuotaEnded
 }
 
@@ -374,7 +372,8 @@ func (lr *learnRun) finish(root, dir, copyPath string, out Outcome) error {
 	var errs []error
 	if lr.ran {
 		rec.Input, rec.Cached, rec.Output = lr.usage.Input, lr.usage.Cached, lr.usage.Output
-		rec.USD, rec.Priced = usage.Cost(lr.cfg, rec.Agent, rec.Model, rec.Input, rec.Cached, rec.Output)
+		rec.CacheWrite, rec.CacheWriteHour = lr.usage.Write, lr.usage.WriteHour
+		rec.USD, rec.Priced = usage.Cost(lr.cfg, rec.Agent, rec.Model, lr.usage)
 		rec.Seconds = time.Since(lr.started).Seconds()
 		rec.Done = out.Result.Done
 		if lr.quota {

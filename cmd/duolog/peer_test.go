@@ -7,9 +7,11 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/peer"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
@@ -51,8 +53,31 @@ func rexCalls(t *testing.T, bin string) [][]string {
 	return calls
 }
 
+// shortPeerPauses lets the peer commands read the fake pane every millisecond
+// instead of every two seconds. The fake rex answers by call count, so the
+// pauses change nothing a test sees.
+func shortPeerPauses(t *testing.T) {
+	t.Helper()
+	t.Cleanup(peer.ShortenPauses(time.Millisecond))
+}
+
 // peerProject makes a project root with a live lead and a fake rex.
 func peerProject(t *testing.T, capture testbin.Scenario) (root, rex string) {
+	t.Helper()
+	root, rex = peerProjectWithoutLead(t, capture)
+	t.Setenv("DUOLOG_LEAD", "lead-1")
+	reg, err := session.Open(filepath.Join(root, ".duolog"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.RegisterLead(session.Lead{ID: "lead-1", Target: config.Target{Agent: "codex", Model: "sol", Effort: "high"}, Mode: mode.Ask, PID: os.Getpid()}); err != nil {
+		t.Fatal(err)
+	}
+	return root, rex
+}
+
+// peerProjectWithoutLead makes a project root and a fake rex, with no lead.
+func peerProjectWithoutLead(t *testing.T, capture testbin.Scenario) (root, rex string) {
 	if runtime.GOOS == "windows" {
 		t.Skip("live peer sessions are unavailable on Windows")
 	}
@@ -64,14 +89,8 @@ func peerProject(t *testing.T, capture testbin.Scenario) (root, rex string) {
 	t.Setenv("REX_BLOCK", "")
 	t.Setenv("REX_BIN_DIR", "")
 	t.Setenv("DUOLOG_DEPTH", "")
-	t.Setenv("DUOLOG_LEAD", "lead-1")
-	reg, err := session.Open(filepath.Join(root, ".duolog"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := reg.RegisterLead(session.Lead{ID: "lead-1", Target: config.Target{Agent: "codex", Model: "sol", Effort: "high"}, Mode: mode.Ask, PID: os.Getpid()}); err != nil {
-		t.Fatal(err)
-	}
+	t.Setenv("DUOLOG_LEAD", "")
+	shortPeerPauses(t)
 	rex = testbin.Install(t, "rex", testbin.Scenario{Exit: 99, Stderr: "unexpected rex command", Responses: map[string]testbin.Scenario{
 		"new":           {Stdout: peerSplitReply},
 		"window new":    {Stdout: peerSplitReply},

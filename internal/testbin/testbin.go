@@ -2,6 +2,9 @@
 package testbin
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -47,12 +50,63 @@ type Scenario struct {
 var build struct {
 	sync.Once
 	binary []byte
+	// shared is one copy of binary that every Install links to, or empty.
+	shared string
 	err    error
 }
 
-// Install builds fake once per test process and copies it into an isolated PATH
-// entry. It returns the executable path; recordings use .args.json, .stdin,
-// .env.json and .cwd suffixes. The scenario lives at <executable>.json.
+// share writes binary once to the temporary folder, named by its hash so that
+// every test process and run of the same fake finds the same file, and
+// returns its path, or "" when it cannot. A new executable is scanned before
+// its first start: 0.3 to 0.5 s on macOS for each fresh copy, which most tests
+// paid once per fake they installed. Links to one file pay it once.
+func share(binary []byte) string {
+	sum := sha256.Sum256(binary)
+	path := filepath.Join(os.TempDir(), "duolog-testbin-"+hex.EncodeToString(sum[:8]))
+	if runtime.GOOS == "windows" {
+		path += ".exe"
+	}
+	if data, err := os.ReadFile(path); err == nil && bytes.Equal(data, binary) {
+		return path
+	}
+	// Another test process may write the same file at the same time: each
+	// writes its own and renames it into place.
+	tmp, err := os.CreateTemp(filepath.Dir(path), "duolog-testbin-*.tmp")
+	if err != nil {
+		return ""
+	}
+	_, err = tmp.Write(binary)
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Chmod(tmp.Name(), 0755)
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp.Name())
+		// Windows refuses to replace a file that runs; the other process
+		// wrote the same bytes.
+		if data, readErr := os.ReadFile(path); readErr != nil || !bytes.Equal(data, binary) {
+			return ""
+		}
+	}
+	return path
+}
+
+// startEnv is the environment the test process started with. Tests move HOME,
+// XDG_CACHE_HOME and LOCALAPPDATA to temporary folders before they install a
+// fake; building with those would miss the Go build cache and compile the
+// standard library again, which took seconds per package.
+var startEnv = os.Environ()
+
+// Install builds fake once per test process and links it, or copies it where
+// a link fails, into an isolated PATH entry. It returns the executable path;
+// recordings use .args.json, .stdin, .env.json and .cwd suffixes. The scenario
+// lives at <executable>.json. A test must not change the executable itself:
+// the link shares it with every other test.
 func Install(t testing.TB, name string, s Scenario) string {
 	t.Helper()
 	build.Do(func() {
@@ -69,11 +123,15 @@ func Install(t testing.TB, name string, s Scenario) string {
 		}
 		cmd := exec.Command("go", "build", "-o", dest, "./fake")
 		cmd.Dir = filepath.Dir(file)
+		cmd.Env = startEnv
 		if output, err := cmd.CombinedOutput(); err != nil {
 			build.err = &buildError{err, string(output)}
 			return
 		}
 		build.binary, build.err = os.ReadFile(dest)
+		if build.err == nil {
+			build.shared = share(build.binary)
+		}
 	})
 	if build.err != nil {
 		t.Fatal(build.err)
@@ -83,8 +141,12 @@ func Install(t testing.TB, name string, s Scenario) string {
 		name += ".exe"
 	}
 	dest := filepath.Join(dir, name)
-	if err := os.WriteFile(dest, build.binary, 0755); err != nil {
-		t.Fatal(err)
+	// Windows refuses to delete a link to an executable that another test's
+	// fake still runs, so each test there gets its own copy.
+	if build.shared == "" || runtime.GOOS == "windows" || os.Link(build.shared, dest) != nil {
+		if err := os.WriteFile(dest, build.binary, 0755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	data, err := json.Marshal(s)
 	if err != nil {

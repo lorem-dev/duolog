@@ -44,6 +44,8 @@ type Delegation struct {
 	EffortCapped     bool              `json:"effort_capped,omitempty"`
 	Input            int64             `json:"input"`
 	Cached           int64             `json:"cached"`
+	CacheWrite       int64             `json:"cache_write,omitempty"`
+	CacheWriteHour   int64             `json:"cache_write_1h,omitempty"`
 	Output           int64             `json:"output"`
 	USD              float64           `json:"usd"`
 	Priced           bool              `json:"priced"`

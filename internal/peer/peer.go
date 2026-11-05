@@ -52,6 +52,15 @@ var (
 	resolveModel = models.Resolve
 )
 
+// ShortenPauses sets every pause between pane reads and keys to d, for tests
+// of other packages that drive a fake rex, and returns a function that puts
+// the pauses back. workGrace stays as it is. The commands never call it.
+func ShortenPauses(d time.Duration) (restore func()) {
+	poll, settle, send, key := pollInterval, settleDelay, sendDelay, keyDelay
+	pollInterval, settleDelay, sendDelay, keyDelay = d, d, d, d
+	return func() { pollInterval, settleDelay, sendDelay, keyDelay = poll, settle, send, key }
+}
+
 func pause(ctx context.Context, d time.Duration) error {
 	timer := time.NewTimer(d)
 	defer timer.Stop()

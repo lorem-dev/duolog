@@ -74,7 +74,7 @@ func (r *Registry) ResolveLead(explicit string) (Lead, error) {
 		return live[0], nil
 	}
 	if len(live) == 0 {
-		return Lead{}, fmt.Errorf("no live lead; start a lead session before using duolog")
+		return Lead{}, fmt.Errorf("no live lead; start a lead session in this project, or run `duolog lead register` inside the lead session")
 	}
 	return Lead{}, fmt.Errorf("several live leads; select one with --lead or DUOLOG_LEAD")
 }

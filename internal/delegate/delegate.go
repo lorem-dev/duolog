@@ -847,9 +847,7 @@ type usageRecord struct {
 	Model        string `json:"model"`
 	Effort       string `json:"effort"`
 	EffortCapped bool   `json:"effort_capped"`
-	Input        int64  `json:"input"`
-	Cached       int64  `json:"cached"`
-	Output       int64  `json:"output"`
+	runner.Usage
 }
 
 // RecordUsage appends the same locked usage record as a delegation.
@@ -868,7 +866,7 @@ func appendUsage(dir, role string, route router.Route, result runner.Result) err
 	if err != nil {
 		return err
 	}
-	writeErr := json.NewEncoder(f).Encode(usageRecord{role, route.Agent, route.Model, route.Effort, route.EffortCapped, result.Usage.Input, result.Usage.Cached, result.Usage.Output})
+	writeErr := json.NewEncoder(f).Encode(usageRecord{role, route.Agent, route.Model, route.Effort, route.EffortCapped, result.Usage})
 	return errors.Join(writeErr, f.Close())
 }
 

@@ -155,7 +155,7 @@ func RunCell(ctx context.Context, env CellEnv, c Cell, t TaskRecord, start Start
 	r.Seconds = time.Since(started).Seconds()
 	u := out.Result.Usage
 	r.Tokens = u.Input + u.Output
-	r.USD, _ = usage.Cost(env.Cfg, entry.Agent, entry.Model, u.Input, u.Cached, u.Output)
+	r.USD, _ = usage.Cost(env.Cfg, entry.Agent, entry.Model, u)
 	switch {
 	case ctx.Err() != nil:
 		return r, ctx.Err()

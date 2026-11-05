@@ -535,6 +535,8 @@ func TestSetupChangedFindsCheckDefinitions(t *testing.T) {
 		{"source", []string{"make test"}, map[string]string{"widget.go": "package widget\n"}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// Each case has its own repository and touches no environment.
+			t.Parallel()
 			root := project(t)
 			for name, body := range parent {
 				write(t, root, name, body)

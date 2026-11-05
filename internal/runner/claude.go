@@ -80,12 +80,31 @@ type claudeOutput struct {
 	Subtype    string          `json:"subtype"`
 	Structured json.RawMessage `json:"structured_output"`
 	// A pointer, so that a result without usage is told from zero usage.
-	Usage *struct {
-		Input    int64 `json:"input_tokens"`
-		Creation int64 `json:"cache_creation_input_tokens"`
-		Cached   int64 `json:"cache_read_input_tokens"`
-		Output   int64 `json:"output_tokens"`
-	} `json:"usage"`
+	Usage *claudeUsage `json:"usage"`
+}
+
+// claudeUsage is the usage of a Claude result. Claude reports uncached input,
+// cache writes and cache reads separately, and splits the writes by how long
+// the cache keeps them.
+type claudeUsage struct {
+	Input    int64 `json:"input_tokens"`
+	Creation int64 `json:"cache_creation_input_tokens"`
+	Cached   int64 `json:"cache_read_input_tokens"`
+	Output   int64 `json:"output_tokens"`
+	Split    *struct {
+		Hour int64 `json:"ephemeral_1h_input_tokens"`
+	} `json:"cache_creation"`
+}
+
+// tokens makes Input the total input for both vendors, with Cached and Write
+// the included read and write subsets. Writes without a split count as
+// five-minute writes.
+func (u claudeUsage) tokens() Usage {
+	t := Usage{Input: u.Input + u.Creation + u.Cached, Cached: u.Cached, Write: u.Creation, Output: u.Output}
+	if u.Split != nil {
+		t.WriteHour = min(max(u.Split.Hour, 0), max(u.Creation, 0))
+	}
+	return t
 }
 
 // readClaude decodes the first JSON object of Claude's stdout capture.
@@ -124,10 +143,8 @@ func readClaude(path string) (claudeOutput, error) {
 // read copies the session and usage of output into result.
 func (output claudeOutput) read(result *Result) {
 	result.SessionID = output.SessionID
-	// Claude reports uncached, cache creation and cache reads separately; Input
-	// is total input for both vendors, with Cached being the included read subset.
 	if u := output.Usage; u != nil {
-		result.Usage = Usage{Input: u.Input + u.Creation + u.Cached, Cached: u.Cached, Output: u.Output}
+		result.Usage = u.tokens()
 		result.UsageKnown = true
 	}
 }

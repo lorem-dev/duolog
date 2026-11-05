@@ -42,6 +42,11 @@
 
 ## Development
 
+### Fixed
+
+- `duolog stats`, telemetry and learning costs price Claude cache writes at
+  1.25x or 2x input; `stats` shows a `CACHE WRITE` column.
+
 ## 1.4.0
 
 ### Added

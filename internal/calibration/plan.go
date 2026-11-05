@@ -679,7 +679,7 @@ func hasFiveHour(quota map[string][]Window, agent string) bool {
 // costs 0.
 func cellUSD(cfg *config.Config, agent, model string, tokens int64) float64 {
 	input := int64(inputShare * float64(tokens))
-	usd, _ := usage.Cost(cfg, agent, model, input, 0, tokens-input)
+	usd, _ := usage.Cost(cfg, agent, model, usage.Tokens{Input: input, Output: tokens - input})
 	return usd
 }
 
