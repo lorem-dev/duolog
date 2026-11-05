@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -125,14 +126,23 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 		}
 	}
 	add("info", bridgeLine(cfg, root, available))
-	// Said every time while the person sets a dropped key and does not list
-	// it, so the change is never silent. Names only, never values. An explicit
-	// list replaces the defaults, so the example keeps the current list.
-	dropped := workerenv.DroppedKeys(cfg.EnvPassthrough, os.Environ())
+	// Said every time while the person sets or lists a key that paid runs do
+	// not let through, so the change is never silent. Names only, never
+	// values. An explicit list replaces the default, so the example keeps the
+	// agent's paid env, and its cap when it has one.
+	dropped := workerenv.DroppedKeys(cfg, os.Environ())
 	for _, agent := range []string{"claude", "codex"} {
+		paid := cfg.PaidRuns.Agent(agent)
+		limit := "5"
+		if paid.DailyCapUSD > 0 {
+			limit = strconv.FormatFloat(paid.DailyCapUSD, 'f', -1, 64)
+		}
 		for _, name := range dropped[agent] {
-			example := strings.Join(append(slices.Clone(cfg.EnvPassthrough), name), ", ")
-			add("warning", workerenv.MigrationLine(agent, name)+" Example config: env_passthrough: ["+example+"]")
+			env := slices.Clone(paid.Env)
+			if !slices.Contains(env, name) {
+				env = append(env, name)
+			}
+			add("warning", workerenv.MigrationLine(agent, name)+" Example config: paid_runs: {"+agent+": {allow: true, daily_cap_usd: "+limit+", env: ["+strings.Join(env, ", ")+"]}}")
 		}
 	}
 	var entries []catalogEntry
