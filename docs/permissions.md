@@ -98,8 +98,10 @@ same reason. Quoted `rg` glob options follow the glob check above.
 `file` pass only with options that change the output, so `jq -f`, `sort -o`,
 `uniq - out`, `file -m.env` and ugrep's `grep --filter` ask. A `jq` filter
 that names `env` or a `$` variable asks, because it can print the worker's
-API keys. `diff` and `yq` are not read commands, because `diff -r` prints
-denied files and `yq` can write them.
+API keys. The context options `-A`, `-B`, `-C`, `--after-context`,
+`--before-context` and `--context` of `rg` and `grep` read with a number, as in
+`rg -n -F X -A45 dir`; `rg --pre` still asks. `diff` and `yq` are not read
+commands, because `diff -r` prints denied files and `yq` can write them.
 
 A deny also holds inside any other command. `uv run git push` is denied like
 `git push`, and `sed -n p .env` is denied like `cat .env`. A directory change
