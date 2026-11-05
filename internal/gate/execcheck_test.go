@@ -3,6 +3,7 @@ package gate
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/config"
@@ -57,6 +58,32 @@ func TestRunIsNotAllowedByDefault(t *testing.T) {
 	}
 	for _, command := range []string{"go test ./...", "make build", "npm test", "uv build", "cargo fmt"} {
 		check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: command, Role: "implement"}, Allow)
+	}
+}
+
+// A loop header, echo and a listing write nothing, so the write rule for
+// .duolog and .git does not judge them. Reading file contents stays denied.
+func TestReadOnlyLoopNamingStateIsNotJudgedByTheWriteRule(t *testing.T) {
+	p := policy(t)
+	loop := `ls -d .*/; for d in assets cmd docs .duolog .claude; do echo "== $d"; ls $d 2>/dev/null | head -15; done`
+	// The write rule never names these; the read checks may still ask or deny.
+	for _, command := range []string{loop, "for d in .duolog .git; do ls $d; done"} {
+		d := Evaluate(p, LeadRules{}, mode.Full, Action{Kind: "exec", Target: command, Role: "implement"})
+		if strings.HasPrefix(d.Rule, "write") {
+			t.Errorf("%s: judged by the write rule: %+v", command, d)
+		}
+	}
+	for _, tc := range []struct{ command, want string }{
+		{"ls .duolog", Allow},
+		{"cat .duolog/bus.ndjson", Deny},
+		{"echo x > .duolog/x", Deny},
+		{"for d in a; do touch .duolog/x; done", Deny},
+		{"for d in a; do cp x .git/hooks/pre-commit; done", Deny},
+	} {
+		d := Evaluate(p, LeadRules{}, mode.Full, Action{Kind: "exec", Target: tc.command, Role: "implement"})
+		if d.Kind != tc.want {
+			t.Errorf("%s: %+v, want %s", tc.command, d, tc.want)
+		}
 	}
 }
 

@@ -33,6 +33,7 @@ func hiddenDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, part str
 			}
 		}
 	}
+	writes := canWrite(part)
 	for _, word := range words[1:] {
 		target := pathWord(word)
 		if target == "" {
@@ -43,7 +44,7 @@ func hiddenDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, part str
 		}
 		target = cleanPath(target)
 		for _, rule := range denies {
-			if rule.Action != "read" && rule.Action != "write" {
+			if rule.Action != "read" && rule.Action != "write" || rule.Action == "write" && !writes {
 				continue
 			}
 			if matches(rule, Action{Kind: rule.Action, Target: target, Role: a.Role, Shell: a.Shell}) {
@@ -52,6 +53,30 @@ func hiddenDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, part str
 		}
 	}
 	return Decision{}, false
+}
+
+// canWrite reports whether a command part can write a file it names. A write
+// rule judges only such a part. A loop header lists words and echo prints
+// them, so neither writes unless a redirect sends the output to a file;
+// anything unknown is taken to write. A loop keyword in front of a command,
+// as in do ls, does not change what the command does.
+func canWrite(part string) bool {
+	words := strings.Fields(part)
+	for len(words) > 0 && slices.Contains([]string{"do", "then", "else", "elif", "{", "!"}, words[0]) {
+		words = words[1:]
+	}
+	if len(words) == 0 {
+		return false
+	}
+	switch words[0] {
+	case "for", "select", "case", "while", "until", "if", "done", "fi", "esac":
+		// Only the keyword line is judged here; a command in a while or if
+		// condition is a part of its own.
+		return words[0] == "while" || words[0] == "until" || words[0] == "if"
+	case "echo", "printf":
+		return strings.Contains(part, ">")
+	}
+	return !readOnlyCommand(strings.Join(words, " "))
 }
 
 func roleApplies(rule config.Rule, role string) bool {
