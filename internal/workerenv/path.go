@@ -2,8 +2,10 @@
 package workerenv
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -30,6 +32,30 @@ func Passthrough(names []string) []string {
 		}
 	}
 	return pairs
+}
+
+// GateBinary returns the first duolog executable on pathEnv, a PATH=... pair
+// as Path returns it.
+func GateBinary(pathEnv string) (string, error) {
+	name := "duolog"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	for _, dir := range filepath.SplitList(strings.TrimPrefix(pathEnv, "PATH=")) {
+		if dir == "" {
+			continue
+		}
+		candidate := filepath.Join(dir, name)
+		info, err := os.Stat(candidate)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
+			continue
+		}
+		return candidate, nil
+	}
+	return "", errors.New("duolog is not on the worker PATH")
 }
 
 // Path puts this executable's directory before the parent's search path.
