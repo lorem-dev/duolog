@@ -40,6 +40,9 @@ type Action struct {
 	// MCPExact means the hook named the MCP server as configured, so Target
 	// holds its exact name rather than the folded one.
 	MCPExact bool `json:"-"`
+	// ProtectedRoots are the telemetry and balance roots. No worker path may
+	// reach them, whatever the policy or mode.
+	ProtectedRoots []string `json:"-"`
 }
 
 type Decision struct {
@@ -89,6 +92,9 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	}
 	if a.Kind == "spawn" {
 		return decision(Deny, "workers cannot delegate", "worker depth")
+	}
+	if d, ok := protectedDecision(a, m); ok {
+		return d
 	}
 	if a.Kind == "read" && stateReadAction(a) {
 		return decision(Deny, "duolog state is not readable by workers", RuleState)

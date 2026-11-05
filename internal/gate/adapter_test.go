@@ -25,7 +25,7 @@ func TestNormalizeClaudeAndCodex(t *testing.T) {
 		if agent == "codex" {
 			want = "touch probe_c.txt"
 		}
-		if a != (Action{Kind: "exec", Target: want}) {
+		if !reflect.DeepEqual(a, Action{Kind: "exec", Target: want}) {
 			t.Fatal(a)
 		}
 	}

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
+	"github.com/lorem-dev/duolog/internal/telemetry"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/spf13/cobra"
 )
@@ -110,10 +112,18 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 	if err := json.Unmarshal(data, &envelope); err != nil {
 		return a, d, err
 	}
+	// Every action carries the store roots, even when collection is off or the
+	// roots do not exist yet. Roots that cannot be placed fail closed.
+	roots, err := gateProtectedRoots()
+	if err != nil {
+		return a, d, fmt.Errorf("cannot place the private usage stores: %w", err)
+	}
 	work := workRoot(root)
 	for i := range actions {
 		actions[i].Role = a.Role
 		action := &actions[i]
+		action.ProtectedRoots = roots
+		action.Work = work
 		if (action.Kind == "read" || action.Kind == "write") && action.Target != "" {
 			action.Target = gate.RelativeTarget(work, envelope.Cwd, action.Target)
 		}
@@ -202,6 +212,23 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 		d = resolved
 	}
 	return a, d, nil
+}
+
+// gateProtectedRoots names the telemetry and balance roots for the worker
+// gate. It only computes the paths: the worker hook never opens the store or
+// creates its salt.
+func gateProtectedRoots() ([]string, error) {
+	home, _ := os.UserHomeDir()
+	l := telemetry.Location{GOOS: runtime.GOOS, Home: home, XDGStateHome: os.Getenv("XDG_STATE_HOME"), LocalAppData: os.Getenv("LOCALAPPDATA")}
+	telemetryRoot, err := telemetry.ResolveRoot(l)
+	if err != nil {
+		return nil, err
+	}
+	balanceRoot, err := telemetry.BalanceRoot(l)
+	if err != nil {
+		return nil, err
+	}
+	return []string{telemetryRoot, balanceRoot}, nil
 }
 
 func newDecisionsCommand() *cobra.Command {
