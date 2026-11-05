@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"math"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/project"
+	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -29,7 +31,9 @@ func claudeArgv(s Spec) []string {
 	if s.Route.Effort != "" {
 		args = append(args, "--effort", s.Route.Effort)
 	}
-	args = append(args, "--output-format", "json", "--json-schema", answerSchema)
+	// stream-json carries the rate limit events that tell whether the run spent
+	// paid overage; -p accepts it only with --verbose.
+	args = append(args, "--output-format", "stream-json", "--verbose", "--json-schema", answerSchema)
 	if s.MaxTurns > 0 {
 		args = append(args, "--max-turns", strconv.Itoa(s.MaxTurns))
 	}
@@ -73,78 +77,174 @@ func claudeArgv(s Spec) []string {
 	return append(args, "--", taskInstruction)
 }
 
+type claudeUsage struct {
+	Input    int64 `json:"input_tokens"`
+	Creation int64 `json:"cache_creation_input_tokens"`
+	Cached   int64 `json:"cache_read_input_tokens"`
+	Output   int64 `json:"output_tokens"`
+}
+
+// usage counts cache creation as input. Claude reports uncached, cache
+// creation and cache reads separately; Input is total input for both vendors,
+// with Cached being the included read subset.
+func (u claudeUsage) usage() Usage {
+	return Usage{Input: u.Input + u.Creation + u.Cached, Cached: u.Cached, Output: u.Output}
+}
+
+// claudeOutput is Claude's final result: the result event of stream-json, or
+// the single object of the json output format.
 type claudeOutput struct {
 	SessionID string `json:"session_id"`
 	// Subtype is error_max_turns when the run stopped at --max-turns.
 	Subtype    string          `json:"subtype"`
 	Structured json.RawMessage `json:"structured_output"`
-	Usage      struct {
-		Input    int64 `json:"input_tokens"`
-		Creation int64 `json:"cache_creation_input_tokens"`
-		Cached   int64 `json:"cache_read_input_tokens"`
-		Output   int64 `json:"output_tokens"`
-	} `json:"usage"`
+	Usage      *claudeUsage    `json:"usage"`
+	Cost       json.RawMessage `json:"total_cost_usd"`
 }
 
-// readClaude decodes the first JSON object of Claude's stdout capture.
-func readClaude(path string) (claudeOutput, error) {
+// claudeStream folds the objects of Claude's stdout capture.
+type claudeStream struct {
+	// result is the last result event; legacy the first untyped object that
+	// looks like a final result, from the json output format.
+	result, legacy *claudeOutput
+	evidence       quota.RunEvidence
+	// messages holds the latest usage of each assistant message: stream-json
+	// repeats a message's usage for each of its content blocks.
+	messages map[string]Usage
+	unnamed  Usage
+}
+
+// add folds one object. Only the event types Claude itself writes count:
+// tool output and model text reach the stream inside them, never as events.
+func (s *claudeStream) add(object []byte) {
+	var event struct {
+		Type      *string         `json:"type"`
+		Message   json.RawMessage `json:"message"`
+		RateLimit json.RawMessage `json:"rate_limit_info"`
+	}
+	if json.Unmarshal(object, &event) != nil {
+		return
+	}
+	if event.Type == nil {
+		var output claudeOutput
+		if s.legacy == nil && json.Unmarshal(object, &output) == nil && (output.SessionID != "" || len(output.Structured) > 0 || output.Usage != nil || output.Subtype != "") {
+			s.legacy = &output
+		}
+		return
+	}
+	switch *event.Type {
+	case "result":
+		var output claudeOutput
+		if json.Unmarshal(object, &output) == nil {
+			s.result = &output
+		}
+	case "rate_limit_event":
+		if e, ok := claudeRateLimit(event.RateLimit); ok {
+			s.evidence.Add(e)
+		}
+	case "assistant":
+		var message struct {
+			ID    string       `json:"id"`
+			Usage *claudeUsage `json:"usage"`
+		}
+		if json.Unmarshal(event.Message, &message) != nil || message.Usage == nil {
+			return
+		}
+		if message.ID == "" {
+			s.unnamed = s.unnamed.add(message.Usage.usage())
+			return
+		}
+		if s.messages == nil {
+			s.messages = map[string]Usage{}
+		}
+		s.messages[message.ID] = message.Usage.usage()
+	}
+}
+
+// usage is what the assistant messages so far used, for a run that ended
+// before its result.
+func (s *claudeStream) usage() Usage {
+	total := s.unnamed
+	for _, u := range s.messages {
+		total = total.add(u)
+	}
+	return total
+}
+
+func (u Usage) add(v Usage) Usage {
+	return Usage{Input: u.Input + v.Input, Cached: u.Cached + v.Cached, Output: u.Output + v.Output}
+}
+
+// readClaudeStream folds Claude's stdout capture at path into result: the
+// session, usage, reported cost and billing evidence, whatever the run's exit,
+// so a failed or cancelled run keeps what it measured. It returns the
+// structured answer, ErrTurnCap with TurnsEnded for a run stopped at
+// --max-turns, or an error when the capture holds no answer.
+func readClaudeStream(path string, result *Result) (json.RawMessage, error) {
+	// A stream-json run reports its rate limits. Seen stays false when it sent
+	// none, and the run counts as charged.
+	result.Billing.Expected = true
 	file, err := os.Open(path)
 	if err != nil {
-		return claudeOutput{}, err
+		return nil, err
 	}
 	defer file.Close()
 	// Only stdout is decoded; stderr is retained separately in stdout.log.
 	// Try each object-starting line independently so malformed diagnostics do
-	// not hide the result, while multiline JSON remains decodable.
+	// not hide the rest, while multiline JSON remains decodable.
 	reader := bufio.NewReader(file)
-	var output claudeOutput
+	var stream claudeStream
 	var offset int64
 	var decodeErr error
 	for {
 		line, readErr := reader.ReadBytes('\n')
+		next := offset + int64(len(line))
 		if bytes.HasPrefix(bytes.TrimSpace(line), []byte("{")) {
-			output = claudeOutput{}
-			decodeErr = json.NewDecoder(io.NewSectionReader(file, offset, math.MaxInt64-offset)).Decode(&output)
-			if decodeErr == nil {
-				return output, nil
+			decoder := json.NewDecoder(io.NewSectionReader(file, offset, math.MaxInt64-offset))
+			var object json.RawMessage
+			if decodeErr = decoder.Decode(&object); decodeErr == nil {
+				stream.add(object)
+				// Continue after an object that spans lines.
+				if end := offset + decoder.InputOffset(); end > next {
+					if _, err = file.Seek(end, io.SeekStart); err != nil {
+						return nil, err
+					}
+					reader.Reset(file)
+					next, readErr = end, nil
+				}
 			}
 		}
-		offset += int64(len(line))
+		offset = next
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
 		if readErr != nil {
-			if decodeErr != nil {
-				return claudeOutput{}, decodeErr
-			}
-			return claudeOutput{}, readErr
+			return nil, readErr
 		}
 	}
-}
-
-// read copies the session and usage of output into result.
-func (output claudeOutput) read(result *Result) {
+	result.Billing.Add(stream.evidence)
+	output := stream.result
+	if output == nil {
+		output = stream.legacy
+	}
+	if output == nil {
+		result.Usage = stream.usage()
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		return nil, io.ErrUnexpectedEOF
+	}
 	result.SessionID = output.SessionID
-	// Claude reports uncached, cache creation and cache reads separately; Input
-	// is total input for both vendors, with Cached being the included read subset.
-	result.Usage = Usage{Input: output.Usage.Input + output.Usage.Creation + output.Usage.Cached, Cached: output.Usage.Cached, Output: output.Usage.Output}
-}
-
-// claudeTurnCap reports whether Claude's run at path stopped at --max-turns,
-// and then copies its session and usage into result, whatever the exit.
-func claudeTurnCap(path string, result *Result) bool {
-	output, err := readClaude(path)
-	if err != nil || output.Subtype != "error_max_turns" {
-		return false
+	// The result's usage is the run's total; the messages' usage is part of it.
+	result.Usage = stream.usage()
+	if output.Usage != nil {
+		result.Usage = output.Usage.usage()
 	}
-	output.read(result)
-	result.TurnsEnded = true
-	return true
-}
-
-func claudeResult(path string, result *Result) (json.RawMessage, error) {
-	output, err := readClaude(path)
-	if err != nil {
-		return nil, err
+	result.ReportedUSD = reportedUSD(output.Cost)
+	if output.Subtype == "error_max_turns" {
+		result.TurnsEnded = true
+		return nil, ErrTurnCap
 	}
-	output.read(result)
 	if len(output.Structured) == 0 || bytes.Equal(output.Structured, []byte("null")) {
 		return nil, io.ErrUnexpectedEOF
 	}

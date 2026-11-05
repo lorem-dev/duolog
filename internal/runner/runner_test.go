@@ -165,7 +165,7 @@ func TestCodexArgvResume(t *testing.T) {
 }
 func TestClaudeArgv(t *testing.T) {
 	s := spec(t, "claude")
-	containsArgs(t, Argv(s), "claude", "-p", "--model", "opus", "--effort", "high", "--output-format", "json", "--json-schema", "--no-session-persistence")
+	containsArgs(t, Argv(s), "claude", "-p", "--model", "opus", "--effort", "high", "--output-format", "stream-json", "--verbose", "--json-schema", "--no-session-persistence")
 	s.ThreadID = "session-123"
 	a := Argv(s)
 	containsArgs(t, a, "--resume", "session-123")

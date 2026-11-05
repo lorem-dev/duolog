@@ -19,6 +19,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/router"
 )
 
@@ -93,6 +94,12 @@ type Result struct {
 	// its credentials. AuthServer names the server, when the error did.
 	AuthFailed bool
 	AuthServer string
+	// Billing is the run's own billing evidence, from the rate limit events of
+	// Claude's stream. Codex sends none, so it stays empty.
+	Billing quota.RunEvidence
+	// ReportedUSD is the cost the CLI reported for the run, or nil when it
+	// reported none or a value that is not a finite cost of zero or more.
+	ReportedUSD *float64
 }
 
 // Argv includes the executable. Route.Model is already resolved by the caller;
@@ -207,6 +214,13 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	if cmd.ProcessState != nil {
 		result.ExitCode = cmd.ProcessState.ExitCode()
 	}
+	// Claude's stream holds the usage, cost and billing evidence of the run so
+	// far, so it is read on every exit, a cancelled one too.
+	var claudeAnswer json.RawMessage
+	var claudeErr error
+	if s.Route.Agent == "claude" && !s.SkillTest {
+		claudeAnswer, claudeErr = readClaudeStream(stdoutPath, &result)
+	}
 	if ctx.Err() != nil || result.ExitCode < 0 {
 		result.Interrupted = true
 		if ctx.Err() != nil {
@@ -232,7 +246,7 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 		return result, errors.Join(runErr, closeErr, err)
 	}
 	// A worker at its turn cap has no answer, but its usage counts.
-	if s.Route.Agent == "claude" && s.MaxTurns > 0 && claudeTurnCap(stdoutPath, &result) {
+	if result.TurnsEnded {
 		return result, ErrTurnCap
 	}
 	// A worker that exits 0 and leaves a background child holding its output
@@ -244,12 +258,10 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 		return result, closeErr
 	}
 	if s.Route.Agent == "claude" {
-		var answer json.RawMessage
-		answer, err = claudeResult(stdoutPath, &result)
-		if err != nil {
-			return result, err
+		if claudeErr != nil {
+			return result, claudeErr
 		}
-		if err = os.WriteFile(answerPath, answer, 0600); err != nil {
+		if err = os.WriteFile(answerPath, claudeAnswer, 0600); err != nil {
 			return result, err
 		}
 	}

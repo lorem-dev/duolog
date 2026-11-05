@@ -1,0 +1,11 @@
+{"type":"system","subtype":"init","session_id":"stream-session","model":"opus","apiKeySource":"none","tools":["Read","Edit"]}
+Connecting to services...
+{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"Checking the files."}],"usage":{"input_tokens":10,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"output_tokens":5}},"session_id":"stream-session"}
+{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"a.go"}}],"usage":{"input_tokens":10,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"output_tokens":8}},"session_id":"stream-session"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"isUsingOverage\":true,\"overageInUse\":true,\"rateLimitType\":\"overage\",\"overageDisabledReason\":\"org_level_disabled\"}}"}]},"session_id":"stream-session","rate_limit_info":{"overageEnabled":true}}
+{warning: connection delayed}
+{"type":"rate_limit_event"
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","rateLimitType":"overage","overageStatus":"allowed_warning","isUsingOverage":true,"overageInUse":true},"session_id":"stream-session"}
+{"type":"assistant","message":{"id":"msg_2","role":"assistant","content":[{"type":"text","text":"The account is using overage now: isUsingOverage true, overageDisabledReason org_level_disabled."}],"usage":{"input_tokens":4,"cache_creation_input_tokens":40,"cache_read_input_tokens":1100,"output_tokens":20}},"session_id":"stream-session"}
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","rateLimitType":"seven_day","isUsingOverage":false,"overageInUse":false,"overageDisabledReason":"seat_tier_zero_credit_limit"},"session_id":"stream-session"}
+{"type":"result","subtype":"success","is_error":false,"num_turns":3,"result":"Implemented.","session_id":"stream-session","total_cost_usd":0.4321,"usage":{"input_tokens":20,"cache_creation_input_tokens":200,"cache_read_input_tokens":2000,"output_tokens":30},"structured_output":{"done":true,"summary":"Implemented.","files":["a.go"],"needs":[]}}
