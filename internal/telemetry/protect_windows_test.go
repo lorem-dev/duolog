@@ -3,6 +3,7 @@
 package telemetry
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -137,6 +138,12 @@ func assertTight(t *testing.T, path string, dir bool) {
 
 // Windows ignores the umask; nothing to set.
 func withUmask(t *testing.T, mask int) {}
+
+// heldDirLocked is true when err refuses to rename a directory someone holds
+// open: os.OpenRoot opens the directory without FILE_SHARE_DELETE.
+func heldDirLocked(err error) bool {
+	return errors.Is(err, windows.ERROR_SHARING_VIOLATION)
+}
 
 // plantReparse puts a directory junction at link.
 func plantReparse(t *testing.T, target, link string) {

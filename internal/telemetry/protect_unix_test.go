@@ -55,6 +55,10 @@ func withUmask(t *testing.T, mask int) {
 	t.Cleanup(func() { syscall.Umask(old) })
 }
 
+// heldDirLocked is true when err refuses to rename a directory someone holds
+// open; Unix never refuses that.
+func heldDirLocked(error) bool { return false }
+
 // plantReparse puts a directory link at link; on Unix that is a symlink.
 func plantReparse(t *testing.T, target, link string) {
 	t.Helper()
