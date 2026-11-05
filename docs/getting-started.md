@@ -300,6 +300,12 @@ The line can also carry two fields:
 `outside` needs Git, a role that can write and a Write section that lists
 paths.
 
+The line aims at 512 bytes. When it is longer, duolog cuts the summary first
+and then the `files` list, which then ends in `...`. It never cuts `needs`,
+`decisions` or a warning such as `outside=` or `rules are off`, so a long
+warning can make the line longer than 512 bytes. `answer.json` keeps the
+whole summary and list.
+
 A line that starts with `run here:` means duolog did not start a worker. The
 role points to the lead's own agent and model, or it needs little context and
 the lead's model costs no more. So the lead does the task. See
