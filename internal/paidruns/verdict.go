@@ -43,13 +43,9 @@ type Assessment struct {
 	AccountReasons []string
 }
 
-const (
-	// maxAge is the oldest quota read a verdict trusts, until
-	// balance.max_age_seconds exists.
-	maxAge = 120 * time.Second
-	// defaultUsableShare applies when the config has no valid share.
-	defaultUsableShare = 0.5
-)
+// defaultUsableShare applies when the config has no valid share. The oldest
+// quota read a verdict trusts is balance.max_age_seconds, quotaMaxAge.
+const defaultUsableShare = 0.5
 
 // Evaluate computes the verdict of process p from its route signals (R), the
 // free read s and its error (W), and the run evidence e (E), at now:
@@ -91,7 +87,7 @@ func Evaluate(p workerenv.Process, s quota.Snapshot, readErr error,
 		if !firstParty(p.Agent, b) && len(b.RouteSignals) == 0 {
 			add(&paid, "route:unknown", read)
 		}
-		if s.ReadAt.IsZero() || now.Sub(s.ReadAt) > maxAge {
+		if s.ReadAt.IsZero() || now.Sub(s.ReadAt) > quotaMaxAge(cfg) {
 			add(&paid, "read:stale", read)
 		}
 		if !slices.ContainsFunc(s.Windows, func(w quota.Window) bool { return w.ResetsAt.After(now) }) {

@@ -60,7 +60,7 @@ func (c *Cache) Get(ctx context.Context,
 		if err != nil {
 			return workerenv.Process{}, quota.Snapshot{}, Assessment{}, err
 		}
-		s, cached := c.lookup(p.CacheKey, fresh || rebuilt)
+		s, cached := c.lookup(p.CacheKey, fresh || rebuilt, quotaMaxAge(cfg))
 		var readErr error
 		if !cached {
 			s, readErr = c.Read(ctx, p)
@@ -92,8 +92,8 @@ func (c *Cache) ProviderEnvKey(agent string) string {
 	return c.envKeys[agent]
 }
 
-// lookup returns the cached snapshot of key while it is young enough.
-func (c *Cache) lookup(key string, fresh bool) (quota.Snapshot, bool) {
+// lookup returns the cached snapshot of key while it is no older than maxAge.
+func (c *Cache) lookup(key string, fresh bool, maxAge time.Duration) (quota.Snapshot, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	entry, ok := c.entries[key]
