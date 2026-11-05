@@ -141,7 +141,9 @@ func Install(t testing.TB, name string, s Scenario) string {
 		name += ".exe"
 	}
 	dest := filepath.Join(dir, name)
-	if build.shared == "" || os.Link(build.shared, dest) != nil {
+	// Windows refuses to delete a link to an executable that another test's
+	// fake still runs, so each test there gets its own copy.
+	if build.shared == "" || runtime.GOOS == "windows" || os.Link(build.shared, dest) != nil {
 		if err := os.WriteFile(dest, build.binary, 0755); err != nil {
 			t.Fatal(err)
 		}
