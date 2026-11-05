@@ -76,6 +76,7 @@ func newGateCommand() *cobra.Command {
 		if err != nil {
 			d.Kind, d.Reason, d.Rule = gate.Deny, "gate failed closed: "+err.Error(), "gate setup"
 		}
+		d.Native = os.Getenv("DUOLOG_NATIVE")
 		if s != nil {
 			if logErr := gate.Log(s, a, d); logErr != nil {
 				d.Kind, d.Reason, d.Rule = gate.Deny, "cannot log gate decision: "+logErr.Error(), "decision log"
@@ -149,6 +150,8 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 	if err != nil {
 		return a, d, err
 	}
+	// A delegate names its worker's level; the gate takes it only to lower.
+	m = gate.WorkerMode(m, os.Getenv("DUOLOG_MODE"))
 	d.Mode = m
 	rules, err := gate.ImportLead(work, lead.Agent)
 	if err != nil {
@@ -273,7 +276,11 @@ func newDecisionsCommand() *cobra.Command {
 					return err
 				}
 				label := map[string]string{gate.Allow: "Allow", gate.Deny: "Deny", gate.Ask: "Ask"}[row.Kind]
-				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s (mode %s; rule %s) Reason: %s\n", label, row.Action.Kind, row.Action.Target, row.Mode, row.Rule, row.Reason); err != nil {
+				modeText := string(row.Mode)
+				if row.Native != "" {
+					modeText += "; native " + row.Native
+				}
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s (mode %s; rule %s) Reason: %s\n", label, row.Action.Kind, row.Action.Target, modeText, row.Rule, row.Reason); err != nil {
 					return err
 				}
 			}
