@@ -25,7 +25,9 @@ const protectedReason = "duolog telemetry and balance stores are closed to worke
 // /var against /private/var and case on a file system that ignores it. A path
 // that does not exist yet is placed by its longest existing ancestor.
 func protectedDecision(a Action, m mode.Mode) (Decision, bool) {
-	deny := func(reason string) (Decision, bool) { return Decision{Deny, reason, RuleProtected, m}, true }
+	deny := func(reason string) (Decision, bool) {
+		return Decision{Kind: Deny, Reason: reason, Rule: RuleProtected, Mode: m}, true
+	}
 	if a.Kind == "exec" && protectedCommand(a.Target, a.Shell) {
 		return deny("workers cannot run duolog telemetry or duolog balance; " + protectedReason)
 	}

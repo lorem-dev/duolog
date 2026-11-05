@@ -29,7 +29,7 @@ func hiddenDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, part str
 		tail := strings.Join(words[i:], " ")
 		for _, rule := range denies {
 			if rule.Action == "exec" && roleApplies(rule, a.Role) && denyMatchesCommand(rule.Match, tail) {
-				return Decision{Deny, "denied command inside this command", rule.Action + " " + rule.Match, m}, true
+				return Decision{Kind: Deny, Reason: "denied command inside this command", Rule: rule.Action + " " + rule.Match, Mode: m}, true
 			}
 		}
 	}
@@ -47,7 +47,7 @@ func hiddenDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, part str
 				continue
 			}
 			if matches(rule, Action{Kind: rule.Action, Target: target, Role: a.Role, Shell: a.Shell}) {
-				return Decision{Deny, "this command names a path that policy denies", rule.Action + " " + rule.Match, m}, true
+				return Decision{Kind: Deny, Reason: "this command names a path that policy denies", Rule: rule.Action + " " + rule.Match, Mode: m}, true
 			}
 		}
 	}
