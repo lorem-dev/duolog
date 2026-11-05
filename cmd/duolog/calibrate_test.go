@@ -571,6 +571,25 @@ func TestQuotaWindowsKeepModelLimits(t *testing.T) {
 	}
 }
 
+// A family the account refuses keeps its windows below 100 percent, so the
+// calibration window counts as used up and admits no cell of that family.
+func TestQuotaWindowsTreatRejectedFamilyAsFull(t *testing.T) {
+	reset := time.Date(2026, 11, 6, 0, 0, 0, 0, time.UTC)
+	s := quota.Snapshot{
+		Windows: []quota.Window{{Kind: "weekly_all", DurationMinutes: 10080, UsedPercent: 20, ResetsAt: reset}},
+		ModelLimits: map[string][]quota.Window{"sol": {
+			{Kind: "weekly_all", DurationMinutes: 10080, UsedPercent: 30, ResetsAt: reset, Severity: "rejected"},
+		}},
+	}
+	want := []calibration.Window{
+		{Kind: calibration.KindWeekly, UsedPercent: 20, ResetsAt: reset},
+		{Kind: calibration.KindWeekly, Model: "sol", UsedPercent: 100, ResetsAt: reset},
+	}
+	if got := quotaWindows(s); !reflect.DeepEqual(got, want) {
+		t.Fatalf("quotaWindows = %+v, want %+v", got, want)
+	}
+}
+
 func TestCalibrateResumeNeedsApproval(t *testing.T) {
 	root := learningRepo(t, true)
 	fakeQuota(t)
