@@ -15,13 +15,47 @@ if (-not (Test-Path $bin)) {
 		Move-Item -Force $tmp $bin
 	} else {
 		Remove-Item -Force -ErrorAction SilentlyContinue $tmp
-		if (-not (Test-Path $bin)) {
+		if (Test-Path $bin) {
+			[Console]::Error.WriteLine('duolog: the build failed; running the earlier build')
+		} else {
 			[Console]::Error.WriteLine("duolog: the build from $root failed and there is no earlier build")
-			# A worker without its gate must stop, as the installed hooks do.
-			if ([Environment]::GetEnvironmentVariable('DUOLOG_DEPTH') -match '^0*[1-9][0-9]*$') { exit 2 }
-			exit 1
+			# Fall back to the build of the main checkout, else an installed duolog.
+			# DUOLOG_DEV_TRIED lists the launcher folders that already failed in
+			# this chain of fallbacks; one of them never runs a fallback again.
+			$here = $PSScriptRoot
+			$tried = @(([Environment]::GetEnvironmentVariable('DUOLOG_DEV_TRIED') -split ';') | Where-Object { $_ })
+			$fallback = $null
+			$common = $null
+			if ($tried -contains $here) {
+				[Console]::Error.WriteLine('duolog: this launcher already ran in this chain of fallbacks, so it runs none again')
+			} else {
+				$common = (& git -C $root rev-parse --path-format=absolute --git-common-dir 2>$null)
+			}
+			if ($common -and $LASTEXITCODE -eq 0 -and (Split-Path -Leaf $common) -eq '.git') {
+				$cand = Join-Path (Split-Path -Parent $common) '.cache\dev\duolog.exe'
+				if ($cand -ne $bin -and (Test-Path $cand)) {
+					$fallback = $cand
+					[Console]::Error.WriteLine("duolog: running the build of the main checkout, $cand")
+				}
+			}
+			if (-not $fallback -and -not ($tried -contains $here)) {
+				foreach ($c in (Get-Command duolog -All -CommandType Application -ErrorAction SilentlyContinue)) {
+					$dir = Split-Path -Parent $c.Source
+					# Skip this launcher, another checkout's and any folder already tried.
+					if ($dir -eq $here -or $dir -match '[\\/]scripts[\\/]dev[\\/]bin$' -or $tried -contains $dir) { continue }
+					$fallback = $c.Source
+					[Console]::Error.WriteLine("duolog: running the installed duolog, $fallback")
+					break
+				}
+			}
+			if (-not $fallback) {
+				# A worker without its gate must stop, as the installed hooks do.
+				if ([Environment]::GetEnvironmentVariable('DUOLOG_DEPTH') -match '^0*[1-9][0-9]*$') { exit 2 }
+				exit 1
+			}
+			$env:DUOLOG_DEV_TRIED = (@($tried) + $here) -join ';'
+			$bin = $fallback
 		}
-		[Console]::Error.WriteLine('duolog: the build failed; running the earlier build')
 	}
 }
 
