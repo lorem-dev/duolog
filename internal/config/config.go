@@ -30,6 +30,7 @@ type Config struct {
 	Learning       Learning         `yaml:"learning" jsonschema_description:"Learning mode: task classes, classification rules, ladders and priors; off by default."`
 	Telemetry      Telemetry        `yaml:"telemetry" jsonschema_description:"Local telemetry that never leaves the machine; on by default. User level, except that a project may turn off its own events."`
 	Calibration    Calibration      `yaml:"calibration" jsonschema_description:"Project calibration caps and task filters; calibration runs only when the person asks the lead for it."`
+	WorkerModes    WorkerModes      `yaml:"worker_modes" jsonschema_description:"Native permission mode a delegate worker starts in, per role and model family; never above the lead's mode. User level, project layers may only lower. Absent means duolog's default flags."`
 }
 
 type Coauthors struct {
@@ -229,6 +230,9 @@ func Load(root string) (*Config, error) {
 		return nil, err
 	}
 	if err := lowerSharedCaps(&cfg, layers[0], layers[1], layers[2]); err != nil {
+		return nil, err
+	}
+	if err := resolveWorkerModes(&cfg, layers[0], layers[1], layers[2]); err != nil {
 		return nil, err
 	}
 	if cfg.Learning.Enabled {
@@ -459,7 +463,9 @@ func validateEnums(node *yaml.Node, typ reflect.Type, path string) error {
 						choices = append(choices, v)
 					}
 				}
-				if len(choices) > 0 {
+				// worker_modes names are checked by resolveWorkerModes, which
+				// says why a name is refused; the schema still lists them.
+				if len(choices) > 0 && typ != reflect.TypeFor[WorkerMode]() {
 					actual := value
 					if actual.Kind == yaml.AliasNode {
 						actual = actual.Alias
