@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -180,18 +181,41 @@ func TestRootProtection(t *testing.T) {
 		if err := os.Mkdir(root, 0o700); err != nil {
 			t.Fatal(err)
 		}
+		var swapErr error
 		setRaceHook(t, func(stage string) {
 			if stage != "root" {
 				return
 			}
-			if err := os.Rename(root, root+".old"); err != nil {
-				t.Fatal(err)
+			if swapErr = os.Rename(root, root+".old"); swapErr != nil {
+				return
 			}
 			if err := os.Mkdir(root, 0o700); err != nil {
 				t.Fatal(err)
 			}
 		})
 		r, p, err := openProtected(root)
+		if r != nil {
+			defer r.Close()
+		}
+		switch {
+		case heldDirLocked(swapErr):
+			// Windows refuses to rename a directory duolog holds open, so
+			// the swap cannot happen: the root opens and stays in place.
+			if err != nil || r == nil || p.Refusal != refusalNone {
+				t.Fatalf("got %v, %+v, %v after a refused swap; want the root opened", r, p, err)
+			}
+			if err := sameDir(r, root); err != nil {
+				t.Errorf("the held root moved: %v", err)
+			}
+			if entries, _ := os.ReadDir(base); len(entries) != 1 || entries[0].Name() != "telemetry" {
+				t.Errorf("entries beside the root: %v, want only telemetry", entries)
+			}
+			return
+		case runtime.GOOS == "windows":
+			t.Fatalf("renaming the held root: got %v, want a sharing violation", swapErr)
+		case swapErr != nil:
+			t.Fatal(swapErr)
+		}
 		if err == nil || r != nil || p.Refusal != refusalOther {
 			t.Fatalf("got %v, %+v, %v; want a refused swap", r, p, err)
 		}
@@ -498,8 +522,15 @@ func TestHardLinksNeverMutateOutside(t *testing.T) {
 			t.Fatal(err)
 		}
 		outsides[outside] = before.Mode()
-		if err := os.Link(outside, filepath.Join(root, filepath.FromSlash(name))); err != nil {
-			t.Fatalf("%s: %v", name, err)
+		// The link replaces a file already there, such as the Linux
+		// CACHEDIR.TAG, the way an attacker would: link beside it, then
+		// rename over it.
+		at := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.Link(outside, at+".link"); err != nil {
+			t.Fatalf("%s: planting the hard link: %v", name, err)
+		}
+		if err := os.Rename(at+".link", at); err != nil {
+			t.Fatalf("%s: renaming the hard link into place: %v", name, err)
 		}
 		for _, flag := range flags {
 			f, err := openRegular(r, name, flag)
@@ -526,7 +557,18 @@ func TestHardLinksNeverMutateOutside(t *testing.T) {
 			t.Errorf("%s: outside mode changed from %v to %v", outside, mode, after.Mode())
 		}
 	}
-	if _, p, err := openProtected(root); err != nil || p.Refusal != refusalNone {
+	again, p, err := openProtected(root)
+	if err != nil || p.Refusal != refusalNone {
 		t.Errorf("root after the links: %+v, %v", p, err)
+	}
+	if again != nil {
+		again.Close()
+	}
+	// No handle stays open: on Windows an open one keeps the root from
+	// being removed, and the temporary directory cleanup fails without
+	// saying why.
+	r.Close()
+	if err := os.RemoveAll(root); err != nil {
+		t.Errorf("removing the root after closing every handle: %v", err)
 	}
 }
