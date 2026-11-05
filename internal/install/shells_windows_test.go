@@ -52,7 +52,9 @@ func TestWindowsHookShells(t *testing.T) {
 								if shell == "bash" {
 									cmd = testbin.GitBashProcess(command)
 								}
-								ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+								// A hang guard: the exit code and output are the point.
+								// A 10 s guard failed once on a loaded runner.
+								ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 								t.Cleanup(cancel)
 								bounded := testbin.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
 								bounded.SysProcAttr = cmd.SysProcAttr
@@ -129,7 +131,8 @@ func TestWindowsGuardNeedsNoModuleSearch(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			command := testbin.HookProcess(doc.Hooks["PreToolUse"][0].Hooks[0].CommandWindows)
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			// The guard ends the run only if it hangs; the bound below decides.
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			cmd := testbin.CommandContext(ctx, command.Path, command.Args[1:]...)
 			cmd.SysProcAttr = command.SysProcAttr
@@ -141,7 +144,9 @@ func TestWindowsGuardNeedsNoModuleSearch(t *testing.T) {
 			if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != tc.want {
 				t.Fatal(err)
 			}
-			if took > 5*time.Second {
+			// A module search took 24 s; 12 s leaves a slow runner room and
+			// still catches it.
+			if took > 12*time.Second {
 				t.Fatalf("guard took %s", took)
 			}
 		})

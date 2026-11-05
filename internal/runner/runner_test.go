@@ -404,8 +404,12 @@ func TestHungRunTimesOut(t *testing.T) {
 	s.Timeout = 3 * time.Second
 	start := time.Now()
 	r, e := Run(context.Background(), s)
-	if e == nil || !errors.Is(e, context.DeadlineExceeded) || !strings.Contains(e.Error(), filepath.Join(s.TaskDir, "stdout.log")) || time.Since(start) > 5*time.Second || r.Done || !r.Interrupted || r.QuotaEnded {
-		t.Fatalf("%+v %v", r, e)
+	// The fake sleeps a minute; the run must end at its 3 s timeout. Ending
+	// the process tree took 2 s on a windows-latest runner, so the bound
+	// leaves 15 s past the timeout and still proves the run did not wait.
+	took := time.Since(start)
+	if e == nil || !errors.Is(e, context.DeadlineExceeded) || !strings.Contains(e.Error(), filepath.Join(s.TaskDir, "stdout.log")) || took > s.Timeout+15*time.Second || r.Done || !r.Interrupted || r.QuotaEnded {
+		t.Fatalf("%+v %v after %s", r, e, took)
 	}
 	if _, e := os.Stat(p + ".args.json"); e != nil {
 		t.Fatal("fake did not start")
@@ -746,7 +750,9 @@ func TestCancellationKillsDescendantHoldingOutput(t *testing.T) {
 	default:
 		t.Fatal("the worker ended before its descendant started", got, err)
 	}
-	if err == nil || !got.Interrupted || since > 3*time.Second {
+	// The descendant holds the output for a minute; 15 s after the cancel
+	// leaves a slow runner room and still proves the run did not wait for it.
+	if err == nil || !got.Interrupted || since > 15*time.Second {
 		t.Fatal(got, err, since)
 	}
 	pidData, pidErr := os.ReadFile(fake + ".child-pid")
