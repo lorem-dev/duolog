@@ -72,6 +72,8 @@
 
 ### Security
 
+- Workers and peers no longer get `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, and
+  Claude fast mode is off for them; list a key in `env_passthrough` to pass it.
 - Workers cannot read duolog state files; recursive searches that reach
   `.duolog` are denied, including glob overrides.
 - Asks that name paths outside the project need the person; the lead's

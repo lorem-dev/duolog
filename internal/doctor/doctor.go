@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/peer"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/trust"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // FixtureVersions is the single source of versions used to collect the fixtures.
@@ -123,6 +125,16 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 		}
 	}
 	add("info", bridgeLine(cfg, root, available))
+	// Said every time while the person sets a dropped key and does not list
+	// it, so the change is never silent. Names only, never values. An explicit
+	// list replaces the defaults, so the example keeps the current list.
+	dropped := workerenv.DroppedKeys(cfg.EnvPassthrough, os.Environ())
+	for _, agent := range []string{"claude", "codex"} {
+		for _, name := range dropped[agent] {
+			example := strings.Join(append(slices.Clone(cfg.EnvPassthrough), name), ", ")
+			add("warning", workerenv.MigrationLine(agent, name)+" Example config: env_passthrough: ["+example+"]")
+		}
+	}
 	var entries []catalogEntry
 	if available["codex"] {
 		var err error

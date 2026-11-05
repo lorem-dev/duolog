@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/lorem-dev/duolog/internal/config"
 )
 
 func docFiles(t *testing.T) []string {
@@ -79,6 +81,71 @@ func TestDocsLineLength(t *testing.T) {
 				t.Errorf("%s:%d: line exceeds 80 characters", path, i+1)
 			}
 		}
+	}
+}
+
+// docSection returns the prose of the section under heading, with line breaks
+// folded into spaces so that a phrase can wrap.
+func docSection(t *testing.T, path, heading string) string {
+	t.Helper()
+	var section []string
+	in := false
+	for _, line := range docLines(t, path) {
+		if strings.HasPrefix(line, "## ") {
+			if in {
+				break
+			}
+			in = line == heading
+			continue
+		}
+		if in {
+			section = append(section, strings.TrimSpace(line))
+		}
+	}
+	if !in {
+		t.Fatalf("%s: no section %q", path, heading)
+	}
+	return strings.Join(strings.Fields(strings.Join(section, " ")), " ")
+}
+
+// The interim patch drops API keys from the default inheritance and pins fast
+// mode off; the docs say so, explain the migration line, and do not advertise
+// paid_runs, which the config does not have yet.
+func TestDocsPaidKeyMigration(t *testing.T) {
+	inherit := docSection(t, filepath.Join("docs", "configuration.md"), "## What workers inherit")
+	for _, want := range []string{
+		"The default environment includes PATH, HOME and USER, plus `CODEX_HOME` and `CLAUDE_CONFIG_DIR`.",
+		"It leaves out `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`",
+		"billed per token",
+		"fast mode off",
+		`"fastMode": false`,
+		"claude workers no longer get ANTHROPIC_API_KEY by default. To let them use it, list it in env_passthrough explicitly.",
+		"`duolog doctor` warns",
+		"set in duolog's environment and not listed in `env_passthrough`",
+		"list it in an explicit `env_passthrough`",
+		// An explicit list replaces the defaults, so the example keeps them all.
+		"env_passthrough: [" + strings.Join(append(config.DefaultEnvPassthrough("linux"), "ANTHROPIC_API_KEY"), ", ") + "]",
+		"On Windows, also keep the Windows names above.",
+	} {
+		if !strings.Contains(inherit, want) {
+			t.Errorf("What workers inherit lacks %q", want)
+		}
+	}
+	// A listed key passes to workers, so listing it ends the line.
+	if strings.Contains(inherit, "or listed in `env_passthrough`") {
+		t.Error("What workers inherit says a listed key still gets the line")
+	}
+	for _, path := range append(docFiles(t), "CHANGES.md") {
+		for i, line := range docLines(t, path) {
+			if strings.Contains(line, "paid_runs") {
+				t.Errorf("%s:%d: advertises paid_runs, which the config does not have yet", path, i+1)
+			}
+		}
+	}
+	if b, err := os.ReadFile("CHANGES.md"); err != nil {
+		t.Fatal(err)
+	} else if dev, _, _ := strings.Cut(string(b), "\n## 1."); !strings.Contains(dev, "`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`") {
+		t.Error("CHANGES.md Development does not name the dropped keys")
 	}
 }
 

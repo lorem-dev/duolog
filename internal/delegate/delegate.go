@@ -230,6 +230,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	ref := filepath.ToSlash(filepath.Join("tasks", filepath.Base(dir), "task.md"))
 	worker := "duolog/worker"
 	warning := ""
+	// notices are migration lines claimed for this lead; every line that
+	// ends this run carries them, whichever way it ends.
+	var notices []string
 	var firstFailure error
 	send := func(from, to, kind, text, reference string) error {
 		_, e := b.Send(bus.Message{From: from, To: to, K: kind, Th: thread, Ref: reference, S: short(oneLine(text), cfg.Wire.MaxSummaryBytes)})
@@ -242,10 +245,27 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		if out.Line == "" && err != nil {
 			out.Line = oneLine(fmt.Sprintf("role %s: %v", role, err))
 		}
-		if len(out.Line) > maxLine {
-			tail := " ... [cut; " + answerPointer(dir) + "]"
-			out.Line = short(out.Line, maxLine-len(tail)) + tail
+		extra := ""
+		for _, n := range notices {
+			if !strings.Contains(out.Line, n) {
+				extra += "; " + n
+			}
 		}
+		if len(out.Line)+len(extra) > maxLine {
+			// A claimed notice does not come again in this lead, so it leaves
+			// the text that is cut and follows it whole.
+			extra = ""
+			for _, n := range notices {
+				out.Line = withoutNotice(out.Line, n)
+				extra += "; " + n
+			}
+			tail := " ... [cut; " + answerPointer(dir) + "]"
+			out.Line = short(out.Line, max(0, maxLine-len(tail)-len(extra))) + tail
+		}
+		if out.Line == "" {
+			extra = strings.TrimPrefix(extra, "; ")
+		}
+		out.Line += extra
 	}()
 	unavailable, err := reg.Unavailable()
 	if err != nil {
@@ -410,6 +430,11 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		if inlineErr != nil {
 			return out, inlineErr
 		}
+		claimed, noticeErr := ClaimMigration(reg, cfg, leadID, route.Agent)
+		if noticeErr != nil {
+			return out, noticeErr
+		}
+		notices = append(notices, claimed...)
 		// A worker that cannot sign in would fail after the lead waited for it,
 		// so its agent and the servers it needs are checked first.
 		// The servers are checked only once the agent is logged in, so a login
@@ -565,6 +590,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					}
 				}
 				lineWarning += lr.note()
+				for _, n := range notices {
+					lineWarning += "; " + n
+				}
 				out.Line = resultLine(out.Result.Done, needs, out.Result.Summary, strings.Join(out.Result.Files, ","), lineWarning, answerPointer(dir))
 				return out, nil
 			}
@@ -626,6 +654,51 @@ func workerEnv(names []string, leadID string, roles ...string) []string {
 		role = roles[0]
 	}
 	return append(workerenv.Passthrough(names), workerenv.Path(), "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+leadID, "DUOLOG_ROLE="+role)
+}
+
+// ClaimMigration returns a migration line for each billing key that agent's
+// workers no longer get, the first time this lead launches the agent.
+// Delegate and peer open share the claim, so the lead reads each line once.
+// Without a lead there is nothing to remember it by, and the lines come every
+// time.
+func ClaimMigration(reg *session.Registry, cfg *config.Config, leadID, agent string) ([]string, error) {
+	var lines []string
+	for _, name := range workerenv.DroppedKeys(cfg.EnvPassthrough, os.Environ())[agent] {
+		claimed := true
+		if leadID != "" {
+			var err error
+			if claimed, err = reg.ClaimNotice(leadID, "migration:"+agent+":"+name); err != nil {
+				return lines, err
+			}
+		}
+		if claimed {
+			lines = append(lines, workerenv.MigrationLine(agent, name))
+		}
+	}
+	return lines, nil
+}
+
+// withoutNotice takes the last copy of notice out of line, with the "; " that
+// leads it.
+func withoutNotice(line, notice string) string {
+	i := strings.LastIndex(line, notice)
+	if i < 0 {
+		return line
+	}
+	head := strings.TrimSuffix(strings.TrimRight(line[:i], " "), ";")
+	return oneLine(head + " " + line[i+len(notice):])
+}
+
+// migrationLines names the billing keys a refused agent login may have lost.
+func migrationLines(cfg *config.Config, p auth.Problem) []string {
+	if p.Server != "" {
+		return nil
+	}
+	var lines []string
+	for _, name := range workerenv.DroppedKeys(cfg.EnvPassthrough, os.Environ())[p.Agent] {
+		lines = append(lines, workerenv.MigrationLine(p.Agent, name))
+	}
+	return lines
 }
 
 // observedLead brings the registered lead up to date with its transcript, and
@@ -962,6 +1035,17 @@ func settleAuth(ctx context.Context, cfg *config.Config, reg *session.Registry, 
 		action = auth.LoginThenLead
 	}
 	reason := p.Subject() + ": " + p.Reason
+	// An agent login refused while a dropped key is in use most likely relied
+	// on that key. A browser login would switch the person's billing without
+	// asking, so none runs and the lead gets the migration line.
+	if migration := strings.Join(migrationLines(cfg, p), " "); migration != "" {
+		if action == auth.Fail {
+			return false, fmt.Errorf("%s; %s", reason, migration)
+		}
+		out.Needs = []string{p.Need()}
+		out.Line = oneLine("role " + role + " waits for lead: " + reason + "; " + migration + " Do the task here, or list the key in env_passthrough and delegate again.")
+		return false, nil
+	}
 	if action == auth.Fail {
 		return false, fmt.Errorf("%s", reason)
 	}

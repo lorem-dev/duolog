@@ -255,7 +255,7 @@
             "type": "string"
           },
           "type": "array",
-          "description": "Environment variables passed to workers; defaults include native OS login, API keys and agent config directories."
+          "description": "Environment variables passed to workers; defaults include native OS login and agent config directories, not API keys."
         },
         "rex": {
           "$ref": "#/$defs/Rex",

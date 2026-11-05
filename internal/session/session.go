@@ -82,6 +82,9 @@ type state struct {
 	// AuthDeclined holds, per lead, the logins the person closed or that
 	// failed, so that duolog does not ask again until the lead ends.
 	AuthDeclined map[string]map[string]time.Time `json:"auth_declined,omitempty"`
+	// Notices holds, per lead, the one-time notices already given, so that
+	// delegate and peer open give each one once until the lead ends.
+	Notices map[string]map[string]bool `json:"notices,omitempty"`
 }
 
 // PeerRexSession is the detached Rex session shared by this project's peers.
@@ -354,6 +357,7 @@ func (s *state) observeLead(o LeadObservation, started time.Time) (Lead, error) 
 		s.Ended[o.ID] = true
 		delete(s.Leads, o.ID)
 		delete(s.AuthDeclined, o.ID)
+		delete(s.Notices, o.ID)
 		delete(s.ModeLimits, o.ID)
 		for agent, owner := range s.LimitOwners {
 			if owner == o.ID && s.Unavailable[agent].IsZero() {
@@ -523,6 +527,27 @@ func (r *Registry) AuthDeclined(lead, key string) (bool, error) {
 		return nil
 	})
 	return declined, err
+}
+
+// ClaimNotice reports whether this call is the first for key while lead
+// lives. The check and the record share one registry lock, so of two commands
+// that race, one gives the notice.
+func (r *Registry) ClaimNotice(lead, key string) (bool, error) {
+	claimed := false
+	err := r.access(true, func(s *state) error {
+		if s.Notices[lead][key] {
+			return nil
+		}
+		if s.Notices == nil {
+			s.Notices = make(map[string]map[string]bool)
+		}
+		if s.Notices[lead] == nil {
+			s.Notices[lead] = make(map[string]bool)
+		}
+		s.Notices[lead][key], claimed = true, true
+		return nil
+	})
+	return claimed, err
 }
 
 func (r *Registry) Entries() ([]Entry, error) {

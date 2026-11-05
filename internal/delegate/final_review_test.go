@@ -161,8 +161,9 @@ func TestImportFailureStopsBeforeWorker(t *testing.T) {
 
 func TestDefaultLoginVariablesReachWorker(t *testing.T) {
 	h := newHarness(t)
-	names := []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_HOME", "CLAUDE_CONFIG_DIR"}
-	for _, name := range names {
+	names := []string{"CODEX_HOME", "CLAUDE_CONFIG_DIR"}
+	keys := []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY"}
+	for _, name := range append(names, keys...) {
 		t.Setenv(name, filepath.Join(h.root, "login-"+name))
 	}
 	// This read-only Claude run needs no Codex trust metadata.
@@ -174,6 +175,11 @@ func TestDefaultLoginVariablesReachWorker(t *testing.T) {
 	for _, name := range names {
 		if !strings.Contains(env, name+"=") {
 			t.Fatal("worker lost login variable", name)
+		}
+	}
+	for _, name := range keys {
+		if strings.Contains(env, name+"=") {
+			t.Fatal("worker inherited billing key", name)
 		}
 	}
 }

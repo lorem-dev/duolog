@@ -9,6 +9,9 @@ import (
 
 // ClaudeSettings disables worker memory and lists state paths for an existing
 // sandbox. It never enables the sandbox or changes the caller's extra settings.
+// Fast mode is pinned off after the extra settings: it draws on usage credits
+// even inside a subscription window, and --settings is the session-start layer
+// that -p honours.
 func ClaudeSettings(stateDir string, minimal bool, extra map[string]any) string {
 	settings := map[string]any{}
 	for key, value := range extra {
@@ -16,6 +19,7 @@ func ClaudeSettings(stateDir string, minimal bool, extra map[string]any) string 
 			settings[key] = value
 		}
 	}
+	settings["fastMode"] = false
 	settings["autoMemoryEnabled"] = false
 	if minimal {
 		settings["claudeMdExcludes"] = []string{"**/CLAUDE.md", "**/CLAUDE.local.md", "**/.claude/rules/**"}

@@ -9,8 +9,9 @@ import (
 var defaultConfig []byte
 
 // DefaultEnvPassthrough includes native login and CLI configuration variables.
+// API keys are left out: a worker that inherits one is billed per token.
 func DefaultEnvPassthrough(goos string) []string {
-	names := []string{"PATH", "HOME", "USER", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_HOME", "CLAUDE_CONFIG_DIR"}
+	names := []string{"PATH", "HOME", "USER", "CODEX_HOME", "CLAUDE_CONFIG_DIR"}
 	if goos == "windows" {
 		names = append(names, "SYSTEMROOT", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "PATHEXT", "COMSPEC", "PSMODULEPATH")
 	}

@@ -139,12 +139,13 @@ The lead's own settings are the ceiling:
 
 ## What workers inherit
 
-The default environment includes PATH, HOME and USER, plus
-`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CODEX_HOME` and `CLAUDE_CONFIG_DIR`.
-Windows also keeps SYSTEMROOT, USERPROFILE, APPDATA, LOCALAPPDATA, TEMP, TMP,
-PATHEXT, COMSPEC and PSMODULEPATH. Without PSMODULEPATH, each PowerShell cmdlet
-that loads a module takes 18 to 30 seconds. An explicit `env_passthrough`
-replaces these defaults.
+The default environment includes PATH, HOME and USER, plus `CODEX_HOME` and
+`CLAUDE_CONFIG_DIR`. It leaves out `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`:
+a worker or peer that gets one is billed per token, even when you run on a
+subscription. Windows also keeps SYSTEMROOT, USERPROFILE, APPDATA,
+LOCALAPPDATA, TEMP, TMP, PATHEXT, COMSPEC and PSMODULEPATH. Without
+PSMODULEPATH, each PowerShell cmdlet that loads a module takes 18 to 30
+seconds. An explicit `env_passthrough` replaces these defaults.
 The worker always gets `DUOLOG_DEPTH=1`, its `DUOLOG_LEAD` and `DUOLOG_ROLE`.
 Codex trust, hooks and capabilities read `CODEX_HOME` when set. Claude hooks,
 permissions and capabilities read `CLAUDE_CONFIG_DIR` when set. Home lookups
@@ -163,6 +164,36 @@ added 7.4 thousand tokens to every call in the cost study. A task that names an
 too: Claude loads that file as project instructions when the project is inside
 the home folder. A `minimal` worker of either agent keeps its skills only when
 the task names a `skill:` or `plugin:` need.
+
+Claude workers and peers start with fast mode off: their `--settings` JSON
+holds `"fastMode": false`. Fast mode draws on usage credits even inside a
+subscription window.
+
+### If you use an API key on purpose
+
+While `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` is set in duolog's environment
+and not listed in `env_passthrough`, the first `delegate` or `peer open` of
+each lead session adds one line, and `duolog doctor` warns every time:
+
+```text
+claude workers no longer get ANTHROPIC_API_KEY by default. To let them use it, list it in env_passthrough explicitly.
+```
+
+When the key was the agent's only login, the login check fails. duolog does not
+start a browser login, which would switch your billing, whatever
+`capabilities.on_auth_failure` says. The task goes to the lead with the same
+line, or with `fail` the delegation fails with it.
+
+To let workers use the key, list it in an explicit `env_passthrough`. The list
+replaces the defaults, so keep them all:
+
+```yaml
+env_passthrough: [PATH, HOME, USER, CODEX_HOME, CLAUDE_CONFIG_DIR, ANTHROPIC_API_KEY]
+```
+
+On Windows, also keep the Windows names above. Then every worker and peer of
+that agent is billed per token for each run, and duolog does not cap that
+spend. The line and the warning stop once the key is listed.
 
 ## How a worker borrows the lead's MCP server
 

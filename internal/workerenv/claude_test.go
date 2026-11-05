@@ -3,6 +3,7 @@ package workerenv
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -60,6 +61,41 @@ func TestClaudeSettingsPreservesWorkerOptions(t *testing.T) {
 			t.Fatal(raw)
 		}
 		if len(extra) != 1 {
+			t.Fatal("caller options were changed", extra)
+		}
+	}
+}
+
+func TestClaudeSettingsPinsFastOffAfterExtra(t *testing.T) {
+	for _, minimal := range []bool{false, true} {
+		var s struct {
+			FastMode          *bool    `json:"fastMode"`
+			AutoMemoryEnabled *bool    `json:"autoMemoryEnabled"`
+			ClaudeMdExcludes  []string `json:"claudeMdExcludes"`
+			Sandbox           struct {
+				Filesystem struct {
+					DenyRead []string `json:"denyRead"`
+				} `json:"filesystem"`
+			} `json:"sandbox"`
+		}
+		extra := map[string]any{"fastMode": true}
+		raw := ClaudeSettings("/p", minimal, extra)
+		if err := json.Unmarshal([]byte(raw), &s); err != nil {
+			t.Fatal(err)
+		}
+		if s.FastMode == nil || *s.FastMode {
+			t.Fatal("fast mode must be pinned off", raw)
+		}
+		if s.AutoMemoryEnabled == nil || *s.AutoMemoryEnabled {
+			t.Fatal(raw)
+		}
+		if !slices.Contains(s.Sandbox.Filesystem.DenyRead, "/p/.duolog/decisions.ndjson") {
+			t.Fatal(raw)
+		}
+		if (len(s.ClaudeMdExcludes) > 0) != minimal {
+			t.Fatal(minimal, raw)
+		}
+		if extra["fastMode"] != true {
 			t.Fatal("caller options were changed", extra)
 		}
 	}

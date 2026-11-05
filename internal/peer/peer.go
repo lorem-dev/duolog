@@ -300,35 +300,62 @@ func Open(ctx context.Context, role string) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
+	// The first launch of the agent in this lead says which billing keys the
+	// pane no longer gets; delegate shares the claim.
+	notices, err := delegate.ClaimMigration(e.reg, e.cfg, lead.id, route.Agent)
+	if err != nil {
+		return Entry{}, err
+	}
+	noted := withNotice(strings.Join(notices, " "))
 	// The ID goes into the pane's environment, so it is chosen before the pane exists.
 	id := newID()
 	envFile, err := writeEnvFile(e.dir, agentEnv(e.cfg, route.Agent, lead.id, role, id))
 	if err != nil {
-		return Entry{}, err
+		return noted(Entry{}, err)
 	}
 	block, rexSession, err := e.openProjectPeer(ctx, route.Agent+"-"+role, launchArgv(exe, envFile, agentArgv(route, lead.mode, filepath.Dir(e.dir))))
 	if err != nil {
 		_ = os.Remove(envFile)
-		return Entry{}, err
+		return noted(Entry{}, err)
 	}
 	entry := session.Entry{ID: id, Lead: lead.id, Agent: route.Agent, Role: role, Thread: peerThread, Block: block, WorkRoot: e.root, RexSession: rexSession, Mode: lead.mode, UpdatedAt: time.Now()}
 	if err := e.reg.RecordLimited(entry, e.cfg.Limits.MaxLiveSessions); err != nil {
 		// The pane exists but nothing records it: do not leave it unowned.
 		closeErr := e.clientFor(entry).Close(ctx, block)
 		cleanupErr := e.cleanupProjectSession(ctx)
-		return Entry{}, fmt.Errorf("pane %s was opened but not recorded: %w", block, errors.Join(err, closeErr, cleanupErr))
+		return noted(Entry{}, fmt.Errorf("pane %s was opened but not recorded: %w", block, errors.Join(err, closeErr, cleanupErr)))
 	}
 	// Keep the resolved version across commands; aliases may resolve differently
 	// by the time this pane first changes a file.
 	if e.cfg.Coauthors.Enabled {
 		if err := os.WriteFile(e.modelPath(entry), []byte(model), 0600); err != nil {
-			return Entry{}, err
+			return noted(Entry{}, err)
 		}
 	}
 	if err := opening.Unlock(); err != nil {
-		return Entry{}, err
+		return noted(Entry{}, err)
 	}
-	return e.watch(ctx, entry, true)
+	return noted(e.watch(ctx, entry, true))
+}
+
+// withNotice adds a claimed notice to what Open reports, so that it is not
+// lost: to an error, or to the question, which the command then prints alone,
+// or else to the note.
+func withNotice(notice string) func(Entry, error) (Entry, error) {
+	return func(entry Entry, err error) (Entry, error) {
+		switch {
+		case notice == "":
+		case err != nil:
+			err = fmt.Errorf("%w; %s", err, notice)
+		case entry.Question != "":
+			entry.Question += "; " + notice
+		case entry.Note != "":
+			entry.Note += "; " + notice
+		default:
+			entry.Note = notice
+		}
+		return entry, err
+	}
 }
 
 // livePeers returns the open panes of this lead and agent. A pane that is gone
