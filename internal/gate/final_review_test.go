@@ -83,6 +83,30 @@ func TestOrdinaryToolsAndPatchTargets(t *testing.T) {
 	}
 }
 
+func TestTaskStopAllowed(t *testing.T) {
+	testSessionTool(t, "TaskStop", `{"task_id":"b1"}`)
+}
+
+func TestTaskOutputAllowed(t *testing.T) {
+	testSessionTool(t, "TaskOutput", `{"task_id":"b1","block":false}`)
+}
+
+func testSessionTool(t *testing.T, name, input string) {
+	t.Helper()
+	p := policy(t)
+	a, err := Normalize("claude", []byte(`{"tool_name":"`+name+`","tool_input":`+input+`}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Kind != "internal" {
+		t.Fatalf("%s: %+v", name, a)
+	}
+	a.Role = "implement"
+	if d := Evaluate(p, LeadRules{}, mode.Edits, a); d.Kind != Allow {
+		t.Fatalf("%s: %+v %+v", name, a, d)
+	}
+}
+
 func TestBareToolDenyDoesNotBreakOtherTools(t *testing.T) {
 	root := t.TempDir()
 	policy(t)

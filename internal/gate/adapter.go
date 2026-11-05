@@ -95,9 +95,10 @@ func Normalize(agent string, input []byte) (Action, error) {
 			}
 			a.Target = cleanPath(paths[0])
 		}
-	case "TodoWrite", "Skill", "ToolSearch":
+	case "TodoWrite", "Skill", "ToolSearch", "TaskStop", "TaskOutput":
 		// ToolSearch only loads the definition of a deferred tool, such as an
-		// MCP tool; calling the tool is checked on its own.
+		// MCP tool; calling the tool is checked on its own. TaskStop and
+		// TaskOutput stop or read the worker's own background task.
 		a.Kind, a.Target = "internal", hook.Tool
 	case "StructuredOutput":
 		// Claude's own tool for returning the schema answer; without it a worker
