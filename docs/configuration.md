@@ -431,7 +431,7 @@ while `learning.enabled` is `true`. The keys and their defaults:
 | `max_weekly_share` | `0.10` | Estimated weekly spend allowance per agent for the whole calibration. Admission checks it before each call; actual spend can exceed it |
 | `max_window_share` | `0.5` | Estimated five-hour spend allowance before the run pauses until the window resets; at most `0.5`. Actual spend can exceed it |
 | `cell_max_minutes` | `45` | Time cap for one cell and for one run of its checks; a task estimated above it is left out |
-| `cell_max_tokens` | `1500000` | The highest token estimate a task may have to be admitted. It does not stop a running cell at this token count |
+| `cell_max_tokens` | `1500000` | The highest token estimate a task may have to be admitted. The runners report usage when a worker ends, so a cell whose reported usage is above it is `failed_limit` with reason `token cap` and no checks: it records its usage, gives no result, and the run goes on |
 | `cell_max_turns` | `100` | Turn cap for one cell: `--max-turns` for a Claude worker, advice in the brief for Codex, which has no such option |
 | `history_days` | `90` | Days of history mined first, widened when a class has fewer than 3 tasks |
 | `filter.min_files`, `filter.max_files` | `1`, `20` | Changed files of a mined commit, without generated and vendored files |

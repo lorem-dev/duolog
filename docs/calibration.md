@@ -168,8 +168,10 @@ These limits end a cell:
 | Check time cap | the time cap | One run of the class checks stops with every process it started; the cell fails with reason `check time cap` |
 
 `calibration.cell_max_tokens` defaults to `1500000`. Mining leaves out a task
-whose high token estimate is above it. It does not stop a running worker at
-that token count.
+whose high token estimate is above it. The runners report usage when a worker
+ends, so a cell whose reported usage is above the cap is `failed_limit` with
+reason `token cap` and no checks: it records its usage, gives no result, and
+the run goes on with the next cell.
 
 The checks run on the candidate's tree, its dependency manifests and lock
 files included. duolog puts back every test the candidate deleted, unless the
