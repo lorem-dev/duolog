@@ -25,13 +25,32 @@ type BillingFacts struct {
 	SpendControlPresent  bool     `json:"spend_control_present,omitempty"`
 	WorkspaceReasons     []string `json:"workspace_reasons,omitempty"`
 	OverageEnabled       bool     `json:"overage_enabled,omitempty"`
-	ProviderEnvKey       string   `json:"provider_env_key,omitempty"`
+	// ProviderEnvKey is the name of the variable the default Codex provider
+	// reads its key from, never its value.
+	ProviderEnvKey string `json:"provider_env_key,omitempty"`
+	// ResetCredits is the reset credit count the read reported. duolog only
+	// reads it and never spends one.
+	ResetCredits *int `json:"reset_credits,omitempty"`
 }
 
 const claudeAuthLayer = "auth status"
 
 func (b *BillingFacts) signal(name, layer string) {
 	b.RouteSignals = append(b.RouteSignals, workerenv.Signal{Name: name, Layer: layer})
+}
+
+// unknownRoute marks the route unknown and names the signal once.
+func (b *BillingFacts) unknownRoute(name, layer string) {
+	b.RouteKnown = false
+	if !slices.Contains(b.RouteSignals, workerenv.Signal{Name: name, Layer: layer}) {
+		b.signal(name, layer)
+	}
+}
+
+func (b *BillingFacts) addWorkspaceReason(category string) {
+	if category != "" && !slices.Contains(b.WorkspaceReasons, category) {
+		b.WorkspaceReasons = append(b.WorkspaceReasons, category)
+	}
 }
 
 // claudeRoute records the route of a successful `claude auth status --json`.
@@ -86,9 +105,7 @@ func (b *BillingFacts) addClaudeWorkspaceReason(reason string) {
 	case "member_level_disabled", "member_zero_credit_limit":
 		category = "member"
 	}
-	if category != "" && !slices.Contains(b.WorkspaceReasons, category) {
-		b.WorkspaceReasons = append(b.WorkspaceReasons, category)
-	}
+	b.addWorkspaceReason(category)
 }
 
 func known(value string, spellings ...string) string {

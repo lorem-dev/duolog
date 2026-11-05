@@ -37,6 +37,7 @@ func readQuota(ctx context.Context, agent string) ([]calibration.Window, error) 
 // quotaWindows maps the account's windows, then each model family's own
 // limits (Codex's per-model limits) with the family in Model, sorted by
 // family; admission keeps the reserve in the ones of the cell's model too.
+// A window the account refuses counts as used up.
 func quotaWindows(s quota.Snapshot) []calibration.Window {
 	var ws []calibration.Window
 	add := func(model string, windows []quota.Window) {
@@ -50,7 +51,11 @@ func quotaWindows(s quota.Snapshot) []calibration.Window {
 			default:
 				continue
 			}
-			ws = append(ws, calibration.Window{Kind: kind, Model: model, UsedPercent: w.UsedPercent, ResetsAt: w.ResetsAt})
+			used := w.UsedPercent
+			if w.Rejected() {
+				used = 100
+			}
+			ws = append(ws, calibration.Window{Kind: kind, Model: model, UsedPercent: used, ResetsAt: w.ResetsAt})
 		}
 	}
 	add("", s.Windows)

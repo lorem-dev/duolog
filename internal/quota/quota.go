@@ -151,6 +151,10 @@ func plan(value string) string {
 	return ""
 }
 
+// Rejected reports whether the account refuses runs in this window whatever
+// its used percent says.
+func (w Window) Rejected() bool { return rejected(w.Severity) }
+
 func rejected(value string) bool {
 	switch value {
 	case "rejected", "blocked", "exceeded":
@@ -193,10 +197,13 @@ func rpcReply(scanner *bufio.Scanner, id int) (json.RawMessage, error) {
 	for scanner.Scan() {
 		var reply struct {
 			ID     int             `json:"id"`
+			Method string          `json:"method"`
 			Result json.RawMessage `json:"result"`
 			Error  json.RawMessage `json:"error"`
 		}
-		if json.Unmarshal(scanner.Bytes(), &reply) != nil || reply.ID != id {
+		// Notifications and server requests carry a method; only a reply
+		// answers the id.
+		if json.Unmarshal(scanner.Bytes(), &reply) != nil || reply.Method != "" || reply.ID != id {
 			continue
 		}
 		if len(reply.Error) > 0 && string(reply.Error) != "null" {
@@ -238,25 +245,63 @@ func (r Reader) readCodex(ctx context.Context, bin, dir string) (Snapshot, error
 	if err = rpcWrite(stdin, map[string]any{"jsonrpc": "2.0", "method": "initialized"}); err != nil {
 		return Snapshot{}, err
 	}
-	if err = rpcWrite(stdin, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "account/rateLimits/read"}); err != nil {
-		return Snapshot{}, err
+	call := func(id int, method string, params any) (json.RawMessage, error) {
+		request := map[string]any{"jsonrpc": "2.0", "id": id, "method": method}
+		if params != nil {
+			request["params"] = params
+		}
+		if err := rpcWrite(stdin, request); err != nil {
+			return nil, err
+		}
+		return rpcReply(scanner, id)
 	}
-	data, err := rpcReply(scanner, 2)
-	if err != nil {
-		return Snapshot{}, err
+	// Free reads only: no model turn, no reset credit and no opt-in
+	// capability. A failed account or provider read is missing route
+	// evidence; only the rate limit read decides whether the read failed.
+	account := unreadFacts("account:unread", codexAccountLayer)
+	if data, err := call(codexAccountID, "account/read", map[string]any{"refreshToken": false}); err == nil {
+		account, _ = parseCodexAccount(data)
 	}
-	return parseCodex(data)
+	data, limitsErr := call(codexRateLimitsID, "account/rateLimits/read", nil)
+	provider := unreadFacts("provider:unread", codexProviderLayer)
+	if data, err := call(codexProvidersID, "modelProvider/list", map[string]any{}); err == nil {
+		provider, _ = parseCodexProvider(data)
+	}
+	if limitsErr != nil {
+		return Snapshot{Billing: codexBilling(account, provider, BillingFacts{})}, limitsErr
+	}
+	s, err := parseCodex(data)
+	s.Billing = codexBilling(account, provider, s.Billing)
+	return s, err
 }
 
+const (
+	codexRateLimitsID = 2
+	codexAccountID    = 3
+	codexProvidersID  = 4
+)
+
 type codexLimit struct {
-	PlanType             string          `json:"planType"`
-	Primary              *codexWindow    `json:"primary"`
-	Secondary            *codexWindow    `json:"secondary"`
-	Credits              *Credits        `json:"credits"`
-	SpendControlReached  bool            `json:"spendControlReached"`
-	OrdinaryUsageAllowed *bool           `json:"ordinaryUsageAllowed"`
-	RateLimitReachedType json.RawMessage `json:"rateLimitReachedType"`
+	PlanType  string       `json:"planType"`
+	Primary   *codexWindow `json:"primary"`
+	Secondary *codexWindow `json:"secondary"`
+	Credits   *Credits     `json:"credits"`
+	facts     codexLimitFacts
 }
+
+func (l *codexLimit) UnmarshalJSON(data []byte) error {
+	type plain codexLimit
+	if err := json.Unmarshal(data, (*plain)(l)); err != nil {
+		return err
+	}
+	var f fields
+	if err := json.Unmarshal(data, &f); err != nil {
+		return err
+	}
+	l.facts = readCodexLimitFacts(f)
+	return nil
+}
+
 type codexWindow struct {
 	UsedPercent        *float64 `json:"usedPercent"`
 	WindowDurationMins int      `json:"windowDurationMins"`
@@ -264,8 +309,8 @@ type codexWindow struct {
 }
 
 func (l codexLimit) blocked() bool {
-	v := string(l.RateLimitReachedType)
-	return l.SpendControlReached || (l.OrdinaryUsageAllowed != nil && !*l.OrdinaryUsageAllowed) || (v != "" && v != "null" && v != `"none"` && v != `""`)
+	v := string(l.facts.reachedType)
+	return l.facts.spendReached || (l.facts.ordinary != nil && !*l.facts.ordinary) || (v != "" && v != "null" && v != `"none"` && v != `""`)
 }
 
 func (l codexLimit) windows() ([]Window, error) {
@@ -305,10 +350,15 @@ func parseCodex(data []byte) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
+	// Permission is the account limit's own value. A duplicate limit can
+	// only take it away: a sparse null never clears a block, and a later
+	// read is the only way back.
+	billing := BillingFacts{OrdinaryUsageAllowed: l.facts.ordinary, ResetCredits: l.facts.resetCredits}
+	billing.addCodexLimit(l.facts)
 	if len(windows) == 0 {
-		return Snapshot{}, errors.New("no quota windows")
+		return Snapshot{Billing: billing}, errors.New("no quota windows")
 	}
-	s := Snapshot{Plan: plan(l.PlanType), Windows: windows, Credits: l.Credits, Rejected: l.blocked(), SpendControlReached: l.SpendControlReached, ModelLimits: make(map[string][]Window)}
+	s := Snapshot{Plan: plan(l.PlanType), Windows: windows, Credits: l.Credits, Rejected: l.blocked(), SpendControlReached: l.facts.spendReached, Billing: billing, ModelLimits: make(map[string][]Window)}
 	if s.Credits != nil && s.Credits.Balance != nil {
 		var number json.Number
 		if json.Unmarshal([]byte(*s.Credits.Balance), &number) != nil {
@@ -326,9 +376,21 @@ func parseCodex(data []byte) (Snapshot, error) {
 		if err != nil {
 			return Snapshot{}, err
 		}
-		s.Rejected = s.Rejected || limit.blocked()
-		if slices.Equal(ws, windows) {
+		s.Billing.addCodexLimit(limit.facts)
+		// A limit without windows of its own, or with the account's, is the
+		// account's limit. A scoped block stays with its family's windows,
+		// so the account and the other families keep their state.
+		if len(ws) == 0 || slices.Equal(ws, windows) {
+			s.Rejected = s.Rejected || limit.blocked()
+			if o := limit.facts.ordinary; o != nil && !*o {
+				s.Billing.OrdinaryUsageAllowed = o
+			}
 			continue
+		}
+		if limit.blocked() {
+			for i := range ws {
+				ws[i].Severity = "rejected"
+			}
 		}
 		family := models.Normalize("codex", id)
 		switch family {
