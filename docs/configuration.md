@@ -127,6 +127,8 @@ The lead's own settings are the ceiling:
 - A worker never gets a wider permission mode than the lead. See
   [Permissions](permissions.md).
 - A worker has `DUOLOG_DEPTH=1`, so it cannot delegate again.
+  Claude workers and live Claude peers also start without the Agent and Task
+  tools.
 
 `duolog` never passes `--dangerously-bypass-approvals-and-sandbox` or
 `bypassPermissions` to an agent.
