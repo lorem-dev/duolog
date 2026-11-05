@@ -336,6 +336,10 @@
         "calibration": {
           "$ref": "#/$defs/Calibration",
           "description": "Project calibration caps and task filters; calibration runs only when the person asks the lead for it."
+        },
+        "worker_modes": {
+          "$ref": "#/$defs/WorkerModes",
+          "description": "Native permission mode a delegate worker starts in, per role and model family; never above the lead's mode. User level, project layers may only lower. Absent means duolog's default flags."
         }
       },
       "additionalProperties": false,
@@ -747,6 +751,62 @@
         "inline_max_bytes": {
           "type": "integer",
           "description": "Maximum task and Read file bytes sent inline to worker stdin; defaults to 65536."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "WorkerMode": {
+      "properties": {
+        "claude": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "default",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "Native Claude permission mode a worker starts in; it never exceeds the lead's mode. Absent means duolog's default."
+        },
+        "codex": {
+          "type": "string",
+          "enum": [
+            "read-only",
+            "workspace-write"
+          ],
+          "description": "Native Codex sandbox a worker starts in; danger-full-access is not offered. Absent means duolog's default."
+        },
+        "network": {
+          "type": "boolean",
+          "description": "Codex workspace-write only, role entries only: lets the worker's commands reach the network; defaults to false."
+        },
+        "writable_roots": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Codex workspace-write only, role entries only: absolute or ~/ folders the worker's commands may write besides the project; defaults to none."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "WorkerModes": {
+      "properties": {
+        "roles": {
+          "additionalProperties": {
+            "$ref": "#/$defs/WorkerMode"
+          },
+          "type": "object",
+          "description": "Native mode per role; user level, project layers may only lower. Absent means duolog's default flags."
+        },
+        "families": {
+          "additionalProperties": {
+            "$ref": "#/$defs/WorkerMode"
+          },
+          "type": "object",
+          "description": "Native mode per model family, such as luna or haiku; combined with the role entry by taking the lower."
         }
       },
       "additionalProperties": false,
