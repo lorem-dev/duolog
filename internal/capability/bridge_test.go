@@ -508,3 +508,18 @@ func TestBridgeRefusesNameTheWorkerHas(t *testing.T) {
 		t.Fatal(got, failed)
 	}
 }
+
+// Codex splits a -c key at each dot with no quoting, so a quoted name would
+// make a new server with no transport, and Codex would refuse its config. The
+// overrides name each enabled server bare and leave out a name that a bare key
+// cannot hold, a disabled server, and a server only Claude has.
+func TestCodexOffNamesServersBare(t *testing.T) {
+	home, root := env(t)
+	claudeState(t, home, root, `{"claude-only":{"command":"x"}}`, "")
+	put(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.codegraph]\ncommand = 'cg'\n[mcp_servers.private]\ncommand = 'p'\n[mcp_servers.parked]\ncommand = 'x'\nenabled = false\n[mcp_servers.\"a.b\"]\ncommand = 'd'\n")
+	got := strings.Join(CodexOff(root), "|")
+	want := "-c|mcp_servers.codegraph.enabled=false|-c|mcp_servers.private.enabled=false"
+	if got != want {
+		t.Fatalf("got %s, want %s", got, want)
+	}
+}
