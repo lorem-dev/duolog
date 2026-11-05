@@ -31,16 +31,44 @@ func TestDroppedKeysSetNotListed(t *testing.T) {
 	}
 
 	// The config has no paid_runs key yet, so the line names the way that
-	// works today: an explicit env_passthrough entry.
-	if got, want := MigrationLine("claude", "ANTHROPIC_API_KEY"), "claude workers no longer get ANTHROPIC_API_KEY by default. To let them use it, list it in env_passthrough explicitly."; got != want {
+	// works today: an explicit env_passthrough entry. An explicit list
+	// replaces the defaults, so the line shows the whole list to write: the
+	// names in force now plus the key.
+	names := []string{"PATH", "HOME", "USER", "CODEX_HOME", "CLAUDE_CONFIG_DIR"}
+	if got, want := MigrationLine("claude", "ANTHROPIC_API_KEY", names), "claude workers no longer get ANTHROPIC_API_KEY by default. To let them use it, keep the default names and add the key, since an explicit list replaces the defaults: env_passthrough: [PATH, HOME, USER, CODEX_HOME, CLAUDE_CONFIG_DIR, ANTHROPIC_API_KEY]"; got != want {
 		t.Errorf("MigrationLine = %q, want %q", got, want)
 	}
-	if got, want := MigrationLine("codex", "OPENAI_API_KEY"), "codex workers no longer get OPENAI_API_KEY by default. To let them use it, list it in env_passthrough explicitly."; got != want {
+	if got, want := MigrationLine("codex", "OPENAI_API_KEY", names), "codex workers no longer get OPENAI_API_KEY by default. To let them use it, keep the default names and add the key, since an explicit list replaces the defaults: env_passthrough: [PATH, HOME, USER, CODEX_HOME, CLAUDE_CONFIG_DIR, OPENAI_API_KEY]"; got != want {
 		t.Errorf("MigrationLine = %q, want %q", got, want)
+	}
+	// The caller's list stays as it was.
+	if len(names) != 5 || cap(names) != 5 {
+		t.Errorf("MigrationLine changed its names: %v", names)
 	}
 	for _, agent := range []string{"claude", "codex"} {
-		if line := MigrationLine(agent, "KEY"); strings.Contains(line, "paid_runs") {
-			t.Errorf("MigrationLine advertises unsupported config: %q", line)
+		if line := MigrationLine(agent, "KEY", names); strings.Contains(line, "paid_runs") || strings.Contains(line, "explicitly.") {
+			t.Errorf("MigrationLine advertises unsupported or incomplete config: %q", line)
+		}
+	}
+}
+
+// Calibration runs on the subscription only, so it needs to know which
+// billing keys env_passthrough hands to workers, whichever agent they belong
+// to.
+func TestListedKeys(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		names []string
+		want  []string
+	}{
+		{"defaults", []string{"PATH", "HOME", "USER", "CODEX_HOME", "CLAUDE_CONFIG_DIR"}, nil},
+		{"none", nil, nil},
+		{"claude key", []string{"PATH", "ANTHROPIC_API_KEY"}, []string{"ANTHROPIC_API_KEY"}},
+		{"both keys", []string{"OPENAI_API_KEY", "HOME", "ANTHROPIC_API_KEY"}, []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY"}},
+		{"similar names", []string{"ANTHROPIC_API_KEY_OLD", "XOPENAI_API_KEY"}, nil},
+	} {
+		if got := ListedKeys(c.names); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: ListedKeys = %v, want %v", c.name, got, c.want)
 		}
 	}
 }

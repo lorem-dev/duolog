@@ -1,20 +1,29 @@
 # Getting started with duolog
 
-Install the binary on macOS or Linux, then set up this project:
+This page shows how to install duolog, set up a project, check the setup and
+send a first task. Install the binary on macOS or Linux:
 
 ```sh
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh
+```
+
+The script verifies SHA-256 checksums and installs to `~/.local/bin`. Run it
+again to update. It warns if that directory is missing from `PATH` and never
+edits your shell profile. Add the printed install directory to PATH if
+needed, then open a terminal in your project and run:
+
+```sh
 duolog install --scope project
 ```
 
-The download link works after the first release. The script verifies SHA-256
-checksums and installs to `~/.local/bin`. Run it again to update. It warns if
-that directory is missing from `PATH` and never edits your shell profile.
+The Linux binaries are static, so they need no libc of a given version. CI
+runs them on Alpine 3.10 and 3.20, Ubuntu 14.04 and 16.04, Debian 9 and
+CentOS 7. Claude Code and Codex have their own system requirements.
 
 Pin a release or choose another directory:
 
 ```sh
-curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.3.0
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.4.0
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | DUOLOG_INSTALL_DIR="$HOME/bin" sh
 ```
 
@@ -37,7 +46,7 @@ An invalid download leaves an existing binary unchanged.
 To pin a Windows release or choose a directory:
 
 ```powershell
-$env:DUOLOG_VERSION = 'v1.3.0'
+$env:DUOLOG_VERSION = 'v1.4.0'
 $env:DUOLOG_INSTALL_DIR = "$env:LOCALAPPDATA\Programs\duolog"
 irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
 ```
@@ -54,10 +63,10 @@ this line. Uninstall removes the line and keeps your other instructions.
 |---|---|---|
 | macOS | `curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh` piped to `sh` | Rex is needed only for live sessions |
 | Linux | `curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh` piped to `sh` | Rex is needed only for live sessions |
-| Windows | `irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1` piped to `iex` | No Rex or live sessions; real agents have not been run |
+| Windows | `irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1` piped to `iex` | No Rex or live sessions; use `duolog delegate`. Real agents checked once, see [Known limits](#known-limits) |
 
 All other single-line `duolog` commands shown here work in POSIX shells and
-PowerShell. The install links work once a release publishes the assets.
+PowerShell. duolog is not on a package registry; use the installers or Go.
 
 ## What you need before you start
 
@@ -98,8 +107,11 @@ The command writes these files and prints each path:
 |---|---|
 | `.claude/settings.json` | Claude Code hooks, merged with yours |
 | `.claude/skills/duolog/SKILL.md` | The skill that teaches the lead to delegate |
+| `.claude/skills/duolog-skill-check/` | The skill that offers [skill tests](skills.md) after a change |
+| `.claude/skills/duolog-calibrate/` | The skill that runs [calibration](calibration.md) when you ask |
 | `.codex/hooks.json` | Codex hooks, merged with yours |
 | `.agents/skills/duolog/SKILL.md` | The same skill for Codex |
+| `.agents/skills/duolog-skill-check/` and `.agents/skills/duolog-calibrate/` | The other two skills for Codex |
 | `.duolog/config.yaml` | A starter config, only if none exists |
 | `AGENTS.md` | One line offering install on a machine without duolog |
 | `.claude/CLAUDE.md` or `CLAUDE.md` | The same line; uses the nested file if it exists |
@@ -115,13 +127,13 @@ Codex hooks store a POSIX command and `commandWindows` together. Claude
 hooks use `command: "duolog"` with `args` and no shell on every OS, including
 the plugin. Both hook files can be committed and shared across OSes. No Git
 Bash is needed for Claude hooks. PowerShell tool calls use the same gate as
-Bash tool calls. Real Windows agents remain untested.
+Bash tool calls.
 
-An enabled Claude plugin supplies the hooks and skill. The installer skips
-those copies and removes older native hooks to avoid running each gate twice.
-Codex still needs `duolog install`: its marketplace plugin supplies the skill,
-but does not install hooks. See the [README install steps](../README.md#install)
-for both marketplace commands.
+An enabled Claude plugin supplies the hooks and skill on every OS. The
+installer skips those copies and removes older native hooks to avoid running
+each gate twice. Codex still needs `duolog install`: its marketplace plugin
+supplies the skill, but does not install hooks. The next section has the
+marketplace commands.
 
 A marketplace plugin's skill checks `duolog version` and offers the binary
 install if it is missing. In a project someone else set up, the marked line
@@ -142,6 +154,70 @@ Codex needs two approvals that duolog cannot give. Open `/hooks` in Codex and
 press `t` to trust the hooks. Trust the project folder too. Without them,
 Codex skips the hooks and prints no warning.
 
+Sign in to the agents you will use before you send a task. Workers do not
+get `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, and Claude workers start with
+fast mode off; both are new in 1.4.0. If an agent signs in only with a key,
+workers fail its login check. To pass the key, see
+[Configuration](configuration.md#if-you-use-an-api-key-on-purpose).
+Local telemetry is on by default; run `duolog telemetry off` to stop it. See
+[Telemetry](telemetry.md).
+
+## How to install the plugins from the duolog marketplace
+
+A marketplace is a Git repository that lists plugins. This repository is its
+own marketplace, named `duolog`. It is not in the official plugin
+directories yet, so each agent needs the address once. Install the binary
+first, because the plugins call it.
+
+In Claude Code, run these commands in a terminal:
+
+```sh
+claude plugin marketplace add lorem-dev/duolog
+claude plugin install duolog@duolog
+```
+
+Or run the same steps inside a session:
+
+```text
+/plugin marketplace add lorem-dev/duolog
+/plugin install duolog@duolog
+```
+
+In Codex, run these commands in a terminal:
+
+```sh
+codex plugin marketplace add lorem-dev/duolog
+codex plugin add duolog@duolog
+```
+
+Start a new session after the install, so that the agent loads the plugin. In
+`duolog@duolog`, the first word is the plugin and the second is the
+marketplace.
+
+The address can take other forms. Claude Code tries `lorem-dev/duolog` over
+SSH first and then HTTPS, so the HTTPS form only skips the failed first try.
+
+| Address | When to use it |
+|---|---|
+| `lorem-dev/duolog` | The normal case |
+| `https://github.com/lorem-dev/duolog.git` | You want HTTPS from the start |
+| `./path/to/duolog` | You test a local copy of this repository |
+
+Use these commands to update or remove the plugin:
+
+| Task | Claude Code | Codex |
+|---|---|---|
+| See what is installed | `claude plugin list` | `codex plugin list` |
+| Get the new marketplace list | `claude plugin marketplace update duolog` | `codex plugin marketplace upgrade duolog` |
+| Update the plugin | `claude plugin update duolog@duolog` | `codex plugin add duolog@duolog` |
+| Remove the plugin | `claude plugin uninstall duolog@duolog` | `codex plugin remove duolog@duolog` |
+| Remove the marketplace | `claude plugin marketplace remove duolog` | `codex plugin marketplace remove duolog` |
+
+To share the Claude Code plugin with a project, add `--scope project` to both
+Claude Code commands. They write the marketplace and the plugin to
+`.claude/settings.json`. Commit that file, so that other people get the same
+setup.
+
 ## How to check that everything works
 
 ```bash
@@ -151,6 +227,8 @@ duolog doctor
 The command prints one line for each finding. It checks the agent binaries and
 versions, whether hooks are installed, Codex trust, Rex, and the install offer
 (for information only). It makes no model call unless you add `--probe`.
+Follow the steps it names. For a project that already uses duolog, install
+the binary, use the project's skill, and run doctor.
 
 ## How to send your first task
 
@@ -235,11 +313,13 @@ duolog stats
 
 The command reads `.duolog/usage.ndjson` and prints tokens and an estimated
 cost for each role, agent and model. The prices come from the config. They are
-estimates, not a bill.
+estimates, not a bill. Claude cache writes use the plain input rate, so their
+premium is missing from this estimate.
 
 ## How to check the remaining subscription quota
 
-Run `duolog quota` to see Claude and Codex quota without a model call:
+Run `duolog quota` to see Claude and Codex quota without a model call. It
+runs `claude -p /usage` and `codex app-server`, which read the limits:
 
 ```bash
 duolog quota
@@ -248,7 +328,8 @@ duolog quota --json
 
 Each agent shows its plan, used percentage and reset time for each window.
 Claude also shows extra usage. Codex also shows credits and per-model limits
-when available. The command never uses reset credits or reads auth files.
+when available. The command does not spend credits to reset limits. It asks
+each agent's CLI for quota and does not parse the agent's auth files itself.
 
 Each read has a 15-second timeout. If an agent is missing, signed out or fails
 to answer, its block says `unavailable` and gives the reason. The other agent
@@ -294,15 +375,25 @@ An empty template adds no line for that agent.
 
 ## Known limits
 
-- The first release is unpublished. There is no download.
-- Real agents ran on Windows 11 once, in Windows PowerShell 5.1: hooks fired
-  and the gate denied. PowerShell 7 and arm64 with real agents are unchecked.
+- One reported Windows 11 check covered install, hooks, workers and gate
+  denies in Windows PowerShell 5.1. Real agents in PowerShell 7 and on
+  Windows arm64 remain unchecked.
 - Windows console interruption and descendant cancellation still lack native
   verification. POSIX signal tests do not prove those Windows paths.
-- Codex as the lead is not proven. See [Rex](rex.md).
-- Most agent behavior in the research page is OBSERVED, not VERIFIED. Read
+- Live sessions require Rex on macOS or Linux. Windows uses
+  `duolog delegate`.
+- Codex delegation needed an outside-sandbox approval in the measured setup;
+  see [Permissions](permissions.md#a-codex-lead-that-starts-a-claude-worker).
+  Its shell could not find `rex` in our checks, so live peers from a Codex
+  lead remain unverified. See [Rex](rex.md).
+- Most agent behavior in the research page is OBSERVED in a few runs, not
+  VERIFIED. Read
   [the live verification](research/2026-10-30-live-verification.md) before you
   rely on a hook to protect a worker.
+- The cost study ran each setup once per task, on five tasks of one private
+  project. Repeats are needed before its numbers are averages. See
+  [Budgets](budgets.md) and
+  [the cost study](research/2026-11-01-cost-study.md).
 
 ## Related pages
 
@@ -311,3 +402,5 @@ An empty template adds no line for that agent.
 - [Sync](sync.md): keep skills and agents in step
 - [Bus](bus.md): messages and artifacts
 - [Rex](rex.md): live second sessions
+- [Telemetry](telemetry.md): the local history and how to turn it off
+- [Calibration](calibration.md): a starting order from past work, on request

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -88,8 +89,17 @@ func Open(o Options) (*Store, error) {
 		s.project = ProjectID(salt, o.CanonicalStateRoot)
 	}
 	s.root = r
+	openStores.Add(1)
 	return s, nil
 }
+
+// openStores counts the stores of this process that hold their root open.
+var openStores atomic.Int64
+
+// OpenStores reports how many stores in this process hold their root open.
+// On Windows an open root keeps its folder from being removed or renamed, so
+// tests use it to catch a command that leaves a store open.
+func OpenStores() int64 { return openStores.Load() }
 
 // Close releases the root. Append after Close fails and is counted.
 func (s *Store) Close() error {
@@ -100,6 +110,7 @@ func (s *Store) Close() error {
 	}
 	err := s.root.Close()
 	s.root = nil
+	openStores.Add(-1)
 	return scrub(err)
 }
 

@@ -2,7 +2,6 @@
 
 This page explains the bus and the artifacts. The bus is one file that sessions
 use to send short messages. An artifact is a file that a message points to.
-Together they let two sessions work without pasting large text at each other.
 
 ## What a message looks like
 
@@ -22,6 +21,10 @@ Each message is one JSON line in `.duolog/bus.ndjson`:
 | `ref` | An artifact reference, if any |
 | `s` | The summary |
 | `w` | For a gate ask, how many seconds its asker waits for the reply |
+| `p` | For a gate ask, `true` means only the person may allow it |
+
+A gate ask expires after `w` seconds. An older ask without `w` uses the
+150-second hook budget.
 
 A line has at most 512 bytes. The summary has at most 200 bytes. A longer
 summary is refused, and the error tells you to use `duolog put`.

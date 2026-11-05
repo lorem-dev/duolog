@@ -2,6 +2,7 @@ package workerenv
 
 import (
 	"runtime"
+	"slices"
 	"strings"
 )
 
@@ -30,9 +31,27 @@ func DroppedKeys(names, environ []string) map[string][]string {
 
 // MigrationLine tells the lead that an agent's workers no longer get name by
 // default. It names an explicit env_passthrough entry, which passes the key
-// today; the config has no paid_runs key yet.
-func MigrationLine(agent, name string) string {
-	return agent + " workers no longer get " + name + " by default. To let them use it, list it in env_passthrough explicitly."
+// today; the config has no paid_runs key yet. An explicit list replaces the
+// defaults, so the line shows the whole list to write: names, the list in
+// force, which is the defaults unless the person set one, plus the key.
+func MigrationLine(agent, name string, names []string) string {
+	list := strings.Join(append(slices.Clone(names), name), ", ")
+	return agent + " workers no longer get " + name + " by default. To let them use it, keep the default names and add the key, since an explicit list replaces the defaults: env_passthrough: [" + list + "]"
+}
+
+// ListedKeys returns the billing keys of every agent that names, the
+// env_passthrough list, hands to workers, in agent order. A worker that gets
+// one is billed per token.
+func ListedKeys(names []string) []string {
+	var keys []string
+	for _, agent := range []string{"claude", "codex"} {
+		for _, key := range droppedKeys[agent] {
+			if listed(names, key) {
+				keys = append(keys, key)
+			}
+		}
+	}
+	return keys
 }
 
 func listed(names []string, key string) bool {

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -131,13 +132,21 @@ func plantExpired(t *testing.T, telemetryRoot, partition string, stale bool) str
 	return path
 }
 
-// treeState lists every file under dir with its size and mtime.
+// treeState lists every file under dir with its size and mtime, and every
+// directory with no time. A file added or removed shows as an entry of its
+// own. On NTFS a directory's mtime can land milliseconds after the write in
+// it, so a snapshot taken right after a setup that wrote files saw it change
+// with no command run; the directory's own time therefore does not count.
 func treeState(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	files := map[string]string{}
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if d.IsDir() {
+			files[path] = "dir"
+			return nil
 		}
 		info, err := d.Info()
 		if err != nil {
@@ -413,7 +422,13 @@ func TestTelemetryCommands(t *testing.T) {
 
 	t.Run("off reads this project without creating anything", func(t *testing.T) {
 		root, telemetryRoot := telemetryCommandSetup(t)
-		seedRun(t, seedStore(t, root, time.Now()), "claude", "done")
+		// The seeded store holds the root open until it closes, and Windows
+		// refuses to remove a folder with an open handle; the root goes below.
+		seeded := seedStore(t, root, time.Now())
+		seedRun(t, seeded, "claude", "done")
+		if err := seeded.Close(); err != nil {
+			t.Fatal(err)
+		}
 		if _, _, err := telemetryCommand(t, "", "prune"); err != nil {
 			t.Fatal(err)
 		}
@@ -464,6 +479,60 @@ func mapsEqual(a, b map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// Every command closes the stores it opens. An open store holds its root, and
+// Windows refuses to remove or rename a folder with an open handle, so a store
+// left open breaks a purge, a prune or the person's own cleanup there. The
+// counter shows a leak on every OS.
+func TestCommandsCloseTheStore(t *testing.T) {
+	root, telemetryRoot := telemetryCommandSetup(t)
+	open := telemetry.OpenStores()
+
+	// The counter sees a store that stays open.
+	leaked := seedStore(t, root, time.Now())
+	if telemetry.OpenStores() != open+1 {
+		t.Fatalf("an open store is not counted: %d, want %d", telemetry.OpenStores(), open+1)
+	}
+	seedRun(t, leaked, "claude", "done")
+	if err := leaked.Close(); err != nil || telemetry.OpenStores() != open {
+		t.Fatalf("a closed store is still counted: %d, want %d, %v", telemetry.OpenStores(), open, err)
+	}
+
+	check := func(what string) {
+		t.Helper()
+		if got := telemetry.OpenStores(); got != open {
+			t.Fatalf("%s left %d stores open", what, got-open)
+		}
+	}
+	commands := [][]string{
+		{"status"}, {"show"}, {"show", "--json", "--project", "all"}, {"prune"},
+		{"purge", "--yes"}, {"purge", "--all", "--yes"}, {"off"}, {"on"},
+	}
+	for _, off := range []bool{false, true} {
+		if off {
+			t.Setenv("DUOLOG_TELEMETRY", "off")
+		}
+		plantExpired(t, telemetryRoot, "_account", true)
+		for _, args := range commands {
+			if _, _, err := telemetryCommand(t, "", args...); err != nil {
+				t.Fatalf("%v: %v", args, err)
+			}
+			check(fmt.Sprintf("telemetry %v (off %t)", args, off))
+		}
+		e2eSessionStart(t, "claude", root)
+		check(fmt.Sprintf("session start (off %t)", off))
+	}
+
+	t.Setenv("DUOLOG_TELEMETRY", "")
+	p := newDelegationProject(t, "delegating", reviewed("Reviewed."))
+	if out, err := p.run("review_final"); err != nil {
+		t.Fatalf("delegate: %q %v", out, err)
+	}
+	if len(runs(t, p.root)) != 1 {
+		t.Fatal("the delegation wrote no run event, so it opened no store")
+	}
+	check("delegate")
 }
 
 // A worker runs no telemetry command: each refuses before it reads the

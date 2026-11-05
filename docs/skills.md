@@ -94,9 +94,12 @@ This repository sets `always` in `.duolog/config.yaml`.
 `duolog install` installs this skill beside the duolog skill for both agents.
 The plugins include it too. Uninstall removes unchanged installed copies.
 
-The bundled `duolog-calibrate` skill is installed the same way. It runs only
-when you ask the lead to calibrate the project; agents cannot invoke it on
-their own. See [Calibration](calibration.md).
+## The calibration skill is installed the same way
+
+`duolog install` and the plugins also include `duolog-calibrate`. It runs
+only when you ask the lead for project calibration. Neither agent can start
+the skill on its own, and the `skill_tests` preference does not start it.
+See [Calibration](calibration.md) for its own approvals and cost limits.
 
 ## Related pages
 

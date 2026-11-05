@@ -25,7 +25,10 @@ func TestMigrationOnceAcrossDelegateAndPeer(t *testing.T) {
 	if err := os.Unsetenv("OPENAI_API_KEY"); err != nil {
 		t.Fatal(err)
 	}
-	line := workerenv.MigrationLine("claude", "ANTHROPIC_API_KEY")
+	line := workerenv.MigrationLine("claude", "ANTHROPIC_API_KEY", r.cfg.EnvPassthrough)
+	if !strings.Contains(line, "HOME, ") || !strings.HasSuffix(line, ", ANTHROPIC_API_KEY]") {
+		t.Fatalf("line does not show the defaults plus the key: %s", line)
+	}
 
 	// Peer first: the pane opens without the key and the reply names it.
 	e := r.open("plan")
@@ -65,8 +68,9 @@ func TestMigrationOnceAcrossDelegateAndPeer(t *testing.T) {
 // The claimed line comes whole after a question, which is cut before it, and
 // after an error, since peer open claims it before the pane exists.
 func TestMigrationSurvivesQuestionAndError(t *testing.T) {
-	line := workerenv.MigrationLine("codex", "OPENAI_API_KEY")
-	keys := func(t *testing.T) {
+	var line string
+	keys := func(t *testing.T, r *rig) {
+		line = workerenv.MigrationLine("codex", "OPENAI_API_KEY", r.cfg.EnvPassthrough)
 		t.Setenv("OPENAI_API_KEY", "sk-test-value")
 		t.Setenv("ANTHROPIC_API_KEY", "")
 		if err := os.Unsetenv("ANTHROPIC_API_KEY"); err != nil {
@@ -76,7 +80,7 @@ func TestMigrationSurvivesQuestionAndError(t *testing.T) {
 
 	t.Run("question", func(t *testing.T) {
 		r := newRig(t, withScreens(fixtureText("codex-trust-live.txt")))
-		keys(t)
+		keys(t, r)
 		e := r.open("implement")
 		if e.State != Question || !strings.Contains(e.Question, "Trust this folder?") || strings.Count(e.Question, line) != 1 || !strings.HasSuffix(e.Question, "; "+line) {
 			t.Fatalf("%+v", e)
@@ -87,7 +91,7 @@ func TestMigrationSurvivesQuestionAndError(t *testing.T) {
 		script := baseScript()
 		script["new"] = testbin.Scenario{Exit: 4, Stderr: "connecting to Rex server\nfailed to WebSocket dial\n"}
 		r := newRig(t, script)
-		keys(t)
+		keys(t, r)
 		_, err := Open(r.ctx, "implement")
 		if err == nil || strings.Count(err.Error(), line) != 1 || !strings.HasSuffix(err.Error(), "; "+line) {
 			t.Fatalf("%v", err)

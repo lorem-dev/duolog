@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -28,13 +29,14 @@ func unsetEnv(t *testing.T, name string) {
 // its credentials still follows capabilities.on_auth_failure.
 func TestDroppedOnlyLoginGoesToLeadWithoutLogin(t *testing.T) {
 	const secret = "sk-test-value"
-	line := workerenv.MigrationLine("codex", "OPENAI_API_KEY")
+	var line string
 	keys := func(t *testing.T) *harness {
 		h := authHarness(t)
 		t.Setenv("OPENAI_API_KEY", secret)
 		unsetEnv(t, "ANTHROPIC_API_KEY")
 		h.cfg.Capabilities.OnAuthFailure = auth.LoginThenLead
 		h.auth.login = auth.LoggedIn
+		line = workerenv.MigrationLine("codex", "OPENAI_API_KEY", h.cfg.EnvPassthrough)
 		return h
 	}
 	check := func(t *testing.T, h *harness, o Outcome, e error, calls int) {
@@ -46,8 +48,13 @@ func TestDroppedOnlyLoginGoesToLeadWithoutLogin(t *testing.T) {
 		if strings.Count(o.Line, line) != 1 || strings.Contains(o.Line, "! codex login") || strings.Contains(o.Line, secret) {
 			t.Fatal(o.Line)
 		}
+		// The line shows the whole list to write: the defaults and the key.
+		full := "env_passthrough: [" + strings.Join(append(slices.Clone(h.cfg.EnvPassthrough), "OPENAI_API_KEY"), ", ") + "]"
+		if !slices.Contains(h.cfg.EnvPassthrough, "HOME") || !strings.Contains(o.Line, full) {
+			t.Fatalf("line lacks %q: %s", full, o.Line)
+		}
 		// The config has no paid_runs yet: the way back is env_passthrough.
-		if !strings.HasSuffix(o.Line, " Do the task here, or list the key in env_passthrough and delegate again.") || strings.Contains(o.Line, "paid runs") {
+		if !strings.HasSuffix(o.Line, " Do the task here, or add the key to env_passthrough as shown and delegate again.") || strings.Contains(o.Line, "paid runs") {
 			t.Fatal(o.Line)
 		}
 	}
@@ -104,11 +111,12 @@ func TestDroppedOnlyLoginGoesToLeadWithoutLogin(t *testing.T) {
 // is too long is cut before it and the line follows whole, however the run
 // ends.
 func TestClaimedNoticeSurvivesALongLine(t *testing.T) {
-	line := workerenv.MigrationLine("codex", "OPENAI_API_KEY")
+	var line string
 	keys := func(t *testing.T) *harness {
 		h := authHarness(t)
 		t.Setenv("OPENAI_API_KEY", "sk-test-value")
 		unsetEnv(t, "ANTHROPIC_API_KEY")
+		line = workerenv.MigrationLine("codex", "OPENAI_API_KEY", h.cfg.EnvPassthrough)
 		return h
 	}
 	check := func(t *testing.T, o Outcome) {

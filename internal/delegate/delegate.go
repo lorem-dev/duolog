@@ -718,7 +718,7 @@ func ClaimMigration(reg *session.Registry, cfg *config.Config, leadID, agent str
 			}
 		}
 		if claimed {
-			lines = append(lines, workerenv.MigrationLine(agent, name))
+			lines = append(lines, workerenv.MigrationLine(agent, name, cfg.EnvPassthrough))
 		}
 	}
 	return lines, nil
@@ -742,7 +742,7 @@ func migrationLines(cfg *config.Config, p auth.Problem) []string {
 	}
 	var lines []string
 	for _, name := range workerenv.DroppedKeys(cfg.EnvPassthrough, os.Environ())[p.Agent] {
-		lines = append(lines, workerenv.MigrationLine(p.Agent, name))
+		lines = append(lines, workerenv.MigrationLine(p.Agent, name, cfg.EnvPassthrough))
 	}
 	return lines
 }
@@ -1089,7 +1089,7 @@ func settleAuth(ctx context.Context, cfg *config.Config, reg *session.Registry, 
 			return false, fmt.Errorf("%s; %s", reason, migration)
 		}
 		out.Needs = []string{p.Need()}
-		out.Line = oneLine("role " + role + " waits for lead: " + reason + "; " + migration + " Do the task here, or list the key in env_passthrough and delegate again.")
+		out.Line = oneLine("role " + role + " waits for lead: " + reason + "; " + migration + " Do the task here, or add the key to env_passthrough as shown and delegate again.")
 		return false, nil
 	}
 	if action == auth.Fail {

@@ -21,13 +21,17 @@ func TestDoctorRepeatsMigrationWhileKeyDropped(t *testing.T) {
 	if err := os.Unsetenv("OPENAI_API_KEY"); err != nil {
 		t.Fatal(err)
 	}
-	claude := workerenv.MigrationLine("claude", "ANTHROPIC_API_KEY")
-	codex := workerenv.MigrationLine("codex", "OPENAI_API_KEY")
-	// An explicit list replaces the defaults, so the example keeps them.
-	example := "Example config: env_passthrough: [" + strings.Join(append(slices.Clone(cfg.EnvPassthrough), "ANTHROPIC_API_KEY"), ", ") + "]"
+	claude := workerenv.MigrationLine("claude", "ANTHROPIC_API_KEY", cfg.EnvPassthrough)
+	codex := workerenv.MigrationLine("codex", "OPENAI_API_KEY", cfg.EnvPassthrough)
+	// An explicit list replaces the defaults, so the example is the whole
+	// list: the defaults in force plus the key.
+	example := "env_passthrough: [" + strings.Join(append(slices.Clone(cfg.EnvPassthrough), "ANTHROPIC_API_KEY"), ", ") + "]"
+	if !slices.Contains(cfg.EnvPassthrough, "HOME") {
+		t.Fatalf("test config lacks the default names: %v", cfg.EnvPassthrough)
+	}
 	warned := func(got []Finding, line string) bool {
 		for _, f := range got {
-			if f.Level == "warning" && strings.Contains(f.Message, line) && strings.Contains(f.Message, example) {
+			if f.Level == "warning" && f.Message == line && strings.HasSuffix(f.Message, example) {
 				return true
 			}
 		}

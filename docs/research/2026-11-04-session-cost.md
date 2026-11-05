@@ -7,8 +7,10 @@ are named by family only.
 
 ## What we found
 
-A fresh session with duolog's worker settings is the cheapest hand-over that we
-measured, and its quality was as good as the others.
+A fresh Claude session with duolog's worker settings had the lowest measured
+Claude cost in these tasks. It matched native subagents on the scored read
+task. The edit-task results need the notes below on one failing test and one
+test name collision.
 
 - A default Claude session writes about 15 thousand tokens to the cache at each
   start. With the worker settings the start writes about 4 thousand, and a real
@@ -19,10 +21,11 @@ measured, and its quality was as good as the others.
 - A resumed Claude follow-up gave the same recall as a fresh session and cost
   about 1.8 times more.
 - Codex reuses the provider's prompt cache across separate sessions, so a fresh
-  Codex start is cheap in money. A resumed Codex turn was not cheaper either.
-- On three edit tasks replayed from history, every form passed the hidden tests
-  for what the task asked. A worker session cost 0.15 USD on average, a
-  default session 0.23 and a native subagent 0.28.
+  Codex start is cheap in money. We did not record enough cached-token and
+  price detail to compare the money cost of fresh and resumed Codex runs.
+- On three edit tasks replayed from history, a worker session cost 0.15 USD
+  on average, a default session 0.23 and a native subagent 0.28. The pass
+  results are not reconciled; see the edit section.
 
 ## How we measured
 
@@ -37,6 +40,7 @@ settings file and no slash commands.
 | 1 | Reply with one word, in an empty folder | Claude (sonnet family), Codex (sol family, low effort) | 1 |
 | 2 | A: find where the gate denies worker reads of duolog state and explain it in 5 lines. B: list the tests that cover that decision | Same, Codex at medium effort, read-only | 1 |
 | 3 | Same tasks A and B, repeated | Same | Claude 3, Codex 2 |
+| Edit | Three historical fixes of this repository, with the fix's tests hidden | Claude in three forms, Codex | 6 to 9 per form over the three tasks |
 
 Task B ran either as a follow-up in the same session (`--resume`, or
 `exec resume` for Codex) or as a fresh session. In round 3, a blind judge from
@@ -45,9 +49,11 @@ facts, minus one for each wrong claim. We scored each task B list by recall of
 16 reference tests. We did not score precision, because answers often named a
 few more relevant tests.
 
-Limits: the samples are small, on one repository and one kind of work (code
-reading). The one-word round is a mechanics check, not a benchmark. Edit tasks
-were not measured. Codex prints no price, so its rows show tokens only.
+Limits: the samples are small and on one repository. The read-only comparison
+uses two related tasks, with 1 to 3 runs per case. The edit comparison uses
+three historical fixes from the same repository. The one-word round is a
+mechanics check, not a benchmark. Codex prints no price, so its rows show
+tokens only. The per-run data is not published with this page.
 
 ## What a session start costs
 
@@ -111,21 +117,29 @@ Three edit tasks were redone from the develop base, each taken from a real fix
 of the same day. The fix's tests were hidden from the agent and added after the
 run. "Core" counts the hidden tests for behaviour that the task text asked for.
 
+The earlier summary reports both a common failure on one stated behaviour and
+passes on the tests labelled Core. The saved per-run data is unavailable, so
+we cannot establish which tests Core left out or confirm the pass claims. The
+cause of the common failure is unknown. One Codex result passed only after
+its colliding test file was reset.
+
 | Form | Runs | Core hidden tests | USD per run, mean (range) | Time per run |
 | --- | --- | --- | --- | --- |
-| Claude, worker settings | 9 | all passed in every run | 0.153 (0.121-0.189) | 43-166 s |
-| Claude, default session | 6 | all passed in every run | 0.233 (0.197-0.266) | 51-133 s |
-| Claude, native subagent | 6 | all passed in every run | 0.276 (0.243-0.300) | 59-143 s |
-| Codex, new session | 9 | all passed in every run | 214k-662k input, 85-97% cached | 59-163 s |
+| Claude, worker settings | 9 | Pass summary not reconciled with the common failure | 0.153 (0.121-0.189) | 43-166 s |
+| Claude, default session | 6 | Pass summary not reconciled with the common failure | 0.233 (0.197-0.266) | 51-133 s |
+| Claude, native subagent | 6 | Pass summary not reconciled with the common failure | 0.276 (0.243-0.300) | 59-143 s |
+| Codex, new session | 9 | Pass summary not reconciled with the common failure; one run passed only after its own test file was reset | 214k-662k input, 85-97% cached | 59-163 s |
 
 - The forms differed only on behaviour the task text did not mention. An
   escaped `\>|` case passed in 2 of 3 Codex runs and in none of 7 Claude runs.
   A weekly reset with a date failed for every form.
-- One stated behaviour failed for every form in the same way, which points at
-  the hidden test rather than the agents.
+- One stated behaviour failed for every form in the same way. Its cause is
+  unknown: the hidden test, the task text or the implementations could be
+  wrong.
 - In task 1, Codex added a test with the same name as a hidden one, so the
-  package did not build once the hidden tests were added. With the agent's
-  test file reset, the hidden tests passed.
+  package did not build once the hidden tests were added, so that run first
+  scored as a failure. With the agent's test file reset, the hidden tests
+  passed.
 - For calibration this means two rules: a task text names every behaviour the
   hidden tests check, and candidate tests are kept apart from hidden tests.
 
@@ -149,28 +163,30 @@ these pages either.
 
 What the repository itself shows, without a public page:
 
-- A call carries about 15 to 16.5 thousand input tokens before the task, for
-  both agents.
+- In earlier probes, a call carried about 15 to 16.5 thousand input tokens
+  before the task, for both agents. The counts above show that the start
+  context varies by configuration.
 - Codex lost its cache with `--output-schema` in an earlier probe. duolog no
   longer passes that flag.
 - Every model call in a turn sends the whole context again. In an earlier
   bench a resumed Codex thread cost more than a new session with the content
   inline.
-- `duolog stats` prices a Claude cache write as plain input, so it
-  under-reports Claude workers (37% on one saved run).
+- `duolog stats` does not model Claude cache-write premiums. It prices cache
+  creation as plain input, so its USD estimate can be lower than the
+  CLI-reported token price.
 
 ## Where the reports and the measurements disagree
 
-The measurements win wherever they exist.
+The observations apply only to the recorded configurations and tasks.
 
-| Topic | Reports | Measurements | Which wins |
+| Topic | Reports | Measurements | Status |
 |---|---|---|---|
-| A native subagent | One report: at best a little cheaper than a fresh session. The other: undecided | About 2.7 times a worker session, same quality | Measurements |
-| A resumed thread | One report: cheaper when the follow-up needs the material again, within 30 minutes | 1.8 times a fresh worker session, same recall | Measurements, for code reading |
-| A live peer | One report: a warm cache makes it cheaper for long work | Not measured | Open |
-| A native subagent on the cheapest model | One report: a win under a Claude lead | Only the sonnet family was measured | Open |
-| Cross-session cache | Hypothesis, to verify | Claude: shared prefix only. Codex: about 80% of input cached | Measurements |
-| Cold start of a Claude session | 16.4 thousand tokens per call, with no MCP servers | A default session wrote and read about 28 thousand tokens, the worker settings about 21 thousand | Measurements |
+| A native subagent | One report: at best a little cheaper than a fresh session. The other: undecided | About 2.7 times a worker session, same quality | Observed here |
+| A resumed thread | One report: cheaper when the follow-up needs the material again, within 30 minutes | 1.8 times a fresh worker session, same recall | Observed here, for code reading |
+| A live peer | One report: a warm cache makes it cheaper for long work | Not measured | Not measured |
+| A native subagent on the cheapest model | One report: a win under a Claude lead | Only the sonnet family was measured | Not measured |
+| Cross-session cache | Hypothesis, to verify | Claude: fresh sessions still wrote to the cache; the changed prefix is not identified. Codex: about 80% of input cached | Observed here |
+| Cold start of a Claude session | 16.4 thousand tokens per call, with no MCP servers | A default session wrote and read about 28 thousand tokens, the worker settings about 21 thousand | Observed here |
 
 Both reports agree on three points that the measurements do not contradict: a
 native subagent does not avoid the cold start, it loses the role sandbox, the
@@ -181,16 +197,18 @@ be verified first.
 
 Keep a fresh session with the worker settings for delegation.
 
-- Fresh worker sessions stay the default. They cost least, kept the quality of
-  the other forms, and keep the sandbox, the gate, routing and the records.
+- Fresh worker sessions stay the default. They cost least in these runs,
+  matched the native subagent on the scored read task, and keep the sandbox,
+  the gate, routing and the records.
 - Do not switch to native subagents for cost. We measured no case where one is
   cheaper. Consider one only for a read-only search under the lead's own
   vendor when the other vendor is at its limit, which duolog already does.
   Before any wider use, check that the lead's hooks fire for the child's tool
   calls.
-- A resumed thread is worth it only when a follow-up must read again much of
-  what the first run read, and the answer takes one or two calls. We found no
-  such case yet. Keep the idle close below the cache lifetime.
+- Measure resume on follow-up tasks before changing session lifetime. A
+  resume may pay off when a follow-up must read again much of what the first
+  run read; we found no such case. These runs do not establish a break-even
+  call count or a cache-lifetime setting.
 - Keep the worker settings narrow. MCP servers, skills and instruction files
   are most of the start cost, so a role that needs them pays for them.
 
@@ -203,7 +221,7 @@ Keep a fresh session with the worker settings for delegation.
 4. A live peer and a native Codex subagent. Neither was measured.
 5. A resume after the cache lifetime, to see what a late resume pays.
 6. Cache writes in `usage.ndjson` and `duolog stats`, so that the records show
-   the real cost of a Claude worker.
+   a token-price estimate that includes cache-write premiums.
 
 ## Related pages
 

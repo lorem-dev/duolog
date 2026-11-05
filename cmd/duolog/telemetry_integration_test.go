@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"io"
 	"io/fs"
 	"os"
@@ -70,7 +71,7 @@ func gitOnlyDir(t *testing.T) string {
 // printed.
 func e2eSessionStart(t *testing.T, agent, cwd string) string {
 	t.Helper()
-	t.Chdir(cwd)
+	chdir(t, cwd)
 	input, _ := json.Marshal(map[string]string{"session_id": "lead-e2e-" + agent, "cwd": cwd, "hook_event_name": "SessionStart"})
 	cmd := newRootCommand()
 	var out bytes.Buffer
@@ -89,7 +90,7 @@ var statusProjectID = regexp.MustCompile(`(?m)^project id: ([0-9a-f]{16})$`)
 // e2eProjectID is the project id duolog telemetry status prints in dir.
 func e2eProjectID(t *testing.T, dir string) string {
 	t.Helper()
-	t.Chdir(dir)
+	chdir(t, dir)
 	out, _, err := telemetryCommand(t, "", "status")
 	m := statusProjectID.FindStringSubmatch(out)
 	if err != nil || m == nil {
@@ -132,6 +133,37 @@ func segmentLines(t *testing.T, telemetryRoot string) map[string][]string {
 		t.Fatal(err)
 	}
 	return lines
+}
+
+// chdir moves the process to dir until t ends, as t.Chdir does, but keeps no
+// handle on the folder it leaves. t.Chdir holds the old folder open to come
+// back to it, so each call leaves one more handle until the test ends. A test
+// that changes folders often then holds the checkout open, and Windows refuses
+// to rename or remove a folder with an open handle. This one comes back by path.
+// Like t.Chdir it sets PWD on POSIX, so os.Getwd keeps the spelling of dir.
+func chdir(t *testing.T, dir string) {
+	t.Helper()
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PWD", abs)
+	}
+	// Cleanups run last first, so a folder the test moved or removed meanwhile
+	// is skipped and an earlier one, finally the starting folder, is restored.
+	t.Cleanup(func() {
+		if err := os.Chdir(old); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("chdir back to %s: %v", old, err)
+		}
+	})
 }
 
 // under reports whether path is dir or inside it.
@@ -208,7 +240,7 @@ func TestTelemetryEndToEnd(t *testing.T) {
 	e2eGit(t, checkout, "add", "a.go", ".gitignore")
 	e2eGit(t, checkout, "commit", "-q", "-m", "start")
 	e2eGit(t, checkout, "worktree", "add", "-q", "-b", "side", worktree)
-	t.Chdir(checkout)
+	chdir(t, checkout)
 	s, err := store.Open(checkout)
 	if err != nil {
 		t.Fatal(err)
@@ -264,7 +296,7 @@ func TestTelemetryEndToEnd(t *testing.T) {
 	installWorker(testbin.Scenario{Sequence: []testbin.Scenario{succeeded, failed}})
 	delegateIn := func(dir string) (string, error) {
 		t.Helper()
-		t.Chdir(dir)
+		chdir(t, dir)
 		return executeBusCommand(t, "delegate", "review_final", "--task", filepath.Join(dir, "task.md"), "--lead", e2eLead, "--thread", "topic")
 	}
 	if out, err := delegateIn(checkout); err != nil || !strings.Contains(out, "done=true") {
@@ -273,7 +305,7 @@ func TestTelemetryEndToEnd(t *testing.T) {
 	if out, err := delegateIn(worktree); err == nil {
 		t.Fatalf("a failed worker succeeded: %q", out)
 	}
-	t.Chdir(checkout)
+	chdir(t, checkout)
 	attempts := runs(t, checkout)
 	if len(attempts) != 2 {
 		t.Fatalf("run events: %+v", attempts)
@@ -325,7 +357,7 @@ func TestTelemetryEndToEnd(t *testing.T) {
 		if runtime.GOOS == "windows" {
 			t.Skip("live peer sessions are unavailable on Windows")
 		}
-		t.Chdir(checkout)
+		chdir(t, checkout)
 		t.Setenv("REX_SESSION", "sess")
 		t.Setenv("REX_BLOCK", "")
 		t.Setenv("DUOLOG_LEAD", e2eLead)
@@ -358,7 +390,7 @@ func TestTelemetryEndToEnd(t *testing.T) {
 	// Account events: two quota reads of unchanged windows are one snapshot
 	// per agent; each route the router resolves is one event, and its answer
 	// is the same each time.
-	t.Chdir(checkout)
+	chdir(t, checkout)
 	installQuotaFakes(t, `{"loggedIn":true,"subscriptionType":"max","email":"`+e2eSentinel+`@example.com"}`, codexQuota)
 	t.Setenv("PATH", os.Getenv("PATH")+string(os.PathListSeparator)+gitDir)
 	for range 2 {
@@ -468,7 +500,7 @@ func TestTelemetryEndToEnd(t *testing.T) {
 	// nothing, routes the same, and still prunes at session start.
 	for _, off := range []string{"switch", "env"} {
 		t.Run("global off by "+off, func(t *testing.T) {
-			t.Chdir(checkout)
+			chdir(t, checkout)
 			if off == "switch" {
 				if _, _, err := telemetryCommand(t, "", "off"); err != nil {
 					t.Fatal(err)
@@ -501,7 +533,7 @@ func TestTelemetryEndToEnd(t *testing.T) {
 	// A closed day is compressed; readers still see it, and no segment, raw
 	// or compressed, nor any other file holds free text or a path. Today's
 	// segment is dated a day back so prune compresses bytes duolog wrote.
-	t.Chdir(checkout)
+	chdir(t, checkout)
 	today := time.Now().UTC()
 	partition := filepath.Join(telemetryRoot, "v1", id)
 	closed := filepath.Join(partition, today.AddDate(0, 0, -1).Format(time.DateOnly)+".ndjson")
@@ -559,7 +591,7 @@ func TestTelemetryEndToEnd(t *testing.T) {
 			t.Fatalf("symlinked id %s, checkout %s", got, id)
 		}
 	}
-	t.Chdir(base)
+	chdir(t, base)
 	moved := filepath.Join(base, "moved")
 	if err := os.Rename(checkout, moved); err != nil {
 		t.Fatal(err)
@@ -573,7 +605,7 @@ func TestTelemetryEndToEnd(t *testing.T) {
 	// partition and the salt and keeps the notice marker. Balance's state and
 	// its routing stay as they were.
 	seedRun(t, seedStore(t, moved, time.Now()), "codex", "done")
-	t.Chdir(moved)
+	chdir(t, moved)
 	if _, _, err := telemetryCommand(t, "", "purge", "--yes"); err != nil {
 		t.Fatal(err)
 	}

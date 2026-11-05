@@ -1,29 +1,29 @@
 # How duolog keeps local telemetry
 
-duolog keeps a small local history of its own work: tokens, cost and outcome
-per run, quota readings, routing choices and permission questions. The
-history is for you. It stays on this machine, nothing uploads it, and it holds
-numbers and fixed names, never text. It is on by default. This page says what
-duolog keeps, where, for how long, how to turn it off or delete it, and what
-it does not protect against.
+Local telemetry is on by default. Run `duolog telemetry off` to stop
+collection. duolog records tokens, cost and outcome per run, quota readings,
+routing choices and permission questions on this machine. The telemetry code
+does not upload them. This page explains what duolog keeps, where, for how
+long, how to turn it off or delete it, and what it does not protect against.
 
 ## How to turn it off
 
 Run `duolog telemetry off` in your terminal. It sets `telemetry.enabled:
-false` in your user config, and duolog stops writing for every project. Turn
-it on again with `duolog telemetry on`.
+false` in your user config, and duolog stops collecting events for every
+project. Turn it on again with `duolog telemetry on`.
 
 | Switch | Where | What stops |
 |---|---|---|
-| `duolog telemetry off` | Your user config | Every write, in every project |
-| `DUOLOG_TELEMETRY=off` | The environment | Every write. This value cannot turn telemetry on |
+| `duolog telemetry off` | Your user config | Event collection, in every project |
+| `DUOLOG_TELEMETRY=off` | The environment | Event collection. This value cannot turn telemetry on |
 | `telemetry.enabled: false` | `.duolog/config.yaml` or `.duolog/config.local.yaml` | Run, permission and peer events of this project only |
 
 A project can turn off only its own events. Quota, routing and reset events
 belong to your account, so a project switch does not stop them.
 
-Turning telemetry off does not stop pruning. duolog keeps removing expired
-data until it is gone. To delete it now, use `duolog telemetry purge`.
+Turning telemetry off stops collection, not pruning. Existing records stay
+until pruning removes them; pruning still compresses old days and updates its
+own state. To delete the data now, use `duolog telemetry purge`.
 
 The first session start that collects prints one line, once for each user:
 "Telemetry is local only; turn it off with duolog telemetry off."
@@ -31,7 +31,13 @@ The first session start that collects prints one line, once for each user:
 ## What duolog keeps
 
 Each record is one line of JSON with a version, a time in UTC seconds and a
-type. Every text field holds a fixed name from a short list, or `other`.
+type. Records contain numbers, random duolog run and task ids, and names. Most
+names come from a fixed short list, or are `other`.
+
+Role and class names are the exception. They come from your config and are
+stored as given, when they are configured and match `^[a-z0-9_.-]{1,32}$`.
+Any other value is stored as `other`. So keep personal names and private
+project names out of role and class names.
 
 | Type | What it holds | Where |
 |---|---|---|
@@ -46,18 +52,21 @@ Records name model families, such as `opus` or `sol`, never a model version.
 Every failed attempt is a run too, whether learning mode is on or not.
 Calibration runs write no run events.
 
-duolog never keeps prompts, answers, task text, notes, diffs, file contents,
-file names or paths, commands, permission targets, URLs, branches, commit ids,
-environment values, sign-in data, email addresses, account or organisation
-ids, vendor session or request ids, host names, user names, time zones or
-error messages. A field that would hold any of these holds `other`. A line
-longer than 1 KiB is refused.
+duolog does not record prompts, answers, task text, notes, diffs, file
+contents, file names or paths, commands, permission targets, URLs, branches,
+commit ids, environment values, sign-in data, email addresses, account or
+organization ids, vendor session or request ids, host names, user names, time
+zones or error messages. A field for a fixed name that would hold any of these
+holds `other`. A configured role or class name is the one way such text can
+enter a record. A line longer than 1 KiB is refused.
 
 duolog does not copy or move the existing `.duolog` logs into telemetry.
 
 ## Where the data lives
 
-Telemetry has one folder for each user. No setting or variable moves it.
+Telemetry has one folder for each user. There is no duolog setting or
+variable that moves it. duolog uses the OS locations below, including the OS
+variables they name.
 
 | OS | Folder |
 |---|---|
@@ -82,9 +91,10 @@ under Linux, where file locks are unreliable. `duolog doctor` then warns.
 
 ## How long data stays
 
-duolog writes each record to the file of the UTC day it writes it. The file
-of UTC day D is deleted at the first prune on or after D plus 30 days, at
-00:00 UTC. Readers also skip any record older than 30 days, or dated more than
+duolog writes each record to the file of the UTC day it writes it. duolog
+deletes a day's file at the first prune once 30 days have passed since that
+UTC day began. So a record written late in a day lives a little less than 30
+days. Readers also skip any record older than 30 days, or dated more than
 a day ahead, even while its file is still on disk.
 
 `telemetry.retention_days` shortens the 30 days, from 1 to 30. Only your user
@@ -104,8 +114,12 @@ day with gzip.
 
 Two caps keep the folder small. 1 MB is 1,000,000 bytes:
 
-- The whole folder holds at most `max_megabytes`. Above it, the oldest days go
-  first, across all projects.
+- New events must fit under `max_megabytes` for the whole folder. duolog
+  removes older UTC days first, across projects, and keeps today's records.
+  If removing old days cannot make enough room, it drops the new events.
+  Every file in the folder counts, and pruning leaves files it does not know
+  alone. So it may not bring a folder that something else enlarged below
+  the cap.
 - A project writes at most 2 MB of plain records in one UTC day. duolog drops
   the records after that and counts them.
 
@@ -125,10 +139,16 @@ The commands are for you, in your terminal. A worker cannot run them.
 | `duolog telemetry status` | The switches, the folder, its size and files, the oldest day, this project's id, the last prune, the caps, the lost-event counts and the protection checks |
 | `duolog telemetry show` | Runs per day, agent, role and outcome, the quota readings and routing moves. `--since` takes `1h` to `30d` (default `7d`), `--project` takes `here` (default) or `all`, `--json` prints JSON |
 | `duolog telemetry prune` | Applies retention, compression and the size cap now |
-| `duolog telemetry purge` | Deletes this project's history. `--all` deletes every project, the account history and the salt. `--yes` skips the question |
+| `duolog telemetry purge` | Deletes this project's history. `--all`, or `--project all`, deletes every project, the account history and the salt. `--yes` skips the question |
 | `duolog telemetry on` and `off` | The user switch |
 
 There is no export command and no option that writes the data elsewhere.
+
+The USD totals in `show` use the token prices in your config and are not a
+bill. Claude cache writes use the plain input rate, so totals can understate
+their cost. `NO USAGE` counts runs without reported tokens, and `UNPRICED`
+counts runs without a usable price. Their missing amounts do not enter the
+totals.
 
 `purge` asks you to type `yes` in a terminal, unless you pass `--yes`.
 `purge --all` keeps the small marker that says the first notice was shown,
@@ -159,12 +179,13 @@ warnings.
 
 ## What the protection does not cover
 
-These limits are known and accepted:
+The protection has these limits:
 
 - **The gate sees what an agent asks for, not what a program does.** A worker
   that runs project code, such as tests or a build, can read the folder
-  without naming it. The records hold numbers and fixed names, so such a read
-  shows usage figures, not text.
+  without naming it. Such a read shows usage figures, ids and the names
+  described above. See
+  [Permissions](permissions.md#what-the-gate-cannot-see).
 - **Codex's sandbox limits writes only.** For Codex workers the gate is the
   only check on reads.
 - **Native Windows has the gate only.**
@@ -175,7 +196,7 @@ These limits are known and accepted:
   any program you run could read it too. Disk encryption, such as FileVault,
   LUKS or BitLocker, covers a stolen disk.
 - **No guaranteed erasure.** Purge deletes the files. Snapshots, backups and
-  SSD wear levelling can keep copies.
+  SSD wear leveling can keep copies.
 - **The no-network claim is for the telemetry code.** The telemetry package
   imports no network code, and a test checks this. The duolog binary as a
   whole has network code for MCP sign-in checks, but it sends no telemetry.
@@ -191,7 +212,7 @@ ones it verified:
 | OS | What duolog does | Verified |
 |---|---|---|
 | macOS | Sets the Time Machine exclusion attribute on the folder; the `.noindex` name keeps Spotlight out | duolog reads the attribute back. Tests cannot ask `tmutil`: they run in temporary folders, which Time Machine already skips |
-| Linux | Writes `CACHEDIR.TAG`, which borg, restic and `tar --exclude-caches` honour | Deja Dup does not honour it |
+| Linux | Writes `CACHEDIR.TAG`. Not every backup tool honors it; Deja Dup, for one, does not. Configure your backup tool to honor cache tags, or exclude the folder explicitly | duolog checks the tag, not your backup job |
 | Windows | Nothing: Windows Search does not index AppData by default, and OneDrive folder backup does not cover it | Not verified; Microsoft does not document the OneDrive part |
 
 ## Related pages
