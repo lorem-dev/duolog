@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/bus"
@@ -152,7 +153,7 @@ func operationOutcome(state State, err error) string {
 	switch state {
 	case Ready:
 		return "done"
-	case Question:
+	case Question, Interrupted:
 		return "needs"
 	case Limited:
 		return "lead"
@@ -564,8 +565,10 @@ func (e *env) observe(ctx context.Context, entry session.Entry) (State, Screen, 
 	return screen.State, screen, nil
 }
 
+// screen keeps the capture's styles, which tell a dim suggestion in the input
+// line from typed text.
 func (e *env) screen(ctx context.Context, entry session.Entry) (Screen, error) {
-	raw, err := e.clientFor(entry).Capture(ctx, entry.Block, e.cfg.Rex.CaptureLines)
+	raw, err := e.clientFor(entry).CaptureStyled(ctx, entry.Block, e.cfg.Rex.CaptureLines)
 	if err != nil {
 		return Screen{}, err
 	}
@@ -623,6 +626,8 @@ func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Ent
 		case Limited:
 			line, err := e.runHere(entry, entry.Task, screen.Text)
 			return Entry{ID: entry.ID, State: Limited, Note: line}, err
+		case Interrupted:
+			return Entry{ID: entry.ID, State: Interrupted, Note: interruptedNote(entry)}, nil
 		case Ready:
 			if startup || entry.Task == "" {
 				if screen.Empty {
@@ -687,6 +692,16 @@ func Wait(ctx context.Context, id string) (Entry, error) {
 	}
 	e.watchQuestions = true
 	return e.watch(ctx, entry, false)
+}
+
+// interruptedNote tells the lead that the peer stopped, for example after a
+// denied permission prompt, and waits for a follow-up.
+func interruptedNote(entry session.Entry) string {
+	note := "it stopped and waits for what to do instead"
+	if entry.Task != "" {
+		note += "; task " + entry.Task + " is unfinished"
+	}
+	return note + "; send a follow-up with duolog peer send " + entry.ID + " <task>"
 }
 
 // stuckInput reports an idle input line that still holds the sent task line.
@@ -920,8 +935,10 @@ func Send(ctx context.Context, id, taskRef string) (err error) {
 	return err
 }
 
-// settle requires the empty prompt on two samples in a row. Anything else is
-// reported as a refusal and nothing is typed.
+// settle requires the empty prompt on two samples in a row: ready, or
+// interrupted and waiting for a follow-up. A prompt that shows only the
+// agent's suggestion is empty, and typing replaces the suggestion. Anything
+// else is reported as a refusal and nothing is typed.
 func (e *env) settle(ctx context.Context, entry session.Entry, taskPath string) error {
 	for sample := 0; sample < 2; sample++ {
 		if sample > 0 {
@@ -955,11 +972,11 @@ func (e *env) settle(ctx context.Context, entry session.Entry, taskPath string) 
 			}
 			return fmt.Errorf("peer %s has a question; the lead answers it with duolog peer answer", entry.ID)
 		}
-		if state != Ready {
+		if state != Ready && state != Interrupted {
 			return fmt.Errorf("peer %s is %s, not ready", entry.ID, state)
 		}
 		if !s.Empty {
-			return fmt.Errorf("peer %s is ready but its input line holds text; nothing was sent", entry.ID)
+			return fmt.Errorf("peer %s is %s but its input line holds text; nothing was sent", entry.ID, state)
 		}
 	}
 	return nil
@@ -1073,6 +1090,12 @@ func Status(ctx context.Context, id string) (Report, error) {
 	}
 	changed, known := e.changedFiles(entry)
 	st.ChangedFiles = changed
+	if state == Interrupted {
+		st.Line = fmt.Sprintf("%s %s: %s", entry.ID, state, interruptedNote(entry))
+		if known && entry.Task != "" {
+			st.Line += fmt.Sprintf("; %d files changed", changed)
+		}
+	}
 	if st.Line == "" {
 		st.Line = fmt.Sprintf("%s %s", entry.ID, state)
 		if state == Question {
@@ -1112,6 +1135,20 @@ func (e *env) restartNote(entry session.Entry) string {
 // cursor with navigation keys, checks that it arrived, and only then presses
 // enter. A bare enter is never sent, because a default can be "No, exit".
 func Answer(ctx context.Context, id, choice string) error {
+	return AnswerWithReason(ctx, id, choice, "")
+}
+
+// interruptSamples bounds how many screens AnswerWithReason reads while the
+// pane turns from the question to its interrupted input line.
+const interruptSamples = 5
+
+// AnswerWithReason is Answer that then replies with a reason, one line. A
+// Claude permission prompt answered No leaves the pane interrupted, asking
+// what to do instead; the reason is typed there after reasonPrefix and
+// submitted, as a person does, so the peer goes on with it. Only an interrupted pane with an empty
+// input line gets the reason. Any other state is an error that says the
+// reason was not sent; the option stays selected.
+func AnswerWithReason(ctx context.Context, id, choice, reason string) error {
 	e, err := setup(ctx)
 	if err != nil {
 		return err
@@ -1119,6 +1156,13 @@ func Answer(ctx context.Context, id, choice string) error {
 	choice = strings.TrimSpace(choice)
 	if choice == "" {
 		return errors.New("answer needs the label or number of an option")
+	}
+	reason = strings.TrimSpace(reason)
+	if strings.ContainsAny(reason, "\r\n") {
+		return errors.New("the reason must be one line")
+	}
+	if strings.ContainsFunc(reason, unicode.IsControl) {
+		return errors.New("the reason cannot hold control characters")
 	}
 	entry, err := e.find(id)
 	if err != nil {
@@ -1135,7 +1179,7 @@ func Answer(ctx context.Context, id, choice string) error {
 		return err
 	}
 	// Read the state again: the next question, if any, goes to the lead.
-	_, after, err := e.observe(ctx, entry)
+	state, after, err := e.observe(ctx, entry)
 	if err != nil {
 		return err
 	}
@@ -1143,10 +1187,53 @@ func Answer(ctx context.Context, id, choice string) error {
 	if err != nil {
 		return err
 	}
-	if after.State == Question {
-		return e.ask(entry, after.Question)
+	if reason == "" {
+		// The answered question may still show while the pane redraws; only
+		// a different one goes to the lead.
+		if after.State == Question && after.Question != screen.Question {
+			return e.ask(entry, after.Question)
+		}
+		return nil
 	}
-	return nil
+	return e.reply(ctx, entry, screen.Question, state, after, reason)
+}
+
+// reasonPrefix starts every typed reason with words, so the input line never
+// reads it as a mode switch: a leading !, #, $, @ or / is a shell command,
+// memory, mention or slash command to Claude Code and Codex, which no gate
+// sees.
+const reasonPrefix = "Reason: "
+
+// reply types the reason into an interrupted pane once its input line is
+// empty. The pane may take a moment to leave the question it answered, so
+// that question may stay on screen for the bounded wait; a different question
+// goes to the lead at once.
+func (e *env) reply(ctx context.Context, entry session.Entry, answered string, state State, screen Screen, reason string) error {
+	for sample := 1; ; sample++ {
+		switch {
+		case state == Question && screen.Question == answered && sample < interruptSamples:
+		case state == Question && screen.Question == answered:
+			return fmt.Errorf("peer %s still shows the question it was asked, so the reason was not sent: %s", entry.ID, screen.Question)
+		case state == Question:
+			if err := e.ask(entry, screen.Question); err != nil {
+				return err
+			}
+			return fmt.Errorf("peer %s asks another question, so the reason was not sent: %s", entry.ID, screen.Question)
+		case state == Interrupted && screen.Empty:
+			return e.deliver(ctx, entry, reasonPrefix+reason)
+		case state == Interrupted:
+			return fmt.Errorf("peer %s is interrupted but its input line holds text, so the reason was not sent", entry.ID)
+		case state == Closed, state == Exited, sample >= interruptSamples:
+			return fmt.Errorf("peer %s is %s, not interrupted, so the reason was not sent; send it as a task with duolog peer send", entry.ID, state)
+		}
+		if err := sleep(ctx, settleDelay); err != nil {
+			return err
+		}
+		var err error
+		if state, screen, err = e.observe(ctx, entry); err != nil {
+			return err
+		}
+	}
 }
 
 // selectOption is shared by lead answers and automatic answers.
