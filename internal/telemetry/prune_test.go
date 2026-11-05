@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/gofrs/flock"
 )
 
 // clock is a store clock a test can move.
@@ -273,31 +275,113 @@ func TestPruneCadence(t *testing.T) {
 
 	t.Run("concurrent due checks", func(t *testing.T) {
 		noOverride(t)
-		base := tempBase(t)
-		root := storeRoot(t, base)
-		var stores []*Store
-		for range 8 {
-			stores = append(stores, mustOpenStore(t, storeOptions(base)))
-		}
-		plant(t, accountSegment(root, expiredDay), quotaLine(t, 1, testNow))
 		passes := countPasses(t)
-		var deleted atomic.Int64
-		var wg sync.WaitGroup
-		start := make(chan struct{})
-		for _, s := range stores {
-			wg.Go(func() {
-				<-start
-				m, err := s.Prune(false)
-				if err != nil {
-					t.Error(err)
-				}
-				deleted.Add(int64(m.Deleted))
-			})
+		// The stamp is missing at the start of each round: the race was in
+		// its creation, so one round rarely shows it.
+		for round := range 25 {
+			passes.Store(0)
+			base := tempBase(t)
+			root := storeRoot(t, base)
+			var stores []*Store
+			for range 8 {
+				stores = append(stores, mustOpenStore(t, storeOptions(base)))
+			}
+			plant(t, accountSegment(root, expiredDay), quotaLine(t, 1, testNow))
+			var deleted atomic.Int64
+			var wg sync.WaitGroup
+			start := make(chan struct{})
+			for _, s := range stores {
+				wg.Go(func() {
+					<-start
+					m, err := s.Prune(false)
+					if err != nil {
+						t.Error(err)
+					}
+					deleted.Add(int64(m.Deleted))
+				})
+			}
+			close(start)
+			wg.Wait()
+			if passes.Load() != 1 || deleted.Load() != 1 {
+				t.Fatalf("round %d: %d passes deleted %d files, want one pass", round, passes.Load(), deleted.Load())
+			}
 		}
-		close(start)
-		wg.Wait()
-		if passes.Load() != 1 || deleted.Load() != 1 {
-			t.Errorf("%d passes deleted %d files, want one pass", passes.Load(), deleted.Load())
+	})
+
+	t.Run("new stamp appears dated", func(t *testing.T) {
+		s, root, _ := pruneFixture(t, testNow, 30)
+		if err := s.newStamp(); err != nil {
+			t.Fatal(err)
+		}
+		if got := stampTime(t, root); !got.Equal(time.Unix(0, 0)) {
+			t.Errorf("new stamp dated %v, want the epoch", got)
+		}
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			if e.Name() != "prune.stamp" && e.Name() != "v1" && e.Name() != "salt" && e.Name() != "CACHEDIR.TAG" {
+				t.Errorf("newStamp left %q", e.Name())
+			}
+		}
+		if err := s.newStamp(); err != nil {
+			t.Errorf("second newStamp: %v", err)
+		}
+	})
+
+	t.Run("new stamp is never seen undated", func(t *testing.T) {
+		noOverride(t)
+		epoch := time.Unix(0, 0)
+		for round := range 300 {
+			base := tempBase(t)
+			s := mustOpenStore(t, storeOptions(base))
+			stamp := filepath.Join(storeRoot(t, base), "prune.stamp")
+			var seen atomic.Int64 // mtime seconds of a stamp that was not dated
+			stop := make(chan struct{})
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				for {
+					select {
+					case <-stop:
+						return
+					default:
+					}
+					if info, err := os.Lstat(stamp); err == nil && !info.ModTime().Equal(epoch) {
+						seen.Store(info.ModTime().Unix())
+						return
+					}
+				}
+			}()
+			if err := s.newStamp(); err != nil {
+				t.Fatal(err)
+			}
+			close(stop)
+			<-done
+			if seen.Load() != 0 {
+				t.Fatalf("round %d: a stamp was seen dated %v, want the epoch", round, time.Unix(seen.Load(), 0).UTC())
+			}
+		}
+	})
+
+	t.Run("fresh stamp takes no lock", func(t *testing.T) {
+		s, root, _ := pruneFixture(t, testNow, 30)
+		setStamp(t, root, testNow)
+		held := flock.New(filepath.Join(root, "prune.stamp"))
+		if err := held.Lock(); err != nil {
+			t.Fatal(err)
+		}
+		defer held.Close()
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			mustPrune(t, s, false)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("a prune with a fresh stamp waited for the lock")
 		}
 	})
 
