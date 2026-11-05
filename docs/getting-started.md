@@ -313,8 +313,15 @@ duolog stats
 
 The command reads `.duolog/usage.ndjson` and prints tokens and an estimated
 cost for each role, agent and model. The prices come from the config. They are
-estimates, not a bill. Claude cache writes use the plain input rate, so their
-premium is missing from this estimate.
+estimates, not a bill.
+
+`INPUT` is all input tokens. `CACHED` is the part read from the prompt cache,
+priced at the `cached` rate. `CACHE WRITE` is the part that Claude wrote to its
+prompt cache. A write to the five-minute cache costs 1.25 times the `input`
+rate, and a write to the one-hour cache costs 2 times that rate. Claude Code
+workers usually write to the one-hour cache. Codex reports no cache writes.
+Records from duolog 1.4.0 and older have no cache writes, and their cost stays
+as it was.
 
 ## How to check the remaining subscription quota
 

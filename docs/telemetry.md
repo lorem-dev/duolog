@@ -145,10 +145,12 @@ The commands are for you, in your terminal. A worker cannot run them.
 There is no export command and no option that writes the data elsewhere.
 
 The USD totals in `show` use the token prices in your config and are not a
-bill. Claude cache writes use the plain input rate, so totals can understate
-their cost. `NO USAGE` counts runs without reported tokens, and `UNPRICED`
-counts runs without a usable price. Their missing amounts do not enter the
-totals.
+bill. A run's cost includes its Claude cache writes at 1.25 or 2 times the
+input rate, as in `duolog stats`; the token columns do not list the writes.
+Runs recorded by duolog 1.4.0 and older priced cache writes at the plain
+input rate, so their cost stays lower. `NO USAGE` counts runs without reported
+tokens, and `UNPRICED` counts runs without a usable price. Their missing
+amounts do not enter the totals.
 
 `purge` asks you to type `yes` in a terminal, unless you pass `--yes`.
 `purge --all` keeps the small marker that says the first notice was shown,

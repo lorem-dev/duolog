@@ -138,7 +138,7 @@ The lead's own settings are the ceiling:
 | `wire` | The bus line limits and the inline size |
 | `skill_tests` | `ask` (default), `always` or `never` for cross-model skill tests. Save a local preference with `duolog skill test --remember`. See [Skill tests](skills.md) |
 | `limits` | Live sessions and the size of a task the lead may do itself |
-| `models` | The agent and the price estimates for each alias, for `duolog stats` and telemetry. Claude cache-write premiums are not modeled |
+| `models` | The agent and the price estimates for each alias, for `duolog stats` and telemetry. Claude cache writes cost 1.25 times `input` for the five-minute cache and 2 times for the one-hour cache |
 | `sessions` | When a resumed thread closes |
 | `policy` | The rules for worker actions. See [Permissions](permissions.md) |
 | `capabilities` | What to do when the other agent lacks a skill, plugin or server |

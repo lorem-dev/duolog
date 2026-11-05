@@ -218,7 +218,7 @@ func offerEstimate(cfg *config.Config, d journal.Delegation, from, to, judge con
 	// Cost with one million input and output tokens equals Input+Output of the
 	// normalized model alias, with the same agent/price checks as live costing.
 	price := func(t config.Target) (float64, bool) {
-		p, ok := usage.Cost(cfg, t.Agent, t.Model, 1_000_000, 0, 1_000_000)
+		p, ok := usage.Cost(cfg, t.Agent, t.Model, usage.Tokens{Input: 1_000_000, Output: 1_000_000})
 		return p, ok && p > 0
 	}
 	replayKnown := candidate.Delegations > 0

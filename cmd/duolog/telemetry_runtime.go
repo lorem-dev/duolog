@@ -90,8 +90,8 @@ func observeAttempt(s *telemetry.Store, cfg *config.Config) delegate.Observer {
 
 // runEvent maps an attempt to its run event with every number in range: usage
 // only when the vendor reported it, cached at most the input, and the cost
-// from usage.Cost, which charges cached input once, only when priced, finite
-// and in range. Strings pass as they are: the store writes anything outside a
+// from usage.Cost, which charges cache reads and writes once, only when
+// priced, finite and in range. Strings pass as they are: the store writes anything outside a
 // closed set or the configured names as other.
 func runEvent(cfg *config.Config, run telemetry.ID, a delegate.Attempt) telemetry.Run {
 	family := models.Normalize(a.Agent, a.Family)
@@ -110,7 +110,10 @@ func runEvent(cfg *config.Config, run telemetry.ID, a delegate.Attempt) telemetr
 	e.UsageKnown = true
 	e.In, e.Out = count(a.Usage.Input), count(a.Usage.Output)
 	e.Cached = min(count(a.Usage.Cached), e.In)
-	if usd, ok := usage.Cost(cfg, a.Agent, family, e.In, e.Cached, e.Out); ok {
+	// Cache writes are not in the event, but their premium is in the cost.
+	write := min(count(a.Usage.Write), e.In-e.Cached)
+	t := usage.Tokens{Input: e.In, Cached: e.Cached, Write: write, WriteHour: min(count(a.Usage.WriteHour), write), Output: e.Out}
+	if usd, ok := usage.Cost(cfg, a.Agent, family, t); ok {
 		// The comparisons also refuse NaN.
 		if micro := math.Round(usd * 1e6); micro >= 0 && micro <= maxSafe {
 			e.USDmicro, e.Priced = int64(micro), true

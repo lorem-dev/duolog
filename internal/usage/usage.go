@@ -13,14 +13,46 @@ import (
 	"github.com/lorem-dev/duolog/internal/models"
 )
 
+// Tokens counts the tokens of one or more runs. Input is the total input:
+// Cached (cache reads) and Write (cache writes) are disjoint subsets of it, and
+// WriteHour is the subset of Write kept in the cache for an hour. Codex reports
+// no cache writes; a record written before cache writes were kept has none.
+type Tokens struct {
+	Input     int64 `json:"input"`
+	Cached    int64 `json:"cached"`
+	Write     int64 `json:"cache_write,omitempty"`
+	WriteHour int64 `json:"cache_write_1h,omitempty"`
+	Output    int64 `json:"output"`
+}
+
+// Add adds o to t.
+func (t *Tokens) Add(o Tokens) {
+	t.Input += o.Input
+	t.Cached += o.Cached
+	t.Write += o.Write
+	t.WriteHour += o.WriteHour
+	t.Output += o.Output
+}
+
+// Valid reports whether every count is non-negative and the subsets fit.
+func (t Tokens) Valid() bool {
+	return t.Input >= 0 && t.Cached >= 0 && t.Write >= 0 && t.WriteHour >= 0 && t.Output >= 0 &&
+		t.Cached <= t.Input && t.Write <= t.Input-t.Cached && t.WriteHour <= t.Write
+}
+
+// Claude charges a cache write as a multiple of the input price: 1.25 for the
+// five-minute cache and 2 for the one-hour cache.
+const (
+	WriteRate     = 1.25
+	WriteHourRate = 2.0
+)
+
 type Row struct {
-	Role   string  `json:"role"`
-	Agent  string  `json:"agent"`
-	Model  string  `json:"model"`
-	Input  int64   `json:"input"`
-	Cached int64   `json:"cached"`
-	Output int64   `json:"output"`
-	Cost   float64 `json:"-"`
+	Role  string `json:"role"`
+	Agent string `json:"agent"`
+	Model string `json:"model"`
+	Tokens
+	Cost float64 `json:"-"`
 }
 type Table struct {
 	Rows     []Row
@@ -29,17 +61,23 @@ type Table struct {
 }
 
 // Cost prices a run in USD; false means the model has no price for the agent.
-// Input includes cached reads, so the cached subset is charged only once.
-func Cost(cfg *config.Config, agent, model string, input, cached, output int64) (float64, bool) {
+// Input includes cache reads and writes, so each subset is charged only once:
+// reads at the cached price, writes at a multiple of the input price.
+func Cost(cfg *config.Config, agent, model string, t Tokens) (float64, bool) {
 	price, ok := cfg.Models[models.Normalize(agent, model)]
 	if !ok || price.Agent != agent {
 		return 0, false
 	}
-	return (float64(input-cached)*price.Input + float64(cached)*price.Cached + float64(output)*price.Output) / 1e6, true
+	plain := t.Input - t.Cached - t.Write
+	minute := t.Write - t.WriteHour
+	return (float64(plain)*price.Input + float64(t.Cached)*price.Cached +
+		float64(minute)*price.Input*WriteRate + float64(t.WriteHour)*price.Input*WriteHourRate +
+		float64(t.Output)*price.Output) / 1e6, true
 }
 
 // Summarize loads prices for the project containing .duolog/usage.ndjson.
-// Input includes cached reads, so the cached subset is charged only once.
+// A record without cache writes, as every record before they were kept, is
+// priced as before.
 func Summarize(path string) (Table, error) {
 	var table Table
 	cfg, err := config.Load(filepath.Dir(filepath.Dir(path)))
@@ -65,12 +103,12 @@ func Summarize(path string) (Table, error) {
 		if err := json.Unmarshal(scan.Bytes(), &record); err != nil {
 			return Table{}, fmt.Errorf("usage line %d: %w", line, err)
 		}
-		if record.Input < 0 || record.Cached < 0 || record.Output < 0 || record.Cached > record.Input {
+		if !record.Valid() {
 			return Table{}, fmt.Errorf("usage line %d: invalid token counts", line)
 		}
 		alias := models.Normalize(record.Agent, record.Model)
 		price := cfg.Models[alias]
-		if cost, priced := Cost(cfg, record.Agent, record.Model, record.Input, record.Cached, record.Output); !priced {
+		if cost, priced := Cost(cfg, record.Agent, record.Model, record.Tokens); !priced {
 			warnings[fmt.Sprintf("No price for %s model %s; cost excluded", record.Agent, record.Model)] = true
 		} else {
 			record.Cost = cost
@@ -86,9 +124,7 @@ func Summarize(path string) (Table, error) {
 		key := record.Agent + "\x00" + record.Model + "\x00" + record.Role
 		row := rows[key]
 		row.Role, row.Agent, row.Model = record.Role, record.Agent, record.Model
-		row.Input += record.Input
-		row.Cached += record.Cached
-		row.Output += record.Output
+		row.Add(record.Tokens)
 		row.Cost += record.Cost
 		rows[key] = row
 		table.Total += record.Cost
