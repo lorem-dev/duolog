@@ -17,6 +17,21 @@ updates:
       gomod-minor-and-patch:
         update-types: [minor, patch]
 
+  - package-ecosystem: gomod
+    directories: [/tools, /tools/actionlint]
+    target-branch: develop
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'chore(deps)'
+    groups:
+      tools-minor-and-patch:
+        update-types: [minor, patch]
+
   - package-ecosystem: github-actions
     directory: /
     target-branch: develop

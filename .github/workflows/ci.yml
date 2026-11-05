@@ -96,7 +96,7 @@ jobs:
           $paths = @('README.md') + @(Get-ChildItem docs -Recurse -Filter '*.md' |
             Where-Object { $_.FullName -notmatch '[\\/]superpowers[\\/]' } |
             ForEach-Object { $_.FullName })
-          uvx --from pymarkdownlnt pymarkdown -c .pymarkdown.yaml scan @paths
+          uvx --from pymarkdownlnt==0.9.41 pymarkdown -c .pymarkdown.yaml scan @paths
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -run TestDocs .
       - name: Render both installers
@@ -132,7 +132,7 @@ jobs:
           go test ./scripts/render-install -run '^TestInstaller$' -count=1
       - name: Vulnerability check
         if: matrix.os == 'ubuntu-latest'
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
   cross-build:
     name: cross-build (all release targets)

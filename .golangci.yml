@@ -1,0 +1,82 @@
+version: "2"
+run:
+  build-tags: [e2e]
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose
+    - contextcheck
+    - copyloopvar
+    - cyclop
+    - durationcheck
+    - errorlint
+    - funlen
+    - gocheckcompilerdirectives
+    - gocognit
+    - gocritic
+    - gosec
+    - intrange
+    - makezero
+    - misspell
+    - modernize
+    - nestif
+    - nilerr
+    - nilnesserr
+    - noctx
+    - nolintlint
+    - revive
+    - unconvert
+    - usestdlibvars
+    - wastedassign
+  settings:
+    errcheck:
+      check-type-assertions: true
+    govet:
+      enable-all: true
+      disable: [fieldalignment]
+    gocritic:
+      enabled-tags: [diagnostic, performance]
+    gosec:
+      excludes: [G204, G304] # duolog runs agents and reads configured paths by design
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    funlen:
+      lines: 60
+      statements: 40
+      ignore-comments: true
+    gocognit:
+      min-complexity: 20
+    cyclop:
+      max-complexity: 15
+      package-average: 8
+    nestif:
+      min-complexity: 5
+    revive:
+      rules:
+        - name: file-length-limit
+          arguments: [{max: 600, skipComments: true, skipBlankLines: true}]
+        - name: early-return
+        - name: indent-error-flow
+        - name: superfluous-else
+        - name: unreachable-code
+        - name: defer
+        - name: unconditional-recursion
+        - name: context-as-argument
+  exclusions:
+    generated: strict
+    presets: [std-error-handling]
+    rules:
+      - path: _test\.go
+        linters: [funlen, gocognit, cyclop, nestif, gosec]
+      - path: _test\.go
+        text: file-length-limit
+        linters: [revive]
+formatters:
+  enable: [gofumpt, goimports]
+  settings:
+    goimports:
+      local-prefixes: [github.com/lorem-dev/duolog]
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
