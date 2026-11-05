@@ -29,6 +29,10 @@ type Config struct {
 	Rex            Rex              `yaml:"rex" jsonschema_description:"Terminal capture and startup settings; defaults to 20 lines and 120 seconds."`
 	Learning       Learning         `yaml:"learning" jsonschema_description:"Learning mode: task classes, classification rules, ladders and priors; off by default."`
 	Calibration    Calibration      `yaml:"calibration" jsonschema_description:"Project calibration caps and task filters; calibration runs only when the person asks the lead for it."`
+	PaidRuns       PaidRuns         `yaml:"paid_runs" jsonschema_description:"Paid runs per agent with a daily USD cap, and the share of each window used on workspace accounts; paid runs are off by default."`
+	// Notices names the keys of the shared .duolog/config.yaml that Load
+	// ignored because they would widen paid runs.
+	Notices []ConfigNotice `yaml:"-" json:"-" jsonschema:"-"`
 }
 
 type Coauthors struct {
@@ -159,6 +163,7 @@ func Load(root string) (*Config, error) {
 		filepath.Join(root, ".duolog", "config.local.yaml"),
 	}
 	layers := make([][]byte, len(paths))
+	var notices []ConfigNotice
 	for i, path := range paths {
 		data, err := os.ReadFile(path)
 		if os.IsNotExist(err) {
@@ -167,15 +172,26 @@ func Load(root string) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
-		if err := mergeLayer(&merged, data, path); err != nil {
+		node, err := parseLayer(data, path)
+		if err != nil {
 			return nil, err
 		}
+		// The project layer is committed: it may only tighten paid runs.
+		if i == 1 && node != nil {
+			found, err := restrictProjectPaid(merged.Content[0], node)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", path, err)
+			}
+			notices = append(notices, found...)
+		}
+		mergeNode(&merged, node)
 		layers[i] = data
 	}
 	var cfg Config
 	if err := merged.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("merged config: %w", err)
 	}
+	cfg.Notices = notices
 	if cfg.Rex.StuckNotifyMinutes < 0 {
 		return nil, fmt.Errorf("rex.stuck_notify_minutes must be zero or greater")
 	}
@@ -205,6 +221,9 @@ func Load(root string) (*Config, error) {
 		return nil, err
 	}
 	if err := validateCalibration(&cfg); err != nil {
+		return nil, err
+	}
+	if err := validatePaidRuns(&cfg); err != nil {
 		return nil, err
 	}
 	if err := lowerSharedCaps(&cfg, layers[0], layers[1], layers[2]); err != nil {
@@ -293,44 +312,60 @@ func keepDefaultDenies(cfg *Config) error {
 }
 
 func mergeLayer(dst *yaml.Node, data []byte, source string) error {
+	node, err := parseLayer(data, source)
+	if err != nil {
+		return err
+	}
+	mergeNode(dst, node)
+	return nil
+}
+
+// parseLayer checks one layer and returns its root with aliases and merge
+// keys resolved, or nil for an empty file. Keys are checked on the node
+// first so that an unknown key is named by its full path.
+func parseLayer(data []byte, source string) (*yaml.Node, error) {
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil {
+		return nil, fmt.Errorf("%s: %w", source, err)
+	}
+	if len(node.Content) == 0 {
+		return nil, nil
+	}
+	// Resolve structure without decoding scalars into Go values: string fields
+	// must retain spellings such as 012 and 2020-01-01.
+	effective, err := resolveYAMLNode(node.Content[0], make(map[*yaml.Node]bool))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", source, err)
+	}
+	if err := validateEnums(effective, reflect.TypeFor[Config](), "config"); err != nil {
+		return nil, fmt.Errorf("%s: %w", source, err)
+	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	var layer Config
-	if err := decoder.Decode(&layer); err == io.EOF {
-		return nil
-	} else if err != nil {
-		return fmt.Errorf("%s: %w", source, err)
+	if err := decoder.Decode(&layer); err != nil {
+		return nil, fmt.Errorf("%s: %w", source, err)
 	}
 	var extra yaml.Node
 	if err := decoder.Decode(&extra); err != io.EOF {
 		if err == nil {
 			err = fmt.Errorf("expected a single YAML document")
 		}
-		return fmt.Errorf("%s: %w", source, err)
+		return nil, fmt.Errorf("%s: %w", source, err)
 	}
-	var node yaml.Node
-	if err := yaml.Unmarshal(data, &node); err != nil {
-		return fmt.Errorf("%s: %w", source, err)
-	}
-	if len(node.Content) == 0 {
-		return nil
-	}
-	// Resolve structure without decoding scalars into Go values: string fields
-	// must retain spellings such as 012 and 2020-01-01.
-	effective, err := resolveYAMLNode(node.Content[0], make(map[*yaml.Node]bool))
-	if err != nil {
-		return fmt.Errorf("%s: %w", source, err)
-	}
-	node.Content[0] = effective
-	if err := validateEnums(node.Content[0], reflect.TypeFor[Config](), "config"); err != nil {
-		return fmt.Errorf("%s: %w", source, err)
+	return effective, nil
+}
+
+// mergeNode merges a resolved layer root into dst; nil leaves dst as it is.
+func mergeNode(dst, root *yaml.Node) {
+	if root == nil {
+		return
 	}
 	if len(dst.Content) == 0 {
-		*dst = node
+		*dst = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{root}}
 	} else {
-		mergeMapping(dst.Content[0], node.Content[0])
+		mergeMapping(dst.Content[0], root)
 	}
-	return nil
 }
 
 // Expand aliases into independent nodes and flatten YAML merge keys. Explicit
@@ -414,8 +449,26 @@ func mergeMapping(dst, src *yaml.Node) {
 	}
 }
 
-// Reject nulls and read enum tags from the types reflected into the public schema.
-// Walk only explicitly supplied fields so partial override layers are valid.
+// yamlField finds the struct field for a YAML key, including the fields of
+// an inlined struct.
+func yamlField(typ reflect.Type, key string) (reflect.StructField, bool) {
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		name, opts, _ := strings.Cut(field.Tag.Get("yaml"), ",")
+		if name == "" && opts == "inline" && field.Type.Kind() == reflect.Struct {
+			if inner, ok := yamlField(field.Type, key); ok {
+				return inner, true
+			}
+		} else if name == key && name != "-" {
+			return field, true
+		}
+	}
+	return reflect.StructField{}, false
+}
+
+// Reject nulls and unknown keys and read enum tags from the types reflected into
+// the public schema. Walk only explicitly supplied fields so partial override
+// layers are valid.
 func validateEnums(node *yaml.Node, typ reflect.Type, path string) error {
 	if node.Kind == yaml.AliasNode {
 		return validateEnums(node.Alias, typ, path)
@@ -425,39 +478,39 @@ func validateEnums(node *yaml.Node, typ reflect.Type, path string) error {
 	}
 	switch typ.Kind() {
 	case reflect.Struct:
+		if node.Kind != yaml.MappingNode {
+			break
+		}
 		for i := 0; i+1 < len(node.Content); i += 2 {
 			key, value := node.Content[i].Value, node.Content[i+1]
-			for j := 0; j < typ.NumField(); j++ {
-				field := typ.Field(j)
-				if field.Tag.Get("yaml") != key {
-					continue
+			field, ok := yamlField(typ, key)
+			if !ok {
+				return fmt.Errorf("%s.%s: unknown key", path, key)
+			}
+			var choices []string
+			for _, tag := range strings.Split(field.Tag.Get("jsonschema"), ",") {
+				if v, ok := strings.CutPrefix(tag, "enum="); ok {
+					choices = append(choices, v)
 				}
-				var choices []string
-				for _, tag := range strings.Split(field.Tag.Get("jsonschema"), ",") {
-					if v, ok := strings.CutPrefix(tag, "enum="); ok {
-						choices = append(choices, v)
+			}
+			if len(choices) > 0 {
+				actual := value
+				if actual.Kind == yaml.AliasNode {
+					actual = actual.Alias
+				}
+				valid := false
+				for _, choice := range choices {
+					if actual.Tag == "!!str" && actual.Value == choice {
+						valid = true
+						break
 					}
 				}
-				if len(choices) > 0 {
-					actual := value
-					if actual.Kind == yaml.AliasNode {
-						actual = actual.Alias
-					}
-					valid := false
-					for _, choice := range choices {
-						if actual.Tag == "!!str" && actual.Value == choice {
-							valid = true
-							break
-						}
-					}
-					if !valid {
-						return fmt.Errorf("%s.%s: invalid value %q (want %s)", path, key, actual.Value, strings.Join(choices, ", "))
-					}
+				if !valid {
+					return fmt.Errorf("%s.%s: invalid value %q (want %s)", path, key, actual.Value, strings.Join(choices, ", "))
 				}
-				if err := validateEnums(value, field.Type, path+"."+key); err != nil {
-					return err
-				}
-				break
+			}
+			if err := validateEnums(value, field.Type, path+"."+key); err != nil {
+				return err
 			}
 		}
 	case reflect.Map:
