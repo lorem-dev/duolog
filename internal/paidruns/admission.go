@@ -76,8 +76,33 @@ const usdEpsilon = 1e-9
 // passes the assessment and the window costs it read before. Invalid input
 // and state that cannot be read are errors, and nothing is admitted.
 func (s *Store) Admit(ctx context.Context, in Admission) (Decision, error) {
-	if err := in.validate(); err != nil {
+	r, err := in.prepare()
+	if err != nil {
 		return Decision{}, err
+	}
+	var d Decision
+	err = s.Update(ctx, func(st *State) error {
+		var err error
+		if d, err = st.decide(in, r, s.now()); err != nil {
+			return err
+		}
+		if d.Admitted {
+			st.Reservations[r.ID] = d.Reservation
+		}
+		return nil
+	})
+	if err != nil {
+		return Decision{}, err
+	}
+	return d, nil
+}
+
+// prepare validates in and returns its reservation as admission records it:
+// not started, its paid and workspace flags from the assessment, and no
+// estimate without a task.
+func (in Admission) prepare() (Reservation, error) {
+	if err := in.validate(); err != nil {
+		return Reservation{}, err
 	}
 	r := in.Reservation
 	r.AccountKey, r.Child, r.Launching, r.Retained = "", Owner{}, false, ""
@@ -86,26 +111,21 @@ func (s *Store) Admit(ctx context.Context, in Admission) (Decision, error) {
 	if !r.Task {
 		r.Estimate = Estimate{}
 	}
-	var d Decision
-	err := s.Update(ctx, func(st *State) error {
-		if _, ok := st.Reservations[r.ID]; ok {
-			return fmt.Errorf("paid runs: reservation %s is already held", r.ID)
-		}
-		if _, ok := st.Settled[r.ID]; ok {
-			return fmt.Errorf("paid runs: reservation %s is already settled", r.ID)
-		}
-		r.AccountKey = st.AccountKeys[r.Agent+"/"+quota.IdentityAccount]
-		r.Created = s.now()
-		d = st.admit(in, r)
-		if d.Admitted {
-			st.Reservations[r.ID] = r
-		}
-		return nil
-	})
-	if err != nil {
-		return Decision{}, err
+	return r, nil
+}
+
+// decide decides the prepared r under the lock, at now, without writing it.
+// An ID held or settled before is an error.
+func (st *State) decide(in Admission, r Reservation, now time.Time) (Decision, error) {
+	if _, ok := st.Reservations[r.ID]; ok {
+		return Decision{}, fmt.Errorf("paid runs: reservation %s is already held", r.ID)
 	}
-	return d, nil
+	if _, ok := st.Settled[r.ID]; ok {
+		return Decision{}, fmt.Errorf("paid runs: reservation %s is already settled", r.ID)
+	}
+	r.AccountKey = st.AccountKeys[r.Agent+"/"+quota.IdentityAccount]
+	r.Created = now
+	return st.admit(in, r), nil
 }
 
 // admit decides r against the state without changing it.

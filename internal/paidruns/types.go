@@ -118,12 +118,16 @@ type TierResult struct {
 	Live   int                `json:"live"`
 }
 
-// Ticket is a waiter for a session slot, served in Sequence order.
+// Ticket is a waiter for a session slot, served in Sequence order. Owner is
+// the waiting process, so a dead waiter can be proven gone; Expires is when
+// it stops waiting, zero when it waits until a slot or a cancellation.
 type Ticket struct {
 	ID       string    `json:"id"`
 	Agent    string    `json:"agent"`
 	Sequence uint64    `json:"sequence"`
 	Created  time.Time `json:"created"`
+	Owner    Owner     `json:"owner"`
+	Expires  time.Time `json:"expires"`
 }
 
 // State is the account state that every project of the user shares: money,
