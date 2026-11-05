@@ -41,7 +41,8 @@ type Credits struct {
 	Balance    *string `json:"balance,omitempty"`
 }
 
-// Snapshot contains quota fields only; identity and auth fields are discarded.
+// Snapshot contains quota fields and billing evidence only; identity and
+// credentials are discarded.
 type Snapshot struct {
 	Plan                string              `json:"plan,omitempty"`
 	Windows             []Window            `json:"windows"`
@@ -50,6 +51,7 @@ type Snapshot struct {
 	Credits             *Credits            `json:"credits,omitempty"`
 	Rejected            bool                `json:"rejected"`
 	SpendControlReached bool                `json:"spend_control_reached,omitempty"`
+	Billing             BillingFacts        `json:"billing"`
 	ReadAt              time.Time           `json:"read_at"`
 }
 
@@ -83,6 +85,8 @@ type Reader struct {
 	Timeout time.Duration
 }
 
+// Read returns the agent's quota. On an error the snapshot holds only the
+// billing evidence the read saw, such as a reply without windows.
 func (r Reader) Read(ctx context.Context, agent string) (Snapshot, error) {
 	timeout := r.Timeout
 	if timeout <= 0 {
@@ -112,7 +116,7 @@ func (r Reader) Read(ctx context.Context, agent string) (Snapshot, error) {
 		return Snapshot{}, errors.New("read timed out or canceled")
 	}
 	if err != nil {
-		return Snapshot{}, err
+		return Snapshot{Billing: s.Billing}, err
 	}
 	s.ReadAt = time.Now().UTC()
 	return s, nil
