@@ -32,6 +32,8 @@ type Message struct {
 	Ref  string `json:"ref,omitempty"`
 	S    string `json:"s"`
 	P    bool   `json:"p,omitempty"`
+	// W is how many seconds the sender of an ask waits for the reply.
+	W int `json:"w,omitempty"`
 }
 
 type Bus struct {

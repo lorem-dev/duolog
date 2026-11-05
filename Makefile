@@ -1,4 +1,4 @@
-.PHONY: build test vet docs-lint schema schema-write third-party third-party-check version-check
+.PHONY: build test vet lint docs-lint schema schema-write third-party third-party-check version-check
 
 build:
 	go build ./cmd/duolog
@@ -8,6 +8,10 @@ test:
 
 vet:
 	go vet ./...
+
+# Fails when gofmt would change any Go file and lists those files.
+lint:
+	@files=$$(gofmt -l .); if [ -n "$$files" ]; then echo "gofmt needed:" >&2; echo "$$files" >&2; exit 1; fi
 
 version-check:
 	uv run scripts/version/version.py check

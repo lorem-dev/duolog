@@ -199,6 +199,23 @@ func claudeIdle(text string) string {
 	return "\n" + rule + "\n❯ " + text + "\n" + rule + "\n  ⏸ manual mode on · ? for shortcuts\n"
 }
 
+// claudeWrapped is a Claude input box in a pane of the given width. Rows break
+// at the edge, inside a word as well, and the rows after the first are indented.
+func claudeWrapped(width int, text string) string {
+	rule := strings.Repeat("─", width)
+	rows := ""
+	for prefix, rest := "❯ ", []rune(text); len(rest) > 0; prefix = "  " {
+		n := min(width-2, len(rest))
+		rows += prefix + string(rest[:n]) + "\n"
+		rest = rest[n:]
+	}
+	return "\n" + rule + "\n" + rows + rule + "\n  ⏸ manual mode on · ? for shortcuts\n"
+}
+
+func claudeWorking() string {
+	return "✻ Channelling… (3s · esc to interrupt)\n" + claudeIdle("")
+}
+
 func TestWorkingLineIsBusyWithoutInterruptHint(t *testing.T) {
 	for _, tc := range []struct{ agent, line string }{
 		{"codex", "• Working (48s)"},

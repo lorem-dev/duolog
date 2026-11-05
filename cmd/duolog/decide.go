@@ -41,7 +41,7 @@ func newDecideCommand(kind string) *cobra.Command {
 			return fmt.Errorf("request %d is not a permission request", n)
 		}
 		// A late answer changes nothing, so saying it worked would mislead the lead.
-		if gate.AskExpired(request.T) {
+		if gate.AskExpired(request) {
 			return fmt.Errorf("request %d has expired: the worker was already denied", n)
 		}
 		if answered, err := alreadyAnswered(b.Directory(), n); err != nil {

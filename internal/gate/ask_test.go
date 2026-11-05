@@ -234,6 +234,35 @@ func TestAskNamesItsPeer(t *testing.T) {
 	}
 }
 
+// An ask carries how long its asker waits, so readers stop treating it as
+// pending once the asker has given up, even with a short ask_timeout_seconds.
+func TestAskCarriesItsWait(t *testing.T) {
+	b, _, dir := askSetup(t)
+	Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, 1500*time.Millisecond, false)
+	if ms := askMessages(t, dir); len(ms) != 1 || ms[0].W != 2 {
+		t.Fatal(ms)
+	}
+}
+
+func TestAskExpiresWithItsAskersWait(t *testing.T) {
+	sent := func(ago time.Duration) string { return time.Now().Add(-ago).UTC().Format(time.RFC3339Nano) }
+	for _, tc := range []struct {
+		name    string
+		m       bus.Message
+		expired bool
+	}{
+		{"wait passed", bus.Message{T: sent(31 * time.Second), W: 30}, true},
+		{"wait running", bus.Message{T: sent(29 * time.Second), W: 30}, false},
+		// An ask from before asks carried their wait keeps the hook budget.
+		{"no wait, within hook budget", bus.Message{T: sent(MaxAskWait)}, false},
+		{"no wait, past hook budget", bus.Message{T: sent(MaxAskWait + 31*time.Second)}, true},
+	} {
+		if got := AskExpired(tc.m); got != tc.expired {
+			t.Errorf("%s: expired %v, want %v", tc.name, got, tc.expired)
+		}
+	}
+}
+
 func TestAskToEndedLeadDeniesAtOnce(t *testing.T) {
 	b, r, dir := askSetup(t)
 	if err := r.Close("first-123456"); err != nil {

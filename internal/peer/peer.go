@@ -492,7 +492,7 @@ func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Ent
 				}
 				break
 			}
-			if stuckInput(screen, entry.Task) {
+			if stuckInput(screen, e.root, entry.Task) {
 				if stuck++; stuck >= 2 {
 					return Entry{ID: entry.ID, State: Ready, Note: ErrStuck.Error()}, fmt.Errorf("peer %s: %w", entry.ID, ErrStuck)
 				}
@@ -546,16 +546,45 @@ func Wait(ctx context.Context, id string) (Entry, error) {
 }
 
 // stuckInput reports an idle input line that still holds the sent task line.
-func stuckInput(s Screen, taskPath string) bool {
-	return s.Composer && !s.Working && s.Input != "" && strings.HasPrefix(s.Input, probe(taskLine(taskPath)))
+func stuckInput(s Screen, root, taskPath string) bool {
+	return s.Composer && !s.Working && s.Input != "" && strings.HasPrefix(squash(strings.Join(s.Rows, "")), squash(probe(taskLine(root, taskPath))))
 }
 
-func taskLine(path string) string {
-	return "Read " + path + " and do it. Do not call rex. When everything went as planned, reply only \"done\"; write more only for a problem, an open question or a choice you made."
+// taskLine is the line typed into the pane. It names the task file from the
+// pane's folder and stays short, so a usual task path keeps it on one row of
+// an 80-column pane.
+func taskLine(root, path string) string {
+	ref := path
+	if rel, err := filepath.Rel(root, path); err == nil && filepath.IsLocal(rel) {
+		ref = rel
+	}
+	return "Read " + ref + " and do it. Do not call rex. Reply \"done\"."
 }
 
 // probe is the start of a line: enough to tell it from a line that lost its start.
 func probe(text string) string { return cut(text, 40) }
+
+// squash drops all spaces: a row may break inside a word or at a space.
+func squash(s string) string { return strings.Join(strings.Fields(s), "") }
+
+// holds reports an input line that holds the text and nothing else, read across
+// the rows it wraps over. Claude's rows end with its box, so any row more is
+// input. Codex has no box: the first row that does not continue the text after
+// all of it was read is taken for its footer.
+func holds(agent string, s Screen, text string) bool {
+	if !s.Composer {
+		return false
+	}
+	want, got := squash(text), ""
+	for _, row := range s.Rows {
+		next := got + squash(row)
+		if !strings.HasPrefix(want, next) {
+			return agent == "codex" && got == want
+		}
+		got = next
+	}
+	return got == want
+}
 
 // ask sends a question to the lead once. Nothing is pressed in the pane.
 func (e *env) ask(entry session.Entry, question string) error {
@@ -726,7 +755,7 @@ func Send(ctx context.Context, id, taskRef string) error {
 	if err != nil {
 		return err
 	}
-	text := taskLine(path)
+	text := taskLine(e.root, path)
 	if err := e.deliver(ctx, entry, text); err != nil {
 		return err
 	}
@@ -787,11 +816,11 @@ func (e *env) settle(ctx context.Context, entry session.Entry, taskPath string) 
 	return nil
 }
 
-// deliver types the line and checks the input line before enter. A line that
-// lost its start, as one did after /new, is cleared with ctrl+u and typed again,
-// twice at most; the input line is left empty when it still fails.
+// deliver types the line and checks the input line before enter. An input line
+// that holds anything but the line, such as a line that lost its start after
+// /new or one typed twice, is cleared and the line typed again, twice at most;
+// the input line is left empty when it still fails.
 func (e *env) deliver(ctx context.Context, entry session.Entry, text string) error {
-	head := probe(text)
 	for try := 1; try <= 3; try++ {
 		if err := e.clientFor(entry).Send(ctx, entry.Block, text); err != nil {
 			return err
@@ -803,22 +832,43 @@ func (e *env) deliver(ctx context.Context, entry session.Entry, text string) err
 		if err != nil {
 			return err
 		}
-		if screen.Composer && strings.HasPrefix(screen.Input, head) {
-			return e.submit(ctx, entry, head)
+		if holds(entry.Agent, screen, text) {
+			return e.submit(ctx, entry, text)
 		}
-		if err := e.clientFor(entry).SendKey(ctx, entry.Block, "ctrl+u"); err != nil {
-			return err
-		}
-		if err := sleep(ctx, keyDelay); err != nil {
+		if err := e.clear(ctx, entry, screen); err != nil {
 			return err
 		}
 	}
 	return fmt.Errorf("peer %s: the text did not reach the input line in 3 tries, so enter was not pressed and the line was cleared", entry.ID)
 }
 
+// clear empties an input line that holds text with ctrl+c, as a person does:
+// ctrl+u clears only one row of an input that wraps. An empty input line is
+// left alone, since ctrl+c there arms the agent's exit. Text that is still
+// there afterwards is an error, so nothing is typed over it.
+func (e *env) clear(ctx context.Context, entry session.Entry, screen Screen) error {
+	if !screen.Composer || screen.Empty {
+		return nil
+	}
+	if err := e.clientFor(entry).SendKey(ctx, entry.Block, "ctrl+c"); err != nil {
+		return err
+	}
+	if err := sleep(ctx, keyDelay); err != nil {
+		return err
+	}
+	after, err := e.screen(ctx, entry)
+	if err != nil {
+		return err
+	}
+	if after.Composer && !after.Empty {
+		return fmt.Errorf("peer %s: ctrl+c did not clear the input line, so enter was not pressed and nothing more was typed", entry.ID)
+	}
+	return nil
+}
+
 // submit presses enter and looks for the text leaving the input line. A lost
 // enter is pressed once more.
-func (e *env) submit(ctx context.Context, entry session.Entry, head string) error {
+func (e *env) submit(ctx context.Context, entry session.Entry, text string) error {
 	for press := 1; press <= 2; press++ {
 		if err := e.clientFor(entry).SendKey(ctx, entry.Block, "enter"); err != nil {
 			return err
@@ -830,7 +880,7 @@ func (e *env) submit(ctx context.Context, entry session.Entry, head string) erro
 		if err != nil {
 			return err
 		}
-		if screen.Working || !screen.Composer || !strings.HasPrefix(screen.Input, head) {
+		if screen.Working || !holds(entry.Agent, screen, text) {
 			return nil
 		}
 	}
@@ -1071,9 +1121,9 @@ func Close(ctx context.Context, id string) error {
 
 // pendingAsk never advances the delivery cursor; the lead hook still receives
 // the request. Replies are matched by ref so answered requests do not stop wait.
-// An ask whose ref names another peer belongs to that peer's wait. An ask that
-// names no peer, from a pane opened before asks named their peer or from a
-// worker outside a pane, stops every wait as before.
+// Only an ask whose ref names this peer stops its wait. An ask that names no
+// peer, from a worker outside a pane or from a pane opened before asks named
+// their peer, belongs to no peer's wait; the lead's hook still delivers it.
 func pendingAsk(dir, address, peer string) (string, error) {
 	f, err := os.Open(filepath.Join(dir, "bus.ndjson"))
 	if os.IsNotExist(err) {
@@ -1097,7 +1147,7 @@ func pendingAsk(dir, address, peer string) (string, error) {
 		if err := json.Unmarshal(line, &m); err != nil {
 			return "", err
 		}
-		if m.K == "ask" && m.To == address && strings.HasPrefix(m.From, "duolog/ask.") && (m.Ref == "" || m.Ref == peer) && !gate.AskExpired(m.T) {
+		if m.K == "ask" && m.To == address && strings.HasPrefix(m.From, "duolog/ask.") && m.Ref == peer && !gate.AskExpired(m) {
 			pending[strconv.FormatInt(m.N, 10)] = fmt.Sprintf("ask %d: %s", m.N, m.S)
 			if m.P {
 				pending[strconv.FormatInt(m.N, 10)] = fmt.Sprintf("ask %d (needs the person): %s", m.N, m.S)

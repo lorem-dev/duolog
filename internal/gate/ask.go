@@ -54,10 +54,12 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout ti
 	fullSummary := strings.Join(strings.Fields(a.Kind+" "+a.Target), " ")
 	// A peer pane names itself, so that peer wait stops only for its own asks.
 	peer := os.Getenv("DUOLOG_PEER")
+	// The wait, rounded up, tells readers when this hook has given up.
+	wait := int((timeout + time.Second - 1) / time.Second)
 	var n int64
 	for budget := 200; ; budget-- {
 		summary := askSummary(fullSummary, budget)
-		n, err = b.Send(bus.Message{From: from, To: address, K: Ask, Ref: peer, S: summary, P: person})
+		n, err = b.Send(bus.Message{From: from, To: address, K: Ask, Ref: peer, S: summary, P: person, W: wait})
 		if !errors.Is(err, bus.ErrTooLong) || budget == 0 {
 			break
 		}
@@ -122,11 +124,16 @@ func askSummary(text string, budget int) string {
 // MaxAskWait fits below the 150-second timeout of every shipped gate hook.
 const MaxAskWait = 120 * time.Second
 
-// AskExpired reports that no gate can still be waiting for this ask, whether it
-// timed out or its worker was killed.
-func AskExpired(sent string) bool {
-	at, err := time.Parse(time.RFC3339Nano, sent)
-	return err == nil && time.Since(at) > MaxAskWait+30*time.Second
+// AskExpired reports that no gate can still be waiting for this ask: its asker's
+// wait has passed. An ask from before asks carried their wait keeps the hook
+// budget, which also covers a worker that was killed.
+func AskExpired(m bus.Message) bool {
+	at, err := time.Parse(time.RFC3339Nano, m.T)
+	wait := MaxAskWait + 30*time.Second
+	if m.W > 0 {
+		wait = time.Duration(m.W) * time.Second
+	}
+	return err == nil && time.Since(at) > wait
 }
 
 // AskWait clamps project settings to the shipped hook budget.

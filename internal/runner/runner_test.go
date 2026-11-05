@@ -95,6 +95,7 @@ func TestClaudeArgvMCPOnlyWhenNeeded(t *testing.T) {
 		t.Fatal(Argv(s))
 	}
 }
+
 // A worker cannot delegate, so it starts without the tools that start subagents
 // and never plans around them. The list option takes one value, MCP tools
 // included.

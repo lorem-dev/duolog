@@ -37,6 +37,10 @@ jobs:
       - uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
       - name: Vet
         run: go vet ./...
+      # Windows checkouts may turn line endings into CRLF, which gofmt reports.
+      - name: Go files are gofmt-formatted
+        if: matrix.os == 'ubuntu-latest'
+        run: make lint
       - name: Vet the end-to-end tests (do not run them)
         run: go vet -tags=e2e ./test/e2e/
       - name: Unit and native generated-command tests
