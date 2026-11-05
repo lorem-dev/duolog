@@ -17,6 +17,7 @@ func observePeer(s *telemetry.Store) peer.OperationObserver {
 	}
 	return func(o peer.Operation) {
 		_ = s.Append(telemetry.Peer{
+			Common:  telemetry.Common{Run: runID(o.Run)},
 			Op:      o.Op,
 			Agent:   o.Agent,
 			Secs:    min(max(int64(o.Duration.Round(time.Second)/time.Second), 0), maxSecs),

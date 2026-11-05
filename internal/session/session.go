@@ -48,6 +48,7 @@ type Entry struct {
 	// WorkRoot keys live peers by checkout, while state is shared across worktrees.
 	WorkRoot   string
 	RexSession string
+	Run        string // the pane's DUOLOG_RUN, a duolog run id; never a vendor id
 	PID        int
 	Input      int64
 	// Task is the task file a live peer was sent and has not finished. Base is
@@ -69,16 +70,17 @@ type Registry struct {
 	LeadID string
 }
 type state struct {
-	PeerRexSession string                          `json:"peer_rex_session,omitempty"`
-	Waiting        map[string]map[string]int       `json:"waiting,omitempty"`
-	ClosedPeers    map[string]string               `json:"closed_peers,omitempty"`
-	Entries        []Entry                         `json:"entries"`
-	Leads          map[string]Lead                 `json:"leads"`
-	Unavailable    map[string]time.Time            `json:"unavailable"`
-	LimitOwners    map[string]string               `json:"limit_owners,omitempty"`
-	ModeLimits     map[string]mode.Mode            `json:"mode_limits,omitempty"`
-	Ended          map[string]bool                 `json:"ended,omitempty"`
-	Observations   map[string]leadObservationTimes `json:"observations,omitempty"`
+	PeerRexSession   string                          `json:"peer_rex_session,omitempty"`
+	PeerSessionRoots map[string]string               `json:"peer_session_roots,omitempty"`
+	Waiting          map[string]map[string]int       `json:"waiting,omitempty"`
+	ClosedPeers      map[string]string               `json:"closed_peers,omitempty"`
+	Entries          []Entry                         `json:"entries"`
+	Leads            map[string]Lead                 `json:"leads"`
+	Unavailable      map[string]time.Time            `json:"unavailable"`
+	LimitOwners      map[string]string               `json:"limit_owners,omitempty"`
+	ModeLimits       map[string]mode.Mode            `json:"mode_limits,omitempty"`
+	Ended            map[string]bool                 `json:"ended,omitempty"`
+	Observations     map[string]leadObservationTimes `json:"observations,omitempty"`
 	// AuthDeclined holds, per lead, the logins the person closed or that
 	// failed, so that duolog does not ask again until the lead ends.
 	AuthDeclined map[string]map[string]time.Time `json:"auth_declined,omitempty"`
@@ -97,6 +99,35 @@ func (r *Registry) PeerRexSession() (string, error) {
 
 func (r *Registry) SetPeerRexSession(id string) error {
 	return r.access(true, func(s *state) error { s.PeerRexSession = id; return nil })
+}
+
+// PeerSessionRoots maps each Rex peer session this project created to the
+// canonical project root it was created for, so that session names group by
+// root and not by folder name.
+func (r *Registry) PeerSessionRoots() (map[string]string, error) {
+	roots := map[string]string{}
+	err := r.access(false, func(s *state) error {
+		for id, root := range s.PeerSessionRoots {
+			roots[id] = root
+		}
+		return nil
+	})
+	return roots, err
+}
+
+// SetPeerSessionRoot records the root of a peer session; an empty root forgets it.
+func (r *Registry) SetPeerSessionRoot(id, root string) error {
+	return r.access(true, func(s *state) error {
+		if root == "" {
+			delete(s.PeerSessionRoots, id)
+			return nil
+		}
+		if s.PeerSessionRoots == nil {
+			s.PeerSessionRoots = map[string]string{}
+		}
+		s.PeerSessionRoots[id] = root
+		return nil
+	})
 }
 
 func Open(dir string) (*Registry, error) {
