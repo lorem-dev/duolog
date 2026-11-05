@@ -17,6 +17,10 @@ import (
 type State struct {
 	Trusted   bool
 	Installed bool
+	// HooksOff is the first Claude settings file that sets disableAllHooks,
+	// which turns every hook off, the gate included, whatever another layer
+	// says; empty when none does.
+	HooksOff string
 }
 type settings struct {
 	Projects map[string]struct {
@@ -84,11 +88,14 @@ func Hooks(agent, root string) (State, error) {
 		if err != nil {
 			return State{}, err
 		}
-		installed := install.PluginEnabled(root, home)
+		state := State{Trusted: true, Installed: install.PluginEnabled(root, home)}
 		for _, path := range install.ClaudeSettingsFiles(root, home) {
-			installed = installed || install.HasGate(path)
+			state.Installed = state.Installed || install.HasGate(path)
+			if state.HooksOff == "" && hooksOff(path) {
+				state.HooksOff = path
+			}
 		}
-		return State{Trusted: true, Installed: installed}, nil
+		return state, nil
 	}
 	s, err := read()
 	if err != nil {
@@ -112,6 +119,19 @@ func Hooks(agent, root string) (State, error) {
 		}
 	}
 	return State{}, nil
+}
+
+// hooksOff reports whether the Claude settings file sets disableAllHooks. A
+// missing or broken file does not.
+func hooksOff(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var doc struct {
+		Off bool `json:"disableAllHooks"`
+	}
+	return json.Unmarshal(data, &doc) == nil && doc.Off
 }
 
 func hooksAt(path string, s settings) (State, error) {

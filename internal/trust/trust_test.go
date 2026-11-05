@@ -163,6 +163,48 @@ func TestHookTrustNeedsAGateForEveryTool(t *testing.T) {
 	}
 }
 
+// disableAllHooks in any layer Claude loads turns every hook off, the gate
+// included, whatever a later layer says; HooksOff names that layer.
+func TestClaudeHooksOffInAnyLayer(t *testing.T) {
+	root := t.TempDir()
+	gate := `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"duolog gate"}]}]}}`
+	for _, tc := range []struct {
+		name, user, project, local, want string
+	}{
+		{"none", "{}", gate, "{}", ""},
+		{"user", `{"disableAllHooks":true}`, gate, "{}", "user"},
+		{"project", "{}", `{"disableAllHooks":true,"hooks":{}}`, gate, "project"},
+		{"local", "{}", gate, `{"disableAllHooks":true}`, "local"},
+		{"later layer turns it back", `{"disableAllHooks":true}`, gate, `{"disableAllHooks":false}`, "user"},
+		{"false", `{"disableAllHooks":false}`, gate, "{}", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture(t, "")
+			home, err := os.UserHomeDir()
+			if err != nil {
+				t.Fatal(err)
+			}
+			files := map[string]string{
+				"user":    filepath.Join(home, ".claude", "settings.json"),
+				"project": filepath.Join(root, ".claude", "settings.json"),
+				"local":   filepath.Join(root, ".claude", "settings.local.json"),
+			}
+			for layer, body := range map[string]string{"user": tc.user, "project": tc.project, "local": tc.local} {
+				if err := os.MkdirAll(filepath.Dir(files[layer]), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(files[layer], []byte(body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s, err := Hooks("claude", root)
+			if err != nil || !s.Installed || s.HooksOff != files[tc.want] {
+				t.Fatalf("Hooks = %+v, %v; want installed, hooks off by %q", s, err, files[tc.want])
+			}
+		})
+	}
+}
+
 func TestClaudeInstalledFollowsSettingsOrder(t *testing.T) {
 	root := t.TempDir()
 	settings := func(path, body string) {

@@ -296,3 +296,21 @@ func TestInstallOfferIsInfoOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestDoctorNeverMentionsCalibration(t *testing.T) {
+	cfg, opts, _ := setup(t)
+	run := filepath.Join(opts.Root, ".duolog", "calibration", "runs", "r1")
+	if err := os.MkdirAll(run, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(run, "run.json"), []byte(`{"id":"r1","status":"stopped"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The test's temporary folders carry its name, so they leave the message.
+	temp := filepath.Dir(opts.Root)
+	for _, f := range Run(context.Background(), cfg, opts) {
+		if strings.Contains(strings.ToLower(strings.ReplaceAll(f.Message, temp, "")), "calibrat") {
+			t.Fatalf("%+v", f)
+		}
+	}
+}

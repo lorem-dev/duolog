@@ -642,6 +642,41 @@ func TestClaudeJSONResultLimitTriggersQuota(t *testing.T) {
 	}
 }
 
+// A turn cap reaches Claude as --max-turns; Codex has no such flag, so its
+// argv is unchanged.
+func TestMaxTurnsArgv(t *testing.T) {
+	s := spec(t, "claude")
+	s.MaxTurns = 7
+	containsArgs(t, Argv(s), "--max-turns", "7")
+	s.MaxTurns = 0
+	if slices.Contains(Argv(s), "--max-turns") {
+		t.Fatal(Argv(s))
+	}
+	c := spec(t, "codex")
+	without := Argv(c)
+	c.MaxTurns = 7
+	if !reflect.DeepEqual(Argv(c), without) {
+		t.Fatalf("codex argv with a turn cap %v, want %v", Argv(c), without)
+	}
+}
+
+// Claude ends a run at --max-turns with an error_max_turns result and no
+// answer. Run reports it as TurnsEnded with the usage, whatever the exit.
+func TestClaudeTurnCapEndsRun(t *testing.T) {
+	for _, exit := range []int{0, 1} {
+		s := spec(t, "claude")
+		s.MaxTurns = 2
+		install(t, &s, testbin.Scenario{Exit: exit, Stdout: `{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":3,"session_id":"worker-1","usage":{"input_tokens":30,"cache_read_input_tokens":10,"output_tokens":5}}` + "\n"})
+		got, err := Run(context.Background(), s)
+		if !errors.Is(err, ErrTurnCap) || !got.TurnsEnded || got.Done || got.QuotaEnded {
+			t.Fatalf("exit %d: %+v %v, want TurnsEnded and ErrTurnCap", exit, got, err)
+		}
+		if got.Usage != (Usage{Input: 40, Cached: 10, Output: 5}) {
+			t.Fatalf("exit %d: usage %+v, want 40 input, 10 cached, 5 output", exit, got.Usage)
+		}
+	}
+}
+
 func TestFinishedWorkerSurvivesDescendantHoldingOutput(t *testing.T) {
 	s := spec(t, "claude")
 	fake := install(t, &s, testbin.Scenario{SpawnChild: true, Stdout: `{"structured_output":` + goodAnswer + `}`})

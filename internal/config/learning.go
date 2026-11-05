@@ -118,12 +118,13 @@ type LearnedLadder struct {
 }
 
 type EntryStat struct {
-	Delegations int     `yaml:"delegations"`
-	Weight      float64 `yaml:"weight"`
-	Quality     float64 `yaml:"quality"`
-	Failures    int     `yaml:"failures"`
-	USD         float64 `yaml:"usd"`
-	Seconds     float64 `yaml:"seconds"`
+	Delegations      int     `yaml:"delegations"`
+	Weight           float64 `yaml:"weight"`
+	Quality          float64 `yaml:"quality"`
+	Failures         int     `yaml:"failures"`
+	USD              float64 `yaml:"usd"`
+	Seconds          float64 `yaml:"seconds"`
+	CalibrationTasks int     `yaml:"calibration_tasks,omitempty"` // calibration tasks with evidence: a failed check, a decided verdict or an unmatched pass
 }
 
 // ReadLearnedRouting reads .duolog/routing.learned.yaml; a missing file is the

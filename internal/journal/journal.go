@@ -128,6 +128,29 @@ type Verdict struct {
 	JudgeUSD       float64   `json:"judge_usd,omitempty"`
 	Decision       string    `json:"decision,omitempty"`
 	Note           string    `json:"note,omitempty"`
+	Source         string    `json:"source,omitempty"` // "calibration"
+	Run            string    `json:"run,omitempty"`
+	Verification   string    `json:"verification,omitempty"` // hidden, check, judge_only
+	Disputed       bool      `json:"disputed,omitempty"`
+}
+
+// CalibrationFile holds the check results of calibration cells and the tasks
+// the person dropped from a run.
+const CalibrationFile = "calibration.ndjson"
+
+// CalibrationResult is one entry's check result on one calibration task, or,
+// with Kind "drop", a task the person dropped from its run.
+type CalibrationResult struct {
+	Kind         string    `json:"kind"` // "result" or "drop"
+	Time         time.Time `json:"time"`
+	Run          string    `json:"run"`
+	Task         string    `json:"task"`
+	Class        string    `json:"class,omitempty"`
+	Ladder       string    `json:"ladder,omitempty"`
+	Entry        string    `json:"entry,omitempty"`
+	Verification string    `json:"verification,omitempty"`
+	Passed       bool      `json:"passed"`
+	Source       string    `json:"source"` // "calibration"
 }
 
 type OpenTask struct {

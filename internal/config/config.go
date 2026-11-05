@@ -28,6 +28,7 @@ type Config struct {
 	EnvPassthrough []string         `yaml:"env_passthrough" jsonschema_description:"Environment variables passed to workers; defaults include native OS login and agent config directories, not API keys."`
 	Rex            Rex              `yaml:"rex" jsonschema_description:"Terminal capture and startup settings; defaults to 20 lines and 120 seconds."`
 	Learning       Learning         `yaml:"learning" jsonschema_description:"Learning mode: task classes, classification rules, ladders and priors; off by default."`
+	Calibration    Calibration      `yaml:"calibration" jsonschema_description:"Project calibration caps and task filters; calibration runs only when the person asks the lead for it."`
 }
 
 type Coauthors struct {
@@ -157,7 +158,8 @@ func Load(root string) (*Config, error) {
 		filepath.Join(root, ".duolog", "config.yaml"),
 		filepath.Join(root, ".duolog", "config.local.yaml"),
 	}
-	for _, path := range paths {
+	layers := make([][]byte, len(paths))
+	for i, path := range paths {
 		data, err := os.ReadFile(path)
 		if os.IsNotExist(err) {
 			continue
@@ -168,6 +170,7 @@ func Load(root string) (*Config, error) {
 		if err := mergeLayer(&merged, data, path); err != nil {
 			return nil, err
 		}
+		layers[i] = data
 	}
 	var cfg Config
 	if err := merged.Decode(&cfg); err != nil {
@@ -199,6 +202,12 @@ func Load(root string) (*Config, error) {
 	cfg.Policy.Rules = append(cfg.Policy.Rules, learned...)
 	cfg.Policy.Rules = append(cfg.Policy.Rules, MCPToolRules(cfg.Capabilities.MCPTools)...)
 	if err := validateLearning(&cfg); err != nil {
+		return nil, err
+	}
+	if err := validateCalibration(&cfg); err != nil {
+		return nil, err
+	}
+	if err := lowerSharedCaps(&cfg, layers[0], layers[1], layers[2]); err != nil {
 		return nil, err
 	}
 	if cfg.Learning.Enabled {

@@ -8,9 +8,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/delegate"
@@ -280,7 +282,7 @@ func TestChecksSeeReconstructedOriginalAndReplay(t *testing.T) {
 func TestRunChecksUsesArgumentsAndWorkingDirectory(t *testing.T) {
 	f := newFixture(t)
 	commands := []string{"git rev-parse --is-inside-work-tree", "git diff --exit-code -- base.txt", "git no-such-subcommand", "no-such-program-x", "", "git --version ; no-such-program-x"}
-	checks := RunChecks(f.root, commands)
+	checks := RunChecks(context.Background(), f.root, commands)
 	if len(checks) != len(commands) {
 		t.Fatal(checks)
 	}
@@ -288,6 +290,47 @@ func TestRunChecksUsesArgumentsAndWorkingDirectory(t *testing.T) {
 		if checks[i].Exit != want || checks[i].Command != commands[i] || checks[i].Seconds < 0 {
 			t.Fatalf("check %d: %+v", i, checks[i])
 		}
+	}
+}
+
+// A check that starts its own child, as go test and npm test do, is stopped
+// with that child once ctx ends, and the commands after it do not run.
+func TestRunChecksStopsWithContext(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sh")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "hang.sh"), []byte("sleep 30 &\necho $! > child.pid\nwait\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	checks := RunChecks(ctx, dir, []string{"sh hang.sh", "touch ran.txt"})
+	if elapsed := time.Since(started); elapsed > 10*time.Second {
+		t.Fatalf("RunChecks took %s after its context ended", elapsed)
+	}
+	if len(checks) != 2 || checks[0].Exit == 0 || checks[1].Exit == 0 {
+		t.Fatalf("checks %+v, want both failed", checks)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ran.txt")); err == nil {
+		t.Fatal("a check ran after the context ended")
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "child.pid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for exec.Command("kill", "-0", strconv.Itoa(pid)).Run() == nil {
+		if time.Now().After(deadline) {
+			_ = exec.Command("kill", "-9", strconv.Itoa(pid)).Run()
+			t.Fatalf("the check's child %d still runs", pid)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

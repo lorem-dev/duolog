@@ -62,6 +62,70 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "Calibration": {
+      "properties": {
+        "max_weekly_share": {
+          "type": "number",
+          "description": "Most of each agent's weekly window the whole calibration may spend, above 0 and at most 1; defaults to 0.10."
+        },
+        "max_window_share": {
+          "type": "number",
+          "description": "Most of a five-hour window calibration may spend before it pauses until the window resets, above 0 and at most 0.5; defaults to 0.5."
+        },
+        "cell_max_minutes": {
+          "type": "integer",
+          "description": "Time cap for one cell in minutes; a task estimated above it is excluded. Defaults to 45."
+        },
+        "cell_max_tokens": {
+          "type": "integer",
+          "description": "Token cap for one cell; a task estimated above it is excluded. Defaults to 1500000."
+        },
+        "cell_max_turns": {
+          "type": "integer",
+          "description": "Turn cap for one cell; defaults to 100."
+        },
+        "history_days": {
+          "type": "integer",
+          "description": "Days of history mined first, widened when a class has fewer than 3 tasks; defaults to 90."
+        },
+        "filter": {
+          "$ref": "#/$defs/CalibrationFilter",
+          "description": "Size limits for commits mined as tasks, after dropping generated and vendored files."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "CalibrationFilter": {
+      "properties": {
+        "min_files": {
+          "type": "integer",
+          "description": "Fewest changed files for a task; defaults to 1."
+        },
+        "max_files": {
+          "type": "integer",
+          "description": "Most changed files for a task; defaults to 20."
+        },
+        "min_lines": {
+          "type": "integer",
+          "description": "Fewest changed lines for a task; defaults to 10."
+        },
+        "max_lines": {
+          "type": "integer",
+          "description": "Most changed lines for a task; defaults to 400."
+        },
+        "large_max_files": {
+          "type": "integer",
+          "description": "Most changed files for the larger stratum, used only when the project's work is large; defaults to 40."
+        },
+        "large_max_lines": {
+          "type": "integer",
+          "description": "Most changed lines for the larger stratum, used only when the project's work is large; defaults to 1500."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "Capabilities": {
       "properties": {
         "on_missing": {
@@ -264,6 +328,10 @@
         "learning": {
           "$ref": "#/$defs/Learning",
           "description": "Learning mode: task classes, classification rules, ladders and priors; off by default."
+        },
+        "calibration": {
+          "$ref": "#/$defs/Calibration",
+          "description": "Project calibration caps and task filters; calibration runs only when the person asks the lead for it."
         }
       },
       "additionalProperties": false,

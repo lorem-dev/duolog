@@ -150,6 +150,19 @@ func (h *harness) run(role string) (Outcome, error) {
 	h.t.Helper()
 	return Run(context.Background(), h.cfg, h.s, role, h.path, "topic")
 }
+
+// A turn cap in the options reaches the worker's spec.
+func TestMaxTurnsReachesWorker(t *testing.T) {
+	h := newHarness(t)
+	ctx := WithOptions(context.Background(), Options{MaxTurns: 12})
+	if _, err := Run(ctx, h.cfg, h.s, "implement", h.path, "topic"); err != nil {
+		t.Fatal(err)
+	}
+	h.requireCalls(1)
+	if h.calls[0].MaxTurns != 12 {
+		t.Fatalf("MaxTurns = %d, want 12", h.calls[0].MaxTurns)
+	}
+}
 func (h *harness) limited() {
 	h.results = []runner.Result{{QuotaEnded: true}}
 	h.errs = []error{errors.New("quota exceeded")}

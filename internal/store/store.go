@@ -15,6 +15,14 @@ const GitIgnore = `# duolog's local state stays out of Git: the bus, sessions, t
 !.gitignore
 !config.yaml
 !sync.lock.json
+` + CalibrationIgnore
+
+// CalibrationIgnore shares the calibration project part and keeps its runs
+// local. duolog install appends it to a .gitignore written before it existed.
+const CalibrationIgnore = `# Share the calibration project part; calibration runs stay local.
+!calibration/
+calibration/*
+!calibration/project.yaml
 `
 
 type Store struct {

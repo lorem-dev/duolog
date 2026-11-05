@@ -11,6 +11,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/journal"
+	"go.yaml.in/yaml/v3"
 )
 
 func unclassifiedRecords(n int) []journal.Delegation {
@@ -344,5 +345,25 @@ func TestApplyClassRestoresWhenLocalLayerMasksRule(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(root, ".duolog", "config.yaml"))
 	if err != nil || string(data) != contents {
 		t.Fatal("ineffective apply changed project config", string(data), err)
+	}
+}
+
+func TestEditConfigKeepsComments(t *testing.T) {
+	root, _ := proposalRoot(t, "# team note\nlearning:\n  enabled: true\n")
+	_, updated, err := EditConfig(root, func(l *yaml.Node) error {
+		return SetClassChecks(l, "implement", []string{"go test ./..."})
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(updated, []byte("# team note")) {
+		t.Fatalf("lost the comment: %s", updated)
+	}
+	loaded, err := config.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.Learning.Classes["implement"].Checks; !reflect.DeepEqual(got, []string{"go test ./..."}) {
+		t.Fatalf("Checks = %v, want [go test ./...]", got)
 	}
 }

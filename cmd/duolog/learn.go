@@ -2,11 +2,13 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/calibration"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/learning"
@@ -71,11 +73,23 @@ func newLearnCommand() *cobra.Command {
 			_, _, err := learning.ApplyClass(root, cfg, matches[0])
 			return err
 		}
-		if err := learnOrder(cmd, root, cfg, ds, ts, vs, apply); err != nil {
+		cs, err := journal.ReadAll[journal.CalibrationResult](j, journal.CalibrationFile)
+		if err != nil {
+			return err
+		}
+		// The shared project part seeds the order only while the person has
+		// no calibration results of their own.
+		var seed learning.Stats
+		if shared, ok, err := calibration.ReadProject(filepath.Join(root, ".duolog")); err != nil {
+			return err
+		} else if ok {
+			seed = calibration.SeedStats(cfg, shared)
+		}
+		if err := learnOrder(cmd, root, cfg, ds, ts, vs, cs, seed, apply); err != nil {
 			return err
 		}
 		for _, p := range classes {
-			old, updated, err := previewClass(root, cfg, p)
+			old, updated, err := previewConfig(root, func(tmp string) ([]byte, []byte, error) { return learning.ApplyClass(tmp, cfg, p) })
 			if err != nil {
 				return err
 			}
@@ -92,9 +106,13 @@ func newLearnCommand() *cobra.Command {
 	return cmd
 }
 
-func learnOrder(cmd *cobra.Command, root string, cfg *config.Config, ds []journal.Delegation, ts []journal.Task, vs []journal.Verdict, apply bool) error {
-	st := learning.Aggregate(cfg, ds, ts, vs)
-	p := learning.Propose(cfg, st, vs)
+func learnOrder(cmd *cobra.Command, root string, cfg *config.Config, ds []journal.Delegation, ts []journal.Task, vs []journal.Verdict, cs []journal.CalibrationResult, seed learning.Stats, apply bool) error {
+	p, st, kept := learning.ProposeGated(cfg, ds, ts, vs, cs, seed)
+	for _, key := range slices.Sorted(maps.Keys(kept)) {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s: %s, keeps the configured order\n", key, kept[key]); err != nil {
+			return err
+		}
+	}
 	if !learning.Changed(cfg, p) {
 		_, err := fmt.Fprintln(cmd.OutOrStdout(), "no change to the learned order")
 		return err
@@ -160,10 +178,11 @@ func declinedClasses(j *journal.Journal) ([]string, error) {
 	return names, nil
 }
 
-// Preview uses a private temporary copy so plain learn, including in a worker,
-// never rewrites the project's config even briefly while computing its diff.
-func previewClass(root string, cfg *config.Config, p learning.ClassProposal) ([]byte, []byte, error) {
-	tmp, err := os.MkdirTemp("", "duolog-class-preview-")
+// Preview runs fn on a private temporary copy so plain learn, including in a
+// worker, never rewrites the project's config even briefly while computing
+// its diff.
+func previewConfig(root string, fn func(tmp string) ([]byte, []byte, error)) ([]byte, []byte, error) {
+	tmp, err := os.MkdirTemp("", "duolog-config-preview-")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -184,5 +203,5 @@ func previewClass(root string, cfg *config.Config, p learning.ClassProposal) ([]
 			return nil, nil, err
 		}
 	}
-	return learning.ApplyClass(tmp, cfg, p)
+	return fn(tmp)
 }

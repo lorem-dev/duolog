@@ -316,3 +316,19 @@ learning:
       roles: [docs]
       ladder: [{agent: claude, model: sonnet, effort: medium, prior: 2.9}, {agent: codex, model: terra, effort: medium, prior: 2.9}]
       rubric: *cost_rubric
+
+# Calibration runs only when you ask the lead for it. See docs/calibration.md.
+calibration:
+  max_weekly_share: 0.10  # at most this share of each agent's weekly window for the whole calibration
+  max_window_share: 0.5   # pause when calibration spent this share of a five-hour window
+  cell_max_minutes: 45
+  cell_max_tokens: 1500000
+  cell_max_turns: 100
+  history_days: 90        # commits of these days first, widened when a class has fewer than 3 tasks
+  filter:                 # commit size after dropping generated and vendored files
+    min_files: 1
+    max_files: 20
+    min_lines: 10
+    max_lines: 400
+    large_max_files: 40   # a larger stratum, only when the project's work is large
+    large_max_lines: 1500

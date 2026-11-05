@@ -46,6 +46,12 @@
 
 - `duolog quota [--json]` reads Claude and Codex subscription limits without a
   model call and clears stale unavailable marks when quota is available.
+- The `duolog-calibrate` skill runs calibration when you ask for it; see
+  docs/calibration.md.
+- `duolog calibrate` finds past tasks, plans a run within 10% of each weekly
+  window, replays it in isolated trees and can `resume` after a stop.
+- `duolog calibrate judge` and `propose`: blind judging you confirm, a
+  learned-order proposal per class, and a shared project part in Git.
 
 ### Changed
 
@@ -57,30 +63,23 @@
 
 - Read-only roles can use quoted patterns and `/dev/null` redirects without
   asking.
-- A gate ask stays tied to its peer, and a busy peer pane no longer looks
-  finished.
+- `duolog peer wait` reports only its own peer's asks, skips asks whose
+  asker stopped waiting, and no longer takes a busy pane for finished.
 - Claude workers start without the Agent and Task tools, so they cannot bypass
   the gate with native subagents.
 - Limit reset times with a zone are parsed, and a limit mark without a reset
   time expires.
-- `duolog peer open` reads the first block from the current `rex new` reply
-  and no longer fails with "could not identify its terminal block".
-- `duolog peer send` types a shorter line, reads it across wrapped rows and
-  clears a failed try with ctrl+c, so text no longer ends up typed twice.
-- `duolog peer wait` skips gate asks of other workers and asks whose asker
-  has already stopped waiting.
+- `duolog peer open` reads the current `rex new` reply; `peer send` types a
+  short line and clears a failed try, so text is no longer typed twice.
 
 ### Security
 
 - Workers and peers no longer get `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, and
   Claude fast mode is off for them; list a key in `env_passthrough` to pass it.
-- Workers cannot read duolog state files; recursive searches that reach
-  `.duolog` are denied, including glob overrides.
-- Asks that name paths outside the project need the person; the lead's
-  approval hook keeps those asks for them, including quoted parent paths.
-- A clobber redirect (`>|`) to a path outside the project needs the person.
-- Claude workers list duolog state files in `sandbox.filesystem.denyRead`;
-  this binds only when the person's sandbox is already on.
+- Workers cannot read duolog state files, also through recursive searches and
+  glob overrides; with the sandbox on, Claude's `denyRead` lists them too.
+- Asks that name paths outside the project, including `>|` redirects, need
+  the person; the lead's approval hook keeps those asks for them.
 
 ## 1.3.0
 

@@ -154,3 +154,11 @@ func TestLearningNote(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestLearningNoteNeverMentionsCalibration(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Learning.Enabled = true
+	if got := LearningNote(cfg); strings.Contains(strings.ToLower(got), "calibrat") {
+		t.Fatal(got)
+	}
+}

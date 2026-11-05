@@ -46,6 +46,15 @@ type Outcome struct {
 	// for. It is not a failure: the caller gives it a separate exit code.
 	Needs []string
 }
+
+// NotStartedError is a delegation refused before any worker started: by the
+// task, the lead, the route, trust or the preflight. Nothing ran, so a
+// caller that charged the step can take the charge back.
+type NotStartedError struct{ Err error }
+
+func (e *NotStartedError) Error() string { return e.Err.Error() }
+func (e *NotStartedError) Unwrap() error { return e.Err }
+
 type Placement struct {
 	Where               string
 	Model, Effort, Task string
@@ -74,9 +83,15 @@ type Options struct {
 	ReplayOf string
 	// Judge runs are never journalled.
 	Judge bool
+	// Calibration marks a calibration cell or statement rewrite: no task opens
+	// and no journal record is written; the calibration run records it.
+	Calibration bool
 	// WorkRoot is the directory the worker runs in and trees are taken from;
 	// it defaults to the current work root.
-	WorkRoot                     string
+	WorkRoot string
+	// MaxTurns caps the worker's turns where its CLI has a flag for it
+	// (Claude); 0 sets no cap.
+	MaxTurns                     int
 	EscalateFrom, EscalateReason string
 }
 type optionsKey struct{}
@@ -133,6 +148,22 @@ func place(cfg *config.Config, taskPath, root string, route router.Route) (Place
 
 func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath, thread string) (out Outcome, err error) {
 	started := time.Now()
+	opts := OptionsFrom(ctx)
+	// workerStarted says a worker ran; until then every refusal is a
+	// NotStartedError. A calibration step needs a worker's result, so for one
+	// a placement in the lead or a wait for the lead is a refusal too.
+	workerStarted := false
+	defer func() {
+		if workerStarted {
+			return
+		}
+		if err == nil && opts.Calibration && (out.RunHere != nil || len(out.Needs) > 0) {
+			err = errors.New(out.Line)
+		}
+		if err != nil {
+			err = &NotStartedError{Err: err}
+		}
+	}()
 	defer func() {
 		if out.Line == "" && err != nil {
 			out.Line = oneLine(fmt.Sprintf("role %s: %v", role, err))
@@ -141,7 +172,6 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	if workerenv.IsWorker() {
 		return out, fmt.Errorf("nested delegation refused (DUOLOG_DEPTH=%s)", os.Getenv("DUOLOG_DEPTH"))
 	}
-	opts := OptionsFrom(ctx)
 	for _, need := range opts.Needs {
 		if _, _, err = capability.ParseNeed(need); err != nil {
 			return out, err
@@ -183,6 +213,11 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		}
 	}
 	tasksDir := filepath.Join(s.Dir, "tasks")
+	if opts.Calibration {
+		// A cell's tree is its own repository outside the project, and
+		// task.Inline reads a copy only from the work root's state.
+		tasksDir = filepath.Join(project.StateRoot(root), ".duolog", "tasks")
+	}
 	if err = os.MkdirAll(tasksDir, 0755); err != nil {
 		return out, err
 	}
@@ -463,6 +498,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			stdin := append(append(brief, inline...), workerLines...)
 			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Env: env, Persistent: route.Session == "resume", KeepMCP: needsKind(withoutBridged(opts.Needs, bridged), capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin), MCP: bridged}
 			spec.MCP = limitOwn(spec, opts.Needs, cfg.Capabilities.MCPTools)
+			spec.MaxTurns = opts.MaxTurns
 			if route.Sandbox == "read-only" {
 				spec.Mode = mode.Plan
 			}
@@ -507,6 +543,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			}
 			creditBefore := before
 			for {
+				workerStarted = true
 				out.Result, err = func() (runner.Result, error) {
 					defer reg.SetWaiting(leadID, token, 0)
 					return runWorker(ctx, spec)

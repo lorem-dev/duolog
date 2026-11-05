@@ -574,3 +574,20 @@ func TestOwnInstalledSkillIsNotSynced(t *testing.T) {
 		}
 	}
 }
+
+func TestSyncSkipsCalibrateSkill(t *testing.T) {
+	root := newProject(t)
+	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
+	put(t, root, ".claude/skills/duolog-calibrate/SKILL.md", "---\nname: duolog-calibrate\ndescription: d\ndisable-model-invocation: true\n---\nclaude copy\n", 0o644)
+	put(t, root, ".claude/skills/mine/SKILL.md", "---\nname: mine\ndescription: d\n---\nx\n", 0o644)
+	rep, err := Run(root, syncCfg(t), Options{From: "claude"})
+	if err != nil || len(rep.Conflicts) != 0 {
+		t.Fatalf("%+v %v", rep, err)
+	}
+	if !exists(root, ".agents/skills/mine/SKILL.md") {
+		t.Fatal("an ordinary skill was not synced")
+	}
+	if exists(root, ".agents/skills/duolog-calibrate") {
+		t.Fatal(".claude/skills/duolog-calibrate was copied to .agents/skills")
+	}
+}

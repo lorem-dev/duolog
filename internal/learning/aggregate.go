@@ -13,6 +13,12 @@ type Stats map[string]map[string]config.EntryStat
 
 // Aggregate combines live outcomes, replay costs and decided comparisons.
 func Aggregate(cfg *config.Config, ds []journal.Delegation, ts []journal.Task, vs []journal.Verdict) Stats {
+	return AggregateAll(cfg, ds, ts, vs, nil)
+}
+
+// AggregateAll is Aggregate plus the calibration results in cs and the
+// calibration verdicts on them; see addCalibration.
+func AggregateAll(cfg *config.Config, ds []journal.Delegation, ts []journal.Task, vs []journal.Verdict, cs []journal.CalibrationResult) Stats {
 	st := Stats{}
 	update := func(key, entry string, f func(*config.EntryStat)) {
 		if st[key] == nil {
@@ -78,6 +84,10 @@ func Aggregate(cfg *config.Config, ds []journal.Delegation, ts []journal.Task, v
 		})
 	}
 	for _, v := range decided(vs) {
+		// Calibration verdicts count once per task and entry, with the results.
+		if v.Source == calibrationSource {
+			continue
+		}
 		a, b, ok := scoreMeans(v.Scores)
 		if !ok {
 			continue
@@ -85,6 +95,7 @@ func Aggregate(cfg *config.Config, ds []journal.Delegation, ts []journal.Task, v
 		update(v.Ladder, v.Original, func(s *config.EntryStat) { observe(s, a, 1) })
 		update(v.Ladder, v.Profile, func(s *config.EntryStat) { observe(s, b, 1) })
 	}
+	addCalibration(update, vs, cs)
 	return st
 }
 
@@ -157,7 +168,11 @@ func Evidence(st Stats, key string) []string {
 	var out []string
 	for _, k := range keys {
 		s := st[key][k]
-		out = append(out, fmt.Sprintf("%s: %s %d delegations, weight %g, quality %.2f, failures %d, $%.2f, %.0fs", key, k, s.Delegations, s.Weight, s.Quality, s.Failures, s.USD, s.Seconds))
+		line := fmt.Sprintf("%s: %s %d delegations, weight %g, quality %.2f, failures %d, $%.2f, %.0fs", key, k, s.Delegations, s.Weight, s.Quality, s.Failures, s.USD, s.Seconds)
+		if s.CalibrationTasks > 0 {
+			line += fmt.Sprintf(", calibration tasks %d", s.CalibrationTasks)
+		}
+		out = append(out, line)
 	}
 	return out
 }

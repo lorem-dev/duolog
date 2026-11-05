@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -294,6 +295,32 @@ func TestKeepsExistingConfig(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, ".duolog/backup/.duolog/config.yaml")); !os.IsNotExist(err) {
 		t.Fatal("backup of an untouched file")
+	}
+}
+
+// A project set up before calibration gets the exception for the project part
+// once, and its own lines stay.
+func TestInstallAddsCalibrationExceptionToExistingGitIgnore(t *testing.T) {
+	home, root := setup(t)
+	path := filepath.Join(root, ".duolog", ".gitignore")
+	// The text duolog 1.3.0 wrote, plus a line of the project's own.
+	write(t, path, "# duolog's local state stays out of Git: the bus, sessions, tasks and caches.\n*\n# Share these with the project.\n!.gitignore\n!config.yaml\n!sync.lock.json\n!team.yaml")
+	o := Options{Scope: "project", Agent: "both", Root: root, Home: home}
+	r1 := run(t, o)
+	data := read(t, path)
+	block := "!calibration/\ncalibration/*\n!calibration/project.yaml\n"
+	if strings.Count(data, block) != 1 || !strings.Contains(data, "!team.yaml\n") {
+		t.Fatalf(".gitignore:\n%s", data)
+	}
+	r2 := run(t, o)
+	if !slices.Contains(r1.Files, path) {
+		t.Fatalf("first run did not list %s: %v", path, r1.Files)
+	}
+	if slices.Contains(r2.Files, path) {
+		t.Fatalf("second run changed %s again", path)
+	}
+	if got := read(t, path); got != data {
+		t.Fatalf("second run changed .gitignore:\n%s", got)
 	}
 }
 

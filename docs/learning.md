@@ -269,7 +269,16 @@ Delete `.duolog/routing.learned.yaml` to restore the configured ladders.
 The journal remains available for future proposals. Set `learning.enabled`
 to `false` to turn learning mode off.
 
+## How a new project gets a starting order
+
+A new project starts on the configured ladders. If you ask the lead for it,
+[calibration](calibration.md) replays past work on several targets and
+proposes a starting order per class. Its results join this journal, and
+`duolog learn` keeps refining from real tasks.
+
 ## Related pages
+
+- [Calibration](calibration.md): a starting order from past work, on request
 
 - [Configuration](configuration.md): learning settings and project overrides
 - [Getting started](getting-started.md): install duolog and delegate a task

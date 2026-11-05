@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,18 +78,29 @@ func Run(o Options) (Report, error) {
 			return Report{}, err
 		}
 		edits = append(edits, edit{path: path, data: data})
-		for _, name := range []string{"duolog", "duolog-skill-check"} {
-			skill, err := plugin.FS.ReadFile(agent + "/skills/" + name + "/SKILL.md")
+		for _, name := range bundledSkills {
+			files, err := skillFiles(agent, name)
 			if err != nil {
 				return Report{}, err
 			}
-			skillPath := filepath.Join(filepath.Dir(filepath.Dir(installedSkillPath(o, base, agent))), name, "SKILL.md")
-			edits = append(edits, edit{path: skillPath, data: skill})
+			dir := installedSkillDir(o, base, agent, name)
+			for _, rel := range files {
+				data, err := plugin.FS.ReadFile(agent + "/skills/" + name + "/" + rel)
+				if err != nil {
+					return Report{}, err
+				}
+				edits = append(edits, edit{path: filepath.Join(dir, filepath.FromSlash(rel)), data: data})
+			}
 		}
 	}
 	if o.Scope != "user" {
 		if _, err := store.Open(o.Root); err != nil {
 			return Report{}, err
+		}
+		if e, ok, err := calibrationIgnoreEdit(o.Root); err != nil {
+			return Report{}, err
+		} else if ok {
+			edits = append(edits, e)
 		}
 		instructions, err := instructionEdits(o.Root)
 		if err != nil {
@@ -126,7 +138,27 @@ func Run(o Options) (Report, error) {
 	return report, nil
 }
 
-// Remove deletes only what Run added: our hook entries and our skill file.
+// calibrationIgnoreEdit appends store.CalibrationIgnore to a .duolog/.gitignore
+// written before calibration, so the project part goes to Git. It reports false
+// when the file already shares the project part. Existing lines stay.
+func calibrationIgnoreEdit(root string) (edit, bool, error) {
+	path := filepath.Join(root, ".duolog", ".gitignore")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return edit{}, false, err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) == "!calibration/project.yaml" {
+			return edit{}, false, nil
+		}
+	}
+	if len(data) > 0 && !bytes.HasSuffix(data, []byte("\n")) {
+		data = append(data, '\n')
+	}
+	return edit{path: path, data: append(data, store.CalibrationIgnore...)}, true, nil
+}
+
+// Remove deletes only what Run added: our hook entries and our skill files.
 // Foreign hooks, the config file and everything else stay.
 func Remove(o Options) error {
 	agents, base, err := resolve(o)
@@ -158,26 +190,62 @@ func Remove(o Options) error {
 		}
 	}
 	for _, agent := range agents {
-		for _, name := range []string{"duolog", "duolog-skill-check"} {
-			skill := filepath.Join(filepath.Dir(filepath.Dir(installedSkillPath(o, base, agent))), name, "SKILL.md")
-			// A skill with other content is not the one Run wrote, so it stays.
-			ours, err := plugin.FS.ReadFile(agent + "/skills/" + name + "/SKILL.md")
+		for _, name := range bundledSkills {
+			files, err := skillFiles(agent, name)
 			if err != nil {
 				return err
 			}
-			if have, err := os.ReadFile(skill); err != nil || !bytes.Equal(have, ours) {
-				continue
+			dir := installedSkillDir(o, base, agent, name)
+			for _, rel := range files {
+				path := filepath.Join(dir, filepath.FromSlash(rel))
+				// A file with other content is not the one Run wrote, so it stays.
+				ours, err := plugin.FS.ReadFile(agent + "/skills/" + name + "/" + rel)
+				if err != nil {
+					return err
+				}
+				if have, err := os.ReadFile(path); err != nil || !bytes.Equal(have, ours) {
+					continue
+				}
+				if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+					return err
+				}
+				// Folders go only when empty, from the file's up to the skill's.
+				for d := filepath.Dir(path); d != filepath.Dir(dir); d = filepath.Dir(d) {
+					if os.Remove(d) != nil {
+						break
+					}
+				}
 			}
-			if err := os.Remove(skill); err != nil && !os.IsNotExist(err) {
-				return err
-			}
-			_ = os.Remove(filepath.Dir(skill)) // only succeeds when empty
 		}
 	}
 	if o.Scope != "user" {
 		return removeInstructions(o.Root)
 	}
 	return nil
+}
+
+// bundledSkills are the skill folders Run copies from the plugin and Remove
+// takes back.
+var bundledSkills = []string{"duolog", "duolog-skill-check", "duolog-calibrate"}
+
+// skillFiles lists every file of one bundled skill, relative to its folder,
+// with slashes.
+func skillFiles(agent, name string) ([]string, error) {
+	root := agent + "/skills/" + name
+	var files []string
+	err := fs.WalkDir(plugin.FS, root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		files = append(files, strings.TrimPrefix(path, root+"/"))
+		return nil
+	})
+	return files, err
+}
+
+// installedSkillDir is the folder one bundled skill goes into.
+func installedSkillDir(o Options, base, agent, name string) string {
+	return filepath.Join(filepath.Dir(filepath.Dir(installedSkillPath(o, base, agent))), name)
 }
 
 // pluginKey is the enabledPlugins key of the duolog Claude plugin.

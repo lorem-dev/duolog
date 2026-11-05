@@ -397,11 +397,37 @@ A layer replaces `classify` as a whole list, as YAML lists do, so a project
 that adds one rule restates the others. `classes` merge per class and field, so
 a project can add a class or change one ladder and keep the rest.
 
+## How calibration limits its spend
+
+The `calibration` section caps what a calibration run may spend and which
+past commits it uses as tasks. Calibration runs only when you ask the lead for
+it; see [Calibration](calibration.md). The keys and their defaults:
+
+| Key | Default | What it does |
+|---|---|---|
+| `max_weekly_share` | `0.10` | The most of each agent's weekly window the whole calibration spends |
+| `max_window_share` | `0.5` | The share of a five-hour window at which the run pauses until it resets; at most `0.5` |
+| `cell_max_minutes` | `45` | Time cap for one cell and for one run of its checks; a task estimated above it is left out |
+| `cell_max_tokens` | `1500000` | Token cap for one cell; a task estimated above it is left out |
+| `cell_max_turns` | `100` | Turn cap for one cell: `--max-turns` for a Claude worker, advice in the brief for Codex, which has no such option |
+| `history_days` | `90` | Days of history mined first, widened when a class has fewer than 3 tasks |
+| `filter.min_files`, `filter.max_files` | `1`, `20` | Changed files of a mined commit, without generated and vendored files |
+| `filter.min_lines`, `filter.max_lines` | `10`, `400` | Changed lines of a mined commit |
+| `filter.large_max_files`, `filter.large_max_lines` | `40`, `1500` | Limits of a larger stratum, used only when the project's work is large |
+
+Set a cap lower to spend less. The lead does not raise the caps; only you
+edit them. The shared `.duolog/config.yaml` can only lower the two share
+caps: a higher value there is ignored, and `duolog calibrate status` names
+it. Raise a cap in `.duolog/config.local.yaml` or your user config. The lead
+reserve, 15% of the weekly and 10% of the five-hour window, applies on top
+and is not a setting.
+
 ## Related pages
 
 - [Getting started](getting-started.md): install and first task
 - [Permissions](permissions.md): policy rules and modes
 - [Learning mode](learning.md): task classes, the journal and learned orders
+- [Calibration](calibration.md): a starting order from past work, on request
 - [Practices and models](research/2026-10-30-practices-and-models.md): the
   evidence behind the defaults
 - [Cost study](research/2026-11-01-cost-study.md): what duolog cost against

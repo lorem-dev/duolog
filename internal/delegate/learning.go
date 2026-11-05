@@ -78,9 +78,10 @@ func sameModel(t config.Target, lead *config.Target) bool {
 }
 
 // beginLearning classifies the delegation and finds its task. It refuses only
-// an unknown stated class; a missing task opens an implicit one.
+// an unknown stated class; a missing task opens an implicit one. Judge and
+// calibration runs are not learnt from here.
 func beginLearning(cfg *config.Config, s *store.Store, leadID, role, id string, opts Options) (*learnRun, error) {
-	if !cfg.Learning.Enabled || opts.Judge {
+	if !cfg.Learning.Enabled || opts.Judge || opts.Calibration {
 		return nil, nil
 	}
 	l := cfg.Learning

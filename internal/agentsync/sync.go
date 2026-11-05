@@ -487,8 +487,8 @@ func (r *runner) skillUnits() []unit {
 			r.rep.Warnings = append(r.rep.Warnings, base+": symlink source skipped")
 			continue
 		}
-		// duolog installs its own skill on both sides; it is never synced.
-		if !e.IsDir() || e.Name() == ownSkill || e.Name() == "duolog-skill-check" || !r.inScope(base) {
+		// duolog installs its own skills on both sides; they are never synced.
+		if !e.IsDir() || e.Name() == ownSkill || e.Name() == "duolog-skill-check" || e.Name() == "duolog-calibrate" || !r.inScope(base) {
 			continue
 		}
 		if _, err := os.Stat(r.abs(base + "/SKILL.md")); err != nil {

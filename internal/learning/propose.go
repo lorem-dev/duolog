@@ -152,6 +152,94 @@ func classCandidates(cfg *config.Config, ds []journal.Delegation) []ClassProposa
 // ApplyClass edits only the project's config layer. The full effective rule
 // list is retained because a YAML sequence replaces the lower layers' list.
 func ApplyClass(root string, cfg *config.Config, p ClassProposal) (old, updated []byte, err error) {
+	return EditConfig(root, func(learning *yaml.Node) error {
+		_, err := AddClass(learning, cfg.Learning.Classify, p)
+		return err
+	}, func(loaded *config.Config) error {
+		return VerifyClass(loaded, p)
+	})
+}
+
+// AddClass writes p into the learning mapping of the project's config: its
+// rule goes into rules, the full effective list, before the first rule that
+// already matches its features, and a new class goes under classes. It
+// returns the extended list for the next proposal of the same edit.
+func AddClass(learning *yaml.Node, rules []config.ClassRule, p ClassProposal) ([]config.ClassRule, error) {
+	var oldRules []*yaml.Node
+	if node := classValue(learning, "classify"); node != nil && node.Kind == yaml.SequenceNode {
+		oldRules = node.Content
+	}
+	rules = slices.Clone(rules)
+	i := slices.IndexFunc(rules, func(r config.ClassRule) bool {
+		return Classify([]config.ClassRule{r}, p.Rule.When["role"], p.Rule.When) != ""
+	})
+	if i < 0 {
+		i = len(rules)
+	}
+	rules = slices.Insert(rules, i, p.Rule)
+	sequence := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+	for _, rule := range rules {
+		var encoded yaml.Node
+		if err := encoded.Encode(rule); err != nil {
+			return nil, err
+		}
+		// Reuse matching source nodes to keep comments on the old rules.
+		for _, node := range oldRules {
+			var original config.ClassRule
+			if node.Decode(&original) == nil && original.Class == rule.Class && maps.Equal(original.When, rule.When) {
+				encoded = *node
+				break
+			}
+		}
+		sequence.Content = append(sequence.Content, &encoded)
+	}
+	classSet(learning, "classify", sequence)
+	if p.Class != nil {
+		classes, err := classMapping(learning, "classes")
+		if err != nil {
+			return nil, err
+		}
+		var node yaml.Node
+		if err := node.Encode(p.Class); err != nil {
+			return nil, err
+		}
+		classSet(classes, p.Name, &node)
+	}
+	return rules, nil
+}
+
+// VerifyClass reports a proposal whose rule a later config layer overrides.
+func VerifyClass(cfg *config.Config, p ClassProposal) error {
+	if Classify(cfg.Learning.Classify, p.Rule.When["role"], p.Rule.When) != p.Rule.Class {
+		return fmt.Errorf("proposal %q is overridden by a later config layer", p.Name)
+	}
+	return nil
+}
+
+// SetClassChecks sets the checks of class in the learning mapping of the
+// project's config and leaves the class's other fields to the lower layers.
+func SetClassChecks(learning *yaml.Node, class string, checks []string) error {
+	classes, err := classMapping(learning, "classes")
+	if err != nil {
+		return err
+	}
+	node, err := classMapping(classes, class)
+	if err != nil {
+		return err
+	}
+	var encoded yaml.Node
+	if err := encoded.Encode(checks); err != nil {
+		return err
+	}
+	classSet(node, "checks", &encoded)
+	return nil
+}
+
+// EditConfig applies edit to the learning mapping of the project's config
+// layer, keeping comments, and writes the result. It then loads the merged
+// config and runs verify, when given, on it; a load or verify error restores
+// the file as it was.
+func EditConfig(root string, edit func(learning *yaml.Node) error, verify func(*config.Config) error) (old, updated []byte, err error) {
 	path := filepath.Join(root, ".duolog", "config.yaml")
 	old, err = os.ReadFile(path)
 	existed := err == nil
@@ -176,45 +264,8 @@ func ApplyClass(root string, cfg *config.Config, p ClassProposal) (old, updated 
 	if err != nil {
 		return old, nil, err
 	}
-	var oldRules []*yaml.Node
-	if node := classValue(learning, "classify"); node != nil && node.Kind == yaml.SequenceNode {
-		oldRules = node.Content
-	}
-	rules := slices.Clone(cfg.Learning.Classify)
-	i := slices.IndexFunc(rules, func(r config.ClassRule) bool {
-		return Classify([]config.ClassRule{r}, p.Rule.When["role"], p.Rule.When) != ""
-	})
-	if i < 0 {
-		i = len(rules)
-	}
-	rules = slices.Insert(rules, i, p.Rule)
-	sequence := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
-	for _, rule := range rules {
-		var encoded yaml.Node
-		if err = encoded.Encode(rule); err != nil {
-			return old, nil, err
-		}
-		// Reuse matching source nodes to keep comments on the old rules.
-		for _, node := range oldRules {
-			var original config.ClassRule
-			if node.Decode(&original) == nil && original.Class == rule.Class && maps.Equal(original.When, rule.When) {
-				encoded = *node
-				break
-			}
-		}
-		sequence.Content = append(sequence.Content, &encoded)
-	}
-	classSet(learning, "classify", sequence)
-	if p.Class != nil {
-		classes, e := classMapping(learning, "classes")
-		if e != nil {
-			return old, nil, e
-		}
-		var node yaml.Node
-		if err = node.Encode(p.Class); err != nil {
-			return old, nil, err
-		}
-		classSet(classes, p.Name, &node)
+	if err = edit(learning); err != nil {
+		return old, nil, err
 	}
 	var buf bytes.Buffer
 	encoder := yaml.NewEncoder(&buf)
@@ -234,8 +285,8 @@ func ApplyClass(root string, cfg *config.Config, p ClassProposal) (old, updated 
 	}
 	loaded, loadErr := config.Load(root)
 	err = loadErr
-	if err == nil && Classify(loaded.Learning.Classify, p.Rule.When["role"], p.Rule.When) != p.Rule.Class {
-		err = fmt.Errorf("proposal %q is overridden by a later config layer", p.Name)
+	if err == nil && verify != nil {
+		err = verify(loaded)
 	}
 	if err != nil {
 		var restore error

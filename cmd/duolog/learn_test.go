@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func classProposalJournal(t *testing.T, root, taskID string) *journal.Journal {
@@ -279,6 +280,94 @@ func TestLearnStatsOnlyIsNoChange(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// calibrationJournal records n tests tasks that terra failed and sol passed,
+// with no ladder, as calibrate judge writes them.
+func calibrationJournal(t *testing.T, root string, n int) {
+	t.Helper()
+	j, err := journal.Open(filepath.Join(root, ".duolog"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)
+	for i := range n {
+		for _, r := range []struct {
+			entry  string
+			passed bool
+		}{{"codex/terra/medium", false}, {"codex/sol/medium", true}} {
+			c := journal.CalibrationResult{Kind: "result", Time: now, Run: "cal-1", Task: fmt.Sprintf("t%d", i+1), Class: "tests",
+				Entry: r.entry, Verification: "hidden", Passed: r.passed, Source: "calibration"}
+			if err := j.Append(journal.CalibrationFile, c); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
+func TestLearnUsesCalibrationEvidence(t *testing.T) {
+	root := learningRepo(t, true)
+	calibrationJournal(t, root, 3)
+	out, err := executeBusCommand(t, "learn")
+	if err != nil || !strings.Contains(out, "calibration tasks 3") || !strings.Contains(out, "+    order:") {
+		t.Fatal(out, err)
+	}
+	if out, err := executeBusCommand(t, "learn", "--apply"); err != nil {
+		t.Fatal(out, err)
+	}
+	cfg, err := config.Load(root)
+	if err != nil || len(cfg.Learning.Learned["tests"].Order) == 0 || cfg.Learning.Learned["tests"].Order[0] != "codex/sol/medium" {
+		t.Fatal(cfg.Learning.Learned, err)
+	}
+}
+
+func TestLearnSaysNoDifferenceFound(t *testing.T) {
+	root := learningRepo(t, true)
+	calibrationJournal(t, root, 2)
+	out, err := executeBusCommand(t, "learn")
+	if err != nil || !strings.Contains(out, "tests: no difference found, keeps the configured order") {
+		t.Fatal(out, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".duolog", config.LearnedRoutingFile)); !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+}
+
+func TestLearnSeedsFromProjectPart(t *testing.T) {
+	root := learningRepo(t, true)
+	sharedProjectPart(t, root)
+	out, err := executeBusCommand(t, "learn")
+	if err != nil || !strings.Contains(out, "+    order:") {
+		t.Fatal(out, err)
+	}
+	if out, err := executeBusCommand(t, "learn", "--apply"); err != nil {
+		t.Fatal(out, err)
+	}
+	cfg, err := config.Load(root)
+	if err != nil || len(cfg.Learning.Learned["tests"].Order) == 0 || cfg.Learning.Learned["tests"].Order[0] != "codex/sol/medium" {
+		t.Fatal(cfg.Learning.Learned, err)
+	}
+
+	// With a personal result the seed is ignored: one task both entries
+	// passed separates nothing.
+	other := learningRepo(t, true)
+	sharedProjectPart(t, other)
+	j, err := journal.Open(filepath.Join(other, ".duolog"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range []string{"codex/terra/medium", "codex/sol/medium"} {
+		c := journal.CalibrationResult{Kind: "result", Time: time.Now().UTC(), Run: "cal-1", Task: "t1", Class: "tests", Entry: entry,
+			Verification: "hidden", Passed: true, Source: "calibration"}
+		if err := j.Append(journal.CalibrationFile, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err = executeBusCommand(t, "learn")
+	if err != nil || strings.TrimSpace(out) != "no change to the learned order" {
+		t.Fatal(out, err)
+	}
+}
+
 func TestLearnApplyRefusedForWorker(t *testing.T) {
 	root := learningRepo(t, true)
 	learnJournal(t, root, true)

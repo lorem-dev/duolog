@@ -86,6 +86,51 @@ func TestGitIgnoreKeepsOnlySharedFiles(t *testing.T) {
 	}
 }
 
+// The calibration project part goes to Git with the project; runs and other
+// calibration files stay local.
+func TestGitIgnoreKeepsCalibrationProjectPart(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not on PATH")
+	}
+	root := t.TempDir()
+	if out, err := exec.Command("git", "-C", root, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	s, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"calibration/project.yaml", "calibration/runs/r1/run.json"} {
+		path := filepath.Join(s.Dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("{}\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ignored := func(t *testing.T, root, rel string) bool {
+		t.Helper()
+		err := exec.Command("git", "-C", root, "check-ignore", "-q", rel).Run()
+		if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() == 1 {
+			return false
+		}
+		if err != nil {
+			t.Fatalf("git check-ignore %s: %v", rel, err)
+		}
+		return true
+	}
+	if ignored(t, root, ".duolog/calibration/project.yaml") {
+		t.Fatal("project part ignored")
+	}
+	if !ignored(t, root, ".duolog/calibration/runs/r1/run.json") {
+		t.Fatal("runs not ignored")
+	}
+	if !ignored(t, root, ".duolog/calibration/rates.json") {
+		t.Fatal("rates not ignored")
+	}
+}
+
 // A delegation's folder and an artifact go once nothing has touched them for
 // KeepFor; newer ones, and a folder with a recent file, stay.
 func TestPruneRemovesOldTasksAndArtifacts(t *testing.T) {

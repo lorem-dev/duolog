@@ -25,6 +25,10 @@ import (
 const taskInstruction = "Do the task in the stdin block."
 const codexAnswerInstruction = "Reply with only one JSON object with the keys done, summary, files, needs and decisions. done is true or false, summary is a string, files, needs and decisions are arrays of strings."
 const defaultTimeout = 30 * time.Minute
+
+// ErrTurnCap is Run's error for a worker that reached Spec.MaxTurns.
+var ErrTurnCap = errors.New("worker reached its turn cap")
+
 const answerSchema = `{"type":"object","properties":{"done":{"type":"boolean"},"summary":{"type":"string"},"files":{"type":"array","items":{"type":"string"}},"needs":{"type":"array","items":{"type":"string"}},"decisions":{"type":"array","items":{"type":"string"}}},"required":["done","summary","files","needs","decisions"],"additionalProperties":false}`
 
 type Spec struct {
@@ -39,6 +43,9 @@ type Spec struct {
 	// KeepSkills keeps the skill list of a minimal worker whose task needs a skill.
 	KeepSkills bool
 	Timeout    time.Duration
+	// MaxTurns caps a Claude worker's turns with --max-turns; 0 sets none.
+	// Codex has no such flag and ignores it.
+	MaxTurns int
 	// SkillTest asks for raw situation answers without tools or a worker schema.
 	SkillTest bool
 	// MCP holds servers bridged from the lead's agent for this run, or nil.
@@ -79,7 +86,9 @@ type Result struct {
 	SessionID   string
 	Usage       Usage
 	QuotaEnded  bool
-	ExitCode    int
+	// TurnsEnded means the worker reached Spec.MaxTurns and gave no answer.
+	TurnsEnded bool
+	ExitCode   int
 	// AuthFailed means an error said the worker's agent or a server refused
 	// its credentials. AuthServer names the server, when the error did.
 	AuthFailed bool
@@ -221,6 +230,10 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 			runErr = nil
 		}
 		return result, errors.Join(runErr, closeErr, err)
+	}
+	// A worker at its turn cap has no answer, but its usage counts.
+	if s.Route.Agent == "claude" && s.MaxTurns > 0 && claudeTurnCap(stdoutPath, &result) {
+		return result, ErrTurnCap
 	}
 	// A worker that exits 0 and leaves a background child holding its output
 	// has still finished: its answer is complete.

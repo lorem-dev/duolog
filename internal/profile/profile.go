@@ -349,9 +349,11 @@ func nextDir(parent string) (string, error) {
 }
 
 // RunChecks runs argument lists, never shell text. A missing program is a check
-// failure with exit -1, rather than a failure of the profiling operation.
-func RunChecks(dir string, commands []string) []journal.Check {
-	return runChecks(context.Background(), dir, commands)
+// failure with exit -1, rather than a failure of the profiling operation. Once
+// ctx ends, the running check is stopped with every process it started, and
+// the checks after it fail without running.
+func RunChecks(ctx context.Context, dir string, commands []string) []journal.Check {
+	return runChecks(ctx, dir, commands)
 }
 
 func runChecks(ctx context.Context, dir string, commands []string) []journal.Check {
@@ -362,6 +364,10 @@ func runChecks(ctx context.Context, dir string, commands []string) []journal.Che
 		if args := strings.Fields(command); len(args) > 0 {
 			cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 			cmd.Dir = dir
+			// Its own process group: an interrupt reaches the check through
+			// ctx, and stopping it stops the test processes it started.
+			configureProcess(cmd)
+			cmd.WaitDelay = 2 * time.Second
 			if err := cmd.Run(); err == nil {
 				check.Exit = 0
 			} else if cmd.ProcessState != nil {

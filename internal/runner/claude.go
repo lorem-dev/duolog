@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/mode"
@@ -29,6 +30,9 @@ func claudeArgv(s Spec) []string {
 		args = append(args, "--effort", s.Route.Effort)
 	}
 	args = append(args, "--output-format", "json", "--json-schema", answerSchema)
+	if s.MaxTurns > 0 {
+		args = append(args, "--max-turns", strconv.Itoa(s.MaxTurns))
+	}
 	args = append(args, mode.Args("claude", s.Mode, s.Route.Sandbox)...)
 	// In the cost study the user's MCP servers added 7.4 thousand tokens to every
 	// call, so a worker gets them only when its task needs one. Bridged servers
@@ -69,26 +73,30 @@ func claudeArgv(s Spec) []string {
 	return append(args, "--", taskInstruction)
 }
 
-func claudeResult(path string, result *Result) (json.RawMessage, error) {
+type claudeOutput struct {
+	SessionID string `json:"session_id"`
+	// Subtype is error_max_turns when the run stopped at --max-turns.
+	Subtype    string          `json:"subtype"`
+	Structured json.RawMessage `json:"structured_output"`
+	Usage      struct {
+		Input    int64 `json:"input_tokens"`
+		Creation int64 `json:"cache_creation_input_tokens"`
+		Cached   int64 `json:"cache_read_input_tokens"`
+		Output   int64 `json:"output_tokens"`
+	} `json:"usage"`
+}
+
+// readClaude decodes the first JSON object of Claude's stdout capture.
+func readClaude(path string) (claudeOutput, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return claudeOutput{}, err
 	}
 	defer file.Close()
 	// Only stdout is decoded; stderr is retained separately in stdout.log.
 	// Try each object-starting line independently so malformed diagnostics do
 	// not hide the result, while multiline JSON remains decodable.
 	reader := bufio.NewReader(file)
-	type claudeOutput struct {
-		SessionID  string          `json:"session_id"`
-		Structured json.RawMessage `json:"structured_output"`
-		Usage      struct {
-			Input    int64 `json:"input_tokens"`
-			Creation int64 `json:"cache_creation_input_tokens"`
-			Cached   int64 `json:"cache_read_input_tokens"`
-			Output   int64 `json:"output_tokens"`
-		} `json:"usage"`
-	}
 	var output claudeOutput
 	var offset int64
 	var decodeErr error
@@ -98,21 +106,45 @@ func claudeResult(path string, result *Result) (json.RawMessage, error) {
 			output = claudeOutput{}
 			decodeErr = json.NewDecoder(io.NewSectionReader(file, offset, math.MaxInt64-offset)).Decode(&output)
 			if decodeErr == nil {
-				break
+				return output, nil
 			}
 		}
 		offset += int64(len(line))
 		if readErr != nil {
 			if decodeErr != nil {
-				return nil, decodeErr
+				return claudeOutput{}, decodeErr
 			}
-			return nil, readErr
+			return claudeOutput{}, readErr
 		}
 	}
+}
+
+// read copies the session and usage of output into result.
+func (output claudeOutput) read(result *Result) {
 	result.SessionID = output.SessionID
 	// Claude reports uncached, cache creation and cache reads separately; Input
 	// is total input for both vendors, with Cached being the included read subset.
 	result.Usage = Usage{Input: output.Usage.Input + output.Usage.Creation + output.Usage.Cached, Cached: output.Usage.Cached, Output: output.Usage.Output}
+}
+
+// claudeTurnCap reports whether Claude's run at path stopped at --max-turns,
+// and then copies its session and usage into result, whatever the exit.
+func claudeTurnCap(path string, result *Result) bool {
+	output, err := readClaude(path)
+	if err != nil || output.Subtype != "error_max_turns" {
+		return false
+	}
+	output.read(result)
+	result.TurnsEnded = true
+	return true
+}
+
+func claudeResult(path string, result *Result) (json.RawMessage, error) {
+	output, err := readClaude(path)
+	if err != nil {
+		return nil, err
+	}
+	output.read(result)
 	if len(output.Structured) == 0 || bytes.Equal(output.Structured, []byte("null")) {
 		return nil, io.ErrUnexpectedEOF
 	}

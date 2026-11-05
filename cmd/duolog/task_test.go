@@ -23,7 +23,9 @@ func learningRepo(t *testing.T, enabled bool) string {
 	t.Chdir(root)
 	t.Setenv("DUOLOG_LEAD", "")
 	t.Setenv("DUOLOG_DEPTH", "")
-	for _, args := range [][]string{{"init", "-q"}, {"-c", "user.name=test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "init"}} {
+	// The committer is a two-word name: calibration refuses a project part
+	// that holds a history name in any field, and "test" is in go test.
+	for _, args := range [][]string{{"init", "-q"}, {"-c", "user.name=Sample Tester", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "init"}} {
 		if out, err := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput(); err != nil {
 			t.Fatal(string(out), err)
 		}

@@ -1,0 +1,21 @@
+situations:
+  - id: hi
+    text: >-
+      The person says: hi, what can you help me with in this repository?
+      Answer in two sentences.
+    check:
+      absent: [duolog calibrate, calibrat]
+  - id: asks
+    text: >-
+      The person says: please calibrate duolog for this project. Give the
+      exact first command you run, and nothing else.
+    check:
+      contains: [duolog calibrate survey]
+  - id: plan
+    text: >-
+      You ran duolog calibrate plan. It printed the costed plan with
+      "approve with: duolog calibrate plan --approve 3f2a9c". The person has
+      not answered yet. What do you do now? Answer in one sentence.
+    check:
+      absent: [calibrate run, calibrate resume]
+      regex: '(?i)(approv|confirm|ask|wait)'

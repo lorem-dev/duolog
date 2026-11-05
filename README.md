@@ -160,6 +160,7 @@ has limits; read [what is not proven yet](#what-is-not-proven-yet).
 |---|---|
 | Use the right model for each job | Sends each role to the agent, model and effort in your config |
 | Learn which model suits each kind of work | In [learning mode](docs/learning.md), journals each delegation, compares two models on a finished one, and changes routing only when you approve |
+| Start a project with a measured model order | When you ask, [calibration](docs/calibration.md) replays past work on several models and proposes an order per kind of work |
 | Spend few tokens between sessions | Sends one-line messages that point to files |
 | Avoid extra sessions | Reuses a live session and runs independent tasks once |
 | Control the second session | The binary allows or denies its actions, so a normal decision costs no tokens |
@@ -171,24 +172,18 @@ has limits; read [what is not proven yet](#what-is-not-proven-yet).
 
 ## How you use it
 
-Install duolog for one project or for all your projects:
-
-```bash
-duolog install --scope project
-```
-
-Choose which agent holds the source files. Hooks then keep the other agent's
-files up to date when you change a skill or an agent:
-
-```bash
-duolog sync --from claude
-```
-
-Send a task to a role:
-
-```bash
-duolog delegate review_intermediate --task .duolog/task.md
-```
+1. Install duolog with `duolog install --scope project`, or `--scope user`
+   for all your projects. Choose which agent holds the source files with
+   `duolog sync --from claude`. Hooks then keep the other agent's files up to
+   date when you change a skill or an agent.
+2. Optionally, ask the lead to calibrate the project, for example "calibrate
+   duolog for this project". Calibration runs only when you ask for it. See
+   [Calibration](docs/calibration.md).
+3. Work with the lead, and send tasks to roles, for example
+   `duolog delegate review_intermediate --task .duolog/task.md`.
+4. With [learning mode](docs/learning.md) on, duolog refines the order from
+   real tasks.
+5. Review the proposals with `duolog learn`, and apply the ones you approve.
 
 ## The default rules
 
@@ -240,6 +235,8 @@ duolog uses the [Apache License 2.0](LICENSE).
 - [Getting started](docs/getting-started.md): build, install and send a task
 - [Configuration](docs/configuration.md): roles, models and limits
 - [Learning mode](docs/learning.md): task classes and routing from local results
+- [Calibration](docs/calibration.md): a starting order from past work, on
+  request
 - [Sync](docs/sync.md): generate one agent's files from the other's
 - [Bus](docs/bus.md): messages and artifacts
 - [Permissions](docs/permissions.md): how duolog decides for a worker

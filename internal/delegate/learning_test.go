@@ -2,6 +2,7 @@ package delegate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -571,6 +572,101 @@ func TestWorkRootOptionIsUsed(t *testing.T) {
 	}
 	if len(rec.Files) != 1 || rec.Files[0].Path != "made.go" {
 		t.Fatalf("%+v", rec)
+	}
+}
+
+func TestCalibrationRunWritesNoJournal(t *testing.T) {
+	h := newHarness(t)
+	h.learning(false)
+	other := filepath.Join(t.TempDir(), "work")
+	gitIn(t, h.root, "worktree", "add", "-q", "--detach", other, "HEAD")
+	trusted := ""
+	for _, dir := range []string{h.root, other} {
+		trusted += fmt.Sprintf("[projects.%q]\ntrust_level = \"trusted\"\n[hooks.state.%q]\ntrusted_hash = \"fixture-hash\"\n", dir, filepath.Join(dir, ".codex", "hooks.json")+":PreToolUse:0:0")
+	}
+	put(t, filepath.Join(os.Getenv("HOME"), ".codex", "config.toml"), trusted)
+	e := *target("codex/sol/high")
+	out, err := h.runWith("implement", Options{Calibration: true, Entry: &e, WorkRoot: other})
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	h.requireCalls(1)
+	if h.calls[0].Cwd != other {
+		t.Fatal(h.calls[0].Cwd)
+	}
+	if _, err := os.Stat(filepath.Join(h.s.Dir, "journal", "delegations.ndjson")); !os.IsNotExist(err) {
+		t.Fatal("delegations.ndjson written", err)
+	}
+	if _, ok, err := h.journal().CurrentTask("lead-123456"); err != nil || ok {
+		t.Fatal("calibration run opened a task", err)
+	}
+	if out.Result.Usage.Input != 12 || out.Result.Usage.Output != 3 {
+		t.Fatalf("%+v", out.Result.Usage)
+	}
+	if strings.Contains(out.Line, "id=") {
+		t.Fatal(out.Line)
+	}
+}
+
+// A calibration cell runs in an exported tree: its own repository outside
+// the project, not a linked worktree, so the project's .duolog/tasks is
+// outside both the work root and its state root.
+func TestCalibrationTaskCopyInExportedTree(t *testing.T) {
+	h := newHarness(t)
+	tree := filepath.Join(t.TempDir(), "tree-0")
+	put(t, filepath.Join(tree, "a.go"), "package a\n")
+	put(t, filepath.Join(tree, ".codex", "hooks.json"), `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"duolog gate"}]}]}}`)
+	gitIn(t, tree, "init", "-q")
+	gitIn(t, tree, "add", "-A")
+	gitIn(t, tree, "commit", "-q", "-m", "calibration base")
+	put(t, filepath.Join(os.Getenv("HOME"), ".codex", "config.toml"), fmt.Sprintf("[projects.%q]\ntrust_level = \"trusted\"\n[hooks.state.%q]\ntrusted_hash = \"fixture-hash\"\n", tree, filepath.Join(tree, ".codex", "hooks.json")+":PreToolUse:0:0"))
+	e := *target("codex/sol/high")
+	out, err := h.runWith("implement", Options{Calibration: true, Entry: &e, WorkRoot: tree})
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	h.requireCalls(1)
+	if h.calls[0].Cwd != tree {
+		t.Fatalf("worker ran in %s, want %s", h.calls[0].Cwd, tree)
+	}
+	if rel, err := filepath.Rel(filepath.Join(tree, ".duolog", "tasks"), h.calls[0].TaskDir); err != nil || !filepath.IsLocal(rel) {
+		t.Fatalf("task copy in %s, want it under the tree's .duolog/tasks", h.calls[0].TaskDir)
+	}
+}
+
+// A calibration delegation refused before its worker starts, by the task,
+// the lead or the preflight, returns a NotStartedError, so the run releases
+// the step's charge; a worker that started and failed does not.
+func TestCalibrationRefusalsBeforeWorkerAreNotStarted(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		setup   func(h *harness, opts *Options)
+		started bool
+	}{
+		{"task", func(h *harness, _ *Options) { put(h.t, h.path, "# Task: example\n\nno sections\n") }, false},
+		{"lead", func(_ *harness, opts *Options) { opts.Lead = "lead-gone" }, false},
+		{"preflight", func(h *harness, _ *Options) {
+			h.auth.agent = map[string]*auth.Problem{"codex": {Agent: "codex", Reason: "not logged in"}}
+			h.auth.login = auth.NeedsTerminal
+		}, false},
+		{"worker", func(h *harness, _ *Options) { h.errs = []error{errors.New("worker crashed")} }, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := authHarness(t)
+			e := *target("codex/sol/high")
+			opts := Options{Calibration: true, Entry: &e}
+			tc.setup(h, &opts)
+			_, err := h.runWith("implement", opts)
+			var notStarted *NotStartedError
+			if err == nil || errors.As(err, &notStarted) == tc.started {
+				t.Fatalf("err = %v, want a refusal with not started %v", err, !tc.started)
+			}
+			if tc.started {
+				h.requireCalls(1)
+			} else {
+				h.requireCalls(0)
+			}
+		})
 	}
 }
 

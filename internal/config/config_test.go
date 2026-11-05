@@ -22,6 +22,28 @@ func isolatedRoot(t *testing.T) string {
 	return t.TempDir()
 }
 
+func TestDefaultModelsMatchLoadedDefaults(t *testing.T) {
+	models, err := DefaultModels()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(isolatedRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) == 0 || len(models) != len(cfg.Models) {
+		t.Fatalf("DefaultModels %v, Load gives %v", models, cfg.Models)
+	}
+	for name, m := range models {
+		if cfg.Models[name] != m {
+			t.Errorf("model %s: DefaultModels %+v, Load %+v", name, m, cfg.Models[name])
+		}
+	}
+	if models["opus"].Agent != "claude" || models["sol"].Agent != "codex" || models["sol"].Family != "sol" {
+		t.Fatalf("models %v", models)
+	}
+}
+
 func writeConfig(t *testing.T, path, contents string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {

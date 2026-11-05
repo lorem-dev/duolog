@@ -174,6 +174,19 @@ func TestStateReadAllowsTasksAndRules(t *testing.T) {
 	}
 }
 
+// Calibration evaluator files are not Markdown, so the state deny covers them;
+// only the cell and judge briefs stay readable.
+func TestStateReadDeniesCalibrationEvaluatorFiles(t *testing.T) {
+	for _, p := range []string{".duolog/calibration/project.yaml", ".duolog/calibration/runs/r/tasks/t/hidden.patch", ".duolog/calibration/runs/r/tasks/t/statement.txt"} {
+		if !StateRead(p) {
+			t.Fatal(p)
+		}
+	}
+	if StateRead(".duolog/calibration/runs/r/cells/c/task.md") {
+		t.Fatal("brief must stay readable")
+	}
+}
+
 func TestEvaluateDeniesStateBeforePolicy(t *testing.T) {
 	p := policy(t)
 	p.Rules = append([]config.Rule{{Action: "read", Match: ".duolog/**", Decision: Allow}}, p.Rules...)
