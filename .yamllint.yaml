@@ -6,10 +6,22 @@ ignore: |
   dist/
   docs/superpowers/
   .superpowers/
+  .duolog/learned.yaml
 rules:
   document-start: disable
   line-length: {max: 120, level: warning}
   truthy: {check-keys: false}
-  quoted-strings: {quote-type: single, required: only-when-needed}
+  # The files quote by habit ('06:00', '-race') and by need; quote-type single
+  # would flag half of them, so quoting is not checked.
+  quoted-strings: disable
+  # Flow maps and lists are used, as in `{a: b}`; config.default.yaml aligns
+  # its columns with extra spaces after colons and commas.
+  braces: {min-spaces-inside: 0, max-spaces-inside: 0}
+  colons: {max-spaces-after: -1}
+  commas: {max-spaces-after: -1}
+  # The skill-test plans end with one blank line, and the testdata copy is a
+  # fixture. .duolog/learned.yaml is written by `duolog remember` with a
+  # four-space indent, so it is ignored above.
+  empty-lines: {max: 2, max-start: 0, max-end: 1}
   comments: {min-spaces-from-content: 1}
   indentation: {spaces: 2, indent-sequences: consistent}
