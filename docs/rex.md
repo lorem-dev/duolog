@@ -86,6 +86,16 @@ placeholder also counts, even when it wraps or is cut at the pane's edge.
 Rex must keep the styles in its capture for other suggestions; without them,
 duolog takes the text for typed text and refuses to send.
 
+Every peer may write one file under `.duolog`: its report at
+`.duolog/tasks/<peer-id>/report.md` in the checkout it works in. In a linked
+worktree that is the worktree's own `.duolog`, not the main checkout's. The
+gate allows that write for that peer only, even in plan mode or a read-only
+role; every other path under `.duolog` and every other peer's report stay
+denied. `peer wait` and `peer status` add `report <path>` to their line once
+the file exists. The agent can still refuse the write before the gate sees it:
+Claude in its own plan mode, and Codex in a read-only role, whose
+`-s read-only` sandbox allows no writes.
+
 ## What to do when a peer is interrupted
 
 A peer is `interrupted` when its last line above the input is the agent's

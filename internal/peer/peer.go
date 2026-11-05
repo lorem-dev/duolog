@@ -88,6 +88,28 @@ type Entry struct {
 	State    State
 	Question string
 	Note     string
+	// Report is the path of the peer's report file, set only when it exists.
+	Report string
+}
+
+// reportLine returns the path of the peer's report file when the peer has
+// written it, and "" otherwise. The gate lets the peer write the report path
+// under the checkout the peer works in, which in a linked worktree is not the
+// project state folder, so this looks there too. The path is relative to the
+// current checkout when the peer works in it, and absolute otherwise.
+func (e *env) reportLine(entry session.Entry) string {
+	root := entry.WorkRoot
+	if root == "" {
+		root = e.root
+	}
+	path := filepath.Join(root, filepath.FromSlash(gate.ReportPath(entry.ID)))
+	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
+		return ""
+	}
+	if sameWorkRoot(root, e.root) {
+		return gate.ReportPath(entry.ID)
+	}
+	return path
 }
 
 // Report is what Status returns. Go cannot have a type and a function both
@@ -691,7 +713,11 @@ func Wait(ctx context.Context, id string) (Entry, error) {
 		return Entry{ID: entry.ID, State: Closed, Note: line}, err
 	}
 	e.watchQuestions = true
-	return e.watch(ctx, entry, false)
+	got, err := e.watch(ctx, entry, false)
+	if got.ID != "" {
+		got.Report = e.reportLine(entry)
+	}
+	return got, err
 }
 
 // interruptedNote tells the lead that the peer stopped, for example after a
@@ -1078,6 +1104,9 @@ func Status(ctx context.Context, id string) (Report, error) {
 			return st, err
 		}
 		st.ChangedFiles, _ = e.changedFiles(entry)
+		if path := e.reportLine(entry); path != "" {
+			st.Line += "; report " + path
+		}
 		return st, nil
 	case Question:
 		if err := e.ask(entry, screen.Question); err != nil {
@@ -1110,6 +1139,9 @@ func Status(ctx context.Context, id string) (Report, error) {
 	}
 	if note := e.restartNote(entry); note != "" {
 		st.Line += "; " + note
+	}
+	if path := e.reportLine(entry); path != "" {
+		st.Line += "; report " + path
 	}
 	return st, nil
 }

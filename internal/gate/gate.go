@@ -40,6 +40,9 @@ type Action struct {
 	// MCPExact means the hook named the MCP server as configured, so Target
 	// holds its exact name rather than the folded one.
 	MCPExact bool `json:"-"`
+	// Peer is the entry ID of the peer pane that asks (DUOLOG_PEER). Only that
+	// peer may write its report file.
+	Peer string `json:"-"`
 	// ProtectedRoots are the telemetry and balance roots. No worker path may
 	// reach them, whatever the policy or mode.
 	ProtectedRoots []string `json:"-"`
@@ -108,6 +111,10 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 			return decision(Deny, "duolog state is not readable by workers", RuleState)
 		}
 	}
+	// A peer's own report file is the one state path a worker may write. Lead
+	// denies still apply; the project's state deny and the role and mode limits
+	// do not, so a read-only reviewer can hand back its report.
+	report := a.Kind == "write" && ReportTarget(a.Peer, a.Target)
 	// Check every part for a deny before any ask or allow can return.
 	for _, part := range parts {
 		partAction := a
@@ -126,7 +133,7 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 			}
 		}
 		for _, rule := range p.Rules {
-			if rule.Decision == Deny && (matches(rule, partAction) || matches(rule, baseAction)) {
+			if rule.Decision == Deny && !report && (matches(rule, partAction) || matches(rule, baseAction)) {
 				return decision(Deny, "denied by project policy", rule.Action+" "+rule.Match)
 			}
 		}
@@ -153,6 +160,9 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 		}
 	}
 
+	if report {
+		return decision(Allow, "the peer's own report file", RuleReport)
+	}
 	if a.Kind == "internal" || a.Kind == "answer" {
 		return decision(Allow, "returns the worker answer", "answer tool")
 	}

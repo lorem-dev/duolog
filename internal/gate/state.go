@@ -12,6 +12,24 @@ import (
 
 const RuleState = "duolog state"
 
+// RuleReport names the allow for a peer writing its own report file.
+const RuleReport = "peer report"
+
+// ReportPath is the path, relative to the work root, where a peer hands back
+// its report.
+func ReportPath(peer string) string {
+	return ".duolog/tasks/" + peer + "/report.md"
+}
+
+// ReportTarget reports whether target is the report file of this peer. The peer
+// ID must be a plain name, so that no other peer or path can match.
+func ReportTarget(peer, target string) bool {
+	if peer == "" || strings.ContainsAny(peer, `/\*?[]{}.~$`) {
+		return false
+	}
+	return target == ReportPath(peer)
+}
+
 func stateReadAction(a Action) bool {
 	if StateRead(a.Target) {
 		return true

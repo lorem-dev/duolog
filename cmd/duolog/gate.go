@@ -127,6 +127,7 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 		actions[i].Role = a.Role
 		action := &actions[i]
 		action.ProtectedRoots = roots
+		action.Peer = os.Getenv("DUOLOG_PEER")
 		action.Work = work
 		if (action.Kind == "read" || action.Kind == "write") && action.Target != "" {
 			action.Target = gate.RelativeTarget(work, envelope.Cwd, action.Target)

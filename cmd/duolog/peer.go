@@ -71,6 +71,9 @@ func entryLine(e peer.Entry) string {
 	case e.Note != "":
 		line += ": " + e.Note
 	}
+	if e.Report != "" {
+		line += "; report " + e.Report
+	}
 	return strings.Join(strings.Fields(line), " ")
 }
 
