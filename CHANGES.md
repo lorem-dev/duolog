@@ -65,6 +65,10 @@
   time expires.
 - `duolog peer open` reads the first block from the current `rex new` reply
   and no longer fails with "could not identify its terminal block".
+- `duolog peer send` types a shorter line, reads it across wrapped rows and
+  clears a failed try with ctrl+c, so text no longer ends up typed twice.
+- `duolog peer wait` skips gate asks of other workers and asks whose asker
+  has already stopped waiting.
 
 ### Security
 

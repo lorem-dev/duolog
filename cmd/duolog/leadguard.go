@@ -173,7 +173,7 @@ func pendingPersonAsk(stateDir string) (bus.Message, bool, error) {
 		} else if err != nil {
 			return bus.Message{}, false, err
 		}
-		if m.K == gate.Ask && m.P && !gate.AskExpired(m.T) {
+		if m.K == gate.Ask && m.P && !gate.AskExpired(m) {
 			pending[strconv.FormatInt(m.N, 10)] = m
 		}
 		if m.K == gate.Allow || m.K == gate.Deny {

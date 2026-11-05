@@ -21,6 +21,7 @@ Each message is one JSON line in `.duolog/bus.ndjson`:
 | `th` | The thread, if any |
 | `ref` | An artifact reference, if any |
 | `s` | The summary |
+| `w` | For a gate ask, how many seconds its asker waits for the reply |
 
 A line has at most 512 bytes. The summary has at most 200 bytes. A longer
 summary is refused, and the error tells you to use `duolog put`.

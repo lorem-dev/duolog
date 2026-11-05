@@ -33,7 +33,7 @@ func TestPendingAskNeedsThePerson(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		n, err := b.Send(bus.Message{From: "duolog/ask.pending", To: "codex/lead.test", K: "ask", S: "read ../notes.txt", P: person})
+		n, err := b.Send(bus.Message{From: "duolog/ask.pending", To: "codex/lead.test", K: "ask", Ref: "peer-test", S: "read ../notes.txt", P: person})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -337,11 +337,13 @@ func (r *rig) ready() Entry {
 // sendOK is the screen sequence of a clean Send: two ready samples, the text in
 // the input line, then the agent at work.
 func sendOK(task string) []string {
-	return []string{codexIdle(""), codexIdle(""), codexIdle(line(task)), working()}
+	return []string{codexIdle(""), codexIdle(""), codexIdle(line(filepath.Base(task))), working()}
 }
 
-func line(task string) string {
-	return "Read " + task + " and do it. Do not call rex. When everything went as planned, reply only \"done\"; write more only for a problem, an open question or a choice you made."
+// line is the text sent for a task, named from the pane's folder: the rig's
+// task file sits at the root, so its reference is task.md.
+func line(ref string) string {
+	return "Read " + ref + " and do it. Do not call rex. Reply \"done\"."
 }
 
 func working() string {
@@ -844,7 +846,7 @@ func TestSendIsOneLineReference(t *testing.T) {
 		t.Fatalf("%v", sent)
 	}
 	text := sent[0][len(sent[0])-1]
-	if strings.Contains(text, "\n") || !strings.HasPrefix(text, "Read ") || !strings.Contains(text, path) || strings.Contains(text, "Do work.") || strings.Contains(text, "Stay focused") {
+	if strings.Contains(text, "\n") || !strings.HasPrefix(text, "Read ") || !strings.Contains(text, "task.md") || strings.Contains(text, "Do work.") || strings.Contains(text, "Stay focused") {
 		t.Fatalf("%q", text)
 	}
 	if got := strings.Join(r.keys(), ","); got != "enter" {
@@ -870,8 +872,96 @@ func TestSendLineForbidsRexUse(t *testing.T) {
 	}
 	sent := r.named("send")[0]
 	text := sent[len(sent)-1]
-	if text != line(path) || !strings.Contains(text, "Do not call rex") {
+	if text != line("task.md") || !strings.Contains(text, "Do not call rex") {
 		t.Fatalf("%q", text)
+	}
+}
+
+// A fresh Claude pane is 80 columns wide. The line names the task file from the
+// pane's folder and stays short, so a usual task path keeps it on one row.
+func TestSendLineFitsEightyColumns(t *testing.T) {
+	r := newRig(t, baseScript())
+	e := r.ready()
+	rel := filepath.Join(".superpowers", "tasks", "task.md")
+	path := filepath.Join(r.root, rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(r.task(), path); err != nil {
+		t.Fatal(err)
+	}
+	script := baseScript()
+	script["capture"] = screens(codexIdle(""), codexIdle(""), codexIdle(line(rel)), working())
+	r.rex(script)
+	if err := Send(r.ctx, e.ID, rel); err != nil {
+		t.Fatal(err)
+	}
+	sent := r.named("send")[0]
+	text := sent[len(sent)-1]
+	// 80 columns less the two-column input marker and a two-column margin.
+	if len(text) > 76 || strings.Contains(text, r.root) || !strings.Contains(text, rel) || !strings.Contains(text, "Do not call rex") {
+		t.Fatalf("%d bytes: %q", len(text), text)
+	}
+	// The registry and the bus keep the full path.
+	if got := r.entry(e.ID).Task; got != path {
+		t.Fatalf("task %q, want %q", got, path)
+	}
+}
+
+// In an 80-column Claude pane a line with a long path wraps over rows, and text
+// that an earlier try left behind makes the input hold more than the line. The
+// input must be the line and nothing else; anything else is cleared with ctrl+c,
+// which clears every row, and the line is typed again.
+func TestSendMatchesWrappedInputAndClearsWithCtrlC(t *testing.T) {
+	r := newRig(t, withScreens(claudeIdle("")))
+	e := r.open("plan")
+	if e.State != Ready {
+		t.Fatalf("%+v", e)
+	}
+	rel := filepath.Join("docs", "superpowers", "plans", "a-rather-long-plan-folder-name", "task.md")
+	path := filepath.Join(r.root, rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(r.task(), path); err != nil {
+		t.Fatal(err)
+	}
+	want := line(rel)
+	if len(want) <= 78 {
+		t.Fatalf("the line must wrap in 80 columns: %q", want)
+	}
+	twice := claudeWrapped(80, want+want)
+	script := baseScript()
+	script["capture"] = screens(claudeIdle(""), claudeIdle(""), twice, claudeIdle(""), claudeWrapped(80, want), claudeWorking())
+	r.rex(script)
+	if err := Send(r.ctx, e.ID, rel); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(r.keys(), ","); got != "ctrl+c,enter" {
+		t.Fatalf("keys %q", got)
+	}
+	if n := len(r.named("send")); n != 2 {
+		t.Fatalf("%d sends, want 2", n)
+	}
+}
+
+// ctrl+c on an empty input line arms the agent's exit, so a try whose text never
+// arrived is not cleared: there is nothing to clear.
+func TestSendNeverPressesCtrlCOnEmptyInput(t *testing.T) {
+	r := newRig(t, withScreens(claudeIdle("")))
+	e := r.open("plan")
+	script := baseScript()
+	script["capture"] = screens(claudeIdle(""))
+	r.rex(script)
+	err := Send(r.ctx, e.ID, r.task())
+	if err == nil || !strings.Contains(err.Error(), "input") {
+		t.Fatalf("%v", err)
+	}
+	if n := len(r.named("send")); n != 3 {
+		t.Fatalf("%d sends, want 3", n)
+	}
+	if len(r.keys()) != 0 {
+		t.Fatalf("keys %v on an empty input line", r.keys())
 	}
 }
 
@@ -929,13 +1019,14 @@ func TestSendChecksInputBeforeEnter(t *testing.T) {
 	path := r.task()
 	script := baseScript()
 	// The first try lost the start of the text, as it did after /new.
-	lost := codexIdle("/task.md and do it. Do not call rex.")
-	script["capture"] = screens(codexIdle(""), codexIdle(""), lost, codexIdle(line(path)), working())
+	lost := codexIdle("task.md and do it. Do not call rex.")
+	// ctrl+c clears the whole input, which the screen read after it shows.
+	script["capture"] = screens(codexIdle(""), codexIdle(""), lost, codexIdle(""), codexIdle(line("task.md")), working())
 	r.rex(script)
 	if err := Send(r.ctx, e.ID, path); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(r.keys(), ","); got != "ctrl+u,enter" {
+	if got := strings.Join(r.keys(), ","); got != "ctrl+c,enter" {
 		t.Fatalf("keys %q", got)
 	}
 	if n := len(r.named("send")); n != 2 {
@@ -946,7 +1037,7 @@ func TestSendChecksInputBeforeEnter(t *testing.T) {
 	r2 := newRig(t, baseScript())
 	e2 := r2.ready()
 	script = baseScript()
-	script["capture"] = screens(codexIdle(""), codexIdle(""), lost)
+	script["capture"] = screens(codexIdle(""), codexIdle(""), lost, codexIdle(""), lost, codexIdle(""), lost, codexIdle(""))
 	r2.rex(script)
 	err := Send(r2.ctx, e2.ID, r2.task())
 	if err == nil || !strings.Contains(err.Error(), "input") {
@@ -955,13 +1046,22 @@ func TestSendChecksInputBeforeEnter(t *testing.T) {
 	if n := len(r2.named("send")); n != 3 {
 		t.Fatalf("%d sends, want 3", n)
 	}
-	for _, k := range r2.keys() {
-		if k == "enter" {
-			t.Fatal("enter was pressed on a wrong input line")
-		}
+	if got := strings.Join(r2.keys(), ","); got != "ctrl+c,ctrl+c,ctrl+c" {
+		t.Fatalf("keys %q: each wrong try is cleared and enter is never pressed", got)
 	}
 	if strings.Contains(err.Error(), "\n") {
 		t.Fatal("the error is not one line")
+	}
+
+	// Text that ctrl+c did not clear is never typed over.
+	r3 := newRig(t, baseScript())
+	e3 := r3.ready()
+	script = baseScript()
+	script["capture"] = screens(codexIdle(""), codexIdle(""), lost)
+	r3.rex(script)
+	err = Send(r3.ctx, e3.ID, r3.task())
+	if err == nil || !strings.Contains(err.Error(), "clear") || len(r3.named("send")) != 1 || strings.Join(r3.keys(), ",") != "ctrl+c" {
+		t.Fatalf("%v after %d sends and keys %v", err, len(r3.named("send")), r3.keys())
 	}
 }
 
@@ -970,7 +1070,7 @@ func TestSendRetriesEnterThatWasLost(t *testing.T) {
 	e := r.ready()
 	path := r.task()
 	script := baseScript()
-	stuck := codexIdle(line(path))
+	stuck := codexIdle(line("task.md"))
 	script["capture"] = screens(codexIdle(""), codexIdle(""), stuck, stuck, working())
 	r.rex(script)
 	if err := Send(r.ctx, e.ID, path); err != nil {
@@ -992,7 +1092,7 @@ func TestWaitStopsOnStuckPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	script = baseScript()
-	script["capture"] = screens(codexIdle(line(path)))
+	script["capture"] = screens(codexIdle(line("task.md")))
 	r.rex(script)
 	got, err := Wait(r.ctx, e.ID)
 	if !errors.Is(err, ErrStuck) || got.State != Ready || strings.Contains(err.Error(), "\n") {

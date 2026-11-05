@@ -23,7 +23,7 @@ func TestPeerWaitReturnsPendingGateAskWithoutCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := b.Send(bus.Message{From: "duolog/ask.pending", To: "codex/lead.lead-1", K: "ask", S: "approval required"})
+	n, err := b.Send(bus.Message{From: "duolog/ask.pending", To: "codex/lead.lead-1", K: "ask", Ref: opened.ID, S: "approval required"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +70,43 @@ func TestPeerWaitStopsOnlyOnItsOwnGateAsk(t *testing.T) {
 	got, err = Wait(r.ctx, first.ID)
 	if err != nil || got.ID != first.ID || got.State != Question || !strings.Contains(got.Question, "make deploy") {
 		t.Fatalf("the peer's own ask did not stop its wait: %+v %v", got, err)
+	}
+}
+
+// An ask that names no peer comes from a worker outside a pane, or from a pane
+// opened before asks named their peer: it belongs to no peer's wait. The lead's
+// hook still delivers it.
+func TestPeerWaitSkipsAskOfNoPeer(t *testing.T) {
+	r := newRig(t, baseScript())
+	e := r.open("implement")
+	b, err := bus.Open(r.reg.Dir, r.cfg.Wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Send(bus.Message{From: "duolog/ask.worker", To: "codex/lead.lead-1", K: "ask", S: "exec make deploy"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Wait(r.ctx, e.ID)
+	if err != nil || got.State != Ready || strings.Contains(got.Question, "make deploy") {
+		t.Fatalf("an ask of no peer stopped the wait: %+v %v", got, err)
+	}
+}
+
+// An ask whose asker gave up is no longer pending, though it was never answered:
+// its gate hook has denied already, so it must not wake the wait.
+func TestPeerWaitSkipsAskPastItsAskersWait(t *testing.T) {
+	dir := t.TempDir()
+	address := "codex/lead.lead-1"
+	m := bus.Message{N: 1, T: time.Now().Add(-31 * time.Second).UTC().Format(time.RFC3339Nano), From: "duolog/ask.x", To: address, K: "ask", Ref: "peer-test", S: "approval required", W: 30}
+	line, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bus.ndjson"), append(line, '\n'), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := pendingAsk(dir, address, "peer-test"); err != nil || got != "" {
+		t.Fatalf("an ask past its asker's wait is pending: %q %v", got, err)
 	}
 }
 
@@ -135,7 +172,7 @@ func TestExpiredAskIsNoLongerPending(t *testing.T) {
 	address := "codex/lead.lead-1"
 	write := func(sent time.Time, n int) {
 		t.Helper()
-		line, err := json.Marshal(bus.Message{N: int64(n), T: sent.UTC().Format(time.RFC3339Nano), From: "duolog/ask.x", To: address, K: "ask", S: "approval required"})
+		line, err := json.Marshal(bus.Message{N: int64(n), T: sent.UTC().Format(time.RFC3339Nano), From: "duolog/ask.x", To: address, K: "ask", Ref: "peer-test", S: "approval required"})
 		if err != nil {
 			t.Fatal(err)
 		}

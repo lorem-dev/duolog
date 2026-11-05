@@ -44,6 +44,10 @@ type Screen struct {
 	Composer bool
 	Input    string
 	Empty    bool
+	// Rows are the input's rows when a long line wraps, Input first. Claude's
+	// rows end at the rule below the box; Codex has none, so its rows run to the
+	// end of the screen and may hold its footer.
+	Rows []string
 	// Text is the cleaned screen, kept to read a limit message.
 	Text string
 }
@@ -108,7 +112,7 @@ func Parse(agent string, raw []byte) Screen {
 		s.Question = cut(oneLine(s.Text), maxQuestionBytes)
 		return s
 	}
-	s.Composer, s.Input, s.Empty = findComposer(agent, lines)
+	s.Composer, s.Input, s.Empty, s.Rows = findComposer(agent, lines)
 	switch {
 	case updatingRe.MatchString(strings.Join(lines, "\n")):
 		s.State = Updating
@@ -297,7 +301,7 @@ func cut(s string, n int) string {
 
 // findComposer returns the agent's input line. Codex marks it with ›. Claude
 // marks it with ❯ between two rules, which keeps it apart from a menu.
-func findComposer(agent string, lines []string) (found bool, input string, empty bool) {
+func findComposer(agent string, lines []string) (found bool, input string, empty bool, rows []string) {
 	marker := ""
 	switch agent {
 	case "codex":
@@ -305,7 +309,7 @@ func findComposer(agent string, lines []string) (found bool, input string, empty
 	case "claude":
 		marker = "❯"
 	default:
-		return false, "", false
+		return false, "", false, nil
 	}
 	for i := len(lines) - 1; i >= 0; i-- {
 		rest, ok := strings.CutPrefix(strings.TrimLeft(lines[i], " "), marker)
@@ -319,7 +323,14 @@ func findComposer(agent string, lines []string) (found bool, input string, empty
 		if input == "Ask Codex to do anything" || claudeTry.MatchString(input) {
 			input = ""
 		}
-		return true, input, input == ""
+		rows = []string{input}
+		for _, row := range lines[i+1:] {
+			if agent == "claude" && ruleRe.MatchString(row) {
+				break
+			}
+			rows = append(rows, strings.TrimSpace(row))
+		}
+		return true, input, input == "", rows
 	}
-	return false, "", false
+	return false, "", false, nil
 }

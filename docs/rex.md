@@ -23,7 +23,7 @@ worker is enough.
 |---|---|---|
 | 1 | `duolog peer open <role>` | Opens a pane or tab with the agent of the role and waits until the session is ready or asks a question |
 | 2 | `duolog peer answer <id> <option>` | Answers the question that the session shows, by label or number |
-| 3 | `duolog peer send <id> <task>` | Sends one line that points to a task file |
+| 3 | `duolog peer send <id> <task>` | Sends one short line that points to a task file, by its path from the pane's folder |
 | 4 | `duolog peer wait <id>` | Keeps waiting for the session. The default limit is 30 minutes |
 | 5 | `duolog peer status <id>` | Prints the state in one line |
 | 6 | `duolog peer close <id>` | Closes the pane. Changed files stay |
@@ -51,6 +51,11 @@ duolog keeps its identity and another close retries the cleanup.
 
 Each command prints one line, such as `<id> <state>: <question or note>`. The
 lead decides questions that the rules do not settle.
+
+`duolog peer send` presses enter only when the input holds the line and
+nothing else, read across the rows it wraps over. Otherwise it clears the
+input with ctrl+c and types the line again, three tries in all. An empty input
+gets no ctrl+c, because there it starts the agent's exit.
 
 `duolog peer wait` reports the state, not the result. `task finished` means the
 session went idle. A working or spinner line keeps it busy even when its
