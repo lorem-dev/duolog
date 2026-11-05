@@ -24,7 +24,7 @@ const (
 // window names to kinds) before Encode; anything not listed is other.
 var (
 	agents      = []string{"claude", "codex", other}
-	families    = []string{"fable", "opus", "sonnet", "haiku", "astra", "sol", "terra", "luna", other}
+	families    = []string{"fable", "opus", "sonnet", "haiku", "astra", "sol", "terra", "luna", "all", other} // all: a window for every model
 	efforts     = []string{"low", "medium", "high", "xhigh", "max", "ultra", other}
 	placements  = []string{"worker", "peer", "self", "inlead", other}
 	outcomes    = []string{"done", "failed", "infra", "lead", "interrupted", "needs", other}

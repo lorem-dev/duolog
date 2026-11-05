@@ -181,6 +181,23 @@ func TestClosedFields(t *testing.T) {
 	}
 }
 
+// TestFamilyAll keeps "all", for a window that applies to every model,
+// apart from "other".
+func TestFamilyAll(t *testing.T) {
+	q := sampleQuota()
+	q.Windows[0].Family = "all"
+	if got := lookup(t, decodeLine(t, mustEncode(t, q, testNames)), []string{"windows", "0", "family"}); got != "all" {
+		t.Errorf("window family all: %v", got)
+	}
+	for _, near := range []string{"All", "ALL", "all ", "any", "every"} {
+		q := sampleQuota()
+		q.Windows[0].Family = near
+		if got := lookup(t, decodeLine(t, mustEncode(t, q, testNames)), []string{"windows", "0", "family"}); got != "other" {
+			t.Errorf("window family %q: %v", near, got)
+		}
+	}
+}
+
 func TestEventNumbers(t *testing.T) {
 	const maxSafe, max31 = 1<<53 - 1, 1<<31 - 1
 	run := func(f func(*Run)) Event { r := sampleRun(); f(&r); return r }
