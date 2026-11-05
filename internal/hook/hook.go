@@ -160,6 +160,10 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 	if (e.Agent == "claude" && h.PermissionMode != "") || (e.Agent == "codex" && observed.Mode != "") {
 		o.Mode = &lead.Mode
 	}
+	if e.Agent == "claude" && h.PermissionMode != "" {
+		native := h.PermissionMode
+		o.Native = &native
+	}
 	lead, err = reg.ObserveLead(o, started)
 	if err != nil {
 		return nil, err

@@ -748,3 +748,17 @@ func TestSessionStartNotesLearningMode(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeLeadRecordsNativeMode(t *testing.T) {
+	e, r, _ := setup(t, "claude")
+	e = change(t, e, "permission_mode", "auto")
+	SessionStart(context.Background(), e)
+	if l := lead(t, r, e); l.Mode != mode.Edits || l.Native != "auto" {
+		t.Fatal(l)
+	}
+	e = change(t, e, "permission_mode", "acceptEdits")
+	silent(t, PostTool(context.Background(), e))
+	if l := lead(t, r, e); l.Native != "acceptEdits" {
+		t.Fatal(l)
+	}
+}
