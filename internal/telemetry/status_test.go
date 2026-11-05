@@ -228,6 +228,9 @@ func TestStatusFields(t *testing.T) {
 	})
 
 	t.Run("refused root", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows refuses to rename a root the store holds open, so the swap cannot happen there")
+		}
 		moved := root + ".moved"
 		if err := os.Rename(root, moved); err != nil {
 			t.Fatal(err)

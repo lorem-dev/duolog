@@ -38,10 +38,10 @@ func TestProtectedRootsInWorkerHook(t *testing.T) {
 			t.Setenv("DUOLOG_TELEMETRY", collection)
 			telemetryRoot, balanceRoot := roots[0], roots[1]
 			for name, call := range map[string]map[string]any{
-				"read":        {"tool_name": "Read", "tool_input": map[string]string{"file_path": filepath.Join(telemetryRoot, "salt")}},
-				"read new":    {"tool_name": "Read", "tool_input": map[string]string{"file_path": filepath.Join(telemetryRoot, "v1", "_account", "2026-11-05.ndjson")}},
-				"write":       {"tool_name": "Write", "tool_input": map[string]string{"file_path": filepath.Join(balanceRoot, "state.json"), "content": "{}"}},
-				"grep home":   {"tool_name": "Grep", "tool_input": map[string]string{"path": home, "pattern": "token"}},
+				"read":      {"tool_name": "Read", "tool_input": map[string]string{"file_path": filepath.Join(telemetryRoot, "salt")}},
+				"read new":  {"tool_name": "Read", "tool_input": map[string]string{"file_path": filepath.Join(telemetryRoot, "v1", "_account", "2026-11-05.ndjson")}},
+				"write":     {"tool_name": "Write", "tool_input": map[string]string{"file_path": filepath.Join(balanceRoot, "state.json"), "content": "{}"}},
+				"grep home": {"tool_name": "Grep", "tool_input": map[string]string{"path": home, "pattern": "token"}},
 				// The macOS roots sit under "Application Support", so commands quote them.
 				"cat":         {"tool_name": "Bash", "tool_input": map[string]string{"command": `cat "` + filepath.ToSlash(filepath.Join(telemetryRoot, "salt")) + `"`}},
 				"rg ancestor": {"tool_name": "Bash", "tool_input": map[string]string{"command": `rg -uu token '` + filepath.ToSlash(filepath.Dir(balanceRoot)) + `'`}},
