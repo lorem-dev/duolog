@@ -222,6 +222,16 @@ rex:
   capture_lines: 20         # a capture checks state only; answers are read from files
   start_timeout_seconds: 120
 
+# Local telemetry: run, quota, routing and gate figures, never text. It stays on
+# this machine and nothing uploads it. User level only, except that a project
+# may set enabled: false to stop its own events; DUOLOG_TELEMETRY=off turns it
+# off everywhere. Turning it off stops writes; pruning goes on until the data is gone.
+telemetry:
+  enabled: true
+  retention_days: 30      # 1..30; a project layer cannot change it
+  prune_every_hours: 6
+  max_megabytes: 16
+
 # Learning mode: each delegation gets a task class, and the class picks the target.
 # duolog keeps a local journal in .duolog/journal/ and changes the order of a ladder
 # only when you approve `duolog learn`. See docs/learning.md.
