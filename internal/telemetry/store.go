@@ -46,8 +46,9 @@ type Store struct {
 }
 
 // Open resolves and checks the root. With collection on it creates the root
-// and, for a project, the salt. With collection off it creates nothing: an
-// existing root is opened for maintenance, and Append writes nothing.
+// and, for a project, the salt. With collection off it writes nothing: an
+// existing root is opened as it is, with no mode, ACL or backup exclusion
+// set, for reading and maintenance, and Append writes nothing.
 func Open(o Options) (*Store, error) {
 	if o.Now == nil {
 		o.Now = time.Now
@@ -64,6 +65,7 @@ func Open(o Options) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{o: o, path: path}
+	open := openProtected
 	if !o.Enabled {
 		if _, err := os.Lstat(path); err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
@@ -71,8 +73,9 @@ func Open(o Options) (*Store, error) {
 			}
 			return nil, scrub(err)
 		}
+		open = openExisting
 	}
-	r, _, err := openProtected(path)
+	r, _, err := open(path)
 	if err != nil {
 		return nil, err
 	}

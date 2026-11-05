@@ -21,6 +21,14 @@ func readExclusion(t *testing.T, path string) []byte {
 	return buf[:n]
 }
 
+func init() {
+	backupExcluded = func(t *testing.T, path string) bool {
+		t.Helper()
+		_, err := unix.Lgetxattr(path, backupExcludeXattr, make([]byte, 256))
+		return err == nil
+	}
+}
+
 func TestRootBackupExclusion(t *testing.T) {
 	noOverride(t)
 

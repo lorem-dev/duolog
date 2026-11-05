@@ -70,7 +70,7 @@ func TestRootRefusalNFS(t *testing.T) {
 		t.Fatal("NFS accepted")
 	}
 	root := filepath.Join(base, "duolog", "telemetry")
-	r, p, err := openProtected(root)
+	r, p, err := tryOpenProtected(t, root)
 	if err == nil || r != nil || p.Refusal != refusalNFS {
 		t.Fatalf("got %+v, %v; want nfs", p, err)
 	}

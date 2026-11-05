@@ -106,6 +106,34 @@ func openProtected(root string) (*os.Root, Protection, error) {
 	return r, p, nil
 }
 
+// openExisting opens a root that already exists with the checks of
+// openProtected and writes nothing: no directory, mode, ACL or backup
+// exclusion. A store with collection off opens its root this way.
+func openExisting(root string) (*os.Root, Protection, error) {
+	p := Protection{Refusal: refusalNone}
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return refuseOpen(p, refusalOther)
+	}
+	if p, _, err := inspectRoot(root); err != nil {
+		return nil, p, err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return refuseOpen(p, errRefusal(err))
+	}
+	race("root")
+	if p, _, err := inspectRoot(root); err != nil {
+		r.Close()
+		return nil, p, err
+	}
+	if err := sameDir(r, root); err != nil {
+		r.Close()
+		return refuseOpen(p, refusalOther)
+	}
+	return r, p, nil
+}
+
 func refuseOpen(p Protection, refusal string) (*os.Root, Protection, error) {
 	p, err := refuse(p, refusal)
 	return nil, p, err
@@ -115,25 +143,9 @@ func refuseOpen(p Protection, refusal string) (*os.Root, Protection, error) {
 // user, outside git trees, synced folders and NFS. Owner and place are
 // checked before a too open mode is tightened.
 func checkRoot(root string) (Protection, error) {
-	p := Protection{Refusal: refusalNone}
-	info, err := os.Lstat(root)
+	p, info, err := inspectRoot(root)
 	if err != nil {
-		return refuse(p, errRefusal(err))
-	}
-	if linked(info) {
-		return refuse(p, refusalSymlink)
-	}
-	if !info.IsDir() {
-		return refuse(p, refusalOther)
-	}
-	if err := secureOwner(root, info); err != nil {
-		if errors.Is(err, errOwner) {
-			return refuse(p, refusalOwner)
-		}
-		return refuse(p, errRefusal(err))
-	}
-	if refusal := placement(root); refusal != refusalNone {
-		return refuse(p, refusal)
+		return p, err
 	}
 	fixed, err := tightenRoot(root, info)
 	if err != nil {
@@ -141,6 +153,36 @@ func checkRoot(root string) (Protection, error) {
 	}
 	p.ModeFixed = fixed
 	return p, nil
+}
+
+// inspectRoot runs the checks of checkRoot and changes nothing; a mode that
+// is merely too open passes.
+func inspectRoot(root string) (Protection, os.FileInfo, error) {
+	p := Protection{Refusal: refusalNone}
+	refused := func(refusal string) (Protection, os.FileInfo, error) {
+		p, err := refuse(p, refusal)
+		return p, nil, err
+	}
+	info, err := os.Lstat(root)
+	if err != nil {
+		return refused(errRefusal(err))
+	}
+	if linked(info) {
+		return refused(refusalSymlink)
+	}
+	if !info.IsDir() {
+		return refused(refusalOther)
+	}
+	if err := secureOwner(root, info); err != nil {
+		if errors.Is(err, errOwner) {
+			return refused(refusalOwner)
+		}
+		return refused(errRefusal(err))
+	}
+	if refusal := placement(root); refusal != refusalNone {
+		return refused(refusal)
+	}
+	return p, info, nil
 }
 
 func errRefusal(err error) string {
@@ -293,13 +335,25 @@ func openRootDir(root string, info os.FileInfo) (*os.Root, error) {
 // that was checked before anything is truncated, written or chmodded. Name
 // uses forward slashes.
 func openRegular(r *os.Root, name string, flags int) (*os.File, error) {
+	return openChecked(r, name, flags, true)
+}
+
+// openReading opens a telemetry file read only with every check of
+// openRegular and writes nothing: a file or directory that is merely too
+// open is read as it is.
+func openReading(r *os.Root, name string) (*os.File, error) {
+	return openChecked(r, name, os.O_RDONLY, false)
+}
+
+// openChecked is openRegular; repair tightens the modes it finds too open.
+func openChecked(r *os.Root, name string, flags int, repair bool) (*os.File, error) {
 	m := fileName.FindStringSubmatch(name)
 	if m == nil || (m[1] != "" && !validDay(m[1])) {
 		return nil, errBadName
 	}
 	create := flags&os.O_CREATE != 0
 	if dir := path.Dir(name); dir != "." {
-		if err := secureDirs(r, dir, create); err != nil {
+		if err := secureDirs(r, dir, create, repair); err != nil {
 			return nil, err
 		}
 	}
@@ -320,7 +374,7 @@ func openRegular(r *os.Root, name string, flags int) (*os.File, error) {
 	if err != nil {
 		return nil, scrub(err)
 	}
-	if err := confirmFile(r, name, f, before); err != nil {
+	if err := confirmFile(r, name, f, before, repair); err != nil {
 		f.Close()
 		return nil, err
 	}
@@ -339,8 +393,8 @@ func validDay(day string) bool {
 }
 
 // confirmFile checks the opened handle against the name before and after the
-// open, then tightens its mode.
-func confirmFile(r *os.Root, name string, f *os.File, before os.FileInfo) error {
+// open, then tightens its mode when repair is set.
+func confirmFile(r *os.Root, name string, f *os.File, before os.FileInfo, repair bool) error {
 	info, err := fileInfo(f)
 	if err != nil {
 		return scrub(err)
@@ -358,12 +412,15 @@ func confirmFile(r *os.Root, name string, f *os.File, before os.FileInfo) error 
 	if err := ownedFile(f, info); err != nil {
 		return err
 	}
+	if !repair {
+		return nil
+	}
 	return tighten(r, name, f, info)
 }
 
 // secureDirs checks each directory of dir, creating missing ones when
-// create is set.
-func secureDirs(r *os.Root, dir string, create bool) error {
+// create is set and tightening them when repair is set.
+func secureDirs(r *os.Root, dir string, create, repair bool) error {
 	parts := strings.Split(dir, "/")
 	for i := range parts {
 		d := strings.Join(parts[:i+1], "/")
@@ -380,14 +437,14 @@ func secureDirs(r *os.Root, dir string, create bool) error {
 		if linked(info) || !info.IsDir() {
 			return errUnsafe
 		}
-		if err := confirmDir(r, d, info); err != nil {
+		if err := confirmDir(r, d, info, repair); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func confirmDir(r *os.Root, name string, info os.FileInfo) error {
+func confirmDir(r *os.Root, name string, info os.FileInfo, repair bool) error {
 	f, err := r.Open(name)
 	if err != nil {
 		return scrub(err)
@@ -402,6 +459,9 @@ func confirmDir(r *os.Root, name string, info os.FileInfo) error {
 	}
 	if err := ownedFile(f, opened); err != nil {
 		return err
+	}
+	if !repair {
+		return nil
 	}
 	return tighten(r, name, f, opened)
 }

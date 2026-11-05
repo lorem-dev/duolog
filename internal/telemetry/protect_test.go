@@ -41,6 +41,17 @@ func mustOpenProtected(t *testing.T, root string) *os.Root {
 	return r
 }
 
+// tryOpenProtected is openProtected for a test that expects a refusal; a
+// root it opens anyway is closed when the test ends.
+func tryOpenProtected(t *testing.T, root string) (*os.Root, Protection, error) {
+	t.Helper()
+	r, p, err := openProtected(root)
+	if r != nil {
+		t.Cleanup(func() { r.Close() })
+	}
+	return r, p, err
+}
+
 func setRaceHook(t *testing.T, hook func(stage string)) {
 	t.Helper()
 	raceHook = hook
@@ -81,7 +92,7 @@ func TestRootProtection(t *testing.T) {
 		if err == nil || p.Refusal != refusalOther {
 			t.Fatalf("got %+v, %v; want other", p, err)
 		}
-		if _, p, err := openProtected(root); err == nil || p.Refusal != refusalOther {
+		if _, p, err := tryOpenProtected(t, root); err == nil || p.Refusal != refusalOther {
 			t.Fatalf("openProtected: got %+v, %v; want other", p, err)
 		}
 	})
@@ -99,7 +110,7 @@ func TestRootProtection(t *testing.T) {
 			t.Fatalf("got %+v, %v; want symlink", p, err)
 		}
 		noPath(t, err, base)
-		r, p, err := openProtected(root)
+		r, p, err := tryOpenProtected(t, root)
 		if err == nil || r != nil || p.Refusal != refusalSymlink {
 			t.Fatalf("openProtected: got %v, %+v, %v; want symlink", r, p, err)
 		}
@@ -122,7 +133,7 @@ func TestRootProtection(t *testing.T) {
 		if p.ModeFixed || !isLoose(t, root) {
 			t.Errorf("a foreign root was repaired: %+v", p)
 		}
-		if _, p, err := openProtected(root); err == nil || p.Refusal != refusalOwner {
+		if _, p, err := tryOpenProtected(t, root); err == nil || p.Refusal != refusalOwner {
 			t.Fatalf("openProtected: got %+v, %v; want owner", p, err)
 		}
 	})
@@ -236,7 +247,7 @@ func TestRootRefusals(t *testing.T) {
 	}
 	refused := func(t *testing.T, base, root, want string) {
 		t.Helper()
-		r, p, err := openProtected(root)
+		r, p, err := tryOpenProtected(t, root)
 		if err == nil || r != nil || p.Refusal != want {
 			t.Fatalf("openProtected(%s): got %+v, %v; want %s", root, p, err, want)
 		}
