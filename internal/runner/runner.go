@@ -54,6 +54,43 @@ type Spec struct {
 	// ProtectedRoots are the telemetry and balance roots. A Claude worker's
 	// settings add them to the denyRead list of an already enabled sandbox.
 	ProtectedRoots []string
+	// Native is the resolved native permission name; empty means mode.Args.
+	// It is used only when it is known, not above Mode, and fits the sandbox.
+	Native string
+	// Network and WritableRoots are Codex extras for a workspace-write
+	// worker at level edits or full. Claude ignores them.
+	Network       bool
+	WritableRoots []string
+}
+
+// permissionArgs returns the native permission flags for a worker. It falls
+// back to mode.Args when Native is empty, unknown, above Mode, or not
+// plan/read-only under a read-only sandbox. Codex extras follow the sandbox
+// pair only for workspace-write at edits or full.
+func permissionArgs(agent string, s Spec) []string {
+	fallback := mode.Args(agent, s.Mode, s.Route.Sandbox)
+	if s.Native == "" {
+		return fallback
+	}
+	if _, ok := mode.Rank(agent, s.Native); !ok || mode.Lower(mode.Parse(agent, s.Native), s.Mode) != mode.Parse(agent, s.Native) {
+		return fallback
+	}
+	if s.Route.Sandbox == "read-only" && s.Native != "plan" && s.Native != "read-only" {
+		return fallback
+	}
+	args := mode.Flags(agent, s.Native)
+	if agent == "codex" && s.Native == "workspace-write" && (s.Mode == mode.Edits || s.Mode == mode.Full) {
+		if s.Network {
+			args = append(args, "-c", "sandbox_workspace_write.network_access=true")
+		}
+		if len(s.WritableRoots) > 0 {
+			roots, err := json.Marshal(s.WritableRoots)
+			if err == nil {
+				args = append(args, "-c", "sandbox_workspace_write.writable_roots="+string(roots))
+			}
+		}
+	}
+	return args
 }
 
 // MCP is what a worker needs to start servers bridged from the lead's agent.
