@@ -543,7 +543,7 @@ func readShellParts(command, shell string) ([]string, bool) {
 	if shell == "powershell" {
 		return powershellParts(command)
 	}
-	return shellParts(command, true)
+	return posixReadParts(command)
 }
 
 // commandAfterKeywords drops the shell keywords in front of a command, since

@@ -337,6 +337,10 @@ var ownOperandCheck = []string{"sed", "gsed", "awk", "gawk", "mawk", "nawk", "tr
 // quoted argument is one word; any other part is read word by word, so a path
 // inside a quoted command, as in sh -c 'cat ../x', still counts.
 func ExecOutside(a Action) bool {
+	// $'...' or a brace expansion can make any word name a file outside.
+	if unexpandedLine(a) {
+		return true
+	}
 	// A script or an option can name a file inside one word.
 	if fileTargetsOutside(a) {
 		return true

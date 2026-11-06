@@ -454,6 +454,9 @@ In these commands, and in `cat`, `head`, `tail`, `sort`, `uniq`, `wc`, `cut`,
 is one word. A `<` or `>` inside its quotes redirects nothing. Other commands
 are read word by word, so a path inside `sh -c 'cat ../x'` still needs the
 person. A stream such as `/dev/null` is not a path outside the work root.
+A line with bash's `$'...'` or `$"..."` quoting, or a brace expansion outside
+quotes such as `{..,.}` or `{a..c}`, needs the person in every mode, since
+the gate does not expand them: `cat $'.env'` and `cat {..,.}/peer/f` do.
 
 The lead's own hook guards shell commands that may run `duolog allow N`.
 For a Claude lead, it asks Claude Code to prompt the person. For a Codex lead,
