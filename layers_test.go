@@ -87,7 +87,7 @@ var knownViolations = map[string]string{
 	"internal/agentsync -> github.com/gofrs/flock":            "PR 43",
 	"internal/agentsync -> github.com/pelletier/go-toml/v2":   "PR 43",
 	"internal/agentsync -> internal/config":                   "PR 10",
-	"internal/agentsync -> internal/models":                   "PR 7 renames, PR 33",
+	"internal/agentsync -> internal/adapter/models":           "PR 33",
 	"internal/agentsync -> internal/project":                  "PR 43",
 	"internal/agentsync -> internal/store":                    "PR 43",
 	"internal/agentsync -> os/exec":                           "PR 43",
@@ -117,7 +117,7 @@ var knownViolations = map[string]string{
 	"internal/delegate -> internal/coauthor":                  "PR 28",
 	"internal/delegate -> internal/config":                    "PR 10",
 	"internal/delegate -> internal/journal":                   "PR 28",
-	"internal/delegate -> internal/models":                    "PR 7 renames, PR 33",
+	"internal/delegate -> internal/adapter/models":            "PR 33",
 	"internal/delegate -> internal/project":                   "PR 28",
 	"internal/delegate -> internal/quota":                     "PR 39",
 	"internal/delegate -> internal/runner":                    "PR 32",
@@ -131,7 +131,6 @@ var knownViolations = map[string]string{
 	"internal/doctor -> internal/capability":                  "PR 40",
 	"internal/doctor -> internal/config":                      "PR 10",
 	"internal/doctor -> internal/install":                     "PR 37",
-	"internal/doctor -> internal/models":                      "PR 7 renames, PR 33",
 	"internal/doctor -> internal/session":                     "PR 34",
 	"internal/doctor -> internal/trust":                       "PR 36",
 	"internal/doctor -> internal/trusthome":                   "PR 36",
@@ -172,7 +171,7 @@ var knownViolations = map[string]string{
 	"internal/peer -> internal/capability":                    "PR 40",
 	"internal/peer -> internal/coauthor":                      "PR 29",
 	"internal/peer -> internal/config":                        "PR 10",
-	"internal/peer -> internal/models":                        "PR 7 renames, PR 33",
+	"internal/peer -> internal/models":                        "PR 8 renames, PR 33",
 	"internal/peer -> internal/project":                       "PR 29",
 	"internal/peer -> internal/rex":                           "PR 29",
 	"internal/peer -> internal/runner":                        "PR 41",
@@ -190,23 +189,19 @@ var knownViolations = map[string]string{
 	"internal/profile -> syscall":                             "PR 29; darwin and linux only",
 	"internal/roster -> internal/capability":                  "PR 40",
 	"internal/roster -> internal/config":                      "PR 10",
-	"internal/roster -> internal/models":                      "PR 7",
 	"internal/roster -> internal/session":                     "PR 34",
 	"internal/router -> internal/config":                      "PR 10",
-	"internal/router -> internal/models":                      "PR 7",
 	"internal/session (test) -> internal/paidruns":            "PR 22",
 	"internal/skilltest -> internal/config":                   "PR 10",
-	"internal/skilltest -> internal/models":                   "PR 7",
 	"internal/task -> internal/project":                       "PR 11",
 	"internal/task -> os":                                     "PR 11",
 	"internal/task -> syscall":                                "PR 11",
 	"internal/usage -> internal/config":                       "PR 10",
-	"internal/usage -> internal/models":                       "PR 7",
 	"internal/usage -> os":                                    "PR 12",
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 119
+const maxKnownViolations = 114
 
 // boundaryExceptions are the imports of the security boundary that stay on
 // purpose ("security boundary: moves only"). Empty until PR 20.

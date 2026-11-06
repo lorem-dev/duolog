@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/core/route"
 )
 
 var versionPattern = regexp.MustCompile(`[0-9]+\.[0-9]+\.[0-9]+`)
@@ -28,7 +28,7 @@ func newer(a, b string) bool {
 }
 
 type catalogEntry struct {
-	models.Entry
+	route.Entry
 	Levels []effortLevel `json:"supported_reasoning_levels"`
 }
 
@@ -68,7 +68,7 @@ func readCatalog(ctx context.Context) ([]catalogEntry, error) {
 func checkModels(cfg *config.Config, entries []catalogEntry) []Finding {
 	var out []Finding
 	add := func(message string) { out = append(out, Finding{"warning", message}) }
-	list := make([]models.Entry, 0, len(entries))
+	list := make([]route.Entry, 0, len(entries))
 	byName := make(map[string]catalogEntry)
 	for _, entry := range entries {
 		list = append(list, entry.Entry)
@@ -89,7 +89,7 @@ func checkModels(cfg *config.Config, entries []catalogEntry) []Finding {
 		if model.Agent != "codex" {
 			continue
 		}
-		if _, ok := models.Latest(model.Family, list); ok {
+		if _, ok := route.Latest(model.Family, list); ok {
 			continue
 		}
 		var users []string
@@ -110,16 +110,16 @@ func checkModels(cfg *config.Config, entries []catalogEntry) []Finding {
 			resolved := target.Model
 			if model, ok := cfg.Models[target.Model]; ok {
 				var found bool
-				resolved, found = models.Latest(model.Family, list)
+				resolved, found = route.Latest(model.Family, list)
 				if !found {
 					continue
 				}
 			} else {
-				family := models.Normalize("codex", target.Model)
-				latest, ok := models.Latest(family, list)
-				if ok && latest != target.Model && models.Normalize("codex", latest) == family {
-					versions := []models.Entry{{Slug: target.Model}, {Slug: latest}}
-					best, _ := models.Latest(family, versions)
+				family := route.Normalize("codex", target.Model)
+				latest, ok := route.Latest(family, list)
+				if ok && latest != target.Model && route.Normalize("codex", latest) == family {
+					versions := []route.Entry{{Slug: target.Model}, {Slug: latest}}
+					best, _ := route.Latest(family, versions)
 					if best != target.Model {
 						add(fmt.Sprintf("Role %s pins %s; newer model %s exists", name, target.Model, latest))
 					}

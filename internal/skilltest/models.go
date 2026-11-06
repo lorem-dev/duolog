@@ -3,7 +3,7 @@ package skilltest
 import (
 	"fmt"
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/core/route"
 	"regexp"
 	"slices"
 	"strings"
@@ -75,7 +75,7 @@ func ParseTargets(cfg *config.Config, text string, allowManual bool) ([]config.T
 		if !slices.Contains([]string{"low", "medium", "high", "xhigh", "max", "ultra"}, t.Effort) {
 			return nil, fmt.Errorf("unknown effort %q", t.Effort)
 		}
-		alias := models.Normalize(t.Agent, t.Model)
+		alias := route.Normalize(t.Agent, t.Model)
 		price, ok := cfg.Models[alias]
 		if !ok || price.Agent != t.Agent {
 			return nil, fmt.Errorf("no configured price for %s/%s", t.Agent, t.Model)

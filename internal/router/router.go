@@ -6,7 +6,7 @@ import (
 	"slices"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/models"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 )
 
 type Route struct {
@@ -83,13 +83,13 @@ func Resolve(cfg *config.Config, role string, unavailable map[string]bool, opts 
 		}
 		route.InLead = opts.Lead != nil && route.Agent == opts.Lead.Agent
 	}
-	alias := models.Normalize(route.Agent, route.Model)
+	alias := coreroute.Normalize(route.Agent, route.Model)
 	if !opts.AllowManualModel && (alias == "fable" || alias == "astra" || slices.Contains(cfg.Limits.ManualOnlyModels, alias)) {
 		return Route{}, fmt.Errorf("role %s: model %s requires --allow-manual-model", role, route.Model)
 	}
 	if opts.Lead != nil {
 		lead := opts.Lead
-		leadAlias := models.Normalize(lead.Agent, lead.Model)
+		leadAlias := coreroute.Normalize(lead.Agent, lead.Model)
 		route.Self = !opts.NoSelf && spec.Session == "resume" && route.Agent == lead.Agent && alias == leadAlias
 		if spec.Context == "minimal" {
 			leadModel, leadOK := cfg.Models[leadAlias]
@@ -112,7 +112,7 @@ func Resolve(cfg *config.Config, role string, unavailable map[string]bool, opts 
 }
 
 func mappedModel(cfg *config.Config, primary config.Target, agent string) (string, error) {
-	alias := models.Normalize(primary.Agent, primary.Model)
+	alias := coreroute.Normalize(primary.Agent, primary.Model)
 	if primary.Agent == "claude" {
 		if name, ok := cfg.Sync.Agents.ModelMap[alias]; ok && name != "" {
 			return name, nil

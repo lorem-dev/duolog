@@ -10,7 +10,7 @@ import (
 	"sort"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/core/route"
 )
 
 // Tokens counts the tokens of one or more runs. Input is the total input:
@@ -64,7 +64,7 @@ type Table struct {
 // Input includes cache reads and writes, so each subset is charged only once:
 // reads at the cached price, writes at a multiple of the input price.
 func Cost(cfg *config.Config, agent, model string, t Tokens) (float64, bool) {
-	price, ok := cfg.Models[models.Normalize(agent, model)]
+	price, ok := cfg.Models[route.Normalize(agent, model)]
 	if !ok || price.Agent != agent {
 		return 0, false
 	}
@@ -106,7 +106,7 @@ func Summarize(path string) (Table, error) {
 		if !record.Valid() {
 			return Table{}, fmt.Errorf("usage line %d: invalid token counts", line)
 		}
-		alias := models.Normalize(record.Agent, record.Model)
+		alias := route.Normalize(record.Agent, record.Model)
 		price := cfg.Models[alias]
 		if cost, priced := Cost(cfg, record.Agent, record.Model, record.Tokens); !priced {
 			warnings[fmt.Sprintf("No price for %s model %s; cost excluded", record.Agent, record.Model)] = true

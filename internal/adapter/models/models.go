@@ -10,113 +10,24 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/route"
 )
-
-// Entry contains the catalog fields needed for version selection.
-type Entry struct {
-	Slug       string `json:"slug"`
-	Visibility string `json:"visibility"`
-}
 
 // Resolver permits tests and callers to supply a catalog without running Codex.
 // List returns the catalog and the Codex version that supplied it.
 type Resolver struct {
 	CacheDir string
-	List     func(context.Context) ([]Entry, string, error)
+	List     func(context.Context) ([]route.Entry, string, error)
 }
 
 type catalogCache struct {
-	Models    []Entry   `json:"models"`
-	Version   string    `json:"version"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-// Latest returns the highest numeric version of a visible GPT family.
-func Latest(family string, list []Entry) (string, bool) {
-	var best []int
-	var name string
-	for _, entry := range list {
-		if entry.Visibility == "hide" {
-			continue
-		}
-		version, modelFamily, ok := splitGPT(entry.Slug)
-		if !ok || modelFamily != family {
-			continue
-		}
-		if name == "" || newer(version, best) {
-			name, best = entry.Slug, version
-		}
-	}
-	return name, name != ""
-}
-
-func splitGPT(name string) ([]int, string, bool) {
-	rest, ok := strings.CutPrefix(name, "gpt-")
-	if !ok {
-		return nil, "", false
-	}
-	version, family, ok := strings.Cut(rest, "-")
-	if !ok || family == "" {
-		return nil, "", false
-	}
-	var numbers []int
-	for _, part := range strings.Split(version, ".") {
-		if part == "" {
-			return nil, "", false
-		}
-		for _, ch := range part {
-			if ch < '0' || ch > '9' {
-				return nil, "", false
-			}
-		}
-		n, err := strconv.Atoi(part)
-		if err != nil {
-			return nil, "", false
-		}
-		numbers = append(numbers, n)
-	}
-	return numbers, family, true
-}
-
-func newer(a, b []int) bool {
-	for i := 0; i < len(a) || i < len(b); i++ {
-		av, bv := 0, 0
-		if i < len(a) {
-			av = a[i]
-		}
-		if i < len(b) {
-			bv = b[i]
-		}
-		if av != bv {
-			return av > bv
-		}
-	}
-	return false
-}
-
-// Normalize maps a concrete vendor id to its family alias.
-func Normalize(agent, concrete string) string {
-	if agent == "codex" {
-		if _, family, ok := splitGPT(concrete); ok {
-			return family
-		}
-	}
-	if agent == "claude" {
-		if rest, ok := strings.CutPrefix(concrete, "claude-"); ok {
-			parts := strings.Split(rest, "-")
-			for i := 1; i < len(parts); i++ {
-				if _, err := strconv.Atoi(parts[i]); err == nil {
-					return strings.Join(parts[:i], "-")
-				}
-			}
-		}
-	}
-	return concrete
+	Models    []route.Entry `json:"models"`
+	Version   string        `json:"version"`
+	UpdatedAt time.Time     `json:"updated_at"`
 }
 
 // Resolve uses the standard Codex metadata commands and a directory cache.
@@ -129,7 +40,7 @@ func (r Resolver) Resolve(ctx context.Context, cfg *config.Config, target config
 		if strings.HasPrefix(target.Model, "claude-") {
 			return target.Model, nil
 		}
-		return Normalize(target.Agent, target.Model), nil
+		return route.Normalize(target.Agent, target.Model), nil
 	}
 	if target.Agent != "codex" {
 		return "", fmt.Errorf("unknown agent %q", target.Agent)
@@ -142,7 +53,7 @@ func (r Resolver) Resolve(ctx context.Context, cfg *config.Config, target config
 		return "", fmt.Errorf("unknown Codex model family %q", target.Model)
 	}
 	cached := r.readCache()
-	var list []Entry
+	var list []route.Entry
 	var version string
 	var err error
 	if r.List != nil {
@@ -159,7 +70,7 @@ func (r Resolver) Resolve(ctx context.Context, cfg *config.Config, target config
 		}
 	}
 	if err != nil {
-		if name, ok := Latest(model.Family, cached.Models); ok {
+		if name, ok := route.Latest(model.Family, cached.Models); ok {
 			return name, nil
 		}
 		return "", fmt.Errorf("list Codex models: %w", err)
@@ -177,8 +88,8 @@ func (r Resolver) Resolve(ctx context.Context, cfg *config.Config, target config
 	return name, nil
 }
 
-func pick(family string, list []Entry) (string, error) {
-	if name, ok := Latest(family, list); ok {
+func pick(family string, list []route.Entry) (string, error) {
+	if name, ok := route.Latest(family, list); ok {
 		return name, nil
 	}
 	return "", fmt.Errorf("no visible Codex model for family %q", family)
@@ -240,13 +151,13 @@ func metadata(ctx context.Context, args ...string) ([]byte, error) {
 	return cmd.Output()
 }
 
-func listModels(ctx context.Context) ([]Entry, error) {
+func listModels(ctx context.Context) ([]route.Entry, error) {
 	data, err := metadata(ctx, "debug", "models")
 	if err != nil {
 		return nil, err
 	}
 	var catalog struct {
-		Models []Entry `json:"models"`
+		Models []route.Entry `json:"models"`
 	}
 	if err := json.Unmarshal(data, &catalog); err != nil {
 		return nil, fmt.Errorf("decode Codex catalog: %w", err)

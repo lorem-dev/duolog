@@ -12,7 +12,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/core/record"
-	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/telemetry"
 	"github.com/lorem-dev/duolog/internal/usage"
@@ -94,7 +94,7 @@ func observeAttempt(s *telemetry.Store, cfg *config.Config) record.Observer {
 // priced, finite and in range. Strings pass as they are: the store writes anything outside a
 // closed set or the configured names as other.
 func runEvent(cfg *config.Config, run telemetry.ID, a record.Attempt) telemetry.Run {
-	family := models.Normalize(a.Agent, a.Family)
+	family := route.Normalize(a.Agent, a.Family)
 	e := telemetry.Run{
 		Common: telemetry.Common{Run: run},
 		Role:   a.Role, Class: a.Class, Agent: a.Agent, Family: family, Effort: a.Effort, Placement: a.Placement,

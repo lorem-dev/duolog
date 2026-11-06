@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/rex"
 	"github.com/lorem-dev/duolog/internal/router"
@@ -126,7 +126,7 @@ func (e *env) admitPane(ctx context.Context, route router.Route, lead leadInfo, 
 		if err != nil {
 			return nil, err
 		}
-		permit, err := g.Acquire(ctx, paidruns.Request{Input: in, Family: models.Normalize(route.Agent, route.Model), Role: role,
+		permit, err := g.Acquire(ctx, paidruns.Request{Input: in, Family: coreroute.Normalize(route.Agent, route.Model), Role: role,
 			Owner: paidruns.ProcessOwner(os.Getpid()), OpenPeer: true})
 		var refusal *paidruns.Refusal
 		if errors.As(err, &refusal) {

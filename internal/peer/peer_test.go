@@ -16,10 +16,10 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/rex"
@@ -165,7 +165,7 @@ func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
 		if target.Agent == "codex" {
 			return "gpt-6.1-" + target.Model, nil
 		}
-		return models.Normalize(target.Agent, target.Model), nil
+		return route.Normalize(target.Agent, target.Model), nil
 	}
 	return r
 }

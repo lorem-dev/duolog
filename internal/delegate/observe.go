@@ -10,7 +10,7 @@ import (
 	"time"
 
 	corerecord "github.com/lorem-dev/duolog/internal/core/record"
-	"github.com/lorem-dev/duolog/internal/models"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/runner"
 )
@@ -91,7 +91,7 @@ func (a *attempts) worker(w workerRun, route router.Route, retry bool, r runner.
 	}
 	a.observe(Attempt{
 		Number: a.n, Run: a.run, Role: a.role, Class: a.class,
-		Agent: route.Agent, Family: models.Normalize(route.Agent, route.Model), Effort: route.Effort, Placement: "worker",
+		Agent: route.Agent, Family: coreroute.Normalize(route.Agent, route.Model), Effort: route.Effort, Placement: "worker",
 		Usage: r.Usage, UsageKnown: r.UsageKnown, Duration: time.Since(w.started),
 		Outcome: outcome, ErrorCode: code, Reason: reason,
 		Asks: int64(asks), Denials: int64(denials), Escalated: a.escalated, Moved: route.IsFallback,
@@ -153,7 +153,7 @@ func ObserveHere(observe Observer, role, class string, route router.Route, outco
 	}
 	observe(Attempt{
 		Number: 1, Role: role, Class: class,
-		Agent: route.Agent, Family: models.Normalize(route.Agent, route.Model), Effort: route.Effort, Placement: placement,
+		Agent: route.Agent, Family: coreroute.Normalize(route.Agent, route.Model), Effort: route.Effort, Placement: placement,
 		Duration: d, Outcome: outcome, ErrorCode: runner.CodeNone, Reason: reason, Moved: route.IsFallback,
 	})
 }

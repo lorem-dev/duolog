@@ -12,7 +12,7 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/core/route"
 )
 
 // Agent is an agent file in the form of the file that will be written.
@@ -208,7 +208,7 @@ func checkBijective(m map[string]string) error {
 func mapToCodex(cfg config.AgentSync, forward, flags map[string]string, name, model, effort string) (string, string, error) {
 	alias := ""
 	if model != "" {
-		alias = models.Normalize("claude", model)
+		alias = route.Normalize("claude", model)
 		switch override := cfg.Overrides[name]; {
 		case flags[alias] != "":
 			alias = flags[alias]
@@ -227,7 +227,7 @@ func mapToCodex(cfg config.AgentSync, forward, flags map[string]string, name, mo
 		return alias, override, nil
 	}
 	if effort == "" {
-		if def := cfg.DefaultEffort[models.Normalize("claude", model)]; def != "" && model != "" {
+		if def := cfg.DefaultEffort[route.Normalize("claude", model)]; def != "" && model != "" {
 			effort = def
 		}
 	}
@@ -251,7 +251,7 @@ func knownEffort(effortMap map[string]string, effort string) bool {
 
 func mapToClaude(cfg config.AgentSync, forward map[string]string, model, effort string) (string, string, error) {
 	if model != "" && !strings.HasPrefix(model, "claude-") {
-		alias := models.Normalize("codex", model)
+		alias := route.Normalize("codex", model)
 		found := ""
 		for _, k := range sortedKeys(forward) {
 			if forward[k] == alias {

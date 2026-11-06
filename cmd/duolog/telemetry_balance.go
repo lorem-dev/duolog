@@ -11,7 +11,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/core/record"
-	"github.com/lorem-dev/duolog/internal/models"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/telemetry"
@@ -268,7 +268,7 @@ func windowObservation(agent, family string, w quota.Window) record.WindowObserv
 		kindFamily, scoped := strings.CutPrefix(w.Kind, "weekly_")
 		switch {
 		case w.Model != "":
-			o.Family = models.Normalize(agent, w.Model)
+			o.Family = coreroute.Normalize(agent, w.Model)
 		case scoped && kindFamily != "all" && kindFamily != "scoped":
 			o.Family = kindFamily
 		case w.Kind == "other" || w.Kind == "weekly_scoped":
@@ -306,7 +306,7 @@ func routeObservation(cfg *config.Config, role string, route router.Route, opts 
 		rule = "availability"
 	}
 	target := func(t config.Target) record.RouteTarget {
-		return record.RouteTarget{Agent: t.Agent, Family: models.Normalize(t.Agent, t.Model), Effort: t.Effort}
+		return record.RouteTarget{Agent: t.Agent, Family: coreroute.Normalize(t.Agent, t.Model), Effort: t.Effort}
 	}
 	o := record.RouteObservation{Role: role, Incumbent: target(use), Chosen: target(route.Target), Rule: rule}
 	o.Candidates = []record.RouteTarget{o.Incumbent}

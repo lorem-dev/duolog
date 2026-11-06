@@ -18,8 +18,9 @@ import (
 
 	toml "github.com/pelletier/go-toml/v2"
 
+	"github.com/lorem-dev/duolog/internal/adapter/models"
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/plugin"
 )
 
@@ -47,7 +48,7 @@ type Report struct {
 
 // CatalogList replaces the call to `codex debug models` when it is not nil.
 // Tests set it; the catalog is otherwise read through internal/models.
-var CatalogList func(context.Context) ([]models.Entry, string, error)
+var CatalogList func(context.Context) ([]route.Entry, string, error)
 
 type dirs struct{ agents, skills string }
 

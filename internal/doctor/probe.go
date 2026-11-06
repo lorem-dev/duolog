@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/delegate"
-	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/usage"
 	"github.com/lorem-dev/duolog/internal/workerenv"
@@ -42,12 +42,12 @@ func probe(ctx context.Context, agent string, cfg *config.Config, entries []cata
 	var model string
 	var args []string
 	if agent == "codex" {
-		list := make([]models.Entry, 0, len(entries))
+		list := make([]route.Entry, 0, len(entries))
 		for _, entry := range entries {
 			list = append(list, entry.Entry)
 		}
 		var ok bool
-		if model, ok = models.Latest(cfg.Models["luna"].Family, list); !ok {
+		if model, ok = route.Latest(cfg.Models["luna"].Family, list); !ok {
 			return fmt.Errorf("no visible model for luna probe")
 		}
 		args = []string{"exec", "--json", "--skip-git-repo-check", "-m", model, "-c", "model_reasoning_effort=low", "-c", "project_doc_max_bytes=0", "-s", "read-only", "--ephemeral", "-o", filepath.Join(dir, "answer.json"), "Reply with the word ok."}
@@ -59,7 +59,7 @@ func probe(ctx context.Context, agent string, cfg *config.Config, entries []cata
 	if err != nil {
 		return err
 	}
-	permit, err := admitProbe(ctx, g, cfg, agent, models.Normalize(agent, model), dir)
+	permit, err := admitProbe(ctx, g, cfg, agent, route.Normalize(agent, model), dir)
 	if err != nil {
 		return err
 	}

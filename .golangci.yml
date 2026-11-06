@@ -89,7 +89,7 @@ linters:
       # .duolog/, the config and the files duolog writes into a project are meant
       # to be read by the person and by Git (0755 and 0644). Telemetry and the
       # calibration trees are not in this list, so their modes stay checked.
-      - path: ^(cmd|scripts)/|^internal/(agentsync|artifact|auth|bus|capability|delegate|install|journal|learning|models|peer|runner|session|store|testbin)/
+      - path: ^(cmd|scripts)/|^internal/(adapter/models|agentsync|artifact|auth|bus|capability|delegate|install|journal|learning|models|peer|runner|session|store|testbin)/
         text: G30[126]
         linters: [gosec]
       # PowerShell accepts any prefix of -recurse; the arguments are in that order on purpose.
@@ -302,7 +302,7 @@ linters:
       - {path: '^internal/learning/report\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Offers. has too many statements \(54 > |complexity 51 of func .(?:\(\*?\w+\)\.)?Offers. is|function (?:\(\*?\w+\)\.)?Offers is 28,'} # Offers: cyclomatic 28, statements 54, cognitive 51
       - {path: '^internal/learning/report\.go$', linters: [gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?WriteReport. is'} # WriteReport: cognitive 23
       - {path: '^internal/learning/report\.go$', linters: [cyclop, gocognit], text: 'complexity 21 of func .(?:\(\*?\w+\)\.)?WriteTable. is|function (?:\(\*?\w+\)\.)?WriteTable is 18,'} # WriteTable: cyclomatic 18, cognitive 21
-      - {path: '^internal/models/models\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?Resolve is 16,'} # Resolve: cyclomatic 16
+      - {path: '^internal/adapter/models/models\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?Resolve is 16,'} # Resolve: cyclomatic 16
       - {path: '^internal/paidruns/admission\.go$', linters: [cyclop, gocognit], text: 'complexity 22 of func .(?:\(\*?\w+\)\.)?admit. is|function (?:\(\*?\w+\)\.)?admit is 23,'} # admit: cyclomatic 23, cognitive 22
       - {path: '^internal/paidruns/admission\.go$', linters: [cyclop, gocognit], text: 'complexity 27 of func .(?:\(\*?\w+\)\.)?validate. is|function (?:\(\*?\w+\)\.)?validate is 28,'} # validate: cyclomatic 28, cognitive 27
       - {path: '^internal/paidruns/admission\.go$', linters: [nestif], text: '.if\ r\.Task. has complex nested blocks \(complexity: 5\)'} # if if r.Task: nesting 5

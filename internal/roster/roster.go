@@ -8,7 +8,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/session"
 )
 
@@ -39,7 +39,7 @@ func Line(cfg *config.Config, lead string, reg *session.Registry) string {
 	for _, name := range names {
 		target := cfg.Roles[name].Use
 		// A full model ID is a pin, and a pin must not read as a moving alias.
-		model := models.Normalize(target.Agent, target.Model)
+		model := route.Normalize(target.Agent, target.Model)
 		if strings.HasPrefix(target.Model, "claude-") || strings.HasPrefix(target.Model, "gpt-") {
 			model = target.Model
 		}

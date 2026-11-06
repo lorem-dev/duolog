@@ -10,14 +10,14 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/core/route"
 )
 
 func newProject(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	list := fixtureList(t)
-	CatalogList = func(context.Context) ([]models.Entry, string, error) { return list, "codex-test", nil }
+	CatalogList = func(context.Context) ([]route.Entry, string, error) { return list, "codex-test", nil }
 	t.Cleanup(func() { CatalogList = nil })
 	return root
 }
@@ -446,8 +446,8 @@ func TestHookReportsRefusalInOneLine(t *testing.T) {
 }
 
 func withNewSol(t *testing.T) {
-	list := append(fixtureList(t), models.Entry{Slug: "gpt-6.2-sol", Visibility: "list"})
-	CatalogList = func(context.Context) ([]models.Entry, string, error) { return list, "codex-test-2", nil }
+	list := append(fixtureList(t), route.Entry{Slug: "gpt-6.2-sol", Visibility: "list"})
+	CatalogList = func(context.Context) ([]route.Entry, string, error) { return list, "codex-test-2", nil }
 }
 
 func TestNewModelVersionRebuildsAgents(t *testing.T) {

@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -493,7 +493,7 @@ func parseCodex(data []byte) (Snapshot, error) {
 				ws[i].Severity = "rejected"
 			}
 		}
-		family := models.Normalize("codex", id)
+		family := route.Normalize("codex", id)
 		switch family {
 		case "codex", "sol", "terra", "luna", "sonnet", "opus", "haiku":
 		default:

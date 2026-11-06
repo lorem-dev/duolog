@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/lorem-dev/duolog/internal/adapter/models"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/roster"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/spf13/cobra"

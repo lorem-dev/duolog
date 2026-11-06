@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/route"
 )
 
 // The copied test executable handles metadata commands without starting an agent.
@@ -51,14 +52,14 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func fixture(t *testing.T) []Entry {
+func fixture(t *testing.T) []route.Entry {
 	t.Helper()
-	data, err := os.ReadFile("../../scripts/bench/fixtures/models/codex-debug-models.trimmed.json")
+	data, err := os.ReadFile("../../../scripts/bench/fixtures/models/codex-debug-models.trimmed.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var catalog struct {
-		Models []Entry `json:"models"`
+		Models []route.Entry `json:"models"`
 	}
 	if err := json.Unmarshal(data, &catalog); err != nil {
 		t.Fatal(err)
@@ -68,28 +69,8 @@ func fixture(t *testing.T) []Entry {
 func modelConfig() *config.Config {
 	return &config.Config{Models: map[string]config.Model{"sol": {Agent: "codex", Family: "sol"}}}
 }
-func TestLatestPicksHighestVersion(t *testing.T) {
-	if got, ok := Latest("sol", fixture(t)); !ok || got != "gpt-6.1-sol" {
-		t.Fatalf("got %q, %v", got, ok)
-	}
-	list := []Entry{{Slug: "gpt-6.9-sol", Visibility: "list"}, {Slug: "gpt-6.10-sol", Visibility: "list"}}
-	if got, ok := Latest("sol", list); !ok || got != "gpt-6.10-sol" {
-		t.Fatalf("got %q, %v", got, ok)
-	}
-}
-func TestLatestSkipsHidden(t *testing.T) {
-	list := append(fixture(t), Entry{Slug: "gpt-99-sol", Visibility: "hide"})
-	if got, ok := Latest("sol", list); !ok || got != "gpt-6.1-sol" {
-		t.Fatalf("got %q, %v", got, ok)
-	}
-}
-func TestLatestUnknownFamily(t *testing.T) {
-	if got, ok := Latest("unknown", fixture(t)); ok || got != "" {
-		t.Fatalf("got %q, %v", got, ok)
-	}
-}
 func TestResolveClaudeAliasUnchanged(t *testing.T) {
-	r := Resolver{List: func(context.Context) ([]Entry, string, error) { t.Fatal("list called"); return nil, "", nil }}
+	r := Resolver{List: func(context.Context) ([]route.Entry, string, error) { t.Fatal("list called"); return nil, "", nil }}
 	for _, name := range []string{"opus", "claude-opus-5-5"} {
 		got, err := r.Resolve(context.Background(), modelConfig(), config.Target{Agent: "claude", Model: name})
 		if err != nil || got != name {
@@ -98,7 +79,7 @@ func TestResolveClaudeAliasUnchanged(t *testing.T) {
 	}
 }
 func TestResolvePinnedUnchanged(t *testing.T) {
-	r := Resolver{List: func(context.Context) ([]Entry, string, error) { t.Fatal("list called"); return nil, "", nil }}
+	r := Resolver{List: func(context.Context) ([]route.Entry, string, error) { t.Fatal("list called"); return nil, "", nil }}
 	got, err := r.Resolve(context.Background(), modelConfig(), config.Target{Agent: "codex", Model: "gpt-6-sol"})
 	if err != nil || got != "gpt-6-sol" {
 		t.Fatalf("got %q, %v", got, err)
@@ -122,7 +103,7 @@ func fakeCodex(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(dir, name), data, 0700); err != nil {
 		t.Fatal(err)
 	}
-	path, err := filepath.Abs("../../scripts/bench/fixtures/models/codex-debug-models.trimmed.json")
+	path, err := filepath.Abs("../../../scripts/bench/fixtures/models/codex-debug-models.trimmed.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,25 +185,16 @@ func TestCacheRefreshesAfter24Hours(t *testing.T) {
 func TestCacheUsedWhenCommandFails(t *testing.T) {
 	list := fixture(t)
 	dir := t.TempDir()
-	r := Resolver{CacheDir: dir, List: func(context.Context) ([]Entry, string, error) { return list, "v1", nil }}
+	r := Resolver{CacheDir: dir, List: func(context.Context) ([]route.Entry, string, error) { return list, "v1", nil }}
 	resolveSol(t, r)
-	r.List = func(context.Context) ([]Entry, string, error) { return nil, "", errors.New("offline") }
+	r.List = func(context.Context) ([]route.Entry, string, error) { return nil, "", errors.New("offline") }
 	if got := resolveSol(t, r); got != "gpt-6.1-sol" {
 		t.Fatal(got)
 	}
 }
 func TestNoListAndNoCacheIsError(t *testing.T) {
-	r := Resolver{CacheDir: t.TempDir(), List: func(context.Context) ([]Entry, string, error) { return nil, "", errors.New("offline") }}
+	r := Resolver{CacheDir: t.TempDir(), List: func(context.Context) ([]route.Entry, string, error) { return nil, "", errors.New("offline") }}
 	if _, err := r.Resolve(context.Background(), modelConfig(), config.Target{Agent: "codex", Model: "sol"}); err == nil {
 		t.Fatal("missing error")
-	}
-}
-func TestNormalizeTable(t *testing.T) {
-	for _, tc := range []struct{ agent, concrete, want string }{
-		{"claude", "claude-opus-5-5", "opus"}, {"claude", "claude-sonnet-5-5", "sonnet"}, {"claude", "claude-haiku-5-5", "haiku"}, {"codex", "gpt-6.1-terra", "terra"}, {"codex", "gpt-6-sol", "sol"}, {"claude", "unknown", "unknown"}, {"codex", "unknown", "unknown"}, {"claude", "opus", "opus"}, {"claude", "claude-future-family-6-1", "future-family"},
-	} {
-		if got := Normalize(tc.agent, tc.concrete); got != tc.want {
-			t.Errorf("Normalize(%q,%q)=%q, want %q", tc.agent, tc.concrete, got, tc.want)
-		}
 	}
 }

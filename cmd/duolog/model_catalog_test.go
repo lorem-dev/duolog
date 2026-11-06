@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -17,12 +17,12 @@ func testModelCatalog(t *testing.T, aliases ...string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var entries []models.Entry
+	var entries []route.Entry
 	for _, alias := range aliases {
-		entries = append(entries, models.Entry{Slug: cfg.Models[alias].PricedFor, Visibility: "list"})
+		entries = append(entries, route.Entry{Slug: cfg.Models[alias].PricedFor, Visibility: "list"})
 	}
 	data, err := json.Marshal(struct {
-		Models []models.Entry `json:"models"`
+		Models []route.Entry `json:"models"`
 	}{entries})
 	if err != nil {
 		t.Fatal(err)

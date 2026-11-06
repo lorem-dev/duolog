@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/runner"
 )
 
@@ -91,7 +91,7 @@ func TestReviewEscalationSkipsSameCappedTarget(t *testing.T) {
 	}
 	h.requireCalls(2)
 	r := h.calls[1].Route
-	if r.Agent != "claude" || models.Normalize(r.Agent, r.Model) != "opus" || r.Effort != "medium" {
+	if r.Agent != "claude" || route.Normalize(r.Agent, r.Model) != "opus" || r.Effort != "medium" {
 		t.Fatal(r)
 	}
 	recs := h.records()

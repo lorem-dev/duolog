@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/quota"
@@ -103,7 +103,7 @@ type permitRun struct {
 // comes back as such, with no error.
 func admit(ctx context.Context, g *paidruns.Gate, cfg *config.Config, in workerenv.ProcessInput, route router.Route,
 	role, class string, records []journal.Delegation, opts Options) (*permitRun, *paidruns.Refusal, error) {
-	req := paidruns.Request{Input: in, Family: models.Normalize(route.Agent, route.Model), Role: role, Class: class,
+	req := paidruns.Request{Input: in, Family: coreroute.Normalize(route.Agent, route.Model), Role: role, Class: class,
 		Records: records, Owner: paidruns.ProcessOwner(os.Getpid()), Calibration: opts.Calibration,
 		Wait: paidruns.SessionWait(cfg), Budget: opts.Budget, Waiting: opts.Waiting}
 	permit, err := g.Acquire(ctx, req)

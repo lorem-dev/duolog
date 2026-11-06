@@ -16,10 +16,11 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/models"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/delegate"
-	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/runner"
@@ -353,7 +354,7 @@ func askSkill(cmd *cobra.Command, cfg *config.Config, root, work, prompt string,
 		Locations: workerenv.Locations{Home: home, Root: work, GOOS: runtime.GOOS, Environ: environ},
 		// Codex's exec with its read-only sandbox is admitted with the rest.
 		Launch: runner.Launch(runner.Spec{Route: route, SkillTest: true})}
-	permit, err := g.Acquire(ctx, paidruns.Request{Input: in, Family: models.Normalize(target.Agent, model),
+	permit, err := g.Acquire(ctx, paidruns.Request{Input: in, Family: coreroute.Normalize(target.Agent, model),
 		Role: "skill_test", Owner: paidruns.ProcessOwner(os.Getpid()), Wait: paidruns.SessionWait(cfg)})
 	var refusal *paidruns.Refusal
 	if errors.As(err, &refusal) {

@@ -15,10 +15,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/usage"
@@ -127,7 +127,7 @@ func TestLearningOffOutputUnchanged(t *testing.T) {
 	if out.Line != want {
 		t.Fatalf("line %q, want %q", out.Line, want)
 	}
-	if h.calls[0].Route.Model == "" || models.Normalize("codex", h.calls[0].Route.Model) != "sol" {
+	if h.calls[0].Route.Model == "" || route.Normalize("codex", h.calls[0].Route.Model) != "sol" {
 		t.Fatal(h.calls[0].Route)
 	}
 	noJournal(t, h)
@@ -171,7 +171,7 @@ func TestLearningUnclassifiedKeepsRoleTarget(t *testing.T) {
 		t.Fatal(out, err)
 	}
 	h.requireCalls(1)
-	if r := h.calls[0].Route; r.Agent != "claude" || models.Normalize("claude", r.Model) != "opus" {
+	if r := h.calls[0].Route; r.Agent != "claude" || route.Normalize("claude", r.Model) != "opus" {
 		t.Fatal(r)
 	}
 	rec := h.record()
@@ -191,7 +191,7 @@ func TestLearningRoutesByClass(t *testing.T) {
 		t.Fatal(out, err)
 	}
 	h.requireCalls(1)
-	if r := h.calls[0].Route; r.Agent != "codex" || models.Normalize("codex", r.Model) != "terra" || r.Model == "terra" || r.Effort != "medium" {
+	if r := h.calls[0].Route; r.Agent != "codex" || route.Normalize("codex", r.Model) != "terra" || r.Model == "terra" || r.Effort != "medium" {
 		t.Fatal(r)
 	}
 	rec := h.record()
@@ -206,7 +206,7 @@ func TestLearningStatedClassRecordsBoth(t *testing.T) {
 	if out, err := h.runWith("debug_hard", Options{Class: "debug_multi", Features: diagnosis()}); err != nil {
 		t.Fatal(out, err)
 	}
-	if r := h.calls[0].Route; r.Agent != "claude" || models.Normalize("claude", r.Model) != "opus" {
+	if r := h.calls[0].Route; r.Agent != "claude" || route.Normalize("claude", r.Model) != "opus" {
 		t.Fatal(r)
 	}
 	rec := h.record()
@@ -447,7 +447,7 @@ func TestJudgeRunRoutesToEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(out, err)
 	}
-	if r := h.calls[0].Route; r.Agent != "claude" || models.Normalize("claude", r.Model) != "opus" || r.Effort != "high" {
+	if r := h.calls[0].Route; r.Agent != "claude" || route.Normalize("claude", r.Model) != "opus" || r.Effort != "high" {
 		t.Fatal(r)
 	}
 	if strings.Contains(out.Line, "id=") {
@@ -462,7 +462,7 @@ func TestLearningUseRecordsPerson(t *testing.T) {
 	if err != nil {
 		t.Fatal(out, err)
 	}
-	if r := h.calls[0].Route; r.Agent != "claude" || models.Normalize("claude", r.Model) != "opus" {
+	if r := h.calls[0].Route; r.Agent != "claude" || route.Normalize("claude", r.Model) != "opus" {
 		t.Fatal(r)
 	}
 	rec := h.record()
@@ -476,7 +476,7 @@ func TestUseWorksWithLearningOff(t *testing.T) {
 	if out, err := h.runWith("review_intermediate", Options{Entry: target("codex/sol/high"), Person: true}); err != nil {
 		t.Fatal(out, err)
 	}
-	if r := h.calls[0].Route; r.Agent != "codex" || models.Normalize("codex", r.Model) != "sol" || r.Effort != "high" {
+	if r := h.calls[0].Route; r.Agent != "codex" || route.Normalize("codex", r.Model) != "sol" || r.Effort != "high" {
 		t.Fatal(r)
 	}
 	noJournal(t, h)
@@ -494,7 +494,7 @@ func TestJudgeRoutesToEntryWithoutJournalling(t *testing.T) {
 		t.Fatal(out, err)
 	}
 	h.requireCalls(1)
-	if r := h.calls[0].Route; r.Agent != "codex" || models.Normalize(r.Agent, r.Model) != "sol" || r.Effort != "high" {
+	if r := h.calls[0].Route; r.Agent != "codex" || route.Normalize(r.Agent, r.Model) != "sol" || r.Effort != "high" {
 		t.Fatal(r)
 	}
 	if recs := h.records(); len(recs) != 0 {
@@ -836,7 +836,7 @@ func TestLearningRunHereAfterQuotaRecordsFinalAttempt(t *testing.T) {
 	}
 	h.requireCalls(1)
 	rec := h.record()
-	if !rec.RunHere || rec.Done || rec.Outcome != journal.OutcomeLead || rec.Input != 0 || rec.Output != 0 || rec.USD != 0 || rec.Agent != "claude" || models.Normalize("claude", rec.Model) != "sonnet" {
+	if !rec.RunHere || rec.Done || rec.Outcome != journal.OutcomeLead || rec.Input != 0 || rec.Output != 0 || rec.USD != 0 || rec.Agent != "claude" || route.Normalize("claude", rec.Model) != "sonnet" {
 		t.Fatalf("%+v", rec)
 	}
 }
@@ -911,7 +911,7 @@ func TestEscalationMovesToNextEntry(t *testing.T) {
 		t.Fatal(out, err)
 	}
 	h.requireCalls(2)
-	if r := h.calls[1].Route; r.Agent != "codex" || models.Normalize("codex", r.Model) != "sol" || r.Effort != "medium" {
+	if r := h.calls[1].Route; r.Agent != "codex" || route.Normalize("codex", r.Model) != "sol" || r.Effort != "medium" {
 		t.Fatal(r)
 	}
 	rec := h.records()[1]

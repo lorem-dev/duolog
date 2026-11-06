@@ -13,10 +13,10 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/learning"
-	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/runner"
@@ -74,7 +74,7 @@ func workRootOf(s *store.Store, opts Options) (string, error) {
 // sameModel reports whether a target runs the lead's own model, which the
 // router would otherwise run in the lead itself.
 func sameModel(t config.Target, lead *config.Target) bool {
-	return lead != nil && t.Agent == lead.Agent && models.Normalize(t.Agent, t.Model) == models.Normalize(lead.Agent, lead.Model)
+	return lead != nil && t.Agent == lead.Agent && coreroute.Normalize(t.Agent, t.Model) == coreroute.Normalize(lead.Agent, lead.Model)
 }
 
 // beginLearning classifies the delegation and finds its task. It refuses only

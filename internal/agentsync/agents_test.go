@@ -9,17 +9,17 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/core/route"
 )
 
-func fixtureList(t *testing.T) []models.Entry {
+func fixtureList(t *testing.T) []route.Entry {
 	t.Helper()
 	data, err := os.ReadFile("../../scripts/bench/fixtures/models/codex-debug-models.trimmed.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var catalog struct {
-		Models []models.Entry `json:"models"`
+		Models []route.Entry `json:"models"`
 	}
 	if err := json.Unmarshal(data, &catalog); err != nil {
 		t.Fatal(err)
@@ -38,7 +38,7 @@ func testOpts(t *testing.T) AgentOpts {
 			DropKeys:      []string{"color"},
 		},
 		Resolve: func(alias string) (string, error) {
-			name, ok := models.Latest(alias, list)
+			name, ok := route.Latest(alias, list)
 			if !ok {
 				return "", os.ErrNotExist
 			}

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/quota"
@@ -122,7 +122,7 @@ func TestProbeUsesGateAndBuild(t *testing.T) {
 		if !slices.Contains(env, "DUOLOG_DEPTH=1") {
 			t.Fatalf("probe env lacks the worker depth: %q", env)
 		}
-		entries := []catalogEntry{{Entry: models.Entry{Slug: "gpt-6-luna", Visibility: "list"}}}
+		entries := []catalogEntry{{Entry: route.Entry{Slug: "gpt-6-luna", Visibility: "list"}}}
 		if err := probe(ctx, "codex", cfg, entries); err != nil {
 			t.Fatal(err)
 		}

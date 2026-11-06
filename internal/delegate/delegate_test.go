@@ -14,12 +14,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/models"
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/router"
@@ -77,7 +78,7 @@ func newHarness(t *testing.T) *harness {
 	t.Helper()
 	_, testFile, _, _ := runtime.Caller(0)
 	var catalog struct {
-		Models []models.Entry `json:"models"`
+		Models []route.Entry `json:"models"`
 	}
 	if e := json.Unmarshal([]byte(read(t, filepath.Join(filepath.Dir(testFile), "..", "..", "scripts", "bench", "fixtures", "models", "codex-debug-models.trimmed.json"))), &catalog); e != nil {
 		t.Fatal(e)
@@ -156,7 +157,7 @@ func newHarness(t *testing.T) *harness {
 		return r, e
 	}
 	resolveModel = func(ctx context.Context, cfg *config.Config, dir string, target config.Target) (string, error) {
-		return (models.Resolver{List: func(context.Context) ([]models.Entry, string, error) {
+		return (models.Resolver{List: func(context.Context) ([]route.Entry, string, error) {
 			return catalog.Models, "fixture", nil
 		}}).Resolve(ctx, cfg, target)
 	}

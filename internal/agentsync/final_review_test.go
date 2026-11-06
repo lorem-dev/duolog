@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -111,7 +111,7 @@ func TestHookCatalogHasDeadlineAndRecovers(t *testing.T) {
 		t.Fatal(rep, err)
 	}
 	put(t, root, ".claude/agents/a.md", agentMD("a", "sonnet"), 0644)
-	CatalogList = func(ctx context.Context) ([]models.Entry, string, error) {
+	CatalogList = func(ctx context.Context) ([]route.Entry, string, error) {
 		deadline, ok := ctx.Deadline()
 		if !ok || time.Until(deadline) > 2100*time.Millisecond {
 			t.Error("unbounded hook metadata")
