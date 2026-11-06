@@ -13,7 +13,7 @@ import (
 
 func executeBusCommand(t *testing.T, args ...string) (string, error) {
 	t.Helper()
-	cmd := newRootCommand()
+	cmd := newRootCommand(testDeps(t))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)

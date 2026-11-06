@@ -23,8 +23,7 @@ func readsGate(t *testing.T, read func(context.Context, workerenv.Process) (quot
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "accounts")
 	reads := new(int)
-	old := delegateDeps.PaidGate
-	delegateDeps.PaidGate = func(cfg *config.Config) (*paidruns.Gate, error) {
+	testDeps(t).Delegate.PaidGate = func(cfg *config.Config) (*paidruns.Gate, error) {
 		g, err := paidrunstest.Gate(dir, cfg)
 		if err != nil {
 			return nil, err
@@ -35,7 +34,6 @@ func readsGate(t *testing.T, read func(context.Context, workerenv.Process) (quot
 		}
 		return g, nil
 	}
-	t.Cleanup(func() { delegateDeps.PaidGate = old })
 	return reads
 }
 
@@ -124,7 +122,7 @@ func TestCalibrationUsableShareQuotaThroughGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	read := newCalibrationAccounts(cfg, ".").Quota()
+	read := newCalibrationAccounts(testDeps(t), cfg, ".").Quota()
 	ws, err := read.Get(context.Background(), "codex", false)
 	if err != nil {
 		t.Fatal(err)
@@ -187,7 +185,7 @@ func TestCalibrationSharedRatesThroughGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := newCalibrationAccounts(cfg, ".")
+	a := newCalibrationAccounts(testDeps(t), cfg, ".")
 	g, err := a.open()
 	if err != nil {
 		t.Fatal(err)

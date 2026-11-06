@@ -33,7 +33,7 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-func newSkillCommand() *cobra.Command {
+func newSkillCommand(d *cmdDeps) *cobra.Command {
 	parent := &cobra.Command{Use: "skill", Short: "Test skill instructions across models"}
 	var planPath, modelList, remember string
 	var yes, allowManual bool
@@ -149,7 +149,7 @@ func newSkillCommand() *cobra.Command {
 				return nil
 			}
 		}
-		return runSkillTests(cmd, root, stateRoot, name, cfg, plan, string(skill), targets)
+		return runSkillTests(d, cmd, root, stateRoot, name, cfg, plan, string(skill), targets)
 	}}
 	cmd.Flags().StringVar(&planPath, "plan", "", "YAML situation plan")
 	cmd.Flags().StringVar(&modelList, "models", "", "Comma-separated agent/model/effort runs")
@@ -204,7 +204,7 @@ func rememberSkillTests(root, value string) error {
 	return os.WriteFile(path, data, 0600)
 }
 
-func runSkillTests(cmd *cobra.Command, root, stateRoot, name string, cfg *config.Config, plan skilltest.Plan, skill string, targets []config.Target) error {
+func runSkillTests(d *cmdDeps, cmd *cobra.Command, root, stateRoot, name string, cfg *config.Config, plan skilltest.Plan, skill string, targets []config.Target) error {
 	dir := filepath.Join(root, ".duolog", "skill-tests", name)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
@@ -241,7 +241,7 @@ func runSkillTests(cmd *cobra.Command, root, stateRoot, name string, cfg *config
 		route := coreroute.Route{Target: target}
 		var runErr error
 		if len(selected.Situations) > 0 {
-			result, route, runErr = askSkill(cmd, cfg, root, work, selected.Prompt(skill), target)
+			result, route, runErr = askSkill(d, cmd, cfg, root, work, selected.Prompt(skill), target)
 		}
 		if runErr != nil {
 			runErr = keepRunLog(runErr, filepath.Join(work, "stdout.log"), logPath)
@@ -331,7 +331,7 @@ func keepRunLog(runErr error, tempLog, logPath string) error {
 	return errors.New(strings.ReplaceAll(runErr.Error(), tempLog, logPath))
 }
 
-func askSkill(cmd *cobra.Command, cfg *config.Config, root, work, prompt string, target config.Target) (result runner.Result, route coreroute.Route, err error) {
+func askSkill(d *cmdDeps, cmd *cobra.Command, cfg *config.Config, root, work, prompt string, target config.Target) (result runner.Result, route coreroute.Route, err error) {
 	route = coreroute.Route{Target: target}
 	model, err := models.Resolve(cmd.Context(), cfg, filepath.Join(root, ".duolog", "cache"), target)
 	if err != nil {
@@ -343,7 +343,7 @@ func askSkill(cmd *cobra.Command, cfg *config.Config, root, work, prompt string,
 	// admits it like any worker, in the free variant only: a skill test never
 	// spends money, so a paid route is refused before any model call.
 	ctx := cmd.Context()
-	g, err := delegateDeps.PaidGate(cfg)
+	g, err := d.Delegate.PaidGate(cfg)
 	if err != nil {
 		return runner.Result{}, route, err
 	}

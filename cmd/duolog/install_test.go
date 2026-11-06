@@ -16,7 +16,7 @@ func TestInstallCommandProject(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
 	t.Chdir(root)
-	cmd := newRootCommand()
+	cmd := newRootCommand(testDeps(t))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"install", "--scope", "project", "--agent", "codex"})
@@ -29,7 +29,7 @@ func TestInstallCommandProject(t *testing.T) {
 	if entries, _ := os.ReadDir(home); len(entries) != 0 {
 		t.Fatalf("home changed: %v", entries)
 	}
-	cmd = newRootCommand()
+	cmd = newRootCommand(testDeps(t))
 	cmd.SetArgs([]string{"uninstall", "--scope", "project", "--agent", "codex"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)

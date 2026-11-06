@@ -73,9 +73,7 @@ func TestDelegateRejectsBadFeatures(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("DUOLOG_DEPTH", "")
 	ran := false
-	old := runDelegate
-	t.Cleanup(func() { runDelegate = old })
-	runDelegate = func(context.Context, delegate.Request) (delegate.Outcome, error) {
+	testDeps(t).RunDelegate = func(context.Context, delegate.Request) (delegate.Outcome, error) {
 		ran = true
 		return delegate.Outcome{}, nil
 	}
@@ -90,9 +88,7 @@ func TestDelegateUseFlag(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("DUOLOG_DEPTH", "")
 	var got delegate.Options
-	old := runDelegate
-	t.Cleanup(func() { runDelegate = old })
-	runDelegate = func(_ context.Context, r delegate.Request) (delegate.Outcome, error) {
+	testDeps(t).RunDelegate = func(_ context.Context, r delegate.Request) (delegate.Outcome, error) {
 		got = r.Options
 		return delegate.Outcome{Line: "done=true"}, nil
 	}
@@ -116,9 +112,7 @@ func TestDelegateEscalationFlags(t *testing.T) {
 	t.Setenv("DUOLOG_DEPTH", "")
 	var got delegate.Options
 	ran := 0
-	old := runDelegate
-	t.Cleanup(func() { runDelegate = old })
-	runDelegate = func(_ context.Context, r delegate.Request) (delegate.Outcome, error) {
+	testDeps(t).RunDelegate = func(_ context.Context, r delegate.Request) (delegate.Outcome, error) {
 		got = r.Options
 		ran++
 		return delegate.Outcome{Line: "done=true"}, nil

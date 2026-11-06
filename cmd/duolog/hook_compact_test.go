@@ -34,7 +34,7 @@ func compactProject(t *testing.T) string {
 func runHook(t *testing.T, event, input string) string {
 	t.Helper()
 	var out bytes.Buffer
-	cmd := newRootCommand()
+	cmd := newRootCommand(testDeps(t))
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
 	cmd.SetIn(strings.NewReader(input))

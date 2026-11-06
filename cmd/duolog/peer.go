@@ -16,14 +16,13 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/peer"
-	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/spf13/cobra"
 )
 
 // peerContext refuses workers before it reads anything: a worker never drives
 // a terminal.
-func peerContext(cmd *cobra.Command, lead string, allowManual bool, timeout time.Duration) (context.Context, context.CancelFunc, error) {
+func peerContext(d *cmdDeps, cmd *cobra.Command, lead string, allowManual bool, timeout time.Duration) (context.Context, context.CancelFunc, error) {
 	if isWorker() {
 		return nil, nil, errors.New("workers cannot open or control peer sessions")
 	}
@@ -35,7 +34,7 @@ func peerContext(cmd *cobra.Command, lead string, allowManual bool, timeout time
 	if err != nil {
 		return nil, nil, err
 	}
-	opts := peer.Options{Deps: peerDeps(), Root: root, Config: cfg, Lead: lead, AllowManualModel: allowManual, ProtectedRoots: launchProtectedRoots()}
+	opts := peer.Options{Deps: d.peerDeps(), Root: root, Config: cfg, Lead: lead, AllowManualModel: allowManual, ProtectedRoots: launchProtectedRoots()}
 	// Peer opens, sends and closes, and each task a peer ends, reach
 	// telemetry through these observers; a store that cannot open records none.
 	done := func() {}
@@ -81,7 +80,7 @@ func entryLine(e peer.Entry) string {
 	return strings.Join(strings.Fields(line), " ")
 }
 
-func newPeerCommand() *cobra.Command {
+func newPeerCommand(d *cmdDeps) *cobra.Command {
 	var lead string
 	var allowManual bool
 	var timeout time.Duration
@@ -98,7 +97,7 @@ func newPeerCommand() *cobra.Command {
 	root.PersistentFlags().StringVar(&lead, "lead", "", "Registered lead session ID (defaults to DUOLOG_LEAD)")
 	run := func(use, short string, args cobra.PositionalArgs, call func(ctx context.Context, cmd *cobra.Command, args []string) (string, error)) *cobra.Command {
 		return &cobra.Command{Use: use, Short: short, Args: args, RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, cancel, err := peerContext(cmd, lead, allowManual, 0)
+			ctx, cancel, err := peerContext(d, cmd, lead, allowManual, 0)
 			if err != nil {
 				return err
 			}
@@ -121,7 +120,7 @@ func newPeerCommand() *cobra.Command {
 	})
 	open.Flags().BoolVar(&allowManual, "allow-manual-model", false, "Allow models reserved for manual selection")
 	wait := &cobra.Command{Use: "wait <id>", Short: "Keep waiting for a session after an answer or a task", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		ctx, cancel, err := peerContext(cmd, lead, allowManual, timeout)
+		ctx, cancel, err := peerContext(d, cmd, lead, allowManual, timeout)
 		if err != nil {
 			return err
 		}
@@ -168,7 +167,7 @@ func newPeerCommand() *cobra.Command {
 		if listLong && listJSON {
 			return errors.New("--long and --json cannot be used together")
 		}
-		ctx, cancel, err := peerContext(cmd, lead, false, 0)
+		ctx, cancel, err := peerContext(d, cmd, lead, false, 0)
 		if err != nil {
 			return err
 		}
@@ -195,7 +194,7 @@ func newPeerCommand() *cobra.Command {
 	release := run("release <id>", "End the account hold of a pane that no session records, as quota and doctor show it", cobra.ExactArgs(1), func(ctx context.Context, _ *cobra.Command, args []string) (string, error) {
 		return peer.Release(ctx, args[0])
 	})
-	root.AddCommand(open, wait, send, status, answer, closeCmd, list, release, newPeerShowCommand(&lead), newPeerViewCommand(&lead), newPeerLaunchCommand())
+	root.AddCommand(open, wait, send, status, answer, closeCmd, list, release, newPeerShowCommand(d, &lead), newPeerViewCommand(d, &lead), newPeerLaunchCommand(d))
 	return root
 }
 
@@ -214,28 +213,24 @@ func peerClose(ctx context.Context, _ *cobra.Command, args []string) (string, er
 // errPeerShowModel is the refusal when a model may read the output.
 var errPeerShowModel = errors.New("duolog peer show prints a peer's screen only to your own terminal, so no model reads it; run it in a terminal outside the agent, or use duolog peer view <id>")
 
-// agentAncestor names a Claude or Codex process above this one; tests
-// replace it.
-var agentAncestor = session.AgentAncestor
-
 // newPeerShowCommand prints the last lines of a peer's pane to the person's
 // terminal. It refuses before any Rex call whenever a model may read the
 // output, and it has no flag that overrides the refusal. The checks guard
 // against accidents; no check can prove that a terminal is the person's.
 // The lead hook also stops a lead's tool call that names it (peerShowLeadGuard).
-func newPeerShowCommand(lead *string) *cobra.Command {
+func newPeerShowCommand(d *cmdDeps, lead *string) *cobra.Command {
 	var lines int
 	cmd := &cobra.Command{Use: "show <id>", Short: "Print the last lines of a peer's screen to your own terminal", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		if modelContext(cmd) {
+		if d.modelContext(cmd) {
 			return errPeerShowModel
 		}
 		// A pty and a cleaned environment pass the check above, as under
 		// script or in a new Rex or tmux pane; an agent process above
 		// this one still shows.
-		if agent := agentAncestor(); agent != "" {
+		if agent := d.AgentAncestor(); agent != "" {
 			return fmt.Errorf("%w (a %s process runs this command)", errPeerShowModel, agent)
 		}
-		ctx, cancel, err := peerContext(cmd, *lead, false, 0)
+		ctx, cancel, err := peerContext(d, cmd, *lead, false, 0)
 		if err != nil {
 			return err
 		}
@@ -251,15 +246,11 @@ func newPeerShowCommand(lead *string) *cobra.Command {
 	return cmd
 }
 
-// openLaunchState opens the account state a launcher records itself in;
-// tests replace it.
-var openLaunchState = func() (*paidruns.Store, error) { return paidruns.OpenUserState("") }
-
 // recordLauncher records this process on the account hold of its pane, which
 // the DUOLOG_PEER of the pane's variables names, so that a peer open that dies
 // before it records the pane leaves the pane's presence behind. A pane
 // without a peer id holds nothing.
-func recordLauncher(ctx context.Context, set []string) error {
+func recordLauncher(ctx context.Context, d *cmdDeps, set []string) error {
 	id := ""
 	for _, pair := range set {
 		if v, ok := strings.CutPrefix(pair, "DUOLOG_PEER="); ok {
@@ -269,7 +260,7 @@ func recordLauncher(ctx context.Context, set []string) error {
 	if id == "" {
 		return nil
 	}
-	st, err := openLaunchState()
+	st, err := d.OpenLaunchState()
 	if err != nil {
 		return err
 	}
@@ -280,7 +271,7 @@ func recordLauncher(ctx context.Context, set []string) error {
 // file, plus what a terminal program needs from the pane. It records itself on
 // the pane's account hold, then deletes the file, then starts the program: a
 // file still there proves that nothing started.
-func newPeerLaunchCommand() *cobra.Command {
+func newPeerLaunchCommand(d *cmdDeps) *cobra.Command {
 	var envFile string
 	cmd := &cobra.Command{Use: "launch --env-file FILE -- program [args...]", Short: "Start a program for a peer pane", Hidden: true, Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		data, err := os.ReadFile(envFile)
@@ -298,7 +289,7 @@ func newPeerLaunchCommand() *cobra.Command {
 		if err != nil {
 			return fmt.Errorf("peer launch: %w", err)
 		}
-		if err := recordLauncher(cmd.Context(), set); err != nil {
+		if err := recordLauncher(cmd.Context(), d, set); err != nil {
 			return fmt.Errorf("peer launch: %w", err)
 		}
 		if err := os.Remove(envFile); err != nil {
@@ -337,10 +328,10 @@ var paneVariables = []string{"TERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "CO
 
 // newPeerViewCommand moves the person's Rex client to a peer's existing tab.
 // It prints one line and never the screen.
-func newPeerViewCommand(lead *string) *cobra.Command {
+func newPeerViewCommand(d *cmdDeps, lead *string) *cobra.Command {
 	var client string
 	view := &cobra.Command{Use: "view <id>", Short: "Show a peer's tab on your Rex client; look, do not type", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		ctx, cancel, err := peerContext(cmd, *lead, false, 0)
+		ctx, cancel, err := peerContext(d, cmd, *lead, false, 0)
 		if err != nil {
 			return err
 		}

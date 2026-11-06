@@ -11,7 +11,7 @@ func TestVersion(t *testing.T) {
 	for _, v := range []string{"dev", "1.2.3"} {
 		version = v
 		var out bytes.Buffer
-		cmd := newRootCommand()
+		cmd := newRootCommand(testDeps(t))
 		cmd.SetOut(&out)
 		cmd.SetArgs([]string{"version"})
 		if err := cmd.Execute(); err != nil {

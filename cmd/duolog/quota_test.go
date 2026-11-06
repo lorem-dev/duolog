@@ -31,8 +31,8 @@ func freeClaudeRead(args string) string {
 func realQuotaGate(t *testing.T) func() {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "accounts")
-	old := delegateDeps.PaidGate
-	delegateDeps.PaidGate = func(cfg *config.Config) (*paidruns.Gate, error) {
+	old := testDeps(t).Delegate.PaidGate
+	testDeps(t).Delegate.PaidGate = func(cfg *config.Config) (*paidruns.Gate, error) {
 		st, err := paidruns.OpenUserState(dir)
 		if err != nil {
 			return nil, err
@@ -40,7 +40,7 @@ func realQuotaGate(t *testing.T) func() {
 		return &paidruns.Gate{Store: st, Cache: &paidruns.Cache{Read: quota.Reader{Version: "test"}.ReadProcess}, Config: cfg,
 			Layers: paidruns.ReadLayers}, nil
 	}
-	restore := func() { delegateDeps.PaidGate = old }
+	restore := func() { testDeps(t).Delegate.PaidGate = old }
 	t.Cleanup(restore)
 	return restore
 }
@@ -348,14 +348,12 @@ func TestQuotaAndDoctorShapeReportsInQuota(t *testing.T) {
 		t.Errorf("the total line appears %d times, want once:\n%s", n, out)
 	}
 
-	old := observeLead
-	observeLead = func(agent string) (session.LeadRoute, bool) {
+	testDeps(t).ObserveLead = func(agent string) (session.LeadRoute, bool) {
 		if agent != "claude" {
 			return session.LeadRoute{}, false
 		}
 		return session.LeadRoute{Agent: "claude", Argv: []string{"claude"}, Environ: []string{"PATH=/usr/bin", "ANTHROPIC_API_KEY=" + leadKey}}, true
 	}
-	t.Cleanup(func() { observeLead = old })
 	out, err = executeBusCommand(t, "quota")
 	if err != nil {
 		t.Fatal(out, err)

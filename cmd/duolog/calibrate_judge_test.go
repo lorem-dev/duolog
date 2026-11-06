@@ -149,11 +149,9 @@ func TestCalibrateJudgeStopsAtLeadReserve(t *testing.T) {
 	stateDir := filepath.Join(root, ".duolog")
 	ranRun(t, stateDir)
 	calls := fakeJudge(t)
-	old := quotaReader
-	quotaReader = func(ctx context.Context, agent string) ([]calibration.Window, error) {
+	testDeps(t).QuotaReader = func(ctx context.Context, agent string) ([]calibration.Window, error) {
 		return []calibration.Window{{Kind: calibration.KindWeekly, UsedPercent: 85}}, nil
 	}
-	t.Cleanup(func() { quotaReader = old })
 	out, err := executeBusCommand(t, "calibrate", "judge")
 	if err != nil {
 		t.Fatal(out, err)
@@ -212,7 +210,7 @@ func TestRewriteRunsInJudgeSlot(t *testing.T) {
 		"-p":          {Stdout: claudeAnswer(t, "Add a function Parse that reads the format.")},
 	}})
 	cfg, s, runDir, task := rewriteFixture(t, root)
-	statement, _, err := rewriteStatement(root, cfg, s, runDir, "task-lead")(context.Background(), task, nil)
+	statement, _, err := rewriteStatement(testDeps(t), root, cfg, s, runDir, "task-lead")(context.Background(), task, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +258,7 @@ func TestRewriteRefusesUntrustedSlot(t *testing.T) {
 	}
 	fake := testbin.Install(t, "codex", testbin.Scenario{})
 	cfg, s, runDir, task := rewriteFixture(t, root)
-	_, _, err := rewriteStatement(root, cfg, s, runDir, "task-lead")(context.Background(), task, nil)
+	_, _, err := rewriteStatement(testDeps(t), root, cfg, s, runDir, "task-lead")(context.Background(), task, nil)
 	slot, serr := calibration.JudgeSlot(root)
 	if serr != nil {
 		t.Fatal(serr)
@@ -308,12 +306,12 @@ func TestRunRewriteTrustRefusalChargesNothing(t *testing.T) {
 	}
 	var out strings.Builder
 	r := &calibration.Runner{StateDir: s.Dir, Root: root, Cfg: cfg, Run: run, Plan: calibration.Plan{Run: run.ID, CapWeekly: 10, CapWindow: 50}, Manifest: m,
-		Quota: &calibration.QuotaCache{Read: quotaReader}, Now: time.Now,
+		Quota: &calibration.QuotaCache{Read: testDeps(t).QuotaReader}, Now: time.Now,
 		Cell: func(context.Context, calibration.Cell, calibration.TaskRecord, calibration.StartFunc) (calibration.CellResult, error) {
 			t.Fatal("a cell ran before its statement was rewritten")
 			return calibration.CellResult{}, nil
 		},
-		Rewrite: rewriteStatement(root, cfg, s, runDir, "task-lead"), Out: &out}
+		Rewrite: rewriteStatement(testDeps(t), root, cfg, s, runDir, "task-lead"), Out: &out}
 	if _, err := r.Execute(context.Background()); err == nil || !strings.Contains(err.Error(), "Codex must trust") {
 		t.Fatalf("Execute = %v, want a trust refusal:\n%s", err, out.String())
 	}

@@ -44,7 +44,7 @@ func rememberIn(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	t.Setenv("DUOLOG_DEPTH", "")
 	var out bytes.Buffer
-	cmd := newRootCommand()
+	cmd := newRootCommand(testDeps(t))
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
 	cmd.SetArgs(append([]string{"remember"}, args...))
@@ -98,7 +98,7 @@ func TestRememberRefusesWhatARuleCannotAllow(t *testing.T) {
 func TestRememberRefusedForWorkers(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("DUOLOG_DEPTH", "1")
-	cmd := newRootCommand()
+	cmd := newRootCommand(testDeps(t))
 	cmd.SetArgs([]string{"remember", "make", "x"})
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})

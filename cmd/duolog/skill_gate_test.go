@@ -22,8 +22,7 @@ func skillGate(t *testing.T, paid bool) **paidruns.Gate {
 	t.Helper()
 	dir := t.TempDir()
 	var g *paidruns.Gate
-	open := delegateDeps.PaidGate
-	delegateDeps.PaidGate = func(cfg *config.Config) (*paidruns.Gate, error) {
+	testDeps(t).Delegate.PaidGate = func(cfg *config.Config) (*paidruns.Gate, error) {
 		var err error
 		if g, err = paidrunstest.Gate(dir, cfg); err != nil {
 			return nil, err
@@ -37,7 +36,6 @@ func skillGate(t *testing.T, paid bool) **paidruns.Gate {
 		}
 		return g, nil
 	}
-	t.Cleanup(func() { delegateDeps.PaidGate = open })
 	return &g
 }
 

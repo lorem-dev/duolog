@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newProfileCommand() *cobra.Command {
+func newProfileCommand(d *cmdDeps) *cobra.Command {
 	var entry string
 	var opts profile.Options
 	cmd := &cobra.Command{Use: "profile <delegation id>", Short: "Replay a delegation with another target in a worktree", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
@@ -44,7 +44,7 @@ func newProfileCommand() *cobra.Command {
 			defer tel.Close()
 			opts.Observe = observeAttempt(tel, cfg)
 		}
-		deps := profileDeps()
+		deps := d.profileDeps()
 		replay, err := profile.Run(cmd.Context(), deps, cfg, s, args[0], opts)
 		if err != nil {
 			return err

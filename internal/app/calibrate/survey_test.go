@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
@@ -199,11 +198,8 @@ func TestSurveyCheckTimeCap(t *testing.T) {
 	root := project(t)
 	write(t, root, "Makefile", "test:\n\tsleep 30\n")
 	commit(t, root, "start")
-	old := checkTimeout
-	t.Cleanup(func() { checkTimeout = old })
-	checkTimeout = func(config.Calibration) time.Duration { return 300 * time.Millisecond }
 	started := time.Now()
-	s, err := RunSurvey(context.Background(), root, testConfig(t), realChecks)
+	s, err := RunSurveyWithin(context.Background(), root, testConfig(t), realChecks, 300*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,9 +220,6 @@ func TestSurveyNamesTheTimedOutCheck(t *testing.T) {
 	root := goProject(t)
 	write(t, root, "package.json", `{"scripts": {"test": "node test.js"}}`+"\n")
 	commit(t, root, "add npm test")
-	old := checkTimeout
-	t.Cleanup(func() { checkTimeout = old })
-	checkTimeout = func(config.Calibration) time.Duration { return 200 * time.Millisecond }
 	var ran []string
 	run := func(ctx context.Context, _ string, commands []string) []journal.Check {
 		var checks []journal.Check
@@ -246,7 +239,7 @@ func TestSurveyNamesTheTimedOutCheck(t *testing.T) {
 		}
 		return checks
 	}
-	s, err := RunSurvey(t.Context(), root, testConfig(t), run)
+	s, err := RunSurveyWithin(t.Context(), root, testConfig(t), run, 200*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -28,7 +28,7 @@ func TestHookCLIRegistersAndEndsSilently(t *testing.T) {
 	input := `{"session_id":"cli-lead","permission_mode":"default"}`
 	for _, event := range []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "SessionEnd"} {
 		var out, stderr bytes.Buffer
-		cmd := newRootCommand()
+		cmd := newRootCommand(testDeps(t))
 		cmd.SetOut(&out)
 		cmd.SetErr(&stderr)
 		cmd.SetIn(strings.NewReader(input))
@@ -57,7 +57,7 @@ func TestHookCLISilentOnBadInputOrUninitialized(t *testing.T) {
 	t.Chdir(t.TempDir())
 	for _, input := range []string{"bad", `{"session_id":"abc"}`} {
 		var out bytes.Buffer
-		cmd := newRootCommand()
+		cmd := newRootCommand(testDeps(t))
 		cmd.SetOut(&out)
 		cmd.SetErr(&out)
 		cmd.SetIn(strings.NewReader(input))
@@ -89,7 +89,7 @@ func TestHookCLIWakeExitTwoAndStderr(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, stderr bytes.Buffer
-	cmd := newRootCommand()
+	cmd := newRootCommand(testDeps(t))
 	cmd.SetOut(&out)
 	cmd.SetErr(&stderr)
 	cmd.SetIn(strings.NewReader(`{"session_id":"wake-lead"}`))
@@ -129,7 +129,7 @@ func TestLeadCommandsCaptureTimeBeforeStdin(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			cmd := newRootCommand()
+			cmd := newRootCommand(testDeps(t))
 			cmd.SetOut(io.Discard)
 			cmd.SetErr(io.Discard)
 			cmd.SetArgs(args)

@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/wiring/wiringtest"
 )
 
 func TestMainClearsWorkerEnvironment(t *testing.T) {
@@ -36,7 +36,7 @@ func TestMainClearsWorkerEnvironment(t *testing.T) {
 // puts a fake rex first on PATH finds the fake.
 func TestDoctorTestsRefuseMachineRex(t *testing.T) {
 	fake := fakeRexFirst(t)
-	if bin, ok := locateRex(); !ok || !samePath(bin, fake) {
+	if bin, ok := testDeps(t).LocateRex(); !ok || !samePath(bin, fake) {
 		t.Fatalf("doctor found %q (%v), want the fake %s", bin, ok, fake)
 	}
 	defer func() {
@@ -44,7 +44,7 @@ func TestDoctorTestsRefuseMachineRex(t *testing.T) {
 			t.Fatal("a rex outside the temporary folder did not stop the test")
 		}
 	}()
-	testRex(func() (string, bool) {
+	wiringtest.GuardRex(func() (string, bool) {
 		return "/Applications/Rex.app/Contents/Helpers/rex.app/Contents/MacOS/rex", true
 	})()
 }
@@ -56,25 +56,10 @@ func TestMain(m *testing.M) {
 			panic(err)
 		}
 	}
-	// No test runs this machine's rex: doctor tests put a fake rex first on
-	// PATH, and doctor finding any other rex stops the run before it starts.
-	locateRex = testRex(locateRex)
-	// Delegations admit their runs through a gate whose quota reads start no
-	// binary and whose account state is temporary, never the user's.
-	accounts, err := os.MkdirTemp("", "duolog-accounts-")
-	if err != nil {
-		panic(err)
-	}
-	// One state per test folder: a peer's open, send and close share it.
-	delegateDeps.PaidGate = paidrunstest.ByWorkingDir(accounts)
 	// A gate ask reads its reply every 10 ms instead of every half second; the
 	// answers in these tests come at once.
 	gate.AskPoll = 10 * time.Millisecond
-	// A test that answers an ask in this process plays the person's terminal,
-	// whatever agent runs the tests; a test of the walk starts duolog itself.
-	agentAbove = func([]string) bool { return false }
 	code := m.Run()
-	_ = os.RemoveAll(accounts)
 	if duologBuild.dir != "" {
 		_ = os.RemoveAll(duologBuild.dir)
 	}
@@ -122,16 +107,29 @@ func duologBinary(t *testing.T) string {
 	return duologBuild.binary
 }
 
-// testRex wraps doctor's rex lookup for tests: a rex outside the temporary
-// folder, such as the one in an installed Rex app, panics before it runs.
-func testRex(locate func() (string, bool)) func() (string, bool) {
-	return func() (string, bool) {
-		bin, ok := locate()
-		if ok && !inTempDir(bin) {
-			panic("doctor found " + bin + ", not a fake: put a fake rex first on PATH with fakeRexFirst")
+// testDepsFor holds the dependencies of the commands for each running test.
+var testDepsFor sync.Map
+
+// testDeps returns the dependencies of the commands for t: wiringtest.Cmd's,
+// the same each time, so that a helper changes a field and the command the
+// test builds afterwards reads it. A subtest starts from its parent's.
+func testDeps(t *testing.T) *cmdDeps {
+	t.Helper()
+	name := t.Name()
+	for n := name; n != ""; {
+		if d, ok := testDepsFor.Load(n); ok {
+			return d.(*cmdDeps)
 		}
-		return bin, ok
+		i := strings.LastIndex(n, "/")
+		if i < 0 {
+			break
+		}
+		n = n[:i]
 	}
+	d := newCmdDeps(wiringtest.Cmd(t))
+	testDepsFor.Store(name, d)
+	t.Cleanup(func() { testDepsFor.Delete(name) })
+	return d
 }
 
 func inTempDir(name string) bool {

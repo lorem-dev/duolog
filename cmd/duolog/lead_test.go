@@ -29,9 +29,7 @@ func leadSession(t *testing.T) string {
 		t.Setenv(key, "")
 	}
 	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
-	previous := leadAgentPID
-	leadAgentPID = os.Getpid
-	t.Cleanup(func() { leadAgentPID = previous })
+	testDeps(t).LeadAgentPID = os.Getpid
 	return root
 }
 

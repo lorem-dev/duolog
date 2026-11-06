@@ -262,7 +262,7 @@ func TestLeadHookPanicsStaySilent(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("DUOLOG_DEPTH", "")
 	for _, args := range [][]string{{"hook", "SessionStart", "--agent", "claude"}, {"gate", "--agent", "claude", "--event", "PreToolUse"}} {
-		cmd := newRootCommand()
+		cmd := newRootCommand(testDeps(t))
 		var output bytes.Buffer
 		cmd.SetOut(&output)
 		cmd.SetErr(&output)

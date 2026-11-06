@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -11,21 +10,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/store"
-	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
 
-// delegateDeps is what delegate.Run reaches outside its package; tests replace
-// a field.
-var delegateDeps = wiring.DelegateDeps()
-
-// runDelegate is delegate.Run on delegateDeps; tests replace it to see the
-// request.
-var runDelegate delegate.Runner = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
-	return delegate.Run(ctx, delegateDeps, r)
-}
-
-func newDelegateCommand() *cobra.Command {
+func newDelegateCommand(d *cmdDeps) *cobra.Command {
 	var taskPath, thread, lead, features, class, use, escalateFrom, reason string
 	var needs []string
 	var allowManual bool
@@ -64,7 +52,7 @@ func newDelegateCommand() *cobra.Command {
 			defer tel.Close()
 			opts.Observe = observeAttempt(tel, cfg)
 		}
-		out, err := runDelegate(cmd.Context(), delegate.Request{Config: cfg, StateDir: s.Dir, Role: args[0], TaskPath: taskPath, Thread: thread, Options: opts})
+		out, err := d.runDelegate(cmd.Context(), delegate.Request{Config: cfg, StateDir: s.Dir, Role: args[0], TaskPath: taskPath, Thread: thread, Options: opts})
 		if out.Line != "" {
 			if _, writeErr := fmt.Fprintln(cmd.OutOrStdout(), out.Line); writeErr != nil {
 				return writeErr

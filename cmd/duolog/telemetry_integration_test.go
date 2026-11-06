@@ -75,7 +75,7 @@ func e2eSessionStart(t *testing.T, agent, cwd string) string {
 	t.Helper()
 	chdir(t, cwd)
 	input, _ := json.Marshal(map[string]string{"session_id": "lead-e2e-" + agent, "cwd": cwd, "hook_event_name": "SessionStart"})
-	cmd := newRootCommand()
+	cmd := newRootCommand(testDeps(t))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)

@@ -27,10 +27,6 @@ import (
 
 func isWorker() bool { return workerenv.IsWorker() }
 
-// askWait turns policy.ask_timeout_seconds into the wait for an answer. Tests
-// that only read the ask replace it, so they do not wait out a whole second.
-var askWait = gate.AskWait
-
 // readHookInput reads one hook's JSON, one byte over the limit so that callers can
 // refuse it. Windows PowerShell 5.1 can start a pipe with a byte order mark, which
 // JSON rejects: a hook then registered no lead and said nothing.
@@ -39,7 +35,7 @@ func readHookInput(cmd *cobra.Command) ([]byte, error) {
 	return bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")), err
 }
 
-func newGateCommand() *cobra.Command {
+func newGateCommand(deps *cmdDeps) *cobra.Command {
 	var agent, event string
 	cmd := &cobra.Command{Use: "gate", Short: "Decide a worker hook request", SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
 		started := time.Now()
@@ -74,7 +70,7 @@ func newGateCommand() *cobra.Command {
 			}
 		}
 		if err == nil {
-			a, d, err = evaluateHook(cmd, root, agent, event, started)
+			a, d, err = evaluateHook(deps, cmd, root, agent, event, started)
 		}
 		if err != nil {
 			d.Kind, d.Reason, d.Rule = gate.Deny, "gate failed closed: "+err.Error(), "gate setup"
@@ -96,7 +92,7 @@ func newGateCommand() *cobra.Command {
 	return cmd
 }
 
-func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Time) (gate.Action, gate.Decision, error) {
+func evaluateHook(deps *cmdDeps, cmd *cobra.Command, root, agent, event string, started time.Time) (gate.Action, gate.Decision, error) {
 	a := gate.Action{Kind: "unknown", Role: os.Getenv("DUOLOG_ROLE")}
 	d := gate.Decision{Mode: mode.Ask}
 	if event != "PreToolUse" && event != "PermissionRequest" {
@@ -222,7 +218,7 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 		// One answer covers the whole tool call, so the question names every path.
 		a.Target = strings.Join(asked, " ")
 		key := gate.AskKey(envelope.SessionID, envelope.ToolUseID, a.Kind+" "+a.Target+" "+envelope.Cwd)
-		resolved, err := askLead(cmd.Context(), cfg, root, reg.Dir, lead.ID, key, a, d, initial, person)
+		resolved, err := askLead(cmd.Context(), deps.AskWait, cfg, root, reg.Dir, lead.ID, key, a, d, initial, person)
 		if err != nil {
 			return a, d, err
 		}
@@ -234,7 +230,7 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 // askLead sends the ask of one tool call to the lead. PreToolUse and
 // PermissionRequest both reach it for one Claude tool call: the first asks and
 // the other takes its answer. Only a reply is shared.
-func askLead(ctx context.Context, cfg *config.Config, root, stateDir, leadID, key string, a gate.Action, d, initial gate.Decision, person bool) (gate.Decision, error) {
+func askLead(ctx context.Context, askWait func(int) time.Duration, cfg *config.Config, root, stateDir, leadID, key string, a gate.Action, d, initial gate.Decision, person bool) (gate.Decision, error) {
 	b, err := bus.Open(stateDir, cfg.Wire)
 	if err != nil {
 		return d, err

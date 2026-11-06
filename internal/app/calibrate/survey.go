@@ -68,6 +68,11 @@ var languages = map[string]string{
 // in an export of HEAD and drops those that fail there. It never installs
 // dependencies or runs a setup script.
 func RunSurvey(ctx context.Context, root string, cfg *config.Config, run CheckRunner) (Survey, error) {
+	return RunSurveyWithin(ctx, root, cfg, run, CheckLimit(cfg.Calibration))
+}
+
+// RunSurveyWithin is RunSurvey with limit as the time cap of one check run.
+func RunSurveyWithin(ctx context.Context, root string, cfg *config.Config, run CheckRunner, limit time.Duration) (Survey, error) {
 	head, err := surveyHead(ctx, root)
 	if err != nil {
 		return Survey{}, err
@@ -94,7 +99,7 @@ func RunSurvey(ctx context.Context, root string, cfg *config.Config, run CheckRu
 		if err != nil {
 			return Survey{}, err
 		}
-		checks, timedOut, notRun := s.baseline(ctx, run, checkTimeout(cfg.Calibration), dir)
+		checks, timedOut, notRun := s.baseline(ctx, run, limit, dir)
 		if err := errors.Join(ctx.Err(), cleanup()); err != nil {
 			return Survey{}, err
 		}

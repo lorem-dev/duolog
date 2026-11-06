@@ -26,19 +26,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// surveyChecks runs the baseline checks; tests replace it with a fake.
-var surveyChecks calibration.CheckRunner = profileChecks
-
-// mineChecks runs the class checks that validate mined tasks, and mineGH
-// the gh CLI for pull request texts; tests replace both.
-var (
-	mineChecks calibration.CheckRunner = profileChecks
-	mineGH     calibration.GH          = runGH
-)
-
-// cellChecks runs the class checks of a calibration cell; tests replace it.
-var cellChecks calibration.CheckRunner = profileChecks
-
+// runGH runs the gh CLI for pull request texts.
 func runGH(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "gh", args...)
 	var stderr bytes.Buffer
@@ -54,10 +42,7 @@ func runGH(ctx context.Context, args ...string) ([]byte, error) {
 // other step is unfinished.
 const calibrationDone = "done"
 
-// calibrationNext names the command after each step.
-var calibrationNext = budget.NextStep
-
-func newCalibrateCommand() *cobra.Command {
+func newCalibrateCommand(d *cmdDeps) *cobra.Command {
 	cmd := &cobra.Command{Use: "calibrate", Short: "Build a starting model order for this project, on the person's request", Args: cobra.NoArgs,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if isWorker() {
@@ -65,11 +50,11 @@ func newCalibrateCommand() *cobra.Command {
 			}
 			return nil
 		}}
-	cmd.AddCommand(newCalibrateSurveyCommand(), newCalibrateClassesCommand(), newCalibrateMineCommand(), newCalibratePlanCommand(), newCalibrateRunCommand(), newCalibrateResumeCommand(), newCalibrateJudgeCommand(), newCalibrateDropCommand(), newCalibrateProposeCommand(), newCalibrateStatusCommand())
+	cmd.AddCommand(newCalibrateSurveyCommand(d), newCalibrateClassesCommand(), newCalibrateMineCommand(d), newCalibratePlanCommand(d), newCalibrateRunCommand(d), newCalibrateResumeCommand(d), newCalibrateJudgeCommand(d), newCalibrateDropCommand(), newCalibrateProposeCommand(d), newCalibrateStatusCommand())
 	return cmd
 }
 
-func newCalibrateSurveyCommand() *cobra.Command {
+func newCalibrateSurveyCommand(d *cmdDeps) *cobra.Command {
 	var fresh bool
 	cmd := &cobra.Command{Use: "survey", Short: "Survey the project and start a calibration run", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		if err := calibration.CheckGitVersion(cmd.Context()); err != nil {
@@ -97,7 +82,7 @@ func newCalibrateSurveyCommand() *cobra.Command {
 		} else if ok && latest.Step != calibrationDone && !fresh {
 			return fmt.Errorf("calibration run %s is unfinished at step %s; see duolog calibrate status, or start over with duolog calibrate survey --new", latest.ID, latest.Step)
 		}
-		survey, err := calibration.RunSurvey(cmd.Context(), root, cfg, surveyChecks)
+		survey, err := calibration.RunSurvey(cmd.Context(), root, cfg, d.SurveyChecks)
 		if err != nil {
 			return err
 		}
@@ -240,7 +225,7 @@ func writeClasses(out io.Writer, id string, cfg *config.Config, p calibration.Cl
 	return err
 }
 
-func newCalibrateMineCommand() *cobra.Command {
+func newCalibrateMineCommand(d *cmdDeps) *cobra.Command {
 	return &cobra.Command{Use: "mine", Short: "Find past tasks, validate them and sample the calibration tasks", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		root, err := projectRoot()
 		if err != nil {
@@ -267,7 +252,7 @@ func newCalibrateMineCommand() *cobra.Command {
 			return fmt.Errorf("no calibration run; start one with duolog calibrate survey")
 		}
 		if run.Step != "classes" && run.Step != "mine" {
-			next := calibrationNext[run.Step]
+			next := d.CalibrationNext[run.Step]
 			if next == "" {
 				next = "survey --new"
 			}
@@ -288,7 +273,7 @@ func newCalibrateMineCommand() *cobra.Command {
 
 		ctx := cmd.Context()
 		now := time.Now()
-		candidates, notes, err := calibration.Collect(ctx, root, cfg, mineGH, now)
+		candidates, notes, err := calibration.Collect(ctx, root, cfg, d.MineGH, now)
 		if err != nil {
 			return err
 		}
@@ -296,7 +281,7 @@ func newCalibrateMineCommand() *cobra.Command {
 			Root: root, StateDir: s.Dir, Cfg: cfg, Survey: survey, Candidates: candidates,
 			Means: calibration.JournalMeans(ds), Seed: run.Seed, Now: now,
 			Validate: func(ctx context.Context, c calibration.Candidate) (string, string, error) {
-				return calibration.Validate(ctx, root, c, classChecks(cfg, survey, c.Class), calibration.CheckLimit(cfg.Calibration), mineChecks)
+				return calibration.Validate(ctx, root, c, classChecks(cfg, survey, c.Class), calibration.CheckLimit(cfg.Calibration), d.MineChecks)
 			},
 		})
 		if err != nil {
@@ -390,7 +375,7 @@ func writeMine(out io.Writer, m calibration.Manifest, notes []string) error {
 	return err
 }
 
-func newCalibratePlanCommand() *cobra.Command {
+func newCalibratePlanCommand(d *cmdDeps) *cobra.Command {
 	var approve string
 	cmd := &cobra.Command{Use: "plan", Short: "Show the costed calibration plan, or approve it once", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		root, err := projectRoot()
@@ -418,7 +403,7 @@ func newCalibratePlanCommand() *cobra.Command {
 		if ok {
 			runID, step = run.ID, run.Step
 		}
-		if err := budget.PlanStep(runID, step, calibrationNext); err != nil {
+		if err := budget.PlanStep(runID, step, d.CalibrationNext); err != nil {
 			return err
 		}
 		runDir := run.Dir(s.Dir)
@@ -478,7 +463,7 @@ func newCalibratePlanCommand() *cobra.Command {
 		ctx := cmd.Context()
 		// Quota and billing come from the account gate, with the person's
 		// config, as the cells will run.
-		accounts := newCalibrationAccounts(cfg, root)
+		accounts := newCalibrationAccounts(d, cfg, root)
 		quotaSource := accounts.Quota()
 		quotas := map[string][]calibration.Window{}
 		for _, agent := range []string{"claude", "codex"} {
@@ -596,10 +581,10 @@ func planConfig(cfg *config.Config, survey calibration.Survey) *config.Config {
 	return &c
 }
 
-func newCalibrateRunCommand() *cobra.Command {
+func newCalibrateRunCommand(d *cmdDeps) *cobra.Command {
 	var lead string
 	cmd := &cobra.Command{Use: "run", Short: "Run the approved calibration plan cell by cell", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		return withCalibrationRunner(cmd, lead, func(r *calibration.Runner) error {
+		return withCalibrationRunner(d, cmd, lead, func(r *calibration.Runner) error {
 			_, err := r.Execute(cmd.Context())
 			return err
 		})
@@ -608,10 +593,10 @@ func newCalibrateRunCommand() *cobra.Command {
 	return cmd
 }
 
-func newCalibrateResumeCommand() *cobra.Command {
+func newCalibrateResumeCommand(d *cmdDeps) *cobra.Command {
 	var lead string
 	cmd := &cobra.Command{Use: "resume", Short: "Continue a stopped, paused or interrupted calibration run", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		return withCalibrationRunner(cmd, lead, func(r *calibration.Runner) error {
+		return withCalibrationRunner(d, cmd, lead, func(r *calibration.Runner) error {
 			_, err := r.Resume(cmd.Context())
 			return err
 		})
@@ -626,7 +611,7 @@ func newCalibrateResumeCommand() *cobra.Command {
 // launches through workerenv.Build, whose free variant drops the key, and the
 // account gate admits a paid route only with paid_runs.<agent>.calibrate
 // under the approved plan's budget.
-func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.Runner) error) error {
+func withCalibrationRunner(d *cmdDeps, cmd *cobra.Command, lead string, f func(*calibration.Runner) error) error {
 	root, err := projectRoot()
 	if err != nil {
 		return err
@@ -655,7 +640,7 @@ func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.
 		return calibration.ErrNotApproved
 	}
 	if run.Step != "plan" {
-		next := calibrationNext[run.Step]
+		next := d.CalibrationNext[run.Step]
 		if next == "" {
 			next = "survey --new"
 		}
@@ -684,11 +669,11 @@ func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.
 	// The run and its cells keep to the approved caps and cell limits, or to
 	// the config's where they are stricter.
 	runCfg := p.Limit(planConfig(cfg, survey))
-	env := cellEnv(root, s, runDir, lead, runCfg)
-	env.Checks = cellChecks
+	env := cellEnv(d, root, s, runDir, lead, runCfg)
+	env.Checks = d.CellChecks
 	// The approved budgets, or today's where they are stricter: a lower cap,
 	// a withdrawn opt-in, a smaller share, a route that turned paid.
-	accounts := newCalibrationAccounts(runCfg, root)
+	accounts := newCalibrationAccounts(d, runCfg, root)
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
@@ -703,7 +688,7 @@ func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.
 		Cell: func(ctx context.Context, c calibration.Cell, t calibration.TaskRecord, start calibration.StartFunc) (calibration.CellResult, error) {
 			return calibration.RunCell(ctx, env, c, t, start)
 		},
-		Rewrite: rewriteStatement(root, runCfg, s, runDir, lead),
+		Rewrite: rewriteStatement(d, root, runCfg, s, runDir, lead),
 		Out:     cmd.OutOrStdout(),
 		Tree:    tree,
 	})
@@ -712,8 +697,8 @@ func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.
 // cellEnv is what calibration cells and judge calls delegate with. Their
 // workers get the telemetry and balance roots in their launch settings, as
 // every other delegation does.
-func cellEnv(root string, s *store.Store, runDir, lead string, cfg *config.Config) calibration.CellEnv {
-	return calibration.CellEnv{Root: root, StateDir: s.Dir, RunDir: runDir, Lead: lead, Cfg: cfg, Store: s, Deps: calibrateDeps(), ProtectedRoots: launchProtectedRoots()}
+func cellEnv(d *cmdDeps, root string, s *store.Store, runDir, lead string, cfg *config.Config) calibration.CellEnv {
+	return calibration.CellEnv{Root: root, StateDir: s.Dir, RunDir: runDir, Lead: lead, Cfg: cfg, Store: s, Deps: d.calibrateDeps(), ProtectedRoots: launchProtectedRoots()}
 }
 
 // rewriteStatement asks the first judge for a statement written from a
@@ -721,7 +706,7 @@ func cellEnv(root string, s *store.Store, runDir, lead string, cfg *config.Confi
 // which then holds only those two files, and its brief names their paths
 // there, so the brief under the run folder holds no solution. A slot Codex
 // does not trust refuses the rewrite before start admits and charges it.
-func rewriteStatement(root string, cfg *config.Config, s *store.Store, runDir, lead string) calibration.RewriteFunc {
+func rewriteStatement(d *cmdDeps, root string, cfg *config.Config, s *store.Store, runDir, lead string) calibration.RewriteFunc {
 	return func(ctx context.Context, t calibration.TaskRecord, start calibration.StartFunc) (_ string, _ int64, err error) {
 		if len(cfg.Learning.Judges) == 0 {
 			return "", 0, fmt.Errorf("no judge configured to rewrite statements")
@@ -764,7 +749,7 @@ func rewriteStatement(root string, cfg *config.Config, s *store.Store, runDir, l
 		}
 		// The rewrite's budget and wait notice, which its start set.
 		budget, waiting := calibration.StepOptions(ctx)
-		out, err := runDelegate(ctx, delegate.Request{Config: cfg, StateDir: s.Dir, Role: "docs", TaskPath: taskPath,
+		out, err := d.runDelegate(ctx, delegate.Request{Config: cfg, StateDir: s.Dir, Role: "docs", TaskPath: taskPath,
 			Options: delegate.Options{Lead: lead, Entry: &target, WorkRoot: work, Calibration: true, ProtectedRoots: launchProtectedRoots(),
 				Budget: budget, Waiting: waiting}})
 		tokens := out.Result.Usage.Input + out.Result.Usage.Output
@@ -832,7 +817,7 @@ func newCalibrateStatusCommand() *cobra.Command {
 		return nil
 	}}
 }
-func newCalibrateJudgeCommand() *cobra.Command {
+func newCalibrateJudgeCommand(d *cmdDeps) *cobra.Command {
 	var class, lead string
 	cmd := &cobra.Command{Use: "judge", Short: "Judge the results that passed the same task, blind, for the person to confirm", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		root, err := projectRoot()
@@ -863,7 +848,7 @@ func newCalibrateJudgeCommand() *cobra.Command {
 			return fmt.Errorf("no calibration run; start one with duolog calibrate survey")
 		}
 		if run.Step != "run" && run.Step != "judge" {
-			next := calibrationNext[run.Step]
+			next := d.CalibrationNext[run.Step]
 			if next == "" {
 				next = "survey --new"
 			}
@@ -894,7 +879,7 @@ func newCalibrateJudgeCommand() *cobra.Command {
 			}
 		}
 		env := calibration.JudgeEnv{
-			CellEnv: cellEnv(root, s, runDir, lead, cfg),
+			CellEnv: cellEnv(d, root, s, runDir, lead, cfg),
 			Journal: j,
 		}
 		var pairs []calibration.Pair
@@ -924,7 +909,7 @@ func newCalibrateJudgeCommand() *cobra.Command {
 		out := cmd.OutOrStdout()
 		// Each judge call is admitted and charged as a cell is, under the
 		// approved budgets or today's where they are stricter.
-		accounts := newCalibrationAccounts(judgeCfg, root)
+		accounts := newCalibrationAccounts(d, judgeCfg, root)
 		r := &calibration.Runner{StateDir: s.Dir, Root: root, Cfg: judgeCfg, Run: run, Manifest: m,
 			Quota: accounts.Quota(), Now: time.Now, Out: out, Accounts: accounts}
 		if approvedPlan != nil {
@@ -1031,7 +1016,7 @@ func newCalibrateDropCommand() *cobra.Command {
 	}}
 }
 
-func newCalibrateProposeCommand() *cobra.Command {
+func newCalibrateProposeCommand(d *cmdDeps) *cobra.Command {
 	var applyProject bool
 	cmd := &cobra.Command{Use: "propose", Short: "Propose the learned order per class and the shared project part", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		root, err := projectRoot()
@@ -1066,7 +1051,7 @@ func newCalibrateProposeCommand() *cobra.Command {
 			return fmt.Errorf("no calibration run; start one with duolog calibrate survey")
 		}
 		if hasRun && run.Step != "judge" && run.Step != calibrationDone {
-			next := calibrationNext[run.Step]
+			next := d.CalibrationNext[run.Step]
 			if next == "" {
 				next = "survey --new"
 			}

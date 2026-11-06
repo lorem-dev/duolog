@@ -31,7 +31,7 @@ func TestHookCLIStopTellsTheLead(t *testing.T) {
 	t.Setenv("DUOLOG_LEAD", "stop-lead")
 	t.Setenv("DUOLOG_PEER", "peer-abc123")
 	var out, stderr bytes.Buffer
-	cmd := newRootCommand()
+	cmd := newRootCommand(testDeps(t))
 	cmd.SetOut(&out)
 	cmd.SetErr(&stderr)
 	cmd.SetIn(strings.NewReader(`{"session_id":"peer-session","hook_event_name":"Stop"}`))

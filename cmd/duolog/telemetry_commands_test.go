@@ -53,14 +53,12 @@ func clearModelMarkers(t *testing.T) {
 // asTerminal makes stdin and stdout read as the person's terminal.
 func asTerminal(t *testing.T, terminal bool) {
 	t.Helper()
-	old := isTerminal
-	isTerminal = func(any) bool { return terminal }
-	t.Cleanup(func() { isTerminal = old })
+	testDeps(t).IsTerminal = func(any) bool { return terminal }
 }
 
 func telemetryCommand(t *testing.T, stdin string, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
-	cmd := newRootCommand()
+	cmd := newRootCommand(testDeps(t))
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
@@ -391,7 +389,7 @@ func TestTelemetryCommands(t *testing.T) {
 		if _, _, err := telemetryCommand(t, "", "export"); err == nil {
 			t.Fatal("export exists")
 		}
-		for _, sub := range newTelemetryCommand().Commands() {
+		for _, sub := range newTelemetryCommand(testDeps(t)).Commands() {
 			if sub.Name() == "export" || sub.Flags().Lookup("root") != nil || sub.Flags().Lookup("output") != nil {
 				t.Fatalf("%s offers a destination", sub.Name())
 			}
@@ -609,7 +607,7 @@ func TestTelemetryModelOutputIsCoarse(t *testing.T) {
 	sessionStart := func(t *testing.T, root string) (string, string) {
 		t.Helper()
 		input, _ := json.Marshal(map[string]string{"session_id": "lead-coarse", "cwd": root, "hook_event_name": "SessionStart"})
-		cmd := newRootCommand()
+		cmd := newRootCommand(testDeps(t))
 		var out, errOut bytes.Buffer
 		cmd.SetOut(&out)
 		cmd.SetErr(&errOut)
@@ -752,11 +750,11 @@ func TestTelemetryDoctorWarnings(t *testing.T) {
 		RetentionDays: 30, PruneEveryHours: 6, MaxMegabytes: 16,
 		Protection: telemetry.Protection{BackupVerified: true, IndexVerified: true, Refusal: "none"},
 	}
-	setGOOS := func(t *testing.T, goos string) {
+	// goos is the platform doctor describes; each case sets its own.
+	var goos string
+	setGOOS := func(t *testing.T, name string) {
 		t.Helper()
-		old := doctorGOOS
-		doctorGOOS = goos
-		t.Cleanup(func() { doctorGOOS = old })
+		goos = name
 	}
 	lines := func(s string) []string { return strings.Split(strings.TrimRight(s, "\n"), "\n") }
 	warnings := func(s string) []string {
@@ -771,7 +769,7 @@ func TestTelemetryDoctorWarnings(t *testing.T) {
 
 	t.Run("healthy line", func(t *testing.T) {
 		setGOOS(t, "darwin")
-		got := telemetryDoctor(healthy, false, true, now)
+		got := telemetryDoctor(goos, healthy, false, true, now)
 		first := lines(got)[0]
 		want := "info: telemetry: on, local only, isolation gate + sandbox; 1.1 MB in 41 segments, 4 partitions, oldest 2026-10-06, pruned 2h ago; 0 dropped, 0 failed since process start"
 		if !strings.HasPrefix(first, strings.TrimSuffix(want, "0 dropped, 0 failed since process start")) || !strings.HasSuffix(first, "since process start") {
@@ -793,7 +791,7 @@ func TestTelemetryDoctorWarnings(t *testing.T) {
 			{"windows", true, "isolation gate only"}, {"windows", false, "isolation gate only"},
 		} {
 			setGOOS(t, c.goos)
-			if got := telemetryDoctor(healthy, false, c.sandbox, now); !strings.Contains(lines(got)[0], c.want) {
+			if got := telemetryDoctor(goos, healthy, false, c.sandbox, now); !strings.Contains(lines(got)[0], c.want) {
 				t.Errorf("%s sandbox=%t: %s", c.goos, c.sandbox, got)
 			}
 		}
@@ -817,7 +815,7 @@ func TestTelemetryDoctorWarnings(t *testing.T) {
 		} {
 			st := healthy
 			c.edit(&st)
-			w := warnings(telemetryDoctor(st, false, false, now))
+			w := warnings(telemetryDoctor(goos, st, false, false, now))
 			if len(w) == 0 || !strings.Contains(strings.Join(w, "\n"), c.want) {
 				t.Errorf("%s: %v", c.name, w)
 			}
@@ -828,7 +826,7 @@ func TestTelemetryDoctorWarnings(t *testing.T) {
 		// A store with no segments has nothing to prune.
 		st := healthy
 		st.Segments, st.LastPrune = 0, time.Time{}
-		if w := warnings(telemetryDoctor(st, false, false, now)); len(w) != 0 {
+		if w := warnings(telemetryDoctor(goos, st, false, false, now)); len(w) != 0 {
 			t.Errorf("empty store warns: %v", w)
 		}
 	})
@@ -849,7 +847,7 @@ func TestTelemetryDoctorWarnings(t *testing.T) {
 			setGOOS(t, c.goos)
 			st := healthy
 			st.Protection.BackupVerified, st.Protection.IndexVerified = c.backup, c.index
-			got := telemetryDoctor(st, false, false, now)
+			got := telemetryDoctor(goos, st, false, false, now)
 			backup := ""
 			for _, line := range lines(got) {
 				if strings.Contains(line, "telemetry backup") {
@@ -873,20 +871,20 @@ func TestTelemetryDoctorWarnings(t *testing.T) {
 		st := healthy
 		st.Protection.ModeFixed = true
 		st.Health = telemetry.Health{Dropped: 3, Failures: 2}
-		if got := telemetryDoctor(st, true, true, now); got != "warning: telemetry: unhealthy\n" {
+		if got := telemetryDoctor(goos, st, true, true, now); got != "warning: telemetry: unhealthy\n" {
 			t.Fatalf("%q", got)
 		}
-		if got := telemetryDoctor(healthy, true, true, now); got != "info: telemetry: on, healthy\n" {
+		if got := telemetryDoctor(goos, healthy, true, true, now); got != "info: telemetry: on, healthy\n" {
 			t.Fatalf("%q", got)
 		}
 		off := healthy
 		off.Enabled, off.ProjectEnabled = false, false
-		if got := telemetryDoctor(off, true, false, now); got != "info: telemetry: off\n" {
+		if got := telemetryDoctor(goos, off, true, false, now); got != "info: telemetry: off\n" {
 			t.Fatalf("%q", got)
 		}
 		refused := healthy
 		refused.Protection.Refusal = "sync"
-		if got := telemetryDoctor(refused, true, false, now); got != "warning: telemetry: unhealthy\n" {
+		if got := telemetryDoctor(goos, refused, true, false, now); got != "warning: telemetry: unhealthy\n" {
 			t.Fatalf("%q", got)
 		}
 	})

@@ -13,20 +13,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// leadAgentPID finds the agent process above this command's shell. Tests
-// replace it to stand in for a process tree.
-var leadAgentPID = session.AgentPID
-
-func newLeadCommand() *cobra.Command {
+func newLeadCommand(d *cmdDeps) *cobra.Command {
 	cmd := &cobra.Command{Use: "lead", Short: "Manage the lead session of this project"}
-	cmd.AddCommand(newLeadRegisterCommand())
+	cmd.AddCommand(newLeadRegisterCommand(d))
 	return cmd
 }
 
 // newLeadRegisterCommand registers the running session as the lead when its
 // SessionStart hook did not: the session started in another folder, or was
 // resumed here after a restart.
-func newLeadRegisterCommand() *cobra.Command {
+func newLeadRegisterCommand(d *cmdDeps) *cobra.Command {
 	var agentFlag string
 	cmd := &cobra.Command{
 		Use:   "register [plan|ask|edits|full]",
@@ -54,7 +50,7 @@ func newLeadRegisterCommand() *cobra.Command {
 			if agent == "claude" && os.Getenv("CLAUDE_CODE_ENTRYPOINT") != "cli" {
 				return errors.New("only an interactive Claude Code session in a terminal can be the lead")
 			}
-			pid := leadAgentPID()
+			pid := d.LeadAgentPID()
 			if pid <= 1 {
 				return fmt.Errorf("cannot find the %s process that runs this shell; run duolog lead register from the session's own shell", agent)
 			}

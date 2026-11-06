@@ -29,7 +29,7 @@ func TestCoauthorsCommand(t *testing.T) {
 		}
 	}
 	git("init", "-q")
-	cmd := newRootCommand()
+	cmd := newRootCommand(testDeps(t))
 	cmd.SetArgs([]string{"coauthors"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("no records: %v", err)
@@ -49,7 +49,7 @@ func TestCoauthorsCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := func(args ...string) (string, error) {
-		cmd := newRootCommand()
+		cmd := newRootCommand(testDeps(t))
 		var out bytes.Buffer
 		cmd.SetOut(&out)
 		cmd.SetErr(&out)

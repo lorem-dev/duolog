@@ -242,9 +242,7 @@ func TestRunCellIsolatedAndChecked(t *testing.T) {
 
 func TestRunCellTimeCap(t *testing.T) {
 	f := newCellFixture(t)
-	old := cellTimeout
-	t.Cleanup(func() { cellTimeout = old })
-	cellTimeout = func(config.Calibration) time.Duration { return 50 * time.Millisecond }
+	f.env.CellCap = 50 * time.Millisecond
 	var tree string
 	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
 		tree = r.Options.WorkRoot
@@ -606,9 +604,7 @@ func TestRunCellCheckTimeCap(t *testing.T) {
 	class := f.env.Cfg.Learning.Classes["implement"]
 	class.Checks = []string{"sleep 30"}
 	f.env.Cfg.Learning.Classes["implement"] = class
-	old := checkTimeout
-	t.Cleanup(func() { checkTimeout = old })
-	checkTimeout = func(config.Calibration) time.Duration { return 300 * time.Millisecond }
+	f.env.CheckCap = 300 * time.Millisecond
 	started := time.Now()
 	r := f.run(t)
 	if elapsed := time.Since(started); elapsed > 15*time.Second {

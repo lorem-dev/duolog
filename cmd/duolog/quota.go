@@ -34,12 +34,7 @@ type quotaResult struct {
 	LeadMismatch string `json:"lead_mismatch,omitempty"`
 }
 
-// observeLead returns an observation of how agent's lead itself was started.
-// duolog has no source for one yet, and its own environment never stands for
-// the lead, so the lead reports unknown; tests supply one.
-var observeLead = func(agent string) (session.LeadRoute, bool) { return session.LeadRoute{}, false }
-
-func newQuotaCommand() *cobra.Command {
+func newQuotaCommand(d *cmdDeps) *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{Use: "quota", Short: "Read subscription quota without a model call", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		root, err := projectRoot()
@@ -69,7 +64,7 @@ func newQuotaCommand() *cobra.Command {
 			defer tel.Close()
 			observe = observeBalance(tel)
 		}
-		gate, err := delegateDeps.PaidGate(cfg)
+		gate, err := d.Delegate.PaidGate(cfg)
 		if err != nil {
 			return err
 		}
@@ -116,7 +111,7 @@ func newQuotaCommand() *cobra.Command {
 				result.Reports["peer"] = peer
 			}
 			// The lead only from an observation of it, reported and never run.
-			observed, _ := observeLead(agent)
+			observed, _ := d.ObserveLead(agent)
 			if in, ok := session.LeadInput(cfg, observed, home, root); !ok {
 				result.LeadUnknown = "no observation of the lead's command and environment"
 			} else if lead, _ := gate.Report(cmd.Context(), in); lead.Assessment.Agent != "" {
