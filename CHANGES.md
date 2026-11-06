@@ -54,6 +54,8 @@
   Claude ignores the project's `permissions.allow`.
 - Each peer may write its report to `.duolog/tasks/<peer-id>/report.md`;
   `peer status` and `wait` show the path.
+- `duolog peer list --long`, `peer show` and `peer view` let you see peers; a
+  new `duolog-peers` skill runs the list and view. See docs/rex.md.
 
 ### Fixed
 

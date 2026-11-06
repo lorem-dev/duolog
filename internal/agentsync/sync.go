@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/plugin"
 )
 
 // Options selects what one run does.
@@ -471,9 +473,6 @@ func (r *runner) resolver() func(string) (string, error) {
 	}
 }
 
-// ownSkill is the folder name of the skill that `duolog install` writes.
-const ownSkill = "duolog"
-
 func (r *runner) skillUnits() []unit {
 	entries, err := readSourceDir(r.abs(r.from.skills))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -488,7 +487,7 @@ func (r *runner) skillUnits() []unit {
 			continue
 		}
 		// duolog installs its own skills on both sides; they are never synced.
-		if !e.IsDir() || e.Name() == ownSkill || e.Name() == "duolog-skill-check" || e.Name() == "duolog-calibrate" || !r.inScope(base) {
+		if !e.IsDir() || slices.Contains(plugin.Skills, e.Name()) || !r.inScope(base) {
 			continue
 		}
 		if _, err := os.Stat(r.abs(base + "/SKILL.md")); err != nil {

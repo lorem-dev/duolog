@@ -78,7 +78,7 @@ func Run(o Options) (Report, error) {
 			return Report{}, err
 		}
 		edits = append(edits, edit{path: path, data: data})
-		for _, name := range bundledSkills {
+		for _, name := range plugin.Skills {
 			files, err := skillFiles(agent, name)
 			if err != nil {
 				return Report{}, err
@@ -190,7 +190,7 @@ func Remove(o Options) error {
 		}
 	}
 	for _, agent := range agents {
-		for _, name := range bundledSkills {
+		for _, name := range plugin.Skills {
 			files, err := skillFiles(agent, name)
 			if err != nil {
 				return err
@@ -223,10 +223,6 @@ func Remove(o Options) error {
 	}
 	return nil
 }
-
-// bundledSkills are the skill folders Run copies from the plugin and Remove
-// takes back.
-var bundledSkills = []string{"duolog", "duolog-skill-check", "duolog-calibrate"}
 
 // skillFiles lists every file of one bundled skill, relative to its folder,
 // with slashes.

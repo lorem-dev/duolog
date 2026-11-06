@@ -19,7 +19,7 @@ func (e *env) openProjectPeer(ctx context.Context, label string, argv []string) 
 		return "", "", err
 	}
 	client := e.rex
-	client.Label = "duolog | " + label
+	client.Label = label
 	client.Anchor = ""
 	if id != "" {
 		if id == e.rex.Session {

@@ -119,9 +119,10 @@ The command writes these files and prints each path:
 | `.claude/skills/duolog/SKILL.md` | The skill that teaches the lead to delegate |
 | `.claude/skills/duolog-skill-check/` | The skill that offers [skill tests](skills.md) after a change |
 | `.claude/skills/duolog-calibrate/` | The skill that runs [calibration](calibration.md) when you ask |
+| `.claude/skills/duolog-peers/` | The skill that lists [peers](rex.md) and switches your Rex view to one |
 | `.codex/hooks.json` | Codex hooks, merged with yours |
 | `.agents/skills/duolog/SKILL.md` | The same skill for Codex |
-| `.agents/skills/duolog-skill-check/` and `.agents/skills/duolog-calibrate/` | The other two skills for Codex |
+| `.agents/skills/duolog-skill-check/`, `.agents/skills/duolog-calibrate/` and `.agents/skills/duolog-peers/` | The other three skills for Codex |
 | `.duolog/config.yaml` | A starter config, only if none exists |
 | `AGENTS.md` | One line offering install on a machine without duolog |
 | `.claude/CLAUDE.md` or `CLAUDE.md` | The same line; uses the nested file if it exists |

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -55,6 +56,9 @@ func leadGuard(stateDir, agent string, input []byte) (gate.Decision, bool) {
 		placed[i] = action
 	}
 	if d, ok := telemetryLeadGuard(agent, placed); ok {
+		return d, true
+	}
+	if d, ok := peerShowLeadGuard(agent, placed); ok {
 		return d, true
 	}
 	decision := func(number string, request bus.Message) gate.Decision {
@@ -129,6 +133,64 @@ func leadGuard(stateDir, agent string, input []byte) (gate.Decision, bool) {
 		}
 	}
 	return gate.Decision{}, false
+}
+
+// peerShowLeadGuard stops a lead's tool call that names duolog peer show
+// anywhere in its command: behind env, script, rex, tmux, sh -c or any other
+// wrapper, since a model that starts it under a pty with a cleaned
+// environment passes peer show's own checks. A Claude lead's call asks the
+// person; a Codex lead's call is denied. It guards against accidents: no
+// check can prove that a terminal is the person's.
+func peerShowLeadGuard(agent string, actions []gate.Action) (gate.Decision, bool) {
+	for _, a := range actions {
+		if a.Kind != "exec" {
+			continue
+		}
+		// ShellParts splits lists and pipelines; the whole text also counts,
+		// because ShellParts does not open every wrapper.
+		parts, _ := gate.ShellParts(a.Target, a.Shell)
+		if !slices.ContainsFunc(append(parts, a.Target), namesPeerShow) {
+			continue
+		}
+		if agent == "codex" {
+			return gate.Decision{Kind: gate.Deny, Rule: "person-only peer show", Reason: "duolog peer show prints a peer's screen for the person only: they run it in their own terminal; use duolog peer view <id> or peer list --long"}, true
+		}
+		return gate.Decision{Kind: gate.Ask, Rule: "person-only peer show", Reason: "duolog peer show prints a peer's screen for the person only; the person confirms this call"}, true
+	}
+	return gate.Decision{}, false
+}
+
+// peerShowWords splits command text into words, with quotes removed and
+// shell operators taken as spaces, so that duolog inside sh -c '...', $(...)
+// or a && list is a word of its own.
+var peerShowWords = strings.NewReplacer("'", "", `"`, "", "`", "", ";", " ", "&", " ", "|", " ", "(", " ", ")", " ", "<", " ", ">", " ", "$", " ", "{", " ", "}", " ")
+
+// namesPeerShow reports whether text holds duolog [flags] peer [flags] show.
+func namesPeerShow(text string) bool {
+	words := strings.Fields(peerShowWords.Replace(text))
+	// skip passes duolog's own flags; --lead takes the next word.
+	skip := func(j int) int {
+		for j < len(words) && strings.HasPrefix(words[j], "-") {
+			if words[j] == "--lead" {
+				j++
+			}
+			j++
+		}
+		return j
+	}
+	for i, w := range words {
+		if gate.ProgramName(w) != "duolog" {
+			continue
+		}
+		j := skip(i + 1)
+		if j >= len(words) || words[j] != "peer" {
+			continue
+		}
+		if j = skip(j + 1); j < len(words) && words[j] == "show" {
+			return true
+		}
+	}
+	return false
 }
 
 // leadAllowRequest returns zero with true when an allow names no literal number.

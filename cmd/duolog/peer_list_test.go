@@ -1,0 +1,165 @@
+package main
+
+import (
+	"encoding/json"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/lorem-dev/duolog/internal/peer"
+	"github.com/lorem-dev/duolog/internal/session"
+	"github.com/lorem-dev/duolog/internal/testbin"
+)
+
+var oldPeerStates = map[string]bool{
+	"starting": true, "updating": true, "question": true, "ready": true,
+	"limited": true, "exited": true, "closed": true,
+}
+
+// recordListPeer records one claude peer of the test lead.
+func recordListPeer(t *testing.T, root string) {
+	t.Helper()
+	reg, err := session.Open(filepath.Join(root, ".duolog"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Record(session.Entry{ID: "peer-list", Lead: "lead-1", Agent: "claude", Role: "plan", Block: "block:peer", RexSession: "sess", Task: ".duolog/task.md"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPeerListPlainIsTwoFields(t *testing.T) {
+	clearModelMarkers(t)
+	asTerminal(t, true)
+	tests := []struct {
+		name    string
+		capture testbin.Scenario
+		wait    *testbin.Scenario
+		state   string
+	}{
+		{"working", testbin.Scenario{Stdout: "✻ Thinking… (3s · esc to interrupt)\n" + claudeIdleScreen()}, nil, "starting"},
+		{"question with spaces", testbin.Scenario{Stdout: startupFixture(t, "claude-model-switch-question.txt")}, nil, "question"},
+		{"exited", testbin.Scenario{Stdout: claudeIdleScreen()}, &testbin.Scenario{Exit: 3, Stdout: `{"exit_code": 3}`}, "exited"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root, _ := peerProject(t, tt.capture)
+			if tt.wait != nil {
+				testbin.Install(t, "rex", testbin.Scenario{Exit: 99, Stderr: "unexpected rex command", Responses: map[string]testbin.Scenario{
+					"block inspect": {Stdout: `{"block":{"window_id":"window:lead"}}`},
+					"wait":          *tt.wait,
+					"capture":       tt.capture,
+				}})
+			}
+			recordListPeer(t, root)
+			out, err := executeBusCommand(t, "peer", "list")
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.TrimSpace(out), "\n")
+			if len(lines) != 1 {
+				t.Fatalf("%q", out)
+			}
+			for _, line := range lines {
+				f := strings.Fields(line)
+				if len(f) != 2 || f[1] != tt.state || !oldPeerStates[f[1]] {
+					t.Fatalf("plain line %q", line)
+				}
+			}
+			out, err = executeBusCommand(t, "peer", "list", "--json")
+			var peers []struct {
+				State string `json:"state"`
+			}
+			if err != nil || json.Unmarshal([]byte(out), &peers) != nil || len(peers) != 1 || !oldPeerStates[peers[0].State] {
+				t.Fatalf("%s %v", out, err)
+			}
+		})
+	}
+}
+
+func TestPeerListLong(t *testing.T) {
+	clearModelMarkers(t)
+	asTerminal(t, true)
+	root, _ := peerProject(t, testbin.Scenario{Stdout: claudeIdleScreen()})
+	recordListPeer(t, root)
+	out, err := executeBusCommand(t, "peer", "list", "--long")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("%q", out)
+	}
+	if got := strings.Join(strings.Fields(lines[0]), " "); got != "ID ROLE AGENT STATE TASK LAST TAB" {
+		t.Fatalf("header %q", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "peer-list") {
+		t.Fatalf("row %q", lines[1])
+	}
+	for _, want := range []string{"plan", "claude", "ready", ".duolog/task.md", "duolog | claude-plan"} {
+		if !strings.Contains(lines[1], want) {
+			t.Fatalf("row %q lacks %q", lines[1], want)
+		}
+	}
+	if strings.Contains(out, "Try \"how does") {
+		t.Fatalf("screen text in %q", out)
+	}
+}
+
+func TestPeerListJSONAddsFields(t *testing.T) {
+	clearModelMarkers(t)
+	asTerminal(t, true)
+	root, _ := peerProject(t, testbin.Scenario{Stdout: claudeIdleScreen()})
+	recordListPeer(t, root)
+	out, err := executeBusCommand(t, "peer", "list", "--json")
+	var peers []map[string]any
+	if err != nil || json.Unmarshal([]byte(out), &peers) != nil || len(peers) != 1 {
+		t.Fatalf("%s %v", out, err)
+	}
+	for _, key := range []string{"id", "state", "working", "role", "agent", "tab", "work_root"} {
+		if _, ok := peers[0][key]; !ok {
+			t.Fatalf("no %q in %s", key, out)
+		}
+	}
+	if peers[0]["state"] != "ready" {
+		t.Fatalf("%s", out)
+	}
+}
+
+func TestLastText(t *testing.T) {
+	now := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		last *peer.LastEvent
+		want string
+	}{
+		{"nil", nil, "-"},
+		{"unknown start", &peer.LastEvent{Kind: "question"}, "question ? ago"},
+		{"minutes", &peer.LastEvent{Kind: "task", At: now.Add(-4 * time.Minute)}, "task 4m ago"},
+		{"seconds", &peer.LastEvent{Kind: "record", At: now.Add(-30 * time.Second)}, "record <1m ago"},
+		{"hours", &peer.LastEvent{Kind: "task", At: now.Add(-3 * time.Hour)}, "task 3h ago"},
+		{"days", &peer.LastEvent{Kind: "task", At: now.Add(-49 * time.Hour)}, "task 2d ago"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := lastText(tt.last, now); got != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPeerListLongAndJSONConflict(t *testing.T) {
+	clearModelMarkers(t)
+	asTerminal(t, true)
+	root, rex := peerProject(t, testbin.Scenario{Stdout: claudeIdleScreen()})
+	recordListPeer(t, root)
+	_, err := executeBusCommand(t, "peer", "list", "--long", "--json")
+	if err == nil || !strings.Contains(err.Error(), "--long and --json cannot be used together") {
+		t.Fatalf("%v", err)
+	}
+	if n := len(rexCalls(t, rex)); n != 0 {
+		t.Fatalf("%d rex calls", n)
+	}
+}
