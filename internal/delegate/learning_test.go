@@ -241,9 +241,7 @@ func TestLearningEntryEqualToLeadRunsWorker(t *testing.T) {
 
 func TestLearningCheaperLeadStillRunsHere(t *testing.T) {
 	h := newHarness(t)
-	if err := h.reg.RegisterLead(session.Lead{ID: "lead-123456", Target: config.Target{Agent: "claude", Model: "haiku", Effort: "high"}, Mode: mode.Edits}); err != nil {
-		t.Fatal(err)
-	}
+	h.register(session.Lead{ID: "lead-123456", Target: config.Target{Agent: "claude", Model: "haiku", Effort: "high"}, Mode: mode.Edits})
 	h.learning(true)
 	out, err := h.runWith("docs", Options{Features: map[string]string{"output": "docs"}})
 	if err != nil || out.RunHere == nil {
@@ -487,9 +485,7 @@ func TestUseWorksWithLearningOff(t *testing.T) {
 func TestJudgeRoutesToEntryWithoutJournalling(t *testing.T) {
 	h := newHarness(t)
 	h.learning(false)
-	if err := h.reg.RegisterLead(session.Lead{ID: "lead-123456", Target: config.Target{Agent: "claude", Model: "haiku", Effort: "high"}, Mode: mode.Full}); err != nil {
-		t.Fatal(err)
-	}
+	h.register(session.Lead{ID: "lead-123456", Target: config.Target{Agent: "claude", Model: "haiku", Effort: "high"}, Mode: mode.Full})
 	spec := h.cfg.Roles["review_final"]
 	spec.Context = "minimal"
 	h.cfg.Roles["review_final"] = spec
