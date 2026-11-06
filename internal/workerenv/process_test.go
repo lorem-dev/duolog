@@ -367,6 +367,36 @@ func TestBuildFastModeLayerIsPaidSignal(t *testing.T) {
 // duolog adds no guessed flag to switch them off. A speed-shaped setting is
 // the route:unknown-speed signal instead. Only a setting recorded as
 // supported adds a pin, and then only to the free variant.
+// A name that env_passthrough and ExtraEnv both set is in the env once, with
+// the later value, and its paid signal is recorded once, at the layer that
+// set the value used.
+func TestBuildKeepsEachNameOnce(t *testing.T) {
+	in := buildInput("claude", Worker, Paid)
+	in.ExtraEnv = []string{"ANTHROPIC_API_KEY=sk-ant-from-mcp", "WORKERENV_TEST_EXTRA=1", "WORKERENV_TEST_EXTRA=2"}
+	p := mustBuild(t, in)
+	if n := envCount(p.Env, "ANTHROPIC_API_KEY"); n != 1 {
+		t.Errorf("ANTHROPIC_API_KEY appears %d times", n)
+	}
+	if got, _ := envValue(p.Env, "ANTHROPIC_API_KEY"); got != "sk-ant-from-mcp" {
+		t.Errorf("ANTHROPIC_API_KEY = %q, want the extra value", got)
+	}
+	if n := envCount(p.Env, "WORKERENV_TEST_EXTRA"); n != 1 {
+		t.Errorf("WORKERENV_TEST_EXTRA appears %d times", n)
+	}
+	if got, _ := envValue(p.Env, "WORKERENV_TEST_EXTRA"); got != "2" {
+		t.Errorf("WORKERENV_TEST_EXTRA = %q, want 2", got)
+	}
+	var keys []string
+	for _, s := range processSignals(p) {
+		if strings.HasPrefix(s, "env:ANTHROPIC_API_KEY@") {
+			keys = append(keys, s)
+		}
+	}
+	if want := []string{"env:ANTHROPIC_API_KEY@mcp"}; !reflect.DeepEqual(keys, want) {
+		t.Errorf("ANTHROPIC_API_KEY signals = %v, want %v", keys, want)
+	}
+}
+
 // Integration review, Important: the launch words, Codex's exec and its
 // sandbox flag with the pins, are part of the built process, right after its
 // overrides and before the run's own flags, in both variants. Reads never get
