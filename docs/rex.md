@@ -46,7 +46,7 @@ register a lead.
 | 3 | `duolog peer send <id> <task>` | Sends one short line that points to a task file, by its path from the pane's folder |
 | 4 | `duolog peer wait <id>` | Keeps waiting for the session. The default limit is 30 minutes |
 | 5 | `duolog peer status <id>` | Prints the state in one line |
-| 6 | `duolog peer close <id>` | Closes the pane. Changed files stay |
+| 6 | `duolog peer close <id>` | Closes the pane. Changed files stay. A pane that is already gone is not closed again; the line says so |
 | 7 | `duolog peer list [--long]` | Lists your peers. Plain output is `<id> <state>`; `--long` adds role, agent, task, last activity and tab. It presses no key |
 | 8 | `duolog peer show <id> [--lines N]` | Prints the last lines of the peer's screen (40 by default, 1 to 200). It refuses inside an agent |
 | 9 | `duolog peer view <id> [--client C]` | Switches your Rex client to the peer's tab and prints one line |
@@ -80,6 +80,21 @@ duolog keeps its identity and another close retries the cleanup.
 
 Each command prints one line, such as `<id> <state>: <question or note>`. The
 lead decides questions that the rules do not settle.
+
+## After a Rex restart
+
+A Rex server restart ends every Rex session and pane, and the lead's agent
+comes back in a new Rex session. The peers' records stay in
+`.duolog/sessions.json`, with their account session slots. `duolog peer list`
+(plain, `--long` and `--json`) still shows the peers of your lead, and marks
+each peer whose pane Rex no longer knows as `gone`. Only `list` reports
+`gone`; `status` and `wait` report such a pane as `closed`. A peer opened from
+another Rex session is still your lead's peer. Peers of another lead stay
+hidden.
+
+`duolog peer close <id>` on a `gone` peer frees its record and its account
+session slot, asks Rex to close nothing, and prints
+`<id> closed; its pane was already gone`.
 
 `duolog peer send` checks the typed task line before it presses Enter. It
 presses Enter only when the input holds exactly the line, even when the line

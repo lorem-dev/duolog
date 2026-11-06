@@ -109,14 +109,17 @@ func List(ctx context.Context) ([]ListedPeer, error) {
 	sent := taskTimes(e.dir)
 	peers := []ListedPeer{}
 	for _, entry := range entries {
-		if entry.Block == "" || entry.Closed || entry.Lead != e.leadID {
+		// A closed entry stays listed: its pane may be gone, as when the Rex
+		// server restarted and the lead's process ended with it, and its
+		// record and account slot stay until peer close.
+		if entry.Block == "" || entry.Lead != e.leadID {
 			continue
 		}
 		presence, err := e.clientFor(entry).Probe(ctx, entry.Block)
 		if err != nil {
 			return nil, err
 		}
-		state := Closed
+		state := Gone
 		working := false
 		switch presence {
 		case rex.Exited:
@@ -124,7 +127,7 @@ func List(ctx context.Context) ([]ListedPeer, error) {
 		case rex.Running:
 			screen, err := e.screen(ctx, entry)
 			if rex.IsNotFound(err) {
-				break
+				break // the pane went between the probe and the capture
 			}
 			if err != nil {
 				return nil, err

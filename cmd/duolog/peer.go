@@ -162,12 +162,7 @@ func newPeerCommand() *cobra.Command {
 		return st.Line, err
 	})
 	answer.Flags().StringVar(&reason, "reason", "", "One line to type into the pane, after \"Reason: \", when the answer leaves it interrupted, such as why a permission was denied")
-	closeCmd := run("close <id>", "Close a session; changed files are left as they are", cobra.ExactArgs(1), func(ctx context.Context, _ *cobra.Command, args []string) (string, error) {
-		if err := peer.Close(ctx, args[0]); err != nil {
-			return "", err
-		}
-		return args[0] + " closed", nil
-	})
+	closeCmd := run("close <id>", "Close a session; changed files are left as they are", cobra.ExactArgs(1), peerClose)
 	var listJSON, listLong bool
 	list := &cobra.Command{Use: "list", Short: "List this lead's peer states without answering questions", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		if listLong && listJSON {
@@ -202,6 +197,18 @@ func newPeerCommand() *cobra.Command {
 	})
 	root.AddCommand(open, wait, send, status, answer, closeCmd, list, release, newPeerShowCommand(&lead), newPeerViewCommand(&lead), newPeerLaunchCommand())
 	return root
+}
+
+// peerClose closes a peer and says so when its pane was already gone.
+func peerClose(ctx context.Context, _ *cobra.Command, args []string) (string, error) {
+	note, err := peer.CloseNote(ctx, args[0])
+	if err != nil {
+		return "", err
+	}
+	if note != "" {
+		return args[0] + " closed; " + note, nil
+	}
+	return args[0] + " closed", nil
 }
 
 // errPeerShowModel is the refusal when a model may read the output.
