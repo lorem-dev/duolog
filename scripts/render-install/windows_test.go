@@ -32,17 +32,29 @@ func TestWindowsInstaller(t *testing.T) {
 			}
 			if shell == "powershell" {
 				pwsh, err := exec.LookPath("pwsh")
-				if err != nil {
-					// A developer's machine may have only 5.1. CI must run this.
-					if os.Getenv("CI") == "" {
-						t.Skip("pwsh is not installed")
-					}
-					t.Fatal(err)
+				switch {
+				case err == nil:
+					// Reproduce pwsh -> Go -> powershell.exe module-path inheritance.
+					// The installer must load 5.1 built-ins even with Core modules first.
+					t.Setenv("PSModulePath", filepath.Join(filepath.Dir(pwsh), "Modules")+string(os.PathListSeparator)+os.Getenv("PSModulePath"))
+				case os.Getenv("CI") != "":
+					t.Fatal("CI must provide pwsh for the module-path case:", err)
+				default:
+					// A developer's machine may have only 5.1: run the installer
+					// there anyway, without the pwsh module-path prefix.
+					t.Log("pwsh is not installed; running without its module path")
 				}
-				// Reproduce pwsh -> Go -> powershell.exe module-path inheritance.
-				// The installer must load 5.1 built-ins even with Core modules first.
-				t.Setenv("PSModulePath", filepath.Join(filepath.Dir(pwsh), "Modules")+string(os.PathListSeparator)+os.Getenv("PSModulePath"))
 			}
+			// Remove the parent of the scratch keys once the last one is gone.
+			t.Cleanup(func() {
+				parent := `HKCU:\Software\DuologInstallerTest`
+				command := "$k = Get-Item -LiteralPath '" + parent + "' -ErrorAction SilentlyContinue; " +
+					"if ($k) { $empty = $k.SubKeyCount -eq 0 -and $k.ValueCount -eq 0; $k.Close(); " +
+					"if ($empty) { Remove-Item -LiteralPath '" + parent + "' -Force } }"
+				if out, err := exec.Command(binary, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command).CombinedOutput(); err != nil {
+					t.Errorf("remove %s: %v\n%s", parent, err, out)
+				}
+			})
 			for _, scenario := range []string{"good", "tampered", "pinned", "release", "update", "no-path", "string-path", "tampered-existing", "missing-checksum", "bad-zip", "missing-binary"} {
 				t.Run(scenario, func(t *testing.T) {
 					dir := t.TempDir()
