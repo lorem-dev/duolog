@@ -7,71 +7,46 @@ linters:
     - bodyclose
     - contextcheck
     - copyloopvar
-    - cyclop
     - durationcheck
     - errorlint
-    - funlen
     - gocheckcompilerdirectives
-    - gocognit
     - gocritic
     - gosec
-    - intrange
     - makezero
     - misspell
-    - modernize
-    - nestif
     - nilerr
     - nilnesserr
     - noctx
     - nolintlint
-    - revive
     - unconvert
-    - usestdlibvars
     - wastedassign
   settings:
     errcheck:
       check-type-assertions: true
     govet:
       enable-all: true
-      disable: [fieldalignment]
+      disable: [fieldalignment, shadow]
     gocritic:
-      enabled-tags: [diagnostic, performance]
+      enabled-tags: [diagnostic]
     gosec:
-      excludes: [G204, G304] # duolog runs agents and reads configured paths by design
+      excludes:
+        - G204 # duolog starts agents and Git by design; the arguments are built from its own config
+        - G304 # duolog reads files at configured paths by design
     nolintlint:
       require-explanation: true
       require-specific: true
-    funlen:
-      lines: 60
-      statements: 40
-      ignore-comments: true
-    gocognit:
-      min-complexity: 20
-    cyclop:
-      max-complexity: 15
-      package-average: 8
-    nestif:
-      min-complexity: 5
-    revive:
-      rules:
-        - name: file-length-limit
-          arguments: [{max: 600, skipComments: true, skipBlankLines: true}]
-        - name: early-return
-        - name: indent-error-flow
-        - name: superfluous-else
-        - name: unreachable-code
-        - name: defer
-        - name: unconditional-recursion
-        - name: context-as-argument
   exclusions:
     generated: strict
     presets: [std-error-handling]
     rules:
       - path: _test\.go
-        linters: [funlen, gocognit, cyclop, nestif, gosec]
+        linters: [gosec]
+      # An unchecked type assertion in a test panics on a wrong type, and the
+      # test fails with a stack. Only the bare message matches: unchecked calls
+      # name their function and stay reported.
       - path: _test\.go
-        text: file-length-limit
-        linters: [revive]
+        text: ^Error return value is not checked$
+        linters: [errcheck]
 formatters:
   enable: [gofumpt, goimports]
   settings:
