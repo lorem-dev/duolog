@@ -4,7 +4,6 @@ variant: paid
 
 env (in order; a value only where it is fixed):
   HOME
-  ANTHROPIC_API_KEY
   ANTHROPIC_AUTH_TOKEN
   ANTHROPIC_BASE_URL
   CORP_LLM_KEY
@@ -56,7 +55,6 @@ claude settings (--settings):
   }
 
 signals (name@layer):
-  env:ANTHROPIC_API_KEY@env
   env:ANTHROPIC_API_KEY@mcp
   env:ANTHROPIC_API_KEY@user
   env:ANTHROPIC_AUTH_TOKEN@env
