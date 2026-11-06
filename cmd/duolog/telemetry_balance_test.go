@@ -75,8 +75,10 @@ func accountLines(t *testing.T, telemetryRoot string) []string {
 // installQuotaFakes puts fake claude and codex agents that answer a quota
 // read first on PATH, and nothing else. Claude's reads start with the free
 // worker's --settings, and Codex also answers the account and provider reads.
-func installQuotaFakes(t *testing.T, claudeStatus, codexResult string) {
+func installQuotaFakes(t *testing.T, claudeStatus, codexResult string) func() {
 	t.Helper()
+	// quota reads through the fakes, not TestMain's gate.
+	restore := realQuotaGate(t)
 	claude := testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{
 		freeClaudeRead("-p"):                 {Stdout: `{"usage_report":{"rate_limits":{"limits":[{"kind":"session","percent":15,"resets_at":"2099-01-01T00:00:00Z"},{"kind":"weekly_opus","percent":40,"resets_at":"2099-01-05T00:00:00Z"}],"extra_usage":{"is_enabled":true,"used_credits":3}}}}`},
 		freeClaudeRead("auth status --json"): {Stdout: claudeStatus},
@@ -88,6 +90,7 @@ func installQuotaFakes(t *testing.T, claudeStatus, codexResult string) {
 		"modelProvider/list":      `{"id":4,"error":{"code":-32601}}`,
 	}})
 	t.Setenv("PATH", filepath.Dir(claude)+string(os.PathListSeparator)+filepath.Dir(codex))
+	return restore
 }
 
 const codexQuota = `{"rateLimits":{"planType":"plus","primary":{"usedPercent":13,"windowDurationMins":300,"resetsAt":4070908800},"secondary":{"usedPercent":20,"windowDurationMins":10080,"resetsAt":4071513600}}}`

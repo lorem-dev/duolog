@@ -92,6 +92,26 @@ func (c *Cache) ProviderEnvKey(agent string) string {
 	return c.envKeys[agent]
 }
 
+// Latest is the most recent successful read of agent from a worker or peer
+// process, which a lead report uses as the account's free read: the lead
+// itself is never run. ok is false when there is none.
+func (c *Cache) Latest(agent string) (quota.Snapshot, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var best quota.Snapshot
+	found := false
+	for _, entry := range c.entries {
+		a := entry.Assessment
+		if a.Agent != agent || a.Shape == workerenv.Lead {
+			continue
+		}
+		if !found || entry.Snapshot.ReadAt.After(best.ReadAt) {
+			best, found = entry.Snapshot, true
+		}
+	}
+	return best, found
+}
+
 // lookup returns the cached snapshot of key while it is no older than maxAge.
 func (c *Cache) lookup(key string, fresh bool, maxAge time.Duration) (quota.Snapshot, bool) {
 	c.mu.Lock()

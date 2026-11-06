@@ -91,6 +91,22 @@ func (s *Store) Update(ctx context.Context, fn func(*State) error) error {
 	return s.write(stateFile, data)
 }
 
+// View runs fn on the state under the folder's lock and writes nothing: a
+// report reads the account state without changing or creating it. Missing
+// state is empty; state that cannot be read is an error.
+func (s *Store) View(ctx context.Context, fn func(State) error) error {
+	unlock, err := s.lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	_, st, err := s.load()
+	if err != nil {
+		return err
+	}
+	return fn(st)
+}
+
 func (s *Store) lock(ctx context.Context) (func(), error) {
 	l := flock.New(filepath.Join(s.Dir, lockFile))
 	locked, err := l.TryLockContext(ctx, 10*time.Millisecond)

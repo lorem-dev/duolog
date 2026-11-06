@@ -7,14 +7,18 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/delegate"
+	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/session"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/spf13/cobra"
 )
 
@@ -23,7 +27,18 @@ type quotaResult struct {
 	Unavailable   string `json:"unavailable,omitempty"`
 	Cleared       bool   `json:"cleared_unavailable,omitempty"`
 	RegistryError string `json:"registry_error,omitempty"`
+	// Reports explain the billing of the worker, peer and lead, by shape.
+	Reports map[string]paidruns.Report `json:"reports,omitempty"`
+	// LeadUnknown says why the lead has no report; LeadMismatch how its
+	// verdict differs from the worker's.
+	LeadUnknown  string `json:"lead_unknown,omitempty"`
+	LeadMismatch string `json:"lead_mismatch,omitempty"`
 }
+
+// observeLead returns an observation of how agent's lead itself was started.
+// duolog has no source for one yet, and its own environment never stands for
+// the lead, so the lead reports unknown; tests supply one.
+var observeLead = func(agent string) (session.LeadRoute, bool) { return session.LeadRoute{}, false }
 
 func newQuotaCommand() *cobra.Command {
 	var asJSON bool
@@ -42,21 +57,41 @@ func newQuotaCommand() *cobra.Command {
 		if reg != nil && regErr == nil {
 			unavailable, regErr = reg.Unavailable()
 		}
-		// Telemetry mirrors what this read finds and never reads a vendor
-		// itself; a config it cannot load only leaves it out.
-		var observe balanceObserver
-		if cfg, cfgErr := config.Load(root); cfgErr == nil {
-			if tel := openAccountTelemetry(cfg, root); tel != nil {
-				defer tel.Close()
-				observe = observeBalance(tel)
-			}
+		// The free reads use the person's config, so the worker's process, its
+		// proxy and CA variables included, is the one read.
+		cfg, err := config.Load(root)
+		if err != nil {
+			return err
 		}
+		// Telemetry mirrors what this read finds and never reads a vendor
+		// itself.
+		var observe balanceObserver
+		if tel := openAccountTelemetry(cfg, root); tel != nil {
+			defer tel.Close()
+			observe = observeBalance(tel)
+		}
+		gate, err := delegate.NewGate(cfg)
+		if err != nil {
+			return err
+		}
+		home, _ := os.UserHomeDir()
+		environ := os.Environ()
 		results := make(map[string]quotaResult)
 		read := 0
 		for _, agent := range []string{"claude", "codex"} {
-			s, err := (quota.Reader{Version: version}).Read(cmd.Context(), agent)
-			result := quotaResult{}
-			if err != nil {
+			result := quotaResult{Reports: map[string]paidruns.Report{}}
+			// The worker's free read, through the shared build and read path.
+			worker, err := gate.Report(cmd.Context(), workerenv.ProcessInput{Agent: agent, Shape: workerenv.Worker,
+				Variant: workerenv.Free, Config: cfg, Environ: environ,
+				Locations: workerenv.Locations{Home: home, Root: root, GOOS: runtime.GOOS, Environ: environ}})
+			if worker.Assessment.Agent != "" {
+				result.Reports["worker"] = worker
+			}
+			s, readOK := gate.Cache.Latest(agent)
+			if err != nil || !readOK {
+				if err == nil {
+					err = errors.New("no quota read")
+				}
 				result.Unavailable = err.Error()
 			} else {
 				read++
@@ -72,6 +107,23 @@ func newQuotaCommand() *cobra.Command {
 					} else {
 						result.Cleared = true
 					}
+				}
+			}
+			// The peer's own process; it may be routed otherwise.
+			peer, _ := gate.Report(cmd.Context(), workerenv.ProcessInput{Agent: agent, Shape: workerenv.Peer,
+				Variant: workerenv.Free, Config: cfg, Environ: environ,
+				Locations: workerenv.Locations{Home: home, Root: root, GOOS: runtime.GOOS, Environ: environ}})
+			if peer.Assessment.Agent != "" {
+				result.Reports["peer"] = peer
+			}
+			// The lead only from an observation of it, reported and never run.
+			observed, _ := observeLead(agent)
+			if in, ok := session.LeadInput(cfg, observed, home, root); !ok {
+				result.LeadUnknown = "no observation of the lead's command and environment"
+			} else if lead, _ := gate.Report(cmd.Context(), in); lead.Assessment.Agent != "" {
+				result.Reports["lead"] = lead
+				if worker.Assessment.Agent != "" {
+					result.LeadMismatch = paidruns.CompareLead(lead, worker)
 				}
 			}
 			results[agent] = result
@@ -99,6 +151,7 @@ func printQuota(w io.Writer, results map[string]quotaResult, now time.Time) erro
 		r := results[agent]
 		if r.Unavailable != "" {
 			fmt.Fprintf(&b, "%-7s unavailable: %s\n", agent, r.Unavailable)
+			printBilling(&b, agent, r)
 			continue
 		}
 		fmt.Fprintf(&b, "%-7s", agent)
@@ -176,9 +229,30 @@ func printQuota(w io.Writer, results map[string]quotaResult, now time.Time) erro
 		if r.RegistryError != "" {
 			fmt.Fprintf(&b, "  %s\n", r.RegistryError)
 		}
+		printBilling(&b, agent, r)
 	}
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// printBilling adds how the agent's worker, peer and lead are billed, and
+// how the lead differs from the worker. Names and numbers only.
+func printBilling(b *strings.Builder, agent string, r quotaResult) {
+	for _, shape := range []string{"worker", "peer", "lead"} {
+		report, ok := r.Reports[shape]
+		if !ok {
+			continue
+		}
+		for _, line := range report.Lines() {
+			fmt.Fprintf(b, "  %s\n", line)
+		}
+	}
+	if r.LeadUnknown != "" {
+		fmt.Fprintf(b, "  %s lead: unknown (%s)\n", agent, r.LeadUnknown)
+	}
+	if r.LeadMismatch != "" {
+		fmt.Fprintf(b, "  %s\n", r.LeadMismatch)
+	}
 }
 
 func hasQuotaCredits(credits *quota.Credits) bool {

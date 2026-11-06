@@ -38,21 +38,7 @@ func defaultGate(cfg *config.Config) (*paidruns.Gate, error) {
 		_, err := st.Identity(agent, kind, raw)
 		return err
 	}}
-	return &paidruns.Gate{Store: st, Cache: &paidruns.Cache{Read: reader.ReadProcess}, Config: cfg, Layers: readLayers}, nil
-}
-
-// readLayers reads the agent's settings layers for one build, every time, so
-// a build never uses facts older than its admission.
-func readLayers(_ context.Context, in workerenv.ProcessInput) ([]workerenv.LayerFacts, error) {
-	var endpoints map[string]string
-	if in.Agent == "claude" && in.Config != nil {
-		endpoints = in.Config.PaidRuns.Claude.SubscriptionEndpoints
-	}
-	var facts []workerenv.LayerFacts
-	for _, layer := range workerenv.SettingsLayers(in.Agent, in.Locations) {
-		facts = append(facts, workerenv.ReadLayer(in.Agent, layer, endpoints, os.ReadFile, os.Stat))
-	}
-	return facts, nil
+	return &paidruns.Gate{Store: st, Cache: &paidruns.Cache{Read: reader.ReadProcess}, Config: cfg, Layers: paidruns.ReadLayers}, nil
 }
 
 // workerEnv builds a worker's process: its environment, its argv prefix and

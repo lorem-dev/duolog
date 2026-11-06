@@ -7,9 +7,14 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
+	"slices"
+	"strings"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // LeadState is the most recent native transcript observation. Empty fields are
@@ -17,6 +22,40 @@ import (
 type LeadState struct {
 	Model, Effort, ApprovalPolicy string
 	Mode                          mode.Mode
+}
+
+// LeadRoute is one observation of how the lead itself was started: its
+// command line and its environment, as the lead's own process tree holds
+// them. Only a caller that saw the lead may make one; duolog's own
+// environment never stands for the lead. It feeds reports only.
+type LeadRoute struct {
+	Agent   string
+	Argv    []string
+	Environ []string
+}
+
+// LeadInput is the Build input that reports the lead from observation r: the
+// lead shape, the free variant, and the observed argv and environment byte
+// for byte, which Build passes on unchanged. home and root place its
+// settings layers; a Codex --profile in the argv selects its profile. ok is
+// false without an observation, so the lead reports unknown rather than the
+// worker's verdict. Nothing built from it is ever run or admitted.
+func LeadInput(cfg *config.Config, r LeadRoute, home, root string) (workerenv.ProcessInput, bool) {
+	if r.Agent != "claude" && r.Agent != "codex" || len(r.Argv) == 0 || r.Environ == nil {
+		return workerenv.ProcessInput{}, false
+	}
+	loc := workerenv.Locations{Home: home, Root: root, GOOS: runtime.GOOS, Environ: slices.Clone(r.Environ)}
+	if r.Agent == "codex" {
+		for i, arg := range r.Argv {
+			if value, ok := strings.CutPrefix(arg, "--profile="); ok {
+				loc.Profile = value
+			} else if (arg == "--profile" || arg == "-p") && i+1 < len(r.Argv) {
+				loc.Profile = r.Argv[i+1]
+			}
+		}
+	}
+	return workerenv.ProcessInput{Agent: r.Agent, Shape: workerenv.Lead, Variant: workerenv.Free, Config: cfg,
+		Locations: loc, Environ: slices.Clone(r.Environ), Prefix: slices.Clone(r.Argv)}, true
 }
 
 // ReadLeadState searches backwards from 64 KiB to at most the final 4 MiB. Missing files and malformed or
