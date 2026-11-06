@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -116,6 +117,7 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 		Cwd       string `json:"cwd"`
 		Tool      string `json:"tool_name"`
 		SessionID string `json:"session_id"`
+		ToolUseID string `json:"tool_use_id"`
 	}
 	if err := json.Unmarshal(data, &envelope); err != nil {
 		return a, d, err
@@ -219,27 +221,43 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 	if d.Kind == gate.Ask {
 		// One answer covers the whole tool call, so the question names every path.
 		a.Target = strings.Join(asked, " ")
-		b, err := bus.Open(reg.Dir, cfg.Wire)
+		key := gate.AskKey(envelope.SessionID, envelope.ToolUseID, a.Kind+" "+a.Target+" "+envelope.Cwd)
+		resolved, err := askLead(cmd.Context(), cfg, root, reg.Dir, lead.ID, key, a, d, initial, person)
 		if err != nil {
 			return a, d, err
 		}
-		if err := gate.LogRequest(&store.Store{Dir: reg.Dir}, a, d); err != nil {
-			return a, d, err
-		}
-		wait := askWait(cfg.Policy.AskTimeoutSeconds)
+		d = resolved
+	}
+	return a, d, nil
+}
+
+// askLead sends the ask of one tool call to the lead. PreToolUse and
+// PermissionRequest both reach it for one Claude tool call: the first asks and
+// the other takes its answer. Only a reply is shared.
+func askLead(ctx context.Context, cfg *config.Config, root, stateDir, leadID, key string, a gate.Action, d, initial gate.Decision, person bool) (gate.Decision, error) {
+	b, err := bus.Open(stateDir, cfg.Wire)
+	if err != nil {
+		return d, err
+	}
+	if err := gate.LogRequest(&store.Store{Dir: stateDir}, a, d); err != nil {
+		return d, err
+	}
+	wait := askWait(cfg.Policy.AskTimeoutSeconds)
+	resolved := gate.EscalateOnce(ctx, stateDir, key, wait, func() (gate.Decision, bool) {
+		var replied bool
 		// The store opens only once an ask has ended: allows and denies never
 		// reach telemetry.
-		ctx := gate.WithAskObserver(cmd.Context(), func(r gate.AskResult) {
+		observed := gate.WithAskObserver(ctx, func(r gate.AskResult) {
+			replied = r.By != "auto" && (r.Answer == gate.Allow || r.Answer == gate.Deny)
 			if tel := openTelemetry(cfg, root); tel != nil {
 				defer tel.Close()
 				recordGate(tel, a, initial, r)
 			}
 		})
-		resolved := gate.Escalate(ctx, b, lead.ID, a, wait, person)
-		resolved.Mode = d.Mode
-		d = resolved
-	}
-	return a, d, nil
+		return gate.Escalate(observed, b, leadID, a, wait, person), replied
+	})
+	resolved.Mode = d.Mode
+	return resolved, nil
 }
 
 // ownToolResult says whether a Claude read targets the saved tool results of

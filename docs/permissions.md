@@ -349,6 +349,16 @@ asks you, and a Codex lead is told to have you run it in your terminal. A
 Claude lead in `bypassPermissions` or `auto` is not asked; see the
 [section on such a lead](#a-lead-in-bypass-or-auto-decides-by-itself).
 
+## One ask per tool call
+
+Claude runs two gate hooks for a tool call, PreToolUse and PermissionRequest.
+Both reach the same question, but the lead is asked once. The first hook sends
+the ask; the second waits for it and takes its answer, keyed by the session and
+the tool call. Only a reply from the lead is shared, and only inside the ask's
+wait. A deny stays a deny, and an ask that timed out, went unanswered or whose
+record is missing or expired is never an allow: the hook asks for itself, or
+denies when its own wait ends. The person-only flag is set on the one ask.
+
 ## Reads and writes outside the work root need the person
 
 An outside-path ask is marked `p: true` on the bus. The peer's pending-ask
