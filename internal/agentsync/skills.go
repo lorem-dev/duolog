@@ -54,7 +54,7 @@ func convertSkill(src []byte, drop []string, fromClaude bool) (out []byte, warni
 	}
 	out = []byte("---\n" + generatedComment + "\n" + rendered + "---\n" + body)
 	if h, b, err := splitFrontmatter(out); err != nil || b != body {
-		return nil, nil, fmt.Errorf("rendered SKILL.md does not parse back: %v", err)
+		return nil, nil, fmt.Errorf("rendered SKILL.md does not parse back: %v", err) //nolint:errorlint // err is nil when only the body differs, and %w would print %!w(<nil>)
 	} else if _, err := parseHeader(h); err != nil {
 		return nil, nil, fmt.Errorf("rendered SKILL.md does not parse back: %w", err)
 	}

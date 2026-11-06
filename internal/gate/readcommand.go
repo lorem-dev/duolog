@@ -100,7 +100,7 @@ func findOptionsKnown(words []string) bool {
 			continue
 		}
 		// -newerXY names its two time kinds inside the option.
-		if !slices.Contains(findOptions, word) && !(strings.HasPrefix(word, "-newer") && len(word) == len("-newerXY")) {
+		if !slices.Contains(findOptions, word) && (!strings.HasPrefix(word, "-newer") || len(word) != len("-newerXY")) {
 			return false
 		}
 	}

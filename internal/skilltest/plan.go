@@ -3,6 +3,7 @@ package skilltest
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go.yaml.in/yaml/v3"
 	"io"
@@ -35,7 +36,7 @@ func ReadPlan(r io.Reader) (Plan, error) {
 		return p, err
 	}
 	var extra any
-	if err := d.Decode(&extra); err != io.EOF {
+	if err := d.Decode(&extra); !errors.Is(err, io.EOF) {
 		return p, fmt.Errorf("expected one YAML document")
 	}
 	if len(p.Situations) == 0 {

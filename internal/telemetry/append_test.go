@@ -190,7 +190,7 @@ func appendChild(t *testing.T, base string) {
 			time.Sleep(time.Minute)
 			return n, nil
 		}
-		s.Append(sampleRun())
+		_ = s.Append(sampleRun()) // the child is killed inside the append
 		t.Fatal("not killed")
 	}
 }
@@ -345,7 +345,7 @@ func TestAppendRepairsTail(t *testing.T) {
 		if err := cmd.Process.Kill(); err != nil {
 			t.Fatal(err)
 		}
-		cmd.Wait()
+		_ = cmd.Wait() // a killed child reports a signal exit
 		killed, err := os.ReadFile(seg)
 		if err != nil {
 			t.Fatal(err)
@@ -596,7 +596,7 @@ func TestAppendFailures(t *testing.T) {
 		if !slices.Contains(appendErrors, err) {
 			t.Fatalf("Append returned %v, want one of the closed errors", err)
 		}
-		if err != want {
+		if !errors.Is(err, want) {
 			t.Errorf("Append returned %v, want %v", err, want)
 		}
 		noPath(t, err, base)

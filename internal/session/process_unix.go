@@ -17,7 +17,7 @@ func ProcessAlive(pid int) bool {
 	if err != nil {
 		return true
 	}
-	defer p.Release()
+	defer func() { _ = p.Release() }()
 	err = p.Signal(syscall.Signal(0))
 	return !errors.Is(err, os.ErrProcessDone) && !errors.Is(err, syscall.ESRCH)
 }

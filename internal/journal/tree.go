@@ -43,7 +43,7 @@ func InGit(root string) bool {
 func Head(root string) (string, error) {
 	out, err := git(root, nil, nil, "rev-parse", "--verify", "-q", "HEAD")
 	if err != nil {
-		return "", nil
+		return "", nil //nolint:nilerr // outside Git, or before the first commit, the head is empty by contract
 	}
 	return strings.TrimSpace(string(out)), nil
 }

@@ -496,11 +496,11 @@ func encode(v any) ([]byte, error) {
 func withoutOurHandlers(raw json.RawMessage) (rest json.RawMessage, ours bool, err error) {
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(raw, &fields) != nil {
-		return raw, false, nil
+		return raw, false, nil //nolint:nilerr // a foreign entry we cannot read is kept as it is
 	}
 	var handlers []json.RawMessage
 	if json.Unmarshal(fields["hooks"], &handlers) != nil {
-		return raw, false, nil
+		return raw, false, nil //nolint:nilerr // a foreign entry we cannot read is kept as it is
 	}
 	var kept []json.RawMessage
 	for _, item := range handlers {
@@ -531,7 +531,7 @@ func mergeHooks(path string, ours []byte) ([]byte, error) {
 	top := map[string]json.RawMessage{}
 	if data, err := os.ReadFile(path); err == nil {
 		if err := json.Unmarshal(data, &top); err != nil || top == nil {
-			return nil, fmt.Errorf("%s: not a JSON object, nothing changed: %v", path, err)
+			return nil, fmt.Errorf("%s: not a JSON object, nothing changed: %v", path, err) //nolint:errorlint // err is nil when top is null, and %w would print %!w(<nil>)
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, err
@@ -539,7 +539,7 @@ func mergeHooks(path string, ours []byte) ([]byte, error) {
 	hooks := map[string][]json.RawMessage{}
 	if raw, ok := top["hooks"]; ok {
 		if err := json.Unmarshal(raw, &hooks); err != nil {
-			return nil, fmt.Errorf("%s: bad \"hooks\" value, nothing changed: %v", path, err)
+			return nil, fmt.Errorf("%s: bad \"hooks\" value, nothing changed: %w", path, err)
 		}
 	}
 	want := map[string][]json.RawMessage{}

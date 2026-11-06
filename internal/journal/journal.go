@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/gofrs/flock"
@@ -251,7 +252,7 @@ func dropPartialTail(f *os.File) error {
 		if _, err := f.ReadAt(chunk, start); err != nil {
 			return err
 		}
-		tail = append(chunk, tail...)
+		tail = slices.Concat(chunk, tail)
 		if i := bytes.LastIndexByte(chunk, '\n'); i >= 0 {
 			tail = tail[i+1:]
 			start += int64(i) + 1

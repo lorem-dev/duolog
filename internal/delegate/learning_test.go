@@ -132,7 +132,7 @@ func TestLearningOffOutputUnchanged(t *testing.T) {
 	}
 	noJournal(t, h)
 	var names []string
-	filepath.Walk(h.s.Dir, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(h.s.Dir, func(path string, info os.FileInfo, err error) error {
 		if err == nil && !info.IsDir() {
 			rel, _ := filepath.Rel(h.s.Dir, path)
 			names = append(names, filepath.ToSlash(rel))

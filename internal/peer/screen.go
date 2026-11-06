@@ -302,7 +302,7 @@ func cut(s string, n int) string {
 // findComposer returns the agent's input line. Codex marks it with ›. Claude
 // marks it with ❯ between two rules, which keeps it apart from a menu.
 func findComposer(agent string, lines []string) (found bool, input string, empty bool, rows []string) {
-	marker := ""
+	var marker string
 	switch agent {
 	case "codex":
 		marker = "›"

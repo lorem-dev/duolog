@@ -108,7 +108,7 @@ func TestStatusFields(t *testing.T) {
 		before := s.Health()
 		bad := sampleRun()
 		bad.Attempt = 0
-		s.Append(bad)
+		_ = s.Append(bad) // refused and counted; the health is what is checked
 		st := mustStatus(t, s)
 		if st.Health.Since != processStart || st.Health != s.Health() {
 			t.Errorf("health %+v, want the process counters %+v", st.Health, s.Health())
@@ -150,7 +150,7 @@ func TestStatusFields(t *testing.T) {
 			if err := os.Chmod(root, 0o750); err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(func() { os.Chmod(root, 0o700) })
+			t.Cleanup(func() { _ = os.Chmod(root, 0o700) })
 		}
 		oo := o
 		oo.Enabled = false
@@ -237,7 +237,7 @@ func TestStatusFields(t *testing.T) {
 		}
 		t.Cleanup(func() {
 			os.Remove(root)
-			os.Rename(moved, root)
+			_ = os.Rename(moved, root)
 		})
 		symlinkOrSkip(t, moved, root)
 		st, err := s.Status()

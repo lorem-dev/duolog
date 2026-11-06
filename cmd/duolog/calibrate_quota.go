@@ -41,7 +41,7 @@ func quotaWindows(s quota.Snapshot) []calibration.Window {
 	var ws []calibration.Window
 	add := func(model string, windows []quota.Window) {
 		for _, w := range windows {
-			kind := ""
+			var kind string
 			switch w.DurationMinutes {
 			case fiveHourMinutes:
 				kind = calibration.KindFiveHour

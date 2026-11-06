@@ -104,7 +104,7 @@ func Run(root string, cfg config.Sync, o Options) (Report, error) {
 		locked, err := mutex.TryLockContext(ctx, 20*time.Millisecond)
 		if err != nil || !locked {
 			mutex.Close()
-			return Report{}, fmt.Errorf("sync lock unavailable: %v", err)
+			return Report{}, fmt.Errorf("sync lock unavailable: %v", err) //nolint:errorlint // err is nil when the lock is merely held, and %w would print %!w(<nil>)
 		}
 		defer mutex.Close()
 	}
@@ -517,7 +517,7 @@ func (r *runner) skillUnits() []unit {
 			if err != nil {
 				u.err = err
 				units = append(units, u)
-				return nil
+				return nil //nolint:nilerr // the read error is kept on the unit and reported there; the walk goes on
 			}
 			if info, err := d.Info(); err == nil {
 				u.mode = info.Mode().Perm()

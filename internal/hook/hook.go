@@ -93,7 +93,7 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 	}
 	var h input
 	if json.Unmarshal(e.Input, &h) != nil || h.ID == "" {
-		return nil, nil
+		return nil, nil //nolint:nilerr // an event without a readable id is none of ours, so it is skipped
 	}
 	dir := filepath.Join(e.Root, ".duolog")
 	info, err := os.Stat(dir)

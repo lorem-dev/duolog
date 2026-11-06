@@ -156,7 +156,7 @@ func TestRunTimeAgentFailureWithStaticBridgedToken(t *testing.T) {
 	if e != nil || o.Needs[0] != "auth:codex" || len(h.auth.logins) != 1 {
 		t.Fatal(o, e)
 	}
-	filepath.Walk(h.s.Dir, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(h.s.Dir, func(path string, info os.FileInfo, err error) error {
 		if err == nil && !info.IsDir() && strings.Contains(read(t, path), leadToken) {
 			t.Fatalf("token in %s", path)
 		}

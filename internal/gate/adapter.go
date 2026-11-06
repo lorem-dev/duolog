@@ -189,7 +189,7 @@ func NormalizeAll(agent string, input []byte) ([]Action, error) {
 		Input struct{ Patch, Command, Pattern, Glob string } `json:"tool_input"`
 	}
 	if json.Unmarshal(input, &h) != nil {
-		return []Action{a}, nil
+		return []Action{a}, nil //nolint:nilerr // unparsable input keeps the action built so far, and the gate decides on it
 	}
 	// A search names what it reads in its pattern as well as in its path.
 	if h.Tool == "Glob" || h.Tool == "Grep" {

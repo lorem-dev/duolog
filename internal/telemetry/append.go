@@ -67,7 +67,7 @@ func (s *Store) Append(e Event) error {
 	}
 	err := s.append(e, account, known)
 	switch {
-	case err == errCapped:
+	case errors.Is(err, errCapped):
 		dropped.Add(1)
 	case err != nil:
 		countFailure()
@@ -300,7 +300,7 @@ func category(err error) error {
 	switch {
 	case err == nil:
 		return nil
-	case err == errCapped:
+	case errors.Is(err, errCapped):
 		return errCapped
 	case errors.Is(err, errBadName):
 		return errRefused

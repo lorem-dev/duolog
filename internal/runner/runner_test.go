@@ -378,7 +378,9 @@ func TestSpawnDisablesUpdates(t *testing.T) {
 		t.Fatal(e)
 	}
 	var env []string
-	json.Unmarshal(read(t, p+".env.json"), &env)
+	if err := json.Unmarshal(read(t, p+".env.json"), &env); err != nil {
+		t.Fatal(err)
+	}
 	// Auto memory is per project path: a worker's notes would reach the lead.
 	containsArgs(t, env, "DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
 	for _, v := range env {

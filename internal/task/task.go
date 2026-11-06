@@ -26,9 +26,10 @@ func parse(data []byte) (map[string]string, error) {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
 			marker := trimmed[:3]
-			if fence == "" {
+			switch fence {
+			case "":
 				fence = marker
-			} else if fence == marker {
+			case marker:
 				fence = ""
 			}
 		}
@@ -211,7 +212,7 @@ func (r Reference) Text(root string) ([]byte, error) {
 		lines = lines[:len(lines)-1]
 	}
 	if r.Last > len(lines) {
-		return nil, fmt.Errorf("Read range exceeds %s", r.Path)
+		return nil, fmt.Errorf("read range exceeds %s", r.Path)
 	}
 	return bytes.Join(lines[r.First-1:r.Last], nil), nil
 }
@@ -289,9 +290,10 @@ func Annotate(text, lines string) string {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
 			marker := trimmed[:3]
-			if fence == "" {
+			switch fence {
+			case "":
 				fence = marker
-			} else if fence == marker {
+			case marker:
 				fence = ""
 			}
 		}
@@ -331,9 +333,10 @@ func hasSecondLevelSections(text string) bool {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
 			marker := trimmed[:3]
-			if fence == "" {
+			switch fence {
+			case "":
 				fence = marker
-			} else if fence == marker {
+			case marker:
 				fence = ""
 			}
 		}

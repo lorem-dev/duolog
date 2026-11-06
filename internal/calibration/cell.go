@@ -504,7 +504,7 @@ func iniSection(doc []byte, section string) []string {
 // headBlob returns name as tree's commit has it, or nil when it has none.
 func headBlob(ctx context.Context, tree, name string) ([]byte, error) {
 	if _, err := run(ctx, tree, "cat-file", "-e", "HEAD:"+name); err != nil {
-		return nil, nil
+		return nil, nil //nolint:nilerr // cat-file -e fails when HEAD has no such file, which is the nil answer
 	}
 	return run(ctx, tree, "cat-file", "blob", "HEAD:"+name)
 }

@@ -172,12 +172,10 @@ func (c *checker) Agent(ctx context.Context, agent string) *Problem {
 	if c.passed(p) {
 		return nil
 	}
-	var out []byte
-	var err error
 	switch agent {
 	case "codex":
 		// Exits 0 only when logged in.
-		out, err = c.run(ctx, []string{"codex", "login", "status"})
+		_, err := c.run(ctx, []string{"codex", "login", "status"})
 		if err != nil {
 			// No answer, a missing binary or a killed check is not a failed login.
 			var exit *exec.ExitError
@@ -188,7 +186,8 @@ func (c *checker) Agent(ctx context.Context, agent string) *Problem {
 			return &p
 		}
 	case "claude":
-		out, err = c.run(ctx, []string{"claude", "auth", "status", "--json"})
+		// The output decides; a failed run leaves it empty and is treated as no answer.
+		out, _ := c.run(ctx, []string{"claude", "auth", "status", "--json"})
 		var status struct {
 			LoggedIn *bool `json:"loggedIn"`
 		}

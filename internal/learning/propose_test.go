@@ -329,7 +329,7 @@ func TestApplyClassRestoresOnLoadError(t *testing.T) {
 
 func TestApplyClassRestoresWhenLocalLayerMasksRule(t *testing.T) {
 	contents := "# keep project bytes\nlearning: {enabled: true}\n"
-	root, cfg := proposalRoot(t, contents)
+	root, _ := proposalRoot(t, contents)
 	local := filepath.Join(root, ".duolog", "config.local.yaml")
 	if err := os.WriteFile(local, []byte("learning:\n  classify: [{when: {}, class: docs}]\n"), 0600); err != nil {
 		t.Fatal(err)

@@ -549,13 +549,15 @@ func TestHardLinksNeverMutateOutside(t *testing.T) {
 				t.Errorf("%s flags %#x: got %v, want errUnsafe", name, flag, err)
 			}
 			if f != nil {
-				f.Write([]byte("x"))
+				_, _ = f.Write([]byte("x"))
 				f.Close()
 			}
 		}
 	}
 	// The backup exclusion writes beside the links, never through them.
-	excludeBackup(root)
+	if _, err := excludeBackup(root); err != nil {
+		t.Fatal(err)
+	}
 	for outside, mode := range outsides {
 		after, err := os.Stat(outside)
 		if err != nil {

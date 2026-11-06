@@ -22,7 +22,9 @@ func run(t *testing.T, dir string, args ...string) string {
 func write(t *testing.T, dir, name, content string) {
 	t.Helper()
 	p := filepath.Join(dir, name)
-	os.MkdirAll(filepath.Dir(p), 0755)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}

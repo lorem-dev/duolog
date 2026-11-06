@@ -156,7 +156,7 @@ func claudePathPattern(pattern, root, home, base string) (string, error) {
 	}
 	relative, err := pathutil.Relative(pathutil.Resolved(root), pathutil.Resolved(path))
 	if err != nil {
-		return pathutil.Clean(path), nil
+		return pathutil.Clean(path), nil //nolint:nilerr // a path outside the root stays absolute
 	}
 	return pathutil.Clean(relative), nil
 }
@@ -171,7 +171,7 @@ func claudeDeny(entry string) (config.Rule, error) {
 	} else {
 		pattern = "**"
 	}
-	kind := ""
+	var kind string
 	// A lead deny of mcp__server or mcp__server__tool holds for workers too.
 	// mcp__my__wiki may name the server my__wiki, so it also covers every tool
 	// whose full name starts with it.

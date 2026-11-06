@@ -284,7 +284,7 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	}
 	// A worker that exits 0 and leaves a background child holding its output
 	// has still finished: its answer is complete.
-	if runErr != nil && !(errors.Is(runErr, exec.ErrWaitDelay) && result.ExitCode == 0) {
+	if runErr != nil && (!errors.Is(runErr, exec.ErrWaitDelay) || result.ExitCode != 0) {
 		return result, runErr
 	}
 	if closeErr != nil {
@@ -324,7 +324,7 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 		return result, fmt.Errorf("invalid answer.json: %w", err)
 	}
 	var extra any
-	if err = decoder.Decode(&extra); err != io.EOF {
+	if err = decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		setCode(&result, CodeParse)
 		return result, fmt.Errorf("invalid answer.json: expected one JSON object")
 	}

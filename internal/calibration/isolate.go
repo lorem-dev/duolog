@@ -186,7 +186,7 @@ func projectHooks(ctx context.Context, repo string) ([]byte, error) {
 // HEAD has none.
 func headHooks(ctx context.Context, repo string) ([]byte, error) {
 	if _, err := run(ctx, repo, "cat-file", "-e", "HEAD:"+codexHooks); err != nil {
-		return nil, nil
+		return nil, nil //nolint:nilerr // cat-file -e fails when HEAD has no hooks file, which is the nil answer
 	}
 	return run(ctx, repo, "cat-file", "blob", "HEAD:"+codexHooks)
 }
@@ -244,17 +244,17 @@ func CheckTreeTrust(agent, dir string) error {
 	}
 	if agent == "claude" {
 		if hooks.HooksOff != "" {
-			return fmt.Errorf("Claude would run without the duolog gate in the calibration tree %s, so no cell runs there: %s sets disableAllHooks; remove it from that file, or from the commit's .claude settings with a branch that lacks it", dir, hooks.HooksOff)
+			return fmt.Errorf("Claude would run without the duolog gate in the calibration tree %s, so no cell runs there: %s sets disableAllHooks; remove it from that file, or from the commit's .claude settings with a branch that lacks it", dir, hooks.HooksOff) //nolint:staticcheck // ST1005: Claude is a product name
 		}
 		if hooks.Installed {
 			return nil
 		}
-		return fmt.Errorf("Claude has no duolog gate in the calibration tree %s, so no cell runs there: duolog writes it to %s when no other settings run it; check that the folder is writable", dir, claudeLocal)
+		return fmt.Errorf("Claude has no duolog gate in the calibration tree %s, so no cell runs there: duolog writes it to %s when no other settings run it; check that the folder is writable", dir, claudeLocal) //nolint:staticcheck // ST1005: Claude is a product name
 	}
 	if folder && hooks.Trusted {
 		return nil
 	}
-	return fmt.Errorf("Codex must trust the calibration tree %s and its hooks need approval: open Codex in %s once, trust the folder and approve its hooks in /hooks", dir, dir)
+	return fmt.Errorf("Codex must trust the calibration tree %s and its hooks need approval: open Codex in %s once, trust the folder and approve its hooks in /hooks", dir, dir) //nolint:staticcheck // ST1005: Codex is a product name
 }
 
 // Export writes the tree of commit into dst as a new repository with one

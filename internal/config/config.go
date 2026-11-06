@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -317,13 +318,13 @@ func mergeLayer(dst *yaml.Node, data []byte, source string) error {
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	var layer Config
-	if err := decoder.Decode(&layer); err == io.EOF {
+	if err := decoder.Decode(&layer); errors.Is(err, io.EOF) {
 		return nil
 	} else if err != nil {
 		return fmt.Errorf("%s: %w", source, err)
 	}
 	var extra yaml.Node
-	if err := decoder.Decode(&extra); err != io.EOF {
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		if err == nil {
 			err = fmt.Errorf("expected a single YAML document")
 		}

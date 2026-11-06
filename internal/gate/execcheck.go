@@ -161,7 +161,7 @@ func rawExecParts(command string) []string {
 			redirect = i
 		}
 		// >| is a clobber redirect, not a pipe.
-		if c != ';' && c != '|' && c != '\n' && !(c == '&' && i+1 < len(command) && command[i+1] == '&') || c == '|' && redirect == i-1 {
+		if c != ';' && c != '|' && c != '\n' && (c != '&' || i+1 >= len(command) || command[i+1] != '&') || c == '|' && redirect == i-1 {
 			continue
 		}
 		parts = append(parts, command[start:i])

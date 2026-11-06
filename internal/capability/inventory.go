@@ -105,7 +105,7 @@ func Scan(ctx context.Context, agent, root string) (Inventory, error) {
 	inv := Inventory{Agent: agent, Items: []Item{}}
 	if _, err := exec.LookPath(agent); err != nil {
 		inv.Unknown = true
-		return inv, nil
+		return inv, nil //nolint:nilerr // a missing agent binary is an unknown inventory, not a failure
 	}
 	h, err := home()
 	if err != nil {
@@ -135,7 +135,7 @@ func Scan(ctx context.Context, agent, root string) (Inventory, error) {
 	// An uninitialized project gets no cache, so that a read-only command does not
 	// create .duolog/ with no .gitignore, which hooks would then treat as set up.
 	if _, statErr := os.Stat(filepath.Join(project.StateRoot(root), ".duolog", ".gitignore")); statErr != nil {
-		return inv, nil
+		return inv, nil //nolint:nilerr // no cache in an uninitialized project, as the comment above says
 	}
 	if data, err := json.Marshal(inv); err == nil {
 		if os.MkdirAll(filepath.Dir(path), 0755) == nil {
