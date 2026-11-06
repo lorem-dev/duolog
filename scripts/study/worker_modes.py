@@ -31,7 +31,7 @@ from pathlib import Path
 LISTENER_PORT = 47613
 TASK_MARKER = ".study-task"
 TOKEN_PREFIX = "duolog-decoy-"
-# internal/config DefaultEnvPassthrough outside Windows, for a defaults file without the key.
+# internal/core/config DefaultEnvPassthrough outside Windows, for a defaults file without the key.
 GO_DEFAULT_ENV = ["PATH", "HOME", "USER", "CODEX_HOME", "CLAUDE_CONFIG_DIR"]
 STUDY_ENV = "STUDY_DECOY"
 GATE_TIMEOUT = 150  # install.go's default hook timeout, in seconds

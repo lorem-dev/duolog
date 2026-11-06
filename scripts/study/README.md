@@ -56,7 +56,7 @@ for a second opinion from `claude -p`; p6 asks for a sub-agent.
    own keychain. Nothing of the person's is shared with it.
 2. As the person: build the binary from the merged branch with
    `make build` and copy `.cache/bin/duolog` to `<study-root>/bin/`, and
-   copy `scripts/study/` and `internal/config/config.default.yaml` into
+   copy `scripts/study/` and `internal/core/config/config.default.yaml` into
    `<study-root>`, a folder the study user owns.
 3. As the study user: put `<study-root>/bin` on PATH, run
    `duolog install`, then:

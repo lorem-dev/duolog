@@ -6,9 +6,11 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
-func keysOf(entries []LadderEntry) []string {
+func keysOf(entries []config.LadderEntry) []string {
 	var keys []string
 	for _, e := range entries {
 		keys = append(keys, e.Key())
@@ -16,7 +18,7 @@ func keysOf(entries []LadderEntry) []string {
 	return keys
 }
 
-func loadWithProject(t *testing.T, project string) (*Config, string, error) {
+func loadWithProject(t *testing.T, project string) (*config.Config, string, error) {
 	t.Helper()
 	root := isolatedRoot(t)
 	if project != "" {
@@ -47,7 +49,7 @@ func TestLearningDefaultsLoad(t *testing.T) {
 		t.Fatalf("skeleton plan first: %s", got)
 	}
 	for name, c := range l.Classes {
-		all := append([]LadderEntry{}, c.Ladder...)
+		all := append([]config.LadderEntry{}, c.Ladder...)
 		for _, s := range c.Steps {
 			all = append(all, s...)
 		}
@@ -110,7 +112,7 @@ func TestProjectAddsClassByMerge(t *testing.T) {
 
 func writeLearned(t *testing.T, root, body string) {
 	t.Helper()
-	writeConfig(t, filepath.Join(root, ".duolog", LearnedRoutingFile), body)
+	writeConfig(t, filepath.Join(root, ".duolog", config.LearnedRoutingFile), body)
 }
 
 func TestLadderPutsLearnedOrderFirst(t *testing.T) {
@@ -160,7 +162,7 @@ func TestDeletingLearnedFileRestoresDefaults(t *testing.T) {
 	if _, e := cfg.Learning.Ladder("debug", "debug_hard"); e[0].Key() != "claude/opus/high" {
 		t.Fatalf("learned order not applied: %v", keysOf(e))
 	}
-	if err := os.Remove(filepath.Join(root, ".duolog", LearnedRoutingFile)); err != nil {
+	if err := os.Remove(filepath.Join(root, ".duolog", config.LearnedRoutingFile)); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err = Load(root)
@@ -174,12 +176,12 @@ func TestDeletingLearnedFileRestoresDefaults(t *testing.T) {
 }
 
 func TestParseEntryKey(t *testing.T) {
-	e, err := ParseEntryKey("codex/sol/high")
+	e, err := config.ParseEntryKey("codex/sol/high")
 	if err != nil || e.Agent != "codex" || e.Model != "sol" || e.Effort != "high" {
 		t.Fatalf("got %+v %v", e, err)
 	}
 	for _, bad := range []string{"sol/high", "gemini/x/high", "codex/sol/hgh"} {
-		if _, err := ParseEntryKey(bad); err == nil {
+		if _, err := config.ParseEntryKey(bad); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
 	}
@@ -196,7 +198,7 @@ func TestLearnedFileReadOnlyWhenEnabled(t *testing.T) {
 		t.Fatalf("Learned set while disabled: %v", cfg.Learning.Learned)
 	}
 	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "learning:\n  enabled: true\n")
-	if _, err := Load(root); err == nil || !strings.Contains(err.Error(), LearnedRoutingFile) {
+	if _, err := Load(root); err == nil || !strings.Contains(err.Error(), config.LearnedRoutingFile) {
 		t.Fatalf("enabled learning accepted a malformed learned file: %v", err)
 	}
 }

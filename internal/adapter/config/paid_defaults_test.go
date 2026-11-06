@@ -5,13 +5,15 @@ import (
 	"runtime"
 	"slices"
 	"testing"
+
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 // Workers no longer inherit billing keys by default; an explicit
 // env_passthrough entry passes them.
 func TestDefaultEnvHasNoBillingKeys(t *testing.T) {
 	for _, goos := range []string{"darwin", "linux", "windows"} {
-		names := DefaultEnvPassthrough(goos)
+		names := config.DefaultEnvPassthrough(goos)
 		for _, name := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY"} {
 			if slices.Contains(names, name) {
 				t.Errorf("%s default passes %s: %v", goos, name, names)
@@ -39,7 +41,7 @@ func TestExplicitPassthroughStillReplacesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := DefaultEnvPassthrough(runtime.GOOS); !slices.Equal(cfg.EnvPassthrough, want) {
+	if want := config.DefaultEnvPassthrough(runtime.GOOS); !slices.Equal(cfg.EnvPassthrough, want) {
 		t.Errorf("unset env_passthrough = %v, want defaults %v", cfg.EnvPassthrough, want)
 	}
 
@@ -53,12 +55,12 @@ func TestExplicitPassthroughStillReplacesDefaults(t *testing.T) {
 		t.Errorf("explicit empty env_passthrough = %#v, want empty", cfg.EnvPassthrough)
 	}
 
-	unset := &Config{}
+	unset := &config.Config{}
 	platformDefaults(unset)
-	if !slices.Equal(unset.EnvPassthrough, DefaultEnvPassthrough(runtime.GOOS)) {
+	if !slices.Equal(unset.EnvPassthrough, config.DefaultEnvPassthrough(runtime.GOOS)) {
 		t.Errorf("nil env_passthrough = %v, want defaults", unset.EnvPassthrough)
 	}
-	empty := &Config{EnvPassthrough: []string{}}
+	empty := &config.Config{EnvPassthrough: []string{}}
 	platformDefaults(empty)
 	if empty.EnvPassthrough == nil || len(empty.EnvPassthrough) != 0 {
 		t.Errorf("empty env_passthrough = %#v, want empty", empty.EnvPassthrough)

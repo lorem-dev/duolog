@@ -11,179 +11,11 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/trusthome"
 )
-
-// WorkerModes is the native permission mode a delegate worker starts in, per
-// role and per model family. Absent entries mean duolog's own default flags.
-type WorkerModes struct {
-	Roles    map[string]WorkerMode `yaml:"roles" jsonschema_description:"Native mode per role; user level, project layers may only lower. Absent means duolog's default flags."`
-	Families map[string]WorkerMode `yaml:"families" jsonschema_description:"Native mode per model family, such as luna or haiku; it only lowers: combined with the role entry by taking the lower; alone, a value above duolog's default changes nothing. Read-only roles ignore it."`
-	// Ignored names each project-layer value that Load dropped because it was
-	// above the layers before it, and each user value that Load dropped because
-	// a project layer changes the role.
-	Ignored []string `yaml:"-" jsonschema:"-"`
-	// userModels is the models as the defaults and the user layer define them,
-	// before any project layer.
-	userModels map[string]Model
-	// userRoutes is, per role, the models of its route as the defaults and the
-	// user layer give it: use, fallback and the use model mapped to the other
-	// agent by the user's model_map.
-	userRoutes map[string][]string
-}
-
-// defaultCap is the highest native name that is never looser than duolog's
-// default flag at any level: Claude acceptEdits, Codex workspace-write.
-const defaultCap = 2
-
-// WorkerMode is one role or family entry.
-type WorkerMode struct {
-	Claude        string   `yaml:"claude" jsonschema_description:"Native Claude permission mode a worker starts in; it never exceeds the lead's mode. Absent means duolog's default." jsonschema:"enum=plan,enum=default,enum=acceptEdits,enum=auto,enum=bypassPermissions"`
-	Codex         string   `yaml:"codex" jsonschema_description:"Native Codex sandbox a worker starts in; danger-full-access is not offered. Absent means duolog's default." jsonschema:"enum=read-only,enum=workspace-write"`
-	Network       bool     `yaml:"network" jsonschema_description:"Codex workspace-write only, role entries only: lets the worker's commands reach the network; defaults to false."`
-	WritableRoots []string `yaml:"writable_roots" jsonschema_description:"Codex workspace-write only, role entries only: absolute or ~/ folders the worker's commands may write besides the project; defaults to none."`
-}
-
-// For returns the entry's native name for an agent, empty when it sets none.
-func (w WorkerMode) For(agent string) string {
-	switch agent {
-	case "claude":
-		return w.Claude
-	case "codex":
-		return w.Codex
-	}
-	return ""
-}
-
-// Request combines the role entry and the entries of the given families for
-// one agent by taking the lower. Only a role entry can ask for more than
-// duolog's default: a family entry lowers, and without a role entry it asks
-// at most acceptEdits or workspace-write. Without a role entry, a family entry
-// above that is skipped, so it does not lower the level below what duolog's
-// default gives. Source names the entries that set a value.
-func (w WorkerModes) Request(role string, families []string, agent string) mode.Request {
-	native := w.Roles[role].For(agent)
-	var sources []string
-	if native != "" {
-		sources = append(sources, "role "+role)
-	}
-	for _, family := range families {
-		f := w.Families[family].For(agent)
-		if f == "" {
-			continue
-		}
-		if rank, ok := mode.Rank(agent, f); native == "" && ok && rank > defaultCap {
-			continue
-		}
-		sources = append(sources, "family "+family)
-		if native == "" {
-			native = capName(agent)
-		}
-		native = mode.LowerNative(agent, native, f)
-	}
-	if len(sources) == 0 {
-		return mode.Request{}
-	}
-	return mode.Request{Native: native, Source: strings.Join(sources, ", ")}
-}
-
-// capName is the native name of defaultCap for an agent.
-func capName(agent string) string {
-	if agent == "codex" {
-		return "workspace-write"
-	}
-	return "acceptEdits"
-}
-
-// Extras returns the role entry's Codex network switch and writable roots,
-// already expanded and cleaned by Load.
-func (w WorkerModes) Extras(role string) (network bool, roots []string) {
-	e := w.Roles[role]
-	return e.Network, e.WritableRoots
-}
-
-// Families names the families whose entries apply when role runs on model:
-// the model's family in the merged config and as the user layer defines it,
-// and the families of the role's route as the user layer gives it. Request
-// takes the lowest of their entries, so a project source that moves the route
-// (a learning ladder, routing.learned.yaml, a model_map, a version pin) or a
-// model's family cannot escape a family entry that lowers the person's route.
-func Families(cfg *Config, role, model string) []string {
-	var families []string
-	add := func(models map[string]Model, model string) {
-		for _, f := range modelFamilies(models, model) {
-			if !slices.Contains(families, f) {
-				families = append(families, f)
-			}
-		}
-	}
-	user := cfg.WorkerModes.userModels
-	add(cfg.Models, model)
-	add(user, model)
-	for _, m := range cfg.WorkerModes.userRoutes[role] {
-		add(user, m)
-	}
-	return families
-}
-
-// RouteFamilies is Families for a route with the given sandbox. A read-only
-// role starts read-only whatever a family entry says, so there the families
-// are none: a family entry would only set the role's gate to plan, which
-// denies its web reads. A role entry still does that.
-func RouteFamilies(cfg *Config, role, model, sandbox string) []string {
-	if sandbox == "read-only" {
-		return nil
-	}
-	return Families(cfg, role, model)
-}
-
-// modelFamilies is the family of a model and, for a version pin, the family of
-// every model alias named in the pin: claude-3-5-haiku-20241022 is haiku.
-func modelFamilies(models map[string]Model, model string) []string {
-	out := []string{familyOf(models, model)}
-	if _, ok := models[model]; ok {
-		return out
-	}
-	for _, part := range strings.Split(model, "-") {
-		if _, ok := models[part]; ok {
-			if f := familyOf(models, part); !slices.Contains(out, f) {
-				out = append(out, f)
-			}
-		}
-	}
-	return out
-}
-
-// Family names the model family of an alias or version pin.
-func Family(cfg *Config, model string) string {
-	return familyOf(cfg.Models, model)
-}
-
-// familyOf names the family of an alias or version pin. A pin's family is the
-// first alias it names, so claude-3-5-haiku-20241022 is haiku; without one, a
-// gpt pin's last part and a claude pin's second.
-func familyOf(models map[string]Model, model string) string {
-	if m, ok := models[model]; ok {
-		return cmp.Or(m.Family, model)
-	}
-	parts := strings.Split(model, "-")
-	if strings.HasPrefix(model, "gpt-") || strings.HasPrefix(model, "claude-") {
-		for _, part := range parts[1:] {
-			if m, ok := models[part]; ok {
-				return cmp.Or(m.Family, part)
-			}
-		}
-	}
-	switch {
-	case strings.HasPrefix(model, "gpt-"):
-		return parts[len(parts)-1]
-	case strings.HasPrefix(model, "claude-") && len(parts) > 1:
-		return parts[1]
-	}
-	return model
-}
 
 // routeModels lists the models of each role's route in view: use, fallback,
 // and the use model mapped to the other agent by view's model_map.
@@ -219,8 +51,8 @@ type layerMode struct {
 	WritableRoots *[]string `yaml:"writable_roots"`
 }
 
-func (l layerMode) entry() WorkerMode {
-	var e WorkerMode
+func (l layerMode) entry() config.WorkerMode {
+	var e config.WorkerMode
 	if l.Claude != nil {
 		e.Claude = *l.Claude
 	}
@@ -248,9 +80,9 @@ type layerWorkerModes struct {
 // userView is the roles and models as the defaults and the user layer define
 // them, before any project layer.
 type userView struct {
-	Roles  map[string]Role  `yaml:"roles"`
-	Models map[string]Model `yaml:"models"`
-	Sync   Sync             `yaml:"sync"`
+	Roles  map[string]config.Role  `yaml:"roles"`
+	Models map[string]config.Model `yaml:"models"`
+	Sync   config.Sync             `yaml:"sync"`
 }
 
 func decodeUserView(merged *yaml.Node) (userView, error) {
@@ -275,14 +107,14 @@ func decodeUserView(merged *yaml.Node) (userView, error) {
 // only lower the entry as the layers before it left it. A family entry only
 // lowers (Request), and it applies by the model's family in the user layer as
 // well as in the merged config (Families).
-func resolveWorkerModes(cfg *Config, view userView, user, shared, local []byte) error {
+func resolveWorkerModes(cfg *config.Config, view userView, user, shared, local []byte) error {
 	var base struct {
-		WorkerModes WorkerModes `yaml:"worker_modes"`
+		WorkerModes config.WorkerModes `yaml:"worker_modes"`
 	}
 	if err := yaml.Unmarshal(user, &base); err != nil {
 		return err
 	}
-	userCfg := &Config{Roles: view.Roles}
+	userCfg := &config.Config{Roles: view.Roles}
 	baseRoles, baseFams := base.WorkerModes.Roles, base.WorkerModes.Families
 	for _, kind := range []string{"roles", "families"} {
 		entries := baseRoles
@@ -306,7 +138,7 @@ func resolveWorkerModes(cfg *Config, view userView, user, shared, local []byte) 
 			}
 		}
 	}
-	out := WorkerModes{Roles: cloneModes(baseRoles), Families: cloneModes(baseFams)}
+	out := config.WorkerModes{Roles: cloneModes(baseRoles), Families: cloneModes(baseFams)}
 	for i, data := range [][]byte{shared, local} {
 		file := ".duolog/config.yaml"
 		if i == 1 {
@@ -335,9 +167,8 @@ func resolveWorkerModes(cfg *Config, view userView, user, shared, local []byte) 
 			capChangedRole(&out, name, file)
 		}
 	}
-	out.userModels = view.Models
-	out.userRoutes = routeModels(view)
-	for _, entries := range []map[string]WorkerMode{out.Roles, out.Families} {
+	out.SetUserView(view.Models, routeModels(view))
+	for _, entries := range []map[string]config.WorkerMode{out.Roles, out.Families} {
 		for name, e := range entries {
 			if e.Claude == "" && e.Codex == "" && !e.Network && len(e.WritableRoots) == 0 {
 				delete(entries, name)
@@ -357,7 +188,7 @@ func resolveWorkerModes(cfg *Config, view userView, user, shared, local []byte) 
 // lowerWorkerEntry applies one project-layer entry to out, keeping a value
 // only when it is at or below the entry as the layers before it left it, or
 // at or below duolog's default when they set none.
-func lowerWorkerEntry(out *WorkerModes, outEntries map[string]WorkerMode, kind, name, file string, l layerMode) error {
+func lowerWorkerEntry(out *config.WorkerModes, outEntries map[string]config.WorkerMode, kind, name, file string, l layerMode) error {
 	base, hasBase := outEntries[name]
 	e := base
 	e.WritableRoots = slices.Clone(base.WritableRoots)
@@ -382,7 +213,7 @@ func lowerWorkerEntry(out *WorkerModes, outEntries map[string]WorkerMode, kind, 
 			continue
 		}
 		rank, _ := mode.Rank(agent, *ptr)
-		limit := defaultCap
+		limit := config.DefaultCap
 		if b := base.For(agent); b != "" {
 			limit, _ = mode.Rank(agent, b)
 		}
@@ -433,7 +264,7 @@ func lowerWorkerEntry(out *WorkerModes, outEntries map[string]WorkerMode, kind, 
 // capChangedRole drops what a role entry asks above duolog's default once a
 // project layer changes the role: its route or sandbox may no longer be the
 // one the person gave the entry for. Lowering values stay.
-func capChangedRole(out *WorkerModes, name, file string) {
+func capChangedRole(out *config.WorkerModes, name, file string) {
 	e, ok := out.Roles[name]
 	if !ok {
 		return
@@ -443,7 +274,7 @@ func capChangedRole(out *WorkerModes, name, file string) {
 			"worker_modes.roles.%s.%s %s is ignored: %s changes role %s; duolog's default applies",
 			name, field, value, file, name))
 	}
-	if rank, _ := mode.Rank("claude", e.Claude); rank > defaultCap {
+	if rank, _ := mode.Rank("claude", e.Claude); rank > config.DefaultCap {
 		ignore("claude", e.Claude)
 		e.Claude = ""
 	}
@@ -458,9 +289,9 @@ func capChangedRole(out *WorkerModes, name, file string) {
 	out.Roles[name] = e
 }
 
-func validateWorkerEntry(cfg *Config, kind, name string, e WorkerMode) error {
+func validateWorkerEntry(cfg *config.Config, kind, name string, e config.WorkerMode) error {
 	path := "worker_modes." + kind + "." + name
-	var role Role
+	var role config.Role
 	if kind == "roles" {
 		var ok bool
 		if role, ok = cfg.Roles[name]; !ok {
@@ -625,8 +456,8 @@ func protectedFolders(goos, home string, getenv func(string) string) []string {
 	return protected
 }
 
-func cloneModes(m map[string]WorkerMode) map[string]WorkerMode {
-	out := make(map[string]WorkerMode, len(m))
+func cloneModes(m map[string]config.WorkerMode) map[string]config.WorkerMode {
+	out := make(map[string]config.WorkerMode, len(m))
 	for k, v := range m {
 		v.WritableRoots = slices.Clone(v.WritableRoots)
 		out[k] = v

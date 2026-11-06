@@ -11,9 +11,11 @@ import (
 
 	validator "github.com/santhosh-tekuri/jsonschema/v6"
 	"go.yaml.in/yaml/v3"
+
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
-func noticeKeys(notices []ConfigNotice) []string {
+func noticeKeys(notices []config.ConfigNotice) []string {
 	keys := make([]string, 0, len(notices))
 	for _, n := range notices {
 		keys = append(keys, n.Key)
@@ -34,7 +36,7 @@ func userConfigPath(t *testing.T) string {
 // equal to the generated one.
 func paidSchema(t *testing.T) *validator.Schema {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "duolog-config.schema.json"))
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "duolog-config.schema.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,10 +45,10 @@ func paidSchema(t *testing.T) *validator.Schema {
 		t.Fatal(err)
 	}
 	c := validator.NewCompiler()
-	if err := c.AddResource(SchemaURL, doc); err != nil {
+	if err := c.AddResource(config.SchemaURL, doc); err != nil {
 		t.Fatal(err)
 	}
-	s, err := c.Compile(SchemaURL)
+	s, err := c.Compile(config.SchemaURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +145,7 @@ func TestPaidDefaultsAndValidation(t *testing.T) {
 		}
 	}
 	for _, text := range []string{
-		string(defaultConfig),
+		string(config.DefaultYAML()),
 		"paid_runs: {codex: {allow: true, daily_cap_usd: 5}}",
 		"paid_runs: {claude: {allow: true, daily_cap_usd: 2.5, calibrate: true}}",
 		"paid_runs: {claude: {subscription_endpoints: {corp-gateway: \"https://llm.example.com/claude\"}}}",

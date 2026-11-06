@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 )
@@ -281,9 +282,9 @@ func TestWorkerModesLaterLayerCannotUndoLowering(t *testing.T) {
 // model's family gains nothing above duolog's default and loses no lowering.
 func TestWorkerModesProjectRolesAndModelsCannotRaise(t *testing.T) {
 	ceiling := mode.NewCeiling("claude", "bypassPermissions", mode.Full, mode.Full)
-	resolve := func(cfg *Config, role, model string) mode.Resolved {
+	resolve := func(cfg *config.Config, role, model string) mode.Resolved {
 		route := cfg.Roles[role]
-		return mode.Resolve("claude", cfg.WorkerModes.Request(role, Families(cfg, role, model), "claude"), ceiling, route.Sandbox)
+		return mode.Resolve("claude", cfg.WorkerModes.Request(role, config.Families(cfg, role, model), "claude"), ceiling, route.Sandbox)
 	}
 	t.Run("family entry on a changed or new role", func(t *testing.T) {
 		root := isolatedRoot(t)
@@ -358,7 +359,7 @@ func TestWorkerModesProjectRolesAndModelsCannotRaise(t *testing.T) {
 			}
 		}
 		// A project model_map moves the derived Codex fallback from luna to sol.
-		req := cfg.WorkerModes.Request("docs", Families(cfg, "docs", "sol"), "codex")
+		req := cfg.WorkerModes.Request("docs", config.Families(cfg, "docs", "sol"), "codex")
 		if req.Native != "read-only" {
 			t.Errorf("docs on the mapped sol: %+v", req)
 		}
@@ -368,9 +369,9 @@ func TestWorkerModesProjectRolesAndModelsCannotRaise(t *testing.T) {
 // A family entry lowers a role entry; alone it asks no more than duolog's
 // default.
 func TestWorkerModesFamilyOnlyLowers(t *testing.T) {
-	w := WorkerModes{
-		Roles:    map[string]WorkerMode{"implement": {Claude: "bypassPermissions"}},
-		Families: map[string]WorkerMode{"haiku": {Claude: "auto"}, "opus": {Claude: "bypassPermissions"}, "sonnet": {Claude: "plan"}},
+	w := config.WorkerModes{
+		Roles:    map[string]config.WorkerMode{"implement": {Claude: "bypassPermissions"}},
+		Families: map[string]config.WorkerMode{"haiku": {Claude: "auto"}, "opus": {Claude: "bypassPermissions"}, "sonnet": {Claude: "plan"}},
 	}
 	for _, tc := range []struct {
 		role   string
@@ -394,7 +395,7 @@ func TestWorkerModesFamilyOnlyLowers(t *testing.T) {
 func TestFamily(t *testing.T) {
 	cfg, _ := Load(isolatedRoot(t))
 	for model, want := range map[string]string{"sol": "sol", "luna": "luna", "sonnet": "sonnet", "gpt-6.1-sol": "sol", "claude-haiku-5-5": "haiku", "claude-3-5-haiku-20241022": "haiku", "claude-3-opus-latest": "opus", "other": "other"} {
-		if got := Family(cfg, model); got != want {
+		if got := config.Family(cfg, model); got != want {
 			t.Errorf("Family(%q)=%q want %q", model, got, want)
 		}
 	}

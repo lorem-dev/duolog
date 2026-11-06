@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 // telemetryEnv set to off turns local telemetry off for every project. No
@@ -17,19 +19,11 @@ const telemetryEnv = "DUOLOG_TELEMETRY"
 // maxRetentionDays bounds how long any telemetry record lives.
 const maxRetentionDays = 30
 
-type Telemetry struct {
-	Enabled         bool `yaml:"enabled" jsonschema_description:"Keep local telemetry on this machine; defaults to true. User level; a project may set false to stop its own run, gate and peer events, and DUOLOG_TELEMETRY=off turns it off everywhere."`
-	RetentionDays   int  `yaml:"retention_days" jsonschema_description:"Days a telemetry record lives, 1 to 30; defaults to 30. User level only; project layers cannot change it." jsonschema:"minimum=1,maximum=30"`
-	PruneEveryHours int  `yaml:"prune_every_hours" jsonschema_description:"Hours between prunes triggered by a telemetry write; defaults to 6. User level only." jsonschema:"minimum=1"`
-	MaxMegabytes    int  `yaml:"max_megabytes" jsonschema_description:"Size cap of the whole telemetry store in megabytes, oldest segments removed first; defaults to 16. User level only." jsonschema:"minimum=1"`
-	ProjectEnabled  bool `yaml:"-" jsonschema:"-"`
-}
-
 // keepTelemetry returns the user-level section with only the disabling rules
 // applied: retention, caps and the prune interval stay user-wide, so pruning
 // never depends on which project runs it. A project can stop its own
 // partition but not account events, and the environment can only turn it off.
-func keepTelemetry(user Telemetry, projectOff, envOff bool) Telemetry {
+func keepTelemetry(user config.Telemetry, projectOff, envOff bool) config.Telemetry {
 	kept := user
 	if envOff {
 		kept.Enabled = false
@@ -40,12 +34,12 @@ func keepTelemetry(user Telemetry, projectOff, envOff bool) Telemetry {
 
 // userTelemetry reads the telemetry section merged from the embedded defaults
 // and the user layer, before any project layer.
-func userTelemetry(merged *yaml.Node) (Telemetry, error) {
+func userTelemetry(merged *yaml.Node) (config.Telemetry, error) {
 	var section struct {
-		Telemetry Telemetry `yaml:"telemetry"`
+		Telemetry config.Telemetry `yaml:"telemetry"`
 	}
 	if err := merged.Decode(&section); err != nil {
-		return Telemetry{}, fmt.Errorf("user config: %w", err)
+		return config.Telemetry{}, fmt.Errorf("user config: %w", err)
 	}
 	return section.Telemetry, nil
 }
@@ -68,7 +62,7 @@ func telemetryEnvOff() bool {
 	return strings.EqualFold(strings.TrimSpace(os.Getenv(telemetryEnv)), "off")
 }
 
-func validateTelemetry(t Telemetry) error {
+func validateTelemetry(t config.Telemetry) error {
 	if t.RetentionDays < 1 || t.RetentionDays > maxRetentionDays {
 		return fmt.Errorf("telemetry.retention_days: must be 1 to %d", maxRetentionDays)
 	}

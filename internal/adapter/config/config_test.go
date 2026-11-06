@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 // isolatedRoot is a project root in a Git checkout, with a temporary home:
@@ -34,7 +36,7 @@ func archiveRoot(t *testing.T) string {
 }
 
 func TestDefaultModelsMatchLoadedDefaults(t *testing.T) {
-	models, err := DefaultModels()
+	models, err := config.DefaultModels()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,12 +153,12 @@ func TestPinnedModelAccepted(t *testing.T) {
 }
 
 func TestDefaultsHoldOnlyAliases(t *testing.T) {
-	var cfg Config
-	if err := yaml.Unmarshal(defaultConfig, &cfg); err != nil {
+	var cfg config.Config
+	if err := yaml.Unmarshal(config.DefaultYAML(), &cfg); err != nil {
 		t.Fatal(err)
 	}
 	for name, role := range cfg.Roles {
-		for _, target := range []Target{role.Use, role.Fallback} {
+		for _, target := range []config.Target{role.Use, role.Fallback} {
 			if _, ok := cfg.Models[target.Model]; !ok {
 				t.Errorf("role %s uses non-alias %q", name, target.Model)
 			}
@@ -390,7 +392,7 @@ func TestMCPRulesAddToPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "capabilities:\n  mcp_tools: {jira: [get_issue, search]}\n")
-	writeConfig(t, filepath.Join(root, ".duolog", LearnedFile), "rules:\n  - {action: mcp, match: wiki/read, decision: allow}\n  - {action: mcp, match: wiki/delete, decision: deny}\n")
+	writeConfig(t, filepath.Join(root, ".duolog", config.LearnedFile), "rules:\n  - {action: mcp, match: wiki/read, decision: allow}\n  - {action: mcp, match: wiki/delete, decision: deny}\n")
 	cfg, err := Load(root)
 	if err != nil {
 		t.Fatal(err)

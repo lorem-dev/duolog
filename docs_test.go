@@ -184,7 +184,7 @@ func TestDocsPaidKeyMigration(t *testing.T) {
 	}
 
 	// Prices now drive admission of paid runs, not only estimates.
-	for _, path := range []string{filepath.Join("internal", "config", "config.default.yaml"), filepath.Join("internal", "config", "config.go"), "duolog-config.schema.json"} {
+	for _, path := range []string{filepath.Join("internal", "core", "config", "config.default.yaml"), filepath.Join("internal", "core", "config", "config.go"), "duolog-config.schema.json"} {
 		b, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)

@@ -1,6 +1,6 @@
 # Practices and models on 2026-10-30
 
-This page gives the evidence behind `internal/config/config.default.yaml`.
+This page gives the evidence behind `internal/core/config/config.default.yaml`.
 Each section says how far you can trust its data, because many benchmark
 numbers come from vendor charts or from one blog.
 
@@ -123,5 +123,5 @@ The same session found these problems:
 
 ## Related pages
 
-- [The default rules](../../internal/config/config.default.yaml): the config
-  this evidence supports
+- [The default rules](../../internal/core/config/config.default.yaml): the
+  config this evidence supports

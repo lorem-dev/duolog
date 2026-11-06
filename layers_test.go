@@ -84,6 +84,7 @@ var appOrder = []string{"launch", "lead", "quota", "learn", "paidruns", "gate", 
 // with the PR that removes each. The list may only shrink; a move may rename a
 // key when the same import gets a new path at one end.
 var knownViolations = map[string]string{
+	"internal/adapter/config (test) -> internal/gate":         "PR 19",
 	"internal/agentsync -> github.com/gofrs/flock":            "PR 43",
 	"internal/agentsync -> github.com/pelletier/go-toml/v2":   "PR 43",
 	"internal/agentsync -> internal/config":                   "PR 10",
@@ -106,7 +107,6 @@ var knownViolations = map[string]string{
 	"internal/calibration -> internal/trusthome":              "PR 36",
 	"internal/calibration -> internal/workerenv":              "PR 35",
 	"internal/calibration -> os/exec":                         "PR 45",
-	"internal/config (test) -> internal/gate":                 "PR 19",
 	"internal/delegate (test) -> internal/agentsync":          "PR 28",
 	"internal/delegate (test) -> internal/hook":               "PR 28",
 	"internal/delegate (test) -> internal/install":            "PR 28",

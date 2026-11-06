@@ -3,13 +3,16 @@ package config
 import (
 	_ "embed"
 	"fmt"
-	"runtime"
 
 	"go.yaml.in/yaml/v3"
 )
 
 //go:embed config.default.yaml
 var defaultConfig []byte
+
+// DefaultYAML returns the embedded config.default.yaml, the first layer that
+// internal/adapter/config merges.
+func DefaultYAML() []byte { return defaultConfig }
 
 // DefaultModels returns the models of the embedded config.default.yaml by
 // alias, without any user or project layer.
@@ -31,9 +34,4 @@ func DefaultEnvPassthrough(goos string) []string {
 		names = append(names, "SYSTEMROOT", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "PATHEXT", "COMSPEC", "PSMODULEPATH")
 	}
 	return names
-}
-func platformDefaults(cfg *Config) {
-	if cfg.EnvPassthrough == nil {
-		cfg.EnvPassthrough = DefaultEnvPassthrough(runtime.GOOS)
-	}
 }

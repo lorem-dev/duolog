@@ -2,7 +2,8 @@
 
 This page explains the config file: where duolog reads it, what each section
 does, and how to check a role. The defaults are in
-[internal/config/config.default.yaml](../internal/config/config.default.yaml).
+[config.default.yaml](../internal/core/config/config.default.yaml) in
+`internal/core/config`.
 
 ## Where duolog reads the config
 

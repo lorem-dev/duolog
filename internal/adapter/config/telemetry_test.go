@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 func telemetryRoot(t *testing.T) (root, userPath string) {
@@ -24,39 +26,39 @@ func TestTelemetryDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Telemetry{Enabled: true, RetentionDays: 30, PruneEveryHours: 6, MaxMegabytes: 16, ProjectEnabled: true}
+	want := config.Telemetry{Enabled: true, RetentionDays: 30, PruneEveryHours: 6, MaxMegabytes: 16, ProjectEnabled: true}
 	if cfg.Telemetry != want {
 		t.Fatalf("got %+v, want %+v", cfg.Telemetry, want)
 	}
 }
 
 func TestTelemetryLayers(t *testing.T) {
-	defaults := Telemetry{Enabled: true, RetentionDays: 30, PruneEveryHours: 6, MaxMegabytes: 16, ProjectEnabled: true}
+	defaults := config.Telemetry{Enabled: true, RetentionDays: 30, PruneEveryHours: 6, MaxMegabytes: 16, ProjectEnabled: true}
 	for _, tc := range []struct {
 		name               string
 		user, project, loc string
 		env                string
-		want               Telemetry
+		want               config.Telemetry
 	}{
 		{name: "absent fields keep defaults", user: "telemetry:\n  retention_days: 10\n", project: "telemetry: {}\n",
-			want: Telemetry{Enabled: true, RetentionDays: 10, PruneEveryHours: 6, MaxMegabytes: 16, ProjectEnabled: true}},
+			want: config.Telemetry{Enabled: true, RetentionDays: 10, PruneEveryHours: 6, MaxMegabytes: 16, ProjectEnabled: true}},
 		{name: "user off with project true", user: "telemetry:\n  enabled: false\n", project: "telemetry:\n  enabled: true\n",
-			want: Telemetry{Enabled: false, RetentionDays: 30, PruneEveryHours: 6, MaxMegabytes: 16, ProjectEnabled: false}},
+			want: config.Telemetry{Enabled: false, RetentionDays: 30, PruneEveryHours: 6, MaxMegabytes: 16, ProjectEnabled: false}},
 		{name: "project false keeps account events", project: "telemetry:\n  enabled: false\n",
-			want: Telemetry{Enabled: true, RetentionDays: 30, PruneEveryHours: 6, MaxMegabytes: 16, ProjectEnabled: false}},
+			want: config.Telemetry{Enabled: true, RetentionDays: 30, PruneEveryHours: 6, MaxMegabytes: 16, ProjectEnabled: false}},
 		{name: "project false with local true", project: "telemetry:\n  enabled: false\n", loc: "telemetry:\n  enabled: true\n",
-			want: Telemetry{Enabled: true, RetentionDays: 30, PruneEveryHours: 6, MaxMegabytes: 16, ProjectEnabled: false}},
+			want: config.Telemetry{Enabled: true, RetentionDays: 30, PruneEveryHours: 6, MaxMegabytes: 16, ProjectEnabled: false}},
 		{name: "local false with project true", project: "telemetry:\n  enabled: true\n", loc: "telemetry:\n  enabled: false\n",
-			want: Telemetry{Enabled: true, RetentionDays: 30, PruneEveryHours: 6, MaxMegabytes: 16, ProjectEnabled: false}},
+			want: config.Telemetry{Enabled: true, RetentionDays: 30, PruneEveryHours: 6, MaxMegabytes: 16, ProjectEnabled: false}},
 		{name: "lower layers cannot change maintenance",
 			user:    "telemetry:\n  retention_days: 20\n  prune_every_hours: 12\n  max_megabytes: 8\n",
 			project: "telemetry:\n  retention_days: 30\n  prune_every_hours: 1\n  max_megabytes: 64\n",
 			loc:     "telemetry:\n  retention_days: 5\n  prune_every_hours: 24\n  max_megabytes: 2\n",
-			want:    Telemetry{Enabled: true, RetentionDays: 20, PruneEveryHours: 12, MaxMegabytes: 8, ProjectEnabled: true}},
+			want:    config.Telemetry{Enabled: true, RetentionDays: 20, PruneEveryHours: 12, MaxMegabytes: 8, ProjectEnabled: true}},
 		{name: "env off", env: "off",
-			want: Telemetry{Enabled: false, RetentionDays: 30, PruneEveryHours: 6, MaxMegabytes: 16, ProjectEnabled: false}},
+			want: config.Telemetry{Enabled: false, RetentionDays: 30, PruneEveryHours: 6, MaxMegabytes: 16, ProjectEnabled: false}},
 		{name: "env on cannot enable", user: "telemetry:\n  enabled: false\n", env: "on",
-			want: Telemetry{Enabled: false, RetentionDays: 30, PruneEveryHours: 6, MaxMegabytes: 16, ProjectEnabled: false}},
+			want: config.Telemetry{Enabled: false, RetentionDays: 30, PruneEveryHours: 6, MaxMegabytes: 16, ProjectEnabled: false}},
 		{name: "env on keeps defaults", env: "on", want: defaults},
 		{name: "env empty keeps defaults", env: "", want: defaults},
 	} {

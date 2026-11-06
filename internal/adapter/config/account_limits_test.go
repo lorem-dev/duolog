@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 func TestSessionLimitsDefaultsRestrictiveLayers(t *testing.T) {
@@ -13,17 +15,17 @@ func TestSessionLimitsDefaultsRestrictiveLayers(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := cfg.Limits
-	if l.MaxTotalSessions != 10 || l.SessionsByTier != (SessionTiers{Small: 3, Medium: 5, Large: 10}) || l.SessionWaitSeconds != 60 {
+	if l.MaxTotalSessions != 10 || l.SessionsByTier != (config.SessionTiers{Small: 3, Medium: 5, Large: 10}) || l.SessionWaitSeconds != 60 {
 		t.Errorf("session defaults = total %d, tiers %+v, wait %d; want 10, 3/5/10, 60", l.MaxTotalSessions, l.SessionsByTier, l.SessionWaitSeconds)
 	}
 	if l.MaxLiveSessions != 1 {
 		t.Errorf("max_live_sessions = %d, want 1 as before", l.MaxLiveSessions)
 	}
-	if b := cfg.Balance; b != (Balance{MaxAgeSeconds: 120, MinIntervalShare: .05, Margin: .2}) {
+	if b := cfg.Balance; b != (config.Balance{MaxAgeSeconds: 120, MinIntervalShare: .05, Margin: .2}) {
 		t.Errorf("balance defaults = %+v, want age 120, min interval 0.05, margin 0.2", b)
 	}
-	if DefaultSessionTiers() != l.SessionsByTier || DefaultBalance() != cfg.Balance {
-		t.Errorf("exported defaults %+v %+v differ from Load's", DefaultSessionTiers(), DefaultBalance())
+	if config.DefaultSessionTiers() != l.SessionsByTier || config.DefaultBalance() != cfg.Balance {
+		t.Errorf("exported defaults %+v %+v differ from Load's", config.DefaultSessionTiers(), config.DefaultBalance())
 	}
 	if len(cfg.Notices) != 0 {
 		t.Errorf("default notices = %v, want none", cfg.Notices)
@@ -41,10 +43,10 @@ func TestSessionLimitsDefaultsRestrictiveLayers(t *testing.T) {
 		t.Fatal(err)
 	}
 	l = cfg.Limits
-	if l.MaxTotalSessions != 16 || l.SessionsByTier != (SessionTiers{Small: 2, Medium: 8, Large: 12}) || l.SessionWaitSeconds != 0 {
+	if l.MaxTotalSessions != 16 || l.SessionsByTier != (config.SessionTiers{Small: 2, Medium: 8, Large: 12}) || l.SessionWaitSeconds != 0 {
 		t.Errorf("user layer = total %d, tiers %+v, wait %d; want 16, 2/8/12, 0", l.MaxTotalSessions, l.SessionsByTier, l.SessionWaitSeconds)
 	}
-	if cfg.Balance != (Balance{MaxAgeSeconds: 300, MinIntervalShare: .05, Margin: .3}) {
+	if cfg.Balance != (config.Balance{MaxAgeSeconds: 300, MinIntervalShare: .05, Margin: .3}) {
 		t.Errorf("trusted balance = %+v", cfg.Balance)
 	}
 	if got := noticeKeys(cfg.Notices); len(got) != 0 {
@@ -64,7 +66,7 @@ func TestSessionLimitsDefaultsRestrictiveLayers(t *testing.T) {
 			t.Fatal(err)
 		}
 		l = cfg.Limits
-		if l.MaxTotalSessions != 10 || l.SessionsByTier != (SessionTiers{Small: 3, Medium: 5, Large: 10}) {
+		if l.MaxTotalSessions != 10 || l.SessionsByTier != (config.SessionTiers{Small: 3, Medium: 5, Large: 10}) {
 			t.Errorf("local layer (user %q) raised: total %d, tiers %+v; want 10, 3/5/10", user, l.MaxTotalSessions, l.SessionsByTier)
 		}
 		want := []string{"limits.max_total_sessions", "limits.sessions_by_tier.small", "limits.sessions_by_tier.large"}
@@ -94,13 +96,13 @@ balance: {max_age_seconds: 600, min_interval_share: 0.02, margin: 0.1}
 		t.Fatal(err)
 	}
 	l = cfg.Limits
-	if l.MaxTotalSessions != 6 || l.SessionsByTier != (SessionTiers{Small: 2, Medium: 5, Large: 10}) || l.SessionWaitSeconds != 30 {
+	if l.MaxTotalSessions != 6 || l.SessionsByTier != (config.SessionTiers{Small: 2, Medium: 5, Large: 10}) || l.SessionWaitSeconds != 30 {
 		t.Errorf("project widening applied: total %d, tiers %+v, wait %d; want 6, 2/5/10, 30", l.MaxTotalSessions, l.SessionsByTier, l.SessionWaitSeconds)
 	}
 	if l.MaxLiveSessions != 2 {
 		t.Errorf("max_live_sessions = %d, want the project's 2 as before", l.MaxLiveSessions)
 	}
-	if cfg.Balance != DefaultBalance() {
+	if cfg.Balance != config.DefaultBalance() {
 		t.Errorf("project loosened balance: %+v", cfg.Balance)
 	}
 	want := []string{
@@ -124,10 +126,10 @@ balance: {max_age_seconds: 600, min_interval_share: 0.02, margin: 0.1}
 		t.Fatal(err)
 	}
 	l = cfg.Limits
-	if l.MaxTotalSessions != 3 || l.SessionsByTier != (SessionTiers{Small: 3, Medium: 4, Large: 10}) || l.SessionWaitSeconds != 10 || len(cfg.Notices) != 0 {
+	if l.MaxTotalSessions != 3 || l.SessionsByTier != (config.SessionTiers{Small: 3, Medium: 4, Large: 10}) || l.SessionWaitSeconds != 10 || len(cfg.Notices) != 0 {
 		t.Errorf("project lowering = total %d, tiers %+v, wait %d, notices %v", l.MaxTotalSessions, l.SessionsByTier, l.SessionWaitSeconds, cfg.Notices)
 	}
-	if cfg.Balance != (Balance{MaxAgeSeconds: 60, MinIntervalShare: .1, Margin: .5}) {
+	if cfg.Balance != (config.Balance{MaxAgeSeconds: 60, MinIntervalShare: .1, Margin: .5}) {
 		t.Errorf("project tightening of balance = %+v", cfg.Balance)
 	}
 	writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), "limits: {max_total_sessions: 2}\n")
@@ -149,7 +151,7 @@ balance: {max_age_seconds: 600, min_interval_share: 0.02, margin: 0.1}
 		t.Fatal(err)
 	}
 	l = cfg.Limits
-	if l.MaxTotalSessions != 10 || l.SessionWaitSeconds != 60 || l.SessionsByTier != (SessionTiers{Small: 3, Medium: 1, Large: 10}) {
+	if l.MaxTotalSessions != 10 || l.SessionWaitSeconds != 60 || l.SessionsByTier != (config.SessionTiers{Small: 3, Medium: 1, Large: 10}) {
 		t.Errorf("aliased widening applied: total %d, wait %d, tiers %+v", l.MaxTotalSessions, l.SessionWaitSeconds, l.SessionsByTier)
 	}
 	want = []string{"limits.max_total_sessions", "limits.sessions_by_tier.small", "limits.sessions_by_tier.large", "limits.session_wait_seconds"}
@@ -215,7 +217,7 @@ balance: {max_age_seconds: 600, min_interval_share: 0.02, margin: 0.1}
 		}
 	}
 	for _, text := range []string{
-		string(defaultConfig),
+		string(config.DefaultYAML()),
 		"limits: {max_total_sessions: 4, sessions_by_tier: {medium: 3, large: 3}}",
 		"limits: {max_total_sessions: 20, session_wait_seconds: 0}",
 		"balance: {max_age_seconds: 30, min_interval_share: 1, margin: 0}",

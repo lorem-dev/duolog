@@ -2,13 +2,9 @@ package config
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
-
-	"go.yaml.in/yaml/v3"
 )
 
 // LearnedRoutingFile holds the ladder orders a person approved with
@@ -127,24 +123,6 @@ type EntryStat struct {
 	CalibrationTasks int     `yaml:"calibration_tasks,omitempty"` // calibration tasks with evidence: a failed check, a decided verdict or an unmatched pass
 }
 
-// ReadLearnedRouting reads .duolog/routing.learned.yaml; a missing file is the
-// zero value, which leaves every ladder in its configured order.
-func ReadLearnedRouting(root string) (LearnedRouting, error) {
-	path := filepath.Join(root, ".duolog", LearnedRoutingFile)
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return LearnedRouting{}, nil
-	}
-	if err != nil {
-		return LearnedRouting{}, fmt.Errorf("%s: %w", path, err)
-	}
-	var file LearnedRouting
-	if err := yaml.Unmarshal(data, &file); err != nil {
-		return LearnedRouting{}, fmt.Errorf("%s: %w", path, err)
-	}
-	return file, nil
-}
-
 // LadderKey names the ladder a role uses: the step ladder when the class has
 // one for the role, else the class ladder.
 func LadderKey(class, role string, c Class) string {
@@ -198,71 +176,4 @@ func (l Learning) Ladder(class, role string) (string, []LadderEntry) {
 		}
 	}
 	return key, out
-}
-
-func validModel(cfg *Config, model string) bool {
-	_, ok := cfg.Models[model]
-	return ok || strings.HasPrefix(model, "gpt-") || strings.HasPrefix(model, "claude-")
-}
-
-func validateLearning(cfg *Config) error {
-	l := cfg.Learning
-	if l.PriorRuns <= 0 {
-		return fmt.Errorf("learning.prior_runs: must be greater than zero")
-	}
-	for i, rule := range l.Classify {
-		where := fmt.Sprintf("learning.classify[%d]", i)
-		if _, ok := l.Classes[rule.Class]; !ok {
-			return fmt.Errorf("%s: unknown class %q", where, rule.Class)
-		}
-		names := make([]string, 0, len(rule.When))
-		for name := range rule.When {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
-			if err := CheckFeature(name, rule.When[name]); err != nil {
-				return fmt.Errorf("%s: %w", where, err)
-			}
-		}
-	}
-	for i, e := range l.Judges {
-		if !validModel(cfg, e.Model) {
-			return fmt.Errorf("learning.judges[%d]: unknown model %q", i, e.Model)
-		}
-	}
-	names := make([]string, 0, len(l.Classes))
-	for name := range l.Classes {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		c := l.Classes[name]
-		where := "learning.classes." + name
-		check := func(entries []LadderEntry) error {
-			for _, e := range entries {
-				if !validModel(cfg, e.Model) {
-					return fmt.Errorf("%s: unknown model %q", where, e.Model)
-				}
-			}
-			return nil
-		}
-		if err := check(c.Ladder); err != nil {
-			return err
-		}
-		steps := make([]string, 0, len(c.Steps))
-		for role := range c.Steps {
-			steps = append(steps, role)
-		}
-		sort.Strings(steps)
-		for _, role := range steps {
-			if !slices.Contains(c.Roles, role) {
-				return fmt.Errorf("%s: step role %q is not in roles", where, role)
-			}
-			if err := check(c.Steps[role]); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }

@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 // restrictProjectModels removes from a shared layer each models value that
@@ -18,13 +20,13 @@ import (
 // below do not have: such an alias keeps its other keys and no price, which
 // paid admission refuses. A missing base price counts as 0. The comparison
 // is negated so that NaN never passes. The nodes are resolved mappings.
-func restrictProjectModels(base, layer *yaml.Node, projectFile string) ([]ConfigNotice, error) {
+func restrictProjectModels(base, layer *yaml.Node, projectFile string) ([]config.ConfigNotice, error) {
 	aliases := mappingValue(layer, "models")
 	if aliases == nil || aliases.Kind != yaml.MappingNode {
 		return nil, nil
 	}
 	baseModels := mappingValue(base, "models")
-	var notices []ConfigNotice
+	var notices []config.ConfigNotice
 	for i := 0; i+1 < len(aliases.Content); i += 2 {
 		alias, settings := aliases.Content[i].Value, aliases.Content[i+1]
 		if settings.Kind != yaml.MappingNode {
@@ -42,7 +44,7 @@ func restrictProjectModels(base, layer *yaml.Node, projectFile string) ([]Config
 				}
 				if baseAlias == nil {
 					if price != 0 {
-						notices = append(notices, ConfigNotice{Key: prefix + key, Reason: fmt.Sprintf(
+						notices = append(notices, config.ConfigNotice{Key: prefix + key, Reason: fmt.Sprintf(
 							"%s in %s is ignored: a shared config may not price a model the user config does not; paid runs refuse it",
 							formatNumber(price), projectFile)})
 					}
@@ -52,7 +54,7 @@ func restrictProjectModels(base, layer *yaml.Node, projectFile string) ([]Config
 					return false, err
 				}
 				if !(price >= basePrice) {
-					notices = append(notices, ConfigNotice{Key: prefix + key, Reason: fmt.Sprintf(
+					notices = append(notices, config.ConfigNotice{Key: prefix + key, Reason: fmt.Sprintf(
 						"%s in %s is ignored: a shared config may only raise model prices; %s applies",
 						formatNumber(price), projectFile, formatNumber(basePrice))})
 					return false, nil
@@ -63,7 +65,7 @@ func restrictProjectModels(base, layer *yaml.Node, projectFile string) ([]Config
 					if baseValue != nil {
 						applies = baseValue.Value
 					}
-					notices = append(notices, ConfigNotice{Key: prefix + key, Reason: fmt.Sprintf(
+					notices = append(notices, config.ConfigNotice{Key: prefix + key, Reason: fmt.Sprintf(
 						"%s in %s is ignored: a shared config may not re-point a priced model; %s applies",
 						value.Value, projectFile, applies)})
 					return false, nil
@@ -80,7 +82,7 @@ func restrictProjectModels(base, layer *yaml.Node, projectFile string) ([]Config
 
 // projectRestrictors are the rules of a shared layer: each removes the values
 // that would widen what the layers below allow.
-var projectRestrictors = []func(base, layer *yaml.Node, file string) ([]ConfigNotice, error){
+var projectRestrictors = []func(base, layer *yaml.Node, file string) ([]config.ConfigNotice, error){
 	restrictProjectPaid, restrictProjectSessionLimits, restrictProjectRouting, restrictProjectModels,
 }
 
@@ -109,5 +111,5 @@ func sharedLocal(root string) string {
 
 // outsideNotice says, once, why a local layer outside a Git checkout had
 // values ignored and where the person's own go.
-var outsideNotice = ConfigNotice{Key: localFile, Reason: "outside a Git checkout nothing proves that it is your own, " +
+var outsideNotice = config.ConfigNotice{Key: localFile, Reason: "outside a Git checkout nothing proves that it is your own, " +
 	"so it may only make paid runs, prices and session limits stricter; put your own opt-ins in the user config"}

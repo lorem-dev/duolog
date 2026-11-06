@@ -110,7 +110,7 @@ after the importing package:
 
 ```text
 internal/delegate -> os/exec
-internal/config (test) -> internal/gate
+internal/adapter/config (test) -> internal/gate
 ```
 
 `knownViolations` lists the imports that break a rule today, each with the

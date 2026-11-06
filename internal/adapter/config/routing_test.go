@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 func TestRoutingDefaults(t *testing.T) {
@@ -12,11 +14,11 @@ func TestRoutingDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Routing != (Routing{Balance: "pace", Margin: .10}) {
+	if cfg.Routing != (config.Routing{Balance: "pace", Margin: .10}) {
 		t.Errorf("routing defaults = %+v, want pace and 0.10", cfg.Routing)
 	}
-	if DefaultRouting() != cfg.Routing {
-		t.Errorf("DefaultRouting() = %+v, differs from Load's", DefaultRouting())
+	if config.DefaultRouting() != cfg.Routing {
+		t.Errorf("DefaultRouting() = %+v, differs from Load's", config.DefaultRouting())
 	}
 }
 
@@ -27,11 +29,11 @@ func TestRoutingTrustedLayersMayLoosen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Routing != (Routing{Balance: "off", Margin: .3}) || len(cfg.Notices) != 0 {
+	if cfg.Routing != (config.Routing{Balance: "off", Margin: .3}) || len(cfg.Notices) != 0 {
 		t.Errorf("user routing = %+v, notices %v", cfg.Routing, cfg.Notices)
 	}
 	writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), "routing: {balance: pace, margin: 0.2}\n")
-	if cfg, err = Load(root); err != nil || cfg.Routing != (Routing{Balance: "pace", Margin: .2}) {
+	if cfg, err = Load(root); err != nil || cfg.Routing != (config.Routing{Balance: "pace", Margin: .2}) {
 		t.Errorf("local routing = %+v, %v", cfg.Routing, err)
 	}
 }
@@ -44,7 +46,7 @@ func TestRoutingProjectCannotLoosen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Routing != DefaultRouting() {
+	if cfg.Routing != config.DefaultRouting() {
 		t.Errorf("project loosened routing: %+v", cfg.Routing)
 	}
 	want := []string{"routing.margin", "routing.balance"}
@@ -75,7 +77,7 @@ func TestRoutingProjectCannotLoosen(t *testing.T) {
 	// A narrower margin and an unchanged balance are accepted.
 	root = isolatedRoot(t)
 	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "routing: {balance: pace, margin: 0.02}\n")
-	if cfg, err = Load(root); err != nil || cfg.Routing != (Routing{Balance: "pace", Margin: .02}) || len(cfg.Notices) != 0 {
+	if cfg, err = Load(root); err != nil || cfg.Routing != (config.Routing{Balance: "pace", Margin: .02}) || len(cfg.Notices) != 0 {
 		t.Errorf("project tightening = %+v, %v, notices %v", cfg.Routing, err, cfg.Notices)
 	}
 }

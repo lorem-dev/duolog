@@ -1,0 +1,99 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
+
+	"go.yaml.in/yaml/v3"
+
+	"github.com/lorem-dev/duolog/internal/core/config"
+)
+
+// ReadLearnedRouting reads .duolog/routing.learned.yaml; a missing file is the
+// zero value, which leaves every ladder in its configured order.
+func ReadLearnedRouting(root string) (config.LearnedRouting, error) {
+	path := filepath.Join(root, ".duolog", config.LearnedRoutingFile)
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return config.LearnedRouting{}, nil
+	}
+	if err != nil {
+		return config.LearnedRouting{}, fmt.Errorf("%s: %w", path, err)
+	}
+	var file config.LearnedRouting
+	if err := yaml.Unmarshal(data, &file); err != nil {
+		return config.LearnedRouting{}, fmt.Errorf("%s: %w", path, err)
+	}
+	return file, nil
+}
+
+func validModel(cfg *config.Config, model string) bool {
+	_, ok := cfg.Models[model]
+	return ok || strings.HasPrefix(model, "gpt-") || strings.HasPrefix(model, "claude-")
+}
+
+func validateLearning(cfg *config.Config) error {
+	l := cfg.Learning
+	if l.PriorRuns <= 0 {
+		return fmt.Errorf("learning.prior_runs: must be greater than zero")
+	}
+	for i, rule := range l.Classify {
+		where := fmt.Sprintf("learning.classify[%d]", i)
+		if _, ok := l.Classes[rule.Class]; !ok {
+			return fmt.Errorf("%s: unknown class %q", where, rule.Class)
+		}
+		names := make([]string, 0, len(rule.When))
+		for name := range rule.When {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			if err := config.CheckFeature(name, rule.When[name]); err != nil {
+				return fmt.Errorf("%s: %w", where, err)
+			}
+		}
+	}
+	for i, e := range l.Judges {
+		if !validModel(cfg, e.Model) {
+			return fmt.Errorf("learning.judges[%d]: unknown model %q", i, e.Model)
+		}
+	}
+	names := make([]string, 0, len(l.Classes))
+	for name := range l.Classes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		c := l.Classes[name]
+		where := "learning.classes." + name
+		check := func(entries []config.LadderEntry) error {
+			for _, e := range entries {
+				if !validModel(cfg, e.Model) {
+					return fmt.Errorf("%s: unknown model %q", where, e.Model)
+				}
+			}
+			return nil
+		}
+		if err := check(c.Ladder); err != nil {
+			return err
+		}
+		steps := make([]string, 0, len(c.Steps))
+		for role := range c.Steps {
+			steps = append(steps, role)
+		}
+		sort.Strings(steps)
+		for _, role := range steps {
+			if !slices.Contains(c.Roles, role) {
+				return fmt.Errorf("%s: step role %q is not in roles", where, role)
+			}
+			if err := check(c.Steps[role]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}

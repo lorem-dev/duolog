@@ -178,7 +178,7 @@ func TestConfigSchemaReadsNothing(t *testing.T) {
 
 func defaultConfigBytes(t *testing.T) []byte {
 	t.Helper()
-	b, err := os.ReadFile("internal/config/config.default.yaml")
+	b, err := os.ReadFile("internal/core/config/config.default.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
