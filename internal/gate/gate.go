@@ -731,7 +731,7 @@ func shellParts(command string, reads bool) ([]string, bool) {
 			return
 		}
 		switch filepath.Base(word) {
-		case "command", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "powershell", "cmd",
+		case "command", "builtin", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "powershell", "cmd",
 			"time", "nice", "ionice", "timeout", "nohup", "stdbuf", "setsid", "busybox", "doas", "watch", "parallel":
 			review()
 			// The wrapper runs the command after it, which every deny must
