@@ -267,6 +267,45 @@ func TestAttachedOptionValuesAreJudged(t *testing.T) {
 	)
 }
 
+// An assignment in front of a program can make it read a file: git reads
+// GIT_CONFIG_GLOBAL, bash reads BASH_ENV. The gate skipped every assignment.
+func TestAssignmentValuesAreJudged(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	wantPerson(t, p, root,
+		// The reviews' commands.
+		`GIT_DIR=/srv/other/.git git log -p`,
+		`GIT_CONFIG_GLOBAL=/outside/cfg git status`,
+		`BASH_ENV=/outside/x bash -c true`,
+		// Any assignment whose value leaves the work root, also in a list.
+		`FOO=/etc/passwd cat x`,
+		`PATH=../peer/bin:$PATH make test`,
+		`env LD_PRELOAD=../x.so make test`,
+	)
+	// On Windows the piece src:~/lib is a stream name, which the read rules
+	// deny; elsewhere the piece ~/lib leaves the work root.
+	if runtime.GOOS == "windows" {
+		wantDeny(t, p, root, "windows name", `A=1 PYTHONPATH=src:~/lib uv run pytest`)
+	} else {
+		wantPerson(t, p, root, `A=1 PYTHONPATH=src:~/lib uv run pytest`)
+	}
+	// A variable that names a file to read is judged by the read rules.
+	wantDeny(t, p, root, RuleState,
+		`GIT_CONFIG_GLOBAL=.duolog/bus.ndjson git log`,
+		`env BASH_ENV=.duolog/sessions.json bash -c true`,
+	)
+	wantDeny(t, p, root, "read",
+		`BASH_ENV=.env bash -c true`,
+		`AWS_SHARED_CREDENTIALS_FILE=secrets/x make deploy`,
+	)
+	wantLead(t, p, root,
+		`FOO=bar make x`,
+		`CGO_ENABLED=0 go build ./...`,
+		`GIT_CONFIG_GLOBAL=ci/gitconfig git log`,
+		`PATH=bin:$PATH make test`,
+	)
+}
+
 // The shell expands ~ alone to the home folder and ~name to the home folder
 // of another login. The gate expanded only ~/, so it judged ~alice/x as a
 // relative path inside the work root.
@@ -281,6 +320,45 @@ func TestTildeWordsLeaveTheWorkRoot(t *testing.T) {
 	)
 	wantPerson(t, p, root, `cat ~alice/.ssh/id_rsa`, `cat ~`)
 	wantLead(t, p, root, `cp a~ b`, `cp notes.txt~ notes.txt`)
+}
+
+// export, declare and their kin set a variable for every later command of
+// the line. The gate judged only an assignment in front of a program.
+func TestExportedAssignmentsAreJudged(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	wantPersonInFull(t, p, root,
+		`export GIT_DIR=../peer/repo; git log -p`,
+		`export BASH_ENV=/outside/x; bash -c true`,
+		`declare -x GIT_DIR=../peer/repo; git log -p`,
+		`typeset -x PATH=../peer/bin:$PATH; make test`,
+		`readonly GIT_CONFIG_GLOBAL=/outside/cfg; git status`,
+		`local FOO=/etc/passwd`,
+	)
+	// The review's own command names a .git folder, which the write rules deny.
+	wantDeny(t, p, root, "write", `export GIT_DIR=../peer/.git; git log -p`)
+	wantDeny(t, p, root, RuleState, `export GIT_CONFIG_GLOBAL=.duolog/bus.ndjson; git log`)
+	wantDeny(t, p, root, "read", `export BASH_ENV=.env; bash -c true`)
+	wantLead(t, p, root, `export CGO_ENABLED=0; go build ./...`, `export -n FOO`)
+}
+
+// builtin runs export as export, and an assignment that stands alone sets a
+// variable that a later export hands on. The gate took builtin for the
+// program, and took the last of a part's assignments for its program.
+func TestBuiltinAndBareAssignmentsAreJudged(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	wantPersonInFull(t, p, root,
+		`builtin export GIT_DIR=../peer/repo; git log -p`,
+		`GIT_DIR=../peer/repo; export GIT_DIR; git log -p`,
+		`A=1 GIT_DIR=../peer/repo; export GIT_DIR; git log -p`,
+		`builtin cd ../peer && make x`,
+	)
+	wantDeny(t, p, root, RuleState,
+		`builtin export GIT_CONFIG_GLOBAL=.duolog/bus.ndjson; git log`,
+		`GIT_CONFIG_GLOBAL=.duolog/bus.ndjson; export GIT_CONFIG_GLOBAL; git log`,
+	)
+	wantLead(t, p, root, `builtin export CGO_ENABLED=0; go build ./...`, `FOO=bar; make x`)
 }
 
 func TestSedTargets(t *testing.T) {

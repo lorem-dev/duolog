@@ -484,7 +484,7 @@ func execOperandStart(words []string) int {
 			continue
 		}
 		switch filepath.Base(word) {
-		case "command", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "powershell", "cmd",
+		case "command", "builtin", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "powershell", "cmd",
 			"time", "nice", "ionice", "timeout", "nohup", "stdbuf", "setsid", "busybox", "doas", "watch", "parallel":
 			i++
 			for i < len(words) && strings.HasPrefix(words[i], "-") {
