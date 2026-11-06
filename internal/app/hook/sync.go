@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
-	"github.com/lorem-dev/duolog/internal/agentsync"
+	"github.com/lorem-dev/duolog/internal/app/sync"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/gate"
 )

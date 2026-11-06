@@ -182,14 +182,14 @@ func TestTelemetryImporters(t *testing.T) {
 			{telemetryPackage + ".test", true},
 			{"github.com/lorem-dev/duolog/cmd/duolog", true},
 			{"github.com/lorem-dev/duolog/internal/balance", true},
-			{"github.com/lorem-dev/duolog/internal/hook", true},
-			{"github.com/lorem-dev/duolog/internal/delegate", false},
-			{"github.com/lorem-dev/duolog/internal/delegate_test", false},
-			{"github.com/lorem-dev/duolog/internal/hookx", false},
+			{"github.com/lorem-dev/duolog/internal/app/hook", true},
+			{"github.com/lorem-dev/duolog/internal/app/delegate", false},
+			{"github.com/lorem-dev/duolog/internal/app/delegate_test", false},
+			{"github.com/lorem-dev/duolog/internal/app/hookx", false},
 			{"github.com/lorem-dev/duolog/internal/router", false},
 			{"github.com/lorem-dev/duolog/internal", false},
 			{"github.com/lorem-dev/duolog", false},
-			{"example.com/other/internal/hook", false},
+			{"example.com/other/internal/app/hook", false},
 		}
 		for _, c := range cases {
 			if got := allowedTelemetryImporter(c.path); got != c.allowed {
@@ -308,7 +308,7 @@ func allowedTelemetryImporter(path string) bool {
 	case telemetryPackage,
 		"github.com/lorem-dev/duolog/cmd/duolog",
 		"github.com/lorem-dev/duolog/internal/balance",
-		"github.com/lorem-dev/duolog/internal/hook":
+		"github.com/lorem-dev/duolog/internal/app/hook":
 		return true
 	}
 	return false

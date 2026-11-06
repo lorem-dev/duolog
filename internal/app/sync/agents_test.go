@@ -14,7 +14,7 @@ import (
 
 func fixtureList(t *testing.T) []route.Entry {
 	t.Helper()
-	data, err := os.ReadFile("../../scripts/bench/fixtures/models/codex-debug-models.trimmed.json")
+	data, err := os.ReadFile("../../../scripts/bench/fixtures/models/codex-debug-models.trimmed.json")
 	if err != nil {
 		t.Fatal(err)
 	}

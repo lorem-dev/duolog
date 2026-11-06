@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/agentsync"
+	"github.com/lorem-dev/duolog/internal/app/hook"
+	"github.com/lorem-dev/duolog/internal/app/sync"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/gate"
-	"github.com/lorem-dev/duolog/internal/hook"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/runner"
 )

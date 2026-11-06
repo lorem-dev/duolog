@@ -98,8 +98,8 @@ test fails when a row names a package that `go list` does not report. Put a
 new package under a tier path; do not add a row for it.
 
 The test reads `legacyTiers` before the rule for names that end in `test`.
-That is why `internal/skilltest` is the app `skilltest` and not a test
-package.
+That is why a package that has not moved is not taken for a test package
+because of its name.
 
 ## How the layers test reports a broken rule
 

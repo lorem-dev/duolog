@@ -12,7 +12,7 @@ import (
 	"time"
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
-	"github.com/lorem-dev/duolog/internal/agentsync"
+	"github.com/lorem-dev/duolog/internal/app/sync"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
@@ -38,7 +38,7 @@ func write(t *testing.T, path, data string) {
 }
 func fixture(t *testing.T, path string) []byte {
 	t.Helper()
-	b, e := os.ReadFile(filepath.Join("../../scripts/bench/fixtures", path))
+	b, e := os.ReadFile(filepath.Join("../../../scripts/bench/fixtures", path))
 	if e != nil {
 		t.Fatal(e)
 	}

@@ -260,7 +260,7 @@ func TestDoctorNamesShadowingRex(t *testing.T) {
 // each level is an object with an "effort" key. The default roles must pass.
 func TestDoctorReadsSavedCatalogFixture(t *testing.T) {
 	cfg, opts, codex := setup(t)
-	fixture, err := os.ReadFile("../../scripts/bench/fixtures/models/codex-debug-models.trimmed.json")
+	fixture, err := os.ReadFile("../../../scripts/bench/fixtures/models/codex-debug-models.trimmed.json")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/hook"
+	"github.com/lorem-dev/duolog/internal/app/hook"
 	"github.com/spf13/cobra"
 )
 
