@@ -19,6 +19,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/testbin"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 const goodAnswer = `{"done":true,"summary":"Implemented.","files":["a.go"],"needs":[]}`
@@ -29,7 +30,14 @@ func spec(t *testing.T, agent string) Spec {
 	if agent == "claude" {
 		model, effort = "opus", "high"
 	}
-	return Spec{Route: router.Route{Target: config.Target{Agent: agent, Model: model, Effort: effort}, Sandbox: "read-only", Context: "minimal"}, Mode: mode.Plan, TaskDir: t.TempDir(), Cwd: t.TempDir(), Env: []string{"PATH=" + os.Getenv("PATH")}, Stdin: []byte("<stdin>\nImplement the task.\n</stdin>")}
+	return rebuilt(t, Spec{Route: router.Route{Target: config.Target{Agent: agent, Model: model, Effort: effort}, Sandbox: "read-only", Context: "minimal"}, Mode: mode.Plan, TaskDir: t.TempDir(), Cwd: t.TempDir(), Stdin: []byte("<stdin>\nImplement the task.\n</stdin>")})
+}
+
+// rebuilt builds s's free worker process again, after a test changed what
+// the build reads: the context, the folder, the roots, the MCP env or PATH.
+func rebuilt(t *testing.T, s Spec) Spec {
+	t.Helper()
+	return built(t, s, &config.Config{}, workerenv.Free)
 }
 func containsArgs(t *testing.T, got []string, want ...string) {
 	t.Helper()
@@ -61,8 +69,9 @@ func TestCodexArgvProjectContext(t *testing.T) {
 // A minimal-context worker gets its rules from the task, not from skills.
 func TestClaudeArgvMinimalDropsSkills(t *testing.T) {
 	s := spec(t, "claude")
-	containsArgs(t, Argv(s), "--disable-slash-commands", "--settings", claudeWorkerSettings(s.Cwd, true))
+	containsArgs(t, Argv(s), "--disable-slash-commands", "--settings", workerenv.ClaudeSettings(s.Cwd, true, nil))
 	s.Route.Context = "project"
+	s = rebuilt(t, s)
 	if line := strings.Join(Argv(s), " "); strings.Contains(line, "--disable-slash-commands") || strings.Contains(line, "claudeMdExcludes") {
 		t.Fatal(Argv(s))
 	}
@@ -133,7 +142,12 @@ func TestCodexArgvResume(t *testing.T) {
 	// option values too, so a misplaced flag cannot hide among positionals.
 	resume := false
 	var positional []string
-	for i := 2; i < len(a); i++ {
+	// The process prefix carries the global overrides; exec follows it.
+	exec := len(s.Process.Prefix)
+	if a[exec] != "exec" {
+		t.Fatal(a)
+	}
+	for i := exec + 1; i < len(a); i++ {
 		switch a[i] {
 		case "resume":
 			resume = true
@@ -165,7 +179,7 @@ func TestCodexArgvResume(t *testing.T) {
 }
 func TestClaudeArgv(t *testing.T) {
 	s := spec(t, "claude")
-	containsArgs(t, Argv(s), "claude", "-p", "--model", "opus", "--effort", "high", "--output-format", "json", "--json-schema", "--no-session-persistence")
+	containsArgs(t, Argv(s), "claude", "-p", "--model", "opus", "--effort", "high", "--output-format", "stream-json", "--verbose", "--json-schema", "--no-session-persistence")
 	s.ThreadID = "session-123"
 	a := Argv(s)
 	containsArgs(t, a, "--resume", "session-123")
@@ -176,7 +190,7 @@ func TestClaudeArgv(t *testing.T) {
 func install(t *testing.T, s *Spec, sc testbin.Scenario) string {
 	t.Helper()
 	p := testbin.Install(t, s.Route.Agent, sc)
-	s.Env = []string{"PATH=" + os.Getenv("PATH")}
+	*s = rebuilt(t, *s)
 	return p
 }
 func read(t *testing.T, path string) []byte {
@@ -311,7 +325,6 @@ func TestOnlyPassthroughEnvIsSet(t *testing.T) {
 	s := spec(t, "codex")
 	p := install(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): goodAnswer}})
 	t.Setenv("DUOLOG_PRIVATE_TEST", "secret")
-	s.Env = append(s.Env, "DUOLOG_DEPTH=1", "DUOLOG_LEAD=lead-123")
 	if _, e := Run(context.Background(), s); e != nil {
 		t.Fatal(e)
 	}
@@ -324,7 +337,8 @@ func TestOnlyPassthroughEnvIsSet(t *testing.T) {
 			t.Fatal("parent env leaked")
 		}
 	}
-	containsArgs(t, env, s.Env...)
+	containsArgs(t, env, s.Process.Env...)
+	containsArgs(t, env, "DUOLOG_DEPTH=1", "DUOLOG_LEAD=lead-123")
 }
 func TestStdinCarriesPrompt(t *testing.T) {
 	for _, agent := range []string{"codex", "claude"} {
@@ -373,7 +387,10 @@ func TestSpawnDisablesUpdates(t *testing.T) {
 	containsArgs(t, Argv(s), "check_for_update_on_startup=false")
 	s = spec(t, "claude")
 	p := install(t, &s, testbin.Scenario{Stdout: `{"structured_output":` + goodAnswer + `}`})
-	s.Env = append(s.Env, "DISABLE_AUTOUPDATER=0", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=0")
+	// The person's own values, even listed in env_passthrough, never win.
+	t.Setenv("DISABLE_AUTOUPDATER", "0")
+	t.Setenv("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "0")
+	s = built(t, s, &config.Config{EnvPassthrough: []string{"DISABLE_AUTOUPDATER", "CLAUDE_CODE_DISABLE_AUTO_MEMORY"}}, workerenv.Free)
 	if _, e := Run(context.Background(), s); e != nil {
 		t.Fatal(e)
 	}

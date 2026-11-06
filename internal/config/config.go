@@ -20,19 +20,27 @@ type Config struct {
 	Coauthors      Coauthors        `yaml:"coauthors" jsonschema_description:"Commit co-author templates for workers; enabled by default."`
 	Version        int              `yaml:"version" jsonschema_description:"Configuration format version; defaults to 1."`
 	Wire           Wire             `yaml:"wire" jsonschema_description:"Task and message encoding and size limits; defaults suit the file bus."`
-	Limits         Limits           `yaml:"limits" jsonschema_description:"Worker delegation limits; defaults permit one worker per agent."`
-	Models         map[string]Model `yaml:"models" jsonschema_description:"Model aliases and price metadata; defaults include the eight vendor families."`
+	Limits         Limits           `yaml:"limits" jsonschema_description:"Worker and session limits: resumable sessions per lead, live sessions per account by measured tier and in all, and the slot wait."`
+	Models         map[string]Model `yaml:"models" jsonschema_description:"Model aliases and their prices, which drive estimates and admission of paid runs; defaults include the eight vendor families."`
 	Roles          map[string]Role  `yaml:"roles" jsonschema_description:"Named task routes; overrides merge by role and field into the eleven defaults."`
 	Sessions       Sessions         `yaml:"sessions" jsonschema_description:"Thread lifetime limits; defaults close large or idle threads."`
 	Policy         Policy           `yaml:"policy" jsonschema_description:"Permission rules constrained by the lead; defaults ask for unmatched actions."`
 	Capabilities   Capabilities     `yaml:"capabilities" jsonschema_description:"Missing capability handling; defaults read skills and let the lead handle tools."`
 	Sync           Sync             `yaml:"sync" jsonschema_description:"Settings for generating agent and skill files; automatic sync defaults to true."`
-	EnvPassthrough []string         `yaml:"env_passthrough" jsonschema_description:"Environment variables passed to workers; defaults include native OS login and agent config directories, not API keys."`
+	EnvPassthrough []string         `yaml:"env_passthrough" jsonschema_description:"Environment variables passed to workers; defaults include native OS login and agent config directories, not API keys. A free run drops names that bill per token even when listed; only paid_runs.<agent>.allow lets them through."`
 	Rex            Rex              `yaml:"rex" jsonschema_description:"Terminal capture and startup settings; defaults to 20 lines and 120 seconds."`
 	Learning       Learning         `yaml:"learning" jsonschema_description:"Learning mode: task classes, classification rules, ladders and priors; off by default."`
 	Telemetry      Telemetry        `yaml:"telemetry" jsonschema_description:"Local telemetry that never leaves the machine; on by default. User level, except that a project may turn off its own events."`
 	Calibration    Calibration      `yaml:"calibration" jsonschema_description:"Project calibration caps and task filters; calibration runs only when the person asks the lead for it."`
 	WorkerModes    WorkerModes      `yaml:"worker_modes" jsonschema_description:"Native permission mode a delegate worker starts in, per role and model family; never above the lead's mode. User level, project layers may only lower. Absent means duolog's default flags."`
+	PaidRuns       PaidRuns         `yaml:"paid_runs" jsonschema_description:"Paid runs per agent with a daily USD cap, and the share of each window used on workspace accounts; paid runs are off by default."`
+	Balance        Balance          `yaml:"balance" jsonschema_description:"How quota reads and learned window rates are trusted: read age, interval size and the margin of a tier step up. The shared project config may only make these stricter."`
+	Routing        Routing          `yaml:"routing" jsonschema_description:"How a new task picks between a role's agents beyond the ladder: balance subscriptions by pace, and the margin. The shared project config may only tighten these."`
+	// Notices names the keys that Load ignored or capped: values of a shared
+	// layer, .duolog/config.yaml or a .duolog/config.local.yaml that Git
+	// tracks, that would widen paid runs or session limits or lower model
+	// prices, and session tiers above their defaults.
+	Notices []ConfigNotice `yaml:"-" json:"-" jsonschema:"-"`
 }
 
 type Coauthors struct {
@@ -63,15 +71,20 @@ type Wire struct {
 
 type Limits struct {
 	ManualOnlyModels []string `yaml:"manual_only_models" jsonschema_description:"Model aliases requiring explicit manual permission; defaults to fable and astra."`
-	MaxLiveSessions  int      `yaml:"max_live_sessions" jsonschema_description:"Maximum live resumable sessions per agent; defaults to 1 and excludes fresh runs."`
+	MaxLiveSessions  int      `yaml:"max_live_sessions" jsonschema_description:"Maximum live resumable sessions per lead and agent; defaults to 1 and excludes fresh runs. The account session limits apply too, and the lower one wins."`
 	SelfMaxReadFiles int      `yaml:"self_max_read_files" jsonschema_description:"Maximum files for work handled by the lead on a provider limit; defaults to 3."`
 	SelfMaxReadLines int      `yaml:"self_max_read_lines" jsonschema_description:"Maximum lines for work handled by the lead on a provider limit; defaults to 200."`
+	// The account session limits count running workers and open peer panes
+	// of every lead and project together.
+	MaxTotalSessions   int          `yaml:"max_total_sessions" jsonschema_description:"Most live sessions of all agents together: running workers and open peer panes of every lead and project; defaults to 10. The shared project config may only lower it." jsonschema:"minimum=1"`
+	SessionsByTier     SessionTiers `yaml:"sessions_by_tier" jsonschema_description:"Most live sessions per agent by its measured subscription tier; defaults to 3, 5 and 10. A value above its default is capped at the default."`
+	SessionWaitSeconds int          `yaml:"session_wait_seconds" jsonschema_description:"Seconds a delegation waits for a free session slot, first come first served; defaults to 60. The shared project config may only lower it." jsonschema:"minimum=0"`
 }
 
 type Model struct {
 	Agent     string  `yaml:"agent" jsonschema_description:"Vendor agent for this alias; defaults to claude or codex according to the family." jsonschema:"enum=claude,enum=codex"`
 	Family    string  `yaml:"family" jsonschema_description:"Codex model family used to resolve the newest visible version; absent for Claude aliases."`
-	PricedFor string  `yaml:"priced_for" jsonschema_description:"Version whose prices are recorded; used for estimates, never for routing."`
+	PricedFor string  `yaml:"priced_for" jsonschema_description:"Version whose prices are recorded; the prices drive estimates and admission of paid runs against the daily cap."`
 	Input     float64 `yaml:"input" jsonschema_description:"Input price in USD per million tokens; defaults to the recorded vendor price."`
 	Cached    float64 `yaml:"cached" jsonschema_description:"Cached input price in USD per million tokens; defaults to the recorded vendor price."`
 	Output    float64 `yaml:"output" jsonschema_description:"Output price in USD per million tokens; defaults to the recorded vendor price."`
@@ -166,6 +179,8 @@ func Load(root string) (*Config, error) {
 	var view userView
 	projectTelemetryOff := false
 	layers := make([][]byte, len(paths))
+	var notices []ConfigNotice
+	localLabel := ""
 	for i, path := range paths {
 		if i == 1 {
 			// Telemetry is user level: keep the section as it stands before
@@ -185,9 +200,36 @@ func Load(root string) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
-		if err := mergeLayer(&merged, data, path); err != nil {
+		node, err := parseLayer(data, path)
+		if err != nil {
 			return nil, err
 		}
+		// The project layer is committed: it may only tighten paid runs,
+		// prices and the account session limits. So may a local layer that
+		// Git tracks, since it reaches everyone who clones the repository,
+		// and one outside a Git checkout, which nothing proves the person's.
+		shared := ""
+		switch {
+		case i == 1:
+			shared = projectFile
+		case i == 2:
+			shared = sharedLocal(root)
+			localLabel = shared
+		}
+		if shared != "" && node != nil {
+			before := len(notices)
+			for _, restrict := range projectRestrictors {
+				found, err := restrict(merged.Content[0], node, shared)
+				if err != nil {
+					return nil, fmt.Errorf("%s: %w", path, err)
+				}
+				notices = append(notices, found...)
+			}
+			if shared == outsideLocal && len(notices) > before {
+				notices = append(notices, outsideNotice)
+			}
+		}
+		mergeNode(&merged, node)
 		if i > 0 {
 			off, err := telemetryDisabled(data, path)
 			if err != nil {
@@ -201,6 +243,10 @@ func Load(root string) (*Config, error) {
 	if err := merged.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("merged config: %w", err)
 	}
+	if err := validateAccountLimits(&cfg); err != nil {
+		return nil, err
+	}
+	cfg.Notices = append(notices, capSessionTiers(&cfg)...)
 	cfg.Telemetry = keepTelemetry(userTelemetrySection, projectTelemetryOff, telemetryEnvOff())
 	if err := validateTelemetry(cfg.Telemetry); err != nil {
 		return nil, err
@@ -236,7 +282,10 @@ func Load(root string) (*Config, error) {
 	if err := validateCalibration(&cfg); err != nil {
 		return nil, err
 	}
-	if err := lowerSharedCaps(&cfg, layers[0], layers[1], layers[2]); err != nil {
+	if err := validatePaidRuns(&cfg); err != nil {
+		return nil, err
+	}
+	if err := lowerSharedCaps(&cfg, layers[0], layers[1], layers[2], localLabel); err != nil {
 		return nil, err
 	}
 	if err := resolveWorkerModes(&cfg, view, layers[0], layers[1], layers[2]); err != nil {
@@ -327,44 +376,63 @@ func keepDefaultDenies(cfg *Config) error {
 }
 
 func mergeLayer(dst *yaml.Node, data []byte, source string) error {
+	node, err := parseLayer(data, source)
+	if err != nil {
+		return err
+	}
+	mergeNode(dst, node)
+	return nil
+}
+
+// parseLayer checks one layer and returns its root with aliases and merge
+// keys resolved, or nil for an empty file. Keys are checked on the node
+// first so that an unknown key is named by its full path.
+func parseLayer(data []byte, source string) (*yaml.Node, error) {
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil {
+		return nil, fmt.Errorf("%s: %w", source, err)
+	}
+	if len(node.Content) == 0 {
+		return nil, nil
+	}
+	// Resolve structure without decoding scalars into Go values: string fields
+	// must retain spellings such as 012 and 2020-01-01.
+	effective, err := resolveYAMLNode(node.Content[0], make(map[*yaml.Node]bool))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", source, err)
+	}
+	if err := validateEnums(effective, reflect.TypeFor[Config](), "config"); err != nil {
+		return nil, fmt.Errorf("%s: %w", source, err)
+	}
+	if err := checkAccountLimitNodes(effective); err != nil {
+		return nil, fmt.Errorf("%s: %w", source, err)
+	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	var layer Config
-	if err := decoder.Decode(&layer); err == io.EOF {
-		return nil
-	} else if err != nil {
-		return fmt.Errorf("%s: %w", source, err)
+	if err := decoder.Decode(&layer); err != nil {
+		return nil, fmt.Errorf("%s: %w", source, err)
 	}
 	var extra yaml.Node
 	if err := decoder.Decode(&extra); err != io.EOF {
 		if err == nil {
 			err = fmt.Errorf("expected a single YAML document")
 		}
-		return fmt.Errorf("%s: %w", source, err)
+		return nil, fmt.Errorf("%s: %w", source, err)
 	}
-	var node yaml.Node
-	if err := yaml.Unmarshal(data, &node); err != nil {
-		return fmt.Errorf("%s: %w", source, err)
-	}
-	if len(node.Content) == 0 {
-		return nil
-	}
-	// Resolve structure without decoding scalars into Go values: string fields
-	// must retain spellings such as 012 and 2020-01-01.
-	effective, err := resolveYAMLNode(node.Content[0], make(map[*yaml.Node]bool))
-	if err != nil {
-		return fmt.Errorf("%s: %w", source, err)
-	}
-	node.Content[0] = effective
-	if err := validateEnums(node.Content[0], reflect.TypeFor[Config](), "config"); err != nil {
-		return fmt.Errorf("%s: %w", source, err)
+	return effective, nil
+}
+
+// mergeNode merges a resolved layer root into dst; nil leaves dst as it is.
+func mergeNode(dst, root *yaml.Node) {
+	if root == nil {
+		return
 	}
 	if len(dst.Content) == 0 {
-		*dst = node
+		*dst = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{root}}
 	} else {
-		mergeMapping(dst.Content[0], node.Content[0])
+		mergeMapping(dst.Content[0], root)
 	}
-	return nil
 }
 
 // Expand aliases into independent nodes and flatten YAML merge keys. Explicit
@@ -448,8 +516,26 @@ func mergeMapping(dst, src *yaml.Node) {
 	}
 }
 
-// Reject nulls and read enum tags from the types reflected into the public schema.
-// Walk only explicitly supplied fields so partial override layers are valid.
+// yamlField finds the struct field for a YAML key, including the fields of
+// an inlined struct.
+func yamlField(typ reflect.Type, key string) (reflect.StructField, bool) {
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		name, opts, _ := strings.Cut(field.Tag.Get("yaml"), ",")
+		if name == "" && opts == "inline" && field.Type.Kind() == reflect.Struct {
+			if inner, ok := yamlField(field.Type, key); ok {
+				return inner, true
+			}
+		} else if name == key && name != "-" {
+			return field, true
+		}
+	}
+	return reflect.StructField{}, false
+}
+
+// Reject nulls and unknown keys and read enum tags from the types reflected into
+// the public schema. Walk only explicitly supplied fields so partial override
+// layers are valid.
 func validateEnums(node *yaml.Node, typ reflect.Type, path string) error {
 	if node.Kind == yaml.AliasNode {
 		return validateEnums(node.Alias, typ, path)
@@ -459,41 +545,41 @@ func validateEnums(node *yaml.Node, typ reflect.Type, path string) error {
 	}
 	switch typ.Kind() {
 	case reflect.Struct:
+		if node.Kind != yaml.MappingNode {
+			break
+		}
 		for i := 0; i+1 < len(node.Content); i += 2 {
 			key, value := node.Content[i].Value, node.Content[i+1]
-			for j := 0; j < typ.NumField(); j++ {
-				field := typ.Field(j)
-				if field.Tag.Get("yaml") != key {
-					continue
+			field, ok := yamlField(typ, key)
+			if !ok {
+				return fmt.Errorf("%s.%s: unknown key", path, key)
+			}
+			var choices []string
+			for _, tag := range strings.Split(field.Tag.Get("jsonschema"), ",") {
+				if v, ok := strings.CutPrefix(tag, "enum="); ok {
+					choices = append(choices, v)
 				}
-				var choices []string
-				for _, tag := range strings.Split(field.Tag.Get("jsonschema"), ",") {
-					if v, ok := strings.CutPrefix(tag, "enum="); ok {
-						choices = append(choices, v)
+			}
+			// worker_modes names are checked by resolveWorkerModes, which
+			// says why a name is refused; the schema still lists them.
+			if len(choices) > 0 && typ != reflect.TypeFor[WorkerMode]() {
+				actual := value
+				if actual.Kind == yaml.AliasNode {
+					actual = actual.Alias
+				}
+				valid := false
+				for _, choice := range choices {
+					if actual.Tag == "!!str" && actual.Value == choice {
+						valid = true
+						break
 					}
 				}
-				// worker_modes names are checked by resolveWorkerModes, which
-				// says why a name is refused; the schema still lists them.
-				if len(choices) > 0 && typ != reflect.TypeFor[WorkerMode]() {
-					actual := value
-					if actual.Kind == yaml.AliasNode {
-						actual = actual.Alias
-					}
-					valid := false
-					for _, choice := range choices {
-						if actual.Tag == "!!str" && actual.Value == choice {
-							valid = true
-							break
-						}
-					}
-					if !valid {
-						return fmt.Errorf("%s.%s: invalid value %q (want %s)", path, key, actual.Value, strings.Join(choices, ", "))
-					}
+				if !valid {
+					return fmt.Errorf("%s.%s: invalid value %q (want %s)", path, key, actual.Value, strings.Join(choices, ", "))
 				}
-				if err := validateEnums(value, field.Type, path+"."+key); err != nil {
-					return err
-				}
-				break
+			}
+			if err := validateEnums(value, field.Type, path+"."+key); err != nil {
+				return err
 			}
 		}
 	case reflect.Map:

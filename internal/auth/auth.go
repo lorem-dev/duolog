@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/store"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // Actions for capabilities.on_auth_failure.
@@ -149,22 +151,54 @@ func New(cacheDir string) Checker {
 	return &checker{dir: cacheDir, client: client, run: output, now: time.Now}
 }
 
+// NewForProcess returns the real checker for a worker that runs as process
+// p. Its agent check is the worker's own: p's argv prefix, settings and
+// exactly p's environment, with the CLI found on p's PATH, so a login that
+// only duolog's environment has cannot pass it. A passed check counts for
+// p's route alone, by its cache key, never for the agent. Server checks and
+// Login stay as New's.
+func NewForProcess(cacheDir string, p workerenv.Process) Checker {
+	c := New(cacheDir).(*checker)
+	c.proc = &p
+	return c
+}
+
 type checker struct {
 	dir    string
 	client *http.Client
-	run    func(ctx context.Context, argv []string) ([]byte, error)
-	now    func() time.Time
-	mu     sync.Mutex
+	// run runs argv in env, nil meaning duolog's own environment.
+	run  func(ctx context.Context, argv, env []string) ([]byte, error)
+	now  func() time.Time
+	mu   sync.Mutex
+	proc *workerenv.Process
 }
 
-func output(ctx context.Context, argv []string) ([]byte, error) {
+func output(ctx context.Context, argv, env []string) ([]byte, error) {
 	// The lead waits for this; a check that hangs passes rather than blocks.
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	bin := argv[0]
+	if env != nil {
+		var err error
+		if bin, err = workerenv.LookPath(argv[0], env); err != nil {
+			return nil, err
+		}
+	}
+	cmd := exec.CommandContext(ctx, bin, argv[1:]...)
+	cmd.Args[0] = argv[0]
+	cmd.Env = env
 	cmd.Stdin = strings.NewReader("")
 	cmd.WaitDelay = time.Second
 	return cmd.Output()
+}
+
+// agentArgv is an agent check's command and environment: the worker's own
+// process when the checker has one for agent, else duolog's.
+func (c *checker) agentArgv(agent string, args ...string) ([]string, []string) {
+	if c.proc != nil && c.proc.Agent == agent {
+		return c.proc.Argv(args...), slices.Clone(c.proc.Env)
+	}
+	return append([]string{agent}, args...), nil
 }
 
 func (c *checker) Agent(ctx context.Context, agent string) *Problem {
@@ -177,7 +211,8 @@ func (c *checker) Agent(ctx context.Context, agent string) *Problem {
 	switch agent {
 	case "codex":
 		// Exits 0 only when logged in.
-		out, err = c.run(ctx, []string{"codex", "login", "status"})
+		argv, env := c.agentArgv("codex", "login", "status")
+		out, err = c.run(ctx, argv, env)
 		if err != nil {
 			// No answer, a missing binary or a killed check is not a failed login.
 			var exit *exec.ExitError
@@ -188,7 +223,8 @@ func (c *checker) Agent(ctx context.Context, agent string) *Problem {
 			return &p
 		}
 	case "claude":
-		out, err = c.run(ctx, []string{"claude", "auth", "status", "--json"})
+		argv, env := c.agentArgv("claude", "auth", "status", "--json")
+		out, err = c.run(ctx, argv, env)
 		var status struct {
 			LoggedIn *bool `json:"loggedIn"`
 		}
@@ -285,7 +321,7 @@ func (c *checker) probe(ctx context.Context, p Problem, def capability.Server) *
 
 // codexOAuth reads the login state that `codex mcp list --json` reports.
 func (c *checker) codexOAuth(ctx context.Context, p Problem) *Problem {
-	out, err := c.run(ctx, []string{"codex", "mcp", "list", "--json"})
+	out, err := c.run(ctx, []string{"codex", "mcp", "list", "--json"}, nil)
 	var list []struct {
 		Name       string `json:"name"`
 		AuthStatus string `json:"auth_status"`
@@ -305,7 +341,7 @@ func (c *checker) codexOAuth(ctx context.Context, p Problem) *Problem {
 // claudeStatus asks `claude mcp get`, which connects to the server without a
 // model call and says when it needs authentication.
 func (c *checker) claudeStatus(ctx context.Context, p Problem) *Problem {
-	out, err := c.run(ctx, []string{"claude", "mcp", "get", p.Server})
+	out, err := c.run(ctx, []string{"claude", "mcp", "get", p.Server}, nil)
 	if err != nil {
 		return nil
 	}
@@ -385,10 +421,20 @@ func (c *checker) save(m map[string]time.Time) {
 	_ = os.Remove(f.Name())
 }
 
+// cacheKey names a passed check in the cache: an agent check of the worker's
+// process by its route as well, so a pass of another route or of duolog's
+// own environment never stands for it.
+func (c *checker) cacheKey(p Problem) string {
+	if p.Server == "" && c.proc != nil && c.proc.Agent == p.Agent {
+		return p.Key() + "@" + c.proc.CacheKey
+	}
+	return p.Key()
+}
+
 func (c *checker) passed(p Problem) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	at, ok := c.load()[p.Key()]
+	at, ok := c.load()[c.cacheKey(p)]
 	return ok && c.now().Sub(at) < cacheTTL && !at.After(c.now())
 }
 
@@ -396,7 +442,7 @@ func (c *checker) pass(p Problem) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	m := c.load()
-	m[p.Key()] = c.now()
+	m[c.cacheKey(p)] = c.now()
 	c.save(m)
 }
 
@@ -405,6 +451,7 @@ func (c *checker) Forget(p Problem) {
 	defer c.mu.Unlock()
 	m := c.load()
 	delete(m, p.Key())
+	delete(m, c.cacheKey(p))
 	c.save(m)
 }
 

@@ -4,6 +4,7 @@ package workerenv
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -63,6 +64,32 @@ func GateBinary(pathEnv string) (string, error) {
 		return candidate, nil
 	}
 	return "", errors.New("duolog is not on the worker PATH")
+}
+
+// LookPath finds the program name on the PATH of env, the environment a
+// process is built with, never on duolog's own: a check or a launch runs the
+// program its process would. A name with a separator is taken as a path.
+// Not found is exec.ErrNotFound.
+func LookPath(name string, env []string) (string, error) {
+	if strings.ContainsAny(name, `/\`) {
+		return exec.LookPath(name)
+	}
+	path := ""
+	for _, pair := range env {
+		key, value, _ := strings.Cut(pair, "=")
+		if key == "PATH" || runtime.GOOS == "windows" && strings.EqualFold(key, "PATH") {
+			path = value
+		}
+	}
+	for _, dir := range filepath.SplitList(path) {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+		if bin, err := exec.LookPath(filepath.Join(dir, name)); err == nil {
+			return bin, nil
+		}
+	}
+	return "", &exec.Error{Name: name, Err: exec.ErrNotFound}
 }
 
 // Path puts this executable's directory before the parent's search path.

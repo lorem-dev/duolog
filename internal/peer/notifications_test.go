@@ -12,6 +12,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/session"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 func TestWaitKeepsWatchingUntilQuestionReminder(t *testing.T) {
@@ -76,7 +77,8 @@ func TestNotificationTextIsNotExecutableSource(t *testing.T) {
 func TestAgentArgvDisablesNotifications(t *testing.T) {
 	for _, agent := range []string{"claude", "codex"} {
 		t.Run(agent, func(t *testing.T) {
-			args := agentArgv(router.Route{Target: config.Target{Agent: agent, Model: "sol", Effort: "high"}}, mode.Ask, t.TempDir())
+			route := router.Route{Target: config.Target{Agent: agent, Model: "sol", Effort: "high"}}
+			args := agentArgv(route, mode.Ask, peerProcess(t, &config.Config{}, route, workerenv.Free, t.TempDir()))
 			if agent == "codex" {
 				i := slices.Index(args, "tui.notifications=false")
 				if i < 1 || args[i-1] != "-c" {

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"slices"
 	"strings"
 	"testing"
 
@@ -29,14 +28,13 @@ func unsetEnv(t *testing.T, name string) {
 // its credentials still follows capabilities.on_auth_failure.
 func TestDroppedOnlyLoginGoesToLeadWithoutLogin(t *testing.T) {
 	const secret = "sk-test-value"
-	var line string
+	line := workerenv.MigrationLine("codex", "OPENAI_API_KEY")
 	keys := func(t *testing.T) *harness {
 		h := authHarness(t)
 		t.Setenv("OPENAI_API_KEY", secret)
 		unsetEnv(t, "ANTHROPIC_API_KEY")
 		h.cfg.Capabilities.OnAuthFailure = auth.LoginThenLead
 		h.auth.login = auth.LoggedIn
-		line = workerenv.MigrationLine("codex", "OPENAI_API_KEY", h.cfg.EnvPassthrough)
 		return h
 	}
 	check := func(t *testing.T, h *harness, o Outcome, e error, calls int) {
@@ -48,13 +46,8 @@ func TestDroppedOnlyLoginGoesToLeadWithoutLogin(t *testing.T) {
 		if strings.Count(o.Line, line) != 1 || strings.Contains(o.Line, "! codex login") || strings.Contains(o.Line, secret) {
 			t.Fatal(o.Line)
 		}
-		// The line shows the whole list to write: the defaults and the key.
-		full := "env_passthrough: [" + strings.Join(append(slices.Clone(h.cfg.EnvPassthrough), "OPENAI_API_KEY"), ", ") + "]"
-		if !slices.Contains(h.cfg.EnvPassthrough, "HOME") || !strings.Contains(o.Line, full) {
-			t.Fatalf("line lacks %q: %s", full, o.Line)
-		}
-		// The config has no paid_runs yet: the way back is env_passthrough.
-		if !strings.HasSuffix(o.Line, " Do the task here, or add the key to env_passthrough as shown and delegate again.") || strings.Contains(o.Line, "paid runs") {
+		// The way back is the paid_runs opt-in, no longer env_passthrough.
+		if !strings.HasSuffix(o.Line, " Do the task here, or allow paid runs in paid_runs.codex and delegate again.") || strings.Contains(o.Line, "env_passthrough") {
 			t.Fatal(o.Line)
 		}
 	}
@@ -94,11 +87,24 @@ func TestDroppedOnlyLoginGoesToLeadWithoutLogin(t *testing.T) {
 		}
 	})
 
-	// A key listed in env_passthrough passes to the worker: the person
-	// followed the advice, so the first launch carries no line.
+	// A key listed in env_passthrough without paid runs is still dropped, so
+	// the first launch says why it did not reach the worker.
 	t.Run("listed key", func(t *testing.T) {
 		h := keys(t)
 		h.cfg.EnvPassthrough = append(h.cfg.EnvPassthrough, "OPENAI_API_KEY")
+		o, e := h.run("implement")
+		h.requireCalls(1)
+		if e != nil || !strings.HasPrefix(o.Line, "done=true") || strings.Count(o.Line, line) != 1 {
+			t.Fatal(o.Line, e)
+		}
+	})
+
+	// Paid runs allowed with the key in their env: the person followed the
+	// advice, so the first launch carries no line.
+	t.Run("allowed key", func(t *testing.T) {
+		h := keys(t)
+		h.cfg.PaidRuns.Codex.Allow, h.cfg.PaidRuns.Codex.DailyCapUSD = true, 5
+		h.cfg.PaidRuns.Codex.Env = []string{"OPENAI_API_KEY"}
 		o, e := h.run("implement")
 		h.requireCalls(1)
 		if e != nil || !strings.HasPrefix(o.Line, "done=true") || strings.Contains(o.Line, "no longer get") {
@@ -111,12 +117,11 @@ func TestDroppedOnlyLoginGoesToLeadWithoutLogin(t *testing.T) {
 // is too long is cut before it and the line follows whole, however the run
 // ends.
 func TestClaimedNoticeSurvivesALongLine(t *testing.T) {
-	var line string
+	line := workerenv.MigrationLine("codex", "OPENAI_API_KEY")
 	keys := func(t *testing.T) *harness {
 		h := authHarness(t)
 		t.Setenv("OPENAI_API_KEY", "sk-test-value")
 		unsetEnv(t, "ANTHROPIC_API_KEY")
-		line = workerenv.MigrationLine("codex", "OPENAI_API_KEY", h.cfg.EnvPassthrough)
 		return h
 	}
 	check := func(t *testing.T, o Outcome) {

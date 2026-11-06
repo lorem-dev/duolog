@@ -1,0 +1,53 @@
+{
+  "account": {
+    "account": {
+      "type": "chatgpt",
+      "email": "PRIVATE",
+      "planType": "plus",
+      "workspaceName": null
+    },
+    "requiresOpenaiAuth": true
+  },
+  "config": {
+    "config": {
+      "model": "sol",
+      "model_provider": null,
+      "model_providers": {
+        "local": {
+          "name": "Local",
+          "base_url": "http://127.0.0.1:11434/v1",
+          "requires_openai_auth": false
+        }
+      },
+      "profile": null,
+      "forced_login_method": null,
+      "forced_chatgpt_workspace_id": null
+    }
+  },
+  "auth": {
+    "authMethod": "chatgpt",
+    "authToken": null,
+    "requiresOpenaiAuth": true
+  },
+  "rateLimits": {
+    "rateLimits": {
+      "planType": "plus",
+      "primary": {"usedPercent": 13, "windowDurationMins": 300, "resetsAt": 4070908800},
+      "secondary": {"usedPercent": 20, "windowDurationMins": 10080, "resetsAt": 4071513600},
+      "credits": {"hasCredits": false, "unlimited": false, "balance": "0"},
+      "ordinaryUsageAllowed": true,
+      "spendControlReached": null,
+      "rateLimitReachedType": null,
+      "resetCredits": 2
+    },
+    "rateLimitsByLimitId": {
+      "codex": {
+        "primary": {"usedPercent": 13, "windowDurationMins": 300, "resetsAt": 4070908800},
+        "secondary": {"usedPercent": 20, "windowDurationMins": 10080, "resetsAt": 4071513600}
+      },
+      "sol": {
+        "primary": {"usedPercent": 30, "windowDurationMins": 300, "resetsAt": 4070908800}
+      }
+    }
+  }
+}

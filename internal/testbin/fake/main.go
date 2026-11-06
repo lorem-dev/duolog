@@ -43,8 +43,7 @@ func run() error {
 		return err
 	}
 	args, _ := json.Marshal(os.Args[1:])
-	command := strings.Join(os.Args[1:], " ")
-	longest, selected := choose(s, command)
+	longest, selected := choose(s, os.Args[1:])
 	// Count earlier calls that chose the same scenario before recording this one.
 	earlier := 0
 	if prior, err := os.ReadFile(path + ".calls.ndjson"); err == nil {
@@ -53,7 +52,7 @@ func run() error {
 			if json.Unmarshal([]byte(line), &words) != nil {
 				continue
 			}
-			if p, _ := choose(s, strings.Join(words, " ")); p == longest {
+			if p, _ := choose(s, words); p == longest {
 				earlier++
 			}
 		}
@@ -192,13 +191,22 @@ func run() error {
 	return nil
 }
 
-// choose selects the scenario whose prefix is the longest match for command.
-func choose(s testbin.Scenario, command string) (string, testbin.Scenario) {
+// choose selects the scenario whose prefix is the longest match for the
+// command words, or for the words after their leading global overrides: the
+// --settings value of a built Claude process and the -c values of a built
+// Codex one. A key may so name a call by its operation alone.
+func choose(s testbin.Scenario, words []string) (string, testbin.Scenario) {
 	longest := ""
 	selected := s
-	for prefix, response := range s.Responses {
-		if (command == prefix || strings.HasPrefix(command, prefix+" ")) && len(prefix) > len(longest) {
-			longest, selected = prefix, response
+	operation := words
+	for len(operation) >= 2 && (operation[0] == "--settings" || operation[0] == "-c") {
+		operation = operation[2:]
+	}
+	for _, command := range []string{strings.Join(words, " "), strings.Join(operation, " ")} {
+		for prefix, response := range s.Responses {
+			if (command == prefix || strings.HasPrefix(command, prefix+" ")) && len(prefix) > len(longest) {
+				longest, selected = prefix, response
+			}
 		}
 	}
 	return longest, selected

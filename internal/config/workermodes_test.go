@@ -13,14 +13,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/pathutil"
 )
 
-func userConfigPath(t *testing.T) string {
-	t.Helper()
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return filepath.Join(dir, "duolog", "config.yaml")
-}
+// userConfigPath is in paid_runs_test.go, which both features' tests share.
 
 func TestWorkerModesAbsentByDefault(t *testing.T) {
 	cfg, err := Load(isolatedRoot(t))

@@ -16,9 +16,12 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/paidruns"
+	"github.com/lorem-dev/duolog/internal/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/rex"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -63,6 +66,8 @@ type rig struct {
 	ctx    context.Context
 	bin    string
 	sleeps []sleepAt
+	// gate is the account gate every command of the test admits through.
+	gate *paidruns.Gate
 	// defaults are the pauses the code has when no test changed them.
 	defaultSend, defaultKey time.Duration
 }
@@ -137,6 +142,14 @@ func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
 	r.lead("codex", mode.Ask)
 	r.rex(script)
 	r.ctx = WithOptions(context.Background(), Options{Root: r.root, Config: r.cfg, Lead: "lead-1"})
+	// One account state for the whole test, as for one user: open, send and
+	// close are separate commands. Its quota reads start no binary.
+	if r.gate, err = paidrunstest.Gate(filepath.Join(home, "accounts"), r.cfg); err != nil {
+		t.Fatal(err)
+	}
+	oldGate := delegate.NewGate
+	delegate.NewGate = func(*config.Config) (*paidruns.Gate, error) { return r.gate, nil }
+	t.Cleanup(func() { delegate.NewGate = oldGate })
 	oldPoll, oldSettle, oldSend, oldKey, oldGrace, oldSleep, oldResolve := pollInterval, settleDelay, sendDelay, keyDelay, workGrace, sleep, resolveModel
 	r.defaultSend, r.defaultKey = oldSend, oldKey
 	t.Cleanup(func() {
@@ -488,13 +501,14 @@ func TestOpenUsesRoleModel(t *testing.T) {
 	r := newRig(t, baseScript())
 	r.open("implement")
 	argv := strings.Join(r.started(), " ")
-	if !strings.Contains(argv, "codex -m gpt-6.1-sol") || !strings.Contains(argv, `model_reasoning_effort="medium"`) {
+	// The process prefix comes first, with its global overrides.
+	if !strings.Contains(argv, "codex -c check_for_update_on_startup=false -m gpt-6.1-sol") || !strings.Contains(argv, `model_reasoning_effort="medium"`) {
 		t.Fatal(argv)
 	}
 	r2 := newRig(t, withScreens(claudeIdle("")))
 	r2.open("plan")
 	argv = strings.Join(r2.started(), " ")
-	if !strings.Contains(argv, "claude --model opus --effort high") {
+	if !strings.Contains(argv, "claude --settings ") || !strings.Contains(argv, " --model opus --effort high") {
 		t.Fatal(argv)
 	}
 	// The lead's effort is the ceiling.

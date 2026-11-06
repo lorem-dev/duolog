@@ -22,7 +22,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/learning"
 	"github.com/lorem-dev/duolog/internal/profile"
 	"github.com/lorem-dev/duolog/internal/store"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/spf13/cobra"
 )
 
@@ -499,21 +498,31 @@ func newCalibratePlanCommand() *cobra.Command {
 			return err
 		}
 		ctx := cmd.Context()
+		// Quota and billing come from the account gate, with the person's
+		// config, as the cells will run.
+		accounts := newCalibrationAccounts(cfg, root)
+		quotaSource := accounts.Quota()
 		quotas := map[string][]calibration.Window{}
 		for _, agent := range []string{"claude", "codex"} {
-			ws, err := quotaReader(ctx, agent)
+			ws, err := quotaSource.Get(ctx, agent, false)
 			if err != nil {
 				fmt.Fprintf(out, "note: quota of %s unavailable: %v\n", agent, err)
 				continue
 			}
 			quotas[agent] = ws
 		}
+		budgets, err := accounts.Budgets(ctx)
+		if err != nil {
+			return err
+		}
 		now := time.Now()
 		// Planned again, the cells that ran keep their cost and the run's
-		// spend counts toward the cap.
+		// spend counts toward the cap. A paid route is costed in USD and needs
+		// both paid_runs opt-ins.
 		p, err := calibration.BuildPlan(calibration.PlanInput{
 			Cfg: planConfig(cfg, survey), Manifest: m, Rates: rates, Quota: quotas, RunID: run.ID,
 			Ages: calibration.TaskAges(ctx, root, runDir, m, now), Cells: run.Cells, Spent: run.Spend.WeeklyPct,
+			Billing: budgets,
 		})
 		if err != nil {
 			return err
@@ -625,20 +634,12 @@ func newCalibrateResumeCommand() *cobra.Command {
 	return cmd
 }
 
-// subscriptionOnly refuses calibration while env_passthrough hands a billing
-// key to workers. A worker with a key is billed per token, outside the quota
-// that calibration's caps read, so the caps would not hold. It names both
-// agents' keys, since the one list reaches the workers and judges of both.
-func subscriptionOnly(cfg *config.Config) error {
-	keys := workerenv.ListedKeys(cfg.EnvPassthrough)
-	if len(keys) == 0 {
-		return nil
-	}
-	return fmt.Errorf("calibration runs on your subscription only, but env_passthrough passes %s to workers, which bills per token outside the quota its caps read; remove it from env_passthrough in .duolog/config.local.yaml, .duolog/config.yaml or your user config, keep the other names, and run the command again", strings.Join(keys, " and "))
-}
-
 // withCalibrationRunner holds the calibration lock and calls f with a
 // Runner for the latest run, whose plan must be approved and unchanged.
+// A billing key that env_passthrough lists stops nothing here: every step
+// launches through workerenv.Build, whose free variant drops the key, and the
+// account gate admits a paid route only with paid_runs.<agent>.calibrate
+// under the approved plan's budget.
 func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.Runner) error) error {
 	root, err := projectRoot()
 	if err != nil {
@@ -646,10 +647,6 @@ func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.
 	}
 	cfg, err := config.Load(root)
 	if err != nil {
-		return err
-	}
-	// Before the lock, the run and any quota reading: nothing is admitted.
-	if err := subscriptionOnly(cfg); err != nil {
 		return err
 	}
 	s, err := store.Open(root)
@@ -703,9 +700,20 @@ func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.
 	runCfg := p.Limit(planConfig(cfg, survey))
 	env := cellEnv(root, s, runDir, lead, runCfg)
 	env.Checks = cellChecks
+	// The approved budgets, or today's where they are stricter: a lower cap,
+	// a withdrawn opt-in, a smaller share, a route that turned paid.
+	accounts := newCalibrationAccounts(runCfg, root)
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	current, err := accounts.Budgets(ctx)
+	if err != nil {
+		return err
+	}
 	return f(&calibration.Runner{
 		StateDir: s.Dir, Root: root, Cfg: runCfg, Run: run, Plan: p, Manifest: m,
-		Quota: &calibration.QuotaCache{Read: quotaReader}, Now: time.Now,
+		Quota: accounts.Quota(), Now: time.Now, Billing: p.LimitBilling(current), Accounts: accounts,
 		Cell: func(ctx context.Context, c calibration.Cell, t calibration.TaskRecord, start calibration.StartFunc) (calibration.CellResult, error) {
 			return calibration.RunCell(ctx, env, c, t, start)
 		},
@@ -760,7 +768,10 @@ func rewriteStatement(root string, cfg *config.Config, s *store.Store, runDir, l
 		if err := calibration.StartStep(start); err != nil {
 			return "", 0, err
 		}
-		ctx = delegate.WithOptions(ctx, delegate.Options{Lead: lead, Entry: &target, WorkRoot: work, Calibration: true, ProtectedRoots: launchProtectedRoots()})
+		// The rewrite's budget and wait notice, which its start set.
+		budget, waiting := calibration.StepOptions(ctx)
+		ctx = delegate.WithOptions(ctx, delegate.Options{Lead: lead, Entry: &target, WorkRoot: work, Calibration: true, ProtectedRoots: launchProtectedRoots(),
+			Budget: budget, Waiting: waiting})
 		out, err := runDelegate(ctx, cfg, s, "docs", taskPath, "")
 		tokens := out.Result.Usage.Input + out.Result.Usage.Output
 		if err != nil {
@@ -841,10 +852,6 @@ func newCalibrateJudgeCommand() *cobra.Command {
 		if _, ok := cfg.Learning.Classes[class]; class != "" && !ok {
 			return fmt.Errorf("unknown class %q", class)
 		}
-		// Judge calls spend quota too.
-		if err := subscriptionOnly(cfg); err != nil {
-			return err
-		}
 		s, err := store.Open(root)
 		if err != nil {
 			return err
@@ -905,6 +912,7 @@ func newCalibrateJudgeCommand() *cobra.Command {
 		// Judge calls keep to the approved caps, or to the config's where they
 		// are stricter, as the cells do, and to the approved judges and rubrics.
 		judgeCfg := cfg
+		var approvedPlan *calibration.Plan
 		if run.Approved != nil {
 			p, err := calibration.LoadPlan(runDir)
 			if err != nil {
@@ -917,11 +925,21 @@ func newCalibrateJudgeCommand() *cobra.Command {
 				return err
 			}
 			judgeCfg = p.Limit(cfg)
+			approvedPlan = &p
 		}
 		out := cmd.OutOrStdout()
-		// Each judge call is admitted and charged as a cell is.
+		// Each judge call is admitted and charged as a cell is, under the
+		// approved budgets or today's where they are stricter.
+		accounts := newCalibrationAccounts(judgeCfg, root)
 		r := &calibration.Runner{StateDir: s.Dir, Root: root, Cfg: judgeCfg, Run: run, Manifest: m,
-			Quota: &calibration.QuotaCache{Read: quotaReader}, Now: time.Now, Out: out}
+			Quota: accounts.Quota(), Now: time.Now, Out: out, Accounts: accounts}
+		if approvedPlan != nil {
+			current, err := accounts.Budgets(cmd.Context())
+			if err != nil {
+				return err
+			}
+			r.Billing = approvedPlan.LimitBilling(current)
+		}
 		o, vs, err := r.Judge(cmd.Context(), env, pairs, judged)
 		if err != nil {
 			return err

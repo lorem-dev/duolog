@@ -34,6 +34,7 @@ func TestClaudeArgvUsesSharedStateRoot(t *testing.T) {
 	s.Cwd = linked
 	for _, context := range []string{"minimal", "project"} {
 		s.Route.Context = context
+		s = rebuilt(t, s)
 		args := Argv(s)
 		i := slices.Index(args, "--settings")
 		if i < 0 || i+1 == len(args) {
@@ -68,6 +69,7 @@ func TestProtectedRootsForwarded(t *testing.T) {
 			s := spec(t, "claude")
 			s.Route.Context = context
 			s.ProtectedRoots = roots
+			s = rebuilt(t, s)
 			args := Argv(s)
 			i := slices.Index(args, "--settings")
 			if i < 0 || i+1 == len(args) {
@@ -94,6 +96,7 @@ func TestProtectedRootsForwarded(t *testing.T) {
 		}
 		codex := spec(t, "codex")
 		codex.ProtectedRoots = roots
+		codex = rebuilt(t, codex)
 		if line := strings.Join(Argv(codex), " "); strings.Contains(line, filepath.ToSlash(roots[0])) || strings.Contains(line, roots[0]) {
 			t.Fatal(line)
 		}
@@ -106,6 +109,7 @@ func TestProtectedRootsForwarded(t *testing.T) {
 func TestClaudeSkillArgvOmitsSandbox(t *testing.T) {
 	s := spec(t, "claude")
 	s.SkillTest = true
+	s = rebuilt(t, s)
 	args := Argv(s)
 	i := slices.Index(args, "--settings")
 	if i < 0 || i+1 == len(args) || strings.Contains(args[i+1], `"sandbox"`) {

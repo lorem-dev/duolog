@@ -14,6 +14,18 @@ import (
 )
 
 const claudeReply = `{"usage_report":{"rate_limits":{"limits":[{"kind":"session","percent":15,"resets_at":"2099-01-01T00:00:00Z","severity":"normal","is_active":false},{"kind":"weekly_all","percent":50,"resets_at":"2099-01-08T00:00:00Z"}],"extra_usage":{"is_enabled":false,"used_credits":0,"monthly_limit":null}}}}`
+const codexAccountReply = `{"jsonrpc":"2.0","id":3,"result":{"account":{"type":"chatgpt","email":"PRIVATE","planType":"plus"},"requiresOpenaiAuth":true}}`
+const codexConfigReply = `{"jsonrpc":"2.0","id":4,"result":{"config":{"model_provider":null,"model_providers":{},"profile":null}}}`
+const codexAuthReply = `{"jsonrpc":"2.0","id":5,"result":{"authMethod":"chatgpt","authToken":null,"requiresOpenaiAuth":true}}`
+
+// codexRoute adds the config and auth status replies of a chatgpt login on
+// the built-in provider to a fake app-server's replies.
+func codexRoute(rpc map[string]string) map[string]string {
+	rpc["config/read"], rpc["getAuthStatus"] = codexConfigReply, codexAuthReply
+	return rpc
+}
+
+const codexReadMethods = "initialize,initialized,account/read,account/rateLimits/read,config/read,getAuthStatus"
 const codexReply = `{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{"planType":"plus","primary":{"usedPercent":13,"windowDurationMins":300,"resetsAt":4070908800},"secondary":{"usedPercent":20,"windowDurationMins":10080,"resetsAt":4071513600},"credits":{"hasCredits":true,"unlimited":false,"balance":"10"},"ordinaryUsageAllowed":true,"accountId":"PRIVATE"},"rateLimitsByLimitId":{"sonnet":{"primary":{"usedPercent":30,"windowDurationMins":60,"resetsAt":4070908800}}}}}`
 
 func isolate(t *testing.T) {
@@ -27,12 +39,13 @@ func isolate(t *testing.T) {
 func TestReadBoth(t *testing.T) {
 	isolate(t)
 	claude := testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{
-		"-p":                 {Stdout: "{\"type\":\"system\"}\n" + claudeReply + "\n"},
-		"auth status --json": {Stdout: `{"loggedIn":true,"subscriptionType":"pro","email":"PRIVATE"}`},
+		freeClaude("-p"):                 {Stdout: "{\"type\":\"system\"}\n" + claudeReply + "\n"},
+		freeClaude("auth status --json"): {Stdout: `{"loggedIn":true,"subscriptionType":"pro","email":"PRIVATE"}`},
 	}})
-	codex := testbin.Install(t, "codex", testbin.Scenario{SleepMS: 10000, RPCResponses: map[string]string{
+	codex := testbin.Install(t, "codex", testbin.Scenario{SleepMS: 10000, RPCResponses: codexRoute(map[string]string{
 		"initialize": `{"id":1,"result":{}}`, "account/rateLimits/read": codexReply,
-	}})
+		"account/read": codexAccountReply,
+	})})
 	r := Reader{Version: "test", Timeout: 3 * time.Second}
 	for _, agent := range []string{"claude", "codex"} {
 		s, err := r.Read(context.Background(), agent)
@@ -54,7 +67,7 @@ func TestReadBoth(t *testing.T) {
 		}
 	}
 	args, _ := os.ReadFile(claude + ".calls.ndjson")
-	if !strings.Contains(string(args), `["-p","/usage","--output-format","stream-json","--verbose","--no-session-persistence"]`) {
+	if !strings.Contains(string(args), `,"-p","/usage","--output-format","stream-json","--verbose","--no-session-persistence"]`) {
 		t.Fatal(string(args))
 	}
 	cwd, _ := os.ReadFile(claude + ".cwd")
@@ -78,7 +91,7 @@ func TestReadBoth(t *testing.T) {
 			t.Fatal(line)
 		}
 	}
-	if strings.Join(methods, ",") != "initialize,initialized,account/rateLimits/read" {
+	if strings.Join(methods, ",") != codexReadMethods {
 		t.Fatal(string(input))
 	}
 }
@@ -125,7 +138,8 @@ func TestUntrustedReplies(t *testing.T) {
 			isolate(t)
 			s := testbin.Scenario{Stdout: tc.reply}
 			if tc.agent == "codex" {
-				s = testbin.Scenario{RPCResponses: map[string]string{"initialize": `{"id":1,"result":{}}`, "account/rateLimits/read": tc.reply}}
+				s = testbin.Scenario{RPCResponses: codexRoute(map[string]string{"initialize": `{"id":1,"result":{}}`, "account/rateLimits/read": tc.reply,
+					"account/read": codexAccountReply})}
 			}
 			testbin.Install(t, tc.agent, s)
 			_, err := (Reader{Timeout: time.Second}).Read(context.Background(), tc.agent)

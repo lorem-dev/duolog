@@ -102,7 +102,8 @@ func TestNoWorkerModesKeepsToday(t *testing.T) {
 	if err != nil || h.calls[0].Native != "workspace-write" || h.calls[0].Network || strings.Contains(out.Line, "native=") {
 		t.Fatal(out, err, h.calls[0].Native)
 	}
-	env := strings.Join(h.calls[0].Env, "\n")
+	// The admitted process: the account gate built it with these variables.
+	env := strings.Join(h.calls[0].Process.Env, "\n")
 	if strings.Contains(env, "DUOLOG_MODE=") || !strings.Contains(env, "DUOLOG_NATIVE=") {
 		t.Fatal(env)
 	}
@@ -149,7 +150,7 @@ func TestFamilyEntryLowersToPlan(t *testing.T) {
 	if _, err := h.run("mechanical"); err != nil { // mechanical uses codex luna
 		t.Fatal(err)
 	}
-	if c := h.calls[0]; c.Native != "read-only" || c.Mode != mode.Plan || !strings.Contains(strings.Join(c.Env, "\n"), "DUOLOG_MODE=plan") {
+	if c := h.calls[0]; c.Native != "read-only" || c.Mode != mode.Plan || !strings.Contains(strings.Join(c.Process.Env, "\n"), "DUOLOG_MODE=plan") {
 		t.Fatal(c.Native, c.Mode)
 	}
 }
@@ -266,14 +267,14 @@ func TestDuologModeOnlyWithAnEntry(t *testing.T) {
 		if _, err := h.run(role); err != nil {
 			t.Fatal(role, err)
 		}
-		if env := strings.Join(h.calls[0].Env, "\n"); strings.Contains(env, "DUOLOG_MODE=") || !strings.Contains(env, "DUOLOG_NATIVE=") {
+		if env := strings.Join(h.calls[0].Process.Env, "\n"); strings.Contains(env, "DUOLOG_MODE=") || !strings.Contains(env, "DUOLOG_NATIVE=") {
 			t.Errorf("%s: %s", role, env)
 		}
 	}
 	h.workerModes("  roles:\n    review_final: {claude: plan, codex: read-only}\n")
 	h.calls = nil
-	if _, err := h.run("review_final"); err != nil || !strings.Contains(strings.Join(h.calls[0].Env, "\n"), "DUOLOG_MODE=plan") {
-		t.Fatal(err, h.calls[0].Env)
+	if _, err := h.run("review_final"); err != nil || !strings.Contains(strings.Join(h.calls[0].Process.Env, "\n"), "DUOLOG_MODE=plan") {
+		t.Fatal(err, h.calls[0].Process.Env)
 	}
 }
 
@@ -297,7 +298,7 @@ func TestFamilyEntryKeepsTheDefaultsLevel(t *testing.T) {
 			t.Fatal(tc, err)
 		}
 		c := h.calls[0]
-		if env := strings.Join(c.Env, "\n"); strings.Contains(env, "DUOLOG_MODE=") || strings.Contains(out.Line, "native=") {
+		if env := strings.Join(c.Process.Env, "\n"); strings.Contains(env, "DUOLOG_MODE=") || strings.Contains(out.Line, "native=") {
 			t.Errorf("%v: mode %s native %s: %s; %s", tc, c.Mode, c.Native, env, out.Line)
 		}
 	}

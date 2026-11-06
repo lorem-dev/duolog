@@ -28,6 +28,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/rex"
 	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/runner"
@@ -230,6 +231,8 @@ type env struct {
 	rex            rex.Client
 	leadID         string
 	watchQuestions bool
+	// gate is the account gate, opened on first use by accounts.
+	gate *paidruns.Gate
 }
 
 type leadInfo struct {
@@ -385,17 +388,19 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	route, err := router.Resolve(e.cfg, role, unavailable, router.Options{Lead: lead.target, AllowManualModel: e.opts.AllowManualModel})
+	route, err := router.Resolve(e.cfg, role, unavailable, router.Options{Lead: lead.target, AllowManualModel: e.opts.AllowManualModel,
+		Balance: paidruns.DefaultPaceBalance(ctx, e.cfg)})
 	if err != nil {
 		return Entry{}, err
 	}
+	paidruns.SaveDefaultPaceState(route.Ahead)
 	agent = route.Agent
 	if lead.mode == mode.Plan && route.Sandbox != "read-only" {
 		return Entry{}, fmt.Errorf("mode plan refuses write role %s", role)
 	}
 	if route.InLead {
 		here := delegate.Placement{Where: "subagent", Model: route.Model, Effort: route.Effort}
-		return Entry{State: Limited, Note: strings.TrimSpace(here.String())}, nil
+		return Entry{State: Limited, Note: strings.TrimSpace(strings.TrimSpace(here.String()) + " " + route.Reason)}, nil
 	}
 	// Serialize placement across worktrees and agents sharing this registry.
 	// Release before watching startup so another peer can open while this one works.
@@ -441,25 +446,53 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	noted := withNotice(strings.Join(notices, " "))
+	noted := withNotice(strings.TrimSpace(strings.Join(append(notices, route.Reason), " ")))
 	// The ID goes into the pane's environment, so it is chosen before the pane exists.
 	id := newID()
+	// So is the run id, the pane's DUOLOG_RUN.
 	run = delegate.NewRunID()
-	envFile, err := writeEnvFile(e.dir, agentEnv(e.cfg, route.Agent, lead.id, role, id, run))
+	// The account gate admits the pane before it exists: one live slot and its
+	// first task, in the user's account state shared by every lead and
+	// project. The env file and the argv come from the process it built.
+	pane, err := e.admitPane(ctx, route, lead, role, id, run)
 	if err != nil {
 		return noted(Entry{}, err)
 	}
-	block, rexSession, err := e.openProjectPeer(ctx, tabLabel(route.Agent, role), launchArgv(exe, envFile, agentArgv(route, lead.mode, filepath.Dir(e.dir), e.opts.ProtectedRoots...)))
+	envFile, err := writeEnvFile(e.dir, pane.permit.Process.Env)
 	if err != nil {
+		return noted(Entry{}, errors.Join(err, pane.release(ctx)))
+	}
+	if err := pane.launch(ctx, envFile); err != nil {
 		_ = os.Remove(envFile)
+		return noted(Entry{}, errors.Join(err, pane.release(ctx)))
+	}
+	block, rexSession, err := e.openProjectPeer(ctx, tabLabel(route.Agent, role), launchArgv(exe, envFile, agentArgv(route, lead.mode, pane.permit.Process)))
+	openedEnvFile(envFile)
+	if err != nil {
+		// Rex's own refusal shows that no pane holds the reservation. So does
+		// an env file still there to take: duolog peer launch starts nothing
+		// without it, and one that read it first cannot remove it after us.
+		// A file already taken means the agent may run: the hold stays.
+		if removeErr := os.Remove(envFile); paneAbsent(err) || removeErr == nil {
+			err = errors.Join(err, pane.release(ctx))
+		}
 		return noted(Entry{}, err)
 	}
-	entry := session.Entry{ID: id, Lead: lead.id, Agent: route.Agent, Role: role, Thread: peerThread, Block: block, WorkRoot: e.root, RexSession: rexSession, Run: run, Mode: lead.mode, UpdatedAt: time.Now()}
-	if err := e.reg.RecordLimited(entry, e.cfg.Limits.MaxLiveSessions); err != nil {
-		// The pane exists but nothing records it: do not leave it unowned.
+	entry := session.Entry{ID: id, Lead: lead.id, Agent: route.Agent, Role: role, Thread: peerThread, Block: block, WorkRoot: e.root, RexSession: rexSession, Run: run, Mode: lead.mode, UpdatedAt: time.Now(),
+		AccountSessionID: pane.id(), AdmissionID: pane.id()}
+	attachErr := pane.attach(ctx, block, rexSession)
+	if attachErr == nil {
+		attachErr = recordPeer(e.reg, entry, e.cfg.Limits.MaxLiveSessions)
+	}
+	if attachErr != nil {
+		// The pane exists but nothing records it: do not leave it unowned. Its
+		// holds go only once its close is confirmed; otherwise they stay.
 		closeErr := e.clientFor(entry).Close(ctx, block)
+		if closeErr == nil {
+			closeErr = e.sessionEnded(ctx, entry)
+		}
 		cleanupErr := e.cleanupProjectSession(ctx)
-		return noted(Entry{}, fmt.Errorf("pane %s was opened but not recorded: %w", block, errors.Join(err, closeErr, cleanupErr)))
+		return noted(Entry{}, fmt.Errorf("pane %s was opened but not recorded: %w", block, errors.Join(attachErr, closeErr, cleanupErr)))
 	}
 	// Keep the resolved version across commands; aliases may resolve differently
 	// by the time this pane first changes a file.
@@ -674,8 +707,16 @@ func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Ent
 					if _, err := e.update(entry.ID, func(x *session.Entry) { x.Task, x.Base = "", nil }); err != nil {
 						return Entry{ID: entry.ID, State: Ready}, err
 					}
+					// The task ends; the pane keeps its slot.
+					note, err := e.taskEnded(ctx, entry)
+					if err != nil {
+						return Entry{ID: entry.ID, State: Ready}, err
+					}
 					e.attempt(entry, "done", runner.CodeNone)
-					return Entry{ID: entry.ID, State: Ready, Note: "task finished"}, nil
+					if note != "" {
+						note = "; " + note
+					}
+					return Entry{ID: entry.ID, State: Ready, Note: "task finished" + note}, nil
 				}
 			}
 		default:
@@ -813,8 +854,13 @@ func (e *env) markEnded(entry session.Entry, state State) (string, error) {
 	if entry.Closed {
 		return line, err
 	}
-	if _, uerr := e.update(entry.ID, func(x *session.Entry) { x.Closed = true }); uerr != nil {
+	if _, uerr := e.update(entry.ID, func(x *session.Entry) { x.Closed, x.TaskGeneration = true, "" }); uerr != nil {
 		return line, uerr
+	}
+	// The pane is gone or its program ended: its slot frees, and a task sent
+	// to it that did not settle counts at least its estimate when paid, once.
+	if serr := e.sessionEnded(context.Background(), entry); serr != nil {
+		return line, errors.Join(err, serr)
 	}
 	// The pane ended under the task: that run failed, and only this first time.
 	e.attempt(entry, "failed", runner.CodeExit)
@@ -938,12 +984,37 @@ func Send(ctx context.Context, id, taskRef string) (err error) {
 	if err := e.settle(ctx, entry, path); err != nil {
 		return err
 	}
+	// The pane is idle: a task sent before has ended. It settles before the
+	// next is admitted.
+	if _, err := e.taskEnded(ctx, entry); err != nil {
+		return err
+	}
 	before, err := delegate.Snapshot(e.root)
 	if err != nil {
 		return err
 	}
+	// The task is admitted to the pane's account session and its generation
+	// recorded before anything is typed.
+	task, err := e.admitSend(ctx, entry)
+	if err != nil {
+		return err
+	}
+	if entry, err = e.update(entry.ID, func(x *session.Entry) { x.TaskGeneration, x.AdmissionID = task.id(), task.id() }); err != nil {
+		return errors.Join(err, task.release(ctx))
+	}
+	if err := task.launch(ctx, ""); err != nil {
+		return errors.Join(err, e.unsent(ctx, entry, task))
+	}
 	text := taskLine(e.root, path)
 	if err := e.deliver(ctx, entry, text); err != nil {
+		if errors.Is(err, errNotDelivered) {
+			// Enter was never pressed: the task is proven unsent.
+			return errors.Join(err, e.unsent(ctx, entry, task))
+		}
+		// The task may have reached the agent: it stays held.
+		return errors.Join(err, task.attach(ctx, entry.Block, entry.RexSession))
+	}
+	if err := task.attach(ctx, entry.Block, entry.RexSession); err != nil {
 		return err
 	}
 	entry, err = e.update(entry.ID, func(x *session.Entry) { x.Task, x.Base, x.Asked = path, before, "" })
@@ -1005,30 +1076,53 @@ func (e *env) settle(ctx context.Context, entry session.Entry, taskPath string) 
 	return nil
 }
 
+// errNotDelivered marks a send that failed before enter was pressed: the
+// agent never got the task.
+var errNotDelivered = errors.New("the task was not delivered")
+
+// undelivered is a failure before enter, worded as the failure itself.
+type undelivered struct{ err error }
+
+func (u undelivered) Error() string   { return u.err.Error() }
+func (u undelivered) Unwrap() []error { return []error{errNotDelivered, u.err} }
+
+// unsent gives back the hold of a task proven never delivered and takes its
+// generation off the entry.
+func (e *env) unsent(ctx context.Context, entry session.Entry, task *hold) error {
+	_, err := e.reg.Update(entry.ID, func(x *session.Entry) {
+		if x.TaskGeneration == task.id() {
+			x.TaskGeneration = ""
+		}
+	})
+	return errors.Join(err, task.release(ctx))
+}
+
 // deliver types the line and checks the input line before enter. An input line
 // that holds anything but the line, such as a line that lost its start after
 // /new or one typed twice, is cleared and the line typed again, twice at most;
-// the input line is left empty when it still fails.
+// the input line is left empty when it still fails. Every failure before
+// enter is errNotDelivered; one after enter may have reached the agent.
 func (e *env) deliver(ctx context.Context, entry session.Entry, text string) error {
+	notDelivered := func(err error) error { return undelivered{err} }
 	for try := 1; try <= 3; try++ {
 		if err := e.clientFor(entry).Send(ctx, entry.Block, text); err != nil {
-			return err
+			return notDelivered(err)
 		}
 		if err := sleep(ctx, sendDelay); err != nil {
-			return err
+			return notDelivered(err)
 		}
 		screen, err := e.screen(ctx, entry)
 		if err != nil {
-			return err
+			return notDelivered(err)
 		}
 		if holds(entry.Agent, screen, text) {
 			return e.submit(ctx, entry, text)
 		}
 		if err := e.clear(ctx, entry, screen); err != nil {
-			return err
+			return notDelivered(err)
 		}
 	}
-	return fmt.Errorf("peer %s: the text did not reach the input line in 3 tries, so enter was not pressed and the line was cleared", entry.ID)
+	return notDelivered(fmt.Errorf("peer %s: the text did not reach the input line in 3 tries, so enter was not pressed and the line was cleared", entry.ID))
 }
 
 // clear empties an input line that holds text with ctrl+c, as a person does:
@@ -1112,6 +1206,14 @@ func Status(ctx context.Context, id string) (Report, error) {
 	case Limited:
 		if st.Line, err = e.runHere(entry, entry.Task, screen.Text); err != nil {
 			return st, err
+		}
+	case Ready:
+		// A finished task whose settlement did not happen yet settles now,
+		// once; a task still recorded as unfinished stays held.
+		if entry.Task == "" && entry.TaskGeneration != "" {
+			if _, err := e.taskEnded(ctx, entry); err != nil {
+				return st, err
+			}
 		}
 	}
 	changed, known := e.changedFiles(entry)
@@ -1379,6 +1481,11 @@ func Close(ctx context.Context, id string) (err error) {
 		return err
 	}
 	if err := e.clientFor(entry).Close(ctx, entry.Block); err != nil {
+		return err
+	}
+	// The close is confirmed: the slot frees, a never-sent open is refunded
+	// and an unsettled sent task counts at least its estimate when paid.
+	if err := e.sessionEnded(ctx, entry); err != nil {
 		return err
 	}
 	if err := e.reg.RemovePeer(entry.ID); err != nil {

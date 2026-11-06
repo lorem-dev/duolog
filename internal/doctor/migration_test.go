@@ -10,9 +10,9 @@ import (
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
-// Doctor warns every time while a dropped key is set and not listed, with an
-// env_passthrough example that keeps the person's list, and never prints the
-// key's value or the paid_runs key, which the config does not accept yet.
+// Doctor warns every time while a dropped key is set or listed and paid runs
+// do not let it through, with a paid_runs example that keeps the person's
+// paid env, and never prints the key's value.
 func TestDoctorRepeatsMigrationWhileKeyDropped(t *testing.T) {
 	const secret = "sk-test-value"
 	cfg, opts, _ := setup(t)
@@ -21,17 +21,14 @@ func TestDoctorRepeatsMigrationWhileKeyDropped(t *testing.T) {
 	if err := os.Unsetenv("OPENAI_API_KEY"); err != nil {
 		t.Fatal(err)
 	}
-	claude := workerenv.MigrationLine("claude", "ANTHROPIC_API_KEY", cfg.EnvPassthrough)
-	codex := workerenv.MigrationLine("codex", "OPENAI_API_KEY", cfg.EnvPassthrough)
-	// An explicit list replaces the defaults, so the example is the whole
-	// list: the defaults in force plus the key.
-	example := "env_passthrough: [" + strings.Join(append(slices.Clone(cfg.EnvPassthrough), "ANTHROPIC_API_KEY"), ", ") + "]"
-	if !slices.Contains(cfg.EnvPassthrough, "HOME") {
-		t.Fatalf("test config lacks the default names: %v", cfg.EnvPassthrough)
-	}
+	cfg.PaidRuns.Claude.Env = []string{"CLAUDE_PAID_EXTRA"}
+	claude := workerenv.MigrationLine("claude", "ANTHROPIC_API_KEY")
+	codex := workerenv.MigrationLine("codex", "OPENAI_API_KEY")
+	// An explicit list replaces the default, so the example keeps the paid env.
+	example := "Example config: paid_runs: {claude: {allow: true, daily_cap_usd: 5, env: [CLAUDE_PAID_EXTRA, ANTHROPIC_API_KEY]}}"
 	warned := func(got []Finding, line string) bool {
 		for _, f := range got {
-			if f.Level == "warning" && f.Message == line && strings.HasSuffix(f.Message, example) {
+			if f.Level == "warning" && f.Message == line+" "+example {
 				return true
 			}
 		}
@@ -43,23 +40,35 @@ func TestDoctorRepeatsMigrationWhileKeyDropped(t *testing.T) {
 			t.Fatalf("no migration warning with %q: %+v", example, got)
 		}
 		for _, f := range got {
-			if strings.Contains(f.Message, secret) || strings.Contains(f.Message, codex) || strings.Contains(f.Message, "paid_runs") {
+			if strings.Contains(f.Message, secret) || strings.Contains(f.Message, codex) || strings.Contains(f.Message, "env_passthrough") {
 				t.Fatalf("%+v", f)
 			}
 		}
 	}
 
-	// Listed in env_passthrough: the key passes to workers, so no warning,
-	// set or not.
+	// Listed in env_passthrough without paid runs: the key still does not
+	// reach workers, so the warning stays, set or not.
+	base := slices.Clone(cfg.EnvPassthrough)
 	cfg.EnvPassthrough = append(cfg.EnvPassthrough, "ANTHROPIC_API_KEY", "OPENAI_API_KEY")
+	if got := Run(context.Background(), cfg, opts); !warned(got, claude) || !slices.ContainsFunc(got, func(f Finding) bool {
+		return strings.Contains(f.Message, codex) && strings.Contains(f.Message, "paid_runs: {codex: {allow: true, daily_cap_usd: 5, env: [OPENAI_API_KEY]}}")
+	}) {
+		t.Fatalf("listed keys not warned: %+v", got)
+	}
+
+	// Allowed with the key in the paid env: the key reaches paid runs, so no
+	// warning for that agent.
+	cfg.EnvPassthrough = base
+	cfg.PaidRuns.Claude.Allow, cfg.PaidRuns.Claude.DailyCapUSD = true, 5
+	cfg.PaidRuns.Claude.Env = []string{"ANTHROPIC_API_KEY"}
 	for _, f := range Run(context.Background(), cfg, opts) {
 		if strings.Contains(f.Message, "no longer get") {
-			t.Fatalf("listed key still warned: %+v", f)
+			t.Fatalf("allowed key still warned: %+v", f)
 		}
 	}
 
 	// Neither set nor listed: no warning.
-	cfg.EnvPassthrough = cfg.EnvPassthrough[:len(cfg.EnvPassthrough)-2]
+	cfg.PaidRuns.Claude.Allow = false
 	if err := os.Unsetenv("ANTHROPIC_API_KEY"); err != nil {
 		t.Fatal(err)
 	}

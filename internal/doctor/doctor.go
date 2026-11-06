@@ -8,14 +8,18 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/install"
+	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/peer"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/trust"
@@ -42,6 +46,10 @@ type Options struct {
 	// RexShadow is a rex in PATH that is not the Rex CLI, such as a Perl tool of
 	// the same name. duolog skips it.
 	RexShadow string
+	// Lead holds observations of how the lead itself was started, by agent.
+	// Without one the lead's billing is unknown; duolog's own environment
+	// never stands for it.
+	Lead map[string]session.LeadRoute
 }
 
 func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
@@ -134,14 +142,24 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 	}
 	add("info", bridgeLine(cfg, root, available))
 	out = append(out, workerModeFindings(cfg, root)...)
-	// Said every time while the person sets a dropped key and does not list
-	// it, so the change is never silent. Names only, never values. An explicit
-	// list replaces the defaults, so the line's example is the current list
-	// plus the key.
-	dropped := workerenv.DroppedKeys(cfg.EnvPassthrough, os.Environ())
+	out = append(out, billing(ctx, cfg, root, available, opts.Lead)...)
+	// Said every time while the person sets or lists a key that paid runs do
+	// not let through, so the change is never silent. Names only, never
+	// values. An explicit list replaces the default, so the example keeps the
+	// agent's paid env, and its cap when it has one.
+	dropped := workerenv.DroppedKeys(cfg, os.Environ())
 	for _, agent := range []string{"claude", "codex"} {
+		paid := cfg.PaidRuns.Agent(agent)
+		limit := "5"
+		if paid.DailyCapUSD > 0 {
+			limit = strconv.FormatFloat(paid.DailyCapUSD, 'f', -1, 64)
+		}
 		for _, name := range dropped[agent] {
-			add("warning", workerenv.MigrationLine(agent, name, cfg.EnvPassthrough))
+			env := slices.Clone(paid.Env)
+			if !slices.Contains(env, name) {
+				env = append(env, name)
+			}
+			add("warning", workerenv.MigrationLine(agent, name)+" Example config: paid_runs: {"+agent+": {allow: true, daily_cap_usd: "+limit+", env: ["+strings.Join(env, ", ")+"]}}")
 		}
 	}
 	var entries []catalogEntry
@@ -199,6 +217,78 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 			}
 			add("info", agent+" probe succeeded")
 		}
+	}
+	return out
+}
+
+// billing reports, per available agent, how its worker, its peer and its lead
+// are billed, as quota does: verdicts with their signals, the account, the
+// spend and the sessions. Reporting reads the account state and admits
+// nothing. A lead without an observation is unknown.
+func billing(ctx context.Context, cfg *config.Config, root string, available map[string]bool, leads map[string]session.LeadRoute) []Finding {
+	out := []Finding{{"info", "managed policy outside files is not checked: duolog reads managed settings files only, not device management profiles or the Windows registry"}}
+	g, err := delegate.NewGate(cfg)
+	if err != nil {
+		return append(out, Finding{"warning", "billing: " + err.Error()})
+	}
+	home, _ := os.UserHomeDir()
+	environ := os.Environ()
+	report := func(r paidruns.Report) {
+		for i, line := range r.Lines() {
+			level := "info"
+			if i == 0 && r.Assessment.Verdict != paidruns.Subscription || strings.Contains(line, "paid overage") {
+				level = "warning"
+			}
+			out = append(out, Finding{level, line})
+		}
+	}
+	// The account's lines come once, from the first worker report.
+	var account []string
+	for _, agent := range []string{"claude", "codex"} {
+		if !available[agent] {
+			continue
+		}
+		var worker paidruns.Report
+		for _, shape := range []workerenv.Shape{workerenv.Worker, workerenv.Peer} {
+			in := workerenv.ProcessInput{Agent: agent, Shape: shape, Variant: workerenv.Free, Config: cfg, Environ: environ,
+				Locations: workerenv.Locations{Home: home, Root: root, GOOS: runtime.GOOS, Environ: environ}}
+			r, err := g.Report(ctx, in)
+			if r.Assessment.Agent == "" {
+				out = append(out, Finding{"warning", fmt.Sprintf("%s %s billing: %v", agent, shape, err)})
+				continue
+			}
+			report(r)
+			if shape == workerenv.Worker {
+				worker = r
+				if account == nil {
+					account = r.AccountLines()
+				}
+			}
+		}
+		in, ok := session.LeadInput(cfg, leads[agent], home, root)
+		if !ok {
+			out = append(out, Finding{"info", agent + " lead: unknown (no observation of the lead's command and environment)"})
+			continue
+		}
+		lead, err := g.Report(ctx, in)
+		if lead.Assessment.Agent == "" {
+			out = append(out, Finding{"warning", agent + " lead billing: " + err.Error()})
+			continue
+		}
+		report(lead)
+		if worker.Assessment.Agent != "" {
+			if diff := paidruns.CompareLead(lead, worker); diff != "" {
+				out = append(out, Finding{"warning", diff})
+			}
+		}
+	}
+	for _, line := range account {
+		level := "info"
+		// A hold kept without a conclusion takes a slot and its estimate.
+		if strings.HasPrefix(line, "held: ") {
+			level = "warning"
+		}
+		out = append(out, Finding{level, line})
 	}
 	return out
 }

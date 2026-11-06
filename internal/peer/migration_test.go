@@ -9,6 +9,8 @@ import (
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/paidruns"
+	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"github.com/lorem-dev/duolog/internal/workerenv"
@@ -25,10 +27,7 @@ func TestMigrationOnceAcrossDelegateAndPeer(t *testing.T) {
 	if err := os.Unsetenv("OPENAI_API_KEY"); err != nil {
 		t.Fatal(err)
 	}
-	line := workerenv.MigrationLine("claude", "ANTHROPIC_API_KEY", r.cfg.EnvPassthrough)
-	if !strings.Contains(line, "HOME, ") || !strings.HasSuffix(line, ", ANTHROPIC_API_KEY]") {
-		t.Fatalf("line does not show the defaults plus the key: %s", line)
-	}
+	line := workerenv.MigrationLine("claude", "ANTHROPIC_API_KEY")
 
 	// Peer first: the pane opens without the key and the reply names it.
 	e := r.open("plan")
@@ -68,9 +67,8 @@ func TestMigrationOnceAcrossDelegateAndPeer(t *testing.T) {
 // The claimed line comes whole after a question, which is cut before it, and
 // after an error, since peer open claims it before the pane exists.
 func TestMigrationSurvivesQuestionAndError(t *testing.T) {
-	var line string
-	keys := func(t *testing.T, r *rig) {
-		line = workerenv.MigrationLine("codex", "OPENAI_API_KEY", r.cfg.EnvPassthrough)
+	line := workerenv.MigrationLine("codex", "OPENAI_API_KEY")
+	keys := func(t *testing.T) {
 		t.Setenv("OPENAI_API_KEY", "sk-test-value")
 		t.Setenv("ANTHROPIC_API_KEY", "")
 		if err := os.Unsetenv("ANTHROPIC_API_KEY"); err != nil {
@@ -80,7 +78,7 @@ func TestMigrationSurvivesQuestionAndError(t *testing.T) {
 
 	t.Run("question", func(t *testing.T) {
 		r := newRig(t, withScreens(fixtureText("codex-trust-live.txt")))
-		keys(t, r)
+		keys(t)
 		e := r.open("implement")
 		if e.State != Question || !strings.Contains(e.Question, "Trust this folder?") || strings.Count(e.Question, line) != 1 || !strings.HasSuffix(e.Question, "; "+line) {
 			t.Fatalf("%+v", e)
@@ -91,13 +89,42 @@ func TestMigrationSurvivesQuestionAndError(t *testing.T) {
 		script := baseScript()
 		script["new"] = testbin.Scenario{Exit: 4, Stderr: "connecting to Rex server\nfailed to WebSocket dial\n"}
 		r := newRig(t, script)
-		keys(t, r)
+		keys(t)
 		_, err := Open(r.ctx, "implement")
 		if err == nil || strings.Count(err.Error(), line) != 1 || !strings.HasSuffix(err.Error(), "; "+line) {
 			t.Fatalf("%v", err)
 		}
 		// The notice is claimed: the next open in this lead adds nothing.
 		r.rex(baseScript())
+		if e := r.open("implement"); e.State != Ready || strings.Contains(e.Note, "no longer get") {
+			t.Fatalf("%+v", e)
+		}
+	})
+
+	// A pane the account gate refuses opens nothing, and the refusal still
+	// carries the claimed line.
+	t.Run("refused", func(t *testing.T) {
+		r := newRig(t, baseScript())
+		keys(t)
+		read := r.gate.Cache.Read
+		paid := true
+		r.gate.Cache.Read = func(ctx context.Context, p workerenv.Process) (quota.Snapshot, error) {
+			s, err := read(ctx, p)
+			if paid {
+				s.Billing.RouteSignals = []workerenv.Signal{{Name: "auth:apiKey", Layer: "account/read"}}
+			}
+			return s, err
+		}
+		_, err := Open(r.ctx, "implement")
+		if err == nil || !strings.Contains(err.Error(), "codex peer is paid") || strings.Count(err.Error(), line) != 1 || !strings.HasSuffix(err.Error(), "; "+line) {
+			t.Fatalf("%v", err)
+		}
+		if len(r.spawns()) != 0 {
+			t.Fatal("a refused pane was opened")
+		}
+		// A fresh read, not the cached paid one.
+		paid = false
+		r.gate.Cache = &paidruns.Cache{Read: read}
 		if e := r.open("implement"); e.State != Ready || strings.Contains(e.Note, "no longer get") {
 			t.Fatalf("%+v", e)
 		}

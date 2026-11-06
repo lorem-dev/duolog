@@ -63,6 +63,12 @@ empty tool list. Codex uses its read-only sandbox with shell and patch tools
 disabled. Each run returns one JSON object keyed by situation id. The final
 table shows `ok`, `--` or `..`, a score per run and costs from recorded usage.
 
+Each run is admitted like a delegated worker and takes one of the agent's
+sessions while it runs. A skill test runs only on a subscription: when the
+agent's free worker would be paid, the run is refused before any model call,
+and the error names the signal, even when `paid_runs` allows the agent.
+See [paid runs](configuration.md#how-paid-runs-are-allowed-and-capped).
+
 Raw answers overwrite `.duolog/skill-tests/<skill>/<run>.json` on the next
 run of that target. The files include failed checks and process errors. When
 a run fails, its stdout and stderr are copied to
