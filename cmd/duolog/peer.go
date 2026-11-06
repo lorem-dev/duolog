@@ -193,8 +193,44 @@ func newPeerCommand() *cobra.Command {
 	}}
 	list.Flags().BoolVar(&listJSON, "json", false, "Print peers as JSON; id and state keep their old values")
 	list.Flags().BoolVar(&listLong, "long", false, "Print a table with role, agent, task, last event and tab")
-	root.AddCommand(open, wait, send, status, answer, closeCmd, list, newPeerLaunchCommand())
+	root.AddCommand(open, wait, send, status, answer, closeCmd, list, newPeerShowCommand(&lead), newPeerLaunchCommand())
 	return root
+}
+
+// errPeerShowModel is the refusal when a model may read the output.
+var errPeerShowModel = errors.New("duolog peer show prints a peer's screen only to your own terminal, so no model reads it; run it in a terminal outside the agent, or use duolog peer view <id>")
+
+// newPeerShowCommand prints the last lines of a peer's pane to the person's
+// terminal. It refuses before any Rex call whenever a model may read the
+// output, and it has no flag that overrides the refusal.
+func newPeerShowCommand(lead *string) *cobra.Command {
+	var lines int
+	cmd := &cobra.Command{Use: "show <id>", Short: "Print the last lines of a peer's screen to your own terminal", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if modelContext(cmd) {
+			return errPeerShowModel
+		}
+		ctx, cancel, err := peerContext(cmd, *lead, false, 0)
+		if err != nil {
+			return err
+		}
+		defer cancel()
+		shown, err := peer.Show(ctx, args[0], lines)
+		if err != nil {
+			return err
+		}
+		out := cmd.OutOrStdout()
+		if _, err := fmt.Fprintln(out, shown.Header()); err != nil {
+			return err
+		}
+		for _, l := range shown.Lines {
+			if _, err := fmt.Fprintln(out, l); err != nil {
+				return err
+			}
+		}
+		return nil
+	}}
+	cmd.Flags().IntVar(&lines, "lines", peer.DefaultShowLines, fmt.Sprintf("Number of lines, 1 to %d", peer.MaxShowLines))
+	return cmd
 }
 
 // newPeerLaunchCommand starts a peer's program with exactly the variables in its
