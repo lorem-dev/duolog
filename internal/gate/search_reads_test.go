@@ -235,7 +235,8 @@ func TestSearchPipelineIntoShellIsNoRead(t *testing.T) {
 // "> /dev/null" made cat seem to read /dev/null, a path outside the work root.
 func TestReadOfStreamDeviceIsNotOutside(t *testing.T) {
 	// Windows has no /dev, and the gate knows no device name such as NUL, so
-	// there only the half that must stay outside is checked.
+	// there only the half that must stay outside is checked. There a rooted
+	// path such as /dev/zero is on the current drive, outside the work root.
 	if runtime.GOOS != "windows" {
 		checkNotPersonOnly(t, []string{
 			`cd ROOT/.worktrees/exp-gate-c/ && git stash list | head -2; cat > /dev/null <<'EOF' EOF git log --oneline develop -1 2>&1 | head -2`,
@@ -249,6 +250,7 @@ func TestReadOfStreamDeviceIsNotOutside(t *testing.T) {
 		`cat /elsewhere/dev/null`,
 		`cat /dev/zero`,
 		`cat /dev/tty`,
+		`cat /etc/passwd`,
 		`cat > /dev/null; cat ../peer/f`,
 		`cat /dev/null ../peer/f`,
 	})

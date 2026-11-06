@@ -426,7 +426,10 @@ line says `needs the person`. This covers read tools, writes and exec asks
 that name outside paths, such as `cat /outside/notes.txt` or
 `git -C /other log`. A word that starts with `~` counts as outside: `~` and
 `~/x` name the home folder, and `~name` the home folder of another login, so
-`tar czf home.tgz ~` needs the person. An explicit outside-path rule still
+`tar czf home.tgz ~` needs the person. On Windows a rooted path without a
+drive, such as `/etc/passwd` or `\x`, starts at the root of the current
+drive, so it needs the person unless it leads back under the work root.
+An explicit outside-path rule still
 applies as written; a broad `**` allow does not approve outside paths. Nor
 does an exec rule with a wildcard, which names programs, not paths: the default
 `make {check,...}*` allows `make check` but not `make check -C ../peer`, and

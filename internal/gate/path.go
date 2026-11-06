@@ -65,12 +65,35 @@ func literalResolved(name string) string {
 	return filepath.Join(literalResolved(parent), filepath.Base(name))
 }
 
+// onCurrentDrive spells a rooted path without a drive, such as /etc/passwd or
+// \x, on the drive or share of cwd: Windows reads it from the root of the
+// current drive, not from the current folder. A path with a drive or a share,
+// a relative path, and any path under a cwd without a drive, as on a POSIX
+// host, stay as written.
+func onCurrentDrive(cwd, target string) string {
+	rooted := pathutil.Slashes(target)
+	if !strings.HasPrefix(rooted, "/") || strings.HasPrefix(rooted, "//") {
+		return target
+	}
+	folder := pathutil.Slashes(cwd)
+	if len(folder) >= 2 && folder[1] == ':' {
+		return folder[:2] + rooted
+	}
+	if share := strings.SplitN(strings.TrimPrefix(folder, "//"), "/", 3); strings.HasPrefix(folder, "//") && len(share) >= 2 {
+		return "//" + share[0] + "/" + share[1] + rooted
+	}
+	return target
+}
+
 // RelativeTarget compares real filesystem roots, including OS aliases such as
 // /var and /private/var, and parents of files that have not been created yet.
+// A rooted path without a drive is on the drive of cwd, as onCurrentDrive
+// spells it.
 func RelativeTarget(root, cwd, target string) string {
 	if cwd == "" {
 		cwd = root
 	}
+	target = onCurrentDrive(cwd, target)
 	// Foreign Windows paths cannot be resolved by the host filesystem.
 	if runtime.GOOS != "windows" && (pathutil.Windows(root) || pathutil.Windows(cwd) || pathutil.IsAbs(target) && pathutil.Windows(target)) {
 		target = pathutil.Clean(target)
