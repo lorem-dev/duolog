@@ -142,9 +142,9 @@ jobs:
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
   # Shell, YAML and workflow checks, with the tools pinned in the Makefile and
-  # in tools/. The Go and formatter linters are not gated yet.
+  # in tools/. The formatters (make fmt-check) are not gated yet.
   lint:
-    name: lint (shell, yaml, workflows)
+    name: lint (shell, yaml, workflows, go)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -154,12 +154,15 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: |
             go.sum
+            tools/go.sum
             tools/actionlint/go.sum
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Go modules are tidy
         run: go mod tidy -diff
       - name: Shell, YAML and workflows
         run: make lint-sh lint-yaml lint-actions
+      - name: Go linters
+        run: make lint-go
 
   cross-build:
     name: cross-build (all release targets)
