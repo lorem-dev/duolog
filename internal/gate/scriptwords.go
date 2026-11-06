@@ -3,9 +3,10 @@ package gate
 import "strings"
 
 // scriptWords splits a part into the words the shell passes on: quotes group
-// text and go away, and a backslash keeps the next character. It expands
-// nothing. A redirect and the file it names are left out, since the redirect
-// checks judge that file.
+// text and go away, and a backslash keeps the next character, which inside
+// double quotes it does only before $, `, " and \. A backslash before a
+// newline goes with it. It expands nothing. A redirect and the file it names
+// are left out, since the redirect checks judge that file.
 func scriptWords(part string) []scriptWord {
 	var words []scriptWord
 	drop := false
@@ -37,15 +38,14 @@ func splitScriptWords(part string) []scriptWord {
 	var current scriptWord
 	var b strings.Builder
 	var quote byte
-	inWord, escaped := false, false
+	inWord := false
 	for i := 0; i < len(part); i++ {
 		c := part[i]
 		switch {
-		case escaped:
-			b.WriteByte(c)
-			escaped = false
 		case c == '\\' && quote != '\'':
-			escaped, inWord = true, true
+			text, last, word := scriptBackslash(part, i, quote)
+			b.WriteString(text)
+			i, inWord = last, inWord || word
 		case quote != 0:
 			if c != quote {
 				b.WriteByte(c)
@@ -75,6 +75,24 @@ func splitScriptWords(part string) []scriptWord {
 		words = append(words, current)
 	}
 	return words
+}
+
+// scriptBackslash reads the backslash at part[i], outside single quotes. It
+// returns the text it stands for, the index of the last byte it used, and
+// whether it is part of a word.
+func scriptBackslash(part string, i int, quote byte) (text string, last int, word bool) {
+	switch {
+	case i+1 < len(part) && part[i+1] == '\n':
+		// A line continuation: the shell removes both.
+		return "", i + 1, false
+	case quote == '"' && (i+1 == len(part) || strings.IndexByte("$`\"\\", part[i+1]) < 0):
+		// Inside double quotes a backslash escapes only $, `, " and \;
+		// before anything else it stays, as awk's \057 needs.
+		return `\`, i, true
+	case i+1 < len(part):
+		return part[i+1 : i+2], i + 1, true
+	}
+	return "", i, true
 }
 
 // redirectAt reports whether text starts with a redirect operator, after an

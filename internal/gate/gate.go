@@ -678,7 +678,8 @@ func shellParts(command string, reads bool) ([]string, bool) {
 			return
 		}
 		if strings.ContainsAny(part, "'\"\\$`<>()") {
-			stripped := strings.NewReplacer("'", "", "\"", "", "\\", "").Replace(part)
+			// A backslash and a newline continue the line: the shell removes both.
+			stripped := strings.NewReplacer("\\\n", "", "'", "", "\"", "", "\\", "").Replace(part)
 			words = strings.Fields(stripped)
 			switch {
 			case literalQuotes(part, false) && len(words) > 0:
@@ -924,29 +925,17 @@ func readCommandDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action,
 		if reason != "" && asked == nil {
 			asked = reasonAsk(a, m, reason)
 		}
-		for _, written := range targets {
-			// A stream device holds no file, and a redirect such as > /dev/null
-			// can read here as a file the command reads: only a deny counts.
-			device := streamDevice(expandHome(written))
-			target := workTarget(a, written)
-			if strings.ContainsAny(target, "*?[{") {
-				if statePattern(target) {
-					return Decision{Kind: Deny, Reason: "duolog state is not readable by workers", Rule: RuleState, Mode: m}, true
-				}
-				continue
-			}
-			d := Evaluate(p, lead, m, Action{Kind: "read", Target: target, Role: a.Role, Shell: shell, OwnResult: ownTempRead(a, written)})
+		for _, target := range targets {
+			d, counts := readTargetDecision(p, lead, m, a, shell, target)
 			if d.Kind == Deny {
-				d.Reason = "read command: " + d.Reason
 				return d, true
 			}
-			if d.Kind != Allow && !device && (asked == nil || PersonOnly(d)) {
-				d.Reason = "read command: " + d.Reason
+			if counts && (asked == nil || PersonOnly(d)) {
 				asked = &d
 			}
 		}
 	}
-	if asked != nil && (!uncertain || PersonOnly(*asked)) {
+	if readAskStands(a, asked, uncertain) {
 		return *asked, true
 	}
 	return Decision{}, false
