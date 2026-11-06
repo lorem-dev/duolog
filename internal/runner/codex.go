@@ -7,14 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/lorem-dev/duolog/internal/mode"
 )
 
 func codexArgv(s Spec) []string {
 	args := []string{"codex", "exec"}
 	// Sandbox belongs to exec; its resume subcommand does not accept it.
-	args = append(args, mode.Args("codex", s.Mode, s.Route.Sandbox)...)
+	args = append(args, permissionArgs("codex", s)...)
 	if s.ThreadID != "" {
 		args = append(args, "resume", s.ThreadID)
 	}

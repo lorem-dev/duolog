@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -34,7 +33,7 @@ func claudeArgv(s Spec) []string {
 	if s.MaxTurns > 0 {
 		args = append(args, "--max-turns", strconv.Itoa(s.MaxTurns))
 	}
-	args = append(args, mode.Args("claude", s.Mode, s.Route.Sandbox)...)
+	args = append(args, permissionArgs("claude", s)...)
 	// In the cost study the user's MCP servers added 7.4 thousand tokens to every
 	// call, so a worker gets them only when its task needs one. Bridged servers
 	// add to the worker's own when it keeps them, and are the only ones otherwise.

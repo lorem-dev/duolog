@@ -4,7 +4,6 @@ package gate
 import (
 	"fmt"
 	"github.com/lorem-dev/duolog/internal/pathutil"
-	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -57,6 +56,8 @@ type Decision struct {
 	Reason string    `json:"reason"`
 	Rule   string    `json:"rule"`
 	Mode   mode.Mode `json:"mode"`
+	// Native is the worker's native permission mode from DUOLOG_NATIVE.
+	Native string `json:"native,omitempty"`
 }
 
 // PersonOnly identifies an outside-work-root ask that needs the person's answer.
@@ -72,7 +73,7 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 		if kind == Ask && a.Kind == "exec" && ExecOutside(a) {
 			rule = RuleOutside
 		}
-		return Decision{kind, reason, rule, m}
+		return Decision{Kind: kind, Reason: reason, Rule: rule, Mode: m}
 	}
 	for _, rule := range p.Rules {
 		if err := validateRule(rule); err != nil {
@@ -102,6 +103,10 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	}
 	if d, ok := protectedDecision(a, m); ok {
 		return d
+	}
+	// Before parsing, which gives up on wrappers such as env and asks instead.
+	if a.Kind == "exec" && startsAgent(a.Target, a.Shell) {
+		return decision(Deny, "workers cannot start claude or codex; such a run is outside duolog's routing and quota", RuleAgentLaunch)
 	}
 	if a.Kind == "read" && stateReadAction(a) {
 		return decision(Deny, "duolog state is not readable by workers", RuleState)
@@ -451,7 +456,7 @@ func expandBraces(pattern string) []string {
 // basenameCommand receives a verified shell part with normalized whitespace.
 func basenameCommand(command string) string {
 	word, _, _ := strings.Cut(command, " ")
-	return strings.TrimSuffix(path.Base(pathutil.Slashes(word)), ".exe") + command[len(word):]
+	return ProgramName(word) + command[len(word):]
 }
 
 // quotedLiteralUnsafe lists what a quoted run may not hold. Whitespace and
@@ -924,7 +929,7 @@ func readCommandDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action,
 	}
 	var asked *Decision
 	if unquotedRgGlob(a.Target, a.Shell) {
-		asked = &Decision{Ask, "a shell glob in an rg option can expand onto denied files; quote the glob", "read command", m}
+		asked = &Decision{Kind: Ask, Reason: "a shell glob in an rg option can expand onto denied files; quote the glob", Rule: "read command", Mode: m}
 	}
 	for _, part := range parts {
 		if !readOnlyCommand(part) {
@@ -933,10 +938,10 @@ func readCommandDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action,
 		targets, reason := readCommandTargets(part)
 		words := commandWords(part)
 		if words[0] == "rg" && readGlobMatchesDeny(p, lead, a, rgGlobs(words[1:])) && asked == nil {
-			asked = &Decision{Ask, "a search glob can read a file that policy denies; name the files", "read command", m}
+			asked = &Decision{Kind: Ask, Reason: "a search glob can read a file that policy denies; name the files", Rule: "read command", Mode: m}
 		}
 		if reason != "" && asked == nil {
-			asked = &Decision{Ask, reason, "read command", m}
+			asked = &Decision{Kind: Ask, Reason: reason, Rule: "read command", Mode: m}
 		}
 		for _, target := range targets {
 			if a.Work != "" {
@@ -944,7 +949,7 @@ func readCommandDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action,
 			}
 			if strings.ContainsAny(target, "*?[{") {
 				if statePattern(target) {
-					return Decision{Deny, "duolog state is not readable by workers", RuleState, m}, true
+					return Decision{Kind: Deny, Reason: "duolog state is not readable by workers", Rule: RuleState, Mode: m}, true
 				}
 				continue
 			}

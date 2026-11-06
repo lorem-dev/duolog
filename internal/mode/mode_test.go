@@ -57,6 +57,19 @@ func TestNeverDangerousFlags(t *testing.T) {
 			}
 		}
 	}
+	for _, agent := range []string{"codex", "claude"} {
+		for _, req := range []string{"", "plan", "default", "acceptEdits", "auto", "bypassPermissions", "dontAsk", "read-only", "workspace-write", "danger-full-access"} {
+			for _, m := range []Mode{Plan, Ask, Edits, Full} {
+				for _, sb := range []string{"read-only", "workspace-write"} {
+					got := Resolve(agent, Request{Native: req}, NewCeiling("claude", "auto", m, m), sb)
+					flags := strings.Join(Flags(agent, got.Native), " ")
+					if strings.Contains(flags, "danger-full-access") || strings.Contains(flags, "dangerously") {
+						t.Fatal(agent, req, flags)
+					}
+				}
+			}
+		}
+	}
 }
 func TestRoleSandboxNarrowsMode(t *testing.T) {
 	for _, agent := range []string{"codex", "claude"} {

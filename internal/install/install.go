@@ -50,6 +50,7 @@ func Run(o Options) (Report, error) {
 	timeout := 150
 	var edits []edit
 	var report Report
+	var regated []string // Codex hooks files whose gate command changes
 	for _, agent := range agents {
 		path := hooksPath(base, agent)
 		if o.Scope == "user" {
@@ -78,6 +79,14 @@ func Run(o Options) (Report, error) {
 			return Report{}, err
 		}
 		edits = append(edits, edit{path: path, data: data})
+		if agent == "codex" {
+			// Codex skips a hook whose command changed after approval, and its
+			// trusted_hash stays; trust must not count that hash for the new
+			// command.
+			if old, err := os.ReadFile(path); err == nil && gateCommands(old) != gateCommands(data) {
+				regated = append(regated, path)
+			}
+		}
 		for _, name := range plugin.Skills {
 			files, err := skillFiles(agent, name)
 			if err != nil {
@@ -128,6 +137,11 @@ func Run(o Options) (Report, error) {
 		}
 		if changed {
 			report.Files = append(report.Files, e.path)
+		}
+	}
+	for _, path := range regated {
+		if err := markStaleApprovals(o.Home, path); err != nil {
+			return report, err
 		}
 	}
 	for _, agent := range agents {
@@ -431,6 +445,14 @@ func events(agent string, timeout int) []event {
 		{"PreToolUse", []group{gate("PreToolUse")}},
 		{"PermissionRequest", []group{gate("PermissionRequest")}},
 	}
+}
+
+// CodexGateCommands returns the POSIX and Windows commands duolog installs for
+// the Codex gate on event. Codex runs a hook only while its command is the one
+// the person approved, so trust compares an approved gate with these.
+func CodexGateCommands(event string) (posix, windows string) {
+	args := "gate --agent codex --event " + event
+	return command("linux", args, true), command("windows", args, true)
 }
 
 // Codex carries both shell guards in one shared file. POSIX must exec so

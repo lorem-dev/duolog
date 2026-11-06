@@ -1,9 +1,11 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/session"
 	"path/filepath"
 	"time"
@@ -33,26 +35,34 @@ func newRouteCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			opts := router.Options{AllowManualModel: allowManualModel}
 			lead, err := reg.ResolveLead(leadFlag)
-			if err != nil {
+			// Without a lead, route shows the request; the ceiling needs a lead.
+			noLead := err != nil && leadFlag == ""
+			var ceiling mode.Ceiling
+			switch {
+			case noLead:
+			case err != nil:
 				return err
-			}
-			lead, _, err = gate.LeadMode(reg, lead.ID, time.Now())
-			if err != nil {
-				return err
-			}
-			observed, _ := session.ReadLeadState(lead.Agent, lead.TranscriptPath)
-			if observed.Model != "" {
-				lead.Model = observed.Model
-			}
-			if observed.Effort != "" {
-				lead.Effort = observed.Effort
+			default:
+				var effective mode.Mode
+				if lead, effective, err = gate.LeadMode(reg, lead.ID, time.Now()); err != nil {
+					return err
+				}
+				observed, _ := session.ReadLeadState(lead.Agent, lead.TranscriptPath)
+				if observed.Model != "" {
+					lead.Model = observed.Model
+				}
+				if observed.Effort != "" {
+					lead.Effort = observed.Effort
+				}
+				opts.Lead = &lead.Target
+				ceiling = mode.NewCeiling(lead.Agent, lead.Native, lead.Mode, effective)
 			}
 			unavailable, err := reg.Unavailable()
 			if err != nil {
 				return err
 			}
-			opts := router.Options{Lead: &lead.Target, AllowManualModel: allowManualModel}
 			route, err := router.Resolve(cfg, args[0], unavailable, opts)
 			if err != nil {
 				return err
@@ -61,14 +71,31 @@ func newRouteCommand() *cobra.Command {
 				observeBalance(tel).Route(routeObservation(cfg, args[0], route, opts))
 				tel.Close()
 			}
+			request := cfg.WorkerModes.Request(args[0], config.RouteFamilies(cfg, args[0], route.Model, route.Sandbox), route.Agent)
+			var permission any = mode.Resolve(route.Agent, request, ceiling, route.Sandbox)
+			if noLead {
+				permission = map[string]string{"request": request.Native, "source": cmp.Or(request.Source, "default"), "ceiling": "no lead"}
+			}
 			if asJSON {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
-					"agent": route.Agent, "model": route.Model, "effort": route.Effort,
+					"permission": permission, "agent": route.Agent, "model": route.Model, "effort": route.Effort,
 					"sandbox": route.Sandbox, "context": route.Context, "session": route.Session,
 					"is_fallback": route.IsFallback, "self": route.Self, "in_lead": route.InLead, "effort_capped": route.EffortCapped,
 				})
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s\n", route.Agent, route.Model, route.Effort)
+			line := fmt.Sprintf("%s %s %s", route.Agent, route.Model, route.Effort)
+			switch p := permission.(type) {
+			case mode.Resolved:
+				if p.Source != "default" {
+					line += fmt.Sprintf(" mode=%s native=%s (%s)", p.Level, p.Native, p.Source)
+				}
+			default:
+				if request.Native != "" {
+					line += fmt.Sprintf(" request=%s (%s);", request.Native, request.Source)
+				}
+				line += " ceiling: no lead"
+			}
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), line)
 			return err
 		},
 	}

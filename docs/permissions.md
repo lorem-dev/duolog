@@ -37,6 +37,104 @@ there without asking. `danger-full-access` is `full` with `never` and `edits`
 with the other two. Approval policy `untrusted` makes both `ask`. An unknown
 value counts as `ask`.
 
+## A worker's native mode
+
+Each worker also starts in a native mode of its agent: a Claude
+`--permission-mode` or a Codex sandbox. By default `duolog delegate` passes
+the flag that matches the lead's mode, never above `acceptEdits` for Claude or
+`workspace-write` for Codex. The `worker_modes` section of the config
+([Configuration](configuration.md#which-layers-may-change-worker-modes))
+changes it for one role or one model family. Without the section nothing
+changes.
+
+An entry names a native value, such as `acceptEdits` or `read-only`. duolog
+resolves it for each worker:
+
+1. A role entry and a family entry both count; the lower one wins. Only a
+   role entry can ask for more than duolog's default; a family entry alone
+   gives at most `acceptEdits` or `workspace-write`, and one that asks more
+   changes nothing. A read-only role ignores family entries.
+2. The result never goes above the lead's mode, including a lower mode set
+   with `duolog mode`. A read-only role stays read-only.
+3. Claude `auto` needs a lead that is in `auto` at level `edits`, or at
+   `full`. A lead in `acceptEdits` gives the worker `acceptEdits`.
+   `bypassPermissions` needs a lead at `full`.
+4. When the entry is above the lead, the worker gets duolog's default flag
+   for the lead's mode instead.
+
+When an entry applies, the worker's gate level follows the same result.
+`duolog delegate` sets `DUOLOG_MODE` for the worker, and the gate takes the
+lower of that and the lead's mode. A missing or forged value can only lower
+the level, never raise it. So an entry that lowers a family, such as
+`luna: {codex: read-only}`, binds the gate as well as the flag. A role entry
+for a read-only role sets the gate to `plan`, which denies web reads; a
+family entry does not. Without an
+entry delegate sets no `DUOLOG_MODE`, and the gate keeps the lead's mode as
+before.
+
+Project files `.duolog/config.yaml` and `.duolog/config.local.yaml` may only
+lower an entry, and a project layer that changes a role drops what its entry
+asks above the default. See the configuration page for what is ignored.
+
+### Why a looser mode needs proof that the gate runs
+
+In `default` and `acceptEdits`, the native mode is a second lock: if the gate
+does not run, a Claude tool call still meets a prompt that nobody answers in
+`claude -p`, and is denied. In `auto` and `bypassPermissions` that second lock
+is gone, and a missing gate lets the tool run. Codex `workspace-write` keeps
+its OS sandbox, but network and extra writable roots widen it.
+
+So before a worker starts in a looser mode, or with Codex network or extra
+roots, `duolog delegate` checks that the gate can run for that agent here:
+
+- Claude: the duolog gate hooks are in a settings file, or the duolog plugin
+  is enabled and installed for the user or for this project, and
+  `disableAllHooks` is off.
+- Codex: the folder is trusted, and an approved gate hook runs duolog's own
+  gate command. Codex skips a hook whose command changed after approval, so
+  an approval of another command does not count. When `duolog install`
+  changes the gate command, the approval Codex held then does not count
+  either; approve the hook again in `/hooks`.
+- The `duolog` binary is on the worker's PATH.
+- No writable root overlaps a protected folder, checked again at launch.
+
+If a check fails, delegate refuses the run. No worker starts and the other
+agent does not run in its place. The message reads
+`gate preflight failed for <agent> <native> (<source>): <reason>; nothing
+ran`. Fix the reason, or remove the entry. A run with no looser entry is not
+checked this way and behaves as before.
+
+`duolog route <role>` shows the result, such as
+`codex sol medium mode=edits native=workspace-write (role implement)`. Its
+JSON has a `permission` object with the level, the native value, the source
+and what lowered it. Without a lead, route shows the request and
+`ceiling: no lead`. `duolog doctor` lists each entry, says when it applies or
+that it never does, and warns when the gate cannot be shown to run for an
+entry that needs it. The delegate result line names the native mode when an
+entry applies. `duolog decisions` and the usage records name it for every
+run.
+
+### What a Codex entry can add
+
+A role entry for Codex may set `network: true` and `writable_roots`. They
+apply only to that role's Codex route, only on `workspace-write` at level
+`edits` or `full`, and never from a family entry or a project file. They
+apply whether or not the entry names a `codex` value. duolog refuses a root
+that is a volume root, the home folder or one of its parents, or that holds
+or lies in credentials or agent and duolog settings. It compares the paths
+after it resolves symlinks, and without case where the volume ignores case;
+[Configuration](configuration.md#which-layers-may-change-worker-modes) lists
+the folders. `danger-full-access` is not offered.
+
+Every Codex `workspace-write` worker gets `network_access` and
+`writable_roots` on its command line, `false` and `[]` unless an entry
+allows more. Codex's own config files then cannot widen a worker. Whether
+`codex exec` honours these keys is NOT VERIFIED.
+
+Peers (`duolog peer`) do not use `worker_modes`; they keep the default flags.
+A Codex `workspace-write` peer gets the same `false` and `[]`, so a cloned
+repository's `.codex/config.toml` cannot widen it either.
+
 ## The default rules
 
 The rules are in the `policy` section of the config. A rule has an action
@@ -57,6 +155,7 @@ roles.
 | exec | `git status`, `git diff`, `git log`, `git show` | allow |
 | exec | `git push`, `git reset --hard`, `git clean`, `git rebase` | deny |
 | exec | `rm -rf *` | deny |
+| exec | `claude` and `codex`, with or without arguments | deny |
 | mcp | Nine named CodeGraph tools that read the code index, for every role | allow |
 | net | everything | ask |
 
@@ -109,6 +208,14 @@ before another command, a shell glob, a program path with `..` and `git -c`
 ask in every mode, because the gate reads the command text and cannot see what
 they do. A path can match a deny
 by accident: `go test ./secrets/...` is denied by the `secrets/` rule.
+
+Workers cannot start `claude` or `codex` themselves (rule `agent launch`).
+The gate denies them by any program path or Windows launcher, behind
+prefixes such as `env`, `timeout` or `sudo`, and through package runners
+such as `npx`, `pnpm dlx` or `deno run npm:`, a tarball of either CLI
+included. This check reads the command text, so a script or interpreter that
+starts an agent, such as `python3 -c "import os; os.system('claude')"`, is
+not caught.
 
 Secrets include nested `.env` and `.env.*` files. Paths outside the working
 tree ask in every mode, unless an explicit outside-path rule applies. A broad
@@ -387,6 +494,11 @@ These come from the research page and are OBSERVED, not VERIFIED:
   Claude.
 - Whether hooks fire for tools inside a Codex `spawn_agent` child is NOT
   VERIFIED.
+- A looser worker mode (Claude `auto` or `bypassPermissions`) removes the
+  native second lock, so a gate that does not run lets a tool through. That is
+  why delegate refuses such a run when the gate preflight fails. Whether
+  `codex exec` honours the sandbox keys behind Codex network and writable
+  roots is NOT VERIFIED.
 - One reported Windows 11 check covered install, hooks, workers and gate
   denies in Windows PowerShell 5.1. Real agents in PowerShell 7 and on
   Windows arm64 remain unchecked.
