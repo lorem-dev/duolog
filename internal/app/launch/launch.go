@@ -16,10 +16,6 @@ import (
 // that shape uses it, so that a check sees the route the launch will use.
 type Build func(in corelaunch.ProcessInput) (corelaunch.Process, error)
 
-// LookPath finds the program that a process with env would start:
-// workerenv.LookPath is the real one.
-type LookPath func(name string, env []string) (string, error)
-
 // DroppedKeys lists, per agent, the route names that the agent's workers no
 // longer get from environ under cfg: workerenv.DroppedKeys is the real one.
 // It reads the route rule, which needs the net package, so it stays in

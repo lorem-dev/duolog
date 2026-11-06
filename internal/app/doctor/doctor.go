@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"runtime"
 	"slices"
 	"sort"
@@ -118,7 +117,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 	_ = json.Unmarshal([]byte(FixtureVersions), &baseline)
 	available := map[string]bool{}
 	for _, agent := range []string{"claude", "codex"} {
-		if _, err := exec.LookPath(agent); err != nil {
+		if !d.Available(agent) {
 			add("warning", agent+" binary missing")
 			continue
 		}
@@ -126,7 +125,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 		if !capability.HasDuolog(agent, root) {
 			add("warning", agent+" has no duolog hooks; its sessions get the sandbox only")
 		}
-		data, err := metadata(ctx, agent, "--version")
+		data, err := d.metadata(ctx, agent, "--version")
 		if err != nil {
 			add("warning", agent+" version: "+err.Error())
 			continue
@@ -166,7 +165,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 	var entries []catalogEntry
 	if available["codex"] {
 		var err error
-		entries, err = readCatalog(ctx)
+		entries, err = readCatalog(ctx, d)
 		if err != nil {
 			add("warning", "Codex catalog: "+err.Error())
 		} else {
@@ -314,8 +313,11 @@ func bridgeLine(cfg *config.Config, root string, available map[string]bool) stri
 	return strings.Join(parts, "; ")
 }
 
-func metadata(ctx context.Context, agent string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, agent, args...)
-	cmd.Stdin = strings.NewReader("")
-	return cmd.Output()
+// metadata runs agent's own metadata command through its Probe.
+func (d Deps) metadata(ctx context.Context, agent string, args ...string) ([]byte, error) {
+	pr, ok := d.Probes[agent]
+	if !ok {
+		return nil, fmt.Errorf("no probe for %s", agent)
+	}
+	return pr.Metadata(ctx, args...)
 }

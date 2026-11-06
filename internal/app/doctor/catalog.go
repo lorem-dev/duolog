@@ -49,8 +49,8 @@ func (level *effortLevel) UnmarshalJSON(data []byte) error {
 	level.Effort = entry.Effort
 	return nil
 }
-func readCatalog(ctx context.Context) ([]catalogEntry, error) {
-	data, err := metadata(ctx, "codex", "debug", "models")
+func readCatalog(ctx context.Context, d Deps) ([]catalogEntry, error) {
+	data, err := d.metadata(ctx, "codex", "debug", "models")
 	if err != nil {
 		return nil, err
 	}

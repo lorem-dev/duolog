@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"os"
+	"os/exec"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/claude"
@@ -141,14 +142,19 @@ func ProfileDeps(d delegate.Deps) profile.Deps {
 
 // DoctorDeps fills every field of doctor.Deps with the real function.
 func DoctorDeps(d delegate.Deps) doctor.Deps {
+	probes := map[string]doctor.Probe{}
+	for _, a := range Agents() {
+		probes[a.Facts.Name] = a.Probe
+	}
 	return doctor.Deps{
 		PaidGate:     func(cfg *config.Config) (*paidruns.Gate, error) { return d.PaidGate(cfg) },
 		GateBinary:   workerenv.GateBinary,
 		Build:        workerenv.Build,
-		LookPath:     workerenv.LookPath,
 		DroppedKeys:  workerenv.DroppedKeys,
 		Agents:       doctorAgents(),
 		ClaudeFolder: claude.ClaudeFolder,
+		Probes:       probes,
+		Available:    func(agent string) bool { _, err := exec.LookPath(agent); return err == nil },
 	}
 }
 

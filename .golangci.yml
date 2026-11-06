@@ -266,8 +266,6 @@ linters:
       - {path: '^internal/app/doctor/doctor\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Run. has too many statements \(108 > |complexity 85 of func .(?:\(\*?\w+\)\.)?Run. is|function (?:\(\*?\w+\)\.)?Run is 45,'} # Run: cyclomatic 45, statements 108, cognitive 85
       - {path: '^internal/app/doctor/doctor\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .billing. has too many statements \(46 > |complexity 35 of func .(?:\(\*?\w+\)\.)?billing. is|function (?:\(\*?\w+\)\.)?billing is 18,'} # billing: cyclomatic 18, statements 46, cognitive 35
       - {path: '^internal/app/doctor/doctor\.go$', linters: [nestif], text: '.if\ opts\.Probe. has complex nested blocks \(complexity: 5\)'} # if if opts.Probe: nesting 5
-      - {path: '^internal/app/doctor/probe\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .probe. has too many statements \(72 > |complexity 26 of func .(?:\(\*?\w+\)\.)?probe. is|function (?:\(\*?\w+\)\.)?probe is 21,'} # probe: cyclomatic 21, statements 72, cognitive 26
-      - {path: '^internal/app/doctor/probe\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?readProbeUsage is 20,'} # readProbeUsage: cyclomatic 20
       - {path: '^internal/app/doctor/workermodes\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?describeWorkerMode is 16,'} # describeWorkerMode: cyclomatic 16
       - {path: '^internal/app/doctor/workermodes\.go$', linters: [gocognit], text: 'complexity 29 of func .(?:\(\*?\w+\)\.)?workerModeFindings. is'} # workerModeFindings: cognitive 29
       - {path: '^internal/app/doctor/workermodes\.go$', linters: [nestif], text: '.if\ agent\ ==\ "codex". has complex nested blocks \(complexity: 10\)'} # if if agent == "codex": nesting 10

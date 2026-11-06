@@ -2,7 +2,7 @@ package doctor
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +14,7 @@ import (
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/doctor/doctortest"
 	"github.com/lorem-dev/duolog/internal/capability"
 	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
@@ -22,7 +23,14 @@ import (
 
 const catalog = `{"models":[{"slug":"gpt-6.1-sol","visibility":"list","supported_reasoning_levels":[{"effort":"low","description":"d"},{"effort":"medium","description":"d"},{"effort":"high","description":"d"}]},{"slug":"gpt-6-luna","visibility":"list","supported_reasoning_levels":[{"effort":"low","description":"d"}]}]}`
 
-func setup(t *testing.T) (*config.Config, Options, string) {
+// agents are the fake probes of one test, as setup leaves them in testDeps.
+type agents struct{ claude, codex *doctortest.Fake }
+
+// setup returns a config, options and fake probes that find both agents
+// installed: claude 2.1.312, codex 0.165.0 with the catalog above, and a
+// probe that answers ok and reports no usage. The fakes are in testDeps until
+// the test ends.
+func setup(t *testing.T) (*config.Config, Options, *agents) {
 	t.Helper()
 	home := t.TempDir()
 	for _, key := range []string{"HOME", "USERPROFILE", "XDG_CONFIG_HOME", "APPDATA"} {
@@ -39,19 +47,24 @@ func setup(t *testing.T) (*config.Config, Options, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	codex := testbin.Install(t, "codex", testbin.Scenario{Responses: map[string]testbin.Scenario{
-		"--version":    {Stdout: "codex-cli 0.165.0\n"},
-		"debug models": {Stdout: catalog},
-		"exec":         {Writes: map[string]string{"answer.json": "ok\n"}},
-	}})
-	claude := testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{
-		"--version": {Stdout: "2.1.312 (Claude Code)\n"},
-		"-p":        {Stdout: `{"is_error":false,"result":"ok"}`},
-	}})
-	// Keep all subprocesses isolated from real agents and Rex.
-	t.Setenv("PATH", filepath.Dir(claude)+string(os.PathListSeparator)+filepath.Dir(codex))
-	fakeRex(t)
-	return cfg, Options{Root: root, Registry: reg}, codex
+	a := &agents{claude: doctortest.NewFake(), codex: doctortest.NewFake()}
+	a.claude.Version, a.claude.ModelName, a.claude.Usage = "2.1.312 (Claude Code)\n", "haiku", Usage{}
+	a.codex.Version, a.codex.Catalog, a.codex.ModelName, a.codex.Usage = "codex-cli 0.165.0\n", catalog, "gpt-6-luna", Usage{}
+	saved := testDeps
+	testDeps.Probes = map[string]Probe{"claude": a.claude, "codex": a.codex}
+	testDeps.Available = func(agent string) bool { return !a.byName(agent).Missing }
+	t.Cleanup(func() { testDeps = saved })
+	// Keep all subprocesses isolated from real agents and Rex: a PATH with
+	// nothing but the fake rex.
+	t.Setenv("PATH", filepath.Dir(fakeRex(t)))
+	return cfg, Options{Root: root, Registry: reg}, a
+}
+
+func (a *agents) byName(agent string) *doctortest.Fake {
+	if agent == "codex" {
+		return a.codex
+	}
+	return a.claude
 }
 
 // fakeRex puts a fake rex first on PATH, so no doctor test can find the
@@ -143,11 +156,8 @@ func TestDoctorFlagsOldPin(t *testing.T) {
 	requireFinding(t, Run(context.Background(), testDeps, cfg, opts), "Role implement pins gpt-6-sol", "newer model gpt-6.1-sol")
 }
 func TestDoctorWarnsOnNewerAgentVersion(t *testing.T) {
-	cfg, opts, codex := setup(t)
-	data, _ := json.Marshal(testbin.Scenario{Stdout: "codex-cli 0.166.0\n"})
-	if err := os.WriteFile(codex+".json", data, 0600); err != nil {
-		t.Fatal(err)
-	}
+	cfg, opts, a := setup(t)
+	a.codex.Version = "codex-cli 0.166.0\n"
 	contains(t, findings(t, cfg, opts), "0.166.0", "0.165.0", "newer")
 }
 func TestDoctorListsPanesOfEndedLead(t *testing.T) {
@@ -157,9 +167,8 @@ func TestDoctorListsPanesOfEndedLead(t *testing.T) {
 	contains(t, got, "pane-a", "pane-b", "duolog peer close pane-a", "duolog peer close pane-b")
 }
 func TestDoctorFlagsMissingBinary(t *testing.T) {
-	cfg, opts, _ := setup(t)
-	t.Setenv("PATH", t.TempDir())
-	fakeRex(t)
+	cfg, opts, a := setup(t)
+	a.claude.Missing, a.codex.Missing = true, true
 	notice := "Rex unavailable"
 	if runtime.GOOS == "windows" {
 		notice = "Live sessions are not available on Windows; use duolog delegate."
@@ -174,7 +183,7 @@ func TestDoctorFlagsUnsupportedEffort(t *testing.T) {
 	requireFinding(t, Run(context.Background(), testDeps, cfg, opts), "Role implement model gpt-6.1-sol", "does not support effort ultra")
 }
 func TestProbeClearsUnavailable(t *testing.T) {
-	cfg, opts, codex := setup(t)
+	cfg, opts, a := setup(t)
 	if err := opts.Registry.MarkUnavailable("codex", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
@@ -188,43 +197,34 @@ func TestProbeClearsUnavailable(t *testing.T) {
 	if unavailable["codex"] {
 		t.Fatal("successful probe did not clear availability")
 	}
-	cwd, err := os.ReadFile(codex + ".cwd")
-	if err != nil {
-		t.Fatal(err)
+	if len(a.codex.Calls) != 1 {
+		t.Fatalf("codex probe calls = %d, want 1", len(a.codex.Calls))
 	}
-	if string(cwd) == opts.Root {
+	call := a.codex.Calls[0]
+	if call.Dir == opts.Root {
 		t.Fatal("probe used project folder")
 	}
-	if _, err := os.Stat(string(cwd)); !os.IsNotExist(err) {
+	if !call.DirExisted {
+		t.Fatal("probe folder did not exist during the call")
+	}
+	if _, err := os.Stat(call.Dir); !os.IsNotExist(err) {
 		t.Fatal("probe folder not cleaned")
 	}
-	args, err := os.ReadFile(codex + ".args.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	contains(t, string(args), "exec", "--skip-git-repo-check", "-m", "gpt-6-luna", "read-only")
-	stdin, err := os.ReadFile(codex + ".stdin")
-	if err != nil || len(stdin) != 0 {
-		t.Fatalf("stdin=%q err=%v", stdin, err)
+	// The call is the luna model Model picked from the catalog entries.
+	if call.Model != "gpt-6-luna" {
+		t.Fatalf("probe model = %q", call.Model)
 	}
 }
 func TestProbeOnlyWithFlag(t *testing.T) {
-	cfg, opts, codex := setup(t)
+	cfg, opts, a := setup(t)
 	findings(t, cfg, opts)
-	data, err := os.ReadFile(codex + ".calls.ndjson")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(data), "\"exec\"") {
-		t.Fatal(string(data))
+	if len(a.codex.Calls) != 0 || len(a.claude.Calls) != 0 {
+		t.Fatalf("model calls without the flag: %+v %+v", a.codex.Calls, a.claude.Calls)
 	}
 }
 func TestProbeDoesNotClearOnEmptyAnswer(t *testing.T) {
-	cfg, opts, codex := setup(t)
-	data, _ := json.Marshal(testbin.Scenario{Responses: map[string]testbin.Scenario{"--version": {Stdout: "codex-cli 0.165.0"}, "debug models": {Stdout: catalog}, "exec": {}}})
-	if err := os.WriteFile(codex+".json", data, 0600); err != nil {
-		t.Fatal(err)
-	}
+	cfg, opts, a := setup(t)
+	a.codex.AnswerErr = errors.New("missing expected answer")
 	if err := opts.Registry.MarkUnavailable("codex", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
@@ -259,22 +259,12 @@ func TestDoctorNamesShadowingRex(t *testing.T) {
 // The retained catalog fixture has the shape of real `codex debug models`:
 // each level is an object with an "effort" key. The default roles must pass.
 func TestDoctorReadsSavedCatalogFixture(t *testing.T) {
-	cfg, opts, codex := setup(t)
+	cfg, opts, a := setup(t)
 	fixture, err := os.ReadFile("../../../scripts/bench/fixtures/models/codex-debug-models.trimmed.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	scenario := testbin.Scenario{Responses: map[string]testbin.Scenario{
-		"--version":    {Stdout: "codex-cli 0.165.0"},
-		"debug models": {Stdout: string(fixture)},
-	}}
-	data, err := json.Marshal(scenario)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(codex+".json", data, 0600); err != nil {
-		t.Fatal(err)
-	}
+	a.codex.Catalog = string(fixture)
 	got := findings(t, cfg, opts)
 	if strings.Contains(got, "Codex catalog:") || strings.Contains(got, "does not support effort") || strings.Contains(got, "has no visible model") {
 		t.Fatal(got)

@@ -26,7 +26,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	testDeps = Deps{PaidGate: paidrunstest.Factory(accounts), GateBinary: launchtest.GateBinary,
-		Build: launchtest.Build, LookPath: launchtest.LookPath, DroppedKeys: launchtest.DroppedKeys,
+		Build: launchtest.Build, DroppedKeys: launchtest.DroppedKeys,
 		ClaudeFolder: launchtest.ClaudeFolder, Agents: map[string]Agent{}}
 	installers := launchtest.Installers()
 	for name, t := range launchtest.Trusts() {

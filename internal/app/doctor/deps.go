@@ -10,10 +10,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
-// Deps is what doctor reaches outside the package: the account admission gate
-// and the lookup of the duolog that a worker's hooks run. The wiring package
-// fills every field with the real function; tests fill them with fakes. Task
-// 44 adds Probes and Available.
+// Deps is what doctor reaches outside the package: the account admission gate,
+// the lookup of the duolog that a worker's hooks run, and each agent's probe.
+// The wiring package fills every field with the real function; tests fill them
+// with fakes.
 type Deps struct {
 	// PaidGate opens the account admission gate that delegate uses.
 	PaidGate func(*config.Config) (*paidruns.Gate, error)
@@ -21,8 +21,6 @@ type Deps struct {
 	GateBinary func(pathEnv string) (string, error)
 	// Build makes a worker's process: workerenv.Build, the one Build.
 	Build launch.Build
-	// LookPath finds the program a built process starts: workerenv.LookPath.
-	LookPath launch.LookPath
 	// DroppedKeys lists the route names an agent's workers no longer get:
 	// workerenv.DroppedKeys.
 	DroppedKeys launch.DroppedKeys
@@ -32,6 +30,10 @@ type Deps struct {
 	// its user state under home; known is false when that state cannot be
 	// read. It reads a file that only Claude has, so it is no Trust method.
 	ClaudeFolder func(home, root string) (trusted, known bool)
+	// Probes holds each agent's Probe, by agent name.
+	Probes map[string]Probe
+	// Available says whether the agent's binary can be found.
+	Available func(agent string) bool
 }
 
 // Trust reads what an agent's settings and approvals say about duolog's

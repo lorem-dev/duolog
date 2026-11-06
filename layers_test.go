@@ -82,7 +82,6 @@ var knownViolations = map[string]string{
 	"internal/app/doctor (test) -> internal/adapter/config":     "after PR 10: its tests load the config files",
 	"internal/app/doctor (test) -> internal/quota":              "PR 39",
 	"internal/app/doctor -> internal/capability":                "PR 40",
-	"internal/app/doctor -> os/exec":                            "PR 44",
 	"internal/gate -> github.com/gofrs/flock":                   "PR 20, boundary",
 	"internal/gate -> github.com/pelletier/go-toml/v2":          "PR 20, boundary",
 	"internal/gate -> internal/bus":                             "PR 20, boundary",
@@ -119,7 +118,7 @@ var knownViolations = map[string]string{
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 46
+const maxKnownViolations = 45
 
 // Reasons of the allowed edges, one per target.
 const (

@@ -22,9 +22,6 @@ func DroppedKeys(cfg *config.Config, environ []string) map[string][]string {
 	return workerenv.DroppedKeys(cfg, environ)
 }
 
-// LookPath is workerenv.LookPath, the value of doctor's Deps.LookPath.
-func LookPath(name string, env []string) (string, error) { return workerenv.LookPath(name, env) }
-
 // Environ is workerenv.Environ, the value of calibrate's Deps.Environ.
 func Environ(cfg *config.Config, agent string, environ []string) ([]string, error) {
 	return workerenv.Environ(cfg, agent, environ)
