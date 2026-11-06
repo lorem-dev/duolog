@@ -64,7 +64,7 @@ func refuseMount(root string) error {
 	if err := statfs(nearestExisting(root), &buf); err != nil {
 		return scrub(err)
 	}
-	if int64(buf.Type) == unix.NFS_SUPER_MAGIC {
+	if int64(buf.Type) == unix.NFS_SUPER_MAGIC { //nolint:unconvert // Statfs_t.Type is int32 on 32-bit Linux
 		return errNFS
 	}
 	return nil

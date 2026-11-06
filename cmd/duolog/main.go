@@ -41,11 +41,16 @@ func projectRoot() (string, error) {
 }
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	ctx, cancel := signal.NotifyContext(context.Background(), terminationSignals()...)
 	defer cancel()
 	if err := newRootCommand().ExecuteContext(ctx); err != nil {
-		os.Exit(exitCode(err))
+		return exitCode(err)
 	}
+	return 0
 }
 
 func workRoot(fallback string) string { return project.CurrentWorkRoot(fallback) }

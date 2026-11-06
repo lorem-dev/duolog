@@ -63,7 +63,7 @@ const (
 // words in the agent's own text do not count.
 var (
 	queuedCountRe = regexp.MustCompile(`\?\s+[1-9][0-9]*\s+questions?\b`)
-	workingRe     = regexp.MustCompile(`(?i)\besc to interrupt\b|\bctrl\+c to interrupt\b|^\s*\W?\s*Working\s*\(|^[\s\W]*running (?:\S+ )?hooks?\b|\b\d+ background terminals? running\b|^[\s\W]*waiting for background terminals?\b`)
+	workingRe     = regexp.MustCompile(`(?i)\besc to interrupt\b|\bctrl\+c to interrupt\b|^\s*\W?\s*Working\s*\(|^\W*running (?:\S+ )?hooks?\b|\b\d+ background terminals? running\b|^\W*waiting for background terminals?\b`)
 	updatingRe    = regexp.MustCompile(`(?i)==> (?:upgrading|installing|downloading|fetching|pouring)|updating (?:codex|claude)|brew upgrade|installing update|downloading update`)
 	limitRe       = regexp.MustCompile(`(?i)you.ve hit your [^\n]*limit`)
 	yesNoRe       = regexp.MustCompile(`(?i)\((?:y/n|yes/no)\)|\[(?:y/n|yes/no)\]`)

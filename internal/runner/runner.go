@@ -218,7 +218,7 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 			log.Close()
 			return result, openErr
 		}
-		defer capture.Close()
+		defer capture.Close() //nolint:gocritic // two streams, both held until the worker has run
 		*stream.dest = io.MultiWriter(log, capture)
 	}
 	cmd.Env = append([]string{}, s.Env...)
@@ -235,7 +235,7 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 		}
 		// Auto memory is kept per project path, so a worker's notes would reach the
 		// lead and every later session of the project.
-		cmd.Env = append(env, "DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
+		cmd.Env = append(env, "DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1") //nolint:gocritic // env is cmd.Env filtered in place, and cmd.Env takes it back
 	}
 	runErr := cmd.Run()
 	closeErr := log.Close()

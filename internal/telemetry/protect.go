@@ -292,7 +292,7 @@ func makeRoot(root string) error {
 			}
 			return err
 		}
-		if err := os.Chmod(missing[i], 0o700); err != nil {
+		if err := os.Chmod(missing[i], 0o700); err != nil { //nolint:gosec // G302 is for files; 0700 is the strictest mode a directory can have
 			return err
 		}
 	}

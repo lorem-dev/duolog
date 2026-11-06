@@ -344,7 +344,7 @@ func lastLines(text string, n int) []byte {
 }
 
 // clean drops control characters, including escape sequences' escape byte.
-var ansiRe = regexp.MustCompile("\x1b\\[[0-?]*[ -/]*[@-~]")
+var ansiRe = regexp.MustCompile("\x1b\\[[0-?]*[ -/]*[@-~]") //nolint:gocritic // [ -/] is the ECMA-48 intermediate-byte range 0x20-0x2F
 
 func clean(s string) string {
 	s = ansiRe.ReplaceAllString(s, "")

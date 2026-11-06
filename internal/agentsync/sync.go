@@ -513,7 +513,7 @@ func (r *runner) skillUnits() []unit {
 			src := filepath.ToSlash(rel)
 			target := r.to.skills + "/" + strings.TrimPrefix(src, r.from.skills+"/")
 			u := unit{src: src, target: target, mode: 0o644}
-			data, err := os.ReadFile(path)
+			data, err := os.ReadFile(path) //nolint:gosec // G122: the walk skips non-regular entries; a swap to a symlink mid-walk only reads a file the user owns
 			if err != nil {
 				u.err = err
 				units = append(units, u)
