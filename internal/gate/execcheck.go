@@ -283,6 +283,18 @@ func pathWord(word string) string {
 	return strings.TrimPrefix(word, "@")
 }
 
+// patternOptions lists, per program, the options whose value is a pattern or
+// a format rather than a file, so ExecOutside does not judge it as a path.
+// Any other program's option is not known to take a value, so the word after
+// it is judged as an operand.
+var patternOptions = map[string][]string{
+	"git":   {"--grep", "--author", "--committer", "--format", "--pretty"},
+	"rg":    {"--regexp", "--glob", "--iglob"},
+	"grep":  {"--regexp"},
+	"egrep": {"--regexp"},
+	"fgrep": {"--regexp"},
+}
+
 // ExecOutside checks file operands, not executable names or stream devices.
 func ExecOutside(a Action) bool {
 	parts, uncertain := ShellParts(a.Target, a.Shell)
@@ -292,38 +304,87 @@ func ExecOutside(a Action) bool {
 		parts = append(rawExecParts(a.Target), parts...)
 	}
 	for _, part := range parts {
-		words := strings.Fields(part)
-		for i := execOperandStart(words); i < len(words); i++ {
+		// A redirect can stand anywhere, even between an option and its value,
+		// so its file is judged on its own and the redirect leaves the words
+		// before any of them is taken as an option's value.
+		for _, target := range append(redirectTargets(part), inputTargets(part)...) {
+			if outsideOperand(a, target) {
+				return true
+			}
+		}
+		words := withoutRedirects(strings.Fields(part))
+		start := execOperandStart(words)
+		var valued []string
+		if start > 0 && start <= len(words) {
+			valued = patternOptions[programName(words[start-1])]
+		}
+		options := true
+		for i := start; i < len(words); i++ {
 			word := strings.Trim(words[i], "'\"")
+			if !options {
+				// Past --, every word is an operand, even one that looks like an
+				// option, so a leading - is part of the path.
+				if outsideOperand(a, strings.Trim(word, "<>&|;()")) {
+					return true
+				}
+				continue
+			}
+			if word == "--" {
+				options = false
+				continue
+			}
 			name, _, attached := strings.Cut(word, "=")
-			if slices.Contains([]string{"--grep", "--author", "--committer", "--format", "--pretty", "--regexp", "--glob", "--iglob"}, name) {
+			if slices.Contains(valued, name) {
 				if !attached {
 					i++
 				}
 				continue
 			}
-			redirect := strings.TrimLeft(word, "0123456789")
-			if strings.HasPrefix(redirect, ">") || strings.HasPrefix(redirect, "<") || strings.HasPrefix(redirect, "&>") {
-				word = strings.TrimLeft(redirect, "<>&")
-			}
-			target := pathWord(word)
-			if target == "" {
-				continue
-			}
-			target = expandHome(target)
-			clean := pathutil.Clean(target)
-			if slices.Contains([]string{"/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"}, clean) || strings.HasPrefix(clean, "/dev/fd/") {
-				continue
-			}
-			if a.Work != "" {
-				target = RelativeTarget(a.Work, a.Cwd, target)
-			}
-			if outside(target) {
+			if outsideOperand(a, pathWord(word)) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// outsideOperand reports whether a word that names a file names one outside
+// the work root. A stream device is not a file operand.
+func outsideOperand(a Action, target string) bool {
+	if target == "" {
+		return false
+	}
+	target = expandHome(target)
+	clean := pathutil.Clean(target)
+	if slices.Contains([]string{"/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"}, clean) || strings.HasPrefix(clean, "/dev/fd/") {
+		return false
+	}
+	if a.Work != "" {
+		target = RelativeTarget(a.Work, a.Cwd, target)
+	}
+	return outside(target)
+}
+
+// withoutRedirects drops the redirects of a part and the files they name, so
+// what is left are the program's own words. redirectTargets and inputTargets
+// read the files.
+func withoutRedirects(words []string) []string {
+	var kept []string
+	for i := 0; i < len(words); i++ {
+		redirect := strings.TrimLeft(strings.Trim(words[i], "'\""), "0123456789")
+		if !strings.HasPrefix(redirect, ">") && !strings.HasPrefix(redirect, "<") && !strings.HasPrefix(redirect, "&>") {
+			kept = append(kept, words[i])
+			continue
+		}
+		operator := strings.TrimLeft(redirect, "<>&|")
+		if strings.HasPrefix(redirect, "<<") {
+			operator = strings.TrimLeft(redirect, "<-")
+		}
+		if operator == "" {
+			i++ // The file, or the here-document's delimiter, is the next word.
+		}
+	}
+	return kept
 }
 
 // rawExecParts retains wrapped commands while splitting shell command lists.
