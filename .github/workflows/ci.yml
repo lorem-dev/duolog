@@ -12,7 +12,7 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 18
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -44,7 +44,7 @@ jobs:
       - name: Vet the end-to-end tests (do not run them)
         run: go vet -tags=e2e ./test/e2e/
       - name: Unit and native generated-command tests
-        timeout-minutes: 14
+        timeout-minutes: 20
         # Most packages take under a minute; delegate and calibration, with
         # their Git repositories, take two to four on Windows. The timeout
         # names the test that hangs and prints its stack.

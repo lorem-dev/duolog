@@ -30,7 +30,9 @@ func bridgeHarness(t *testing.T) *harness {
 
 func TestBridgedServerReachesWorker(t *testing.T) {
 	h := bridgeHarness(t)
-	h.cfg.EnvPassthrough = []string{"HOME"}
+	// The worker's home, whose Codex config the bridge reads: HOME, or
+	// USERPROFILE on Windows.
+	h.cfg.EnvPassthrough = []string{"HOME", "USERPROFILE"}
 	h.cfg.Capabilities.MCPTools = map[string][]string{"jira": {"get_issue"}}
 	o, e := h.runNeeds("implement", "mcp:jira")
 	h.requireCalls(1)

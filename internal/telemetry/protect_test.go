@@ -554,8 +554,13 @@ func TestHardLinksNeverMutateOutside(t *testing.T) {
 			}
 		}
 	}
-	// The backup exclusion writes beside the links, never through them.
-	if _, err := excludeBackup(root); err != nil {
+	// The backup exclusion writes beside the links, never through them: on
+	// Linux it writes CACHEDIR.TAG, now a link, so it refuses.
+	_, err := excludeBackup(root)
+	if runtime.GOOS == "linux" && !errors.Is(err, errUnsafe) {
+		t.Fatalf("excludeBackup over a linked CACHEDIR.TAG: got %v, want errUnsafe", err)
+	}
+	if runtime.GOOS != "linux" && err != nil {
 		t.Fatal(err)
 	}
 	for outside, mode := range outsides {

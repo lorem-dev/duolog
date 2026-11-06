@@ -170,9 +170,17 @@ func TestCalibrationSharedRatesThroughGate(t *testing.T) {
 	isolatedRouteConfig(t)
 	t.Chdir(t.TempDir())
 	used := 10.0
+	// Each read is stamped after the last: Windows' clock can give two
+	// reads a few milliseconds apart the same time, and Observe measures
+	// only between reads that differ in time.
+	var last time.Time
 	readsGate(t, func(ctx context.Context, p workerenv.Process) (quota.Snapshot, error) {
 		s, err := paidrunstest.Subscription(ctx, p)
 		s.Windows[0].UsedPercent, s.Windows[1].UsedPercent = used, used
+		if !s.ReadAt.After(last) {
+			s.ReadAt = last.Add(time.Millisecond)
+		}
+		last = s.ReadAt
 		return s, err
 	})
 	cfg, err := config.Load(".")

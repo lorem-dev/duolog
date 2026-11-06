@@ -18,7 +18,9 @@ func TestObservedNativeFollowsMode(t *testing.T) {
 	if err := r.RegisterLead(Lead{ID: "a", Target: config.Target{Agent: "claude"}, Mode: mode.Ask, PID: os.Getpid()}); err != nil {
 		t.Fatal(err)
 	}
-	now := time.Now()
+	// After the registration: Windows' clock can give it the same time, at
+	// which a mode is lowered and a native cleared.
+	now := time.Now().Add(time.Second)
 	l, err := r.ObserveLead(LeadObservation{ID: "a", Agent: "claude", Mode: &edits, Native: &auto}, now)
 	if err != nil || l.Native != "auto" || l.Mode != mode.Edits {
 		t.Fatalf("%+v %v", l, err)
