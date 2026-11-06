@@ -222,6 +222,16 @@ ask in every mode, because the gate reads the command text and cannot see what
 they do. A path can match a deny
 by accident: `go test ./secrets/...` is denied by the `secrets/` rule.
 
+A shell glob that can leave the work root needs the person. A segment that
+starts with a dot and a glob character, such as `.?`, `.*` or `.[!x]`, can
+match `..` in `dash` and in `bash` before 5.2, so `cat .?/peer/go.mod` needs
+the person. The gate also expands every other glob, with each bracket
+expression such as `[!x]` or `[[:alpha:]]` matching any one character, so a
+match through a symlink that leads out needs the person too.
+The expansion of one command line may look at 10,000 names and take half a
+second. A glob that needs more, as one through a symlink loop can, needs the
+person.
+
 An option value in the same word as a short option counts as a path when it
 starts with `/`, `~` or `.`, after an optional `@`, or holds a `/` or a `\`
 anywhere. A drive counts when a slash or a backslash follows it, as in
