@@ -386,7 +386,7 @@ func SaveSurvey(stateDir, runID string, s Survey) error {
 		return err
 	}
 	target := surveyPath(stateDir, runID)
-	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(target), ".survey-*.json")

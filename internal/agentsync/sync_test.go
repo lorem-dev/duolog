@@ -479,7 +479,9 @@ func TestSameModelVersionWritesNothing(t *testing.T) {
 	}
 	old := time.Now().Add(-time.Hour)
 	for _, f := range []string{".codex/agents/a.toml", ".duolog/sync.lock.json"} {
-		os.Chtimes(filepath.Join(root, f), old, old)
+		if err := os.Chtimes(filepath.Join(root, f), old, old); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if line := SessionStart(root, syncCfg(t)); line != "" {
 		t.Fatalf("got %q", line)

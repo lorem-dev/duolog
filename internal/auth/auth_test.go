@@ -75,7 +75,7 @@ func TestStaticServerProbe(t *testing.T) {
 					got = r.Header.Get("X-Token")
 				}
 				w.WriteHeader(c.status)
-				w.Write([]byte(c.body))
+				_, _ = w.Write([]byte(c.body))
 			}))
 			defer srv.Close()
 			def := capability.Server{Name: "jira", Agent: "codex", Transport: "http", URL: srv.URL, File: "config.toml [mcp_servers.jira]", Headers: []capability.Pair{{Key: "X-Token", Value: token}}}

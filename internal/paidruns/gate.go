@@ -371,7 +371,7 @@ func (g *Gate) attemptOnce(ctx context.Context, req Request, id string, l *line,
 	switch {
 	case a.Verdict == Paid && p.Variant != workerenv.Paid:
 		return Permit{}, Admission{}, refuse(a, ReasonFreeVariantPaid, ""), nil
-	case req.Calibration && a.Verdict == Paid && !(paid.Allow && paid.Calibrate):
+	case req.Calibration && a.Verdict == Paid && (!paid.Allow || !paid.Calibrate):
 		return Permit{}, Admission{}, refuse(a, ReasonCalibration, "set paid_runs."+agent+".calibrate with allow"), nil
 	}
 

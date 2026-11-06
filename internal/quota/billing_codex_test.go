@@ -126,13 +126,13 @@ func TestCodexBillingRPCSequence(t *testing.T) {
 			"getAuthStatus":           request(5) + "\n" + reply(5, f.Auth),
 		}
 	}
-	read := func(t *testing.T, rpc map[string]string) (Snapshot, error, string) {
+	read := func(t *testing.T, rpc map[string]string) (Snapshot, string, error) {
 		t.Helper()
 		isolate(t)
 		codex := testbin.Install(t, "codex", testbin.Scenario{RPCResponses: rpc})
 		s, err := (Reader{Version: "test", Timeout: 3 * time.Second}).Read(context.Background(), "codex")
 		input, _ := os.ReadFile(codex + ".stdin")
-		return s, err, string(input)
+		return s, string(input), err
 	}
 	checkRequests := func(t *testing.T, input string) {
 		t.Helper()
@@ -176,7 +176,7 @@ func TestCodexBillingRPCSequence(t *testing.T) {
 	}
 
 	t.Run("full", func(t *testing.T) {
-		s, err, input := read(t, responses())
+		s, input, err := read(t, responses())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -200,7 +200,7 @@ func TestCodexBillingRPCSequence(t *testing.T) {
 			rpc := responses()
 			id := map[string]int{"config/read": codexConfigID, "getAuthStatus": codexAuthID}[method]
 			rpc[method] = `{"id":` + string(codexJSON(t, id)) + `,"error":{"code":-32601,"message":"PRIVATE"}}`
-			s, err, input := read(t, rpc)
+			s, input, err := read(t, rpc)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -213,7 +213,7 @@ func TestCodexBillingRPCSequence(t *testing.T) {
 	t.Run("rate limits rejected", func(t *testing.T) {
 		rpc := responses()
 		rpc["account/rateLimits/read"] = `{"id":2,"error":{"message":"PRIVATE"}}`
-		s, err, input := read(t, rpc)
+		s, input, err := read(t, rpc)
 		if err == nil || strings.Contains(err.Error(), "PRIVATE") {
 			t.Fatal(err)
 		}

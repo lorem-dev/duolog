@@ -292,7 +292,7 @@ func makeRoot(root string) error {
 			}
 			return err
 		}
-		if err := os.Chmod(missing[i], 0o700); err != nil {
+		if err := os.Chmod(missing[i], 0o700); err != nil { //nolint:gosec // G302 is for files; 0700 is the strictest mode a directory can have
 			return err
 		}
 	}
@@ -313,20 +313,6 @@ func sameDir(r *os.Root, root string) error {
 		return errUnsafe
 	}
 	return nil
-}
-
-// openRootDir opens root and confirms it is the directory info describes.
-func openRootDir(root string, info os.FileInfo) (*os.Root, error) {
-	r, err := os.OpenRoot(root)
-	if err != nil {
-		return nil, scrub(err)
-	}
-	opened, err := r.Stat(".")
-	if err != nil || !os.SameFile(opened, info) {
-		r.Close()
-		return nil, errUnsafe
-	}
-	return r, nil
 }
 
 // openRegular opens one of the telemetry files under r. Every directory on

@@ -29,7 +29,7 @@ var processSIDs = func() ([]*windows.SID, error) {
 
 func tokenOwner(token windows.Token) (*windows.SID, error) {
 	var n uint32
-	windows.GetTokenInformation(token, windows.TokenOwner, nil, 0, &n)
+	_ = windows.GetTokenInformation(token, windows.TokenOwner, nil, 0, &n) // sizing call: it fails with ERROR_INSUFFICIENT_BUFFER and sets n
 	if n == 0 {
 		return nil, errOwner
 	}
@@ -38,7 +38,7 @@ func tokenOwner(token windows.Token) (*windows.SID, error) {
 		return nil, err
 	}
 	// TOKEN_OWNER holds one SID pointer into buf.
-	return (*struct{ Owner *windows.SID })(unsafe.Pointer(&buf[0])).Owner.Copy()
+	return (*struct{ Owner *windows.SID })(unsafe.Pointer(&buf[0])).Owner.Copy() //nolint:gosec // G103: the Windows API returns a TOKEN_OWNER in buf, whose size was asked for above
 }
 
 func secureOwner(path string, info os.FileInfo) error {
@@ -202,7 +202,7 @@ func eachACE(sd *windows.SECURITY_DESCRIPTOR, fn func(*windows.ACCESS_ALLOWED_AC
 		if err := windows.GetAce(dacl, i, &ace); err != nil || ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE {
 			return false
 		}
-		if !fn(ace, (*windows.SID)(unsafe.Pointer(&ace.SidStart))) {
+		if !fn(ace, (*windows.SID)(unsafe.Pointer(&ace.SidStart))) { //nolint:gosec // G103: an ACE stores its SID inline from SidStart, which is how the API defines it
 			return false
 		}
 	}

@@ -1,0 +1,2 @@
+shell=sh
+enable=check-unassigned-uppercase,avoid-nullary-conditions

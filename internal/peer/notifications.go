@@ -17,7 +17,7 @@ var notifyPerson = notifyOS
 // Separate wait processes cannot notify twice for the same question.
 func (e *env) notifyStuck(ctx context.Context, entry session.Entry, now time.Time) error {
 	if e.cfg.Rex.StuckNotifyMinutes <= 0 || ctx.Err() != nil {
-		return nil
+		return nil //nolint:nilerr // a cancelled wait sends no reminder, and that is not an error
 	}
 	var message string
 	_, err := e.reg.Update(entry.ID, func(x *session.Entry) {

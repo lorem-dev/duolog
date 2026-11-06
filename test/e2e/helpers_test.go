@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -231,7 +232,7 @@ func (p *project) command(ctx context.Context, name string, args ...string) resu
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
 	r := result{Stdout: stdout.String(), Stderr: stderr.String()}
-	if exit, ok := err.(*exec.ExitError); ok {
+	if exit := (*exec.ExitError)(nil); errors.As(err, &exit) {
 		r.Code = exit.ExitCode()
 	} else if err != nil {
 		p.t.Fatalf("%s: %v", name, err)

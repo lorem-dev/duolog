@@ -582,7 +582,7 @@ func refuseRoot(root, home string, getenv func(string) string) string {
 // protectedFolders lists the folders that hold credentials or agent and
 // duolog settings, on goos, for the home folder.
 func protectedFolders(goos, home string, getenv func(string) string) []string {
-	join := func(parts ...string) string { return filepath.Join(parts...) }
+	join := filepath.Join
 	protected := []string{
 		join(home, ".ssh"),
 		join(home, ".codex"),

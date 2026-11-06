@@ -31,7 +31,9 @@ func learningRepo(t *testing.T, enabled bool) string {
 		}
 	}
 	if enabled {
-		os.MkdirAll(filepath.Join(root, ".duolog"), 0755)
+		if err := os.MkdirAll(filepath.Join(root, ".duolog"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(filepath.Join(root, ".duolog", "config.yaml"), []byte("learning:\n  enabled: true\n"), 0600); err != nil {
 			t.Fatal(err)
 		}

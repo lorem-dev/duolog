@@ -37,10 +37,6 @@ type settings struct {
 	} `toml:"hooks"`
 }
 
-func readIn(home string) (settings, error) {
-	return readEnv(home, os.Environ())
-}
-
 // readEnv reads config.toml in the Codex home of a process whose environment
 // is environ.
 func readEnv(home string, environ []string) (settings, error) {
@@ -208,7 +204,7 @@ func hooksAt(path string, s settings, stale map[string]string) (State, error) {
 				// position cannot be shown to be the approved one; nor can
 				// duolog's own command when install rewrote it after the
 				// approval and Codex still holds the hash it had then.
-				reason := ""
+				var reason string
 				switch {
 				case hook.Command != posix || hook.CommandWindows != windows || len(hook.Args) != 0:
 					reason = "the approved Codex gate hook in " + path +

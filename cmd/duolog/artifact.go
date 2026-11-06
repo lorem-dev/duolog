@@ -99,7 +99,7 @@ func repositoryRoot() (string, error) {
 	cmd.Dir = cwd
 	output, err := cmd.Output()
 	if err != nil {
-		return cwd, nil
+		return cwd, nil //nolint:nilerr // outside Git the working directory is the root
 	}
 	return strings.TrimSuffix(string(output), "\n"), nil
 }

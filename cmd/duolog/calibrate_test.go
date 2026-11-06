@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/runner"
@@ -1009,7 +1010,7 @@ func TestCalibrateProposeApplyProject(t *testing.T) {
 	path := filepath.Join(stateDir, "calibration", "project.yaml")
 	if err := exec.Command("git", "-C", root, "check-ignore", "-q", path).Run(); err == nil {
 		t.Fatal("git ignores .duolog/calibration/project.yaml")
-	} else if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 {
+	} else if exit := (*exec.ExitError)(nil); !errors.As(err, &exit) || exit.ExitCode() != 1 {
 		t.Fatalf("git check-ignore: %v", err)
 	}
 	data, err := os.ReadFile(path)

@@ -2,7 +2,7 @@ package artifact
 
 import (
 	"bytes"
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // G505: blobHash reproduces Git's blob id, an address and not a security check
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -110,7 +110,7 @@ func Read(s *store.Store, root, ref string) (content []byte, stale bool, err err
 }
 
 func blobHash(content []byte) string {
-	h := sha1.New()
+	h := sha1.New() //nolint:gosec // G401: Git's blob id, an address and not a security check
 	fmt.Fprintf(h, "blob %d%c", len(content), 0)
 	h.Write(content)
 	return fmt.Sprintf("%x", h.Sum(nil))[:8]

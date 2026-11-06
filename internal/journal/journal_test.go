@@ -36,7 +36,9 @@ func TestAppendAndReadAll(t *testing.T) {
 
 func TestReadAllSkipsTruncatedLastLine(t *testing.T) {
 	j := open(t)
-	os.WriteFile(filepath.Join(j.Dir, "delegations.ndjson"), []byte("{\"id\":\"a\"}\n{\"id\":"), 0600)
+	if err := os.WriteFile(filepath.Join(j.Dir, "delegations.ndjson"), []byte("{\"id\":\"a\"}\n{\"id\":"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	got, err := ReadAll[Delegation](j, "delegations.ndjson")
 	if err != nil || len(got) != 1 {
 		t.Fatal(got, err)
@@ -45,7 +47,9 @@ func TestReadAllSkipsTruncatedLastLine(t *testing.T) {
 
 func TestReadAllNamesBadMiddleLine(t *testing.T) {
 	j := open(t)
-	os.WriteFile(filepath.Join(j.Dir, "delegations.ndjson"), []byte("{\"id\":\"a\"}\nnot json\n{\"id\":\"b\"}\n"), 0600)
+	if err := os.WriteFile(filepath.Join(j.Dir, "delegations.ndjson"), []byte("{\"id\":\"a\"}\nnot json\n{\"id\":\"b\"}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	_, err := ReadAll[Delegation](j, "delegations.ndjson")
 	if err == nil || !strings.Contains(err.Error(), "delegations.ndjson line 2") {
 		t.Fatal(err)
@@ -77,8 +81,11 @@ func TestSecondStartRefused(t *testing.T) {
 
 func TestOpenTasksArePerLead(t *testing.T) {
 	j := open(t)
-	j.StartTask("lead-a", "x", "abc", time.Now())
-	j.StartTask("lead-b", "y", "abc", time.Now())
+	for _, lead := range []string{"lead-a", "lead-b"} {
+		if _, err := j.StartTask(lead, "x", "abc", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if _, err := j.CloseTask("lead-a"); err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +105,9 @@ func TestNewIDShape(t *testing.T) {
 
 func TestAppendDropsPartialTail(t *testing.T) {
 	j := open(t)
-	os.WriteFile(filepath.Join(j.Dir, "delegations.ndjson"), []byte("{\"id\":\"a\"}\n{\"id\":\"b\",\"ro"), 0600)
+	if err := os.WriteFile(filepath.Join(j.Dir, "delegations.ndjson"), []byte("{\"id\":\"a\"}\n{\"id\":\"b\",\"ro"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := j.Append("delegations.ndjson", Delegation{ID: "c"}); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +119,9 @@ func TestAppendDropsPartialTail(t *testing.T) {
 
 func TestAppendKeepsCompleteUnterminatedTail(t *testing.T) {
 	j := open(t)
-	os.WriteFile(filepath.Join(j.Dir, "delegations.ndjson"), []byte("{\"id\":\"a\"}\n{\"id\":\"b\"}"), 0600)
+	if err := os.WriteFile(filepath.Join(j.Dir, "delegations.ndjson"), []byte("{\"id\":\"a\"}\n{\"id\":\"b\"}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := j.Append("delegations.ndjson", Delegation{ID: "c"}); err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +133,9 @@ func TestAppendKeepsCompleteUnterminatedTail(t *testing.T) {
 
 func TestAppendDropsLongPartialTail(t *testing.T) {
 	j := open(t)
-	os.WriteFile(filepath.Join(j.Dir, "delegations.ndjson"), []byte("{\"id\":\"a\"}\n{\"id\":\""+strings.Repeat("x", 10000)), 0600)
+	if err := os.WriteFile(filepath.Join(j.Dir, "delegations.ndjson"), []byte("{\"id\":\"a\"}\n{\"id\":\""+strings.Repeat("x", 10000)), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := j.Append("delegations.ndjson", Delegation{ID: "c"}); err != nil {
 		t.Fatal(err)
 	}

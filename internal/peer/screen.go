@@ -68,7 +68,7 @@ const (
 // words in the agent's own text do not count.
 var (
 	queuedCountRe = regexp.MustCompile(`\?\s+[1-9][0-9]*\s+questions?\b`)
-	workingRe     = regexp.MustCompile(`(?i)\besc to interrupt\b|\bctrl\+c to interrupt\b|^\s*\W?\s*Working\s*\(|^[\s\W]*running (?:\S+ )?hooks?\b|\b\d+ background terminals? running\b|^[\s\W]*waiting for background terminals?\b`)
+	workingRe     = regexp.MustCompile(`(?i)\besc to interrupt\b|\bctrl\+c to interrupt\b|^\s*\W?\s*Working\s*\(|^\W*running (?:\S+ )?hooks?\b|\b\d+ background terminals? running\b|^\W*waiting for background terminals?\b`)
 	updatingRe    = regexp.MustCompile(`(?i)==> (?:upgrading|installing|downloading|fetching|pouring)|updating (?:codex|claude)|brew upgrade|installing update|downloading update`)
 	limitRe       = regexp.MustCompile(`(?i)you.ve hit your [^\n]*limit`)
 	yesNoRe       = regexp.MustCompile(`(?i)\((?:y/n|yes/no)\)|\[(?:y/n|yes/no)\]`)
@@ -452,7 +452,7 @@ func cut(s string, n int) string {
 // is no input; a placeholder of a known shape is none either, along with the
 // rows it wraps over.
 func findComposer(agent string, lines, solid []string) (at int, input string, empty bool, rows []string) {
-	marker := ""
+	var marker string
 	switch agent {
 	case "codex":
 		marker = "›"

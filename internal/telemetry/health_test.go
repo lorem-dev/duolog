@@ -22,7 +22,7 @@ func TestHealthSinceProcessStart(t *testing.T) {
 	// does not restart them.
 	bad := sampleRun()
 	bad.Attempt = 0
-	s.Append(bad)
+	_ = s.Append(bad) // refused and counted; the counters are what is under test
 	again := mustOpenStore(t, storeOptions(base))
 	got := again.Health()
 	if got.Since != h.Since {
@@ -38,7 +38,7 @@ func TestHealthSinceProcessStart(t *testing.T) {
 
 	// Failures leave no counter file: the root holds the salt, the backup
 	// tag, the prune stamp and segments with their locks only.
-	s.Append(sampleRun())
+	_ = s.Append(sampleRun()) // refused or not, the test looks at the files
 	root := storeRoot(t, base)
 	allowed := regexp.MustCompile(`^(?:salt|CACHEDIR\.TAG|prune\.stamp|v1|v1/(?:_account|[0-9a-f]{16})(?:/(?:telemetry\.lock|[0-9]{4}-[0-9]{2}-[0-9]{2}\.ndjson))?)$`)
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {

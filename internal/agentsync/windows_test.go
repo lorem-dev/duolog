@@ -6,7 +6,7 @@ func TestWindowsSyncPaths(t *testing.T) {
 	for _, tc := range []struct{ root, path, want string }{
 		{`C:\Project`, `c:\PROJECT\.claude\agents\Review.md`, ".claude/agents/review.md"},
 		{`C:\Project`, `.claude\agents\review.md`, ".claude/agents/review.md"},
-		{`C:\Project`, `D:\other\file`, ""},
+		{`C:\Project`, `D:\elsewhere\file`, ""},
 		{`C:\Project`, `..\outside`, ""},
 	} {
 		if got := relative(tc.root, tc.path); got != tc.want {

@@ -72,9 +72,9 @@ func Relative(root, target string) (string, error) {
 		for i < len(a) && i < len(b) && a[i] == b[i] {
 			i++
 		}
-		parts := make([]string, len(a)-i)
-		for j := range parts {
-			parts[j] = ".."
+		parts := make([]string, 0, len(a)-i+len(b)-i)
+		for range len(a) - i {
+			parts = append(parts, "..")
 		}
 		parts = append(parts, b[i:]...)
 		if len(parts) == 0 {

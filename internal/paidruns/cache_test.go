@@ -126,6 +126,14 @@ func (w *cacheWorld) get(t *testing.T, fresh bool) (workerenv.Process, Assessmen
 	return p, a, err
 }
 
+// mustGet is get for a request that must succeed; only the reads it counts matter.
+func (w *cacheWorld) mustGet(t *testing.T, fresh bool) {
+	t.Helper()
+	if _, _, err := w.get(t, fresh); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Every request rebuilds the process and reads its layers before the cache
 // is consulted, so a URL that changes under the same name, a settings edit
 // that keeps the modification time, a layer that disappears or cannot be
@@ -163,7 +171,7 @@ func TestCacheRebuildsSameNameEndpointBeforeReuse(t *testing.T) {
 			}
 			w.now = w.now.Add(30 * time.Second)
 			c.change(w)
-			p, a, err = w.get(t, false)
+			_, a, err = w.get(t, false)
 			if err != nil || a.Verdict != c.verdict {
 				t.Fatalf("after change: %s %v %+v", a.Verdict, err, a.Signals)
 			}
@@ -210,16 +218,16 @@ func TestCacheRebuildsSameNameEndpointBeforeReuse(t *testing.T) {
 	// The cache holds a read for 120 s. fresh forces a read; a failed read is
 	// paid and leaves nothing to reuse, so the next request reads again.
 	w = newCacheWorld("claude")
-	w.get(t, false)
+	w.mustGet(t, false)
 	w.now = w.now.Add(120 * time.Second)
-	if w.get(t, false); w.reads != 1 {
+	if w.mustGet(t, false); w.reads != 1 {
 		t.Fatalf("reads within 120 s = %d", w.reads)
 	}
 	w.now = w.now.Add(time.Second)
-	if w.get(t, false); w.reads != 2 {
+	if w.mustGet(t, false); w.reads != 2 {
 		t.Fatalf("reads after 121 s = %d", w.reads)
 	}
-	if w.get(t, true); w.reads != 3 {
+	if w.mustGet(t, true); w.reads != 3 {
 		t.Fatalf("fresh reads = %d", w.reads)
 	}
 	w.readErr = errors.New("read timed out or canceled")
@@ -240,9 +248,9 @@ func TestCacheRebuildsSameNameEndpointBeforeReuse(t *testing.T) {
 
 	// The cache serializes snapshots and assessments by name only.
 	w = newCacheWorld("claude")
-	w.get(t, false)
+	w.mustGet(t, false)
 	w.environ[1] = "ANTHROPIC_BASE_URL=" + movedURL
-	w.get(t, false)
+	w.mustGet(t, false)
 	data, err := json.Marshal(w.cache)
 	if err != nil {
 		t.Fatal(err)

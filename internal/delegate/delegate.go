@@ -148,7 +148,7 @@ func place(cfg *config.Config, taskPath, root string, route router.Route) (Place
 		data, err := ref.Text(root)
 		if err != nil {
 			p.Where = "subagent"
-			return p, nil
+			return p, nil //nolint:nilerr // an unreadable file is reported as a problem in p, not as an error
 		}
 		lines += strings.Count(string(data), "\n")
 		if len(data) > 0 && data[len(data)-1] != '\n' {
@@ -280,7 +280,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	}
 	ref := filepath.ToSlash(filepath.Join("tasks", filepath.Base(dir), "task.md"))
 	worker := "duolog/worker"
-	warning := ""
+	var warning string
 	// notices are migration lines claimed for this lead and the line of a
 	// free run that spent paid overage; every line that ends this run
 	// carries them, whichever way it ends.
@@ -358,7 +358,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	placementTask := taskPath
 	cacheDir := filepath.Join(s.Dir, "cache")
 	loginTried := false
-	capNotes := ""
+	var capNotes string
 	// Pace balancing reads the quota once per task; a pinned target is never
 	// balanced, and the paid pass is never balanced either.
 	var balance *router.Balance
@@ -762,7 +762,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				run := att.begin()
 				workerStarted = true
 				out.Result, err = func() (runner.Result, error) {
-					defer reg.SetWaiting(leadID, token, 0)
+					defer func() { _ = reg.SetWaiting(leadID, token, 0) }() // best effort: the entry is only a wait marker
 					return runWorker(ctx, spec)
 				}()
 				att.worker(run, route, retry, out.Result, err)
@@ -1029,7 +1029,7 @@ func trustWarning(route router.Route, role string, state trust.State, folder boo
 	}
 	if !state.Trusted {
 		if route.Sandbox != "read-only" {
-			return "", fmt.Errorf("Codex hooks untrusted; open /hooks before running write role %s", role)
+			return "", fmt.Errorf("Codex hooks untrusted; open /hooks before running write role %s", role) //nolint:staticcheck // ST1005: Codex is a product name
 		}
 		warning = "; rules are off; open /hooks"
 	}
@@ -1132,7 +1132,7 @@ func snapshot(root string) (map[string]string, error) {
 	cmd := exec.Command("git", "--no-optional-locks", "-C", root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules", "--", ".", ":(exclude).duolog")
 	data, err := cmd.Output()
 	if err != nil {
-		return nil, nil
+		return nil, nil //nolint:nilerr // outside Git there is no snapshot, and no changes are reported
 	}
 	result := make(map[string]string)
 	records := bytes.Split(data, []byte{0})

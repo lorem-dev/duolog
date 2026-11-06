@@ -258,8 +258,11 @@ func stop(cmd *exec.Cmd, stdin io.Closer) {
 	if stdin != nil {
 		_ = stdin.Close()
 	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	done := make(chan struct{})
+	go func() {
+		_ = cmd.Wait() // the exit status of a stopped server does not matter
+		close(done)
+	}()
 	select {
 	case <-done:
 	case <-time.After(200 * time.Millisecond):
@@ -415,9 +418,10 @@ func (l codexLimit) windows() ([]Window, error) {
 			return nil, errors.New("invalid quota window")
 		}
 		kind := fmt.Sprintf("%dm", w.WindowDurationMins)
-		if w.WindowDurationMins == 300 {
+		switch w.WindowDurationMins {
+		case 300:
 			kind = "session"
-		} else if w.WindowDurationMins == 10080 {
+		case 10080:
 			kind = "weekly_all"
 		}
 		reset := time.Time{}

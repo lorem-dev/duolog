@@ -91,7 +91,7 @@ func WriteRates(stateDir string, r map[string]Rate) error {
 		return err
 	}
 	dir := Dir(stateDir)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, ".rates-*.json")

@@ -312,7 +312,7 @@ func WriteTaskFiles(ctx context.Context, runDir, root string, c Candidate) error
 		statement += "\n"
 	}
 	dir := filepath.Join(runDir, TasksDir, c.ID)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
 	for name, data := range map[string][]byte{"statement.txt": []byte(statement), "reference.patch": referencePatch, "hidden.patch": hiddenPatch} {
@@ -349,7 +349,7 @@ func writeJSON(target string, v any) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(target), "."+filepath.Base(target)+"-*")

@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -35,8 +36,9 @@ func TestClaudeWorkerGetsBridgedServers(t *testing.T) {
 		t.Fatal(err)
 	}
 	var args, env []string
-	json.Unmarshal(read(t, p+".args.json"), &args)
-	json.Unmarshal(read(t, p+".env.json"), &env)
+	if err := errors.Join(json.Unmarshal(read(t, p+".args.json"), &args), json.Unmarshal(read(t, p+".env.json"), &env)); err != nil {
+		t.Fatal(err)
+	}
 	file := ""
 	for _, a := range args {
 		if v, ok := strings.CutPrefix(a, "--mcp-config="); ok {
@@ -60,7 +62,7 @@ func TestClaudeWorkerGetsBridgedServers(t *testing.T) {
 	if strings.Contains(strings.Join(args, " "), bridgedSecret) {
 		t.Fatal("secret in argv")
 	}
-	filepath.Walk(s.TaskDir, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(s.TaskDir, func(path string, info os.FileInfo, err error) error {
 		if err == nil && !info.IsDir() && strings.Contains(string(read(t, path)), bridgedSecret) {
 			t.Fatalf("secret in %s", path)
 		}
@@ -112,8 +114,9 @@ func TestCodexWorkerGetsBridgedServers(t *testing.T) {
 		t.Fatal(err)
 	}
 	var args, env []string
-	json.Unmarshal(read(t, p+".args.json"), &args)
-	json.Unmarshal(read(t, p+".env.json"), &env)
+	if err := errors.Join(json.Unmarshal(read(t, p+".args.json"), &args), json.Unmarshal(read(t, p+".env.json"), &env)); err != nil {
+		t.Fatal(err)
+	}
 	containsArgs(t, args, s.MCP.CodexArgs...)
 	containsArgs(t, env, "DUOLOG_MCP_JIRA_1="+bridgedSecret)
 	if strings.Contains(strings.Join(args, " "), bridgedSecret) {

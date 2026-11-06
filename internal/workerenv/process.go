@@ -176,7 +176,7 @@ func Build(in ProcessInput) (Process, error) {
 		if err != nil {
 			return Process{}, err
 		}
-		p.Env = append(sel.pairs, path, "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+in.LeadID, "DUOLOG_ROLE="+in.Role)
+		p.Env = append(slices.Clone(sel.pairs), path, "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+in.LeadID, "DUOLOG_ROLE="+in.Role)
 		if in.Shape == Peer {
 			p.Env = append(p.Env, "DUOLOG_PEER="+in.PeerID)
 		}
@@ -188,7 +188,7 @@ func Build(in ProcessInput) (Process, error) {
 			p.Env = append(p.Env, "DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
 			p.FastPinned = in.Variant == Free
 			p.Settings = renderClaudeSettings(in.StateDir, in.Minimal, in.ExtraSettings, in.ProtectedRoots, p.FastPinned)
-			p.Prefix = append(prefix, "--settings", p.Settings)
+			p.Prefix = append(prefix, "--settings", p.Settings) //nolint:gocritic // prefix is Build's own clone of in.Prefix, handed to p
 		case "codex":
 			overrides, signals, pinned, err := codexOverrides(in.ExtraSettings, in.Variant == Free)
 			if err != nil {
@@ -196,7 +196,7 @@ func Build(in ProcessInput) (Process, error) {
 			}
 			p.Signals = append(p.Signals, signals...)
 			p.FastPinned = pinned
-			p.Prefix = append(prefix, overrides...)
+			p.Prefix = append(prefix, overrides...) //nolint:gocritic // prefix is Build's own clone of in.Prefix, handed to p
 		}
 		p.Launch = slices.Clone(in.Launch)
 	}

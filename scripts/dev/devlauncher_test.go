@@ -3,6 +3,7 @@ package dev_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -62,8 +63,8 @@ func run(t *testing.T, dir string, env []string, name string, args ...string) (s
 	}
 	code := 0
 	if err != nil {
-		ee, ok := err.(*exec.ExitError)
-		if !ok {
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) {
 			t.Fatalf("%s %v: %v", name, args, err)
 		}
 		code = ee.ExitCode()

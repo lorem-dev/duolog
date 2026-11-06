@@ -120,7 +120,7 @@ var rootLocks sync.Map
 
 func rootLock(path string) *sync.Mutex {
 	m, _ := rootLocks.LoadOrStore(path, new(sync.Mutex))
-	return m.(*sync.Mutex)
+	return m.(*sync.Mutex) //nolint:errcheck // rootLocks holds nothing else
 }
 
 // stampDue reads the stamp without a lock. A missing or unreadable stamp is
@@ -162,7 +162,7 @@ func (s *Store) newStamp() error {
 		return scrub(err)
 	}
 	f.Close()
-	defer s.root.Remove(tmp)
+	defer func() { _ = s.root.Remove(tmp) }() // best effort: removeStaleStamps clears a leftover
 	epoch := time.Unix(0, 0)
 	if err := s.root.Chtimes(tmp, epoch, epoch); err != nil {
 		return scrub(err)

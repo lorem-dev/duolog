@@ -49,7 +49,7 @@ func TestBridgedServerReachesWorker(t *testing.T) {
 		t.Fatal("the worker env lacks the value")
 	}
 	// The bus, the task copy and every other file stay free of the value.
-	filepath.Walk(h.s.Dir, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(h.s.Dir, func(path string, info os.FileInfo, err error) error {
 		if err == nil && !info.IsDir() && strings.Contains(read(t, path), leadToken) {
 			t.Fatalf("token in %s", path)
 		}

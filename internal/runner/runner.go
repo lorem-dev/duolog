@@ -304,7 +304,7 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 			log.Close()
 			return result, openErr
 		}
-		defer capture.Close()
+		defer capture.Close() //nolint:gocritic // two streams, both held until the worker has run
 		*stream.dest = io.MultiWriter(log, capture)
 	}
 	// The built environment, bridged MCP env included, and nothing else; Build
@@ -376,7 +376,7 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	}
 	// A worker that exits 0 and leaves a background child holding its output
 	// has still finished: its answer is complete.
-	if runErr != nil && !(errors.Is(runErr, exec.ErrWaitDelay) && result.ExitCode == 0) {
+	if runErr != nil && (!errors.Is(runErr, exec.ErrWaitDelay) || result.ExitCode != 0) {
 		return result, runErr
 	}
 	if closeErr != nil {
@@ -414,7 +414,7 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 		return result, fmt.Errorf("invalid answer.json: %w", err)
 	}
 	var extra any
-	if err = decoder.Decode(&extra); err != io.EOF {
+	if err = decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		setCode(&result, CodeParse)
 		return result, fmt.Errorf("invalid answer.json: expected one JSON object")
 	}

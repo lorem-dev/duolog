@@ -45,7 +45,7 @@ func exits(t *testing.T, calls *int, parent, reference []int) CheckRunner {
 	var p, r int
 	return func(_ context.Context, dir string, commands []string) []journal.Check {
 		*calls++
-		exit := 0
+		var exit int
 		if sumDefined(t, dir) {
 			exit, r = reference[r%len(reference)], r+1
 		} else {

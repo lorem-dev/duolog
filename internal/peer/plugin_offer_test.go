@@ -128,7 +128,7 @@ func incompleteOffers() map[string]string {
 	return map[string]string{
 		"missing": strings.Replace(lspOffer, "   Plugin: gopls-lsp\n", "", 1),
 		"wrapped": strings.Replace(lspOffer, "Plugin: gopls-lsp", "Plugin:\n     gopls-lsp", 1),
-		"cut":     lspOffer[strings.Index(lspOffer, "   Would you like"):],
+		"cut":     lspOffer[strings.Index(lspOffer, "   Would you like"):], //nolint:gocritic // a missing marker panics and fails the test, as it should
 		"question wrapped": strings.Replace(strings.Replace(lspOffer, "   Plugin: gopls-lsp\n", "", 1),
 			"install this LSP plugin?", "install this\n   LSP plugin?", 1),
 	}

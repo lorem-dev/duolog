@@ -108,7 +108,7 @@ func gateState(agent, root string, env []string) (trust.State, bool, error) {
 // runs with, never from duolog's own.
 func (w workerMode) gatePreflight(agent, root string, env, protected []string) error {
 	state, folder, err := gateState(agent, root, env)
-	problem := ""
+	var problem string
 	switch {
 	case errors.Is(err, trusthome.ErrNoHome):
 		// The agent falls back to a home env does not name, so its settings
@@ -149,7 +149,7 @@ func noHomeProblem() string {
 // mode: calibration promises that no cell runs without the gate.
 func calibrationGate(agent, root string, env []string) error {
 	state, folder, err := gateState(agent, root, env)
-	problem := ""
+	var problem string
 	switch {
 	case errors.Is(err, trusthome.ErrNoHome):
 		problem = noHomeProblem()
