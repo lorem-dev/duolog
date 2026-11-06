@@ -19,7 +19,10 @@ import (
 type Lead struct {
 	ID string
 	config.Target
-	Mode           mode.Mode
+	Mode mode.Mode
+	// Native is the raw native permission mode name the lead reported with
+	// Mode. Empty when not observed.
+	Native         string
 	TranscriptPath string
 	PID            int
 }
@@ -31,8 +34,11 @@ type LeadObservation struct {
 	ID, Agent                     string
 	Model, Effort, TranscriptPath *string
 	Mode                          *mode.Mode
-	PID                           *int
-	Ended                         bool
+	// Native travels with Mode: an observation that sets Mode replaces Native
+	// with *Native, or with empty when Native is nil.
+	Native *string
+	PID    *int
+	Ended  bool
 }
 
 type leadObservationTimes struct {
@@ -418,10 +424,17 @@ func (s *state) observeLead(o LeadObservation, started time.Time) (Lead, error) 
 	observeField(&current.PID, &times.PID, o.PID, started)
 	if o.Mode != nil && !started.Before(times.Mode) {
 		next := *o.Mode
+		var native string
+		if o.Native != nil {
+			native = *o.Native
+		}
 		if started.Equal(times.Mode) {
 			next = mode.Lower(current.Mode, next)
+			if native != current.Native {
+				native = ""
+			}
 		}
-		current.Mode, times.Mode = next, started
+		current.Mode, current.Native, times.Mode = next, native, started
 	}
 	s.Leads[o.ID], s.Observations[o.ID] = current, times
 	return current, nil

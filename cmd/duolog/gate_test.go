@@ -68,6 +68,39 @@ func runGate(t *testing.T, command string) string {
 	}
 	return out
 }
+
+func TestWorkerModeEnvLowersGate(t *testing.T) {
+	gateSetup(t, mode.Full)
+	if out := runGate(t, "custom-command"); out != "" {
+		t.Fatal(out) // full turns the ask into allow
+	}
+	t.Setenv("DUOLOG_MODE", "edits")
+	shortAskWait(t)
+	if out := runGate(t, "custom-command"); !strings.Contains(out, `"permissionDecision":"deny"`) {
+		t.Fatal(out)
+	}
+	t.Setenv("DUOLOG_MODE", "full")
+	gateSetup(t, mode.Edits)
+	shortAskWait(t)
+	if out := runGate(t, "custom-command"); !strings.Contains(out, `"permissionDecision":"deny"`) {
+		t.Fatal("DUOLOG_MODE raised the gate: " + out)
+	}
+}
+
+func TestDecisionsShowNative(t *testing.T) {
+	_, root := gateSetup(t, mode.Full)
+	t.Setenv("DUOLOG_NATIVE", "auto")
+	runGate(t, "git status")
+	t.Setenv("DUOLOG_DEPTH", "")
+	out, err := gateCommand(t, "", "decisions")
+	if err != nil || !strings.Contains(out, "(mode full; native auto; rule") {
+		t.Fatal(out, err)
+	}
+	if rows, _ := os.ReadFile(filepath.Join(root, ".duolog", "decisions.ndjson")); !strings.Contains(string(rows), `"native":"auto"`) {
+		t.Fatal("decision row lacks native")
+	}
+}
+
 func TestLoweredModeAppliesNextCall(t *testing.T) {
 	r, _ := gateSetup(t, mode.Full)
 	if out := runGate(t, "custom-command"); out != "" {

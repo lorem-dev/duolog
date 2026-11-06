@@ -32,7 +32,7 @@ func hiddenDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, part str
 		tail := strings.Join(words[i:], " ")
 		for _, rule := range denies {
 			if rule.Action == "exec" && roleApplies(rule, a.Role) && denyMatchesCommand(rule.Match, tail) {
-				return Decision{Deny, "denied command inside this command", rule.Action + " " + rule.Match, m}, true
+				return Decision{Kind: Deny, Reason: "denied command inside this command", Rule: rule.Action + " " + rule.Match, Mode: m}, true
 			}
 		}
 	}
@@ -48,14 +48,14 @@ func hiddenDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, part str
 		}
 		target = cleanPath(target)
 		if header && StateRead(target) {
-			return Decision{Deny, "duolog state is not readable by workers", RuleState, m}, true
+			return Decision{Kind: Deny, Reason: "duolog state is not readable by workers", Rule: RuleState, Mode: m}, true
 		}
 		for _, rule := range denies {
 			if rule.Action != "read" && rule.Action != "write" || rule.Action == "write" && !writes {
 				continue
 			}
 			if matches(rule, Action{Kind: rule.Action, Target: target, Role: a.Role, Shell: a.Shell}) {
-				return Decision{Deny, "this command names a path that policy denies", rule.Action + " " + rule.Match, m}, true
+				return Decision{Kind: Deny, Reason: "this command names a path that policy denies", Rule: rule.Action + " " + rule.Match, Mode: m}, true
 			}
 		}
 	}
@@ -73,12 +73,12 @@ func redirectDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, part s
 		write := Action{Kind: "write", Target: cleanPath(target), Role: a.Role, Shell: a.Shell}
 		for _, rule := range lead.Deny {
 			if rule.Action == "write" && matches(rule, write) {
-				return Decision{Deny, "this command redirects into a path that lead settings deny", "lead: " + rule.Action + " " + rule.Match, m}, true
+				return Decision{Kind: Deny, Reason: "this command redirects into a path that lead settings deny", Rule: "lead: " + rule.Action + " " + rule.Match, Mode: m}, true
 			}
 		}
 		for _, rule := range p.Rules {
 			if rule.Decision == Deny && rule.Action == "write" && matches(rule, write) {
-				return Decision{Deny, "this command redirects into a path that policy denies", rule.Action + " " + rule.Match, m}, true
+				return Decision{Kind: Deny, Reason: "this command redirects into a path that policy denies", Rule: rule.Action + " " + rule.Match, Mode: m}, true
 			}
 		}
 	}
@@ -433,6 +433,18 @@ func rawExecParts(command string) []string {
 var execAssignment = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*=`)
 
 // execOperandStart skips assignments, wrappers and the executable they start.
+// wrapperValueOptions lists, per wrapper, the options written apart from
+// their value (sudo -u alice): the value is skipped with the option.
+var wrapperValueOptions = map[string][]string{
+	"sudo":    {"-u", "-g", "-h", "-p", "-C", "-U", "-r", "-t", "-D", "-T", "--user", "--group", "--host", "--prompt", "--close-from", "--other-user", "--role", "--type", "--chdir", "--command-timeout"},
+	"doas":    {"-u", "-C"},
+	"env":     {"-u", "-C", "-S", "--unset", "--chdir", "--split-string"},
+	"nice":    {"-n", "--adjustment"},
+	"ionice":  {"-c", "-n", "-p", "-P", "-u", "--class", "--classdata"},
+	"timeout": {"-s", "-k", "--signal", "--kill-after"},
+	"xargs":   {"-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s", "--arg-file", "--delimiter", "--max-args", "--max-procs", "--max-lines", "--max-chars"},
+}
+
 func execOperandStart(words []string) int {
 	for i := 0; i < len(words); {
 		word := strings.Trim(words[i], "'\"")
@@ -445,7 +457,13 @@ func execOperandStart(words []string) int {
 			"time", "nice", "ionice", "timeout", "nohup", "stdbuf", "setsid", "busybox", "doas", "watch", "parallel":
 			i++
 			for i < len(words) && strings.HasPrefix(words[i], "-") {
+				// An option such as sudo -u takes the next word as its value,
+				// so that word is not the program.
+				takesValue := slices.Contains(wrapperValueOptions[filepath.Base(word)], words[i])
 				i++
+				if takesValue && i < len(words) {
+					i++
+				}
 			}
 			if filepath.Base(word) == "timeout" && i < len(words) {
 				i++ // timeout's duration precedes the executable.

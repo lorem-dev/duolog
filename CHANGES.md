@@ -42,6 +42,23 @@
 
 ## Development
 
+### Added
+
+- `worker_modes` sets a delegate worker's native mode per role and family,
+  never above the lead's; a looser mode needs a gate preflight.
+
+### Changed
+
+- Codex workers get no network and no extra writable roots, even without
+  `worker_modes`; give a role `network: true` in `worker_modes` to restore it.
+
+### Security
+
+- Codex peers ignore `network_access` and `writable_roots` in
+  `.codex/config.toml`, so a cloned repository cannot widen their sandbox.
+- Workers cannot start `claude` or `codex` through any path, `.cmd` or `.ps1`
+  launcher, `npx`-style runner or `env` prefix.
+
 ## 1.4.1
 
 ### Added

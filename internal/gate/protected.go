@@ -25,7 +25,9 @@ const protectedReason = "duolog telemetry and balance stores are closed to worke
 // /var against /private/var and case on a file system that ignores it. A path
 // that does not exist yet is placed by its longest existing ancestor.
 func protectedDecision(a Action, m mode.Mode) (Decision, bool) {
-	deny := func(reason string) (Decision, bool) { return Decision{Deny, reason, RuleProtected, m}, true }
+	deny := func(reason string) (Decision, bool) {
+		return Decision{Kind: Deny, Reason: reason, Rule: RuleProtected, Mode: m}, true
+	}
 	if a.Kind == "exec" && protectedCommand(a.Target, a.Shell) {
 		return deny("workers cannot run duolog telemetry or duolog balance; " + protectedReason)
 	}
@@ -83,7 +85,7 @@ func protectedDecision(a Action, m mode.Mode) (Decision, bool) {
 func protectedCommand(command, shell string) bool {
 	for _, words := range protectedWords(command, shell) {
 		for i, word := range words {
-			if programName(word) == "duolog" && storeSubcommand(words[i+1:]) {
+			if ProgramName(word) == "duolog" && storeSubcommand(words[i+1:]) {
 				return true
 			}
 		}
@@ -202,7 +204,7 @@ func programName(word string) string {
 func searchRoots(words []string) []string {
 	var roots []string
 	for i, word := range words {
-		name, args := programName(word), words[i+1:]
+		name, args := ProgramName(word), words[i+1:]
 		var recursive bool
 		switch name {
 		case "find", "fd", "fdfind", "rg", "ag", "ack", "tree", "du":

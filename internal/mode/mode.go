@@ -62,25 +62,5 @@ func Lower(a, b Mode) Mode {
 // Args selects native flags within the role sandbox. Full mode uses the same
 // flags as edits; automatic hook confirmation belongs to the policy layer.
 func Args(agent string, m Mode, sandbox string) []string {
-	if sandbox == "read-only" {
-		m = Plan
-	}
-	if agent == "codex" {
-		value := "workspace-write"
-		if m == Plan {
-			value = "read-only"
-		}
-		return []string{"-s", value}
-	}
-	if agent == "claude" {
-		value := "default"
-		switch m {
-		case Plan:
-			value = "plan"
-		case Edits, Full:
-			value = "acceptEdits"
-		}
-		return []string{"--permission-mode", value}
-	}
-	return nil
+	return Flags(agent, Default(agent, m, sandbox))
 }

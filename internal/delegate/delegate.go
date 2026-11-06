@@ -361,8 +361,10 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			out.Line = p.String()
 			return out, nil
 		}
+		// Resolved before resolveModel replaces the alias, which names the family.
+		wm := resolveWorkerMode(cfg, role, route, lead, leadMode)
 		capNotes = ""
-		env := att.env(workerEnv(cfg.EnvPassthrough, leadID, role))
+		env := att.env(append(workerEnv(cfg.EnvPassthrough, leadID, role), wm.env()...))
 		var bridge []string
 		var bridged *runner.MCP
 		if len(opts.Needs) > 0 {
@@ -449,6 +451,15 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		if warning, err = trustWarning(route, role, state, folder); err != nil {
 			return out, err
 		}
+		// A looser worker whose gate cannot be shown to run does not start, and
+		// the other agent does not run in its place.
+		if wm.needsGate() {
+			protected := append(slices.Clone(opts.ProtectedRoots), filepath.Join(root, ".duolog"), s.Dir)
+			if err = wm.gatePreflight(route.Agent, state, folder, protected); err != nil {
+				return out, err
+			}
+		}
+		warning += wm.line()
 		if bridged != nil {
 			warning += "; bridged mcp:" + strings.Join(bridged.Names, ",mcp:") + " from " + leadAgent
 		}
@@ -506,12 +517,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		} else {
 			route.Model = model
 			stdin := append(append(brief, inline...), workerLines...)
-			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Env: env, Persistent: route.Session == "resume", KeepMCP: needsKind(withoutBridged(opts.Needs, bridged), capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin), MCP: bridged, ProtectedRoots: opts.ProtectedRoots}
+			spec := runner.Spec{Route: route, Mode: wm.Level, Native: wm.Native, Network: wm.Network, WritableRoots: wm.WritableRoots, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Env: env, Persistent: route.Session == "resume", KeepMCP: needsKind(withoutBridged(opts.Needs, bridged), capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin), MCP: bridged, ProtectedRoots: opts.ProtectedRoots}
 			spec.MCP = limitOwn(spec, opts.Needs, cfg.Capabilities.MCPTools)
 			spec.MaxTurns = opts.MaxTurns
-			if route.Sandbox == "read-only" {
-				spec.Mode = mode.Plan
-			}
 			var entry *session.Entry
 			if route.Session == "resume" {
 				entry, _, err = reg.Lookup(leadID, route.Agent, role, thread)
@@ -552,6 +560,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				return out, err
 			}
 			creditBefore := before
+			gateLogBefore := gateLogSize(s.Dir)
 			for retry := false; ; retry = true {
 				run := att.begin()
 				workerStarted = true
@@ -579,7 +588,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				// A login retry is a new run with its own work-tree baseline.
 				creditBefore = after
 				lr.add(out.Result)
-				if usageErr := appendUsage(s.Dir, role, route, out.Result); usageErr != nil {
+				if usageErr := appendUsage(s.Dir, role, route, out.Result, wm.Native); usageErr != nil {
 					return out, errors.Join(err, usageErr)
 				}
 				problems := runProblems(route.Agent, leadAgent, root, out.Result, bridged, opts.Needs)
@@ -633,8 +642,14 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				lineWarning := warning
 				if before != nil {
 					if after, snapErr := snapshot(root); snapErr == nil {
-						if outside := outsideWrite(changes(before, after), writes); len(outside) > 0 {
+						changed := changes(before, after)
+						if outside := outsideWrite(changed, writes); len(outside) > 0 {
 							lineWarning += "; outside=" + strings.Join(outside, ",")
+						}
+						// A looser worker that changed files while the gate logged
+						// nothing likely ran without its hooks.
+						if wm.needsGate() && len(changed) > 0 && gateLogSize(s.Dir) <= gateLogBefore {
+							lineWarning += "; gate saw no actions in native " + wm.Native
 						}
 					}
 				}
@@ -861,15 +876,17 @@ type usageRecord struct {
 	Model        string `json:"model"`
 	Effort       string `json:"effort"`
 	EffortCapped bool   `json:"effort_capped"`
+	// Native is the native permission mode the worker started in.
+	Native string `json:"native,omitempty"`
 	runner.Usage
 }
 
 // RecordUsage appends the same locked usage record as a delegation.
 func RecordUsage(dir, role string, route router.Route, result runner.Result) error {
-	return appendUsage(dir, role, route, result)
+	return appendUsage(dir, role, route, result, "")
 }
 
-func appendUsage(dir, role string, route router.Route, result runner.Result) error {
+func appendUsage(dir, role string, route router.Route, result runner.Result, native string) error {
 	lock := flock.New(filepath.Join(dir, "usage.lock"))
 	if err := lock.Lock(); err != nil {
 		_ = lock.Close()
@@ -880,7 +897,7 @@ func appendUsage(dir, role string, route router.Route, result runner.Result) err
 	if err != nil {
 		return err
 	}
-	writeErr := json.NewEncoder(f).Encode(usageRecord{role, route.Agent, route.Model, route.Effort, route.EffortCapped, result.Usage})
+	writeErr := json.NewEncoder(f).Encode(usageRecord{role, route.Agent, route.Model, route.Effort, route.EffortCapped, native, result.Usage})
 	return errors.Join(writeErr, f.Close())
 }
 

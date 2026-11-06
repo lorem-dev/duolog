@@ -150,6 +150,7 @@ The lead's own settings are the ceiling:
 | `rex.stuck_notify_minutes` | Minutes before `peer wait` sends one reminder for an unanswered question. Default: `5`; `0` disables reminders |
 | `rex.auto_answers` | Ordered `{match, answer}` rules for safe peer questions. Defaults to answering `Hooks need review` with `Continue without trusting`. A project list replaces the defaults; `[]` disables it. Trust and persistent approval grants are refused |
 | `coauthors` | Enable worker credit and set commit co-author templates. See [Getting started](getting-started.md#how-to-credit-the-workers-in-commits) |
+| `worker_modes` | The native permission mode a `delegate` worker starts in, per role and per model family. See [below](#which-layers-may-change-worker-modes) and [Permissions](permissions.md#a-workers-native-mode) |
 | `telemetry` | The local history of runs, quota and routing. See [below](#which-layers-may-change-telemetry) and [Telemetry](telemetry.md) |
 
 ## What workers inherit
@@ -391,7 +392,7 @@ with `codex exec` (OBSERVED, Codex 0.165.0 on macOS):
 
 | What fails | Why | What to do |
 |---|---|---|
-| Tests that use a local database or Redis | The sandbox blocks the network, even localhost | Set `network_access = true` under `[sandbox_workspace_write]` in the project's `.codex/config.toml` |
+| Tests that use a local database or Redis | The sandbox blocks the network, even localhost | Give the role `network: true` in [`worker_modes`](#which-layers-may-change-worker-modes) in your user config. duolog sets `network_access` and `writable_roots` on every worker's command line, so `.codex/config.toml` does not change them for workers |
 | `uv run` | Its cache lock is outside the project | Run `.venv/bin/python -m pytest` |
 | `npx` | Its cache in `~/.npm` is outside the project | Run `node_modules/.bin/<tool>` |
 | `git status` with Git LFS | LFS writes to `.git/lfs/tmp` | Name the check in the task instead |
@@ -449,6 +450,91 @@ The lead reserve, 15% of the weekly and 10% of the five-hour window, applies
 on top and is not a setting. The caps limit estimated spend, so a run can
 spend more than them; see
 [Calibration](calibration.md#what-calibration-costs-and-how-it-limits-spend).
+
+## Which layers may change worker modes
+
+`worker_modes` sets the native mode a `duolog delegate` worker starts in.
+Without it, workers get duolog's default flags: Claude `acceptEdits` at most,
+Codex `workspace-write` at most. Peers ignore the section.
+
+Even without this section, every Codex `workspace-write` worker and peer
+runs with no network and no writable roots beyond the project, whatever
+`.codex/config.toml` says; to give a worker network back, add a role entry
+with `network: true` here in your user config.
+
+```yaml
+worker_modes:
+  roles:
+    implement:
+      claude: acceptEdits
+      codex: workspace-write
+      network: true
+      writable_roots: ["~/.cache/go-build"]
+    debug_hard: {claude: auto}
+  families:
+    luna: {codex: read-only}
+    haiku: {claude: acceptEdits}
+```
+
+An entry has these keys:
+
+| Key | Meaning |
+|---|---|
+| `claude` | `plan`, `default`, `acceptEdits`, `auto` or `bypassPermissions` |
+| `codex` | `read-only` or `workspace-write` |
+| `network` | Role entries only. Asks Codex to let the worker's commands reach the network. Default: `false` |
+| `writable_roots` | Role entries only. Absolute or `~/` folders Codex commands may write besides the project. Default: none |
+
+duolog passes `network` and `writable_roots` to Codex as
+`-c sandbox_workspace_write.network_access` and
+`-c sandbox_workspace_write.writable_roots`. It passes both on every
+`workspace-write` worker, `false` and `[]` when no entry allows more, so
+Codex's own config files cannot widen a worker. Whether `codex exec` honours
+these keys is NOT VERIFIED; the worker mode study measures it.
+
+An unknown name is a load error. So is `danger-full-access`: a Codex worker
+stays on `workspace-write` or `read-only`, and `network` and `writable_roots`
+are the only way to loosen it. They need a role with a `workspace-write`
+sandbox and `codex` unset or `workspace-write`. With `codex` unset they ask
+for `workspace-write`, and they apply when the lead is in `edits` or `full`.
+
+duolog refuses a root that is a file, a volume root, the home folder or a
+parent of it, or a folder that holds or lies in credentials, agent and
+duolog settings, or programs the lead runs: `~/.ssh`, `~/.aws`, `~/.gnupg`,
+`~/.config/gh`, `~/.config/git`, `~/.docker`, `~/.kube`, the keychains and
+keyrings, `~/Library/LaunchAgents`, `~/.claude`, `~/.codex`, and on
+Windows the Credential Manager, Vault and DPAPI folders under `%APPDATA%`
+and `%LOCALAPPDATA%`. It compares the folders after it resolves symlinks and
+the macOS `/System/Volumes/Data` firmlinks, and without case where the
+volume ignores case. `delegate` checks the roots
+again before each run. Then it also refuses the folders on the worker PATH
+that hold `duolog`, `claude` or `codex`, and duolog's state.
+
+For one worker, the role entry and the family entry both count and the lower
+one wins. Only a role entry can ask for more than duolog's default. A family
+entry only lowers: alone it gives at most `acceptEdits` or `workspace-write`,
+and one that asks more changes nothing. A read-only role ignores family
+entries, so they do not set its gate to `plan`.
+The result never goes above the lead's mode, and Claude `auto` needs a lead
+in `auto` or `full`. `DUOLOG_MODE` can only lower the level further.
+[Permissions](permissions.md#a-workers-native-mode) has the full resolution
+and the gate preflight that refuses a looser run.
+
+Only your user config may raise a value. `.duolog/config.yaml` and
+`.duolog/config.local.yaml` may lower an entry, or add one at or below
+duolog's own default: `acceptEdits` or `workspace-write`, no network and no
+writable roots. Each layer lowers the entry as the layers before it left it,
+so `config.local.yaml` cannot undo a lowering in `config.yaml`. A project
+layer that changes a role under `roles` drops what that role's entry asks
+above duolog's default, network and writable roots included. A family entry
+also applies by the family your user config gives a model, so a project that
+changes `models.<name>.family` cannot escape it. It applies by the families
+of the role's route in your user config as well (its `use` and `fallback`
+models and their `model_map` counterparts), so a learning ladder,
+`routing.learned.yaml`, a `model_map`, a version pin or `--use` that moves
+the role to another model cannot escape it either. A cloned project therefore
+cannot start workers in a looser mode. `duolog doctor` names each ignored
+value and shows the effective entries; `duolog route` shows what a role gets.
 
 ## Which layers may change telemetry
 

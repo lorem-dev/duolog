@@ -26,6 +26,31 @@ func TestClaudePeerDisallowsSubagents(t *testing.T) {
 	}
 }
 
+// Re-review m4: a cloned repository's .codex/config.toml cannot widen a Codex
+// peer's workspace-write sandbox, as it cannot a worker's.
+func TestCodexPeerPinsSandboxExtras(t *testing.T) {
+	pinned := 0
+	for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
+		for _, sandbox := range []string{"read-only", "workspace-write"} {
+			args := agentArgv(router.Route{Target: config.Target{Agent: "codex", Model: "sol"}, Sandbox: sandbox}, m, t.TempDir())
+			i := slices.Index(args, "-s")
+			if i < 0 || args[i+1] != "workspace-write" {
+				if slices.Contains(args, "sandbox_workspace_write.network_access=false") {
+					t.Errorf("%s %s pins without workspace-write: %v", m, sandbox, args)
+				}
+				continue
+			}
+			pinned++
+			if !slices.Contains(args, "sandbox_workspace_write.network_access=false") || !slices.Contains(args, "sandbox_workspace_write.writable_roots=[]") {
+				t.Errorf("%s %s: %v", m, sandbox, args)
+			}
+		}
+	}
+	if pinned == 0 {
+		t.Fatal("no workspace-write peer was checked")
+	}
+}
+
 func TestClaudePeerSettingsDenyStateAndKeepNotifications(t *testing.T) {
 	root := t.TempDir()
 	for _, context := range []string{"minimal", "project"} {
