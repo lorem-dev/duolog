@@ -42,6 +42,8 @@
 
 ## Development
 
+## 1.4.1
+
 ### Added
 
 - `duolog lead register` makes the current session the lead when the
