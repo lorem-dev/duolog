@@ -15,7 +15,7 @@ var runIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 func TestPeerLaunchGetsDuologRunID(t *testing.T) {
 	r := newRig(t, baseScript())
 	var ops []Operation
-	opts := Options{Root: r.root, Config: r.cfg, Lead: "lead-1", Observe: func(o Operation) { ops = append(ops, o) }}
+	opts := Options{Deps: r.deps, Root: r.root, Config: r.cfg, Lead: "lead-1", Observe: func(o Operation) { ops = append(ops, o) }}
 	r.ctx = WithOptions(context.Background(), opts)
 	opened := r.ready()
 

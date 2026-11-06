@@ -80,7 +80,7 @@ func TestDoctorTestsFindFakeRex(t *testing.T) {
 func findings(t *testing.T, cfg *config.Config, opts Options) string {
 	t.Helper()
 	var text []string
-	for _, f := range Run(context.Background(), cfg, opts) {
+	for _, f := range Run(context.Background(), testDeps, cfg, opts) {
 		text = append(text, f.Message)
 	}
 	return strings.Join(text, "\n")
@@ -133,14 +133,14 @@ func TestMatchingFindingRejectsUnrelatedDiagnostics(t *testing.T) {
 }
 func TestDoctorFlagsAliasWithNoModel(t *testing.T) {
 	cfg, opts, _ := setup(t)
-	requireFinding(t, Run(context.Background(), cfg, opts), "Alias terra has no visible model", "docs", "tests")
+	requireFinding(t, Run(context.Background(), testDeps, cfg, opts), "Alias terra has no visible model", "docs", "tests")
 }
 func TestDoctorFlagsOldPin(t *testing.T) {
 	cfg, opts, _ := setup(t)
 	r := cfg.Roles["implement"]
 	r.Use.Model = "gpt-6-sol"
 	cfg.Roles["implement"] = r
-	requireFinding(t, Run(context.Background(), cfg, opts), "Role implement pins gpt-6-sol", "newer model gpt-6.1-sol")
+	requireFinding(t, Run(context.Background(), testDeps, cfg, opts), "Role implement pins gpt-6-sol", "newer model gpt-6.1-sol")
 }
 func TestDoctorWarnsOnNewerAgentVersion(t *testing.T) {
 	cfg, opts, codex := setup(t)
@@ -171,7 +171,7 @@ func TestDoctorFlagsUnsupportedEffort(t *testing.T) {
 	r := cfg.Roles["implement"]
 	r.Use.Effort = "ultra"
 	cfg.Roles["implement"] = r
-	requireFinding(t, Run(context.Background(), cfg, opts), "Role implement model gpt-6.1-sol", "does not support effort ultra")
+	requireFinding(t, Run(context.Background(), testDeps, cfg, opts), "Role implement model gpt-6.1-sol", "does not support effort ultra")
 }
 func TestProbeClearsUnavailable(t *testing.T) {
 	cfg, opts, codex := setup(t)
@@ -311,7 +311,7 @@ func TestInstallOfferIsInfoOnly(t *testing.T) {
 			}
 		}
 		count := 0
-		for _, finding := range Run(context.Background(), cfg, opts) {
+		for _, finding := range Run(context.Background(), testDeps, cfg, opts) {
 			if strings.Contains(finding.Message, "duolog install offer") {
 				count++
 				if finding.Level != "info" || !strings.Contains(finding.Message, fmt.Sprintf("present=%t", present)) {
@@ -336,7 +336,7 @@ func TestDoctorNeverMentionsCalibration(t *testing.T) {
 	}
 	// The test's temporary folders carry its name, so they leave the message.
 	temp := filepath.Dir(opts.Root)
-	for _, f := range Run(context.Background(), cfg, opts) {
+	for _, f := range Run(context.Background(), testDeps, cfg, opts) {
 		if strings.Contains(strings.ToLower(strings.ReplaceAll(f.Message, temp, "")), "calibrat") {
 			t.Fatalf("%+v", f)
 		}
@@ -365,7 +365,7 @@ func TestDoctorReportsClaudeFolderTrust(t *testing.T) {
 				}
 			}
 			var text []string
-			for _, f := range Run(context.Background(), cfg, opts) {
+			for _, f := range Run(context.Background(), testDeps, cfg, opts) {
 				text = append(text, f.Level+": "+f.Message)
 			}
 			got := strings.Join(text, "\n")

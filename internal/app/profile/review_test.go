@@ -71,7 +71,7 @@ func TestReviewDamagedGitFileCannotReachMainCheckout(t *testing.T) {
 			c := f.cfg.Learning.Classes[f.rec.Class]
 			c.Checks = []string{exe + " -test.run=^TestReviewCorruptWorktreeCheck$"}
 			f.cfg.Learning.Classes[f.rec.Class] = c
-			r, _ := Run(context.Background(), f.cfg, f.s, f.rec.ID, Options{})
+			r, _ := Run(context.Background(), f.deps, f.cfg, f.s, f.rec.ID, Options{})
 			if len(r.Profile.Checks) != 1 || r.Profile.Checks[0].Exit != 0 {
 				t.Fatal("corruption check did not execute", r.Profile.Checks)
 			}
@@ -213,7 +213,7 @@ func TestReviewChainRefusesMissingHistoryBeforeSpending(t *testing.T) {
 		calls++
 		return delegate.Outcome{}, nil
 	})
-	_, err := Run(context.Background(), f.cfg, f.s, f.rec.ID, Options{Chain: true})
+	_, err := Run(context.Background(), f.deps, f.cfg, f.s, f.rec.ID, Options{Chain: true})
 	if err == nil || !strings.Contains(err.Error(), "chain") || calls != 0 {
 		t.Fatal(calls, err)
 	}
@@ -227,7 +227,7 @@ func TestReviewChainRefusesEmbeddedOriginalAnswerBeforeSpending(t *testing.T) {
 		calls++
 		return delegate.Outcome{}, nil
 	})
-	_, err := Run(context.Background(), f.cfg, f.s, f.rec.ID, Options{Chain: true})
+	_, err := Run(context.Background(), f.deps, f.cfg, f.s, f.rec.ID, Options{Chain: true})
 	if err == nil || !strings.Contains(err.Error(), "chain") || calls != 0 {
 		t.Fatal(calls, err)
 	}
@@ -241,7 +241,7 @@ func TestReviewChainRefusesPastedOriginalFileBeforeSpending(t *testing.T) {
 		calls++
 		return delegate.Outcome{}, nil
 	})
-	_, err := Run(context.Background(), f.cfg, f.s, f.rec.ID, Options{Chain: true})
+	_, err := Run(context.Background(), f.deps, f.cfg, f.s, f.rec.ID, Options{Chain: true})
 	if err == nil || !strings.Contains(err.Error(), "chain") || calls != 0 {
 		t.Fatal(calls, err)
 	}

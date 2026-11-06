@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/app/profile"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/testbin"
@@ -204,7 +203,7 @@ func TestSurveyCheckTimeCap(t *testing.T) {
 	t.Cleanup(func() { checkTimeout = old })
 	checkTimeout = func(config.Calibration) time.Duration { return 300 * time.Millisecond }
 	started := time.Now()
-	s, err := RunSurvey(context.Background(), root, testConfig(t), profile.RunChecks)
+	s, err := RunSurvey(context.Background(), root, testConfig(t), realChecks)
 	if err != nil {
 		t.Fatal(err)
 	}

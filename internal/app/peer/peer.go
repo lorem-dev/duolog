@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/adapter/models"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
@@ -19,40 +18,6 @@ import (
 
 // Thread marks the registry entries of live panes, apart from stored threads.
 const peerThread = "duolog-peer"
-
-// Pauses are variables so that tests need not wait. sendDelay is the 0.7 s that
-// the recorded run needed between rex send and rex send-key.
-var (
-	pollInterval = 2 * time.Second
-	settleDelay  = time.Second
-	sendDelay    = 700 * time.Millisecond
-	keyDelay     = 150 * time.Millisecond
-	// workGrace is how long a sent task may show an idle prompt before the
-	// session counts as finished without having been seen at work.
-	workGrace    = 10 * time.Second
-	sleep        = pause
-	resolveModel = models.Resolve
-)
-
-// ShortenPauses sets every pause between pane reads and keys to d, for tests
-// of other packages that drive a fake rex, and returns a function that puts
-// the pauses back. workGrace stays as it is. The commands never call it.
-func ShortenPauses(d time.Duration) (restore func()) {
-	poll, settle, send, key := pollInterval, settleDelay, sendDelay, keyDelay
-	pollInterval, settleDelay, sendDelay, keyDelay = d, d, d, d
-	return func() { pollInterval, settleDelay, sendDelay, keyDelay = poll, settle, send, key }
-}
-
-func pause(ctx context.Context, d time.Duration) error {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
-}
 
 // ErrStuck means the task text is still in the input line of an idle session.
 var ErrStuck = errors.New("task text is stuck in the input line")
@@ -79,6 +44,9 @@ type Report struct {
 
 // Options is what the commands cannot take from the environment.
 type Options struct {
+	// Deps is what peer reaches outside the package; the wiring package builds
+	// the real one.
+	Deps             Deps
 	Root             string
 	Config           *config.Config
 	Lead             string

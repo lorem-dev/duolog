@@ -31,7 +31,7 @@ func TestProbeRefusesSettingsRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = probe(context.Background(), "claude", cfg, nil)
+	err = probe(context.Background(), testDeps, "claude", cfg, nil)
 	if err == nil || !strings.Contains(err.Error(), "ANTHROPIC_BASE_URL") {
 		t.Fatalf("probe with a gateway in user settings: %v, want a refusal naming it", err)
 	}
@@ -52,7 +52,7 @@ func TestPaidProbePricesCacheWrites(t *testing.T) {
 	testbin.Install(t, "claude", testbin.Scenario{Stdout: `{"is_error":false,"result":"ok","usage":` +
 		`{"input_tokens":0,"cache_creation_input_tokens":2000000,"cache_read_input_tokens":0,"output_tokens":0,` +
 		`"cache_creation":{"ephemeral_1h_input_tokens":1000000}}}`})
-	if err := probe(context.Background(), "claude", cfg, nil); err != nil {
+	if err := probe(context.Background(), testDeps, "claude", cfg, nil); err != nil {
 		t.Fatal(err)
 	}
 	in := cfg.Models["haiku"].Input

@@ -48,7 +48,7 @@ func TestProtectedRootsForwarded(t *testing.T) {
 		t.Setenv("DUOLOG_TELEMETRY", collection)
 		home := os.Getenv("HOME")
 		roots := []string{filepath.Join(home, "state", "duolog", "telemetry"), filepath.Join(home, "state", "duolog", "balance")}
-		r.ctx = WithOptions(r.ctx, Options{Root: r.root, Config: r.cfg, Lead: "lead-1", ProtectedRoots: roots})
+		r.ctx = WithOptions(r.ctx, Options{Deps: r.deps, Root: r.root, Config: r.cfg, Lead: "lead-1", ProtectedRoots: roots})
 		r.open("plan")
 		argv := r.started()
 		denied := peerDenied(peerSandbox(t, argv))

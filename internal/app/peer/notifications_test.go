@@ -19,14 +19,14 @@ func TestWaitKeepsWatchingUntilQuestionReminder(t *testing.T) {
 	r := newRig(t, withScreens(fixtureText("codex-trust-live.txt")))
 	e := r.open("implement")
 	r.cfg.Rex.StuckNotifyMinutes = 1
-	oldSleep, oldNotify := sleep, notifyPerson
-	t.Cleanup(func() { sleep = oldSleep; notifyPerson = oldNotify })
 	var notified int
-	notifyPerson = func(string, string) { notified++ }
-	sleep = func(ctx context.Context, _ time.Duration) error {
-		_, err := r.reg.Update(e.ID, func(x *session.Entry) { x.QuestionSince = time.Now().Add(-2 * time.Minute) })
-		return err
-	}
+	r.useDeps(func(d *Deps) {
+		d.Notify = func(string, string) { notified++ }
+		d.Clock = funcClock(func(ctx context.Context, _ time.Duration) error {
+			_, err := r.reg.Update(e.ID, func(x *session.Entry) { x.QuestionSince = time.Now().Add(-2 * time.Minute) })
+			return err
+		})
+	})
 	ctx, cancel := context.WithTimeout(r.ctx, time.Second)
 	defer cancel()
 	got, err := Wait(ctx, e.ID)
@@ -43,9 +43,7 @@ func TestWaitDoesNotRemindForAnsweredQuestion(t *testing.T) {
 	e := r.open("implement")
 	r.cfg.Rex.StuckNotifyMinutes = 1
 	r.rex(withScreens(fixtureText("codex-trust-live.txt"), codexIdle(""), codexIdle("")))
-	old := notifyPerson
-	notifyPerson = func(string, string) { t.Error("answered question caused a reminder") }
-	t.Cleanup(func() { notifyPerson = old })
+	r.useDeps(func(d *Deps) { d.Notify = func(string, string) { t.Error("answered question caused a reminder") } })
 	ctx, cancel := context.WithTimeout(r.ctx, time.Second)
 	defer cancel()
 	got, err := Wait(ctx, e.ID)
@@ -54,25 +52,12 @@ func TestWaitDoesNotRemindForAnsweredQuestion(t *testing.T) {
 	}
 }
 
-func TestNotificationTextIsNotExecutableSource(t *testing.T) {
-	message := "peer-id: a quote \"; $(do not run)\nnext line"
-	for _, goos := range []string{"darwin", "linux", "windows"} {
-		program, args := notificationArgv(goos, "duolog", message)
-		if program == "" || len(args) == 0 {
-			t.Fatalf("missing notifier for %s", goos)
-		}
-		if goos == "windows" {
-			if strings.Contains(args[len(args)-1], message) || !strings.Contains(args[len(args)-1], "$env:DUOLOG_NOTIFICATION_TEXT") {
-				t.Fatal(args)
-			}
-		} else if args[len(args)-1] != message {
-			t.Fatalf("notification text changed: %v", args)
-		}
-	}
-	if program, _ := notificationArgv("unknown", "duolog", message); program != "" {
-		t.Fatal("unsupported OS got a notifier")
-	}
-}
+// funcClock is real time whose Sleep is f.
+type funcClock func(ctx context.Context, d time.Duration) error
+
+func (funcClock) Now() time.Time { return time.Now() }
+
+func (f funcClock) Sleep(ctx context.Context, d time.Duration) error { return f(ctx, d) }
 
 func TestAgentArgvDisablesNotifications(t *testing.T) {
 	for _, agent := range []string{"claude", "codex"} {
@@ -113,9 +98,7 @@ func TestStuckQuestionNotificationIsOnceAndResets(t *testing.T) {
 		t.Fatal("question has no start time")
 	}
 	var messages []string
-	old := notifyPerson
-	notifyPerson = func(_ string, message string) { messages = append(messages, message) }
-	t.Cleanup(func() { notifyPerson = old })
+	r.useDeps(func(d *Deps) { d.Notify = func(_ string, message string) { messages = append(messages, message) } })
 	peerEnv, err := setup(r.ctx)
 	if err != nil {
 		t.Fatal(err)

@@ -12,14 +12,16 @@ func TestWaitMarksItsPeerWatched(t *testing.T) {
 	r := newRig(t, baseScript())
 	e := r.open("implement")
 	var during []bool
-	sleep = func(ctx context.Context, _ time.Duration) error {
-		watched, err := r.reg.Watched(e.ID)
-		if err != nil {
-			t.Error(err)
-		}
-		during = append(during, watched)
-		return ctx.Err()
-	}
+	r.useDeps(func(d *Deps) {
+		d.Clock = funcClock(func(ctx context.Context, _ time.Duration) error {
+			watched, err := r.reg.Watched(e.ID)
+			if err != nil {
+				t.Error(err)
+			}
+			during = append(during, watched)
+			return ctx.Err()
+		})
+	})
 	if watched, _ := r.reg.Watched(e.ID); watched {
 		t.Fatal("watched before any wait")
 	}

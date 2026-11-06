@@ -13,13 +13,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
-// gateBinary is a variable so tests can fail the worker PATH lookup.
-var gateBinary = workerenv.GateBinary
-
 // workerModeFindings reports the worker_modes entries: one info line per agent
 // value, a warning for each looser value whose gate cannot be shown to run,
 // and each value a project layer tried to raise.
-func workerModeFindings(cfg *config.Config, root string) []Finding {
+func workerModeFindings(d Deps, cfg *config.Config, root string) []Finding {
 	var out []Finding
 	wm := cfg.WorkerModes
 	for _, kind := range []string{"role", "family"} {
@@ -56,7 +53,7 @@ func workerModeFindings(cfg *config.Config, root string) []Finding {
 				if !looser {
 					continue
 				}
-				if problem := gateProblem(cfg, agent, root); problem != "" {
+				if problem := gateProblem(d, cfg, agent, root); problem != "" {
 					out = append(out, Finding{"warning", fmt.Sprintf("%s, but the gate cannot be shown to run for %s here: %s; delegate refuses such a run", ask, agent, problem)})
 				}
 			}
@@ -115,7 +112,7 @@ func describeWorkerMode(agent string, e config.WorkerMode) (native, extras strin
 // in root, or "" when it can. It reads what delegate's gate preflight reads:
 // the hooks, folder trust and gate binary of the environment a worker gets,
 // env_passthrough applied, in each variant that may run, never duolog's own.
-func gateProblem(cfg *config.Config, agent, root string) string {
+func gateProblem(d Deps, cfg *config.Config, agent, root string) string {
 	variants := []workerenv.Variant{workerenv.Free}
 	if cfg.PaidRuns.Agent(agent).Allow {
 		variants = append(variants, workerenv.Paid)
@@ -125,7 +122,7 @@ func gateProblem(cfg *config.Config, agent, root string) string {
 		if err != nil {
 			return err.Error()
 		}
-		if problem := envGateProblem(agent, root, p.Env); problem != "" {
+		if problem := envGateProblem(d, agent, root, p.Env); problem != "" {
 			if variant == workerenv.Paid {
 				problem = "in the paid variant: " + problem
 			}
@@ -136,7 +133,7 @@ func gateProblem(cfg *config.Config, agent, root string) string {
 }
 
 // envGateProblem is gateProblem for the worker environment env.
-func envGateProblem(agent, root string, env []string) string {
+func envGateProblem(d Deps, agent, root string, env []string) string {
 	state, err := trust.HooksEnv(agent, root, env)
 	if err != nil {
 		return workerEnvError(err)
@@ -148,7 +145,7 @@ func envGateProblem(agent, root string, env []string) string {
 	if problem := trust.GateProblem(agent, state, folder); problem != "" {
 		return problem
 	}
-	if _, err := gateBinary("PATH=" + trusthome.Getenv(env, "PATH")); err != nil {
+	if _, err := d.GateBinary("PATH=" + trusthome.Getenv(env, "PATH")); err != nil {
 		return err.Error()
 	}
 	return ""

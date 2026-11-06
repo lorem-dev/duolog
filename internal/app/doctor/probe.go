@@ -33,7 +33,7 @@ const probeSettleTimeout = 10 * time.Second
 // leaves room, and it never waits for a slot. A refused probe makes no model
 // call. The probe runs in the process the gate built, its environment and
 // settings included, and settles once with the usage and cost it reported.
-func probe(ctx context.Context, agent string, cfg *config.Config, entries []catalogEntry) (err error) {
+func probe(ctx context.Context, d Deps, agent string, cfg *config.Config, entries []catalogEntry) (err error) {
 	dir, err := os.MkdirTemp("", "duolog-probe-")
 	if err != nil {
 		return err
@@ -55,7 +55,7 @@ func probe(ctx context.Context, agent string, cfg *config.Config, entries []cata
 		model = "haiku"
 		args = []string{"-p", "--model", model, "--effort", "low", "--no-session-persistence", "--output-format", "json", "--strict-mcp-config", "--permission-mode", "plan", "--", "Reply with the word ok."}
 	}
-	g, err := PaidGate(cfg)
+	g, err := d.PaidGate(cfg)
 	if err != nil {
 		return err
 	}

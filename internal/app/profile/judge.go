@@ -3,7 +3,6 @@ package profile
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,16 +18,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 )
-
-// shuffle returns true when the original goes first. Ordering is kept out of
-// the judge's files and is recorded only after its answer has been parsed.
-var shuffle = func() bool {
-	var bit [1]byte
-	if _, err := rand.Read(bit[:]); err != nil {
-		panic(err)
-	}
-	return bit[0]&1 == 1
-}
 
 type Scored struct {
 	Criterion string `json:"criterion"`
@@ -127,7 +116,7 @@ func ParseVerdict(summary string, rubric []string) ([]Scored, error) {
 // Judge compares a replay blind and records scores in original/profile terms.
 // Its delegation is excluded from the learning journal by Options.Judge.
 // opts carries the lead, the work root and the roots the command resolved.
-func Judge(ctx context.Context, cfg *config.Config, s *store.Store, r Replay, opts delegate.Options) (journal.Verdict, error) {
+func Judge(ctx context.Context, d Deps, cfg *config.Config, s *store.Store, r Replay, opts delegate.Options) (journal.Verdict, error) {
 	var v journal.Verdict
 	if len(r.Delegations) == 0 {
 		return v, fmt.Errorf("judge needs a recorded delegation")
@@ -180,7 +169,7 @@ func Judge(ctx context.Context, cfg *config.Config, s *store.Store, r Replay, op
 		}
 		break
 	}
-	originalFirst := shuffle()
+	originalFirst := d.Rand()
 	first, second := r.Original, r.Profile
 	if !originalFirst {
 		first, second = second, first
@@ -192,7 +181,7 @@ func Judge(ctx context.Context, cfg *config.Config, s *store.Store, r Replay, op
 			return v, err
 		}
 	}
-	out, err := Delegate(ctx, delegate.Request{Config: cfg, StateDir: s.Dir, Role: "review_final", TaskPath: filepath.Join(dir, "task.md"),
+	out, err := d.Delegate(ctx, delegate.Request{Config: cfg, StateDir: s.Dir, Role: "review_final", TaskPath: filepath.Join(dir, "task.md"),
 		Options: delegate.Options{Judge: true, Entry: &target, WorkRoot: work, Lead: opts.Lead, AllowManualModel: opts.AllowManualModel, ProtectedRoots: opts.ProtectedRoots, Observe: opts.Observe}})
 	if err != nil {
 		return v, fmt.Errorf("judge: %w", err)

@@ -58,7 +58,7 @@ func TestMigrationOnceAcrossDelegateAndPeer(t *testing.T) {
 	if got, err := delegate.ClaimMigration(r.reg, r.cfg, "lead-2", "claude"); err != nil || len(got) != 1 || got[0] != line {
 		t.Fatal(got, err)
 	}
-	r.ctx = WithOptions(context.Background(), Options{Root: r.root, Config: r.cfg, Lead: "lead-2"})
+	r.ctx = WithOptions(context.Background(), Options{Deps: r.deps, Root: r.root, Config: r.cfg, Lead: "lead-2"})
 	if e = r.open("plan"); e.State != Ready || strings.Contains(e.Note, line) {
 		t.Fatalf("%+v", e)
 	}

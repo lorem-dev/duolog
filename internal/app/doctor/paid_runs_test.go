@@ -33,9 +33,9 @@ func reportGate(t *testing.T, cfg *config.Config, read func(context.Context, wor
 	if read != nil {
 		g.Cache.Read = read
 	}
-	old := PaidGate
-	PaidGate = func(*config.Config) (*paidruns.Gate, error) { return g, nil }
-	t.Cleanup(func() { PaidGate = old })
+	old := testDeps.PaidGate
+	testDeps.PaidGate = func(*config.Config) (*paidruns.Gate, error) { return g, nil }
+	t.Cleanup(func() { testDeps.PaidGate = old })
 	return g
 }
 
@@ -98,7 +98,7 @@ func TestDoctorWarnsOfRetainedHolds(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	text := joined(Run(context.Background(), cfg, opts))
+	text := joined(Run(context.Background(), testDeps, cfg, opts))
 	if !strings.Contains(text, "warning: held: p1 (claude peer, since ") ||
 		!strings.Contains(text, "a child may run unrecorded; end it with duolog peer release p1") {
 		t.Fatalf("no warning of the retained hold in\n%s", text)
@@ -128,7 +128,7 @@ func TestQuotaAndDoctorShapeReports(t *testing.T) {
 		seed(t, g)
 		opts.Lead = map[string]session.LeadRoute{"claude": {Agent: "claude", Argv: []string{"claude", "--model", "opus"},
 			Environ: []string{"PATH=/usr/bin", "ANTHROPIC_API_KEY=" + reportLeadKey}}}
-		text := joined(Run(context.Background(), cfg, opts))
+		text := joined(Run(context.Background(), testDeps, cfg, opts))
 		for _, want := range []string{
 			"claude worker: subscription_overage",
 			"paid overage is on; duolog stops before it",
@@ -183,7 +183,7 @@ func TestQuotaAndDoctorShapeReports(t *testing.T) {
 			s.Billing.RouteSignals = []workerenv.Signal{{Name: "auth:apiKey", Layer: "auth status"}}
 			return quota.Snapshot{Billing: s.Billing}, errors.New("usage read failed")
 		})
-		text := joined(Run(context.Background(), cfg, opts))
+		text := joined(Run(context.Background(), testDeps, cfg, opts))
 		for _, want := range []string{"claude worker: paid: auth:apiKey (auth status), read:failed", "codex worker: paid: auth:apiKey (auth status), read:failed"} {
 			if !strings.Contains(text, want) {
 				t.Errorf("missing %q in\n%s", want, text)

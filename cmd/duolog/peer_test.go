@@ -61,7 +61,13 @@ func rexCalls(t *testing.T, bin string) [][]string {
 // pauses change nothing a test sees.
 func shortPeerPauses(t *testing.T) {
 	t.Helper()
-	t.Cleanup(peer.ShortenPauses(time.Millisecond))
+	old := peerDeps
+	t.Cleanup(func() { peerDeps = old })
+	peerDeps = func() peer.Deps {
+		d := old()
+		d.Pauses.Poll, d.Pauses.Settle, d.Pauses.Send, d.Pauses.Key = time.Millisecond, time.Millisecond, time.Millisecond, time.Millisecond
+		return d
+	}
 }
 
 // peerProject makes a project root with a live lead and a fake rex.

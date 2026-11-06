@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -48,13 +47,9 @@ type Replay struct {
 	Original, Profile         Side
 }
 
-// Delegate runs one delegation; cmd/duolog sets it to delegate.Run bound to
-// its Deps, and tests set a fake. Temporary: Task 29 replaces it.
-var Delegate delegate.Runner
-
 // Run reconstructs the recorded starting tree without changing the process
 // directory or the main checkout. The lock also protects profile numbering.
-func Run(ctx context.Context, cfg *config.Config, s *store.Store, delegation string, opts Options) (replay Replay, err error) {
+func Run(ctx context.Context, d Deps, cfg *config.Config, s *store.Store, delegation string, opts Options) (replay Replay, err error) {
 	lock := flock.New(filepath.Join(s.Dir, "profile.lock"))
 	defer lock.Close()
 	locked, err := lock.TryLockContext(ctx, 20*time.Millisecond)
@@ -154,7 +149,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, delegation str
 		if i > 0 {
 			entry = config.Target{Agent: rec.Agent, Model: rec.Model, Effort: rec.Effort}
 		}
-		out, e := Delegate(ctx, delegate.Request{Config: cfg, StateDir: s.Dir, Role: rec.Role, TaskPath: taskPath,
+		out, e := d.Delegate(ctx, delegate.Request{Config: cfg, StateDir: s.Dir, Role: rec.Role, TaskPath: taskPath,
 			Options: delegate.Options{Entry: &entry, ReplayOf: rec.ID, Lead: opts.Lead, AllowManualModel: opts.AllowManualModel, WorkRoot: wt, ProtectedRoots: opts.ProtectedRoots, Observe: opts.Observe}})
 		if e != nil {
 			if strings.Contains(e.Error(), "Codex hooks untrusted") {
@@ -205,7 +200,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, delegation str
 		}
 	}
 	commands := cfg.Learning.Classes[first.Class].Checks
-	replay.Profile.Checks = runChecks(ctx, wt, commands)
+	replay.Profile.Checks = RunChecks(ctx, d, wt, commands)
 	if err = ctx.Err(); err != nil {
 		return replay, err
 	}
@@ -242,7 +237,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, delegation str
 		return replay, err
 	}
 	replay.Original.Summary = strings.Join(originalSummaries, "\n")
-	replay.Original.Checks = runChecks(ctx, wt, commands)
+	replay.Original.Checks = RunChecks(ctx, d, wt, commands)
 	if err = ctx.Err(); err != nil {
 		return replay, err
 	}
@@ -358,27 +353,13 @@ func nextDir(parent string) (string, error) {
 // failure with exit -1, rather than a failure of the profiling operation. Once
 // ctx ends, the running check is stopped with every process it started, and
 // the checks after it fail without running.
-func RunChecks(ctx context.Context, dir string, commands []string) []journal.Check {
-	return runChecks(ctx, dir, commands)
-}
-
-func runChecks(ctx context.Context, dir string, commands []string) []journal.Check {
+func RunChecks(ctx context.Context, d Deps, dir string, commands []string) []journal.Check {
 	checks := make([]journal.Check, 0, len(commands))
 	for _, command := range commands {
 		started := time.Now()
 		check := journal.Check{Command: command, Exit: -1}
-		if args := strings.Fields(command); len(args) > 0 {
-			cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-			cmd.Dir = dir
-			// Its own process group: an interrupt reaches the check through
-			// ctx, and stopping it stops the test processes it started.
-			configureProcess(cmd)
-			cmd.WaitDelay = 2 * time.Second
-			if err := cmd.Run(); err == nil {
-				check.Exit = 0
-			} else if cmd.ProcessState != nil {
-				check.Exit = cmd.ProcessState.ExitCode()
-			}
+		if ctx.Err() == nil {
+			check.Exit = d.RunCheck(ctx, dir, command)
 		}
 		check.Seconds = time.Since(started).Seconds()
 		checks = append(checks, check)

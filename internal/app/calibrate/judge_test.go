@@ -193,7 +193,7 @@ func newJudgeFixture(t *testing.T, a, b string, score scoreFunc) *judgeFixture {
 	f := &judgeFixture{runDir: runDir, run: run, task: task, pair: Pair{Task: "k-1", Class: "implement", A: a, B: b}, slot: slot, home: home}
 	f.env = JudgeEnv{
 		CellEnv: CellEnv{Root: root, StateDir: stateDir, RunDir: runDir, Lead: "lead-1", Cfg: cfg,
-			Delegate: func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+			Deps: Deps{Delegate: func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
 				role, taskPath, opts := r.Role, r.TaskPath, r.Options
 				// Calibration keeps the task copy in the work root's state,
 				// where task.Inline reads it.
@@ -228,12 +228,10 @@ func newJudgeFixture(t *testing.T, a, b string, score scoreFunc) *judgeFixture {
 				summary := fmt.Sprintf(`Done. {"scores":[{"criterion":%q,"a":%d,"b":%d,"reason":"tests"},{"criterion":%q,"a":%d,"b":%d,"count_a":0,"count_b":1,"reason":"claims"}]}`,
 					implementRubric[0], a1, b1, implementRubric[1], a2, b2)
 				return delegate.Outcome{Result: runner.Result{Done: true, Summary: summary}}, nil
-			}},
+			}}},
 		Journal: &journal.Journal{Dir: t.TempDir()},
 	}
-	old := judgeOrder
-	t.Cleanup(func() { judgeOrder = old })
-	judgeOrder = func() bool { return true }
+	f.env.Rand = func() bool { return true }
 	return f
 }
 
@@ -552,10 +550,22 @@ func TestJudgeStopsWhenRefreshFails(t *testing.T) {
 	if !strings.Contains(out.String(), "stopped: quota unavailable") {
 		t.Fatalf("output %q", out.String())
 	}
-	_, _, st, err := openPair(filepath.Join(f.env.RunDir, JudgeDir), f.pair, []string{"claude/opus/high", "codex/sol/high"},
+	_, _, st, err := openPair(filepath.Join(f.env.RunDir, JudgeDir), f.env.Rand, f.pair, []string{"claude/opus/high", "codex/sol/high"},
 		hashOf(f.env.Cfg.Learning.Classes["implement"].Rubric))
 	if err != nil || len(st.Calls) != 1 {
 		t.Fatalf("pair keeps %d calls, %v; want 1", len(st.Calls), err)
+	}
+}
+
+// TestJudgeOrderFromRand: a new pair's first order is what Rand of Deps says.
+func TestJudgeOrderFromRand(t *testing.T) {
+	t.Parallel()
+	p := Pair{Task: "k-1", Class: "implement", A: "codex/sol/high", B: "codex/terra/high"}
+	for _, aFirst := range []bool{true, false} {
+		_, _, st, err := openPair(t.TempDir(), func() bool { return aFirst }, p, []string{"claude/opus/high"}, "rubric")
+		if err != nil || st.AFirst != aFirst {
+			t.Fatalf("AFirst = %v, %v; want %v", st.AFirst, err, aFirst)
+		}
 	}
 }
 
@@ -733,7 +743,7 @@ func TestJudgeResumesFromSavedCalls(t *testing.T) {
 	}
 
 	f.env.Cfg.Calibration.MaxWeeklyShare = 0.10
-	judgeOrder = func() bool { return false }
+	f.env.Rand = func() bool { return false }
 	run, err := LoadRun(f.env.StateDir, f.run.ID)
 	if err != nil {
 		t.Fatal(err)

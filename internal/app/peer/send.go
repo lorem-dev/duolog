@@ -114,7 +114,7 @@ func Send(ctx context.Context, id, taskRef string) (err error) {
 func (e *env) settle(ctx context.Context, entry session.Entry, taskPath string) error {
 	for sample := 0; sample < 2; sample++ {
 		if sample > 0 {
-			if err := sleep(ctx, settleDelay); err != nil {
+			if err := e.opts.Deps.Clock.Sleep(ctx, e.opts.Deps.Pauses.Settle); err != nil {
 				return err
 			}
 		}
@@ -186,7 +186,7 @@ func (e *env) deliver(ctx context.Context, entry session.Entry, text string) err
 		if err := e.clientFor(entry).Send(ctx, entry.Block, text); err != nil {
 			return notDelivered(err)
 		}
-		if err := sleep(ctx, sendDelay); err != nil {
+		if err := e.opts.Deps.Clock.Sleep(ctx, e.opts.Deps.Pauses.Send); err != nil {
 			return notDelivered(err)
 		}
 		screen, err := e.screen(ctx, entry)
@@ -214,7 +214,7 @@ func (e *env) clear(ctx context.Context, entry session.Entry, screen Screen) err
 	if err := e.clientFor(entry).SendKey(ctx, entry.Block, "ctrl+c"); err != nil {
 		return err
 	}
-	if err := sleep(ctx, keyDelay); err != nil {
+	if err := e.opts.Deps.Clock.Sleep(ctx, e.opts.Deps.Pauses.Key); err != nil {
 		return err
 	}
 	after, err := e.screen(ctx, entry)
@@ -234,7 +234,7 @@ func (e *env) submit(ctx context.Context, entry session.Entry, text string) erro
 		if err := e.clientFor(entry).SendKey(ctx, entry.Block, "enter"); err != nil {
 			return err
 		}
-		if err := sleep(ctx, sendDelay); err != nil {
+		if err := e.opts.Deps.Clock.Sleep(ctx, e.opts.Deps.Pauses.Send); err != nil {
 			return err
 		}
 		screen, err := e.screen(ctx, entry)
