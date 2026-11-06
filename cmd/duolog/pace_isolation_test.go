@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/lorem-dev/duolog/internal/paidruns"
+	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )

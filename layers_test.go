@@ -40,7 +40,6 @@ var legacyTiers = map[string]legacyTier{
 	"internal/usage":    {tier: tierCore},
 	"internal/learning": {tier: tierCore},
 
-	"internal/paidruns":    {tier: tierApp, app: "paidruns"},
 	"internal/gate":        {tier: tierApp, app: "gate"},
 	"internal/delegate":    {tier: tierApp, app: "delegate"},
 	"internal/profile":     {tier: tierApp, app: "profile"},
@@ -152,17 +151,16 @@ var knownViolations = map[string]string{
 	"internal/core/learn -> go.yaml.in/yaml/v3":               "PR 16: Render moves out once calibrate.go shrinks",
 	"internal/core/learn (test) -> internal/adapter/config":   "after PR 10: its tests load the default config",
 	"internal/core/learn -> internal/journal":                 "journal.Outcomes moves to core/record",
-	"internal/paidruns -> github.com/gofrs/flock":             "PR 22, boundary",
-	"internal/paidruns -> golang.org/x/sys/unix":              "PR 22, boundary; darwin only",
-	"internal/paidruns -> golang.org/x/sys/windows":           "PR 22, boundary; windows only",
-	"internal/paidruns -> internal/config":                    "PR 22, boundary",
-	"internal/paidruns -> internal/journal":                   "PR 22, boundary",
-	"internal/paidruns -> internal/models":                    "PR 22, boundary",
-	"internal/paidruns -> internal/quota":                     "PR 22, boundary",
-	"internal/paidruns -> internal/store":                     "PR 22, boundary",
-	"internal/paidruns -> internal/trusthome":                 "PR 22, boundary",
-	"internal/paidruns -> internal/workerenv":                 "PR 22, boundary",
-	"internal/paidruns -> syscall":                            "PR 22, boundary; darwin and linux only",
+	"internal/app/paidruns -> github.com/gofrs/flock":         "PR 22, boundary",
+	"internal/app/paidruns -> golang.org/x/sys/unix":          "PR 22, boundary; darwin only",
+	"internal/app/paidruns -> golang.org/x/sys/windows":       "PR 22, boundary; windows only",
+	"internal/app/paidruns -> internal/journal":               "PR 22, boundary",
+	"internal/app/paidruns -> internal/models":                "PR 22, boundary",
+	"internal/app/paidruns -> internal/quota":                 "PR 22, boundary",
+	"internal/app/paidruns -> internal/store":                 "PR 22, boundary",
+	"internal/app/paidruns -> internal/trusthome":             "PR 22, boundary",
+	"internal/app/paidruns -> internal/workerenv":             "PR 22, boundary",
+	"internal/app/paidruns -> syscall":                        "PR 22, boundary; darwin and linux only",
 	"internal/core/pathutil -> os":                            "after phase B: canonical.go stats folders",
 	"internal/peer (test) -> internal/quota":                  "PR 29",
 	"internal/peer -> github.com/gofrs/flock":                 "PR 29",
@@ -190,7 +188,7 @@ var knownViolations = map[string]string{
 	"internal/roster -> internal/adapter/config":              "after PR 10: roster loads the config files",
 	"internal/roster -> internal/session":                     "PR 34",
 	"internal/core/route (test) -> internal/adapter/config":   "after PR 10: its tests load the default config",
-	"internal/session (test) -> internal/paidruns":            "PR 22",
+	"internal/session (test) -> internal/app/paidruns":        "PR 22",
 	"internal/task -> internal/project":                       "PR 11",
 	"internal/task -> os":                                     "PR 11",
 	"internal/task -> syscall":                                "PR 11",
@@ -198,7 +196,7 @@ var knownViolations = map[string]string{
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 111
+const maxKnownViolations = 110
 
 // boundaryExceptions are the imports of the security boundary that stay on
 // purpose ("security boundary: moves only"). Empty until PR 20.

@@ -16,7 +16,7 @@ import (
 
 // codexLiveFixture holds the anonymised replies of a live Codex 0.165 read
 // of a personal ChatGPT Plus account.
-const codexLiveFixture = "../quota/testdata/codex-0.165-personal-plus"
+const codexLiveFixture = "../../quota/testdata/codex-0.165-personal-plus"
 
 // codexLiveReply returns a fixture file as one JSON-RPC line that answers
 // request id, the id quota's Codex read gives that method.

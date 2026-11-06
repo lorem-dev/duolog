@@ -1,4 +1,4 @@
-// Package usage forwards to internal/core/usage for internal/paidruns, which
+// Package usage forwards to internal/core/usage for internal/app/paidruns, which
 // keeps its imports until it moves.
 package usage
 

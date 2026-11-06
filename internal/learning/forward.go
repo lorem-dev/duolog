@@ -1,4 +1,4 @@
-// Package learning forwards to internal/core/learn for internal/paidruns,
+// Package learning forwards to internal/core/learn for internal/app/paidruns,
 // which keeps its imports until it moves.
 package learning
 
