@@ -1056,6 +1056,43 @@
         "inherit_plugins": {
           "type": "boolean",
           "description": "Let Claude workers and peers load every plugin enabled in the user and project settings; defaults to false, which turns them off except duolog's own, since each adds tokens to every request."
+        },
+        "compact_window": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "auto"
+              ]
+            },
+            {
+              "type": "integer",
+              "const": 0
+            },
+            {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 100000
+            }
+          ],
+          "description": "Context size in tokens at which Claude workers and peers compact, set as CLAUDE_CODE_AUTO_COMPACT_WINDOW in their settings. auto, the default, takes it from compact_ladder by the Claude plan read at worker start; 0 leaves Claude's own default; otherwise 100000 to 1000000. The lead and Codex workers are not changed."
+        },
+        "compact_ladder": {
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "const": 0
+              },
+              {
+                "type": "integer",
+                "maximum": 1000000,
+                "minimum": 100000
+              }
+            ]
+          },
+          "type": "object",
+          "description": "The window compact_window auto picks, by Claude plan (free, pro, max, ultra, team, business, enterprise or edu). Each value is 0 or 100000 to 1000000; a plan that is not listed gets 0, which leaves Claude's own default."
         }
       },
       "additionalProperties": false,

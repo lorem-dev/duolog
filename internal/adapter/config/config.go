@@ -20,8 +20,8 @@ import (
 // restrictLayer applies the trust rules to layer i of the user, project and
 // local files before it is merged onto base, and returns the notices and the
 // name of the local layer when it is shared, "" when it is the person's own.
-// The project layer is committed: it may only tighten paid runs, prices and
-// the account session limits. So may a local layer that Git tracks, since it
+// The project layer is committed: it may only tighten paid runs, prices, the
+// account session limits and what Claude workers send per request. So may a local layer that Git tracks, since it
 // reaches everyone who clones the repository, and one outside a Git checkout,
 // which nothing proves the person's. Every layer but the user config is also
 // capped at the default total and tiers, whether Git ignores it or not.

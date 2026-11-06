@@ -94,14 +94,15 @@ func limitNode(root *yaml.Node, key string) (*yaml.Node, error) {
 	return node, nil
 }
 
-// validateAccountLimits checks the merged account limits.
+// validateAccountLimits checks the merged account limits, and with them the
+// compact window of the workers, which is checked at the same point.
 func validateAccountLimits(cfg *config.Config) error {
 	for _, l := range accountLimits {
 		if !l.valid(l.get(cfg)) {
 			return fmt.Errorf("%s: %s", l.key, l.want)
 		}
 	}
-	return nil
+	return validateCompact(cfg.Workers)
 }
 
 // capLayerSessionLimits lowers to its default each session count that a layer

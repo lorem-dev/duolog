@@ -465,6 +465,9 @@ func (g *Gate) build(ctx context.Context, req Request) func() (workerenv.Process
 		if in.ProviderEnvKey == "" {
 			in.ProviderEnvKey = g.Cache.ProviderEnvKey(in.Agent)
 		}
+		if in.Plan == "" {
+			in.Plan = g.Cache.Plan(in.Agent)
+		}
 		if g.Layers != nil {
 			own, err := workerenv.Build(in)
 			if err != nil {

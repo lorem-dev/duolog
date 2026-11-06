@@ -227,7 +227,7 @@ func scanLines(r io.Reader) *bufio.Scanner {
 
 func plan(value string) string {
 	switch value {
-	case "free", "pro", "max", "plus", "team", "business", "enterprise", "edu":
+	case "free", "pro", "max", "ultra", "plus", "team", "business", "enterprise", "edu":
 		return value
 	}
 	return ""

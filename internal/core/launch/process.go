@@ -45,6 +45,9 @@ const (
 // with Codex's sandbox pins. They are part of the admitted process, so what
 // the gate assessed is what starts; quota and login reads never use them.
 type ProcessInput struct {
+	// Plan is the Claude plan (pro, max, ...) a quota read found, empty when
+	// none has: workers.compact_window auto reads it.
+	Plan                           string
 	Agent                          string
 	Shape                          Shape
 	Variant                        Variant

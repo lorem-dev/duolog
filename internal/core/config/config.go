@@ -2,6 +2,7 @@ package config
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -35,8 +36,32 @@ type Config struct {
 }
 
 type Workers struct {
-	InheritPlugins bool `yaml:"inherit_plugins" jsonschema_description:"Let Claude workers and peers load every plugin enabled in the user and project settings; defaults to false, which turns them off except duolog's own, since each adds tokens to every request."`
+	InheritPlugins bool           `yaml:"inherit_plugins" jsonschema_description:"Let Claude workers and peers load every plugin enabled in the user and project settings; defaults to false, which turns them off except duolog's own, since each adds tokens to every request."`
+	CompactWindow  string         `yaml:"compact_window" jsonschema_description:"Context size in tokens at which Claude workers and peers compact, set as CLAUDE_CODE_AUTO_COMPACT_WINDOW in their settings. auto, the default, takes it from compact_ladder by the Claude plan read at worker start; 0 leaves Claude's own default; otherwise 100000 to 1000000. The lead and Codex workers are not changed."`
+	CompactLadder  map[string]int `yaml:"compact_ladder" jsonschema_description:"The window compact_window auto picks, by Claude plan (free, pro, max, ultra, team, business, enterprise or edu). Each value is 0 or 100000 to 1000000; a plan that is not listed gets 0, which leaves Claude's own default."`
 }
+
+// Window is the compact window in tokens for a Claude worker or peer on plan,
+// 0 for none. An unset compact_window and an unknown plan give 0. The value is
+// the one Load has checked.
+func (w Workers) Window(plan string) int {
+	if w.CompactWindow == "auto" {
+		return w.CompactLadder[plan]
+	}
+	n, _ := strconv.Atoi(w.CompactWindow)
+	return n
+}
+
+// ValidCompactWindow reports whether n is 0 or within the compact window bounds.
+func ValidCompactWindow(n int) bool {
+	return n == 0 || n >= MinCompactWindow && n <= MaxCompactWindow
+}
+
+// Compact window bounds in tokens, for workers.compact_window.
+const (
+	MinCompactWindow = 100000
+	MaxCompactWindow = 1000000
+)
 
 type Coauthors struct {
 	Enabled bool   `yaml:"enabled" jsonschema_description:"Record worker changes and offer commit co-author lines; defaults to true."`

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
@@ -24,7 +25,7 @@ func ClaudeSettings(stateDir string, minimal bool, extra map[string]any) string 
 // caller's other sandbox keys, enabled among them, stay as given, so a sandbox
 // that is off stays off and the denies protect only one already on.
 func ClaudeSettingsWithRoots(stateDir string, minimal bool, extra map[string]any, roots []string) string {
-	return renderClaudeSettings(stateDir, minimal, extra, roots, nil, true)
+	return renderClaudeSettings(stateDir, minimal, extra, roots, nil, true, 0)
 }
 
 // renderClaudeSettings makes the --settings JSON of either variant. Fast
@@ -32,14 +33,17 @@ func ClaudeSettingsWithRoots(stateDir string, minimal bool, extra map[string]any
 // the free one, and left out of the paid one, so the person's own settings
 // decide. A key is set or left out, never blanked. Roots join the sandbox
 // denies in both variants. Plugins, when not nil, is the enabledPlugins map
-// of the launch; it is laid over any the caller's extras hold.
-func renderClaudeSettings(stateDir string, minimal bool, extra map[string]any, roots []string, plugins map[string]bool, pinFast bool) string {
+// of the launch; it is laid over any the caller's extras hold. A compactWindow
+// above zero is set as CLAUDE_CODE_AUTO_COMPACT_WINDOW in the env block, next
+// to the env entries the caller's extras hold.
+func renderClaudeSettings(stateDir string, minimal bool, extra map[string]any, roots []string, plugins map[string]bool, pinFast bool, compactWindow int) string {
 	settings := map[string]any{}
 	for key, value := range extra {
 		if key != "sandbox" && key != "fastMode" {
 			settings[key] = value
 		}
 	}
+	setCompactWindow(settings, extra, compactWindow)
 	if plugins != nil {
 		merged := copyMap(extra["enabledPlugins"])
 		for key, on := range plugins {
@@ -79,6 +83,17 @@ func renderClaudeSettings(stateDir string, minimal bool, extra map[string]any, r
 	}
 	data, _ := json.Marshal(settings)
 	return string(data)
+}
+
+// setCompactWindow puts a window above zero in the env block of settings, next
+// to the env entries the caller's extras hold.
+func setCompactWindow(settings, extra map[string]any, window int) {
+	if window <= 0 {
+		return
+	}
+	env := copyMap(extra["env"])
+	env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = strconv.Itoa(window)
+	settings["env"] = env
 }
 
 // ownPlugin is the enabledPlugins key of duolog's own Claude plugin.

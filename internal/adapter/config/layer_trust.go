@@ -84,6 +84,7 @@ func restrictProjectModels(base, layer *yaml.Node, projectFile string) ([]config
 // that would widen what the layers below allow.
 var projectRestrictors = []func(base, layer *yaml.Node, file string) ([]config.ConfigNotice, error){
 	restrictProjectPaid, restrictProjectSessionLimits, restrictProjectRouting, restrictProjectModels,
+	restrictProjectWorkers,
 }
 
 // sharedLocal names the local layer in notices when it counts as shared, ""
@@ -112,4 +113,4 @@ func sharedLocal(root string) string {
 // outsideNotice says, once, why a local layer outside a Git checkout had
 // values ignored and where the person's own go.
 var outsideNotice = config.ConfigNotice{Key: localFile, Reason: "outside a Git checkout nothing proves that it is your own, " +
-	"so it may only make paid runs, prices and session limits stricter; put your own opt-ins in the user config"}
+	"so it may only make paid runs, prices, session limits and worker settings stricter; put your own opt-ins in the user config"}
