@@ -92,6 +92,11 @@ linters:
       - path: ^(cmd|scripts)/|^internal/(adapter/codex|app/delegate|app/install|app/learn|app/peer|app/sync|adapter/session|artifact|bus|capability|install|journal|learning|models|store|testbin)/|^internal/adapter/kit/process/
         text: G30[126]
         linters: [gosec]
+      # The allow rules of `duolog remember --native` go into the person's own
+      # agent settings in the project, which Git and the person read (0755 and 0644).
+      - path: ^internal/adapter/(claude|codex)/(allow|rules)\.go$
+        text: G30[126]
+        linters: [gosec]
       # PowerShell accepts any prefix of -recurse; the arguments are in that order on purpose.
       - path: internal/gate/gate\.go
         text: argOrder
@@ -142,8 +147,7 @@ linters:
       - {path: '^cmd/duolog/quota\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newQuotaCommand. is too long \(94 > |complexity 62 of func .(?:\(\*?\w+\)\.)?newQuotaCommand. is|function (?:\(\*?\w+\)\.)?newQuotaCommand is 26,'} # newQuotaCommand: cyclomatic 26, lines 94, cognitive 62
       - {path: '^cmd/duolog/quota\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .printQuota. has too many statements \(56 > |complexity 69 of func .(?:\(\*?\w+\)\.)?printQuota. is|function (?:\(\*?\w+\)\.)?printQuota is 32,'} # printQuota: cyclomatic 32, statements 56, cognitive 69
       - {path: '^cmd/duolog/quota\.go$', linters: [nestif], text: '.if\ err\ !=\ nil\ \|\|\ !readOK. has complex nested blocks \(complexity: 8\)'} # if if err != nil || !readOK: nesting 8
-      - {path: '^cmd/duolog/remember\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newRememberCommand. is too long \(76 > |complexity 37 of func .(?:\(\*?\w+\)\.)?newRememberCommand. is|function (?:\(\*?\w+\)\.)?newRememberCommand is 18,'} # newRememberCommand: cyclomatic 18, lines 76, cognitive 37
-      - {path: '^cmd/duolog/remember\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?rememberMCP is 19,'} # rememberMCP: cyclomatic 19
+      - {path: '^cmd/duolog/remember\.go$', linters: [funlen, gocognit], text: 'Function .newRememberCommand. is too long \(62 > |complexity 31 of func .(?:\(\*?\w+\)\.)?newRememberCommand. is'} # newRememberCommand: lines 62, cognitive 31
       - {path: '^cmd/duolog/roster\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newRosterCommand. is too long \(65 > |complexity 40 of func .(?:\(\*?\w+\)\.)?newRosterCommand. is|function (?:\(\*?\w+\)\.)?newRosterCommand is 16,'} # newRosterCommand: cyclomatic 16, lines 65, cognitive 40
       - {path: '^cmd/duolog/route\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newRouteCommand. is too long \(93 > |complexity 40 of func .(?:\(\*?\w+\)\.)?newRouteCommand. is|function (?:\(\*?\w+\)\.)?newRouteCommand is 22,'} # newRouteCommand: cyclomatic 22, lines 93, cognitive 40
       - {path: '^cmd/duolog/skill\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newSkillCommand. is too long \(124 > |complexity 71 of func .(?:\(\*?\w+\)\.)?newSkillCommand. is|function (?:\(\*?\w+\)\.)?newSkillCommand is 39,'} # newSkillCommand: cyclomatic 39, lines 124, cognitive 71

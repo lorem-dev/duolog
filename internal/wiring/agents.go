@@ -12,6 +12,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/install"
 	"github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/peer"
+	"github.com/lorem-dev/duolog/internal/app/remember"
 	agentsync "github.com/lorem-dev/duolog/internal/app/sync"
 	"github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/agentfile"
@@ -60,13 +61,16 @@ type Agent struct {
 	// Sync reads and writes the agent's files for duolog sync; nil means the
 	// agent takes no part in it.
 	Sync agentfile.Format
+	// Allow writes the agent's own allow rules for `duolog remember --native`;
+	// nil means the agent has none.
+	Allow remember.NativeAllow
 }
 
 // Agents returns the registered agents in order: claude, then codex.
 func Agents() []Agent {
 	return []Agent{
-		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}, Login: claude.Login{}, Trust: claude.Trust{}, Installer: claude.Installer{}, Sync: claude.Format{}},
-		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}, Login: codex.Login{}, Trust: codex.Trust{}, Installer: codex.Installer{}, Sync: codex.Format{}},
+		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}, Login: claude.Login{}, Trust: claude.Trust{}, Installer: claude.Installer{}, Sync: claude.Format{}, Allow: claude.NativeAllow{}},
+		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}, Login: codex.Login{}, Trust: codex.Trust{}, Installer: codex.Installer{}, Sync: codex.Format{}, Allow: codex.NativeAllow{}},
 	}
 }
 
@@ -124,6 +128,17 @@ func Names() []string {
 		names[i] = a.Facts.Name
 	}
 	return names
+}
+
+// NativeAgents returns the registered agents in order, as `remember --native`
+// writes for them.
+func NativeAgents() []remember.Agent {
+	all := Agents()
+	agents := make([]remember.Agent, len(all))
+	for i, a := range all {
+		agents[i] = remember.Agent{Name: a.Facts.Name, Allow: a.Allow}
+	}
+	return agents
 }
 
 // SyncFormats returns the sync format of each registered agent that has one.

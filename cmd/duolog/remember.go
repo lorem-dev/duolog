@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,10 +11,12 @@ import (
 	"strings"
 
 	"github.com/gofrs/flock"
+	"github.com/lorem-dev/duolog/internal/app/remember"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/store"
+	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v3"
 )
@@ -85,23 +86,7 @@ func newRememberCommand() *cobra.Command {
 		}
 		// The same approval for the agents themselves, in the files their own
 		// "don't ask again" writes, so the lead is not asked again either.
-		claude, err := addClaudeAllow(filepath.Join(root, ".claude", "settings.local.json"), match)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "claude: %s\n", claude)
-		// A Codex prefix rule also matches extra arguments and runs them outside
-		// the sandbox, so an exact command gets no Codex rule.
-		if _, anyArgs := nativePrefix(match); !anyArgs {
-			fmt.Fprintln(cmd.OutOrStdout(), "codex: no rule; Codex rules match a prefix, and this command is exact")
-			return nil
-		}
-		codex, err := addCodexRule(filepath.Join(root, ".codex", "rules", "duolog.rules"), match)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "codex: %s (outside the sandbox, trusted project only)\n", codex)
-		return nil
+		return remember.Allow(cmd.OutOrStdout(), root, match, wiring.NativeAgents())
 	}}
 	// Off by default: a Codex prefix rule also runs the command outside the
 	// Codex sandbox, which is more than the worker rule grants.
@@ -209,15 +194,6 @@ func replaceFile(path string, data []byte, perm os.FileMode) error {
 	return store.Rename(f.Name(), path)
 }
 
-// nativePrefix turns a remembered glob into the command prefix the agents match:
-// "ruff check *" is the prefix "ruff check"; a glob with no trailing " *" is exact.
-func nativePrefix(match string) (prefix string, anyArgs bool) {
-	if strings.HasSuffix(match, " *") {
-		return strings.TrimSuffix(match, " *"), true
-	}
-	return match, false
-}
-
 // rememberMCP saves an allow rule for one MCP tool, or a glob of tools, of
 // one server. duolog cannot tell whether a tool writes, so the default roles
 // are the writing roles, as for commands; --role names others.
@@ -257,107 +233,7 @@ func rememberMCP(cmd *cobra.Command, root string, cfg *config.Config, tool strin
 	if !native {
 		return nil
 	}
-	// Claude names the tool mcp__<server>__<tool>; a rule of mcp__<server>
-	// covers every tool of the server. Other globs have no Claude form.
-	entry := "mcp__" + claudeName(server)
-	switch {
-	case strings.ContainsAny(server, "*?[{"):
-		entry = ""
-	case name == "*":
-	case !strings.ContainsAny(name, "*?[{"):
-		entry += "__" + claudeName(name)
-	default:
-		entry = ""
-	}
-	if entry == "" {
-		fmt.Fprintln(out, "claude: no rule; Claude allows one MCP tool or a whole server, not a glob")
-	} else {
-		claude, err := addClaudeEntry(filepath.Join(root, ".claude", "settings.local.json"), entry)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(out, "claude: %s\n", claude)
-	}
-	// Codex approves MCP tools per server in config.toml, and an entry there
-	// for a server the project does not define would add a broken server.
-	fmt.Fprintln(out, "codex: no rule; Codex sets MCP tool approval per server in its own config.toml")
-	return nil
-}
-
-var claudeNameChars = regexp.MustCompile(`[^A-Za-z0-9_-]`)
-
-func claudeName(s string) string { return claudeNameChars.ReplaceAllString(s, "_") }
-
-// addClaudeAllow adds Bash(prefix:*) or Bash(command) to permissions.allow,
-// keeping every other setting in the file.
-func addClaudeAllow(path, match string) (string, error) {
-	prefix, anyArgs := nativePrefix(match)
-	entry := "Bash(" + prefix + ")"
-	if anyArgs {
-		entry = "Bash(" + prefix + ":*)"
-	}
-	return addClaudeEntry(path, entry)
-}
-
-// addClaudeEntry adds entry to permissions.allow, keeping every other setting.
-func addClaudeEntry(path, entry string) (string, error) {
-	settings := map[string]any{}
-	if data, err := os.ReadFile(path); err == nil {
-		if err := json.Unmarshal(data, &settings); err != nil {
-			return "", fmt.Errorf("%s: %w", path, err)
-		}
-	} else if !os.IsNotExist(err) {
-		return "", err
-	}
-	permissions, _ := settings["permissions"].(map[string]any)
-	if permissions == nil {
-		permissions = map[string]any{}
-	}
-	allow, _ := permissions["allow"].([]any)
-	for _, have := range allow {
-		if have == entry {
-			return "already " + entry, nil
-		}
-	}
-	permissions["allow"] = append(allow, entry)
-	settings["permissions"] = permissions
-	out, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", err
-	}
-	return entry, os.WriteFile(path, append(out, '\n'), 0o644)
-}
-
-// addCodexRule appends a prefix_rule to the project's Codex rules. Codex reads
-// <repo>/.codex/rules/*.rules only in a trusted project, and an allowed prefix
-// runs outside the sandbox without a prompt, as Codex's own approvals do.
-func addCodexRule(path, match string) (string, error) {
-	prefix, _ := nativePrefix(match)
-	quoted := make([]string, 0, 4)
-	for _, word := range strings.Fields(prefix) {
-		quoted = append(quoted, fmt.Sprintf("%q", word))
-	}
-	rule := fmt.Sprintf("prefix_rule(pattern = [%s], decision = \"allow\", justification = \"remembered with duolog remember\")\n", strings.Join(quoted, ", "))
-	data, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return "", err
-	}
-	if strings.Contains(string(data), rule) {
-		return "already " + strings.TrimSpace(rule), nil
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", err
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	_, err = f.WriteString(rule)
-	return strings.TrimSpace(rule), err
+	return remember.AllowMCP(out, root, server, name, wiring.NativeAgents())
 }
 
 var firstAlternative = regexp.MustCompile(`\{([^,}]*)[^}]*\}|\[[^]]*\]|[*?]`)

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 
+	claudeadapter "github.com/lorem-dev/duolog/internal/adapter/claude"
+	codexadapter "github.com/lorem-dev/duolog/internal/adapter/codex"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/mode"
@@ -186,7 +188,7 @@ func TestRememberWritesAllThreeConfigs(t *testing.T) {
 	if err := os.WriteFile(claude, []byte(`{"permissions":{"allow":["Bash(ls:*)"]},"model":"opus"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := addClaudeAllow(claude, rule.Match); err != nil {
+	if _, err := (claudeadapter.NativeAllow{}).Allow(root, rule.Match); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(claude)
@@ -197,7 +199,7 @@ func TestRememberWritesAllThreeConfigs(t *testing.T) {
 	}
 	codex := filepath.Join(root, ".codex", "rules", "duolog.rules")
 	for range 2 {
-		if _, err := addCodexRule(codex, "make generate_types"); err != nil {
+		if _, err := (codexadapter.NativeAllow{}).Allow(root, "make generate_types *"); err != nil {
 			t.Fatal(err)
 		}
 	}
