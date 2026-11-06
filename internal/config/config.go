@@ -247,7 +247,6 @@ func Load(root string) (*Config, error) {
 	if err := validateAccountLimits(&cfg); err != nil {
 		return nil, err
 	}
-	notices = append(notices, capSessionTiers(&cfg)...)
 	cfg.Notices = notices
 	cfg.Telemetry = keepTelemetry(userTelemetrySection, projectTelemetryOff, telemetryEnvOff())
 	if err := validateTelemetry(cfg.Telemetry); err != nil {

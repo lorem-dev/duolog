@@ -29,8 +29,9 @@ func TestSessionLimitsDefaultsRestrictiveLayers(t *testing.T) {
 		t.Errorf("default notices = %v, want none", cfg.Notices)
 	}
 
-	// The person's user and local layers may raise or lower the total; a
-	// tier above its default is capped there with a notice.
+	// The person's user and local layers may raise or lower the total and
+	// the tiers: the person knows the plan, and duolog cannot measure it at
+	// first, so an unmeasured agent need not stay at three sessions.
 	root := isolatedRoot(t)
 	writeConfig(t, userConfigPath(t), "limits: {max_total_sessions: 4, sessions_by_tier: {small: 2, medium: 8}}\nbalance: {max_age_seconds: 300, margin: 0.3}\n")
 	writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), "limits: {max_total_sessions: 16, sessions_by_tier: {large: 12}, session_wait_seconds: 0}\n")
@@ -39,23 +40,14 @@ func TestSessionLimitsDefaultsRestrictiveLayers(t *testing.T) {
 		t.Fatal(err)
 	}
 	l = cfg.Limits
-	if l.MaxTotalSessions != 16 || l.SessionsByTier != (SessionTiers{Small: 2, Medium: 5, Large: 10}) || l.SessionWaitSeconds != 0 {
-		t.Errorf("trusted layers = total %d, tiers %+v, wait %d; want 16, 2/5/10, 0", l.MaxTotalSessions, l.SessionsByTier, l.SessionWaitSeconds)
+	if l.MaxTotalSessions != 16 || l.SessionsByTier != (SessionTiers{Small: 2, Medium: 8, Large: 12}) || l.SessionWaitSeconds != 0 {
+		t.Errorf("trusted layers = total %d, tiers %+v, wait %d; want 16, 2/8/12, 0", l.MaxTotalSessions, l.SessionsByTier, l.SessionWaitSeconds)
 	}
 	if cfg.Balance != (Balance{MaxAgeSeconds: 300, MinIntervalShare: .05, Margin: .3}) {
 		t.Errorf("trusted balance = %+v", cfg.Balance)
 	}
-	want := []string{"limits.sessions_by_tier.medium", "limits.sessions_by_tier.large"}
-	if got := noticeKeys(cfg.Notices); !slices.Equal(got, want) {
-		t.Errorf("clamp notices = %v, want %v", got, want)
-	}
-	for _, n := range cfg.Notices {
-		if !strings.Contains(n.Reason, "default") {
-			t.Errorf("clamp notice %+v does not name the default", n)
-		}
-	}
-	if !strings.Contains(cfg.Notices[0].Reason, "8") || !strings.Contains(cfg.Notices[0].Reason, "5") {
-		t.Errorf("clamp notice %+v does not name the value and the cap", cfg.Notices[0])
+	if got := noticeKeys(cfg.Notices); len(got) != 0 {
+		t.Errorf("trusted layers got notices %v", got)
 	}
 
 	// The project may only lower the total, the tiers and the wait, and
@@ -83,7 +75,7 @@ balance: {max_age_seconds: 600, min_interval_share: 0.02, margin: 0.1}
 	if cfg.Balance != DefaultBalance() {
 		t.Errorf("project loosened balance: %+v", cfg.Balance)
 	}
-	want = []string{
+	want := []string{
 		"limits.max_total_sessions", "limits.sessions_by_tier.large", "limits.session_wait_seconds",
 		"balance.max_age_seconds", "balance.min_interval_share", "balance.margin",
 	}

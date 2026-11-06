@@ -438,10 +438,10 @@ When a slot is full:
 - Calibration cells wait for a slot without a time limit, and
   `duolog calibrate status` says the run is waiting for a session.
 
-You can lower or raise `max_total_sessions` in your own files. A tier value
-may only be lowered. A value above its default is capped at the default, and
-`duolog doctor` says so. The shared `.duolog/config.yaml` may only lower these
-keys. This example runs at most 4 sessions, and each agent at most 3:
+You can lower or raise `max_total_sessions` and each tier in your own files,
+for example when your plan allows more parallel work than duolog has
+measured yet. The shared `.duolog/config.yaml` may only lower these keys.
+This example runs at most 4 sessions, and each agent at most 3:
 
 ```yaml
 limits:

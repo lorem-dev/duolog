@@ -153,30 +153,6 @@ func validateAccountLimits(cfg *Config) error {
 	return nil
 }
 
-// capSessionTiers lowers each session tier above its default to the default
-// and names it. A larger window may hold more parallel work, but never more
-// than the default tier allows.
-func capSessionTiers(cfg *Config) []ConfigNotice {
-	defaults := DefaultSessionTiers()
-	var notices []ConfigNotice
-	for _, t := range []struct {
-		name  string
-		value *int
-		max   int
-	}{
-		{"small", &cfg.Limits.SessionsByTier.Small, defaults.Small},
-		{"medium", &cfg.Limits.SessionsByTier.Medium, defaults.Medium},
-		{"large", &cfg.Limits.SessionsByTier.Large, defaults.Large},
-	} {
-		if *t.value > t.max {
-			notices = append(notices, ConfigNotice{Key: "limits.sessions_by_tier." + t.name, Reason: fmt.Sprintf(
-				"%d is above the default %d, the most a tier may hold; %d applies", *t.value, t.max, t.max)})
-			*t.value = t.max
-		}
-	}
-	return notices
-}
-
 // restrictProjectSessionLimits removes from the project layer each account
 // limit that would allow more than the layers below, before the layer is
 // merged: the total, the tiers and the wait may only go down, the quota age
