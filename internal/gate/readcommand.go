@@ -272,8 +272,9 @@ func readCommandTargets(command string) (targets []string, reason string) {
 
 // readTargetDecision applies read rules to one path that a read command reads.
 // It returns a deny, or an ask with counts true, or counts false when the path
-// changes nothing.
-func readTargetDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action, shell, written string) (Decision, bool) {
+// changes nothing. revision says that the command is Git's, whose operand may
+// be a revision such as HEAD~1.
+func readTargetDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action, shell, written string, revision bool) (Decision, bool) {
 	// A stream device holds no file, and a redirect such as > /dev/null can
 	// read here as a file the command reads: only a deny counts.
 	device := streamDevice(expandHome(written))
@@ -284,7 +285,7 @@ func readTargetDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action, 
 		}
 		return Decision{}, false
 	}
-	d := Evaluate(p, lead, m, Action{Kind: "read", Target: target, Role: a.Role, Shell: shell, OwnResult: ownTempRead(a, written)})
+	d := Evaluate(p, lead, m, Action{Kind: "read", Target: target, Role: a.Role, Shell: shell, OwnResult: ownTempRead(a, written), revision: revision})
 	d.Reason = "read command: " + d.Reason
 	return d, d.Kind == Deny || d.Kind != Allow && !device
 }

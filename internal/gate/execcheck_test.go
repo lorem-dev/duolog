@@ -304,6 +304,48 @@ func TestWindowsSpellingsReachTheSameRules(t *testing.T) {
 	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "write", Target: ".git/hooks/x.", Role: "implement", Shell: "windows"}, Deny)
 }
 
+// NTFS can give .duolog the 8.3 name DUOLOG~1, and .git GIT~1. A rule that
+// names the long folder does not see that spelling, so a worker could write
+// the bus or its own rules through it.
+func TestWindowsShortNamesCannotReachDeniedFiles(t *testing.T) {
+	p := policy(t)
+	for _, a := range []Action{
+		{Kind: "write", Target: `DUOLOG~1\bus.ndjson`},
+		{Kind: "write", Target: "duolog~1/learned.yaml"},
+		{Kind: "write", Target: `sub\DUOLOG~2\asks\q.json`},
+		{Kind: "write", Target: `GIT~1\hooks\pre-commit`},
+		{Kind: "write", Target: `SECRET~1.PEM`},
+		{Kind: "read", Target: `DUOLOG~1\bus.ndjson`},
+	} {
+		a.Role, a.Shell = "implement", "windows"
+		check(t, p, LeadRules{}, mode.Full, a, Deny)
+	}
+	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "write", Target: `src\main~test.go`, Role: "implement", Shell: "windows"}, Allow)
+}
+
+// A Linux or macOS host can work on an NTFS or FAT folder, such as WSL under
+// /mnt/c or an ntfs3 or vfat mount. There a path with forward slashes and no
+// Windows shell still reaches .duolog by its 8.3 name or in another case.
+func TestNTFSSpellingsCannotReachDeniedFilesOnAnyHost(t *testing.T) {
+	p := policy(t)
+	for _, target := range []string{
+		"DUOLOG~1/bus.ndjson",
+		"duolog~1/asks/q.json",
+		"sub/DUOLOG~2/learned.yaml",
+		".DUOLOG/bus.ndjson",
+		".Duolog/asks/q.json",
+	} {
+		for _, kind := range []string{"read", "write"} {
+			check(t, p, LeadRules{}, mode.Full, Action{Kind: kind, Target: target, Role: "implement"}, Deny)
+		}
+	}
+	check(t, p, LeadRules{}, mode.Full, Action{Kind: "write", Target: ".GIT/hooks/pre-commit", Role: "implement"}, Deny)
+	check(t, p, LeadRules{}, mode.Full, Action{Kind: "exec", Target: "cat < DUOLOG~1/bus.ndjson", Role: "implement"}, Deny)
+	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "write", Target: "src/main~test.go", Role: "implement"}, Allow)
+	// A Git operand may be a revision, not an 8.3 name.
+	check(t, p, LeadRules{}, mode.Plan, Action{Kind: "exec", Target: "git log HEAD~1", Role: "implement"}, Allow)
+}
+
 func TestWorkersCannotChangeRulesOrHooks(t *testing.T) {
 	p := policy(t)
 	for _, target := range []string{

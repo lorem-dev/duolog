@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/pathutil"
 )
 
@@ -162,4 +163,34 @@ func RelativeTarget(root, cwd, target string) string {
 		return pathutil.Clean(path)
 	}
 	return pathutil.Clean(relative)
+}
+
+// toolPath returns a read or write target as the rules compare it, or the
+// reason to deny a spelling that no rule can judge.
+func toolPath(a Action) (Action, string) {
+	if pathutil.Windows(a.Target) {
+		a.Shell = "windows"
+	}
+	if usesWindowsNames(a) {
+		target, ok := windowsTarget(a.Target)
+		if !ok {
+			return a, "a Windows stream name can reach a denied file"
+		}
+		a.Target = target
+	}
+	if !a.revision && shortNamePath(a.Target) {
+		return a, "a Windows 8.3 name, such as DUOLOG~1, can reach a denied file; use the long name"
+	}
+	a.Target = cleanPath(a.Target)
+	return a, ""
+}
+
+// foldCase reports whether rule r compares paths without case. A deny does on
+// every host: a Linux host can work on an NTFS or FAT folder, where .DUOLOG is
+// .duolog. An allow does only where names ignore case.
+func foldCase(r config.Rule, a Action) bool {
+	if r.Decision != Allow && r.Decision != Ask {
+		return true
+	}
+	return runtime.GOOS == "darwin" || runtime.GOOS == "windows" || a.Shell == "windows" || pathutil.Windows(r.Match) || pathutil.Windows(a.Target)
 }

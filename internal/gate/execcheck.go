@@ -657,6 +657,19 @@ func windowsTarget(target string) (string, bool) {
 	return drive + strings.Join(parts, "/"), true
 }
 
+// windowsShortName matches an NTFS 8.3 name, such as DUOLOG~1 for .duolog.
+var windowsShortName = regexp.MustCompile(`^[^~.]{1,6}~[0-9]{1,6}(\.[^.]{1,3})?$`)
+
+// shortNamePath reports whether a segment of a relative read or write target
+// may be the 8.3 name of another file, which no rule on the long name sees.
+// NTFS and FAT resolve such names on Windows and on any host that mounts them,
+// such as WSL under /mnt/c, so the check runs on every host and splits at
+// either slash. An absolute path is left to the outside rules: the person who
+// answers it sees the spelling.
+func shortNamePath(target string) bool {
+	return !pathutil.IsAbs(target) && slices.ContainsFunc(strings.Split(pathutil.Slashes(target), "/"), windowsShortName.MatchString)
+}
+
 func usesWindowsNames(a Action) bool {
 	return runtime.GOOS == "windows" || a.Shell == "windows" || a.Shell == "powershell" || pathutil.Windows(a.Target)
 }

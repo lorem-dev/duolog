@@ -6,7 +6,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/pathutil"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 
@@ -51,6 +50,9 @@ type Action struct {
 	OwnResult bool `json:"-"`
 	// Temp is the hook's ClaudeTemp folders, whose files read commands may read.
 	Temp []string `json:"-"`
+	// revision marks an operand of a Git read command, which may name a
+	// revision such as HEAD~1 rather than a path, so the 8.3 check skips it.
+	revision bool
 }
 
 type Decision struct {
@@ -88,17 +90,10 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 		}
 	}
 	if (a.Kind == "read" || a.Kind == "write") && a.Target != "" {
-		if pathutil.Windows(a.Target) {
-			a.Shell = "windows"
+		var reason string
+		if a, reason = toolPath(a); reason != "" {
+			return decision(Deny, reason, "windows name")
 		}
-		if usesWindowsNames(a) {
-			target, ok := windowsTarget(a.Target)
-			if !ok {
-				return decision(Deny, "a Windows stream name can reach a denied file", "windows name")
-			}
-			a.Target = target
-		}
-		a.Target = cleanPath(a.Target)
 	}
 	if a.Kind == "spawn" {
 		return decision(Deny, "workers cannot delegate", "worker depth")
@@ -325,10 +320,11 @@ func matches(r config.Rule, a Action) bool {
 	if r.Action != a.Kind || len(r.Roles) > 0 && !slices.Contains(r.Roles, a.Role) {
 		return false
 	}
+	fold := foldCase(r, a)
 	for _, pattern := range expandBraces(r.Match) {
 		if a.Kind == "read" || a.Kind == "write" {
 			pattern = strings.TrimPrefix(pathutil.Clean(pattern), "./")
-			if runtime.GOOS == "darwin" || runtime.GOOS == "windows" || a.Shell == "windows" || pathutil.Windows(r.Match) || pathutil.Windows(a.Target) {
+			if fold {
 				pattern = strings.ToLower(pattern)
 				a.Target = strings.ToLower(a.Target)
 			}
@@ -926,7 +922,7 @@ func readCommandDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action,
 			asked = reasonAsk(a, m, reason)
 		}
 		for _, target := range targets {
-			d, counts := readTargetDecision(p, lead, m, a, shell, target)
+			d, counts := readTargetDecision(p, lead, m, a, shell, target, strings.TrimSuffix(strings.ToLower(words[0]), ".exe") == "git")
 			if d.Kind == Deny {
 				return d, true
 			}

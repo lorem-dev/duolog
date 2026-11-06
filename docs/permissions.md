@@ -342,6 +342,11 @@ not caught.
 Secrets include nested `.env` and `.env.*` files. Paths outside the working
 tree ask in every mode, unless an explicit outside-path rule applies. A broad
 `**` allow does not cover them. On macOS and Windows, path rules ignore case.
+Path denies ignore case on every host, because a Linux host can work on an
+NTFS or FAT folder, such as WSL under `/mnt/c`. For the same reason a read or
+write of a relative path with a segment shaped like an 8.3 short name, such
+as `DUOLOG~1`, is denied on every host; use the long name.
+
 One exception: a Claude worker may read the large tool outputs Claude saved
 for its own session, under `projects/<project>/<its session id>/tool-results`
 in Claude's config folder. Another session's folder and every other path under
@@ -543,6 +548,12 @@ The gate sees what an agent asks for, not what a program it runs reads.
 Project code run by a write role, such as `go test`, can read files without
 naming them in the command. The gate alone cannot stop those reads. This
 holds for duolog state, secrets and the telemetry folder alike.
+
+The same holds for writes. In `edits` mode a write role runs `go test`
+without an ask, and its test or program code can write `.duolog`, a line in
+`.duolog/bus.ndjson` included, such as an allow reply to its own ask. The
+bus is therefore not a trust boundary against code that a worker runs.
+
 Claude's deny list adds protection only where the sandbox is already on.
 
 duolog does not sandbox the lead itself. A lead that edits the bus or other
