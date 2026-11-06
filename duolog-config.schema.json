@@ -367,6 +367,10 @@
         "balance": {
           "$ref": "#/$defs/Balance",
           "description": "How quota reads and learned window rates are trusted: read age, interval size and the margin of a tier step up. The shared project config may only make these stricter."
+        },
+        "routing": {
+          "$ref": "#/$defs/Routing",
+          "description": "How a new task picks between a role's agents beyond the ladder: balance subscriptions by pace, and the margin. The shared project config may only tighten these."
         }
       },
       "additionalProperties": false,
@@ -784,6 +788,26 @@
             "resume"
           ],
           "description": "Thread reuse policy; defaults to fresh except plan, debug and debug_hard, which resume."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Routing": {
+      "properties": {
+        "balance": {
+          "type": "string",
+          "enum": [
+            "pace",
+            "off"
+          ],
+          "description": "Balance subscriptions by pace: pace starts a new task on the role's fallback while its use agent runs ahead of its weekly window, off keeps the ladder as written; defaults to pace. The shared project config may not turn it off."
+        },
+        "margin": {
+          "type": "number",
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "description": "How far the used share of the weekly window may exceed the elapsed share before an agent counts as ahead of pace, and how far below pace it must fall to count as back, 0 or more and below 1; defaults to 0.10. The shared project config may only lower it."
         }
       },
       "additionalProperties": false,

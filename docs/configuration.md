@@ -59,6 +59,52 @@ duolog route review_final --json
 To see every role and its model, run `duolog roster`. Add `--versions` to see
 which Codex version each alias resolves to.
 
+## How duolog balances subscriptions by pace
+
+A new task starts on the role's `fallback` agent when the `use` agent runs
+ahead of pace. This spreads work over both subscriptions, so neither runs out
+before its window resets. The ladder `use`, then `fallback` still decides the
+agent. Roles keep their names by kind of work.
+
+An agent is ahead of pace in either of two cases:
+
+- Its used share of the weekly window is more than `routing.margin` above the
+  share of that window that has passed.
+- Its five-hour window is more than `0.80` used.
+
+The task moves only when all of these hold:
+
+- The `use` agent is ahead of pace.
+- The `fallback` is another agent, and it is not ahead of pace.
+- The `fallback` runs on a subscription. A paid run or a run that can spill
+  into overage is never a target.
+- Both quota reads are fresh. Unknown or stale quota means no balancing, and
+  the task stays on `use`.
+
+Once a task has moved away, later tasks stay away until the `use` agent falls
+below pace minus the margin. This keeps work from flipping back and forth at
+the edge. duolog keeps this one flag per agent in its account state folder.
+
+`duolog route`, `duolog delegate` and `duolog peer open` print the reason:
+
+```text
+$ duolog route implement
+claude sonnet high
+reason: implement -> claude sonnet: codex 61% of the week at 44% elapsed
+```
+
+On a workspace account the used share is the share of the usable part of the
+window. A task you pin with `--use` or a profile is never moved.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `routing.balance` | `pace` | `pace` balances; `off` keeps the ladder as written |
+| `routing.margin` | `0.10` | How far the used share may pass the elapsed share |
+
+The shared `.duolog/config.yaml` may only tighten these keys. It cannot turn
+`balance` off, and it cannot raise `margin`. duolog ignores such a value and
+names it. Your user and local files may set either key freely.
+
 ## Which models the default roles use
 
 Planning and the final review use Opus, because a mistake costs the most
@@ -138,6 +184,7 @@ The lead's own settings are the ceiling:
 | `wire` | The bus line limits and the inline size |
 | `skill_tests` | `ask` (default), `always` or `never` for cross-model skill tests. Save a local preference with `duolog skill test --remember`. See [Skill tests](skills.md) |
 | `limits` | Live sessions and the size of a task the lead may do itself |
+| `routing` | Pace balancing of subscriptions. See [above](#how-duolog-balances-subscriptions-by-pace) |
 | `models` | The agent and the price estimates for each alias, for `duolog stats` and telemetry. Claude cache-write premiums are not modeled |
 | `sessions` | When a resumed thread closes |
 | `policy` | The rules for worker actions. See [Permissions](permissions.md) |

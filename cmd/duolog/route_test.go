@@ -116,6 +116,9 @@ func routeLead(t *testing.T) {
 	if err := reg.RegisterLead(session.Lead{ID: "route-lead", Target: config.Target{Agent: "claude", Model: "haiku"}, Mode: mode.Full, PID: os.Getpid()}); err != nil {
 		t.Fatal(err)
 	}
+	// Tests do not read quota: a built binary would run the test's fake
+	// agents. Pace tests turn balancing on with writeLocalConfig.
+	writeLocalConfig(t, "routing: {balance: off}\n")
 }
 func mustGetwd(t *testing.T) string {
 	t.Helper()

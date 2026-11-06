@@ -38,6 +38,14 @@ balance:
   min_interval_share: 0.05 # window movement of one measured interval
   margin: 0.2              # a tier steps up only this far past its cut
 
+# Balance subscriptions by pace: a new task of a role whose `use` agent runs
+# ahead of its weekly window starts on the role's `fallback` agent while that
+# agent is on pace and billed by subscription. The shared .duolog/config.yaml
+# may not turn it off or raise the margin.
+routing:
+  balance: pace            # pace, or off for the ladder as written
+  margin: 0.10             # used share may pass elapsed share by this much
+
 # Aliases only. Claude Code resolves its own. For Codex, duolog picks the newest visible
 # gpt-<version>-<family> in `codex debug models`. A full name in a role is a deliberate pin.
 # Prices are USD per 1M tokens, read from vendor pages on 2026-10-30, for the version in

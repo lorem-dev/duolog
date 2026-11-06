@@ -27,6 +27,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/rex"
 	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/runner"
@@ -353,17 +354,19 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	route, err := router.Resolve(e.cfg, role, unavailable, router.Options{Lead: lead.target, AllowManualModel: e.opts.AllowManualModel})
+	route, err := router.Resolve(e.cfg, role, unavailable, router.Options{Lead: lead.target, AllowManualModel: e.opts.AllowManualModel,
+		Balance: paidruns.DefaultPaceBalance(ctx, e.cfg)})
 	if err != nil {
 		return Entry{}, err
 	}
+	paidruns.SaveDefaultPaceState(route.Ahead)
 	agent = route.Agent
 	if lead.mode == mode.Plan && route.Sandbox != "read-only" {
 		return Entry{}, fmt.Errorf("mode plan refuses write role %s", role)
 	}
 	if route.InLead {
 		here := delegate.Placement{Where: "subagent", Model: route.Model, Effort: route.Effort}
-		return Entry{State: Limited, Note: strings.TrimSpace(here.String())}, nil
+		return Entry{State: Limited, Note: strings.TrimSpace(strings.TrimSpace(here.String()) + " " + route.Reason)}, nil
 	}
 	// Serialize placement across worktrees and agents sharing this registry.
 	// Release before watching startup so another peer can open while this one works.
@@ -408,7 +411,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	noted := withNotice(strings.Join(notices, " "))
+	noted := withNotice(strings.TrimSpace(strings.Join(append(notices, route.Reason), " ")))
 	// The ID goes into the pane's environment, so it is chosen before the pane exists.
 	id := newID()
 	envFile, err := writeEnvFile(e.dir, agentEnv(e.cfg, route.Agent, lead.id, role, id))

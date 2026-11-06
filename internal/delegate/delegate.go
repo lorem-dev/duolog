@@ -27,6 +27,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/pathutil"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/router"
@@ -318,8 +319,13 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	checker := newChecker(filepath.Join(s.Dir, "cache"))
 	loginTried := false
 	capNotes := ""
+	// Pace balancing reads the quota once per task; a pinned target is never balanced.
+	var balance *router.Balance
+	if opts.Entry == nil {
+		balance = paidruns.DefaultPaceBalance(ctx, cfg)
+	}
 	for attempt := 0; attempt < 2; attempt++ {
-		ro := router.Options{Lead: leadTarget, AllowManualModel: opts.AllowManualModel}
+		ro := router.Options{Lead: leadTarget, AllowManualModel: opts.AllowManualModel, Balance: balance}
 		if opts.Entry != nil {
 			if unavailable[opts.Entry.Agent] {
 				return out, fmt.Errorf("requested target %s/%s/%s is unavailable; ask the person before choosing another target", opts.Entry.Agent, opts.Entry.Model, opts.Entry.Effort)
@@ -334,6 +340,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		}
 		lr.resolved(route)
 		worker = route.Agent + "/" + role
+		paidruns.SaveDefaultPaceState(route.Ahead)
 		if route.IsFallback {
 			from := priorAgent
 			if from == "" {
@@ -342,7 +349,11 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					from = ro.Use.Agent
 				}
 			}
-			if err = send(worker, address, "status", fmt.Sprintf("role %s moved from %s to %s model=%s effort=%s", role, from, route.Agent, route.Model, route.Effort), ref); err != nil {
+			moved := fmt.Sprintf("role %s moved from %s to %s model=%s effort=%s", role, from, route.Agent, route.Model, route.Effort)
+			if route.Reason != "" {
+				moved += "; " + route.Reason
+			}
+			if err = send(worker, address, "status", moved, ref); err != nil {
 				return out, err
 			}
 		}

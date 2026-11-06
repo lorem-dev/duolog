@@ -1,0 +1,95 @@
+package config
+
+import (
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+func TestRoutingDefaults(t *testing.T) {
+	cfg, err := Load(isolatedRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Routing != (Routing{Balance: "pace", Margin: .10}) {
+		t.Errorf("routing defaults = %+v, want pace and 0.10", cfg.Routing)
+	}
+	if DefaultRouting() != cfg.Routing {
+		t.Errorf("DefaultRouting() = %+v, differs from Load's", DefaultRouting())
+	}
+}
+
+func TestRoutingTrustedLayersMayLoosen(t *testing.T) {
+	root := isolatedRoot(t)
+	writeConfig(t, userConfigPath(t), "routing: {balance: off, margin: 0.3}\n")
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Routing != (Routing{Balance: "off", Margin: .3}) || len(cfg.Notices) != 0 {
+		t.Errorf("user routing = %+v, notices %v", cfg.Routing, cfg.Notices)
+	}
+	writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), "routing: {balance: pace, margin: 0.2}\n")
+	if cfg, err = Load(root); err != nil || cfg.Routing != (Routing{Balance: "pace", Margin: .2}) {
+		t.Errorf("local routing = %+v, %v", cfg.Routing, err)
+	}
+}
+
+func TestRoutingProjectCannotLoosen(t *testing.T) {
+	// The shared project may not turn balancing off or widen the margin.
+	root := isolatedRoot(t)
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "routing: {balance: off, margin: 0.5}\n")
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Routing != DefaultRouting() {
+		t.Errorf("project loosened routing: %+v", cfg.Routing)
+	}
+	want := []string{"routing.margin", "routing.balance"}
+	got := noticeKeys(cfg.Notices)
+	slices.Sort(want)
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("notices = %v, want %v", got, want)
+	}
+	for _, n := range cfg.Notices {
+		if !strings.Contains(n.Reason, ".duolog/config.yaml") {
+			t.Errorf("notice %+v does not name the project file", n)
+		}
+	}
+
+	// Under a person who turned balancing off, the project may not turn it on
+	// either way round; it can only tighten the margin of a person who has pace.
+	root = isolatedRoot(t)
+	writeConfig(t, userConfigPath(t), "routing: {balance: off}\n")
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "routing: {balance: pace, margin: 0.05}\n")
+	if cfg, err = Load(root); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Routing.Balance != "pace" || cfg.Routing.Margin != .05 || len(cfg.Notices) != 0 {
+		t.Errorf("tightening = %+v, notices %v; want pace and 0.05", cfg.Routing, cfg.Notices)
+	}
+
+	// A narrower margin and an unchanged balance are accepted.
+	root = isolatedRoot(t)
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "routing: {balance: pace, margin: 0.02}\n")
+	if cfg, err = Load(root); err != nil || cfg.Routing != (Routing{Balance: "pace", Margin: .02}) || len(cfg.Notices) != 0 {
+		t.Errorf("project tightening = %+v, %v, notices %v", cfg.Routing, err, cfg.Notices)
+	}
+}
+
+func TestRoutingRejectsBadValues(t *testing.T) {
+	for _, tc := range []struct{ yaml, key string }{
+		{"routing: {margin: 1}\n", "routing.margin"},
+		{"routing: {margin: -0.1}\n", "routing.margin"},
+		{"routing: {balance: always}\n", "balance"},
+	} {
+		root := isolatedRoot(t)
+		writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), tc.yaml)
+		if _, err := Load(root); err == nil || !strings.Contains(err.Error(), tc.key) {
+			t.Errorf("%q: err = %v, want it to name %s", tc.yaml, err, tc.key)
+		}
+	}
+}

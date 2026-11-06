@@ -18,6 +18,12 @@ type Route struct {
 	Self         bool   `json:"self"`
 	InLead       bool   `json:"in_lead"`
 	EffortCapped bool   `json:"effort_capped"`
+	// Reason says why pace balancing moved the task off the role's use agent;
+	// empty otherwise.
+	Reason string `json:"reason,omitempty"`
+	// Ahead is the use agent's pace state after a balance decision, for the
+	// caller to keep for the next one.
+	Ahead map[string]bool `json:"-"`
 }
 
 type Options struct {
@@ -27,6 +33,9 @@ type Options struct {
 	Use *config.Target
 	// NoSelf forces Self to false so the target runs as a real worker even when it equals the lead.
 	NoSelf bool
+	// Balance, when set, starts a new task on the role's fallback while its
+	// use agent runs ahead of pace. A pinned Use is never balanced.
+	Balance *Balance
 }
 
 // Resolve chooses a configured fallback, or derives one from the model map.
@@ -42,6 +51,16 @@ func Resolve(cfg *config.Config, role string, unavailable map[string]bool, opts 
 		use = *opts.Use
 	}
 	route := Route{Target: use, Sandbox: spec.Sandbox, Context: spec.Context, Session: spec.Session}
+	if opts.Balance != nil && opts.Use == nil && !unavailable[use.Agent] && !unavailable[spec.Fallback.Agent] {
+		d := opts.Balance.Decide(role, spec)
+		route.Ahead = d.Ahead
+		if d.Move {
+			route.Reason = d.Reason
+			// Treat the use agent as unavailable for this task, so the
+			// fallback path below applies, with the effort defaults.
+			unavailable = map[string]bool{use.Agent: true}
+		}
+	}
 	if unavailable[route.Agent] {
 		route.IsFallback = true
 		route.Target = spec.Fallback
