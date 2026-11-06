@@ -169,9 +169,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 		if err != nil {
 			add("warning", "Codex catalog: "+err.Error())
 		} else {
-			for _, f := range checkModels(cfg, entries) {
-				out = append(out, f)
-			}
+			out = append(out, checkModels(cfg, entries)...)
 		}
 	}
 	if opts.Registry != nil {

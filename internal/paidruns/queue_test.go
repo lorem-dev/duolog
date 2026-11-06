@@ -70,9 +70,9 @@ func TestQueueHelperProcess(t *testing.T) {
 		os.Exit(2)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
 	cfg := queueConfig()
 	p, err := queueGate(st, cfg).Acquire(ctx, queueRequest(cfg, Owner{PID: os.Getpid(), Birth: name}, -1))
+	cancel()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
@@ -230,7 +230,7 @@ func TestSlotQueueFirstComeAndFreshRead(t *testing.T) {
 		addTicket(t, w.store, "claude", Owner{PID: 602, Birth: "b-602"}, time.Time{})
 		w.finish(holder, Settlement{})
 		w.wantLive("claude", 0, 0)
-		r := w.refused(w.request("claude", workerenv.Worker, workerenv.Free, 603), ReasonQueue)
+		r := w.refusal(w.request("claude", workerenv.Worker, workerenv.Free, 603), ReasonQueue)
 		if !r.Slot() || len(w.waits) != 0 {
 			t.Fatalf("queued refusal: %+v, waits %v", r, w.waits)
 		}
@@ -279,7 +279,7 @@ func TestSlotQueueFirstComeAndFreshRead(t *testing.T) {
 				t.Errorf("waiting without its durable ticket: %+v", tickets)
 			}
 		}
-		r := w.refused(req, ReasonAgentSessions)
+		r := w.refusal(req, ReasonAgentSessions)
 		if w.waited() != time.Minute || r.Waited != time.Minute || !w.now.Equal(gateStart.Add(time.Minute)) {
 			t.Fatalf("waited %v (refusal says %v), want exactly 60 s", w.waited(), r.Waited)
 		}
@@ -347,7 +347,7 @@ func TestSlotQueueFirstComeAndFreshRead(t *testing.T) {
 				w.finish(holder, Settlement{Started: true, CompleteUsage: true, PricedUSD: 4})
 			}
 		}
-		r := w.refused(req, ReasonCap)
+		r := w.refusal(req, ReasonCap)
 		if r.EstimateUSD <= 0 || r.EstimateSource == "" || !strings.Contains(r.Error(), "USD") {
 			t.Fatalf("cap refusal without its estimate: %+v", r)
 		}
@@ -378,7 +378,7 @@ func TestSlotQueueFirstComeAndFreshRead(t *testing.T) {
 		w.acquire(w.peerOpenRequest("claude", workerenv.Free, 901))
 		req := w.peerOpenRequest("claude", workerenv.Free, 902)
 		req.Wait = time.Minute
-		r := w.refused(req, ReasonAgentSessions)
+		r := w.refusal(req, ReasonAgentSessions)
 		if len(w.waits) != 0 || r.Waited != 0 || len(w.state().Tickets) != 0 {
 			t.Fatalf("a pane open waited: %v %+v", w.waits, w.state().Tickets)
 		}

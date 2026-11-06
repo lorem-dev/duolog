@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -112,7 +113,7 @@ func TestGitIgnoreKeepsCalibrationProjectPart(t *testing.T) {
 	ignored := func(t *testing.T, root, rel string) bool {
 		t.Helper()
 		err := exec.Command("git", "-C", root, "check-ignore", "-q", rel).Run()
-		if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() == 1 {
+		if exit := (*exec.ExitError)(nil); errors.As(err, &exit) && exit.ExitCode() == 1 {
 			return false
 		}
 		if err != nil {

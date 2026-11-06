@@ -143,10 +143,10 @@ func PrepareTree(ctx context.Context, repo, dir string) error {
 		_ = os.Remove(filepath.Dir(target))
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 		return err
 	}
-	return os.WriteFile(target, hooks, 0o644)
+	return os.WriteFile(target, hooks, 0o600)
 }
 
 // WorkerEnviron is the environment a free worker of agent gets under cfg
@@ -176,10 +176,10 @@ func addClaudeGate(dir string, environ []string) error {
 		return err
 	}
 	target := filepath.Join(dir, filepath.FromSlash(claudeLocal))
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 		return err
 	}
-	return os.WriteFile(target, hooks, 0o644)
+	return os.WriteFile(target, hooks, 0o600)
 }
 
 // clearTree empties dir but for its Codex hooks, kept only as a regular
@@ -206,7 +206,7 @@ func projectHooks(ctx context.Context, repo string) ([]byte, error) {
 // HEAD has none.
 func headHooks(ctx context.Context, repo string) ([]byte, error) {
 	if _, err := run(ctx, repo, "cat-file", "-e", "HEAD:"+codexHooks); err != nil {
-		return nil, nil
+		return nil, nil //nolint:nilerr // cat-file -e fails when HEAD has no hooks file, which is the nil answer
 	}
 	return run(ctx, repo, "cat-file", "blob", "HEAD:"+codexHooks)
 }
@@ -273,17 +273,17 @@ func CheckTreeTrust(agent, dir string, environ []string) error {
 func treeTrust(agent, dir string, folder bool, hooks trust.State) error {
 	if agent == "claude" {
 		if hooks.HooksOff != "" {
-			return fmt.Errorf("Claude would run without the duolog gate in the calibration tree %s, so no cell runs there: %s sets disableAllHooks; remove it from that file, or from the commit's .claude settings with a branch that lacks it", dir, hooks.HooksOff)
+			return fmt.Errorf("Claude would run without the duolog gate in the calibration tree %s, so no cell runs there: %s sets disableAllHooks; remove it from that file, or from the commit's .claude settings with a branch that lacks it", dir, hooks.HooksOff) //nolint:staticcheck // ST1005: Claude is a product name
 		}
 		if hooks.Installed {
 			return nil
 		}
-		return fmt.Errorf("Claude has no duolog gate in the calibration tree %s, so no cell runs there: duolog writes it to %s when no other settings run it; check that the folder is writable", dir, claudeLocal)
+		return fmt.Errorf("Claude has no duolog gate in the calibration tree %s, so no cell runs there: duolog writes it to %s when no other settings run it; check that the folder is writable", dir, claudeLocal) //nolint:staticcheck // ST1005: Claude is a product name
 	}
 	if folder && hooks.Trusted {
 		return nil
 	}
-	return fmt.Errorf("Codex must trust the calibration tree %s and its hooks need approval: open Codex in %s once, trust the folder and approve its hooks in /hooks", dir, dir)
+	return fmt.Errorf("Codex must trust the calibration tree %s and its hooks need approval: open Codex in %s once, trust the folder and approve its hooks in /hooks", dir, dir) //nolint:staticcheck // ST1005: Codex is a product name
 }
 
 // Export writes the tree of commit into dst as a new repository with one
@@ -302,7 +302,7 @@ func export(ctx context.Context, repo, commit, dst string, own []string) error {
 	if inside(repo, dst) {
 		return fmt.Errorf("export destination %s must be outside the project %s", dst, repo)
 	}
-	if err := os.MkdirAll(dst, 0o755); err != nil {
+	if err := os.MkdirAll(dst, 0o750); err != nil {
 		return err
 	}
 	if err := onlyOwn(dst, own); err != nil {
@@ -562,7 +562,7 @@ func writeEntries(blobs *bufio.Reader, dst string, entries []treeEntry) error {
 		}
 		if e.kind == "commit" {
 			// A submodule: an empty folder, as git archive writes it.
-			if err := os.MkdirAll(target, 0o755); err != nil {
+			if err := os.MkdirAll(target, 0o750); err != nil {
 				return err
 			}
 			continue
@@ -592,7 +592,7 @@ func writeEntries(blobs *bufio.Reader, dst string, entries []treeEntry) error {
 			if linkLeaves(e.name, string(link)) {
 				return fmt.Errorf("tree entry %q links outside the export destination", e.name)
 			}
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 				return err
 			}
 			if err := os.Symlink(string(link), target); err != nil {
@@ -642,7 +642,7 @@ func linkLeaves(name, target string) bool {
 }
 
 func writeFile(target string, r io.Reader, perm os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 		return err
 	}
 	f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)

@@ -45,6 +45,20 @@ func tighten(_ *os.Root, _ string, f *os.File, info os.FileInfo) error {
 	return scrub(f.Chmod(want))
 }
 
+// openRootDir opens root and confirms it is the directory info describes.
+func openRootDir(root string, info os.FileInfo) (*os.Root, error) {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, scrub(err)
+	}
+	opened, err := r.Stat(".")
+	if err != nil || !os.SameFile(opened, info) {
+		r.Close()
+		return nil, errUnsafe
+	}
+	return r, nil
+}
+
 // tightenRoot sets 0700 on the root through a handle confirmed to be the
 // directory that was checked.
 func tightenRoot(root string, info os.FileInfo) (bool, error) {

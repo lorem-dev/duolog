@@ -32,9 +32,10 @@ func parse(data []byte) (map[string]string, error) {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
 			marker := trimmed[:3]
-			if fence == "" {
+			switch fence {
+			case "":
 				fence = marker
-			} else if fence == marker {
+			case marker:
 				fence = ""
 			}
 		}
@@ -439,9 +440,10 @@ func Annotate(text, lines string) string {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
 			marker := trimmed[:3]
-			if fence == "" {
+			switch fence {
+			case "":
 				fence = marker
-			} else if fence == marker {
+			case marker:
 				fence = ""
 			}
 		}
@@ -481,9 +483,10 @@ func hasSecondLevelSections(text string) bool {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
 			marker := trimmed[:3]
-			if fence == "" {
+			switch fence {
+			case "":
 				fence = marker
-			} else if fence == marker {
+			case marker:
 				fence = ""
 			}
 		}

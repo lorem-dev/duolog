@@ -68,7 +68,7 @@ func WeightedTokens(cfg *config.Config, agent, family string,
 		return 0, fmt.Errorf("weighted tokens: invalid %s %s token counts", agent, family)
 	}
 	if err := checkPrice(cfg, agent, family); err != nil {
-		return 0, fmt.Errorf("weighted tokens: %w for %s model %s: %v", ErrUnpriced, agent, family, err)
+		return 0, fmt.Errorf("weighted tokens: %w for %s model %s: %w", ErrUnpriced, agent, family, err)
 	}
 	p := cfg.Models[models.Normalize(agent, family)]
 	w := float64(input) + float64(cached)*(p.Cached/p.Input-1) + float64(output)*p.Output/p.Input

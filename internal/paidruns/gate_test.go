@@ -166,7 +166,13 @@ func (w *gateWorld) acquire(req Request) Permit {
 
 // refused checks that req is refused with reason and that no reservation of
 // its supervisor was written.
-func (w *gateWorld) refused(req Request, reason string) *Refusal {
+func (w *gateWorld) refused(req Request, reason string) {
+	w.t.Helper()
+	_ = w.refusal(req, reason) // refusal checked it; the value is not needed
+}
+
+// refusal is refused that returns the refusal.
+func (w *gateWorld) refusal(req Request, reason string) *Refusal {
 	w.t.Helper()
 	before := len(w.state().Reservations)
 	p, err := w.gate.Acquire(context.Background(), req)
@@ -252,7 +258,7 @@ func TestGateCountsProcessesAndPanes(t *testing.T) {
 			}
 		}
 		// A personal subscription without measured rates is tier small: 3.
-		r := w.refused(w.request("claude", workerenv.Worker, workerenv.Free, 104), ReasonAgentSessions)
+		r := w.refusal(w.request("claude", workerenv.Worker, workerenv.Free, 104), ReasonAgentSessions)
 		if r.Live != 3 || r.Limit != 3 || r.Tier != TierSmall || !r.Slot() {
 			t.Fatalf("refusal: %+v", r)
 		}
@@ -354,7 +360,7 @@ func TestGateCountsProcessesAndPanes(t *testing.T) {
 		w.refused(w.request("claude", workerenv.Worker, workerenv.Free, 322), ReasonOneTask)
 		w.finish(busy, Settlement{Started: true, CompleteUsage: true})
 		// A workspace account is tier small: a fourth pane has no slot.
-		r := w.refused(w.peerOpenRequest("claude", workerenv.Free, 323), ReasonAgentSessions)
+		r := w.refusal(w.peerOpenRequest("claude", workerenv.Free, 323), ReasonAgentSessions)
 		if r.Tier != TierSmall || r.Limit != 3 {
 			t.Fatalf("workspace refusal: %+v", r)
 		}
@@ -414,7 +420,7 @@ func TestGateKeepsRunEvidenceUntilFreshRead(t *testing.T) {
 	failing.gate.Cache.Read = func(context.Context, workerenv.Process) (quota.Snapshot, error) {
 		return quota.Snapshot{}, errors.New("usage read failed")
 	}
-	r := failing.refused(failing.request("claude", workerenv.Worker, workerenv.Free, 504), ReasonFreeVariantPaid)
+	r := failing.refusal(failing.request("claude", workerenv.Worker, workerenv.Free, 504), ReasonFreeVariantPaid)
 	if r.Verdict != Paid || !strings.Contains(r.Error(), "read:failed") {
 		t.Fatalf("failed read refusal: %+v", r)
 	}

@@ -101,6 +101,7 @@ if [ "${1:-}" = hook ] && [ "${2:-}" = SessionStart ]; then
 		mkdir -p "$root/.claude/skills/duolog"
 		cp "$root/plugin/claude/skills/duolog/SKILL.md" "$root/.claude/skills/duolog/SKILL.md"
 		if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+			# shellcheck disable=SC2016 # $PATH must reach the env file unexpanded.
 			printf 'export PATH="%s:$PATH"\n' "$here" >>"$CLAUDE_ENV_FILE"
 		fi
 		;;

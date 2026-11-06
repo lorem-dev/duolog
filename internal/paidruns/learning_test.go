@@ -166,7 +166,7 @@ func TestGateLayersUseTheWorkersEnvironment(t *testing.T) {
 	req.Input.Environ = environ
 	// A worker has a root; without one its layers would be unreadable.
 	req.Input.Locations = workerenv.Locations{Home: home, Root: t.TempDir(), GOOS: "linux", Environ: environ}
-	r := w.refused(req, ReasonFreeVariantPaid)
+	r := w.refusal(req, ReasonFreeVariantPaid)
 	if !slices.ContainsFunc(r.Signals, func(s workerenv.Signal) bool { return s.Name == "env:ANTHROPIC_BASE_URL" && s.Layer == "user" }) {
 		t.Fatalf("signals %+v lack ANTHROPIC_BASE_URL of the user layer", r.Signals)
 	}
@@ -196,7 +196,7 @@ func TestGateLayersUseTheWorkersHome(t *testing.T) {
 	environ := []string{name + "=" + home}
 	req.Input.Environ = environ
 	req.Input.Locations = workerenv.Locations{Home: t.TempDir(), Root: t.TempDir(), GOOS: runtime.GOOS, Environ: environ}
-	r := w.refused(req, ReasonFreeVariantPaid)
+	r := w.refusal(req, ReasonFreeVariantPaid)
 	if !slices.ContainsFunc(r.Signals, func(s workerenv.Signal) bool { return s.Name == "env:ANTHROPIC_BASE_URL" && s.Layer == "user" }) {
 		t.Fatalf("signals %+v lack ANTHROPIC_BASE_URL of the worker's user layer", r.Signals)
 	}

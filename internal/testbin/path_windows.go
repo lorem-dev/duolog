@@ -18,9 +18,10 @@ func ShortPath(t testing.TB, path string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	buffer := make([]uint16, 32768)
-	n, err := syscall.GetShortPathName(input, &buffer[0], uint32(len(buffer)))
-	if err != nil || n == 0 || n >= uint32(len(buffer)) {
+	const size = 32768
+	buffer := make([]uint16, size)
+	n, err := syscall.GetShortPathName(input, &buffer[0], size)
+	if err != nil || n == 0 || n >= size {
 		t.Fatalf("GetShortPathName: %d %v", n, err)
 	}
 	short := syscall.UTF16ToString(buffer[:n])

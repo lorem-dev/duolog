@@ -287,7 +287,7 @@ func newDecisionsCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer f.Close()
+			defer f.Close() //nolint:gocritic // two files, both held until the report is written
 			decoder := json.NewDecoder(f)
 			for {
 				var row gate.Record

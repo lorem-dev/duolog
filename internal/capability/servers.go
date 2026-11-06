@@ -230,7 +230,7 @@ func codexServers(root string, f folders) map[string]Server {
 	merged, files, user := codexMerged(root, f)
 	out := make(map[string]Server)
 	for name, value := range merged {
-		table := value.(map[string]any)
+		table, _ := value.(map[string]any) // codexMerged stores only tables
 		if enabled, ok := table["enabled"].(bool); ok && !enabled {
 			continue
 		}

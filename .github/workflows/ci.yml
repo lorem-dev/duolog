@@ -29,8 +29,8 @@ jobs:
           - os: windows-11-arm
             race: ''
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: true
@@ -96,7 +96,7 @@ jobs:
           $paths = @('README.md') + @(Get-ChildItem docs -Recurse -Filter '*.md' |
             Where-Object { $_.FullName -notmatch '[\\/]superpowers[\\/]' } |
             ForEach-Object { $_.FullName })
-          uvx --from pymarkdownlnt pymarkdown -c .pymarkdown.yaml scan @paths
+          uvx --from pymarkdownlnt==0.9.41 pymarkdown -c .pymarkdown.yaml scan @paths
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -run TestDocs .
       - name: Render both installers
@@ -119,12 +119,19 @@ jobs:
           [System.Management.Automation.Language.Parser]::ParseFile(
             (Join-Path $PWD '.release/install.ps1'), [ref]$tokens, [ref]$parseErrors) > $null
           if ($parseErrors.Count) { $parseErrors; exit 1 }
-      - name: Shellcheck release installer
-        if: matrix.os == 'ubuntu-latest'
+      # Errors only: the PowerShell installer and launcher are checked for
+      # parse errors above, and for analyzer errors here.
+      - name: PSScriptAnalyzer (errors only)
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck
-          shellcheck -S error .release/install.sh
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.24.0 -Scope CurrentUser -Force
+          $failed = $false
+          foreach ($path in @('scripts/dev/bin/duolog.ps1', '.release/install.ps1')) {
+            $found = Invoke-ScriptAnalyzer -Path $path -Severity Error
+            if ($found) { $found | Format-List; $failed = $true }
+          }
+          if ($failed) { exit 1 }
       - name: Run POSIX installer test with dash
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -132,7 +139,39 @@ jobs:
           go test ./scripts/render-install -run '^TestInstaller$' -count=1
       - name: Vulnerability check
         if: matrix.os == 'ubuntu-latest'
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
+  # Shell, YAML and workflow checks, with the tools pinned in the Makefile and
+  # in tools/. The formatters (make fmt-check) are not gated yet.
+  lint:
+    name: lint (shell, yaml, workflows, go)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+            tools/actionlint/go.sum
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Go modules are tidy
+        run: go mod tidy -diff
+      - name: Shell, YAML and workflows
+        run: make lint-sh lint-yaml lint-actions
+      # The tool runs on this runner; GOOS picks the files it analyses, so each
+      # release OS is linted here.
+      - name: Go linters (linux)
+        run: GOOS=linux make lint-go
+      - name: Go linters (darwin)
+        run: GOOS=darwin make lint-go
+      - name: Go linters (windows)
+        run: GOOS=windows make lint-go
+      # A size exception whose function or file was fixed must leave the list.
+      - name: Size exceptions still fire
+        run: make lint-exceptions
 
   # A native arm64 runner is cheaper than QEMU: no emulation, and it runs in
   # parallel with cross-build, so it adds no time to that job.
@@ -169,10 +208,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: true
@@ -260,7 +299,7 @@ jobs:
       - name: Write the release body from CHANGES.md
         run: uv run scripts/version/version.py notes "$TAG" -o .release/notes.md
       - name: Dry run of the release
-        uses: goreleaser/goreleaser-action@v7
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           version: '~> v2'
           args: release --clean --skip=publish,announce,validate --release-notes=.release/notes.md

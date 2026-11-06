@@ -53,7 +53,7 @@ func OpenUserState(dir string) (*Store, error) {
 		return nil, fmt.Errorf("paid runs: account state folder: %w", err)
 	}
 	// MkdirAll keeps the mode of a folder that exists.
-	if err := os.Chmod(dir, 0700); err != nil {
+	if err := os.Chmod(dir, 0700); err != nil { //nolint:gosec // G302: a folder needs the x bit; 0700 keeps it the owner's alone
 		return nil, fmt.Errorf("paid runs: account state folder: %w", err)
 	}
 	return &Store{Dir: dir}, nil

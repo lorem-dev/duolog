@@ -30,7 +30,7 @@ func lookProcess(pid int) (Presence, string) {
 		}
 		return Unknown, ""
 	}
-	defer win.CloseHandle(h)
+	defer func() { _ = win.CloseHandle(h) }() // a query handle; nothing is lost if closing fails
 	var code uint32
 	if win.GetExitCodeProcess(h, &code) != nil {
 		return Unknown, ""

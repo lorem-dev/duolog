@@ -99,7 +99,7 @@ func EstimateTask(cfg *config.Config, records []journal.Delegation,
 		measured = tokens(d)
 	}
 	if priceErr != nil {
-		return e, fmt.Errorf("%w for %s model %s (estimate: %s); paid runs refuse it: %v",
+		return e, fmt.Errorf("%w for %s model %s (estimate: %s); paid runs refuse it: %w",
 			ErrUnpriced, agent, family, e.Source, priceErr)
 	}
 	e.USD = cost(measured)

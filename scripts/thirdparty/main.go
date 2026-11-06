@@ -97,7 +97,7 @@ func moduleLicense(dir string) (string, error) {
 	var licenses []string
 	for _, entry := range entries {
 		name := strings.ToLower(entry.Name())
-		if entry.IsDir() || !(name == "license" || strings.HasPrefix(name, "license.") || strings.HasPrefix(name, "license-") || name == "licence" || name == "copying") {
+		if entry.IsDir() || (name != "license" && !strings.HasPrefix(name, "license.") && !strings.HasPrefix(name, "license-") && name != "licence" && name != "copying") {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))

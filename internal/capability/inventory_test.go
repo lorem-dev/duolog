@@ -167,7 +167,7 @@ func TestScanHasNoSecrets(t *testing.T) {
 			t.Fatalf("%s: svc missing", agent)
 		}
 	}
-	filepath.Walk(filepath.Join(root, ".duolog"), func(p string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(filepath.Join(root, ".duolog"), func(p string, info os.FileInfo, err error) error {
 		if err == nil && !info.IsDir() {
 			data, _ := os.ReadFile(p)
 			all.Write(data)

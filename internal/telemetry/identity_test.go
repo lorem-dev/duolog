@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -38,8 +39,8 @@ func referenceHMAC(key, msg []byte) []byte {
 		ipad[i] ^= 0x36
 		opad[i] ^= 0x5c
 	}
-	inner := sha256.Sum256(append(ipad, msg...))
-	outer := sha256.Sum256(append(opad, inner[:]...))
+	inner := sha256.Sum256(slices.Concat(ipad, msg))
+	outer := sha256.Sum256(slices.Concat(opad, inner[:]))
 	return outer[:]
 }
 

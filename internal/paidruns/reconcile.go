@@ -77,7 +77,7 @@ type outcome int
 const (
 	// keep holds the reservation: its owner is alive, or no safe conclusion
 	// exists and the reason is reported in Retained.
-	keep outcome = iota
+	keep outcome = iota //nolint:unused // the zero value: conclusion{} keeps, and the switch's default handles it
 	// release drops a reservation proven never to have started.
 	release
 	// end drops a reservation whose child ended, charging an unsettled task

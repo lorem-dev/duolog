@@ -304,7 +304,7 @@ func Release(ctx context.Context, id string) (string, error) {
 	}
 	usd := 0.0
 	for _, r := range ended {
-		if r.Paid && !(r.Shape == workerenv.Peer && r.Session) {
+		if r.Paid && (r.Shape != workerenv.Peer || !r.Session) {
 			usd += r.Estimate.USD
 		}
 	}

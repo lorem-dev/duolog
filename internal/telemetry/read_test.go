@@ -374,12 +374,12 @@ func TestReadSegments(t *testing.T) {
 
 		run := sampleRun()
 		run.Common = stamp("run")
-		run.Common.Run = id
+		run.Run = id
 		run.Role = "admin"
 		run.Family = "family-x"
 		wantRun := sampleRun()
 		wantRun.Common = stamp("run")
-		wantRun.Common.Run = id
+		wantRun.Run = id
 		wantRun.Role, wantRun.Family = other, other
 
 		var project []byte

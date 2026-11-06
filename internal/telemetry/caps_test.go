@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"bytes"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -94,7 +95,7 @@ func TestDailyCap(t *testing.T) {
 			t.Fatalf("segment %d bytes, want %d", got, testDayCapBytes)
 		}
 		// The next line is dropped whole and counted, not as a failure.
-		if err := s.Append(sampleRun()); err != errCapped {
+		if err := s.Append(sampleRun()); !errors.Is(err, errCapped) {
 			t.Fatalf("Append over the cap: %v, want %v", err, errCapped)
 		}
 		data, err := os.ReadFile(seg)
@@ -138,7 +139,7 @@ func TestDailyCap(t *testing.T) {
 		seg := projectSegment(t, root, testDay)
 		full := filler(testDayCapBytes)
 		plant(t, seg, slices.Concat(full, partial))
-		if err := s.Append(sampleRun()); err != errCapped {
+		if err := s.Append(sampleRun()); !errors.Is(err, errCapped) {
 			t.Fatalf("Append over the cap: %v, want %v", err, errCapped)
 		}
 		if got, _ := os.ReadFile(seg); !bytes.Equal(got, full) {
@@ -167,7 +168,7 @@ func TestDailyCap(t *testing.T) {
 		if onDisk := int64(len(compressed)) + fileSize(t, seg); onDisk+int64(len(line)) > testDayCapBytes/2 {
 			t.Fatalf("the gzip copy is too large to tell raw from disk bytes: %d", onDisk)
 		}
-		if err := s.Append(sampleRun()); err != errCapped {
+		if err := s.Append(sampleRun()); !errors.Is(err, errCapped) {
 			t.Errorf("Append over the raw cap: %v, want %v", err, errCapped)
 		}
 		if got := fileSize(t, seg); got != 500_000 {
@@ -261,7 +262,7 @@ func TestRootCap(t *testing.T) {
 		}
 		total := treeBytes(t, root)
 		health := s.Health()
-		if err := s.Append(sampleRun()); err != errCapped {
+		if err := s.Append(sampleRun()); !errors.Is(err, errCapped) {
 			t.Fatalf("Append over the root cap: %v, want %v", err, errCapped)
 		}
 		if !exists(t, oldest) {
@@ -278,7 +279,7 @@ func TestRootCap(t *testing.T) {
 		}
 		// An account event cannot fit either; no append reports success
 		// above the cap.
-		if err := s.Append(sampleQuota()); err != errCapped {
+		if err := s.Append(sampleQuota()); !errors.Is(err, errCapped) {
 			t.Errorf("account Append over the root cap: %v, want %v", err, errCapped)
 		}
 	})

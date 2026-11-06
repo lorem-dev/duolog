@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -208,11 +209,11 @@ func Load(root string) (*Config, error) {
 		// prices and the account session limits. So may a local layer that
 		// Git tracks, since it reaches everyone who clones the repository,
 		// and one outside a Git checkout, which nothing proves the person's.
-		shared := ""
-		switch {
-		case i == 1:
+		var shared string
+		switch i {
+		case 1:
 			shared = projectFile
-		case i == 2:
+		case 2:
 			shared = sharedLocal(root)
 			localLabel = shared
 		}
@@ -246,7 +247,8 @@ func Load(root string) (*Config, error) {
 	if err := validateAccountLimits(&cfg); err != nil {
 		return nil, err
 	}
-	cfg.Notices = append(notices, capSessionTiers(&cfg)...)
+	notices = append(notices, capSessionTiers(&cfg)...)
+	cfg.Notices = notices
 	cfg.Telemetry = keepTelemetry(userTelemetrySection, projectTelemetryOff, telemetryEnvOff())
 	if err := validateTelemetry(cfg.Telemetry); err != nil {
 		return nil, err
@@ -414,7 +416,7 @@ func parseLayer(data []byte, source string) (*yaml.Node, error) {
 		return nil, fmt.Errorf("%s: %w", source, err)
 	}
 	var extra yaml.Node
-	if err := decoder.Decode(&extra); err != io.EOF {
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		if err == nil {
 			err = fmt.Errorf("expected a single YAML document")
 		}

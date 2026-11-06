@@ -145,6 +145,10 @@ type Checker interface {
 
 // New returns the real checker. cacheDir is .duolog/cache, or empty for none.
 func New(cacheDir string) Checker {
+	return newChecker(cacheDir)
+}
+
+func newChecker(cacheDir string) *checker {
 	// A redirect would take the credential headers to another url, so the
 	// check reads the first answer only.
 	client := &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -158,7 +162,7 @@ func New(cacheDir string) Checker {
 // p's route alone, by its cache key, never for the agent. Server checks and
 // Login stay as New's.
 func NewForProcess(cacheDir string, p workerenv.Process) Checker {
-	c := New(cacheDir).(*checker)
+	c := newChecker(cacheDir)
 	c.proc = &p
 	return c
 }
@@ -206,13 +210,11 @@ func (c *checker) Agent(ctx context.Context, agent string) *Problem {
 	if c.passed(p) {
 		return nil
 	}
-	var out []byte
-	var err error
 	switch agent {
 	case "codex":
 		// Exits 0 only when logged in.
 		argv, env := c.agentArgv("codex", "login", "status")
-		out, err = c.run(ctx, argv, env)
+		_, err := c.run(ctx, argv, env)
 		if err != nil {
 			// No answer, a missing binary or a killed check is not a failed login.
 			var exit *exec.ExitError
@@ -224,7 +226,8 @@ func (c *checker) Agent(ctx context.Context, agent string) *Problem {
 		}
 	case "claude":
 		argv, env := c.agentArgv("claude", "auth", "status", "--json")
-		out, err = c.run(ctx, argv, env)
+		// The output decides; a failed run leaves it empty and is treated as no answer.
+		out, _ := c.run(ctx, argv, env)
 		var status struct {
 			LoggedIn *bool `json:"loggedIn"`
 		}

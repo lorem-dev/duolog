@@ -46,7 +46,7 @@ func skillResult(s Spec, stdoutPath, answerPath string, result Result) (Result, 
 	result.RawAnswer = output.Result
 	result.Usage = output.Usage.tokens()
 	if output.IsError {
-		return result, fmt.Errorf("Claude returned an error: %s", output.Result)
+		return result, fmt.Errorf("Claude returned an error: %s", output.Result) //nolint:staticcheck // ST1005: Claude is a product name
 	}
 	return result, nil
 }

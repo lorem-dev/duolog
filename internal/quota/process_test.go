@@ -59,7 +59,7 @@ func sameEnv(t *testing.T, bin string, env []string) {
 	}
 	for _, pair := range got {
 		name, _, _ := strings.Cut(pair, "=")
-		if !slices.Contains(env, pair) && !(runtime.GOOS == "windows" && strings.EqualFold(name, "SYSTEMROOT")) {
+		if !slices.Contains(env, pair) && (runtime.GOOS != "windows" || !strings.EqualFold(name, "SYSTEMROOT")) {
 			t.Errorf("fake saw %s, which the process does not set", name)
 		}
 	}

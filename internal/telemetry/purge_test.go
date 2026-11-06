@@ -3,6 +3,7 @@ package telemetry
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -105,7 +106,7 @@ func TestPurgeScope(t *testing.T) {
 
 			// This store writes again under the same id only while its
 			// project collects; off, nothing comes back.
-			s.Append(sampleRun())
+			_ = s.Append(sampleRun()) // the partition is what is checked
 			if exists(t, here) != c.writesAfter {
 				t.Errorf("partition after an append: %v, want %v", exists(t, here), c.writesAfter)
 			}
@@ -317,7 +318,7 @@ func TestPurgeRemovedLockIsRetaken(t *testing.T) {
 		s, root, _ := setup(t, 2)
 		seg := projectSegment(t, root, testDay)
 		before := readBytes(t, seg)
-		if err := s.Append(sampleRun()); err != errUnsafeStore {
+		if err := s.Append(sampleRun()); !errors.Is(err, errUnsafeStore) {
 			t.Errorf("Append: %v, want %v", err, errUnsafeStore)
 		}
 		if got := readBytes(t, seg); !bytes.Equal(got, before) {

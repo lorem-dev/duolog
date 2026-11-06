@@ -278,7 +278,7 @@ func WriteProject(stateDir string, p ProjectPart, names ...string) (old, updated
 	if err != nil && !os.IsNotExist(err) {
 		return nil, nil, err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { //nolint:gosec // .duolog/calibration holds the shared project.yaml, like the rest of .duolog
 		return old, nil, err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+ProjectFile+".*.tmp")
@@ -294,7 +294,7 @@ func WriteProject(stateDir string, p ProjectPart, names ...string) (old, updated
 	if closeErr != nil {
 		return old, nil, closeErr
 	}
-	if err := os.Chmod(tmp.Name(), 0644); err != nil {
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil { //nolint:gosec // project.yaml is committed and shared, so it stays readable
 		return old, nil, err
 	}
 	if err := store.Rename(tmp.Name(), path); err != nil {

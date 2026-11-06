@@ -234,7 +234,7 @@ func (rd *reader) segment(name string, compressed, account bool) {
 		return
 	}
 	defer f.Close()
-	var src io.Reader = io.LimitReader(f, limit)
+	src := io.LimitReader(f, limit)
 	if compressed {
 		z, err := gzip.NewReader(src)
 		if err != nil {

@@ -358,7 +358,7 @@ func lastLines(text string, n int, styled bool) []byte {
 // escapeRe matches a CSI sequence, an OSC sequence such as a hyperlink, and a
 // two-byte escape such as a charset switch. sgrRe is the CSI that sets styles.
 var (
-	escapeRe = regexp.MustCompile("\x1b(?:\\[[0-?]*[ -/]*[@-~]|\\][^\x07\x1b]*(?:\x07|\x1b\\\\)?|[ -/]*[0-~])")
+	escapeRe = regexp.MustCompile("\x1b(?:\\[[0-?]*[ -/]*[@-~]|\\][^\x07\x1b]*(?:\x07|\x1b\\\\)?|[ -/]*[0-~])") //nolint:gocritic // ECMA-48 ranges: [ -/] intermediate bytes 0x20-0x2F, [@-~] final bytes 0x40-0x7E
 	sgrRe    = regexp.MustCompile("^\x1b\\[[0-9;:]*m$")
 )
 

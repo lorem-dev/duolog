@@ -78,7 +78,8 @@ func backCommand(bin, client, block, session string) string {
 // and id characters.
 func shellWord(s string) string {
 	if s != "" && strings.IndexFunc(s, func(r rune) bool {
-		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_@%+=:,./-", r))
+		plain := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_@%+=:,./-", r)
+		return !plain
 	}) < 0 {
 		return s
 	}
