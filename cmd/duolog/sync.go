@@ -44,7 +44,7 @@ func newSyncCommand(d *cmdDeps) *cobra.Command {
 			}
 		}
 		o.Resolver = d.Delegate.Agents["codex"].Models
-		rep, err := agentsync.Run(workRoot(root), cfg.Sync, o)
+		rep, err := agentsync.Run(workRoot(root), d.SyncFormats, cfg.Sync, o)
 		if err != nil {
 			return err
 		}

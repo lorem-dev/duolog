@@ -14,6 +14,7 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/sync"
+	"github.com/lorem-dev/duolog/internal/app/sync/synctest"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
@@ -75,7 +76,7 @@ func setup(t *testing.T, agent string) (Env, *session.Registry, *bus.Bus) {
 	h["transcript_path"] = path
 	h["permission_mode"] = "default"
 	input, _ := json.Marshal(h)
-	return withAgent(Env{Root: root, Input: input, Environ: []string{"CLAUDE_CODE_ENTRYPOINT=cli"}}, agent), reg, b
+	return withAgent(Env{Root: root, Input: input, Environ: []string{"CLAUDE_CODE_ENTRYPOINT=cli"}, Sync: synctest.Real()}, agent), reg, b
 }
 func change(t *testing.T, e Env, key string, v any) Env {
 	t.Helper()
@@ -609,7 +610,7 @@ func syncProject(t *testing.T, agent string) Env {
 		}
 		write(t, path, data)
 	}
-	if _, err := agentsync.Run(e.Root, defaults(t).Sync, agentsync.Options{From: "claude"}); err != nil {
+	if _, err := agentsync.Run(e.Root, e.Sync, defaults(t).Sync, agentsync.Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	return e

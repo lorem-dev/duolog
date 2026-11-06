@@ -14,7 +14,7 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/roster"
-	"github.com/lorem-dev/duolog/internal/app/sync"
+	agentsync "github.com/lorem-dev/duolog/internal/app/sync"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
@@ -61,6 +61,9 @@ type Env struct {
 	// Models resolves the Codex aliases of the sync that a hook runs. Nil means
 	// an alias is an error; the command sets it.
 	Models agentsync.ModelResolver
+	// Sync holds the formats that duolog sync converts between. Nil means the
+	// hook does not sync.
+	Sync agentsync.Formats
 }
 
 type Output struct {

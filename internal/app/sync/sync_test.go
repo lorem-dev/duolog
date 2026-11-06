@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/workertest"
+	"github.com/lorem-dev/duolog/internal/core/agentfile"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/route"
 )
@@ -30,17 +31,20 @@ func catalogOf(list []route.Entry, version string) func(context.Context) ([]rout
 	return func(context.Context) ([]route.Entry, string, error) { return list, version, nil }
 }
 
-// runWith is Run with the test catalog behind the Codex aliases.
+// runWith is Run on the real formats, with the test catalog behind the Codex
+// aliases.
 func runWith(root string, cfg config.Sync, o Options) (Report, error) {
 	o.Resolver = testModels
-	return Run(root, cfg, o)
+	return Run(root, realFormats(), cfg, o)
 }
 
 func hookWith(root string, cfg config.Sync, path string) string {
-	return Hook(root, cfg, path, testModels)
+	return Hook(root, realFormats(), cfg, path, testModels)
 }
 
-func startWith(root string, cfg config.Sync) string { return SessionStart(root, cfg, testModels) }
+func startWith(root string, cfg config.Sync) string {
+	return SessionStart(root, realFormats(), cfg, testModels)
+}
 
 func syncCfg(t *testing.T) config.Sync {
 	return config.Sync{Auto: true, Agents: testOpts(t).Config}
@@ -166,7 +170,7 @@ func TestSwitchDirectionKeepsOneGeneratedComment(t *testing.T) {
 	if _, err := runWith(root, syncCfg(t), Options{From: "codex", SwitchDirection: true}); err != nil {
 		t.Fatal(err)
 	}
-	if got := read(t, root, ".claude/skills/foo/SKILL.md"); strings.Count(got, generatedComment) != 1 {
+	if got := read(t, root, ".claude/skills/foo/SKILL.md"); strings.Count(got, agentfile.GeneratedComment) != 1 {
 		t.Fatal(got)
 	}
 }
@@ -549,7 +553,7 @@ func TestAgentNameWithPathIsRefused(t *testing.T) {
 
 func TestApplyRefusesTargetOutsideGeneratedFolder(t *testing.T) {
 	root := newProject(t)
-	r := &runner{root: root, to: sideDirs("codex")}
+	r := &runner{root: root, to: []side{newSide(realFormats(), "codex")}}
 	if r.within(filepath.Join(root, ".codex", "agents", "..", "..", "x.toml")) || !r.within(filepath.Join(root, ".codex", "agents", "a.toml")) {
 		t.Fatal("within is wrong")
 	}

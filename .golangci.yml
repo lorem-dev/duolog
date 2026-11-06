@@ -168,10 +168,8 @@ linters:
       - {path: '^internal/app/sync/lock\.go$', linters: [gocognit], text: 'complexity 25 of func .(?:\(\*?\w+\)\.)?LoadLock. is'} # LoadLock: cognitive 25
       - {path: '^internal/app/sync/lock\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?pruneWorktreeLocks is 17,'} # pruneWorktreeLocks: cyclomatic 17
       - {path: '^internal/app/sync/lock\.go$', linters: [nestif], text: '.if\ errors\.Is\(err,\ os\.ErrNotExist\). has complex nested blocks \(complexity: 13\)'} # if if errors.Is(err, os.ErrNotExist): nesting 13
-      - {path: '^internal/app/sync/sync\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Run. has too many statements \(43 > |complexity 22 of func .(?:\(\*?\w+\)\.)?Run. is|function (?:\(\*?\w+\)\.)?Run is 22,'} # Run: cyclomatic 22, statements 43, cognitive 22
       - {path: '^internal/app/sync/sync\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .apply. has too many statements \(44 > |complexity 25 of func .(?:\(\*?\w+\)\.)?apply. is|function (?:\(\*?\w+\)\.)?apply is 22,'} # apply: cyclomatic 22, statements 44, cognitive 25
-      - {path: '^internal/app/sync/sync\.go$', linters: [cyclop, gocognit], text: 'complexity 35 of func .(?:\(\*?\w+\)\.)?skillUnits. is|function (?:\(\*?\w+\)\.)?skillUnits is 17,'} # skillUnits: cyclomatic 17, cognitive 35
-      - {path: '^internal/app/sync/toml\.go$', linters: [gocognit], text: 'complexity 26 of func .(?:\(\*?\w+\)\.)?tomlMultiline. is'} # tomlMultiline: cognitive 26
+      - {path: '^internal/adapter/codex/sync\.go$', linters: [gocognit], text: 'complexity 26 of func .(?:\(\*?\w+\)\.)?tomlMultiline. is'} # tomlMultiline: cognitive 26
       - {path: '^internal/app/learn/propose\.go$', linters: [cyclop, gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?EditConfig. is|function (?:\(\*?\w+\)\.)?EditConfig is 19,'} # EditConfig: cyclomatic 19, cognitive 23
       - {path: '^internal/artifact/artifact\.go$', linters: [nestif], text: '.if\ at\ >=\ 0. has complex nested blocks \(complexity: 6\)'} # if if at >= 0: nesting 6
       - {path: '^internal/app/calibrate/cell\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .RunCell. has too many statements \(101 > |complexity 34 of func .(?:\(\*?\w+\)\.)?RunCell. is|function (?:\(\*?\w+\)\.)?RunCell is 38,'} # RunCell: cyclomatic 38, statements 101, cognitive 34

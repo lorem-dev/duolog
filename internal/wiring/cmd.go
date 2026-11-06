@@ -13,6 +13,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/app/profile"
+	agentsync "github.com/lorem-dev/duolog/internal/app/sync"
 	"github.com/lorem-dev/duolog/internal/core/budget"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/rex"
@@ -60,6 +61,8 @@ type CmdDeps struct {
 	IsTerminal func(v any) bool
 	// GOOS is the platform doctor describes.
 	GOOS string
+	// SyncFormats holds the format of each agent that duolog sync converts.
+	SyncFormats agentsync.Formats
 }
 
 // Cmd fills every field of CmdDeps with the real function.
@@ -83,6 +86,7 @@ func Cmd() CmdDeps {
 		OpenLaunchState: func() (*paidruns.Store, error) { return paidruns.OpenUserState("") },
 		IsTerminal:      isTerminal,
 		GOOS:            runtime.GOOS,
+		SyncFormats:     SyncFormats(),
 	}
 }
 

@@ -16,8 +16,6 @@ import (
 	"strings"
 	"time"
 
-	toml "github.com/pelletier/go-toml/v2"
-
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/plugin"
 )
@@ -52,27 +50,25 @@ type ModelResolver interface {
 	Resolve(ctx context.Context, cfg *config.Config, cacheDir string, t config.Target) (string, error)
 }
 
-type dirs struct{ agents, skills string }
-
-var (
-	claudeDirs = dirs{agents: ".claude/agents", skills: ".claude/skills"}
-	codexDirs  = dirs{agents: ".codex/agents", skills: ".agents/skills"}
-)
-
-func sideDirs(side string) dirs {
-	if side == "claude" {
-		return claudeDirs
-	}
-	return codexDirs
+// side is one agent's format with the folders it keeps its files in.
+type side struct {
+	name   string
+	format Format
+	dirs   Dirs
 }
 
-// unit is one file to generate.
+func newSide(formats Formats, name string) side {
+	return side{name: name, format: formats[name], dirs: formats[name].Dirs()}
+}
+
+// unit is one file to generate. format is the target's, and set for an agent.
 type unit struct {
 	src, target string
 	content     []byte
 	mode        os.FileMode
 	entry       FileEntry
 	agent       bool
+	format      Format
 	err         error
 }
 
@@ -80,15 +76,15 @@ type runner struct {
 	root        string
 	cfg         config.Sync
 	o           Options
-	from, to    dirs
-	fromSide    string
+	from        side
+	to          []side
 	scanFailed  bool
 	pathWindows bool
 	rep         Report
 }
 
-// Run converts agents and skills from the source side to the target side.
-func Run(root string, cfg config.Sync, o Options) (Report, error) {
+// Run converts agents and skills from the source side to every other side.
+func Run(root string, formats Formats, cfg config.Sync, o Options) (Report, error) {
 	pathWindows := runtime.GOOS == "windows" || pathutil.Windows(o.Path)
 	if o.Path != "" {
 		o.Path = relative(root, o.Path)
@@ -96,42 +92,25 @@ func Run(root string, cfg config.Sync, o Options) (Report, error) {
 			return Report{}, fmt.Errorf("--path must be inside the project")
 		}
 	}
-	mutexPath := filepath.Join(project.StateRoot(root), ".duolog", "sync.lock")
-	if _, err := os.Stat(mutexPath); err == nil || !o.DryRun && !o.Check {
-		if err := os.MkdirAll(filepath.Dir(mutexPath), 0755); err != nil {
-			return Report{}, err
-		}
-		// Eight runs in a row took over two seconds on a slow Windows runner, and a
-		// sync that gives up leaves generated files out of date.
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		unlock, err := store.LockFileContext(ctx, mutexPath, 20*time.Millisecond)
-		if err != nil {
-			return Report{}, fmt.Errorf("sync lock unavailable: %v", err) //nolint:errorlint // the cause is context text, and the message is the whole error
-		}
-		defer func() { _ = unlock() }()
+	release, err := acquire(root, o)
+	if err != nil {
+		return Report{}, err
 	}
+	defer release()
 	lock, err := LoadLock(root)
 	if err != nil {
 		return Report{}, err
 	}
-	side := lock.Direction
-	switch {
-	case o.From != "" && o.From != "claude" && o.From != "codex":
-		return Report{}, fmt.Errorf("--from must be claude or codex, got %q", o.From)
-	case side == "" && o.From == "":
-		return Report{}, errors.New("no direction chosen yet: run duolog sync --from claude or --from codex")
-	case side == "":
-		side = o.From
-	case o.From != "" && o.From != side:
-		if !o.SwitchDirection {
-			return Report{}, fmt.Errorf("files were generated from %s; --from %s would reverse that: pass --switch-direction to rebuild the old sources", side, o.From)
-		}
-		lock = switched(root, lock)
-		side = o.From
+	lock, dir, err := direction(root, formats, lock, o)
+	if err != nil {
+		return Report{}, err
 	}
-	lock.Direction = side
-	r := &runner{root: root, cfg: cfg, o: o, pathWindows: pathWindows, fromSide: side, from: sideDirs(side), to: sideDirs(other(side))}
+	to := targets(formats, dir)
+	if len(to) == 0 {
+		return Report{}, errors.New("sync needs a second agent to generate files for")
+	}
+	lock.Direction = dir
+	r := &runner{root: root, cfg: cfg, o: o, pathWindows: pathWindows, from: newSide(formats, dir), to: to}
 	r.sync(&lock)
 	if !o.DryRun && !o.Check {
 		if err := saveLock(root, lock); err != nil {
@@ -145,11 +124,61 @@ func Run(root string, cfg config.Sync, o Options) (Report, error) {
 	return r.rep, nil
 }
 
-func other(side string) string {
-	if side == "claude" {
-		return "codex"
+// acquire takes the mutex of the sync when the run writes, or when the mutex
+// file is there already. The function it returns gives the mutex back.
+func acquire(root string, o Options) (release func(), err error) {
+	mutexPath := filepath.Join(project.StateRoot(root), ".duolog", "sync.lock")
+	if _, err := os.Stat(mutexPath); err != nil && (o.DryRun || o.Check) {
+		return func() {}, nil
 	}
-	return "claude"
+	if err := os.MkdirAll(filepath.Dir(mutexPath), 0755); err != nil {
+		return nil, err
+	}
+	// Eight runs in a row took over two seconds on a slow Windows runner, and a
+	// sync that gives up leaves generated files out of date.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	unlock, err := store.LockFileContext(ctx, mutexPath, 20*time.Millisecond)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("sync lock unavailable: %v", err) //nolint:errorlint // the cause is context text, and the message is the whole error
+	}
+	return func() { _ = unlock(); cancel() }, nil
+}
+
+// direction picks the side that holds the sources: the one the lock names, or
+// the one that --from names. A switch rebuilds the lock for the new direction.
+func direction(root string, formats Formats, lock Lock, o Options) (Lock, string, error) {
+	names := formats.names()
+	dir := lock.Direction
+	switch {
+	case o.From != "" && formats[o.From] == nil:
+		return lock, "", fmt.Errorf("--from must be %s, got %q", strings.Join(names, " or "), o.From)
+	case dir == "" && o.From == "":
+		return lock, "", fmt.Errorf("no direction chosen yet: run duolog sync --from %s", strings.Join(names, " or --from "))
+	case dir == "":
+		dir = o.From
+	case o.From != "" && o.From != dir:
+		if !o.SwitchDirection {
+			return lock, "", fmt.Errorf("files were generated from %s; --from %s would reverse that: pass --switch-direction to rebuild the old sources", dir, o.From)
+		}
+		lock = switched(root, lock)
+		dir = o.From
+	}
+	if formats[dir] == nil {
+		return lock, "", fmt.Errorf("files were generated from %s, which is not a known agent; pass --from %s with --switch-direction", dir, strings.Join(names, " or --from "))
+	}
+	return lock, dir, nil
+}
+
+// targets returns every side but the source, in order of name.
+func targets(formats Formats, source string) []side {
+	var to []side
+	for _, name := range formats.names() {
+		if name != source {
+			to = append(to, newSide(formats, name))
+		}
+	}
+	return to
 }
 
 // switched builds the lock of the opposite direction. The old sources become
@@ -174,10 +203,10 @@ func switched(root string, old Lock) Lock {
 func (r *runner) abs(rel string) string { return filepath.Join(r.root, filepath.FromSlash(rel)) }
 
 // unitRoot names what a path belongs to: the skill folder, or the agent file.
-func unitRoot(rel string, d dirs) string {
-	if rest, ok := strings.CutPrefix(rel, d.skills+"/"); ok {
+func unitRoot(rel string, d Dirs) string {
+	if rest, ok := strings.CutPrefix(rel, d.Skills+"/"); ok {
 		name, _, _ := strings.Cut(rest, "/")
-		return d.skills + "/" + name
+		return d.Skills + "/" + name
 	}
 	return rel
 }
@@ -186,7 +215,7 @@ func (r *runner) inScope(src string) bool {
 	if r.o.Path == "" {
 		return true
 	}
-	a, b := unitRoot(src, r.from), unitRoot(r.o.Path, r.from)
+	a, b := unitRoot(src, r.from.dirs), unitRoot(r.o.Path, r.from.dirs)
 	if r.pathWindows {
 		return strings.EqualFold(a, b)
 	}
@@ -194,8 +223,11 @@ func (r *runner) inScope(src string) bool {
 }
 
 func (r *runner) wantKind(target string) (agent, ok bool) {
-	agent = strings.HasPrefix(target, r.to.agents+"/")
-	skill := strings.HasPrefix(target, r.to.skills+"/")
+	var skill bool
+	for _, t := range r.to {
+		agent = agent || strings.HasPrefix(target, t.dirs.Agents+"/")
+		skill = skill || strings.HasPrefix(target, t.dirs.Skills+"/")
+	}
 	if !agent && !skill {
 		return false, false
 	}
@@ -213,7 +245,7 @@ func (r *runner) sync(lock *Lock) {
 	if !r.o.AgentsOnly {
 		units = append(units, r.skillUnits()...)
 	}
-	sort.Slice(units, func(i, j int) bool { return units[i].src < units[j].src })
+	sort.SliceStable(units, func(i, j int) bool { return units[i].src < units[j].src })
 	produced := map[string]string{}
 	failed := map[string]bool{}
 	for _, u := range units {
@@ -264,7 +296,7 @@ func (r *runner) apply(lock *Lock, u unit) {
 		return
 	case exists && hashBytes(cur) == want:
 		if r.o.Check && u.agent {
-			if err := parsesAsAgent(u.target, cur); err != nil {
+			if err := u.format.Check(u.target, cur); err != nil {
 				r.rep.Conflicts = append(r.rep.Conflicts, fmt.Sprintf("%s: does not parse: %v (source %s)", u.target, oneLine(err.Error()), u.src))
 				return
 			}
@@ -274,7 +306,7 @@ func (r *runner) apply(lock *Lock, u unit) {
 	case exists && hashBytes(cur) != old.TargetHash && !r.o.Force:
 		msg := fmt.Sprintf("%s: edited by hand since the last sync; left as is, edit the source %s or use --force", u.target, u.src)
 		if r.o.Check && u.agent {
-			if err := parsesAsAgent(u.target, cur); err != nil {
+			if err := u.format.Check(u.target, cur); err != nil {
 				msg = fmt.Sprintf("%s: does not parse: %v (source %s)", u.target, oneLine(err.Error()), u.src)
 			}
 		}
@@ -304,9 +336,11 @@ func (r *runner) within(path string) bool {
 			break
 		}
 	}
-	for _, base := range []string{r.abs(r.to.agents), r.abs(r.to.skills)} {
-		if strings.HasPrefix(path, filepath.Clean(base)+string(filepath.Separator)) {
-			return true
+	for _, t := range r.to {
+		for _, base := range []string{r.abs(t.dirs.Agents), r.abs(t.dirs.Skills)} {
+			if strings.HasPrefix(path, filepath.Clean(base)+string(filepath.Separator)) {
+				return true
+			}
 		}
 	}
 	return false
@@ -359,12 +393,14 @@ func (r *runner) removeStale(lock *Lock, produced map[string]string, failed map[
 
 // pruneEmpty removes folders left empty inside the target skills folder.
 func (r *runner) pruneEmpty(dir string) {
-	stop := r.abs(r.to.skills)
-	for dir != stop && strings.HasPrefix(dir, stop+string(filepath.Separator)) {
-		if os.Remove(dir) != nil {
-			return
+	for _, t := range r.to {
+		stop := r.abs(t.dirs.Skills)
+		for dir != stop && strings.HasPrefix(dir, stop+string(filepath.Separator)) {
+			if os.Remove(dir) != nil {
+				return
+			}
+			dir = filepath.Dir(dir)
 		}
-		dir = filepath.Dir(dir)
 	}
 }
 
@@ -391,22 +427,18 @@ func readSourceDir(path string) ([]os.DirEntry, error) {
 }
 
 func (r *runner) agentUnits() []unit {
-	ext := ".md"
-	if r.fromSide == "codex" {
-		ext = ".toml"
-	}
-	entries, err := readSourceDir(r.abs(r.from.agents))
+	entries, err := readSourceDir(r.abs(r.from.dirs.Agents))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		r.scanError(r.from.agents, err)
+		r.scanError(r.from.dirs.Agents, err)
 		return nil
 	}
 	var units []unit
 	var resolve func(string) (string, error)
 	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ext {
+		if e.IsDir() || filepath.Ext(e.Name()) != r.from.dirs.Ext {
 			continue
 		}
-		src := r.from.agents + "/" + e.Name()
+		src := r.from.dirs.Agents + "/" + e.Name()
 		if !r.inScope(src) {
 			continue
 		}
@@ -418,35 +450,22 @@ func (r *runner) agentUnits() []unit {
 		if resolve == nil {
 			resolve = r.resolver()
 		}
-		opts := AgentOpts{Config: r.cfg.Agents, Flags: r.o.Models, Resolve: resolve}
-		u := unit{src: src, agent: true, mode: 0o644}
-		u.entry.SourceHash = hashBytes(data)
-		var a Agent
-		if r.fromSide == "claude" {
-			if a, err = ParseClaudeAgent(src, data, opts); err == nil {
-				u.entry.OriginalName = originalName(data)
-				u.content, err = RenderCodexAgent(a)
-				u.target = r.to.agents + "/" + a.Name + ".toml"
-				u.entry.ResolvedModel = a.Model
+		for _, t := range r.to {
+			opts := AgentOpts{Config: r.cfg.Agents, To: t.name, Flags: r.o.Models, Resolve: resolve}
+			u := unit{src: src, agent: true, mode: 0o644, format: t.format}
+			u.entry.SourceHash = hashBytes(data)
+			var a Agent
+			if a, err = r.from.format.ParseAgent(src, data, opts); err == nil {
+				u.entry.OriginalName = a.Original
+				u.entry.ResolvedModel = a.Resolved
+				u.content, err = t.format.RenderAgent(a)
+				u.target = t.dirs.Agents + "/" + a.Name + t.dirs.Ext
 			}
-		} else if a, err = ParseCodexAgent(src, data, opts); err == nil {
-			u.entry.OriginalName = a.Name
-			u.content, err = RenderClaudeAgent(a)
-			u.target = r.to.agents + "/" + a.Name + ".md"
+			u.err = err
+			units = append(units, u)
 		}
-		u.err = err
-		units = append(units, u)
 	}
 	return units
-}
-
-func originalName(md []byte) string {
-	header, _, err := splitFrontmatter(md)
-	if err != nil {
-		return ""
-	}
-	fields, _ := parseHeader(header)
-	return fields["name"]
 }
 
 // resolver turns a Codex alias into the newest visible model, through
@@ -478,80 +497,96 @@ func (r *runner) resolver() func(string) (string, error) {
 }
 
 func (r *runner) skillUnits() []unit {
-	entries, err := readSourceDir(r.abs(r.from.skills))
+	entries, err := readSourceDir(r.abs(r.from.dirs.Skills))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		r.scanError(r.from.skills, err)
+		r.scanError(r.from.dirs.Skills, err)
 		return nil
 	}
 	var units []unit
 	for _, e := range entries {
-		base := r.from.skills + "/" + e.Name()
-		if e.Type()&os.ModeSymlink != 0 {
-			r.rep.Warnings = append(r.rep.Warnings, base+": symlink source skipped")
-			continue
+		base := r.from.dirs.Skills + "/" + e.Name()
+		if r.skillSource(e, base) {
+			units = append(units, r.skillTree(base)...)
 		}
-		// duolog installs its own skills on both sides; they are never synced.
-		if !e.IsDir() || slices.Contains(plugin.Skills, e.Name()) || !r.inScope(base) {
-			continue
-		}
-		if _, err := os.Stat(r.abs(base + "/SKILL.md")); err != nil {
-			if !errors.Is(err, fs.ErrNotExist) {
-				r.scanError(base, err)
-			}
-			continue
-		}
-		_ = filepath.WalkDir(r.abs(base), func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				r.scanError(path, err)
-				return err
-			}
-			if d.Type()&os.ModeSymlink != 0 {
-				r.rep.Warnings = append(r.rep.Warnings, path+": symlink source skipped")
-				return nil
-			}
-			if !d.Type().IsRegular() {
-				return nil
-			}
-			rel, _ := filepath.Rel(r.root, path)
-			src := filepath.ToSlash(rel)
-			target := r.to.skills + "/" + strings.TrimPrefix(src, r.from.skills+"/")
-			u := unit{src: src, target: target, mode: 0o644}
-			data, err := os.ReadFile(path) //nolint:gosec // G122: the walk skips non-regular entries; a swap to a symlink mid-walk only reads a file the user owns
-			if err != nil {
-				u.err = err
-				units = append(units, u)
-				return nil //nolint:nilerr // the read error is kept on the unit and reported there; the walk goes on
-			}
-			if info, err := d.Info(); err == nil {
-				u.mode = info.Mode().Perm()
-			}
-			u.content = data
-			u.entry.SourceHash = hashBytes(data)
-			if src == base+"/SKILL.md" {
-				var warns []string
-				u.content, warns, u.err = convertSkill(data, r.cfg.Skills.DropKeys, r.fromSide == "claude")
-				for _, w := range warns {
-					r.rep.Warnings = append(r.rep.Warnings, src+": "+w)
-				}
-			}
-			units = append(units, u)
-			return nil
-		})
 	}
 	return units
 }
 
-func parsesAsAgent(target string, data []byte) error {
-	if strings.HasSuffix(target, ".toml") {
-		var v map[string]any
-		return toml.Unmarshal(normalizeNewlines(data), &v)
+// skillSource reports whether the entry of the skills folder is a skill to sync.
+func (r *runner) skillSource(e os.DirEntry, base string) bool {
+	if e.Type()&os.ModeSymlink != 0 {
+		r.rep.Warnings = append(r.rep.Warnings, base+": symlink source skipped")
+		return false
 	}
-	header, _, err := splitFrontmatter(data)
+	// duolog installs its own skills on both sides; they are never synced.
+	if !e.IsDir() || slices.Contains(plugin.Skills, e.Name()) || !r.inScope(base) {
+		return false
+	}
+	if _, err := os.Stat(r.abs(base + "/SKILL.md")); err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			r.scanError(base, err)
+		}
+		return false
+	}
+	return true
+}
+
+// skillTree returns the units of every regular file under the skill folder.
+func (r *runner) skillTree(base string) []unit {
+	var units []unit
+	_ = filepath.WalkDir(r.abs(base), func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			r.scanError(path, err)
+			return err
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			r.rep.Warnings = append(r.rep.Warnings, path+": symlink source skipped")
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		units = append(units, r.skillFile(base, path, d)...)
+		return nil
+	})
+	return units
+}
+
+// skillFile returns the units that the file of a skill makes, one for each
+// target. A file it cannot read or convert makes one unit that carries the
+// error.
+func (r *runner) skillFile(base, path string, d fs.DirEntry) []unit {
+	rel, _ := filepath.Rel(r.root, path)
+	src := filepath.ToSlash(rel)
+	rest := strings.TrimPrefix(src, r.from.dirs.Skills+"/")
+	// The walk skips non-regular entries; a swap to a symlink mid-walk only
+	// reads a file the user owns.
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return []unit{{src: src, target: r.to[0].dirs.Skills + "/" + rest, mode: 0o644, err: err}}
 	}
-	_, err = parseHeader(header)
-	return err
+	mode := os.FileMode(0o644)
+	if info, err := d.Info(); err == nil {
+		mode = info.Mode().Perm()
+	}
+	content, convErr := data, error(nil)
+	if src == base+"/SKILL.md" {
+		var warns []string
+		content, warns, convErr = r.from.format.Skill(data, r.cfg.Skills.DropKeys)
+		for _, w := range warns {
+			r.rep.Warnings = append(r.rep.Warnings, src+": "+w)
+		}
+	}
+	var units []unit
+	for _, t := range r.to {
+		u := unit{src: src, target: t.dirs.Skills + "/" + rest, mode: mode, content: content, err: convErr}
+		u.entry.SourceHash = hashBytes(data)
+		units = append(units, u)
+		if convErr != nil {
+			break // one refusal per file, however many targets
+		}
+	}
+	return units
 }
 
 func oneLine(s string) string {
@@ -580,12 +615,12 @@ func relative(root, path string) string {
 // Hook brings the generated files up to date after an agent touched path.
 // It returns one line for the agent, or "" when there is nothing to act on:
 // the path is unrelated, no direction was chosen, or automatic sync is off.
-func Hook(root string, cfg config.Sync, path string, models ModelResolver) string {
+func Hook(root string, formats Formats, cfg config.Sync, path string, models ModelResolver) string {
 	if !cfg.Auto {
 		return ""
 	}
 	lock, err := LoadLock(root)
-	if err != nil || lock.Direction == "" {
+	if err != nil || lock.Direction == "" || formats[lock.Direction] == nil {
 		return ""
 	}
 	rel := relative(root, path)
@@ -608,17 +643,17 @@ func Hook(root string, cfg config.Sync, path string, models ModelResolver) strin
 		}
 		return ""
 	}
-	d := sideDirs(lock.Direction)
-	if !strings.HasPrefix(rel, d.agents+"/") && !strings.HasPrefix(rel, d.skills+"/") {
+	d := formats[lock.Direction].Dirs()
+	if !strings.HasPrefix(rel, d.Agents+"/") && !strings.HasPrefix(rel, d.Skills+"/") {
 		return ""
 	}
-	return line(Run(root, cfg, Options{Path: rel, Resolver: models}))
+	return line(Run(root, formats, cfg, Options{Path: rel, Resolver: models}))
 }
 
 // SessionStart rebuilds everything that changed since the last run: edits made
 // by a shell, and a newer model behind an alias. It is silent unless a file
 // was refused.
-func SessionStart(root string, cfg config.Sync, models ModelResolver) string {
+func SessionStart(root string, formats Formats, cfg config.Sync, models ModelResolver) string {
 	pruneWorktreeLocks(root)
 	if !cfg.Auto {
 		return ""
@@ -627,7 +662,7 @@ func SessionStart(root string, cfg config.Sync, models ModelResolver) string {
 	if err != nil || lock.Direction == "" {
 		return ""
 	}
-	return line(Run(root, cfg, Options{Resolver: models}))
+	return line(Run(root, formats, cfg, Options{Resolver: models}))
 }
 
 func line(rep Report, err error) string {

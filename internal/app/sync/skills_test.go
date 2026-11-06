@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/core/agentfile"
 	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
@@ -72,15 +73,14 @@ func TestSkillBodyUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := read(t, root, ".agents/skills/probe/SKILL.md")
-	_, body, err := splitFrontmatter([]byte(got))
-	if err != nil {
-		t.Fatal(err)
+	bodyOf := func(file string) string {
+		_, body, _ := strings.Cut(strings.TrimPrefix(file, "---\n"), "\n---\n")
+		return body
 	}
-	_, want, _ := splitFrontmatter([]byte(skillMD))
-	if body != want {
+	if body, want := bodyOf(got), bodyOf(skillMD); body != want || want == "" {
 		t.Fatalf("body changed: %q", body)
 	}
-	if !strings.Contains(got, generatedComment) {
+	if !strings.Contains(got, agentfile.GeneratedComment) {
 		t.Fatalf("no generated comment: %q", got)
 	}
 }

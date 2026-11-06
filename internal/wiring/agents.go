@@ -12,7 +12,9 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/install"
 	"github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/peer"
+	agentsync "github.com/lorem-dev/duolog/internal/app/sync"
 	"github.com/lorem-dev/duolog/internal/core/agent"
+	"github.com/lorem-dev/duolog/internal/core/agentfile"
 )
 
 // doctorAgents gives doctor the ports of each registered agent by name.
@@ -55,13 +57,16 @@ type Agent struct {
 	// Installer writes the agent's hooks and skill. An agent whose Installer
 	// also implements install.Plugins has a plugin that registers the same.
 	Installer install.Installer
+	// Sync reads and writes the agent's files for duolog sync; nil means the
+	// agent takes no part in it.
+	Sync agentfile.Format
 }
 
 // Agents returns the registered agents in order: claude, then codex.
 func Agents() []Agent {
 	return []Agent{
-		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}, Login: claude.Login{}, Trust: claude.Trust{}, Installer: claude.Installer{}},
-		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}, Login: codex.Login{}, Trust: codex.Trust{}, Installer: codex.Installer{}},
+		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}, Login: claude.Login{}, Trust: claude.Trust{}, Installer: claude.Installer{}, Sync: claude.Format{}},
+		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}, Login: codex.Login{}, Trust: codex.Trust{}, Installer: codex.Installer{}, Sync: codex.Format{}},
 	}
 }
 
@@ -119,6 +124,17 @@ func Names() []string {
 		names[i] = a.Facts.Name
 	}
 	return names
+}
+
+// SyncFormats returns the sync format of each registered agent that has one.
+func SyncFormats() agentsync.Formats {
+	formats := agentsync.Formats{}
+	for _, a := range Agents() {
+		if a.Sync != nil {
+			formats[a.Facts.Name] = a.Sync
+		}
+	}
+	return formats
 }
 
 // delegateAgents builds the ports of delegate.Deps.Agents from the registry.

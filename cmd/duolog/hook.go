@@ -39,7 +39,7 @@ func newHookCommand(d *cmdDeps) *cobra.Command {
 		if err != nil || len(data) > 4*1024*1024 {
 			return nil
 		}
-		env := wiring.HookEnv(hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ(), Stderr: cmd.ErrOrStderr(), Peers: peerLines(d, cmd), Models: d.Delegate.Agents["codex"].Models})
+		env := wiring.HookEnv(hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ(), Stderr: cmd.ErrOrStderr(), Peers: peerLines(d, cmd), Models: d.Delegate.Agents["codex"].Models, Sync: d.SyncFormats})
 		var out hook.Output
 		switch args[0] {
 		case "SessionStart", "session-start":

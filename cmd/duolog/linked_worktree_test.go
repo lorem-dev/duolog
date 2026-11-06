@@ -132,13 +132,13 @@ func TestLinkedWorktreeUsesOwnTaskCwdGateAndSync(t *testing.T) {
 		t.Fatalf("gate used main checkout: %s", path)
 	}
 	putWorktreeFile(t, filepath.Join(work, ".claude/skills/s/SKILL.md"), "---\nname: s\ndescription: Skill.\n---\nWORKTREE_SKILL\n")
-	rep, err := agentsync.Run(work, cfg.Sync, agentsync.Options{From: "claude", SkillsOnly: true})
+	rep, err := agentsync.Run(work, testDeps(t).SyncFormats, cfg.Sync, agentsync.Options{From: "claude", SkillsOnly: true})
 	if err != nil || len(rep.Conflicts) > 0 {
 		t.Fatal(rep, err)
 	}
 	putWorktreeFile(t, filepath.Join(work, ".claude/skills/s/SKILL.md"), "---\nname: s\ndescription: Skill.\n---\nWORKTREE_SKILL_EDIT\n")
 	input := []byte(`{"session_id":"lead-123456","tool_input":{"file_path":".claude/skills/s/SKILL.md"}}`)
-	hook.PostTool(context.Background(), wiring.HookEnv(hook.Env{Root: main, WorkRoot: work, Agent: "codex", Input: input, Environ: []string{}}))
+	hook.PostTool(context.Background(), wiring.HookEnv(hook.Env{Root: main, WorkRoot: work, Agent: "codex", Input: input, Environ: []string{}, Sync: testDeps(t).SyncFormats}))
 	got, err := os.ReadFile(filepath.Join(work, ".agents/skills/s/SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
