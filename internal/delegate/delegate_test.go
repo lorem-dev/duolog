@@ -52,6 +52,8 @@ type harness struct {
 	beforeStart func()
 	// checked lists the processes the login checks were made for.
 	checked []workerenv.Process
+	// leadAt is the time of the harness's last lead observation.
+	leadAt time.Time
 }
 
 func put(t *testing.T, p, s string) {
@@ -108,9 +110,7 @@ func newHarness(t *testing.T) *harness {
 	h.task("- a.go")
 	put(t, filepath.Join(h.root, "a.go"), strings.Repeat("line\n", 50))
 	h.trust(true)
-	if err := h.reg.RegisterLead(session.Lead{ID: "lead-123456", Target: config.Target{Agent: "codex", Model: "lead-model"}, Mode: mode.Ask}); err != nil {
-		t.Fatal(err)
-	}
+	h.register(session.Lead{ID: "lead-123456", Target: config.Target{Agent: "codex", Model: "lead-model"}, Mode: mode.Ask})
 	oldRun, oldResolve, oldChecker, oldGate := runWorker, resolveModel, newChecker, NewGate
 	t.Cleanup(func() { runWorker = oldRun; resolveModel = oldResolve; newChecker = oldChecker; NewGate = oldGate })
 	h.auth = &fakeChecker{}
@@ -179,10 +179,35 @@ func (h *harness) lead(agent string, m mode.Mode, effort string) {
 	if agent == "codex" {
 		model = "sol"
 	}
-	if e := h.reg.RegisterLead(session.Lead{ID: "lead-123456", Target: config.Target{Agent: agent, Model: model, Effort: effort}, Mode: m}); e != nil {
-		h.t.Fatal(e)
-	}
+	h.register(session.Lead{ID: "lead-123456", Target: config.Target{Agent: agent, Model: model, Effort: effort}, Mode: m})
 	h.t.Setenv("DUOLOG_LEAD", "lead-123456")
+}
+
+// register records l as RegisterLead does, at the harness's next observation
+// time.
+func (h *harness) register(l session.Lead) {
+	h.t.Helper()
+	h.observe(session.LeadObservation{
+		ID: l.ID, Agent: l.Agent, Model: &l.Model, Effort: &l.Effort,
+		Mode: &l.Mode, TranscriptPath: &l.TranscriptPath, PID: &l.PID,
+	})
+}
+
+// observe applies o at a wall-clock time after the harness's last
+// observation. The registry keeps only wall-clock times, which on Windows
+// advance in timer ticks, so two calls in a row can get the same time; at one
+// time it lowers the mode to the lower of both and clears a different native,
+// and a lead set up as edits with native auto would come out without auto.
+func (h *harness) observe(o session.LeadObservation) {
+	h.t.Helper()
+	at := time.Now().Round(0) // the wall clock alone, as the registry compares
+	if !at.After(h.leadAt) {
+		at = h.leadAt.Add(time.Microsecond)
+	}
+	h.leadAt = at
+	if _, err := h.reg.ObserveLead(o, at); err != nil {
+		h.t.Fatal(err)
+	}
 }
 func (h *harness) run(role string) (Outcome, error) {
 	h.t.Helper()

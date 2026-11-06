@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/install"
@@ -37,9 +36,7 @@ func (h *harness) workerModes(yaml string) {
 func (h *harness) leadNative(agent string, m mode.Mode, native string) {
 	h.t.Helper()
 	h.lead(agent, m, "high")
-	if _, err := h.reg.ObserveLead(session.LeadObservation{ID: "lead-123456", Agent: agent, Mode: &m, Native: &native}, time.Now()); err != nil {
-		h.t.Fatal(err)
-	}
+	h.observe(session.LeadObservation{ID: "lead-123456", Agent: agent, Mode: &m, Native: &native})
 }
 
 // claudeGate installs the duolog gate in the project's local Claude settings,

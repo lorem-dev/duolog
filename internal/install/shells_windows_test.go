@@ -18,18 +18,23 @@ import (
 func TestWindowsHookShells(t *testing.T) {
 	// The first start on a fresh runner is the runner's cost, not the guard's. On
 	// Windows ARM, PowerShell started from Git Bash took 13 seconds the first time
-	// and 0.9 seconds after that, with the same empty command.
+	// and 0.9 seconds after that, with the same empty command. go test runs other
+	// packages' binaries beside this one, and under that load a first start once
+	// ran past a one-minute bound. The warm-up checks nothing, so its bound is the
+	// run's own deadline (go test -timeout), less room to say which shell hung
+	// before the binary's timeout panic; the checks below keep their minute.
 	bare := `powershell -NoProfile -NonInteractive -Command "exit 0"`
 	for _, shell := range []*exec.Cmd{testbin.GitBashProcess(bare), testbin.HookProcess("exit 0")} {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		ctx, cancel := runDeadline(t)
 		started := time.Now()
 		warm := testbin.CommandContext(ctx, shell.Path, shell.Args[1:]...)
 		warm.Env = append(os.Environ(), "PATH="+filepath.Join(os.Getenv("SYSTEMROOT"), "System32")+";"+filepath.Join(os.Getenv("SYSTEMROOT"), "System32", "WindowsPowerShell", "v1.0"))
-		if err := warm.Run(); err != nil {
-			t.Fatal(err)
+		err := warm.Run()
+		cancel()
+		if err != nil {
+			t.Fatalf("%s first start: %v after %s", shell.Path, err, time.Since(started))
 		}
 		t.Logf("%s first start took %s", shell.Path, time.Since(started))
-		cancel()
 	}
 	for _, shell := range []string{"bash", "powershell"} {
 		for _, agent := range []string{"codex"} {
@@ -101,6 +106,15 @@ func TestWindowsHookShells(t *testing.T) {
 			})
 		}
 	}
+}
+
+// runDeadline ends 30 seconds before the test binary's own deadline, and never
+// when go test runs without one.
+func runDeadline(t *testing.T) (context.Context, context.CancelFunc) {
+	if deadline, ok := t.Deadline(); ok {
+		return context.WithDeadline(context.Background(), deadline.Add(-30*time.Second))
+	}
+	return context.WithCancel(context.Background())
 }
 
 // A worker has no PSModulePath unless it is passed through, and every Codex tool
