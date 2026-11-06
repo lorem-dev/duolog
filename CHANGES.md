@@ -42,6 +42,11 @@
 
 ## Development
 
+### Added
+
+- `worker_modes` sets a delegate worker's native mode per role and family,
+  never above the lead's; a looser mode needs a gate preflight.
+
 ### Fixed
 
 - `duolog stats`, telemetry and learning costs price Claude cache writes at
