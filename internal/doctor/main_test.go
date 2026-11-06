@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
-	"github.com/lorem-dev/duolog/internal/delegate"
 )
 
 func TestMain(m *testing.M) {

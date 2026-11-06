@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/delegate"
 )
 
 // ErrNotApproved refuses a run whose plan the person has not approved.

@@ -80,7 +80,7 @@ import one direction. It matches the imports of today's code: `hook` imports
 Most packages have not moved yet. The `legacyTiers` table in `layers_test.go`
 gives each one the tier of the part that stays at its path after the
 migration, so the rules apply now. For example, `internal/task` is core,
-`internal/delegate` is the app `delegate`, `internal/runner` is kit and
+`internal/peer` is the app `peer`, `internal/runner` is kit and
 `internal/config/schemagen` is wiring.
 
 Some code has moved already. The core packages `internal/core/mode`,
@@ -109,7 +109,7 @@ is written as its import path. The key of a test edge has a space and `(test)`
 after the importing package:
 
 ```text
-internal/delegate -> os/exec
+internal/app/delegate -> os/exec
 internal/adapter/config (test) -> internal/gate
 ```
 
@@ -128,9 +128,9 @@ target reports it. The ceiling must equal the length, because a ceiling left
 high lets new violations in later.
 
 A move may rename a key when the same import gets a new path at one end. For
-example, `internal/delegate -> internal/models` becomes
-`internal/delegate -> internal/adapter/models`. The count does not rise. List
-each renamed key as `old -> new` in the pull request.
+example, `internal/app/delegate -> internal/models` becomes
+`internal/app/delegate -> internal/adapter/models`. The count does not rise.
+List each renamed key as `old -> new` in the pull request.
 
 `boundaryExceptions` lists the imports of the security boundary that stay on
 purpose, apart from `knownViolations`. It is empty until the gate moves to
@@ -167,7 +167,7 @@ peer and lead processes, and the hook output and hook files. A move leaves
 every golden byte for byte the same. The `-update` flag rewrites the files:
 
 ```bash
-go test ./internal/delegate -run TestResultLineGolden -update
+go test ./internal/app/delegate -run TestResultLineGolden -update
 ```
 
 Use `-update` only in a change that means to alter the output, and read every

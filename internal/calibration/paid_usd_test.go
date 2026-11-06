@@ -6,7 +6,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/delegate"
+	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 

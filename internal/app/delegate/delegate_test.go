@@ -80,7 +80,7 @@ func newHarness(t *testing.T) *harness {
 	var catalog struct {
 		Models []route.Entry `json:"models"`
 	}
-	if e := json.Unmarshal([]byte(read(t, filepath.Join(filepath.Dir(testFile), "..", "..", "scripts", "bench", "fixtures", "models", "codex-debug-models.trimmed.json"))), &catalog); e != nil {
+	if e := json.Unmarshal([]byte(read(t, filepath.Join(filepath.Dir(testFile), "..", "..", "..", "scripts", "bench", "fixtures", "models", "codex-debug-models.trimmed.json"))), &catalog); e != nil {
 		t.Fatal(e)
 	}
 	home := t.TempDir()

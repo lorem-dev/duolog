@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/app/profile"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/profile"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 

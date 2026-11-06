@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
-	"github.com/lorem-dev/duolog/internal/delegate"
 )
 
 // TestMain gives the real delegations of the cell tests an admission gate
