@@ -26,7 +26,8 @@ func TestLiteralQuotesAndTheirBypasses(t *testing.T) {
 		{`git log --format="%h" -5`, Allow, Allow},
 		{`go test -run 'a|b' ./...`, Allow, Deny},
 		// A newline inside quotes is a second sed command; sed can write and run.
-		{"sed -n '1p\nw .git/hooks/pre-commit' README.md", Ask, Deny},
+		// Its w command writes a hook, which the write rule denies.
+		{"sed -n '1p\nw .git/hooks/pre-commit' README.md", Deny, Deny},
 		{"sed -n '1p\ne touch pwned' README.md", Ask, Deny},
 		// An empty quoted word would vanish and turn the file into the pattern.
 		{`grep '' .env`, Ask, Deny},

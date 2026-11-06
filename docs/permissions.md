@@ -193,7 +193,12 @@ such text, so the gate cannot read the words it passes on. A read-only role
 may be denied instead of asked. A brace anywhere in a command asks for the
 same reason. Quoted `rg` glob options follow the glob check above.
 
-`sed` reads only as `sed -n 'N,Mp' file`. `grep`, `jq`, `sort`, `uniq` and
+`sed` reads only as `sed -n 'N,Mp' file`. Other `sed` scripts ask. The gate
+judges the files of the `r`, `R`, `w` and `W` commands and the `s///w` flag,
+with or without a blank before the name. So `sed '1r/etc/passwd' x` needs the
+person, and `sed 'w.git/config' x` is denied. The `e` command, the `s///e` flag
+and a script the gate cannot read need the person, because the gate cannot
+name what they reach. `grep`, `jq`, `sort`, `uniq` and
 `file` pass only with options that change the output, so `jq -f`, `sort -o`,
 `uniq - out`, `file -m.env` and ugrep's `grep --filter` ask. A `jq` filter
 that names `env` or a `$` variable asks, because it can print the worker's
