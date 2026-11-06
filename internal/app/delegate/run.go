@@ -17,7 +17,6 @@ import (
 
 	"crypto/sha256"
 	"github.com/bmatcuk/doublestar/v4"
-	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/bus"
@@ -922,12 +921,11 @@ func RecordUsage(dir, role string, route coreroute.Route, result runner.Result) 
 }
 
 func appendUsage(dir, role string, route coreroute.Route, result runner.Result, native string) error {
-	lock := flock.New(filepath.Join(dir, "usage.lock"))
-	if err := lock.Lock(); err != nil {
-		_ = lock.Close()
+	unlock, err := store.LockFile(filepath.Join(dir, "usage.lock"))
+	if err != nil {
 		return err
 	}
-	defer lock.Close()
+	defer func() { _ = unlock() }()
 	f, err := os.OpenFile(filepath.Join(dir, "usage.ndjson"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
@@ -939,8 +937,7 @@ func appendUsage(dir, role string, route coreroute.Route, result runner.Result, 
 // snapshot asks Git for relevant working-tree paths without reading project files.
 // Outside a repository (or when Git is unavailable), partial-work notes are skipped.
 func snapshot(root string) (map[string]string, error) {
-	cmd := exec.Command("git", "--no-optional-locks", "-C", root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules", "--", ".", ":(exclude).duolog")
-	data, err := cmd.Output()
+	data, err := project.Git(context.Background(), nil, "--no-optional-locks", "-C", root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules", "--", ".", ":(exclude).duolog")
 	if err != nil {
 		return nil, nil //nolint:nilerr // outside Git there is no snapshot, and no changes are reported
 	}

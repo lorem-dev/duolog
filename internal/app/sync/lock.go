@@ -2,18 +2,17 @@ package agentsync
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 
-	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 )
@@ -67,13 +66,12 @@ func pruneWorktreeLocks(root string) {
 	}
 	// A sync in a new worktree may be writing its first lock: try once, and
 	// leave the cleanup to a later session when the lock is held.
-	mutex := flock.New(filepath.Join(stateRoot, ".duolog", "sync.lock"))
-	if locked, err := mutex.TryLock(); err != nil || !locked {
-		mutex.Close()
+	unlock, locked, err := store.TryLockFile(filepath.Join(stateRoot, ".duolog", "sync.lock"))
+	if err != nil || !locked {
 		return
 	}
-	defer mutex.Close()
-	out, err := exec.Command("git", "-C", stateRoot, "worktree", "list", "--porcelain").Output()
+	defer func() { _ = unlock() }()
+	out, err := project.Git(context.Background(), nil, "-C", stateRoot, "worktree", "list", "--porcelain")
 	if err != nil {
 		return
 	}

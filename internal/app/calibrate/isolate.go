@@ -685,16 +685,13 @@ func exists(name string) bool {
 // run calls git in dir with a fixed author and date and without the Git
 // variables that would point it at another repository.
 func run(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	cmd := journal.GitCommand(ctx, dir, args...)
-	cmd.Env = append(gitEnv(),
+	env := append(gitEnv(),
 		"GIT_AUTHOR_NAME="+exportName, "GIT_AUTHOR_EMAIL="+exportEmail, "GIT_AUTHOR_DATE="+exportDate,
 		"GIT_COMMITTER_NAME="+exportName, "GIT_COMMITTER_EMAIL="+exportEmail, "GIT_COMMITTER_DATE="+exportDate,
 	)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, err := projectroot.Git(ctx, env, append([]string{"-C", dir, "-c", "core.autocrlf=false"}, args...)...)
 	if err != nil {
-		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(projectroot.GitStderr(err)))
 	}
 	return out, nil
 }

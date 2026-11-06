@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/journal"
+	projectroot "github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -156,7 +156,7 @@ func (s *Survey) baseline(ctx context.Context, run CheckRunner, limit time.Durat
 // CheckGitVersion stops calibration on a Git older than 2.40, which lacks
 // git check-attr --source.
 func CheckGitVersion(ctx context.Context) error {
-	out, err := exec.CommandContext(ctx, "git", "version").Output()
+	out, err := projectroot.Git(ctx, nil, "version")
 	if err != nil {
 		return fmt.Errorf("git version: %w", err)
 	}
