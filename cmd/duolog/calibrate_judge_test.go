@@ -88,6 +88,7 @@ func samePath(a, b string) bool {
 // the judge slot, and the worker runs there with the inputs inlined.
 func TestCalibrateJudgeRunsRealDelegation(t *testing.T) {
 	root := learningRepo(t, true)
+	claudeGateRuns(t)
 	tempCache(t)
 	fakeQuota(t)
 	claudeJudges(t, root)

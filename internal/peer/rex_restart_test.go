@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/session"
@@ -23,6 +24,13 @@ func (r *rig) restarted() {
 	r.t.Helper()
 	if err := r.reg.Close("lead-1"); err != nil {
 		r.t.Fatal(err)
+	}
+	// The registry keeps wall-clock times only, and an ended lead comes back
+	// only at a later time than its end. On Windows the wall clock advances in
+	// timer ticks, so a registration right after the close can get the same
+	// time and find the lead ended: wait for the next tick.
+	for ended := time.Now().Round(0); !time.Now().Round(0).After(ended); {
+		time.Sleep(time.Millisecond)
 	}
 	r.lead("codex", mode.Ask)
 	r.t.Setenv("REX_SESSION", "sess-new")

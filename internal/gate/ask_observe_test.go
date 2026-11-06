@@ -14,7 +14,7 @@ import (
 
 // answerAsk replies to the nth ask on the bus, counted from 1, as the lead does.
 func answerAsk(t *testing.T, b *bus.Bus, r *session.Registry, dir, kind string, nth int) {
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		var asks []bus.Message
 		if _, err := os.Stat(filepath.Join(dir, "bus.ndjson")); err == nil {
@@ -78,7 +78,13 @@ func TestTelemetryGateAskResult(t *testing.T) {
 				}
 			}()
 			started := time.Now()
-			d := Escalate(ctx, b, "first-123456", action, 1100*time.Millisecond, tc.person)
+			wait := 1100 * time.Millisecond
+			if tc.reply != "" {
+				// A reply exercises the observer, not a race against the
+				// runner's filesystem and the default 500 ms poll interval.
+				wait = 10 * time.Second
+			}
+			d := Escalate(ctx, b, "first-123456", action, wait, tc.person)
 			<-done
 			if d.Kind != tc.wantKind || d.Rule != "ask lead" {
 				t.Fatalf("decision changed: %+v", d)
@@ -108,7 +114,7 @@ func TestTelemetryGateAskReentry(t *testing.T) {
 	for call := 1; call <= 2; call++ {
 		done := make(chan struct{})
 		go func() { defer close(done); answerAsk(t, b, r, dir, Allow, call) }()
-		if d := Escalate(ctx, b, "first-123456", Action{Kind: "write", Target: "a.go", Role: "implement"}, 1100*time.Millisecond, false); d.Kind != Allow {
+		if d := Escalate(ctx, b, "first-123456", Action{Kind: "write", Target: "a.go", Role: "implement"}, 10*time.Second, false); d.Kind != Allow {
 			t.Fatal(d)
 		}
 		<-done
