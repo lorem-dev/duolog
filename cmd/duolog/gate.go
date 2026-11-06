@@ -42,7 +42,8 @@ func newGateCommand() *cobra.Command {
 	var agent, event string
 	cmd := &cobra.Command{Use: "gate", Short: "Decide a worker hook request", SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
 		started := time.Now()
-		// A lead records its live mode and keeps person-only approvals for the person.
+		// A lead records its live mode and keeps person-only approvals for the
+		// person, unless it runs in bypass or auto (guardLeadCall).
 		if !isWorker() {
 			defer func() { _ = recover() }()
 			root, err := projectRoot()
@@ -50,7 +51,7 @@ func newGateCommand() *cobra.Command {
 				data, readErr := readHookInput(cmd)
 				if readErr == nil && len(data) <= 4*1024*1024 {
 					if event == "PreToolUse" {
-						if d, ok := leadGuard(filepath.Join(root, ".duolog"), agent, data); ok {
+						if d, ok := guardLeadCall(filepath.Join(root, ".duolog"), agent, data); ok {
 							_, _ = cmd.OutOrStdout().Write(gate.RenderLead(agent, d))
 						}
 					}

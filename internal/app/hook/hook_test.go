@@ -763,3 +763,21 @@ func TestClaudeLeadRecordsNativeMode(t *testing.T) {
 		t.Fatal(l)
 	}
 }
+
+// A subagent's payload carries the lead's session id and the subagent's own
+// permission_mode: it never changes the lead's recorded mode.
+func TestClaudeSubagentModeIsNotTheLeads(t *testing.T) {
+	e, r, _ := setup(t, "claude")
+	SessionStart(context.Background(), e)
+	child := change(t, change(t, e, "agent_id", "child-example"), "permission_mode", "bypassPermissions")
+	silent(t, Observe(context.Background(), child))
+	silent(t, PostTool(context.Background(), child))
+	if l := lead(t, r, e); l.Mode != mode.Ask || l.Native != "default" {
+		t.Fatalf("lead %+v, want default", l)
+	}
+	// The lead's own payload still records its change.
+	silent(t, Observe(context.Background(), change(t, e, "permission_mode", "acceptEdits")))
+	if l := lead(t, r, e); l.Native != "acceptEdits" {
+		t.Fatal(l)
+	}
+}
