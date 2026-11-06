@@ -65,8 +65,11 @@ func TestViewFocusesExistingTab(t *testing.T) {
 		t.Fatal(err)
 	}
 	focus := r.named("-C")
-	want := []string{"-C", recordedApp, "focus", "block:peer", "-s", "session:peers"}
-	if len(focus) != 1 || !slices.Equal(focus[0], want) {
+	want := [][]string{
+		{"-C", recordedApp, "do", "session.select", "session_id=session:peers"},
+		{"-C", recordedApp, "focus", "block:peer", "-s", "session:peers"},
+	}
+	if !slices.EqualFunc(focus, want, slices.Equal) {
 		t.Fatalf("%v", focus)
 	}
 	if len(r.spawns()) != 0 || len(r.keys()) != 0 || len(r.named("send")) != 0 || len(r.named("block close")) != 0 {
@@ -76,7 +79,7 @@ func TestViewFocusesExistingTab(t *testing.T) {
 		t.Fatal("view wrote a record")
 	}
 	// back: names the rex that duolog found, which need not be in PATH.
-	line := e.ID + " shown on client " + recordedApp + ": duolog | codex-implement; back: " + shellWord(r.bin) + " -C " + recordedApp + " focus block:lead -s sess"
+	line := e.ID + " shown on client " + recordedApp + ": duolog | codex-implement; back: " + backCommand(r.bin, recordedApp, "block:lead", "sess")
 	if got.Line() != line || strings.Count(got.Line(), "\n") != 0 {
 		t.Fatalf("%q", got.Line())
 	}
@@ -84,14 +87,15 @@ func TestViewFocusesExistingTab(t *testing.T) {
 
 func TestBackCommandQuotesTheRexPath(t *testing.T) {
 	got := backCommand("/Applications/Rex App.app/Contents/Helpers/x/Contents/MacOS/rex", "client:app", "block:lead", "sess")
-	want := "'/Applications/Rex App.app/Contents/Helpers/x/Contents/MacOS/rex' -C client:app focus block:lead -s sess"
+	rex := "'/Applications/Rex App.app/Contents/Helpers/x/Contents/MacOS/rex'"
+	want := rex + " -C client:app do session.select session_id=sess && " + rex + " -C client:app focus block:lead -s sess"
 	if got != want {
 		t.Fatalf("%q", got)
 	}
-	if got := backCommand("/opt/it's/rex", "c", "b", "s"); got != `'/opt/it'\''s/rex' -C c focus b -s s` {
+	if got := backCommand("/opt/it's/rex", "c", "b", "s"); got != `'/opt/it'\''s/rex' -C c do session.select session_id=s && '/opt/it'\''s/rex' -C c focus b -s s` {
 		t.Fatalf("%q", got)
 	}
-	if got := backCommand("/usr/local/bin/rex", "c", "b", "s"); got != "/usr/local/bin/rex -C c focus b -s s" {
+	if got := backCommand("/usr/local/bin/rex", "c", "b", "s"); got != "/usr/local/bin/rex -C c do session.select session_id=s && /usr/local/bin/rex -C c focus b -s s" {
 		t.Fatalf("%q", got)
 	}
 }
@@ -139,8 +143,7 @@ func TestViewRefusesAmbiguousClient(t *testing.T) {
 			t.Fatal(err)
 		}
 		focus := r.named("-C")
-		want := []string{"-C", "client:x", "focus", "block:peer", "-s", "session:peers"}
-		if len(focus) != 1 || !slices.Equal(focus[0], want) {
+		if len(focus) != 2 || !slices.Equal(focus[1], []string{"-C", "client:x", "focus", "block:peer", "-s", "session:peers"}) {
 			t.Fatalf("%v", focus)
 		}
 		if len(r.named("client ls")) != 0 {
