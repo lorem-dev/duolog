@@ -248,7 +248,7 @@ func (s *sampler) order(class string, pool []*Candidate) []*Candidate {
 	})
 	h := fnv.New64a()
 	h.Write([]byte(class))
-	rng := rand.New(rand.NewPCG(uint64(s.seed), h.Sum64()))
+	rng := rand.New(rand.NewPCG(uint64(s.seed), h.Sum64())) //nolint:gosec // G115: a negative seed wraps to another fixed seed, which is all sampling needs
 	for _, k := range keys {
 		list := strata[k]
 		slices.SortFunc(list, func(a, b *Candidate) int { return strings.Compare(a.ID, b.ID) })

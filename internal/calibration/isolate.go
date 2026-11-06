@@ -138,10 +138,10 @@ func PrepareTree(ctx context.Context, repo, dir string) error {
 		_ = os.Remove(filepath.Dir(target))
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 		return err
 	}
-	return os.WriteFile(target, hooks, 0o644)
+	return os.WriteFile(target, hooks, 0o600)
 }
 
 // addClaudeGate writes duolog's Claude hooks into dir's local settings
@@ -156,10 +156,10 @@ func addClaudeGate(dir string) error {
 		return err
 	}
 	target := filepath.Join(dir, filepath.FromSlash(claudeLocal))
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 		return err
 	}
-	return os.WriteFile(target, hooks, 0o644)
+	return os.WriteFile(target, hooks, 0o600)
 }
 
 // clearTree empties dir but for its Codex hooks, kept only as a regular
@@ -273,7 +273,7 @@ func export(ctx context.Context, repo, commit, dst string, own []string) error {
 	if inside(repo, dst) {
 		return fmt.Errorf("export destination %s must be outside the project %s", dst, repo)
 	}
-	if err := os.MkdirAll(dst, 0o755); err != nil {
+	if err := os.MkdirAll(dst, 0o750); err != nil {
 		return err
 	}
 	if err := onlyOwn(dst, own); err != nil {
@@ -533,7 +533,7 @@ func writeEntries(blobs *bufio.Reader, dst string, entries []treeEntry) error {
 		}
 		if e.kind == "commit" {
 			// A submodule: an empty folder, as git archive writes it.
-			if err := os.MkdirAll(target, 0o755); err != nil {
+			if err := os.MkdirAll(target, 0o750); err != nil {
 				return err
 			}
 			continue
@@ -563,7 +563,7 @@ func writeEntries(blobs *bufio.Reader, dst string, entries []treeEntry) error {
 			if linkLeaves(e.name, string(link)) {
 				return fmt.Errorf("tree entry %q links outside the export destination", e.name)
 			}
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 				return err
 			}
 			if err := os.Symlink(string(link), target); err != nil {
@@ -613,7 +613,7 @@ func linkLeaves(name, target string) bool {
 }
 
 func writeFile(target string, r io.Reader, perm os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 		return err
 	}
 	f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)

@@ -168,7 +168,7 @@ func (r *Run) Save(stateDir string) error {
 		return err
 	}
 	dir := r.Dir(stateDir)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, ".run-*.json")
@@ -192,7 +192,7 @@ func (r *Run) Save(stateDir string) error {
 
 // Lock keeps one calibration at a time per state root; it never waits.
 func Lock(stateDir string) (unlock func(), err error) {
-	if err := os.MkdirAll(Dir(stateDir), 0755); err != nil {
+	if err := os.MkdirAll(Dir(stateDir), 0o750); err != nil {
 		return nil, err
 	}
 	l := flock.New(filepath.Join(Dir(stateDir), "calibration.lock"))

@@ -622,8 +622,8 @@ func NewJudgeSlot(ctx context.Context, repo, dir string, files map[string][]byte
 	if hooks == nil {
 		// Only an empty folder goes.
 		_ = os.Remove(filepath.Dir(target))
-	} else if err = os.MkdirAll(filepath.Dir(target), 0o755); err == nil {
-		err = os.WriteFile(target, hooks, 0o644)
+	} else if err = os.MkdirAll(filepath.Dir(target), 0o750); err == nil {
+		err = os.WriteFile(target, hooks, 0o600)
 	}
 	if err != nil {
 		return nil, err
