@@ -27,6 +27,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/pathutil"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/router"
@@ -117,7 +118,9 @@ var resolveModel = models.Resolve
 var readLeadState = session.ReadLeadState
 var scanCapabilities = capability.Scan
 var bridgeMCP = capability.Bridge
-var newChecker = auth.New
+
+// newChecker checks a worker's logins on the worker's own built process.
+var newChecker = auth.NewForProcess
 
 func Place(cfg *config.Config, taskPath string, route router.Route) (Placement, error) {
 	root, err := os.Getwd()
@@ -313,15 +316,54 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	if err != nil {
 		return out, err
 	}
+	// Every worker run is admitted by the account gate, one permit per run.
+	accounts, err := NewGate(cfg)
+	if err != nil {
+		return out, err
+	}
+	// Every free candidate of the role, use then fallback, comes before any
+	// paid one: a free pass, then a paid pass over the agents that allow it.
+	passes, paidAgents := variants(cfg, role, opts)
+	pass, variant := 0, passes[0]
+	nextPass := func() bool {
+		if pass+1 >= len(passes) {
+			return false
+		}
+		pass++
+		variant = passes[pass]
+		unavailable = map[string]bool{}
+		for _, agent := range []string{"claude", "codex"} {
+			unavailable[agent] = !paidAgents[agent]
+		}
+		return true
+	}
+	// refusals say why the gate refused each candidate, and failures why a
+	// run failed before the next candidate; when no candidate is left, the
+	// task goes to the lead with them.
+	var refusals, failures []string
+	// later reports whether a pass or a refusal follows, so that running
+	// out of candidates in this pass is not yet the end.
+	later := func() bool { return pass+1 < len(passes) || len(refusals) > 0 }
 	priorAgent := ""
 	placementTask := taskPath
-	checker := newChecker(filepath.Join(s.Dir, "cache"))
+	cacheDir := filepath.Join(s.Dir, "cache")
 	loginTried := false
 	capNotes := ""
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt := 0; ; attempt++ {
+		// Use and fallback make one pass; then the paid pass, if any.
+		if attempt == 2 {
+			if !nextPass() {
+				break
+			}
+			priorAgent, attempt = "", 0
+		}
 		ro := router.Options{Lead: leadTarget, AllowManualModel: opts.AllowManualModel}
 		if opts.Entry != nil {
 			if unavailable[opts.Entry.Agent] {
+				if later() {
+					attempt = 1
+					continue
+				}
 				return out, fmt.Errorf("requested target %s/%s/%s is unavailable; ask the person before choosing another target", opts.Entry.Agent, opts.Entry.Model, opts.Entry.Effort)
 			}
 			ro.Use, ro.NoSelf = opts.Entry, true
@@ -330,6 +372,11 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		}
 		route, routeErr := router.Resolve(cfg, role, unavailable, ro)
 		if routeErr != nil {
+			// No candidate is left in this pass.
+			if (attempt > 0 || pass > 0) && later() {
+				attempt = 1
+				continue
+			}
 			return out, routeErr
 		}
 		lr.resolved(route)
@@ -362,7 +409,13 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			return out, nil
 		}
 		capNotes = ""
-		env := att.env(workerEnv(cfg.EnvPassthrough, leadID, role))
+		// The bridge must not replace a variable the worker already gets.
+		runEnv := []string{"DUOLOG_RUN=" + att.run}
+		var base workerenv.Process
+		if base, err = workerEnv(workerInput(cfg, route, variant, leadID, role, root, opts.ProtectedRoots, runEnv)); err != nil {
+			return out, err
+		}
+		env := base.Env
 		var bridge []string
 		var bridged *runner.MCP
 		if len(opts.Needs) > 0 {
@@ -477,6 +530,25 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			return out, noticeErr
 		}
 		notices = append(notices, claimed...)
+		// The worker's process, built after every choice that moves its route:
+		// the variant, the context and the bridged servers' env. Its login check,
+		// its quota read and its run all use it.
+		extra := runEnv
+		if bridged != nil {
+			extra = append(slices.Clone(runEnv), bridged.Env...)
+		}
+		in := workerInput(cfg, route, variant, leadID, role, root, opts.ProtectedRoots, extra)
+		in.ProviderEnvKey = accounts.Cache.ProviderEnvKey(route.Agent)
+		if accounts.Layers != nil {
+			if in.Layers, err = accounts.Layers(ctx, in); err != nil {
+				return out, err
+			}
+		}
+		var pre workerenv.Process
+		if pre, err = workerEnv(in); err != nil {
+			return out, err
+		}
+		checker := newChecker(cacheDir, pre)
 		// A worker that cannot sign in would fail after the lead waited for it,
 		// so its agent and the servers it needs are checked first.
 		// The servers are checked only once the agent is logged in, so a login
@@ -503,7 +575,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		} else {
 			route.Model = model
 			stdin := append(append(brief, inline...), workerLines...)
-			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Env: env, Persistent: route.Session == "resume", KeepMCP: needsKind(withoutBridged(opts.Needs, bridged), capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin), MCP: bridged, ProtectedRoots: opts.ProtectedRoots}
+			spec := runner.Spec{Route: route, Mode: leadMode, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Persistent: route.Session == "resume", KeepMCP: needsKind(withoutBridged(opts.Needs, bridged), capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin), MCP: bridged, ProtectedRoots: opts.ProtectedRoots}
 			spec.MCP = limitOwn(spec, opts.Needs, cfg.Capabilities.MCPTools)
 			spec.MaxTurns = opts.MaxTurns
 			if route.Sandbox == "read-only" {
@@ -530,26 +602,67 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					}
 				}
 			}
+			// Each actual run takes its own permit: a slot, the task's estimate
+			// and, for a paid run, its share of the cap. A refusal moves on to
+			// the next candidate; nothing has started.
+			class := opts.Class
+			if lr != nil {
+				class = lr.rec.Class
+			}
+			records := lr.records()
+			acquire := func() (*permitRun, *paidruns.Refusal, error) {
+				a, refusal, err := admit(ctx, accounts, cfg, in, route, role, class, records, opts)
+				if err != nil || refusal != nil {
+					return nil, refusal, err
+				}
+				return a, nil, a.sameRoute(ctx, pre, cacheDir)
+			}
+			current, refusal, admitErr := acquire()
+			if admitErr != nil {
+				return out, admitErr
+			}
+			if refusal != nil {
+				refusals = append(refusals, refusalLine(refusal))
+				priorAgent = route.Agent
+				unavailable[route.Agent] = true
+				continue
+			}
 			if err = send(address, worker, "task", "role "+role+" task="+ref, ref); err != nil {
-				return out, err
+				return out, errors.Join(err, current.release(ctx))
 			}
 			var before map[string]string
 			if route.Sandbox != "read-only" {
 				var snapErr error
 				before, snapErr = snapshot(root)
 				if snapErr != nil {
-					return out, snapErr
+					return out, errors.Join(snapErr, current.release(ctx))
 				}
 			}
 			if err = lr.start(root); err != nil {
-				return out, err
+				return out, errors.Join(err, current.release(ctx))
 			}
 			token := filepath.Base(dir)
 			if err = reg.SetWaiting(leadID, token, os.Getpid()); err != nil {
-				return out, err
+				return out, errors.Join(err, current.release(ctx))
 			}
 			creditBefore := before
+			// retryRefusal is the gate's answer to a run once more after a login.
+			var retryRefusal *paidruns.Refusal
 			for retry := false; ; retry = true {
+				if retry {
+					// A retry is a new run: a new permit, under the cap as it is now.
+					if current, retryRefusal, err = acquire(); err != nil || retryRefusal != nil {
+						_ = reg.SetWaiting(leadID, token, 0)
+						if err != nil {
+							return out, err
+						}
+						break
+					}
+				}
+				if err = current.launch(ctx, &spec); err != nil {
+					_ = reg.SetWaiting(leadID, token, 0)
+					return out, errors.Join(err, current.release(ctx))
+				}
 				run := att.begin()
 				workerStarted = true
 				out.Result, err = func() (runner.Result, error) {
@@ -557,6 +670,11 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					return runWorker(ctx, spec)
 				}()
 				att.worker(run, route, retry, out.Result, err)
+				// Settled once, with what this run measured, before a retry
+				// replaces the result.
+				if settleErr := current.finish(ctx, cfg, route, out.Result); settleErr != nil {
+					return out, errors.Join(err, settleErr)
+				}
 				var after map[string]string
 				var snapErr error
 				if before != nil {
@@ -593,6 +711,13 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				if err = reg.SetWaiting(leadID, token, os.Getpid()); err != nil {
 					return out, err
 				}
+			}
+			if retryRefusal != nil {
+				// The gate refused the run once more: the next candidate.
+				refusals = append(refusals, refusalLine(retryRefusal))
+				priorAgent = route.Agent
+				unavailable[route.Agent] = true
+				continue
 			}
 			if out.Result.Interrupted {
 				out.Line = "role " + role + " interrupted"
@@ -676,14 +801,25 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			}
 		}
 		failure := fmt.Errorf("%s: %w", route.Agent, err)
-		if attempt == 1 {
+		if attempt == 1 && !later() {
 			return out, failure
 		}
-		firstFailure = failure
+		if firstFailure == nil {
+			firstFailure = failure
+		}
+		failures = append(failures, oneLine(failure.Error()))
 		priorAgent = route.Agent
 		unavailable[route.Agent] = true
 	}
-	return out, firstFailure
+	if len(refusals) == 0 {
+		return out, firstFailure
+	}
+	// The gate refused every candidate left: the task goes to the lead with
+	// one line, as a task whose needs no worker meets does.
+	p := Placement{Where: "self", Task: placementTask}
+	out.RunHere = &p
+	out.Line = leadLine(role, append(failures, refusals...), p)
+	return out, nil
 }
 
 // annotate puts lines at the start of the Limits section.
@@ -693,13 +829,6 @@ func annotate(text, lines string) string {
 func missingBinary(err error) bool {
 	var pathErr *os.PathError
 	return errors.Is(err, exec.ErrNotFound) || (errors.As(err, &pathErr) && pathErr.Op == "fork/exec" && errors.Is(err, os.ErrNotExist))
-}
-func workerEnv(names []string, leadID string, roles ...string) []string {
-	role := ""
-	if len(roles) > 0 {
-		role = roles[0]
-	}
-	return append(workerenv.Passthrough(names), workerenv.Path(), "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+leadID, "DUOLOG_ROLE="+role)
 }
 
 // ClaimMigration returns a migration line for each billing key that agent's

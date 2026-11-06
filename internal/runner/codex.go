@@ -11,8 +11,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/mode"
 )
 
+// codexArgv is the process prefix, which carries the global -c overrides,
+// the update check off among them, then exec and the run's own flags.
 func codexArgv(s Spec) []string {
-	args := []string{"codex", "exec"}
+	args := s.Process.Argv("exec")
 	// Sandbox belongs to exec; its resume subcommand does not accept it.
 	args = append(args, mode.Args("codex", s.Mode, s.Route.Sandbox)...)
 	if s.ThreadID != "" {
@@ -24,7 +26,7 @@ func codexArgv(s Spec) []string {
 	}
 	// A login shell reruns the user's profile, which can reset PATH and lose tools
 	// the lead found (node from nvm, for one); the worker keeps the PATH duolog sets.
-	args = append(args, "-c", "check_for_update_on_startup=false", "-c", "allow_login_shell=false")
+	args = append(args, "-c", "allow_login_shell=false")
 	if s.Route.Context == "minimal" {
 		// Minimal context also drops skill listings, unless the task needs a skill:
 		// a worker gets its rules from the task.

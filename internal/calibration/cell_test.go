@@ -147,9 +147,12 @@ func (f *cellFixture) realClaude(t *testing.T, worker testbin.Scenario, outcome 
 		*outcome = out
 		return out, err
 	}
-	return testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{
-		"auth status": {Stdout: `{"loggedIn":true}`},
-		"-p":          worker,
+	// Both calls start with the worker process's --settings, whose JSON names
+	// the cell's tree, so they are told apart by order: the login check runs
+	// on that process first, then the worker.
+	return testbin.Install(t, "claude", testbin.Scenario{Sequence: []testbin.Scenario{
+		{Stdout: `{"loggedIn":true}`},
+		worker,
 	}})
 }
 

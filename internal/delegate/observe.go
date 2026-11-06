@@ -62,11 +62,6 @@ func newRunID() string {
 	return hex.EncodeToString(b)
 }
 
-// env gives a worker the delegation's run id, so its gate events carry it.
-func (a *attempts) env(pairs []string) []string {
-	return append(pairs, "DUOLOG_RUN="+a.run)
-}
-
 // workerRun is one runWorker call: when it started and how much of the gate
 // log was there before it.
 type workerRun struct {

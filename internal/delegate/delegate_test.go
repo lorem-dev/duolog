@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -19,12 +20,15 @@ import (
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/paidruns"
+	"github.com/lorem-dev/duolog/internal/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/task"
 	"github.com/lorem-dev/duolog/internal/testbin"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 type harness struct {
@@ -38,6 +42,16 @@ type harness struct {
 	errs       []error
 	change     string
 	auth       *fakeChecker
+	// gate admits the harness's runs, with fake quota reads.
+	gate *paidruns.Gate
+	// held is each run's reservation as the run saw it after its start.
+	held []paidruns.Reservation
+	// skipStart marks runs, by index, whose child never starts.
+	skipStart map[int]bool
+	// beforeStart runs inside a run just before its child is recorded.
+	beforeStart func()
+	// checked lists the processes the login checks were made for.
+	checked []workerenv.Process
 }
 
 func put(t *testing.T, p, s string) {
@@ -97,13 +111,37 @@ func newHarness(t *testing.T) *harness {
 	if err := h.reg.RegisterLead(session.Lead{ID: "lead-123456", Target: config.Target{Agent: "codex", Model: "lead-model"}, Mode: mode.Ask}); err != nil {
 		t.Fatal(err)
 	}
-	oldRun, oldResolve, oldChecker := runWorker, resolveModel, newChecker
-	t.Cleanup(func() { runWorker = oldRun; resolveModel = oldResolve; newChecker = oldChecker })
+	oldRun, oldResolve, oldChecker, oldGate := runWorker, resolveModel, newChecker, NewGate
+	t.Cleanup(func() { runWorker = oldRun; resolveModel = oldResolve; newChecker = oldChecker; NewGate = oldGate })
 	h.auth = &fakeChecker{}
-	newChecker = func(string) auth.Checker { return h.auth }
+	newChecker = func(_ string, p workerenv.Process) auth.Checker {
+		h.checked = append(h.checked, p)
+		return h.auth
+	}
+	if h.gate, e = paidrunstest.Gate(filepath.Join(t.TempDir(), "accounts"), h.cfg); e != nil {
+		t.Fatal(e)
+	}
+	NewGate = func(*config.Config) (*paidruns.Gate, error) { return h.gate, nil }
 	runWorker = func(_ context.Context, s runner.Spec) (runner.Result, error) {
 		i := len(h.calls)
 		h.calls = append(h.calls, s)
+		if h.beforeStart != nil {
+			h.beforeStart()
+		}
+		if s.Started != nil && !h.skipStart[i] {
+			if err := s.Started(os.Getpid()); err != nil {
+				return runner.Result{}, err
+			}
+			var st paidruns.State
+			if err := h.gate.Store.Update(context.Background(), func(x *paidruns.State) error { st = *x; return nil }); err != nil {
+				t.Fatal(err)
+			}
+			for _, r := range st.Reservations {
+				if r.Child.PID == os.Getpid() && !slices.ContainsFunc(h.held, func(o paidruns.Reservation) bool { return o.ID == r.ID }) {
+					h.held = append(h.held, r)
+				}
+			}
+		}
 		if h.change != "" {
 			put(t, filepath.Join(h.root, h.change), "changed\n")
 		}
@@ -453,7 +491,7 @@ func TestChildGetsDepthEnv(t *testing.T) {
 	if _, e := h.run("implement"); e != nil {
 		t.Fatal(e)
 	}
-	if !strings.Contains(strings.Join(h.calls[0].Env, "\n"), "DUOLOG_DEPTH=1") {
+	if !strings.Contains(strings.Join(h.calls[0].Process.Env, "\n"), "DUOLOG_DEPTH=1") {
 		t.Fatal(h.calls)
 	}
 }
@@ -517,7 +555,7 @@ func TestChildGetsLeadEnv(t *testing.T) {
 	if _, e := h.run("implement"); e != nil {
 		t.Fatal(e)
 	}
-	if !strings.Contains(strings.Join(h.calls[0].Env, "\n"), "DUOLOG_LEAD=lead-123456") {
+	if !strings.Contains(strings.Join(h.calls[0].Process.Env, "\n"), "DUOLOG_LEAD=lead-123456") {
 		t.Fatal(h.calls)
 	}
 }

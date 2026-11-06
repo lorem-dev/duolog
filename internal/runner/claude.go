@@ -12,23 +12,16 @@ import (
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
-// claudeWorkerSettings turns off auto memory, which CLAUDE_CODE_DISABLE_AUTO_MEMORY
-// also does: the memory folder belongs to the project path, so a worker's note
-// would reach the lead and later sessions. Minimal context also excludes
-// instruction files. --setting-sources would do more, but it also drops the user
-// settings that enable the duolog plugin and its gate. roots join the denyRead
-// list of a sandbox the person already turned on.
-func claudeWorkerSettings(stateDir string, minimal bool, roots ...string) string {
-	return workerenv.ClaudeSettingsWithRoots(stateDir, minimal, nil, roots)
-}
-
+// claudeArgv is the process prefix, which carries the worker's one --settings
+// (auto memory off, instruction files out for minimal context, state roots
+// denied to an enabled sandbox, and fast mode pinned off in the free
+// variant), then the run's own flags. --setting-sources would do more, but
+// it also drops the user settings that enable the duolog plugin and its gate.
 func claudeArgv(s Spec) []string {
-	args := []string{"claude", "-p", "--model", s.Route.Model}
+	args := s.Process.Argv("-p", "--model", s.Route.Model)
 	if s.Route.Effort != "" {
 		args = append(args, "--effort", s.Route.Effort)
 	}
@@ -59,7 +52,6 @@ func claudeArgv(s Spec) []string {
 		disallowed = append(disallowed, s.MCP.DisallowedTools...)
 	}
 	args = append(args, "--disallowedTools="+strings.Join(disallowed, ","))
-	args = append(args, "--settings", claudeWorkerSettings(project.StateRoot(s.Cwd), s.Route.Context == "minimal", s.ProtectedRoots...))
 	if s.Route.Context == "minimal" {
 		// Minimal context drops every CLAUDE.md, the user's too, and skills unless the
 		// task needs one: a project

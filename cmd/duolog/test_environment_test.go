@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/delegate"
+	"github.com/lorem-dev/duolog/internal/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/pathutil"
 )
 
@@ -53,7 +55,16 @@ func TestMain(m *testing.M) {
 	// No test runs this machine's rex: doctor tests put a fake rex first on
 	// PATH, and doctor finding any other rex stops the run before it starts.
 	locateRex = testRex(locateRex)
-	os.Exit(m.Run())
+	// Delegations admit their runs through a gate whose quota reads start no
+	// binary and whose account state is temporary, never the user's.
+	accounts, err := os.MkdirTemp("", "duolog-accounts-")
+	if err != nil {
+		panic(err)
+	}
+	delegate.NewGate = paidrunstest.Factory(accounts)
+	code := m.Run()
+	_ = os.RemoveAll(accounts)
+	os.Exit(code)
 }
 
 // testRex wraps doctor's rex lookup for tests: a rex outside the temporary

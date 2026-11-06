@@ -42,6 +42,11 @@ const (
 // env_key of Codex's default provider.
 // Prefix is the program and its leading words, by default the agent's name;
 // for the lead it is the observed command and stays as it is.
+// ProtectedRoots are the private usage stores a Claude worker's sandbox
+// denies. ExtraEnv holds NAME=value pairs duolog adds for this launch, such
+// as bridged MCP servers' variables and the run id; they pass the same route
+// detection as the environment, so a route name among them is withheld from
+// a free process and is a paid signal of a paid one.
 type ProcessInput struct {
 	Agent                          string
 	Shape                          Shape
@@ -55,6 +60,8 @@ type ProcessInput struct {
 	Layers                         []LayerFacts
 	ProviderEnvKey                 string
 	Prefix                         []string
+	ProtectedRoots                 []string
+	ExtraEnv                       []string
 }
 
 // Process is what a launch gets: its environment, the argv prefix with the
@@ -160,13 +167,14 @@ func Build(in ProcessInput) (Process, error) {
 		if in.Shape == Peer {
 			p.Env = append(p.Env, "DUOLOG_PEER="+in.PeerID)
 		}
+		p.Env = append(p.Env, sel.extra(in.ExtraEnv, in.Variant == Paid)...)
 		switch in.Agent {
 		case "claude":
 			// A worker's auto memory would land in the project's memory, read
 			// by the lead.
 			p.Env = append(p.Env, "DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
 			p.FastPinned = in.Variant == Free
-			p.Settings = renderClaudeSettings(in.StateDir, in.Minimal, in.ExtraSettings, nil, p.FastPinned)
+			p.Settings = renderClaudeSettings(in.StateDir, in.Minimal, in.ExtraSettings, in.ProtectedRoots, p.FastPinned)
 			p.Prefix = append(prefix, "--settings", p.Settings)
 		case "codex":
 			overrides, signals, pinned, err := codexOverrides(in.ExtraSettings, in.Variant == Free)
@@ -279,7 +287,8 @@ func (s *envSelection) pass(names []string, routes bool) {
 		value, set := lookupName(s.environ, name, s.goos)
 		own, route := s.route(name)
 		switch {
-		case !route || routes:
+		// A paid process gets this agent's routes only, never the other's.
+		case !route || routes && own:
 			if !set {
 				continue
 			}
@@ -299,6 +308,33 @@ func (s *envSelection) pass(names []string, routes bool) {
 			s.dropped = append(s.dropped, name)
 		}
 	}
+}
+
+// extra selects the pairs duolog adds for one launch, such as a bridged MCP
+// server's variables, by the same route rule as pass: a route name of either
+// agent never reaches a free process, and this agent's is dropped there; a
+// paid process passes this agent's, as a signal of layer "mcp", unless it is
+// a trusted base URL. duolog's own names pass.
+func (s *envSelection) extra(pairs []string, routes bool) []string {
+	var out []string
+	for _, pair := range pairs {
+		name, value, _ := strings.Cut(pair, "=")
+		own, route := s.route(name)
+		switch {
+		case !route:
+			out = append(out, pair)
+		case own && routes:
+			out = append(out, pair)
+			if !s.trusted(name, value) {
+				s.signals = append(s.signals, Signal{Name: "env:" + name, Layer: "mcp"})
+			}
+		case own && s.trusted(name, value):
+			out = append(out, pair)
+		case own:
+			s.dropped = append(s.dropped, name)
+		}
+	}
+	return out
 }
 
 // report takes the signals of an observed environment that is used as it is.

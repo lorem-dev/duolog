@@ -166,7 +166,7 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 				} else {
 					scenario = withTestModelCatalog(t, scenario, "sol")
 				}
-				fake := testbin.Install(t, workerAgent, scenario)
+				fake := testbin.Install(t, workerAgent, subscriptionReads(workerAgent, scenario))
 				// windows-11-arm runners take over 20 s for one delegation here.
 				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 				cmd := testbin.CommandContext(ctx, binary, "delegate", tc.role, "--task", "task.md")
@@ -319,7 +319,7 @@ func TestDelegateInterruptReportsAndStopsDescendant(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The login check before the worker answers at once; the worker hangs.
-	fake := testbin.Install(t, "claude", testbin.Scenario{SpawnChild: true, SleepMS: 60000, Responses: map[string]testbin.Scenario{"auth status": {Stdout: `{"loggedIn":true}`}}})
+	fake := testbin.Install(t, "claude", subscriptionReads("claude", testbin.Scenario{SpawnChild: true, SleepMS: 60000}))
 	var output bytes.Buffer
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

@@ -334,7 +334,13 @@ func askSkill(cmd *cobra.Command, cfg *config.Config, root, work, prompt string,
 		return runner.Result{}, route, err
 	}
 	route.Model = model
-	env := append(workerenv.Passthrough(cfg.EnvPassthrough), "PATH="+os.Getenv("PATH"), "DUOLOG_DEPTH=1", "DUOLOG_ROLE=skill_test")
+	// The free worker process: no API key, fast mode pinned off, minimal
+	// context and no state folder, as a skill test needs.
+	p, err := workerenv.Build(workerenv.ProcessInput{Agent: target.Agent, Shape: workerenv.Worker, Variant: workerenv.Free,
+		Config: cfg, Environ: os.Environ(), Role: "skill_test", Minimal: true})
+	if err != nil {
+		return runner.Result{}, route, err
+	}
 	// A fresh cwd removes project instructions. Explicit overrides disable every
 	// MCP server inherited from the user's Codex configuration.
 	bridge := &runner.MCP{}
@@ -343,6 +349,6 @@ func askSkill(cmd *cobra.Command, cfg *config.Config, root, work, prompt string,
 			bridge.CodexArgs = append(bridge.CodexArgs, "-c", fmt.Sprintf("mcp_servers.%q.enabled=false", name))
 		}
 	}
-	result, err := runner.Run(cmd.Context(), runner.Spec{Route: route, SkillTest: true, TaskDir: work, Cwd: work, Stdin: []byte(prompt), Env: env, MCP: bridge, Timeout: 10 * time.Minute})
+	result, err := runner.Run(cmd.Context(), runner.Spec{Route: route, SkillTest: true, TaskDir: work, Cwd: work, Stdin: []byte(prompt), Process: &p, MCP: bridge, Timeout: 10 * time.Minute})
 	return result, route, err
 }

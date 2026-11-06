@@ -322,6 +322,20 @@ func (lr *learnRun) add(r runner.Result) {
 	lr.quota = r.QuotaEnded
 }
 
+// records are the journal's delegations, which estimate a task's cost before
+// its admission; none without learning, or when the journal cannot be read,
+// so the estimate takes its cold bound.
+func (lr *learnRun) records() []journal.Delegation {
+	if lr == nil {
+		return nil
+	}
+	recs, err := journal.ReadAll[journal.Delegation](lr.j, delegationsFile)
+	if err != nil {
+		return nil
+	}
+	return recs
+}
+
 // note is appended to the result line: the delegation id, and what the lead
 // should do differently next time.
 func (lr *learnRun) note() string {
