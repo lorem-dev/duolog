@@ -3,7 +3,7 @@ package peer
 import (
 	"context"
 
-	"github.com/lorem-dev/duolog/internal/session"
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 )
 
 // watchMarked watches a sent task as watch does, and marks the peer as

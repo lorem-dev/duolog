@@ -1,0 +1,45 @@
+package claude
+
+import (
+	"path/filepath"
+
+	"github.com/lorem-dev/duolog/internal/adapter/session"
+	corelead "github.com/lorem-dev/duolog/internal/core/lead"
+	"github.com/lorem-dev/duolog/internal/trusthome"
+)
+
+// Lead finds and reads a Claude Code lead session.
+type Lead struct{}
+
+// Session reads the session id that Claude Code exports to its shell.
+func (Lead) Session(environ []string) (string, bool) {
+	id := trusthome.Getenv(environ, Facts.SessionEnv[0])
+	return id, id != ""
+}
+
+// Interactive reports whether the session is Claude Code in a terminal.
+func (Lead) Interactive(environ []string, _ string) bool {
+	return trusthome.Getenv(environ, "CLAUDE_CODE_ENTRYPOINT") == "cli"
+}
+
+// Transcript finds projects/<folder>/<id>.jsonl under Claude's home, the
+// newest one when several folders hold the id.
+func (Lead) Transcript(home, id string) (string, bool) {
+	if !session.ValidSessionID(id) {
+		return "", false
+	}
+	matches, _ := filepath.Glob(filepath.Join(trusthome.Claude(home), "projects", "*", id+".jsonl"))
+	path := session.Newest(matches)
+	return path, path != ""
+}
+
+// State reads the model and effort of the last reply and the permission mode
+// of the last prompt.
+func (Lead) State(transcript string) (corelead.LeadState, error) {
+	state, err := session.ReadLeadState(Facts.Name, transcript)
+	if err != nil {
+		return state, err
+	}
+	state.Mode = session.ClaudeMode(transcript)
+	return state, nil
+}

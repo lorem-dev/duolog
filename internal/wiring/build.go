@@ -5,21 +5,24 @@ package wiring
 import (
 	"context"
 	"crypto/rand"
+	"os"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/kit"
 	"github.com/lorem-dev/duolog/internal/adapter/models"
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/doctor"
+	"github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/app/profile"
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/runner"
-	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -28,7 +31,7 @@ func DelegateDeps() delegate.Deps {
 	return delegate.Deps{
 		RunWorker:        runner.Run,
 		ResolveModel:     models.Resolve,
-		ReadLeadState:    session.ReadLeadState,
+		Lead:             Leads(),
 		ScanCapabilities: capability.ScanEnv,
 		BridgeMCP:        capability.Bridge,
 		NewChecker:       auth.NewForProcess,
@@ -36,6 +39,42 @@ func DelegateDeps() delegate.Deps {
 		GateBinary:       workerenv.GateBinary,
 		Canonical:        kit.Canonical,
 	}
+}
+
+// Leads gives the Lead of each registered agent, keyed by agent name.
+func Leads() map[string]lead.Lead {
+	leads := map[string]lead.Lead{}
+	for _, a := range Agents() {
+		leads[a.Facts.Name] = a.Lead
+	}
+	return leads
+}
+
+// LeadDeps fills every field of lead.Deps with the real function.
+func LeadDeps() lead.Deps {
+	var facts []agent.Descriptor
+	for _, a := range Agents() {
+		facts = append(facts, a.Facts)
+	}
+	return lead.Deps{
+		Agents:   Leads(),
+		Facts:    facts,
+		Registry: session.Open,
+		PID:      session.AgentPID,
+		Home:     os.UserHomeDir,
+		Now:      time.Now,
+	}
+}
+
+// AgentAncestor names the agent among this process's ancestors, from the
+// process names of the registered agents.
+func AgentAncestor() string {
+	var names, helpers []string
+	for _, a := range Agents() {
+		names = append(names, a.Facts.Binaries...)
+		helpers = append(helpers, a.Facts.Helpers...)
+	}
+	return session.AgentAncestor(names, helpers)
 }
 
 // delegateRunner binds delegate.Run to its Deps.

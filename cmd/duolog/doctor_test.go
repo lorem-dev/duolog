@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/lorem-dev/duolog/internal/session"
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"os"
 	"path/filepath"

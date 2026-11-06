@@ -1,8 +1,8 @@
 package peer
 
 import (
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/rex"
-	"github.com/lorem-dev/duolog/internal/session"
 )
 
 // clientFor always targets the pane's recorded session. The lead's Rex

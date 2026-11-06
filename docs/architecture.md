@@ -164,7 +164,7 @@ replaces it.
 | `internal/bus` | Message files in the state folder. Same reason |
 | `internal/coauthor` | Co-author records in the state folder. The templates per agent come from config |
 | `internal/project` | `git rev-parse` of the project and state roots, and git helpers. Git is the project's tool, not an agent's |
-| `internal/session`, later `internal/adapter/session` | Lead and peer registry in the state folder. Its agent parts go behind the Lead port |
+| `internal/adapter/session` | Lead and peer registry in the state folder. Its agent parts sit behind the Lead port in `internal/app/lead` |
 | `plugin` | Embedded skill names, read-only data |
 
 `internal/rex` is not on this list. It gets the `Pane` port, because a second

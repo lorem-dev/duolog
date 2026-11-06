@@ -16,21 +16,40 @@ import (
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/models"
+	"github.com/lorem-dev/duolog/internal/adapter/session"
+	leadio "github.com/lorem-dev/duolog/internal/app/lead"
+	"github.com/lorem-dev/duolog/internal/app/lead/leadtest"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelead "github.com/lorem-dev/duolog/internal/core/lead"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/taskspec"
 	"github.com/lorem-dev/duolog/internal/runner"
-	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
+
+// transcriptLead reads a transcript as the real adapters do and then runs
+// after, so that a test can change the registry between the read and its use.
+type transcriptLead struct {
+	*leadtest.Fake
+	agent string
+	after func()
+}
+
+func (l transcriptLead) State(transcript string) (corelead.LeadState, error) {
+	state, err := session.ReadLeadState(l.agent, transcript)
+	if l.after != nil {
+		l.after()
+	}
+	return state, err
+}
 
 type harness struct {
 	t          *testing.T
@@ -122,7 +141,7 @@ func newHarness(t *testing.T) *harness {
 	// The real functions, but for the ones that would start a binary or touch
 	// the user's account state.
 	h.deps = Deps{
-		ReadLeadState:    session.ReadLeadState,
+		Lead:             map[string]leadio.Lead{"claude": transcriptLead{Fake: &leadtest.Fake{}, agent: "claude"}, "codex": transcriptLead{Fake: &leadtest.Fake{}, agent: "codex"}},
 		ScanCapabilities: capability.ScanEnv,
 		BridgeMCP:        capability.Bridge,
 		Canonical:        filepath.Clean,
@@ -1100,9 +1119,7 @@ func TestDecisionPreservesHookChangesDuringTranscriptRead(t *testing.T) {
 			if err := h.reg.RegisterLead(before); err != nil {
 				t.Fatal(err)
 			}
-			originalRead := h.deps.ReadLeadState
-			h.deps.ReadLeadState = func(agent, path string) (session.LeadState, error) {
-				observed, err := originalRead(agent, path)
+			h.deps.Lead = map[string]leadio.Lead{"claude": transcriptLead{Fake: &leadtest.Fake{}, agent: "claude", after: func() {
 				// Complete a hook after the decision took its registry snapshot,
 				// but before it applies the transcript observation.
 				if ended {
@@ -1116,8 +1133,7 @@ func TestDecisionPreservesHookChangesDuringTranscriptRead(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				return observed, err
-			}
+			}}}
 			if _, err := h.run("implement"); err == nil {
 				t.Fatal("stale decision allowed write worker")
 			}

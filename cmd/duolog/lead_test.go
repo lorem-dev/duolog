@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/session"
 )
 
 const (
@@ -29,7 +29,7 @@ func leadSession(t *testing.T) string {
 		t.Setenv(key, "")
 	}
 	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
-	testDeps(t).LeadAgentPID = os.Getpid
+	testDeps(t).Lead.PID = os.Getpid
 	return root
 }
 

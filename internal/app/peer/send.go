@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/bus"
 	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
 	"github.com/lorem-dev/duolog/internal/core/taskspec"
-	"github.com/lorem-dev/duolog/internal/session"
 )
 
 // taskFile confines the task file ref to the work root and checks its

@@ -6,8 +6,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/session"
 )
 
 // Wait continues the wait for a session, for example after an answer.

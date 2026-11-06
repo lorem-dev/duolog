@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/route"
-	"github.com/lorem-dev/duolog/internal/session"
 )
 
 // Line uses aliases even when the configuration deliberately pins a version.

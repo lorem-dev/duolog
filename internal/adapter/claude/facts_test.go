@@ -11,6 +11,7 @@ func TestFacts(t *testing.T) {
 	want := agent.Descriptor{
 		Name:          "claude",
 		Display:       "Claude",
+		Product:       "Claude Code",
 		Binaries:      []string{"claude"},
 		ConfigEnv:     "CLAUDE_CONFIG_DIR",
 		ConfigDefault: ".claude",

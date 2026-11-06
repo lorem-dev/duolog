@@ -7,6 +7,7 @@ import "github.com/lorem-dev/duolog/internal/core/agent"
 var Facts = agent.Descriptor{
 	Name:          "claude",
 	Display:       "Claude",
+	Product:       "Claude Code",
 	Binaries:      []string{"claude"},
 	ConfigEnv:     "CLAUDE_CONFIG_DIR",
 	ConfigDefault: ".claude",

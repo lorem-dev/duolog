@@ -11,6 +11,7 @@ func TestFacts(t *testing.T) {
 	want := agent.Descriptor{
 		Name:    "codex",
 		Display: "Codex",
+		Product: "Codex",
 		// internal/session/register.go lists the helper process.
 		Binaries:      []string{"codex", "codex-*"},
 		Helpers:       []string{"codex-linux-sandbox"},

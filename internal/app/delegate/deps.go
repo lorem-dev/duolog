@@ -3,11 +3,11 @@ package delegate
 import (
 	"context"
 
+	leadio "github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/core/lead"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -29,9 +29,11 @@ type Request struct {
 // and the path check. The wiring package fills every field with the real
 // function; app tests fill them with fakes.
 type Deps struct {
-	RunWorker        func(ctx context.Context, s runner.Spec) (runner.Result, error)
-	ResolveModel     func(ctx context.Context, cfg *config.Config, cacheDir string, t config.Target) (string, error)
-	ReadLeadState    func(agent, transcript string) (lead.LeadState, error)
+	RunWorker    func(ctx context.Context, s runner.Spec) (runner.Result, error)
+	ResolveModel func(ctx context.Context, cfg *config.Config, cacheDir string, t config.Target) (string, error)
+	// Lead holds each agent's Lead, keyed by agent name; the transcript of
+	// the lead is read through it.
+	Lead             map[string]leadio.Lead
 	ScanCapabilities func(ctx context.Context, agent, root string, environ []string) (capability.Inventory, error)
 	BridgeMCP        func(from, to, root string, names []string, tools map[string][]string, workerEnv []string) (*runner.MCP, map[string]string)
 	// NewChecker checks a worker's logins on the worker's own built process.

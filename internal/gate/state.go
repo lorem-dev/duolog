@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/pathutil"
-	"github.com/lorem-dev/duolog/internal/session"
 )
 
 const RuleState = "duolog state"

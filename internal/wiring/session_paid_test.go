@@ -1,4 +1,4 @@
-package session
+package wiring
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/core/config"
@@ -22,10 +23,10 @@ import (
 func TestLeadBillingIsObservationOnly(t *testing.T) {
 	home, root := t.TempDir(), t.TempDir()
 	cfg := &config.Config{EnvPassthrough: []string{"HOME", "PATH"}}
-	observed := LeadRoute{Agent: "claude",
+	observed := session.LeadRoute{Agent: "claude",
 		Argv:    []string{"claude", "--model", "opus", "--settings", `{"fastMode":true}`},
 		Environ: []string{"PATH=/usr/bin", "ANTHROPIC_API_KEY=sk-lead-observed", "DUOLOG_DEPTH=", "ODD= spaced value "}}
-	in, ok := LeadInput(cfg, observed, home, root)
+	in, ok := session.LeadInput(cfg, observed, home, root)
 	if !ok || in.Shape != workerenv.Lead || in.Variant != workerenv.Free || in.Locations.Root != root {
 		t.Fatalf("lead input: %+v %v", in, ok)
 	}
@@ -47,8 +48,8 @@ func TestLeadBillingIsObservationOnly(t *testing.T) {
 		t.Fatal("the observation was changed")
 	}
 
-	for _, missing := range []LeadRoute{{Agent: "claude"}, {Agent: "claude", Argv: []string{"claude"}}, {Agent: "rex", Argv: []string{"rex"}, Environ: []string{}}} {
-		if _, ok := LeadInput(cfg, missing, home, root); ok {
+	for _, missing := range []session.LeadRoute{{Agent: "claude"}, {Agent: "claude", Argv: []string{"claude"}}, {Agent: "rex", Argv: []string{"rex"}, Environ: []string{}}} {
+		if _, ok := session.LeadInput(cfg, missing, home, root); ok {
 			t.Fatalf("no observation made an input: %+v", missing)
 		}
 	}

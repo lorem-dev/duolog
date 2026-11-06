@@ -12,10 +12,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/project"
-	"github.com/lorem-dev/duolog/internal/session"
 )
 
 // guardLeadCall is what the lead hook runs for one tool call: the

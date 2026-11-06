@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
-	"github.com/lorem-dev/duolog/internal/session"
 )
 
 // Thread marks the registry entries of live panes, apart from stored threads.

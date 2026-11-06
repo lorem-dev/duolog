@@ -45,7 +45,6 @@ var legacyTiers = map[string]legacyTier{
 	"internal/models":     {tier: tierKit},
 	"internal/runner":     {tier: tierKit},
 	"internal/rex":        {tier: tierKit},
-	"internal/session":    {tier: tierKit},
 	"internal/bus":        {tier: tierKit},
 	"internal/journal":    {tier: tierKit},
 	"internal/store":      {tier: tierKit},
@@ -79,7 +78,7 @@ var knownViolations = map[string]string{
 	"internal/app/calibrate (test) -> internal/adapter/config":  "after PR 10: its tests load the config files",
 	"internal/app/calibrate (test) -> internal/quota":           "PR 29",
 	"internal/app/calibrate (test) -> internal/runner":          "PR 29",
-	"internal/app/calibrate (test) -> internal/session":         "PR 29",
+	"internal/app/calibrate (test) -> internal/adapter/session": "PR 29",
 	"internal/app/calibrate (test) -> internal/wiring":          "PR 29: the cell tests run real delegations on wiring.DelegateDeps",
 	"internal/app/calibrate -> github.com/pelletier/go-toml/v2": "PR 45",
 	"internal/app/calibrate -> internal/install":                "PR 45",
@@ -108,7 +107,7 @@ var knownViolations = map[string]string{
 	"internal/gate -> github.com/pelletier/go-toml/v2":          "PR 20, boundary",
 	"internal/gate -> internal/bus":                             "PR 20, boundary",
 	"internal/gate -> internal/config":                          "PR 20, boundary",
-	"internal/gate -> internal/session":                         "PR 20, boundary",
+	"internal/gate -> internal/adapter/session":                 "PR 20, boundary",
 	"internal/gate -> internal/store":                           "PR 20, boundary",
 	"internal/gate -> internal/trust":                           "PR 20, boundary",
 	"internal/gate -> internal/trusthome":                       "PR 20, boundary",
@@ -139,12 +138,11 @@ var knownViolations = map[string]string{
 	"internal/app/roster -> internal/capability":                "PR 40",
 	"internal/app/roster -> internal/adapter/config":            "after PR 10: roster loads the config files",
 	"internal/core/route (test) -> internal/adapter/config":     "after PR 10: its tests load the default config",
-	"internal/session (test) -> internal/app/paidruns":          "PR 22",
 	"internal/core/usage (test) -> internal/adapter/config":     "after PR 10: its tests load the default config",
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 68
+const maxKnownViolations = 67
 
 // Reasons of the allowed edges, one per target.
 const (
@@ -153,7 +151,7 @@ const (
 	reasonBus      = "message files in the state folder; same reason"
 	reasonCoauthor = "co-author records in the state folder; the templates per agent come from config"
 	reasonProject  = "git rev-parse of the project and state roots, and git helpers; git is the project's tool, not an agent's"
-	reasonSession  = "lead and peer registry in the state folder; its agent parts go behind the Lead port in Task 34"
+	reasonSession  = "lead and peer registry in the state folder; its agent parts sit behind the Lead port"
 	reasonPlugin   = "embedded skill names, read-only data"
 )
 
@@ -163,37 +161,39 @@ const (
 // random boundary. Keyed "from -> to"; the value is the reason. Targets are
 // closed, see allowedTargets.
 var allowedEdges = map[string]string{
-	"internal/app/calibrate -> internal/journal": reasonJournal,
-	"internal/app/calibrate -> internal/project": reasonProject,
-	"internal/app/calibrate -> internal/store":   reasonStore,
-	"internal/app/delegate -> internal/bus":      reasonBus,
-	"internal/app/delegate -> internal/coauthor": reasonCoauthor,
-	"internal/app/delegate -> internal/journal":  reasonJournal,
-	"internal/app/delegate -> internal/project":  reasonProject,
-	"internal/app/delegate -> internal/session":  reasonSession,
-	"internal/app/delegate -> internal/store":    reasonStore,
-	"internal/app/doctor -> internal/session":    reasonSession,
-	"internal/app/hook -> internal/bus":          reasonBus,
-	"internal/app/hook -> internal/session":      reasonSession,
-	"internal/app/hook -> internal/store":        reasonStore,
-	"internal/app/peer -> internal/bus":          reasonBus,
-	"internal/app/peer -> internal/coauthor":     reasonCoauthor,
-	"internal/app/peer -> internal/project":      reasonProject,
-	"internal/app/peer -> internal/session":      reasonSession,
-	"internal/app/peer -> internal/store":        reasonStore,
-	"internal/app/profile -> internal/journal":   reasonJournal,
-	"internal/app/profile -> internal/project":   reasonProject,
-	"internal/app/profile -> internal/store":     reasonStore,
-	"internal/app/roster -> internal/session":    reasonSession,
-	"internal/app/sync -> internal/project":      reasonProject,
-	"internal/app/sync -> internal/store":        reasonStore,
-	"internal/app/sync -> plugin":                reasonPlugin,
+	"internal/app/calibrate -> internal/journal":        reasonJournal,
+	"internal/app/calibrate -> internal/project":        reasonProject,
+	"internal/app/calibrate -> internal/store":          reasonStore,
+	"internal/app/delegate -> internal/bus":             reasonBus,
+	"internal/app/delegate -> internal/coauthor":        reasonCoauthor,
+	"internal/app/delegate -> internal/journal":         reasonJournal,
+	"internal/app/delegate -> internal/project":         reasonProject,
+	"internal/app/delegate -> internal/adapter/session": reasonSession,
+	"internal/app/delegate -> internal/store":           reasonStore,
+	"internal/app/doctor -> internal/adapter/session":   reasonSession,
+	"internal/app/hook -> internal/bus":                 reasonBus,
+	"internal/app/hook -> internal/adapter/session":     reasonSession,
+	"internal/app/hook -> internal/store":               reasonStore,
+	"internal/app/lead -> internal/adapter/session":     reasonSession,
+	"internal/app/lead -> internal/store":               reasonStore,
+	"internal/app/peer -> internal/bus":                 reasonBus,
+	"internal/app/peer -> internal/coauthor":            reasonCoauthor,
+	"internal/app/peer -> internal/project":             reasonProject,
+	"internal/app/peer -> internal/adapter/session":     reasonSession,
+	"internal/app/peer -> internal/store":               reasonStore,
+	"internal/app/profile -> internal/journal":          reasonJournal,
+	"internal/app/profile -> internal/project":          reasonProject,
+	"internal/app/profile -> internal/store":            reasonStore,
+	"internal/app/roster -> internal/adapter/session":   reasonSession,
+	"internal/app/sync -> internal/project":             reasonProject,
+	"internal/app/sync -> internal/store":               reasonStore,
+	"internal/app/sync -> plugin":                       reasonPlugin,
 }
 
 // allowedTargets is the closed set of targets an allowed edge may have.
 var allowedTargets = []string{
 	"internal/store", "internal/journal", "internal/bus", "internal/coauthor",
-	"internal/project", "internal/adapter/session", "internal/session", "plugin",
+	"internal/project", "internal/adapter/session", "plugin",
 }
 
 // invalidAllowedEdges returns the keys of m that are not valid allowed edges,

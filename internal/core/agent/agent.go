@@ -19,6 +19,7 @@ type ConfigFacts struct {
 // Descriptor is everything the code knows about one agent as data.
 type Descriptor struct {
 	Name, Display   string   // "claude", "Claude"
+	Product         string   // what the person runs: "Claude Code", "Codex"
 	Binaries        []string // process names: claude; codex, codex-*
 	Helpers         []string // sandbox helper processes
 	ConfigEnv       string   // CLAUDE_CONFIG_DIR, CODEX_HOME

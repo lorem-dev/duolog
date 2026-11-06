@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/gate"
-	"github.com/lorem-dev/duolog/internal/session"
 )
 
 // callerProject is a project whose registry holds lead-b, whose process is

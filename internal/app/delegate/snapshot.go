@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/session"
+	leadio "github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
-	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/trust"
 )
 
@@ -14,7 +15,7 @@ import (
 // returns it with the mode that limits workers.
 func observedLead(d Deps, reg *session.Registry, lead session.Lead, started time.Time) (session.Lead, mode.Mode, error) {
 	if lead.TranscriptPath != "" {
-		observed, _ := d.ReadLeadState(lead.Agent, lead.TranscriptPath)
+		observed, _ := leadio.State(d.Lead, lead.Agent, lead.TranscriptPath)
 		if observed.Model != "" {
 			lead.Model = observed.Model
 		}

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/lorem-dev/duolog/internal/session"
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 )
 
 // Answer picks an option of the open question by label or number. It moves the

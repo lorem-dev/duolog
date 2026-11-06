@@ -7,6 +7,7 @@ import "github.com/lorem-dev/duolog/internal/core/agent"
 var Facts = agent.Descriptor{
 	Name:          "codex",
 	Display:       "Codex",
+	Product:       "Codex",
 	Binaries:      []string{"codex", "codex-*"},
 	Helpers:       []string{"codex-linux-sandbox"},
 	ConfigEnv:     "CODEX_HOME",

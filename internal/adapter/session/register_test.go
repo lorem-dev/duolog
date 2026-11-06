@@ -77,29 +77,30 @@ func TestAgentAncestorFindsClaudeOrCodex(t *testing.T) {
 	}
 }
 
-func TestFindTranscript(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", "")
-	t.Setenv("CODEX_HOME", "")
-	claude := filepath.Join(home, ".claude", "projects", "-work-app", "abc-123.jsonl")
-	codex := filepath.Join(home, ".codex", "sessions", "2026", "11", "05", "rollout-2026-11-05T10-00-00-def-456.jsonl")
-	for _, path := range []string{claude, codex} {
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, nil, 0600); err != nil {
-			t.Fatal(err)
-		}
+// TestAgentAncestorFromDescriptors walks the same trees as
+// TestAgentAncestorFindsClaudeOrCodex, with the process names that the two
+// agents' descriptors give.
+func TestAgentAncestorFromDescriptors(t *testing.T) {
+	names, helpers := []string{"claude", "codex", "codex-*"}, []string{"codex-linux-sandbox"}
+	match := func(name string) string { return matchAgent(name, names, helpers) }
+	tests := []struct {
+		name string
+		tree map[int]fakeProcess
+		want string
+	}{
+		{"claude above a pty wrapper", map[int]fakeProcess{40: {30, "script"}, 30: {25, "zsh"}, 25: {20, "claude"}, 20: {1, "launchd"}}, "claude"},
+		{"codex above rex", map[int]fakeProcess{40: {30, "rex"}, 30: {20, "/opt/bin/codex"}, 20: {1, "init"}}, "codex"},
+		{"windows names", map[int]fakeProcess{40: {30, "pwsh.exe"}, 30: {20, "Codex.exe"}}, "codex"},
+		{"codex target triple", map[int]fakeProcess{40: {30, "codex-x86_64-unknown-linux-musl"}}, "codex"},
+		{"codex sandbox helper", map[int]fakeProcess{40: {30, "codex-linux-sandbox"}}, "codex"},
+		{"the person's terminal", map[int]fakeProcess{40: {30, "zsh"}, 30: {20, "rex"}, 20: {1, "launchd"}}, ""},
+		{"an unnamed process is passed over", map[int]fakeProcess{40: {30, ""}, 30: {20, "claude"}}, "claude"},
+		{"a loop ends", map[int]fakeProcess{40: {40, "zsh"}}, ""},
+		{"a name that only starts alike", map[int]fakeProcess{40: {30, "claudette"}, 30: {1, "init"}}, ""},
 	}
-	if got := FindTranscript("claude", "abc-123", home); got != claude {
-		t.Fatalf("claude %q", got)
-	}
-	if got := FindTranscript("codex", "def-456", home); got != codex {
-		t.Fatalf("codex %q", got)
-	}
-	for _, id := range []string{"missing", "*", "../abc-123", ""} {
-		if got := FindTranscript("claude", id, home); got != "" {
-			t.Fatalf("id %q found %q", id, got)
+	for _, tt := range tests {
+		if got := agentAncestorBy(40, fakeTree(tt.tree), match); got != tt.want {
+			t.Errorf("%s: %q, want %q", tt.name, got, tt.want)
 		}
 	}
 }

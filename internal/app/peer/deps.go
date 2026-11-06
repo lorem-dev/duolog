@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/session"
 )
 
 // Clock is the time peer reads and waits on. Sleep returns ctx's error when

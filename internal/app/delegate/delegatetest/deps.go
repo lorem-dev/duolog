@@ -13,12 +13,13 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/app/delegate"
+	leadio "github.com/lorem-dev/duolog/internal/app/lead"
+	"github.com/lorem-dev/duolog/internal/app/lead/leadtest"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/core/lead"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -69,7 +70,7 @@ func (f *Fake) Deps() delegate.Deps {
 		ResolveModel: func(_ context.Context, _ *config.Config, _ string, t config.Target) (string, error) {
 			return t.Model, nil
 		},
-		ReadLeadState: func(string, string) (lead.LeadState, error) { return lead.LeadState{}, nil },
+		Lead: map[string]leadio.Lead{"claude": &leadtest.Fake{}, "codex": &leadtest.Fake{}},
 		ScanCapabilities: func(_ context.Context, agent, _ string, _ []string) (capability.Inventory, error) {
 			return capability.Inventory{Agent: agent, Unknown: true}, nil
 		},

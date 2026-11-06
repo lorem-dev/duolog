@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/install"
-	"github.com/lorem-dev/duolog/internal/session"
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 )
 
 // binDir holds the duolog binary built once for the whole run.

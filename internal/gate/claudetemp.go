@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/pathutil"
-	"github.com/lorem-dev/duolog/internal/session"
 )
 
 // claudeProjectChars are the characters Claude replaces with - when it names a

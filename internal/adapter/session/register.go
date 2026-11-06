@@ -1,12 +1,10 @@
 package session
 
 import (
-	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
-
-	"github.com/lorem-dev/duolog/internal/trusthome"
 )
 
 // launchers run a command for an agent without being the agent: shells, and
@@ -51,12 +49,50 @@ func agentPID(pid int, parent func(int) (int, string)) int {
 // Codex process is among this process's ancestors, else "". It walks the
 // parent chain on Linux, macOS and Windows; elsewhere it finds nothing. An
 // agent run through node under another name is not found.
-func AgentAncestor() string { return agentAncestor(os.Getppid(), parentProcess) }
+//
+// names are the agents' binaries ("claude", "codex-*") and helpers their
+// sandbox helper processes, as each agent's descriptor gives them.
+func AgentAncestor(names, helpers []string) string {
+	return agentAncestorBy(os.Getppid(), parentProcess, func(name string) string { return matchAgent(name, names, helpers) })
+}
+
+// matchAgent names the agent that a process name is, by the binaries and
+// helpers of the descriptors: a pattern's name is the text before "-*". It
+// returns "" for any other program.
+func matchAgent(name string, names, helpers []string) string {
+	name = baseName(name)
+	for _, n := range names {
+		stem, _, _ := strings.Cut(n, "-*")
+		if ok, _ := path.Match(strings.ToLower(n), name); ok {
+			return stem
+		}
+	}
+	for _, h := range helpers {
+		if strings.ToLower(h) != name {
+			continue
+		}
+		for _, n := range names {
+			if stem, _, _ := strings.Cut(n, "-*"); strings.HasPrefix(name, stem+"-") {
+				return stem
+			}
+		}
+	}
+	return ""
+}
+
+func baseName(name string) string {
+	name = strings.ToLower(filepath.Base(strings.ReplaceAll(name, `\`, "/")))
+	return strings.TrimSuffix(name, ".exe")
+}
 
 func agentAncestor(pid int, parent func(int) (int, string)) string {
+	return agentAncestorBy(pid, parent, agentName)
+}
+
+func agentAncestorBy(pid int, parent func(int) (int, string), match func(string) string) string {
 	for steps := 0; pid > 1 && steps < 64; steps++ {
 		next, name := parent(pid)
-		if agent := agentName(name); agent != "" {
+		if agent := match(name); agent != "" {
 			return agent
 		}
 		if next == pid {
@@ -95,41 +131,18 @@ func ValidSessionID(id string) bool {
 	return true
 }
 
-// FindTranscript locates a session's native transcript from its ID, for a
-// lead registered without a hook payload: Claude keeps
-// projects/<folder>/<id>.jsonl, Codex keeps sessions/.../rollout-*-<id>.jsonl.
-// It returns "" when there is none.
-func FindTranscript(agent, id, home string) string {
-	if !ValidSessionID(id) {
-		return ""
-	}
-	switch agent {
-	case "claude":
-		matches, _ := filepath.Glob(filepath.Join(trusthome.Claude(home), "projects", "*", id+".jsonl"))
-		return newest(matches)
-	case "codex":
-		var matches []string
-		_ = filepath.WalkDir(filepath.Join(trusthome.Codex(home), "sessions"), func(path string, d fs.DirEntry, err error) error {
-			if err == nil && !d.IsDir() && strings.HasPrefix(d.Name(), "rollout-") && strings.HasSuffix(d.Name(), "-"+id+".jsonl") {
-				matches = append(matches, path)
-			}
-			return nil
-		})
-		return newest(matches)
-	}
-	return ""
-}
-
-func newest(paths []string) string {
+// Newest returns the most recently changed regular file among paths, or "".
+// The agents' transcript lookups use it.
+func Newest(paths []string) string {
 	var best string
 	var bestInfo os.FileInfo
-	for _, path := range paths {
-		info, err := os.Stat(path)
+	for _, p := range paths {
+		info, err := os.Stat(p)
 		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
 		if bestInfo == nil || info.ModTime().After(bestInfo.ModTime()) {
-			best, bestInfo = path, info
+			best, bestInfo = p, info
 		}
 	}
 	return best

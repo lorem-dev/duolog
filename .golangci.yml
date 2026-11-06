@@ -89,7 +89,7 @@ linters:
       # .duolog/, the config and the files duolog writes into a project are meant
       # to be read by the person and by Git (0755 and 0644). Telemetry and the
       # calibration trees are not in this list, so their modes stay checked.
-      - path: ^(cmd|scripts)/|^internal/(adapter/models|app/delegate|app/learn|app/peer|app/sync|artifact|auth|bus|capability|install|journal|learning|models|runner|session|store|testbin)/
+      - path: ^(cmd|scripts)/|^internal/(adapter/models|app/delegate|app/learn|app/peer|app/sync|adapter/session|artifact|auth|bus|capability|install|journal|learning|models|runner|store|testbin)/
         text: G30[126]
         linters: [gosec]
       # PowerShell accepts any prefix of -recurse; the arguments are in that order on purpose.
@@ -133,8 +133,6 @@ linters:
       - {path: '^cmd/duolog/gate\.go$', linters: [gocognit], text: 'complexity 26 of func .(?:\(\*?\w+\)\.)?newDecisionsCommand. is'} # newDecisionsCommand: cognitive 26
       - {path: '^cmd/duolog/gate\.go$', linters: [cyclop, gocognit], text: 'complexity 40 of func .(?:\(\*?\w+\)\.)?newGateCommand. is|function (?:\(\*?\w+\)\.)?newGateCommand is 16,'} # newGateCommand: cyclomatic 16, cognitive 40
       - {path: '^cmd/duolog/gate\.go$', linters: [nestif], text: '.if\ !isWorker\(\). has complex nested blocks \(complexity: 10\)'} # if if !isWorker(): nesting 10
-      - {path: '^cmd/duolog/lead\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?leadIdentity is 16,'} # leadIdentity: cyclomatic 16
-      - {path: '^cmd/duolog/lead\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newLeadRegisterCommand. is too long \(115 > |complexity 67 of func .(?:\(\*?\w+\)\.)?newLeadRegisterCommand. is|function (?:\(\*?\w+\)\.)?newLeadRegisterCommand is 37,'} # newLeadRegisterCommand: cyclomatic 37, lines 115, cognitive 67
       - {path: '^cmd/duolog/leadguard\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .leadGuard. has too many statements \(62 > |complexity 69 of func .(?:\(\*?\w+\)\.)?leadGuard. is|function (?:\(\*?\w+\)\.)?leadGuard is 31,'} # leadGuard: cyclomatic 31, statements 62, cognitive 69
       - {path: '^cmd/duolog/leadguard\.go$', linters: [nestif], text: '.if\ agent\ ==\ "codex". has complex nested blocks \(complexity: 8\)'} # if if agent == "codex": nesting 8
       - {path: '^cmd/duolog/learn\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?learnOrder is 16,'} # learnOrder: cyclomatic 16
@@ -359,11 +357,11 @@ linters:
       - {path: '^internal/runner/runner\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Run. has too many statements \(139 > |complexity 62 of func .(?:\(\*?\w+\)\.)?Run. is|function (?:\(\*?\w+\)\.)?Run is 58,'} # Run: cyclomatic 58, statements 139, cognitive 62
       - {path: '^internal/runner/runner\.go$', linters: [cyclop, gocognit], text: 'complexity 28 of func .(?:\(\*?\w+\)\.)?readLog. is|function (?:\(\*?\w+\)\.)?readLog is 21,'} # readLog: cyclomatic 21, cognitive 28
       - {path: '^internal/runner/runner\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?resetTime is 17,'} # resetTime: cyclomatic 17
-      - {path: '^internal/session/resolve\.go$', linters: [nestif], text: '.if\ id\ !=\ "". has complex nested blocks \(complexity: 7\)'} # if if id != "": nesting 7
-      - {path: '^internal/session/session\.go$', linters: [cyclop, gocognit], text: 'complexity 35 of func .(?:\(\*?\w+\)\.)?RecordLimited. is|function (?:\(\*?\w+\)\.)?RecordLimited is 17,'} # RecordLimited: cyclomatic 17, cognitive 35
-      - {path: '^internal/session/session\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?access is 17,'} # access: cyclomatic 17
-      - {path: '^internal/session/session\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .observeLead. has too many statements \(44 > |complexity 29 of func .(?:\(\*?\w+\)\.)?observeLead. is|function (?:\(\*?\w+\)\.)?observeLead is 21,'} # observeLead: cyclomatic 21, statements 44, cognitive 29
-      - {path: '^internal/session/session\.go$', linters: [nestif], text: '.if\ limit\ >\ 0. has complex nested blocks \(complexity: 6\)'} # if if limit > 0: nesting 6
+      - {path: '^internal/adapter/session/resolve\.go$', linters: [nestif], text: '.if\ id\ !=\ "". has complex nested blocks \(complexity: 7\)'} # if if id != "": nesting 7
+      - {path: '^internal/adapter/session/session\.go$', linters: [cyclop, gocognit], text: 'complexity 35 of func .(?:\(\*?\w+\)\.)?RecordLimited. is|function (?:\(\*?\w+\)\.)?RecordLimited is 17,'} # RecordLimited: cyclomatic 17, cognitive 35
+      - {path: '^internal/adapter/session/session\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?access is 17,'} # access: cyclomatic 17
+      - {path: '^internal/adapter/session/session\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .observeLead. has too many statements \(44 > |complexity 29 of func .(?:\(\*?\w+\)\.)?observeLead. is|function (?:\(\*?\w+\)\.)?observeLead is 21,'} # observeLead: cyclomatic 21, statements 44, cognitive 29
+      - {path: '^internal/adapter/session/session\.go$', linters: [nestif], text: '.if\ limit\ >\ 0. has complex nested blocks \(complexity: 6\)'} # if if limit > 0: nesting 6
       - {path: '^internal/app/skilltest/models\.go$', linters: [gocognit], text: 'complexity 24 of func .(?:\(\*?\w+\)\.)?DefaultTargets. is'} # DefaultTargets: cognitive 24
       - {path: '^internal/app/skilltest/plan\.go$', linters: [cyclop, gocognit], text: 'complexity 21 of func .(?:\(\*?\w+\)\.)?ReadPlan. is|function (?:\(\*?\w+\)\.)?ReadPlan is 16,'} # ReadPlan: cyclomatic 16, cognitive 21
       - {path: '^internal/telemetry/compress\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?compress is 16,'} # compress: cyclomatic 16

@@ -5,15 +5,16 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/doctor"
+	"github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/app/profile"
 	"github.com/lorem-dev/duolog/internal/core/budget"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/rex"
-	"github.com/lorem-dev/duolog/internal/session"
 )
 
 // CmdDeps is what the commands of cmd/duolog reach outside their package:
@@ -37,8 +38,9 @@ type CmdDeps struct {
 	CalibrationNext map[string]string
 	// LocateRex finds the rex that doctor asks for the pane inventory.
 	LocateRex func() (string, bool)
-	// LeadAgentPID finds the agent process above the command's shell.
-	LeadAgentPID func() int
+	// Lead is what lead register reaches: each agent's Lead, the registry and
+	// the agent process above the command's shell.
+	Lead lead.Deps
 	// AskWait turns policy.ask_timeout_seconds into the wait for an answer.
 	AskWait func(seconds int) time.Duration
 	// ObserveLead returns an observation of how agent's lead itself was started.
@@ -64,13 +66,13 @@ func Cmd() CmdDeps {
 		DoctorDeps:      DoctorDeps,
 		CalibrationNext: budget.NextStep,
 		LocateRex:       func() (string, bool) { return rex.Locate(os.Getenv("REX_BIN_DIR"), rex.BundleGlobs()) },
-		LeadAgentPID:    session.AgentPID,
+		Lead:            LeadDeps(),
 		AskWait:         gate.AskWait,
 		// duolog has no source for an observation of the lead's start yet, and
 		// its own environment never stands for the lead, so the lead reports
 		// unknown.
 		ObserveLead:     func(string) (session.LeadRoute, bool) { return session.LeadRoute{}, false },
-		AgentAncestor:   session.AgentAncestor,
+		AgentAncestor:   AgentAncestor,
 		AgentAbove:      session.AgentAbove,
 		OpenLaunchState: func() (*paidruns.Store, error) { return paidruns.OpenUserState("") },
 		IsTerminal:      isTerminal,

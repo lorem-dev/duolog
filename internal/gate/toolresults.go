@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/pathutil"
-	"github.com/lorem-dev/duolog/internal/session"
 )
 
 // OwnToolResults says whether target, an absolute path, is the saved tool

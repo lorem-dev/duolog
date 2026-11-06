@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/session"
 )
 
 // duolog hook Stop in a peer's pane tells the lead that the peer stopped with

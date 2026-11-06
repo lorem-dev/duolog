@@ -11,10 +11,10 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/session"
 )
 
 func askSetup(t *testing.T) (*bus.Bus, *session.Registry, string) {
