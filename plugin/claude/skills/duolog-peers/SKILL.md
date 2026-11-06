@@ -1,7 +1,7 @@
 ---
 name: duolog-peers
 description: List the running duolog peers or switch the person's Rex view to one. Use when the person asks which peers run, or to see one.
-allowed-tools: Bash(duolog peer list*)
+allowed-tools: Bash(duolog peer list*), Bash(duolog peer view*)
 ---
 
 # See duolog peers

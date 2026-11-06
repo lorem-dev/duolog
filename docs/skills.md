@@ -111,7 +111,8 @@ See [Calibration](calibration.md) for its own approvals and cost limits.
 
 `duolog install` and the plugins also include `duolog-peers`. It runs
 `duolog peer list --long` and, when you ask, `duolog peer view <id>` for
-the lead. Claude asks you before each `peer view`. See
+the lead. Claude runs `peer view` without asking, but only when you ask to
+see a peer. See
 [How to see what a peer shows](rex.md#how-to-see-what-a-peer-shows).
 
 ## Related pages

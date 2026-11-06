@@ -39,7 +39,7 @@ func TestPeerViewPrintsOneLine(t *testing.T) {
 	if err != nil || strings.Count(out, "\n") != 1 || !strings.HasSuffix(out, "\n") {
 		t.Fatalf("%q %v", out, err)
 	}
-	if want := "peer-list shown on client client:app: duolog | claude-plan"; strings.TrimSpace(out) != want {
+	if want := "peer-list shown on client client:app: duolog | claude-plan; to return, use Previous Session in Rex"; strings.TrimSpace(out) != want {
 		t.Fatalf("%q", out)
 	}
 	for _, c := range rexCalls(t, rex) {

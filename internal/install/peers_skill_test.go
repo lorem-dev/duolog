@@ -26,9 +26,10 @@ func TestPeersSkillIsSameForBothAgents(t *testing.T) {
 	}
 }
 
-// Only the list is pre-allowed: peer view moves the person's focus, so
-// Claude asks each time until the person decides otherwise.
-func TestPeersSkillAllowsOnlyList(t *testing.T) {
+// The list and the view are pre-allowed: the person decided that Claude may
+// switch their Rex view without asking when they ask to see a peer. peer
+// show stays out: it reads a peer's screen.
+func TestPeersSkillAllowsListAndView(t *testing.T) {
 	front, _ := splitSkill(t, "claude/skills/duolog-peers/SKILL.md")
 	var got []string
 	for _, line := range strings.Split(front, "\n") {
@@ -36,7 +37,7 @@ func TestPeersSkillAllowsOnlyList(t *testing.T) {
 			got = append(got, strings.TrimSpace(v))
 		}
 	}
-	want := "Bash(duolog peer list*)"
+	want := "Bash(duolog peer list*), Bash(duolog peer view*)"
 	if len(got) != 1 || got[0] != want {
 		t.Errorf("claude allowed-tools = %q, want %q", got, want)
 	}
