@@ -12,9 +12,23 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/bus"
 	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
+	"github.com/lorem-dev/duolog/internal/core/taskspec"
 	"github.com/lorem-dev/duolog/internal/session"
-	"github.com/lorem-dev/duolog/internal/task"
 )
+
+// taskFile confines the task file ref to the work root and checks its
+// sections. It returns the file's absolute path, which the pane is sent.
+func taskFile(root, ref string) (string, error) {
+	work := delegate.WorkTree(root)
+	name, path, err := work.Resolve(ref)
+	if err != nil {
+		return "", err
+	}
+	if err := taskspec.Validate(work.FS, name); err != nil {
+		return "", err
+	}
+	return path, nil
+}
 
 // Send passes one line, a reference to the task file, to a ready session.
 func Send(ctx context.Context, id, taskRef string) (err error) {
@@ -35,11 +49,8 @@ func Send(ctx context.Context, id, taskRef string) (err error) {
 			return errors.New("slash commands are never sent to a peer: /model and /effort change the user's settings")
 		}
 	}
-	path, err := task.Resolve(e.root, ref)
+	path, err := taskFile(e.root, ref)
 	if err != nil {
-		return err
-	}
-	if err := task.Validate(path); err != nil {
 		return err
 	}
 	if strings.ContainsAny(path, "\r\n") {

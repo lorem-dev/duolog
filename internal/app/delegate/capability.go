@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/core/taskspec"
 	"github.com/lorem-dev/duolog/internal/runner"
-	"github.com/lorem-dev/duolog/internal/task"
 )
 
 // capPlan is what the capability check asks of a run: the MCP servers to
@@ -47,7 +47,7 @@ func capabilityPlan(res []capability.Resolution) capPlan {
 
 // annotate puts lines at the start of the Limits section.
 func annotate(text, lines string) string {
-	return task.Annotate(text, lines)
+	return taskspec.Annotate(text, lines)
 }
 
 // needsKind reports whether a task names a need of one of these kinds. A Claude

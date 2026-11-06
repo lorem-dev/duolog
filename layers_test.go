@@ -36,7 +36,6 @@ var legacyTiers = map[string]legacyTier{
 	"internal/mode":     {tier: tierCore},
 	"internal/pathutil": {tier: tierCore},
 	"internal/router":   {tier: tierCore},
-	"internal/task":     {tier: tierCore},
 	"internal/usage":    {tier: tierCore},
 	"internal/learning": {tier: tierCore},
 
@@ -180,14 +179,11 @@ var knownViolations = map[string]string{
 	"internal/app/roster -> internal/session":                   "PR 34",
 	"internal/core/route (test) -> internal/adapter/config":     "after PR 10: its tests load the default config",
 	"internal/session (test) -> internal/app/paidruns":          "PR 22",
-	"internal/task -> internal/project":                         "PR 11",
-	"internal/task -> os":                                       "PR 11",
-	"internal/task -> syscall":                                  "PR 11",
 	"internal/core/usage (test) -> internal/adapter/config":     "after PR 10: its tests load the default config",
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 110
+const maxKnownViolations = 107
 
 // boundaryExceptions are the imports of the security boundary that stay on
 // purpose ("security boundary: moves only"). Empty until PR 20.

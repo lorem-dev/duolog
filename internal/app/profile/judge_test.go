@@ -13,11 +13,11 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/taskspec"
 	"github.com/lorem-dev/duolog/internal/core/usage"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/store"
-	"github.com/lorem-dev/duolog/internal/task"
 )
 
 const judgeCriterion = "structure matches what was asked"
@@ -68,10 +68,15 @@ func TestJudgeTaskIsBlind(t *testing.T) {
 	for name, content := range files {
 		writeTest(t, filepath.Join(root, filepath.FromSlash(dir), name), content)
 	}
-	if err := task.Validate(path); err != nil {
+	work := delegate.WorkTree(root)
+	name, _, err := work.Resolve(path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	refs, err := task.References(path, root)
+	if err := taskspec.Validate(work.FS, name); err != nil {
+		t.Fatal(err)
+	}
+	refs, err := taskspec.References(work.FS, name, work.FS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +88,7 @@ func TestJudgeTaskIsBlind(t *testing.T) {
 			t.Fatal(ref.Path)
 		}
 	}
-	inline, err := task.Inline(path, root, 100000)
+	inline, err := taskspec.Inline(work, work, path, 100000)
 	if err != nil {
 		t.Fatal(err)
 	}

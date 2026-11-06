@@ -1,5 +1,7 @@
-// Package task validates handoffs and builds bounded worker input.
-package task
+// Package taskspec validates handoffs and builds bounded worker input. It
+// reads task files and the files they name through fs.FS: a caller passes
+// os.DirFS of a folder, and names are slash paths relative to it.
+package taskspec
 
 import (
 	"bufio"
@@ -8,16 +10,14 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
-	"github.com/lorem-dev/duolog/internal/project"
 )
 
 var sections = []string{"Goal", "Read", "Write", "Limits", "Check"}
@@ -57,8 +57,9 @@ func parse(data []byte) (map[string]string, error) {
 	return result, nil
 }
 
-func Validate(path string) error {
-	data, err := os.ReadFile(path)
+// Validate checks that the task file name in fsys has its sections in order.
+func Validate(fsys fs.FS, name string) error {
+	data, err := fs.ReadFile(fsys, name)
 	if err != nil {
 		return err
 	}
@@ -73,15 +74,21 @@ type Reference struct {
 
 var rangeSuffix = regexp.MustCompile(`^(.*):([0-9]+)(?:-([0-9]+))?$`)
 
-// References returns the file paths in Read, preserving inclusive line ranges.
-// An item names a file when it is quoted with backticks, when its first word
-// looks like a path, or when that word is a file in the work root, as
-// Makefile is. Any other item is prose and names nothing.
-func References(path, root string) ([]Reference, error) {
-	data, err := os.ReadFile(path)
+// References returns the file paths in Read of the task file name in fsys,
+// preserving inclusive line ranges. An item names a file when it is quoted
+// with backticks, when its first word looks like a path, or when that word is
+// a file in work, the work root, as Makefile is. Any other item is prose and
+// names nothing. The task file need not be in work: a task copy can live in
+// the shared state of another worktree.
+func References(fsys fs.FS, name string, work fs.FS) ([]Reference, error) {
+	data, err := fs.ReadFile(fsys, name)
 	if err != nil {
 		return nil, err
 	}
+	return references(data, work)
+}
+
+func references(data []byte, work fs.FS) ([]Reference, error) {
 	parts, err := parse(data)
 	if err != nil {
 		return nil, err
@@ -119,7 +126,7 @@ func References(path, root string) ([]Reference, error) {
 		if match != nil {
 			r.Path = match[1]
 		}
-		if !named && !rootFile(root, r.Path) {
+		if !named && !rootFile(work, r.Path) {
 			continue // Prose, such as "- the notes from last week".
 		}
 		if match != nil {
@@ -140,9 +147,10 @@ func References(path, root string) ([]Reference, error) {
 
 // WritePaths returns the files, folders and globs that Write lists, one per
 // list item. An item counts only when it is quoted with backticks or looks like
-// a path, so prose such as "- the changelog entry" names nothing.
-func WritePaths(path string) ([]string, error) {
-	data, err := os.ReadFile(path)
+// a path, so prose such as "- the changelog entry" names nothing. The task
+// file is name in fsys.
+func WritePaths(fsys fs.FS, name string) ([]string, error) {
+	data, err := fs.ReadFile(fsys, name)
 	if err != nil {
 		return nil, err
 	}
@@ -186,21 +194,30 @@ func looksLikePath(word string) bool {
 
 // rootFile reports whether a bare word, such as Makefile, names something in
 // the work root other than a folder. A link counts, so Inline still refuses
-// it as before rather than skipping it as prose.
-func rootFile(root, name string) bool {
-	info, err := os.Lstat(filepath.Join(root, pathutil.Native(name)))
+// it as before rather than skipping it as prose. The word has no slash or
+// dot, so it names an entry of the root itself.
+func rootFile(work fs.FS, name string) bool {
+	info, err := fs.Lstat(work, name)
 	return err == nil && !info.IsDir()
 }
 
-// Resolve refuses traversal and symlinks before opening any task input.
-func Resolve(root, path string) (string, error) {
+// Locate names path, absolute or relative to root, as a slash path below
+// root, and refuses a path outside it: "..", another folder's absolute path
+// and a Windows drive path on another system. It looks at no file; Resolve
+// then refuses links. full is the cleaned absolute path.
+func Locate(root, path string) (name, full string, err error) {
+	_, name, full, err = locate(root, path)
+	return name, full, err
+}
+
+func locate(root, path string) (absRoot, name, full string, err error) {
 	path = pathutil.Native(path)
 	if pathutil.IsAbs(path) && !filepath.IsAbs(path) {
-		return "", fmt.Errorf("path outside root: %s", path)
+		return "", "", "", fmt.Errorf("path outside root: %s", path)
 	}
-	root, err := filepath.Abs(root)
-	if err != nil {
-		return "", err
+	// Callers pass an absolute root; Abs only cleans it.
+	if root, err = filepath.Abs(root); err != nil {
+		return "", "", "", err
 	}
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(root, path)
@@ -208,27 +225,83 @@ func Resolve(root, path string) (string, error) {
 	path = filepath.Clean(path)
 	rel, err := filepath.Rel(root, path)
 	if err != nil || !filepath.IsLocal(rel) {
-		return "", fmt.Errorf("path outside root: %s", path)
+		return "", "", "", fmt.Errorf("path outside root: %s", path)
 	}
-	current := root
-	for _, part := range strings.Split(rel, string(filepath.Separator)) {
-		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
-		if os.IsNotExist(err) {
+	return root, filepath.ToSlash(rel), path, nil
+}
+
+// Resolve refuses traversal and symlinks before any task input is opened.
+// name is a slash path relative to the root of fsys: a name that leaves the
+// root, as ".." or an absolute path does, is refused, and so is a symlink at
+// any part of it. A missing part ends the walk, since nothing below it exists
+// to be opened.
+func Resolve(fsys fs.ReadLinkFS, name string) (string, error) {
+	link, err := walk(fsys, name)
+	if err != nil {
+		return "", err
+	}
+	if link != "" {
+		return "", fmt.Errorf("symlink input refused: %s", link)
+	}
+	return name, nil
+}
+
+// walk returns the first part of name that is a symlink, or "".
+func walk(fsys fs.ReadLinkFS, name string) (string, error) {
+	if !fs.ValidPath(name) {
+		return "", fmt.Errorf("path outside root: %s", name)
+	}
+	current := ""
+	for part := range strings.SplitSeq(name, "/") {
+		current = path.Join(current, part)
+		info, err := fsys.Lstat(current)
+		if errors.Is(err, fs.ErrNotExist) {
 			break
 		}
 		if err != nil {
 			return "", err
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return "", fmt.Errorf("symlink input refused: %s", current)
+		if info.Mode()&fs.ModeSymlink != 0 {
+			return current, nil
 		}
 	}
-	return path, nil
+	return "", nil
 }
 
-func (r Reference) Text(root string) ([]byte, error) {
-	data, _, err := r.read(root, -1)
+// Tree is a folder that task input is read from. FS reads below it, and Dir
+// is its absolute path, so input may also name a file in it by an absolute
+// path. Callers build FS with os.DirFS(dir), which reads links since Go 1.25.
+type Tree struct {
+	FS  fs.ReadLinkFS
+	Dir string
+}
+
+// Resolve confines path, absolute or relative to the tree, to the tree, as
+// Locate and Resolve do. It returns the slash name to open in t.FS and the
+// cleaned absolute path. Errors name absolute paths, as they did when the
+// walk used os.Lstat.
+func (t Tree) Resolve(path string) (name, full string, err error) {
+	root, name, full, err := locate(t.Dir, path)
+	if err != nil {
+		return "", "", err
+	}
+	link, err := walk(t.FS, name)
+	if err != nil {
+		var pathErr *fs.PathError
+		if errors.As(err, &pathErr) && fs.ValidPath(pathErr.Path) {
+			pathErr.Path = filepath.Join(root, filepath.FromSlash(pathErr.Path))
+		}
+		return "", "", err
+	}
+	if link != "" {
+		return "", "", fmt.Errorf("symlink input refused: %s", filepath.Join(root, filepath.FromSlash(link)))
+	}
+	return name, full, nil
+}
+
+// Text reads the reference from the work tree t.
+func (r Reference) Text(t Tree) ([]byte, error) {
+	data, _, err := r.read(t, -1)
 	return data, err
 }
 
@@ -239,12 +312,12 @@ var errDirectory = errors.New("a directory")
 // read returns the reference's content when it holds at most limit bytes; a
 // negative limit has none. Content over the limit is not read into memory, or
 // not kept: fits is false, and the range is still checked against the file.
-func (r Reference) read(root string, limit int) (content []byte, fits bool, err error) {
-	path, err := Resolve(root, r.Path)
+func (r Reference) read(t Tree, limit int) (content []byte, fits bool, err error) {
+	name, full, err := t.Resolve(r.Path)
 	if err != nil {
 		return nil, false, err
 	}
-	f, err := os.Open(path)
+	f, err := t.FS.Open(name)
 	if err != nil {
 		return nil, false, err
 	}
@@ -254,7 +327,7 @@ func (r Reference) read(root string, limit int) (content []byte, fits bool, err 
 		return nil, false, err
 	}
 	if info.IsDir() {
-		return nil, false, &fs.PathError{Op: "read", Path: path, Err: errDirectory}
+		return nil, false, &fs.PathError{Op: "read", Path: full, Err: errDirectory}
 	}
 	if r.First == 0 {
 		if limit < 0 {
@@ -335,7 +408,9 @@ func readCause(err error) string {
 		if errors.Is(pathErr.Err, fs.ErrNotExist) {
 			return "no such file"
 		}
-		if errors.Is(pathErr.Err, errDirectory) || errors.Is(pathErr.Err, syscall.EISDIR) {
+		// read finds a folder with Stat before reading it, so the system's
+		// own error for reading one never comes here.
+		if errors.Is(pathErr.Err, errDirectory) {
 			return "a directory"
 		}
 		return pathErr.Err.Error()
@@ -343,25 +418,17 @@ func readCause(err error) string {
 	return err.Error()
 }
 
-func Inline(path, root string, maxBytes int, allowRead ...func(string) bool) ([]byte, error) {
-	// The task copy can live in the shared state of another worktree. Its source
-	// is resolved by the caller; read references are still confined to work root.
-	var err error
-	if _, resolveErr := Resolve(root, path); resolveErr != nil {
-		shared := filepath.Join(project.StateRoot(root), ".duolog", "tasks")
-		// The copy path can use an OS alias of the shared state directory.
-		candidate := path
-		if canonical, e := filepath.EvalSymlinks(path); e == nil {
-			candidate = canonical
-		}
-		if canonical, e := filepath.EvalSymlinks(shared); e == nil {
-			shared = canonical
-		}
-		if _, err := Resolve(shared, candidate); err != nil {
-			return nil, resolveErr
-		}
+// Inline builds the worker's input: the task file at path in task, then the
+// files its Read section names in work, within maxBytes. task is work itself,
+// or the folder that holds the task copy when the copy lives in the shared
+// state of another worktree; the caller chooses it, and path must still lie
+// in it. Read references are always confined to work.
+func Inline(work, task Tree, path string, maxBytes int, allowRead ...func(string) bool) ([]byte, error) {
+	name, _, err := task.Resolve(path)
+	if err != nil {
+		return nil, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := fs.ReadFile(task.FS, name)
 	if err != nil {
 		return nil, err
 	}
@@ -372,7 +439,7 @@ func Inline(path, root string, maxBytes int, allowRead ...func(string) bool) ([]
 	if budget < 0 {
 		return nil, fmt.Errorf("task exceeds inline_max_bytes (%d)", maxBytes)
 	}
-	refs, err := References(path, root)
+	refs, err := references(data, work.FS)
 	if err != nil {
 		return nil, err
 	}
@@ -390,11 +457,11 @@ func Inline(path, root string, maxBytes int, allowRead ...func(string) bool) ([]
 			refused = append(refused, ref.Path)
 			continue
 		}
-		if _, err := Resolve(root, ref.Path); err != nil {
+		if _, _, err := work.Resolve(ref.Path); err != nil {
 			return nil, err
 		}
 		head, tail := "\n<read path="+strconv.Quote(label)+">\n", "\n</read>\n"
-		content, fits, err := ref.read(root, max(budget-len(head)-len(tail), 0))
+		content, fits, err := ref.read(work, max(budget-len(head)-len(tail), 0))
 		if err != nil {
 			// The worker is told what is missing and why, without the work root.
 			unreadable = append(unreadable, label+" ("+readCause(err)+")")

@@ -24,10 +24,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/route"
+	"github.com/lorem-dev/duolog/internal/core/taskspec"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
-	"github.com/lorem-dev/duolog/internal/task"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -447,7 +447,7 @@ func TestPartialWorkNoted(t *testing.T) {
 	if !strings.Contains(s, "partial.go") || !strings.Contains(strings.Split(s, "## Limits")[1], "partial.go") {
 		t.Fatal(s)
 	}
-	if e := task.Validate(p); e != nil {
+	if e := taskspec.Validate(fileFS(p)); e != nil {
 		t.Fatal(e)
 	}
 	if !strings.Contains(string(h.calls[1].Stdin), "partial.go") {
@@ -1196,7 +1196,7 @@ func TestNeedsAppendedToLimits(t *testing.T) {
 	if !strings.Contains(text, "## Limits\nSkill figma-use is not installed here. Read /abs/figma-use/SKILL.md") || !strings.Contains(string(h.calls[0].Stdin), "/abs/figma-use/SKILL.md") {
 		t.Fatal(text, string(h.calls[0].Stdin))
 	}
-	if e := task.Validate(copyPath); e != nil {
+	if e := taskspec.Validate(fileFS(copyPath)); e != nil {
 		t.Fatal(e)
 	}
 	if read(t, h.path) != before {
