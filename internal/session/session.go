@@ -2,6 +2,7 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -76,12 +77,38 @@ type Entry struct {
 	// when none is. Clearing TaskGeneration claims the settlement, so a task
 	// settles once however many commands see it end.
 	AccountSessionID, AdmissionID, TaskGeneration string
+	// StopNotified is the task, by path and generation, whose unfinished
+	// stop the peer's Stop hook already told the lead of: once per task.
+	StopNotified string `json:",omitempty"`
 }
 type Registry struct {
 	Dir string
 	// LeadID binds limit ownership when the caller selected a lead explicitly.
 	LeadID string
+	// within, when set, bounds every wait for the registry lock: see Within.
+	within context.Context
 }
+
+// Within returns the registry with every wait for its lock bounded by ctx:
+// an operation tries the lock again every few milliseconds and fails with
+// ctx's error once ctx ends. Best-effort notices use it, so that a process
+// that stalls with the lock cannot hold back a hook.
+func (r *Registry) Within(ctx context.Context) *Registry {
+	c := *r
+	c.within = ctx
+	return &c
+}
+
+// OpenWithin is Open with the wait for the lock bounded by ctx, as Within.
+func OpenWithin(ctx context.Context, dir string) (*Registry, error) {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, err
+	}
+	r := (&Registry{Dir: dir}).Within(ctx)
+	err := r.access(false, func(*state) error { return nil })
+	return r, err
+}
+
 type state struct {
 	PeerRexSession   string                          `json:"peer_rex_session,omitempty"`
 	PeerSessionRoots map[string]string               `json:"peer_session_roots,omitempty"`
@@ -154,7 +181,7 @@ func Open(dir string) (*Registry, error) {
 
 func (r *Registry) access(write bool, fn func(*state) error) error {
 	lock := flock.New(filepath.Join(r.Dir, "sessions.lock"))
-	if err := lock.Lock(); err != nil {
+	if err := store.Lock(r.within, lock); err != nil {
 		_ = lock.Close()
 		return err
 	}

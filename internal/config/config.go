@@ -237,7 +237,7 @@ func Load(root string) (*Config, error) {
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+			return nil, fileError(path, err)
 		}
 		node, err := parseLayer(data, path)
 		if err != nil {
@@ -245,7 +245,7 @@ func Load(root string) (*Config, error) {
 		}
 		found, shared, err := restrictLayer(i, root, merged.Content[0], node)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+			return nil, fileError(path, err)
 		}
 		notices = append(notices, found...)
 		if i == 2 {
@@ -412,7 +412,7 @@ func mergeLayer(dst *yaml.Node, data []byte, source string) error {
 func parseLayer(data []byte, source string) (*yaml.Node, error) {
 	var node yaml.Node
 	if err := yaml.Unmarshal(data, &node); err != nil {
-		return nil, fmt.Errorf("%s: %w", source, err)
+		return nil, fileError(source, err)
 	}
 	if len(node.Content) == 0 {
 		return nil, nil
@@ -421,26 +421,26 @@ func parseLayer(data []byte, source string) (*yaml.Node, error) {
 	// must retain spellings such as 012 and 2020-01-01.
 	effective, err := resolveYAMLNode(node.Content[0], make(map[*yaml.Node]bool))
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", source, err)
+		return nil, fileError(source, err)
 	}
 	if err := validateEnums(effective, reflect.TypeFor[Config](), "config"); err != nil {
-		return nil, fmt.Errorf("%s: %w", source, err)
+		return nil, fileError(source, err)
 	}
 	if err := checkAccountLimitNodes(effective); err != nil {
-		return nil, fmt.Errorf("%s: %w", source, err)
+		return nil, fileError(source, err)
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	var layer Config
 	if err := decoder.Decode(&layer); err != nil {
-		return nil, fmt.Errorf("%s: %w", source, err)
+		return nil, fileError(source, err)
 	}
 	var extra yaml.Node
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		if err == nil {
 			err = fmt.Errorf("expected a single YAML document")
 		}
-		return nil, fmt.Errorf("%s: %w", source, err)
+		return nil, fileError(source, err)
 	}
 	return effective, nil
 }
@@ -563,7 +563,7 @@ func validateEnums(node *yaml.Node, typ reflect.Type, path string) error {
 		return validateEnums(node.Alias, typ, path)
 	}
 	if node.Tag == "!!null" {
-		return fmt.Errorf("%s: null is not allowed", path)
+		return atLine(node.Line, fmt.Errorf("%s: null is not allowed", path))
 	}
 	switch typ.Kind() {
 	case reflect.Struct:
@@ -574,7 +574,7 @@ func validateEnums(node *yaml.Node, typ reflect.Type, path string) error {
 			key, value := node.Content[i].Value, node.Content[i+1]
 			field, ok := yamlField(typ, key)
 			if !ok {
-				return fmt.Errorf("%s.%s: unknown key", path, key)
+				return atLine(node.Content[i].Line, fmt.Errorf("%s.%s: unknown key", path, key))
 			}
 			var choices []string
 			for _, tag := range strings.Split(field.Tag.Get("jsonschema"), ",") {
@@ -597,7 +597,7 @@ func validateEnums(node *yaml.Node, typ reflect.Type, path string) error {
 					}
 				}
 				if !valid {
-					return fmt.Errorf("%s.%s: invalid value %q (want %s)", path, key, actual.Value, strings.Join(choices, ", "))
+					return atLine(actual.Line, fmt.Errorf("%s.%s: invalid value %q (want %s)", path, key, actual.Value, strings.Join(choices, ", ")))
 				}
 			}
 			if err := validateEnums(value, field.Type, path+"."+key); err != nil {

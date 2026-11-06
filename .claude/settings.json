@@ -71,6 +71,16 @@
         ]
       }
     ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exec \"$CLAUDE_PROJECT_DIR\"/scripts/dev/bin/duolog hook Stop --agent claude"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "hooks": [

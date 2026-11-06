@@ -442,6 +442,8 @@ func events(agent string, timeout int) []event {
 		{"SessionEnd", []group{hook("SessionEnd")}},
 		{"UserPromptSubmit", []group{hook("UserPromptSubmit")}},
 		{"PostToolUse", []group{hook("PostToolUse")}},
+		// A peer's turn end; a lead's Stop does nothing.
+		{"Stop", []group{hook("Stop")}},
 		{"PreToolUse", []group{gate("PreToolUse")}},
 		{"PermissionRequest", []group{gate("PermissionRequest")}},
 	}
