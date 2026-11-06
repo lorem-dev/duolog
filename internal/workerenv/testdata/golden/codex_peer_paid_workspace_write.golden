@@ -1,0 +1,60 @@
+agent: codex
+shape: peer
+variant: paid
+
+env (in order; a value only where it is fixed):
+  HOME
+  OPENAI_API_KEY
+  CODEX_API_KEY
+  CORP_LLM_KEY
+  GOLDEN_KEEP=kept
+  CODEX_PAID_EXTRA
+  PATH=<EXE_DIR><PATHSEP>/usr/bin
+  DUOLOG_DEPTH=1
+  DUOLOG_LEAD=lead-1
+  DUOLOG_ROLE=implement
+  DUOLOG_PEER=peer-1
+
+argv prefix:
+  codex
+  -c
+  check_for_update_on_startup=false
+
+launch words:
+  exec
+  -s
+  workspace-write
+  -c
+  sandbox_workspace_write.network_access=true
+  -c
+  sandbox_workspace_write.writable_roots=["/safe/cache"]
+
+launch argv with run flags [--run-flag value]:
+  codex
+  -c
+  check_for_update_on_startup=false
+  exec
+  -s
+  workspace-write
+  -c
+  sandbox_workspace_write.network_access=true
+  -c
+  sandbox_workspace_write.writable_roots=["/safe/cache"]
+  --run-flag
+  value
+
+claude settings (--settings):
+  none
+
+signals (name@layer):
+  env:CODEX_API_KEY@env
+  env:CORP_LLM_KEY@env
+  env:OPENAI_API_KEY@env
+  model_provider@user
+  route:unknown-speed@user
+
+dropped: []
+endpoint entries: []
+fast pinned: false
+provider env key: "CORP_LLM_KEY"
+cache key: 64 hex digits

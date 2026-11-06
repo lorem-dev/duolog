@@ -1,0 +1,80 @@
+agent: claude
+shape: worker
+variant: free
+
+env (in order; a value only where it is fixed):
+  HOME
+  ANTHROPIC_BASE_URL
+  CORP_LLM_KEY
+  GOLDEN_KEEP=kept
+  PATH=<EXE_DIR><PATHSEP>/usr/bin
+  DUOLOG_DEPTH=1
+  DUOLOG_LEAD=lead-1
+  DUOLOG_ROLE=implement
+  DUOLOG_RUN_ID=run-7
+  MCP_TOKEN
+  DISABLE_AUTOUPDATER=1
+  CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
+
+argv prefix:
+  claude
+  --settings
+  <SETTINGS>
+
+launch words:
+  -p
+  --output-format
+  json
+
+launch argv with run flags [--run-flag value]:
+  claude
+  --settings
+  <SETTINGS>
+  -p
+  --output-format
+  json
+  --run-flag
+  value
+
+claude settings (--settings):
+  {
+    "autoMemoryEnabled": false,
+    "claudeMdExcludes": [
+      "**/CLAUDE.md",
+      "**/CLAUDE.local.md",
+      "**/.claude/rules/**"
+    ],
+    "fastMode": false,
+    "permissions": {
+      "deny": [
+        "Bash(rm:*)"
+      ]
+    },
+    "sandbox": {
+      "enabled": true,
+      "filesystem": {
+        "denyRead": [
+          "/private/keep",
+          "<TMP>/project/.duolog/decisions.ndjson",
+          "<TMP>/project/.duolog/requests.ndjson",
+          "<TMP>/project/.duolog/bus.ndjson",
+          "<TMP>/project/.duolog/usage.ndjson",
+          "<TMP>/project/.duolog/coauthors.ndjson",
+          "<TMP>/project/.duolog/sessions.json",
+          "<TMP>/project/.duolog/cursors",
+          "<TMP>/project/.duolog/journal",
+          "<TMP>/project/.duolog/routing.learned.yaml",
+          "<HOME>/.duolog-usage"
+        ]
+      }
+    }
+  }
+
+signals (name@layer):
+  env:ANTHROPIC_API_KEY@user
+
+dropped: [ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN]
+endpoint entries: [corp-gateway]
+fast pinned: true
+provider env key: ""
+cache key: 64 hex digits

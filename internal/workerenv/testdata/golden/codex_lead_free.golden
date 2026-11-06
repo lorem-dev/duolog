@@ -1,0 +1,46 @@
+agent: codex
+shape: lead
+variant: free
+
+env (in order; a value only where it is fixed):
+  PATH=/usr/bin
+  HOME
+  ANTHROPIC_API_KEY
+  ANTHROPIC_AUTH_TOKEN
+  ANTHROPIC_BASE_URL
+  OPENAI_API_KEY
+  CODEX_API_KEY
+  CORP_LLM_KEY
+  CLAUDE_PAID_EXTRA
+  CODEX_PAID_EXTRA
+  GOLDEN_KEEP=kept
+  GOLDEN_UNLISTED
+  DUOLOG_LEAD=old-lead
+  REX_SESSION
+  DISABLE_AUTOUPDATER=0
+
+argv prefix:
+  codex
+
+launch words:
+
+launch argv with run flags [--run-flag value]:
+  codex
+  --run-flag
+  value
+
+claude settings (--settings):
+  none
+
+signals (name@layer):
+  env:CODEX_API_KEY@env
+  env:CORP_LLM_KEY@env
+  env:OPENAI_API_KEY@env
+  model_provider@user
+  route:unknown-speed@user
+
+dropped: []
+endpoint entries: []
+fast pinned: false
+provider env key: "CORP_LLM_KEY"
+cache key: 64 hex digits

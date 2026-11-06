@@ -1,0 +1,4 @@
+fits 512 bytes: true
+line: role implement: refused refused refused <cut text> ... [cut; task=.duolog/tasks/<TASK>]; codex workers no longer get OPENAI_API_KEY. To let them use it, set paid_runs.codex.allow: true with a daily_cap_usd above 0 and list the key in paid_runs.codex.env.
+needs: []
+error: refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused refused
