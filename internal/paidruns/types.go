@@ -74,6 +74,12 @@ type Reservation struct {
 	Started    bool              `json:"started,omitempty"`
 	Launching  bool              `json:"launching,omitempty"`
 	Retained   string            `json:"retained,omitempty"`
+	// Route is the RouteKey of the process admitted: names only. A peer
+	// send must be built on its pane's route.
+	Route string `json:"route,omitempty"`
+	// LaunchToken is the file the launcher must take before it starts the
+	// child, "" for none; see Store.LaunchWithToken.
+	LaunchToken string `json:"launch_token,omitempty"`
 	// Step is the receipt of the calibration step that holds it, "" for none.
 	Step string `json:"step,omitempty"`
 }

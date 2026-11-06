@@ -346,6 +346,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	// run failed before the next candidate; when no candidate is left, the
 	// task goes to the lead with them.
 	var refusals, failures []string
+	// inLead is the lead's fallback placement, kept while a paid pass is
+	// tried first.
+	var inLead *Placement
 	// later reports whether a pass or a refusal follows, so that running
 	// out of candidates in this pass is not yet the end.
 	later := func() bool { return pass+1 < len(passes) || len(refusals) > 0 }
@@ -423,8 +426,19 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					return out, err
 				}
 			}
+			if route.InLead && !route.Self && len(refusals) > 0 && pass+1 < len(passes) {
+				// A refused agent's paid variant comes before the lead's
+				// fallback: the paid pass runs first, and the lead gets this
+				// placement only if no paid run is admitted.
+				inLead = &p
+				attempt = 1
+				continue
+			}
 			out.RunHere = &p
 			out.Line = p.String()
+			if len(refusals) > 0 || len(failures) > 0 {
+				out.Line = leadLine(role, append(failures, refusals...), p)
+			}
 			return out, nil
 		}
 		capNotes = ""
@@ -837,8 +851,12 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		return out, firstFailure
 	}
 	// The gate refused every candidate left: the task goes to the lead with
-	// one line, as a task whose needs no worker meets does.
+	// one line, as a task whose needs no worker meets does, in the placement
+	// of the lead's fallback when the router chose one.
 	p := Placement{Where: "self", Task: placementTask}
+	if inLead != nil {
+		p = *inLead
+	}
 	out.RunHere = &p
 	out.Line = leadLine(role, append(failures, refusals...), p)
 	return out, nil

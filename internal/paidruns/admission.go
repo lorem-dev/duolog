@@ -68,7 +68,9 @@ const usdEpsilon = 1e-9
 //     least what the agent's tasks in flight hold there. No window means no
 //     headroom.
 //   - One task at a time: a paid task waits for the agent's other paid task,
-//     and any task of a workspace account for the agent's other task.
+//     and any task of a workspace account for the agent's other task. An
+//     idle pane's first task, held by its open until a send takes it, runs
+//     nothing and keeps no task waiting; the send is held to the rule.
 //   - A new session needs a free slot of the agent and of all agents; a
 //     task alone, such as a peer send, needs its open session.
 //
@@ -105,7 +107,7 @@ func (in Admission) prepare() (Reservation, error) {
 		return Reservation{}, err
 	}
 	r := in.Reservation
-	r.AccountKey, r.Child, r.Launching, r.Retained = "", Owner{}, false, ""
+	r.AccountKey, r.Child, r.Launching, r.Retained, r.LaunchToken = "", Owner{}, false, "", ""
 	r.Paid = in.Assessment.Verdict == Paid
 	r.Workspace = in.Assessment.Account == "workspace"
 	if !r.Task {
@@ -153,7 +155,10 @@ func (st *State) admit(in Admission, r Reservation) Decision {
 			return refuse(ReasonWindow)
 		}
 		for _, held := range st.Reservations {
-			if held.Agent == r.Agent && held.Task && (r.Paid && held.Paid || r.Workspace || held.Workspace) {
+			// A pane's open holds its first task until a send takes it; an idle
+			// pane runs nothing, so it keeps no other task waiting.
+			idle := held.Shape == workerenv.Peer && held.Session
+			if held.Agent == r.Agent && held.Task && !idle && (r.Paid && held.Paid || r.Workspace || held.Workspace) {
 				return refuse(ReasonOneTask)
 			}
 		}

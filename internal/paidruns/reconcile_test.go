@@ -283,17 +283,41 @@ func TestReconcileRetainsLiveChildAndUncertainPeer(t *testing.T) {
 		if s := readState(t, st); liveSessions(s, "") != 0 {
 			t.Fatalf("closed pane still occupies a slot: %+v", s.Reservations)
 		}
-		// The started task of unknown cost is charged at its estimate, once.
-		wantSpent(t, st, "claude", now, 0.75, 0)
+		// The open's first task was never sent, since a send replaces it
+		// before anything is typed: it is refunded, as CloseSession does.
+		wantSpent(t, st, "claude", now, 0, 0)
 		before := readState(t, st)
+		if _, ok := before.Settled["pane"]; ok {
+			t.Fatalf("a never-sent task was settled: %+v", before.Settled)
+		}
 		for range 3 {
 			mustReconcile(t, st, w.input(now))
 		}
-		mustSettle(t, st, Settlement{ID: "pane", PricedUSD: 3, Started: true, CompleteUsage: true})
 		if after := readState(t, st); !reflect.DeepEqual(after, before) {
 			t.Fatalf("repeated recovery changed the state:\n%+v\n%+v", before, after)
 		}
-		wantSpent(t, st, "claude", now, 0.75, 0)
+	})
+
+	t.Run("closed pane, sent task unsettled", func(t *testing.T) {
+		now := ledgerNow
+		st := testStore(t, &now)
+		w := newWorld()
+		started(t, st, peerOpen("pane", 0.75), Owner{Pane: "pane-7", PeerSession: "peer-7"})
+		mustSettle(t, st, Settlement{ID: "pane", Started: true, CompleteUsage: true})
+		send := peerOpen("send", 0.5)
+		send.Reservation.SessionID, send.Reservation.Session = "pane", false
+		started(t, st, send, Owner{Pane: "pane-7", PeerSession: "peer-7"})
+		w.set(supervisor.PID, Gone, "")
+		w.pane("pane-7", Gone)
+		mustReconcile(t, st, w.input(now))
+		wantGone(t, st, "pane")
+		wantGone(t, st, "send")
+		// The sent task of unknown cost is charged at its estimate, once.
+		wantSpent(t, st, "claude", now, 0.5, 0)
+		for range 3 {
+			mustReconcile(t, st, w.input(now))
+		}
+		wantSpent(t, st, "claude", now, 0.5, 0)
 	})
 
 	t.Run("closed pane, supervisor still settling", func(t *testing.T) {

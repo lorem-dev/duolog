@@ -11,6 +11,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/runner"
@@ -269,6 +270,59 @@ func TestAttemptSettlementOnCancelRetryAndFallback(t *testing.T) {
 			t.Fatalf("calibration refusal: %v", err)
 		}
 	})
+}
+
+// A free candidate refused, whose fallback is the lead's own agent, does not
+// skip the paid variant the refused agent allows: the paid pass runs before
+// the task goes to the lead. When the paid pass is refused too, or no paid
+// pass exists, the task goes to the lead in the fallback's placement, and the
+// line says why each candidate was refused.
+func TestInLeadFallbackKeepsPaidPassAndRefusals(t *testing.T) {
+	t.Run("paid pass runs before the lead", func(t *testing.T) {
+		h := newHarness(t)
+		h.lead("claude", mode.Ask, "high")
+		h.paidReads("codex")
+		h.cfg.PaidRuns.Codex.Allow, h.cfg.PaidRuns.Codex.DailyCapUSD = true, 5
+		o, err := h.run("implement")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if o.RunHere != nil {
+			t.Fatalf("the task went to the lead before the paid pass: %q", o.Line)
+		}
+		h.requireCalls(1)
+		if p := h.calls[0].Process; p.Agent != "codex" || p.Variant != workerenv.Paid {
+			t.Fatalf("run: %+v", p)
+		}
+	})
+
+	for _, c := range []struct {
+		name  string
+		allow bool
+	}{{"paid pass refused", true}, {"no paid pass", false}} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.lead("claude", mode.Ask, "high")
+			h.paidReads("codex")
+			if c.allow {
+				h.cfg.PaidRuns.Codex.Allow, h.cfg.PaidRuns.Codex.DailyCapUSD = true, 0.000001
+			}
+			o, err := h.run("implement")
+			if err != nil {
+				t.Fatal(err)
+			}
+			h.requireCalls(0)
+			if o.RunHere == nil || !strings.HasPrefix(o.Line, "implement -> lead: codex worker is paid") {
+				t.Fatalf("lead line: %q", o.Line)
+			}
+			if o.RunHere.Model != "sonnet" {
+				t.Fatalf("not the fallback's placement: %#v", *o.RunHere)
+			}
+			if c.allow && !strings.Contains(o.Line, "codex daily cap reached") {
+				t.Fatalf("the paid refusal is missing: %q", o.Line)
+			}
+		})
+	}
 }
 
 // Every worker path builds its process once, after the route, the context

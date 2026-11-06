@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
 	"time"
+
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // Presence is what a probe knows of a process or a pane: Unknown when it
@@ -45,6 +48,14 @@ type ReconcileInput struct {
 // held, never proven unstarted. A started reservation, or one launched
 // before, is left as it is.
 func (s *Store) Launch(ctx context.Context, id string) error {
+	return s.LaunchWithToken(ctx, id, "")
+}
+
+// LaunchWithToken is Launch with a launch token: a file whose launcher must
+// take it, read and remove it, before it starts anything. While the token is
+// there to take, nothing started; reconciliation takes it to prove so after
+// the supervisor died. "" is no token.
+func (s *Store) LaunchWithToken(ctx context.Context, id, token string) error {
 	return s.Update(ctx, func(st *State) error {
 		r, ok := st.Reservations[id]
 		if !ok {
@@ -53,7 +64,7 @@ func (s *Store) Launch(ctx context.Context, id string) error {
 		if r.Started || r.Launching {
 			return nil
 		}
-		r.Launching = true
+		r.Launching, r.LaunchToken = true, token
 		st.Reservations[id] = r
 		return nil
 	})
@@ -84,14 +95,15 @@ type conclusion struct {
 //
 //   - Not started: released when its supervisor is gone and never began a
 //     launch. After Launch, a child may run that no record names, so it
-//     stays held.
+//     stays held, unless its launch token is still there to take.
 //   - Started: the child decides, a pane by the pane service and a process
 //     by its ID and birth identity. The end of the supervisor or the lead
 //     says nothing about a pane. A live or uncertain child stays held.
 //   - Child gone: a session whose task settled ends. An unsettled task ends
 //     once its supervisor is gone too, charged as a run of unknown cost: a
 //     paid one at least its estimate. A live supervisor settles what it
-//     measured.
+//     measured. A pane's first task that its open still holds was never
+//     sent and is refunded.
 //
 // No age ends a reservation. Each one held without a conclusion says why in
 // Retained, for quota and doctor to show. Settled history older than the
@@ -130,7 +142,11 @@ func (s *Store) Reconcile(ctx context.Context, in ReconcileInput) error {
 			case release:
 				delete(st.Reservations, id)
 			case end:
-				if _, settled := st.Settled[id]; r.Task && !settled {
+				// A pane's open still holding its first task never sent it,
+				// since a send replaces that hold before anything is typed: it
+				// is refunded, as CloseSession does.
+				unsent := r.Shape == workerenv.Peer && r.Session
+				if _, settled := st.Settled[id]; r.Task && !settled && !unsent {
 					recovered := Settlement{ID: id, Agent: r.Agent, AccountKey: r.AccountKey, Started: true, Ended: now}
 					recovered.ChargedUSD = charge(r, recovered)
 					st.Settled[id] = recovered
@@ -157,10 +173,15 @@ func (in ReconcileInput) judge(ctx context.Context, r Reservation) conclusion {
 		case Alive:
 			return conclusion{}
 		case Gone:
-			if r.Launching {
-				return conclusion{reason: "its supervisor ended during the launch; a child may run unrecorded"}
+			if !r.Launching {
+				return conclusion{outcome: release}
 			}
-			return conclusion{outcome: release}
+			// A token still there to take proves that nothing started, and
+			// taking it keeps the launcher from starting anything.
+			if r.LaunchToken != "" && os.Remove(r.LaunchToken) == nil {
+				return conclusion{outcome: release}
+			}
+			return conclusion{reason: "its supervisor ended during the launch; a child may run unrecorded"}
 		}
 		return conclusion{reason: "its supervisor cannot be checked"}
 	}

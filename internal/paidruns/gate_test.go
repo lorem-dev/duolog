@@ -341,11 +341,9 @@ func TestGateCountsProcessesAndPanes(t *testing.T) {
 		w.cfg.PaidRuns.Claude.Account = "workspace"
 		var sessions []string
 		for i := range 3 {
+			// An idle pane runs nothing, so it keeps no other task waiting
+			// (TestIdlePaneDoesNotBlockOneTask); its sends run one at a time.
 			open := w.acquire(w.peerOpenRequest("claude", workerenv.Free, 300+i))
-			if i < 2 {
-				// Another open waits until this pane's task is taken and done.
-				w.refused(w.peerOpenRequest("claude", workerenv.Free, 390), ReasonOneTask)
-			}
 			send := w.acquire(w.peerSend("claude", workerenv.Free, 310+i, open.Reservation.ID))
 			w.finish(send, Settlement{Started: true, CompleteUsage: true})
 			sessions = append(sessions, open.Reservation.ID)

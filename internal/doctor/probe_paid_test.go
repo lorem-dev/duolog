@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -211,6 +212,27 @@ func TestProbeUsesGateAndBuild(t *testing.T) {
 		}
 		if n := modelCalls(t, claude); n != 0 {
 			t.Fatalf("%d model calls on refused probes", n)
+		}
+	})
+
+	t.Run("a paid route in the user settings refuses the free probe", func(t *testing.T) {
+		cfg, _, _ := setup(t)
+		g := reportGate(t, cfg, nil)
+		g.Layers = paidruns.ReadLayers
+		settings := filepath.Join(os.Getenv("HOME"), ".claude", "settings.json")
+		if err := os.MkdirAll(filepath.Dir(settings), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(settings, []byte(`{"apiKeyHelper":"/bin/echo"}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+		claude, _ := exec.LookPath("claude")
+		err := probe(ctx, "claude", cfg, nil)
+		if err == nil || !strings.Contains(err.Error(), "apiKeyHelper in user") {
+			t.Fatalf("probe over a paid user layer: %v", err)
+		}
+		if n := modelCalls(t, claude); n != 0 {
+			t.Fatalf("%d model calls on a refused probe", n)
 		}
 	})
 }

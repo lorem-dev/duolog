@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -58,7 +59,7 @@ func probe(ctx context.Context, agent string, cfg *config.Config, entries []cata
 	if err != nil {
 		return err
 	}
-	permit, err := admitProbe(ctx, g, cfg, agent, models.Normalize(agent, model))
+	permit, err := admitProbe(ctx, g, cfg, agent, models.Normalize(agent, model), dir)
 	if err != nil {
 		return err
 	}
@@ -134,10 +135,19 @@ func probe(ctx context.Context, agent string, cfg *config.Config, entries []cata
 	return nil
 }
 
-// admitProbe admits the probe as a worker of agent: the free variant, then
-// the paid one when paid runs allow it. It never waits; a refusal is the
-// error, worded as delegate words it, and nothing is run.
-func admitProbe(ctx context.Context, g *paidruns.Gate, cfg *config.Config, agent, family string) (paidruns.Permit, error) {
+// admitProbe admits the probe as a worker of agent that runs in dir: the
+// free variant, then the paid one when paid runs allow it. Its settings
+// layers are found where the probe looks: the home folder, dir, this platform
+// and the probe's own environment. It never waits; a refusal is the error,
+// worded as delegate words it, and nothing is run.
+func admitProbe(ctx context.Context, g *paidruns.Gate, cfg *config.Config, agent, family, dir string) (paidruns.Permit, error) {
+	home, _ := os.UserHomeDir()
+	free, err := workerenv.Build(workerenv.ProcessInput{Agent: agent, Shape: workerenv.Worker, Variant: workerenv.Free,
+		Config: cfg, Environ: os.Environ(), Role: "probe", Minimal: true})
+	if err != nil {
+		return paidruns.Permit{}, err
+	}
+	loc := workerenv.Locations{Home: home, Root: dir, GOOS: runtime.GOOS, Environ: free.Env}
 	variants := []workerenv.Variant{workerenv.Free}
 	for _, c := range paidruns.Candidates([]config.Target{{Agent: agent}}, true, cfg.PaidRuns) {
 		if c.Variant == workerenv.Paid {
@@ -147,7 +157,7 @@ func admitProbe(ctx context.Context, g *paidruns.Gate, cfg *config.Config, agent
 	var refusals []string
 	for _, variant := range variants {
 		in := workerenv.ProcessInput{Agent: agent, Shape: workerenv.Worker, Variant: variant, Config: cfg,
-			Environ: os.Environ(), Role: "probe", Minimal: true}
+			Environ: os.Environ(), Role: "probe", Minimal: true, Locations: loc}
 		permit, err := g.Acquire(ctx, paidruns.Request{Input: in, Family: family, Role: "probe",
 			Owner: paidruns.ProcessOwner(os.Getpid())})
 		var refusal *paidruns.Refusal
