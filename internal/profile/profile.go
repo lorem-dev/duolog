@@ -16,6 +16,7 @@ import (
 
 	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/record"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -30,7 +31,7 @@ type Options struct {
 	Lead                    string
 	// ProtectedRoots and Observe pass to each replayed delegation.
 	ProtectedRoots []string
-	Observe        delegate.Observer
+	Observe        record.Observer
 }
 
 type Side struct {

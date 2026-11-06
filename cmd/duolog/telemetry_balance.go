@@ -10,48 +10,19 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/record"
 	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/telemetry"
 )
 
-// The observations balance reports. Balance is not in the tree yet: until it
-// lands, duolog quota reports the snapshots it reads and duolog route the
-// routes it resolves through this seam, and balance takes the types over in
-// its observe.go. Every string is a closed name and every number a count;
-// telemetry writes anything else as other.
-type WindowObservation struct {
-	Kind, Family, Status           string
-	LengthMinutes, UsedBasisPoints int64
-	ResetAt                        time.Time
-}
-
-type QuotaObservation struct {
-	Agent, Source, Plan   string
-	Epoch                 int64
-	Windows               []WindowObservation
-	Overage, SpendControl bool
-}
-
-type RouteTarget struct{ Agent, Family, Effort string }
-
-type RouteObservation struct {
-	Role, Class       string
-	Candidates        []RouteTarget
-	Chosen, Incumbent RouteTarget
-	Rule              string
-	ScoreMin          float64
-}
-
-type ResetObservation struct{ Agent, Reason string }
-
-// balanceObserver receives balance's observations. A nil field observes
-// nothing; observeBalance fills every field or none.
+// balanceObserver receives balance's observations (core/record). A nil field
+// observes nothing; observeBalance fills every field or none.
 type balanceObserver struct {
-	Quota func(QuotaObservation)
-	Route func(RouteObservation)
-	Reset func(ResetObservation)
+	Quota func(record.QuotaObservation)
+	Route func(record.RouteObservation)
+	Reset func(record.ResetObservation)
 }
 
 // resetSlack is how far apart two reads of one window's reset may be and still
@@ -87,8 +58,8 @@ func observeBalance(s *telemetry.Store) balanceObserver {
 	m := &quotaMirror{s: s, now: time.Now, seen: map[windowKey][]windowValue{}}
 	return balanceObserver{
 		Quota: m.observe,
-		Route: func(r RouteObservation) { _ = s.Append(routeEvent(r)) },
-		Reset: func(r ResetObservation) { _ = s.Append(telemetry.Reset{Agent: r.Agent, Reason: r.Reason}) },
+		Route: func(r record.RouteObservation) { _ = s.Append(routeEvent(r)) },
+		Reset: func(r record.ResetObservation) { _ = s.Append(telemetry.Reset{Agent: r.Agent, Reason: r.Reason}) },
 	}
 }
 
@@ -127,7 +98,7 @@ type quotaMirror struct {
 	seen   map[windowKey][]windowValue
 }
 
-func (m *quotaMirror) observe(q QuotaObservation) {
+func (m *quotaMirror) observe(q record.QuotaObservation) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !m.seeded {
@@ -186,7 +157,7 @@ func (m *quotaMirror) seed() {
 // quotaWindow maps an observed window to its record with every number in
 // range and the reset counted in minutes from now, rounded up. A window with
 // no length the record can hold is left out.
-func quotaWindow(o WindowObservation, now time.Time) (telemetry.Window, bool) {
+func quotaWindow(o record.WindowObservation, now time.Time) (telemetry.Window, bool) {
 	if o.LengthMinutes < 1 || o.LengthMinutes > maxSecs {
 		return telemetry.Window{}, false
 	}
@@ -208,7 +179,7 @@ func resetAt(t, resetInMin int64) int64 {
 // quotaEvents puts windows into one quota event when its line fits in 1 KiB.
 // A larger snapshot is split into events that each hold windows of one kind,
 // as many as fit, so every window is written once.
-func quotaEvents(q QuotaObservation, windows []telemetry.Window, now time.Time) []telemetry.Quota {
+func quotaEvents(q record.QuotaObservation, windows []telemetry.Window, now time.Time) []telemetry.Quota {
 	base := telemetry.Quota{Agent: q.Agent, Src: q.Source, Plan: q.Plan, Epoch: q.Epoch, Overage: q.Overage, SpendControl: q.SpendControl}
 	fits := func(e telemetry.Quota) bool {
 		_, err := telemetry.Encode(e, telemetry.Names{}, now)
@@ -245,8 +216,8 @@ func quotaEvents(q QuotaObservation, windows []telemetry.Window, now time.Time) 
 	return out
 }
 
-func routeEvent(r RouteObservation) telemetry.Route {
-	target := func(t RouteTarget) telemetry.Target {
+func routeEvent(r record.RouteObservation) telemetry.Route {
+	target := func(t record.RouteTarget) telemetry.Target {
 		return telemetry.Target{Agent: t.Agent, Family: t.Family, Effort: t.Effort}
 	}
 	e := telemetry.Route{Role: r.Role, Class: r.Class, Chosen: target(r.Chosen), Incumbent: target(r.Incumbent), Rule: r.Rule, ScoreMin: r.ScoreMin}
@@ -260,8 +231,8 @@ func routeEvent(r RouteObservation) telemetry.Route {
 // quotaObservation maps a snapshot duolog quota read to what balance would
 // observe: windows by kind and family, usage in basis points, no plan name
 // outside the known ones, and no credit balance, identity or vendor id.
-func quotaObservation(agent string, s quota.Snapshot) QuotaObservation {
-	q := QuotaObservation{Agent: agent, Source: "app_server", Plan: s.Plan, SpendControl: s.SpendControlReached}
+func quotaObservation(agent string, s quota.Snapshot) record.QuotaObservation {
+	q := record.QuotaObservation{Agent: agent, Source: "app_server", Plan: s.Plan, SpendControl: s.SpendControlReached}
 	if agent == "claude" {
 		q.Source = "usage_read"
 	}
@@ -285,8 +256,8 @@ func quotaObservation(agent string, s quota.Snapshot) QuotaObservation {
 // windowObservation names a window by its length (five_hour, weekly or other)
 // and the family it limits: all for a window of every model, the limit's
 // family, or the family of its kind or model.
-func windowObservation(agent, family string, w quota.Window) WindowObservation {
-	o := WindowObservation{Kind: "other", Family: family, Status: "unknown", LengthMinutes: int64(w.DurationMinutes), ResetAt: w.ResetsAt}
+func windowObservation(agent, family string, w quota.Window) record.WindowObservation {
+	o := record.WindowObservation{Kind: "other", Family: family, Status: "unknown", LengthMinutes: int64(w.DurationMinutes), ResetAt: w.ResetsAt}
 	switch w.DurationMinutes {
 	case 300:
 		o.Kind = "five_hour"
@@ -325,7 +296,7 @@ func windowObservation(agent, family string, w quota.Window) WindowObservation {
 // routeObservation maps a route the router resolved: the role's target is the
 // incumbent, the route's own target the chosen one, and the rule says why
 // they differ, if they do.
-func routeObservation(cfg *config.Config, role string, route router.Route, opts router.Options) RouteObservation {
+func routeObservation(cfg *config.Config, role string, route router.Route, opts router.Options) record.RouteObservation {
 	use := cfg.Roles[role].Use
 	rule := "pinned"
 	if opts.Use != nil {
@@ -334,11 +305,11 @@ func routeObservation(cfg *config.Config, role string, route router.Route, opts 
 	if route.IsFallback {
 		rule = "availability"
 	}
-	target := func(t config.Target) RouteTarget {
-		return RouteTarget{Agent: t.Agent, Family: models.Normalize(t.Agent, t.Model), Effort: t.Effort}
+	target := func(t config.Target) record.RouteTarget {
+		return record.RouteTarget{Agent: t.Agent, Family: models.Normalize(t.Agent, t.Model), Effort: t.Effort}
 	}
-	o := RouteObservation{Role: role, Incumbent: target(use), Chosen: target(route.Target), Rule: rule}
-	o.Candidates = []RouteTarget{o.Incumbent}
+	o := record.RouteObservation{Role: role, Incumbent: target(use), Chosen: target(route.Target), Rule: rule}
+	o.Candidates = []record.RouteTarget{o.Incumbent}
 	if o.Chosen != o.Incumbent {
 		o.Candidates = append(o.Candidates, o.Chosen)
 	}

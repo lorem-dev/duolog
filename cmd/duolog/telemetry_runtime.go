@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/delegate"
+	"github.com/lorem-dev/duolog/internal/core/record"
 	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/telemetry"
@@ -72,12 +72,12 @@ func openTelemetry(cfg *config.Config, root string) *telemetry.Store {
 // such as a run here task, gets an id drawn at its first attempt. A vendor id
 // is never used or hashed for it. An append that fails is counted in the
 // store's health and otherwise ignored.
-func observeAttempt(s *telemetry.Store, cfg *config.Config) delegate.Observer {
+func observeAttempt(s *telemetry.Store, cfg *config.Config) record.Observer {
 	if s == nil {
 		return nil
 	}
 	var run telemetry.ID
-	return func(a delegate.Attempt) {
+	return func(a record.Attempt) {
 		if id := runID(a.Run); id != (telemetry.ID{}) {
 			run = id
 		} else if a.Number <= 1 || run == (telemetry.ID{}) {
@@ -93,7 +93,7 @@ func observeAttempt(s *telemetry.Store, cfg *config.Config) delegate.Observer {
 // from usage.Cost, which charges cache reads and writes once, only when
 // priced, finite and in range. Strings pass as they are: the store writes anything outside a
 // closed set or the configured names as other.
-func runEvent(cfg *config.Config, run telemetry.ID, a delegate.Attempt) telemetry.Run {
+func runEvent(cfg *config.Config, run telemetry.ID, a record.Attempt) telemetry.Run {
 	family := models.Normalize(a.Agent, a.Family)
 	e := telemetry.Run{
 		Common: telemetry.Common{Run: run},

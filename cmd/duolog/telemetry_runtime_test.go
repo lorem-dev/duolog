@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/record"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/router"
@@ -149,7 +150,7 @@ func TestAttemptNoVendorText(t *testing.T) {
 	if s == nil {
 		t.Fatal("telemetry did not open")
 	}
-	observeAttempt(s, cfg)(delegate.Attempt{Number: 1, Role: sentinel, Class: sentinel, Agent: sentinel, Family: sentinel, Effort: sentinel, Placement: sentinel, Outcome: sentinel, ErrorCode: sentinel, Reason: sentinel})
+	observeAttempt(s, cfg)(record.Attempt{Number: 1, Role: sentinel, Class: sentinel, Agent: sentinel, Family: sentinel, Effort: sentinel, Placement: sentinel, Outcome: sentinel, ErrorCode: sentinel, Reason: sentinel})
 	s.Close()
 
 	got := runs(t, p.root)
@@ -209,8 +210,8 @@ func TestAttemptUsageAndCost(t *testing.T) {
 	if want := int64(math.Round((600*opus.Input + 400*opus.Cached + 100*opus.Output))); priced(1000, 400, 100) != want {
 		t.Fatalf("cached charged twice: %d want %d", priced(1000, 400, 100), want)
 	}
-	base := delegate.Attempt{Number: 1, Role: "implement", Agent: "claude", Family: "opus", Effort: "high", Placement: "worker", Outcome: "done", ErrorCode: "none", Reason: "none", Duration: 1500 * time.Millisecond}
-	with := func(change func(*delegate.Attempt)) delegate.Attempt {
+	base := record.Attempt{Number: 1, Role: "implement", Agent: "claude", Family: "opus", Effort: "high", Placement: "worker", Outcome: "done", ErrorCode: "none", Reason: "none", Duration: 1500 * time.Millisecond}
+	with := func(change func(*record.Attempt)) record.Attempt {
 		a := base
 		change(&a)
 		return a
@@ -222,39 +223,39 @@ func TestAttemptUsageAndCost(t *testing.T) {
 	cases := []struct {
 		name                 string
 		cfg                  *config.Config
-		attempt              delegate.Attempt
+		attempt              record.Attempt
 		in, cached, out, usd int64
 		known, isPriced      bool
 		family               string
 	}{
-		{"cached once", cfg, with(func(a *delegate.Attempt) {
+		{"cached once", cfg, with(func(a *record.Attempt) {
 			a.Usage, a.UsageKnown = runner.Usage{Input: 1000, Cached: 400, Output: 100}, true
 		}), 1000, 400, 100, priced(1000, 400, 100), true, true, "opus"},
-		{"known zero", cfg, with(func(a *delegate.Attempt) { a.UsageKnown = true }), 0, 0, 0, 0, true, true, "opus"},
-		{"unknown", cfg, with(func(a *delegate.Attempt) { a.Usage = runner.Usage{Input: 1000, Output: 100} }), 0, 0, 0, 0, false, false, "opus"},
-		{"unpriced", cfg, with(func(a *delegate.Attempt) {
+		{"known zero", cfg, with(func(a *record.Attempt) { a.UsageKnown = true }), 0, 0, 0, 0, true, true, "opus"},
+		{"unknown", cfg, with(func(a *record.Attempt) { a.Usage = runner.Usage{Input: 1000, Output: 100} }), 0, 0, 0, 0, false, false, "opus"},
+		{"unpriced", cfg, with(func(a *record.Attempt) {
 			a.Family, a.Usage, a.UsageKnown = "sol", runner.Usage{Input: 1000, Output: 100}, true
 		}), 1000, 0, 100, 0, true, false, "sol"},
-		{"codex family", cfg, with(func(a *delegate.Attempt) {
+		{"codex family", cfg, with(func(a *record.Attempt) {
 			a.Agent, a.Family, a.Usage, a.UsageKnown = "codex", "sol", runner.Usage{Input: 1000, Cached: 400, Output: 100}, true
 		}), 1000, 400, 100, func() int64 {
 			usd, _ := usage.Cost(cfg, "codex", "sol", usage.Tokens{Input: 1000, Cached: 400, Output: 100})
 			return int64(math.Round(usd * 1e6))
 		}(), true, true, "sol"},
 		// 300 five-minute writes at 1.25x and 200 one-hour writes at 2x input.
-		{"cache writes", cfg, with(func(a *delegate.Attempt) {
+		{"cache writes", cfg, with(func(a *record.Attempt) {
 			a.Usage, a.UsageKnown = runner.Usage{Input: 1000, Cached: 400, Write: 500, WriteHour: 200, Output: 100}, true
 		}), 1000, 400, 100, int64(math.Round(100*opus.Input + 400*opus.Cached + 300*1.25*opus.Input + 200*2*opus.Input + 100*opus.Output)), true, true, "opus"},
-		{"writes over input", cfg, with(func(a *delegate.Attempt) {
+		{"writes over input", cfg, with(func(a *record.Attempt) {
 			a.Usage, a.UsageKnown = runner.Usage{Input: 1000, Cached: 400, Write: 900, WriteHour: 2000, Output: 100}, true
 		}), 1000, 400, 100, int64(math.Round(400*opus.Cached + 600*2*opus.Input + 100*opus.Output)), true, true, "opus"},
-		{"cached over input", cfg, with(func(a *delegate.Attempt) {
+		{"cached over input", cfg, with(func(a *record.Attempt) {
 			a.Usage, a.UsageKnown = runner.Usage{Input: 10, Cached: 50, Output: -3}, true
 		}), 10, 10, 0, priced(10, 10, 0), true, true, "opus"},
-		{"out of range", &huge, with(func(a *delegate.Attempt) {
+		{"out of range", &huge, with(func(a *record.Attempt) {
 			a.Usage, a.UsageKnown = runner.Usage{Input: 1 << 40}, true
 		}), 1 << 40, 0, 0, 0, true, false, "opus"},
-		{"not finite", &nan, with(func(a *delegate.Attempt) {
+		{"not finite", &nan, with(func(a *record.Attempt) {
 			a.Usage, a.UsageKnown = runner.Usage{Input: 1000}, true
 		}), 1000, 0, 0, 0, true, false, "opus"},
 	}
@@ -336,7 +337,7 @@ func TestAttemptNoopSink(t *testing.T) {
 		}
 		s.Close()
 		before := s.Health().Failures
-		observeAttempt(s, cfg)(delegate.Attempt{Number: 1, Role: "review_final", Placement: "worker", Outcome: "done"})
+		observeAttempt(s, cfg)(record.Attempt{Number: 1, Role: "review_final", Placement: "worker", Outcome: "done"})
 		if s.Health().Failures != before+1 {
 			t.Fatal("failed append not counted")
 		}
@@ -385,7 +386,7 @@ func TestPlacementObservations(t *testing.T) {
 	inLead := router.Route{Target: config.Target{Agent: "claude", Model: "sonnet", Effort: "medium"}, InLead: true, IsFallback: true}
 	delegate.ObserveHere(observe, "implement", "", self, "done", time.Minute)
 	delegate.ObserveHere(observe, "implement", "", inLead, "failed", time.Minute)
-	observe(delegate.Attempt{Number: 1, Role: "implement", Agent: "codex", Family: "sol", Effort: "medium", Placement: "peer", Outcome: "done", ErrorCode: "none", Reason: "none", Duration: time.Minute})
+	observe(record.Attempt{Number: 1, Role: "implement", Agent: "codex", Family: "sol", Effort: "medium", Placement: "peer", Outcome: "done", ErrorCode: "none", Reason: "none", Duration: time.Minute})
 	s.Close()
 	got := runs(t, p.root)
 	if len(got) != 3 {

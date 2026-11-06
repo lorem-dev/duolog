@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/delegate"
+	"github.com/lorem-dev/duolog/internal/core/record"
 	"github.com/lorem-dev/duolog/internal/peer"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/telemetry"
@@ -227,10 +227,10 @@ func TestTelemetryPeerOperations(t *testing.T) {
 		root, _, telemetryRoot := peerTelemetryProject(t)
 		peerRex(t, claudeIdleScreen())
 		var ops []peer.Operation
-		var attempts []delegate.Attempt
+		var attempts []record.Attempt
 		ctx := peer.WithOptions(context.Background(), peer.Options{Root: root, Lead: "lead-1",
 			Observe:        func(o peer.Operation) { ops = append(ops, o) },
-			ObserveAttempt: func(a delegate.Attempt) { attempts = append(attempts, a) }})
+			ObserveAttempt: func(a record.Attempt) { attempts = append(attempts, a) }})
 		e, err := peer.Open(ctx, "plan")
 		if err != nil || e.State != peer.Ready {
 			t.Fatal(e, err)

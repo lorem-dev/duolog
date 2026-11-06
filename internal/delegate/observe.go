@@ -9,32 +9,19 @@ import (
 	"path/filepath"
 	"time"
 
+	corerecord "github.com/lorem-dev/duolog/internal/core/record"
 	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/runner"
 )
 
-// Attempt is one actual run of a task: a worker process, a peer turn, or a
-// run here task the lead finished. Family is the model family, never a
-// version. It carries no text from the vendor; the caller still checks every
-// field before it keeps one. Run is the delegation's own random id, the one
-// its workers get as DUOLOG_RUN; it is empty for a run here task.
-type Attempt struct {
-	Number                                        int
-	Run                                           string
-	Role, Class, Agent, Family, Effort, Placement string
-	Usage                                         runner.Usage
-	UsageKnown                                    bool
-	Duration                                      time.Duration
-	Outcome, ErrorCode, Reason                    string
-	Asks, Denials                                 int64
-	Escalated, Moved                              bool
-}
-
-// Observer receives every attempt, learning on or off. It cannot fail a
-// delegation: it returns nothing, and Run neither waits for nor reads what it
-// does.
-type Observer func(Attempt)
+// Attempt and Observer live in core/record. These names keep delegate.go and
+// peer.go unchanged: both are over the file-length limit, and an import line
+// would grow them. They go when those files split.
+type (
+	Attempt  = corerecord.Attempt
+	Observer = corerecord.Observer
+)
 
 // attempts numbers the worker runs of one delegation and reports each one.
 // Preflight checks, routing and a run here line are not runs. run is the

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/record"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/session"
@@ -423,7 +424,7 @@ func TestTelemetryEndToEnd(t *testing.T) {
 	t.Cleanup(func() { account.Close() })
 	// Balance has not landed, so nothing in duolog resets an epoch yet: a
 	// reset reaches telemetry through the observer seam balance will call.
-	observeBalance(account).Reset(ResetObservation{Agent: "claude", Reason: "manual"})
+	observeBalance(account).Reset(record.ResetObservation{Agent: "claude", Reason: "manual"})
 	quotas, routes, resets := accountEvents[telemetry.Quota](t, account), accountEvents[telemetry.Route](t, account), accountEvents[telemetry.Reset](t, account)
 	if len(quotas) != 2 || quotas[0].Agent == quotas[1].Agent || len(routes) != 2 || len(resets) != 1 {
 		t.Fatalf("quota %+v\nroute %+v\nreset %+v", quotas, routes, resets)

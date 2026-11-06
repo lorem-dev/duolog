@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/record"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/telemetry"
 	"github.com/lorem-dev/duolog/internal/testbin"
@@ -104,10 +105,10 @@ const codexQuota = `{"rateLimits":{"planType":"plus","primary":{"usedPercent":13
 func TestTelemetryBalanceDedup(t *testing.T) {
 	s, telemetryRoot := balanceStore(t)
 	now := time.Now()
-	session := WindowObservation{Kind: "five_hour", Family: "all", Status: "ok", LengthMinutes: 300, UsedBasisPoints: 1500, ResetAt: now.Add(3 * time.Hour)}
-	weekly := WindowObservation{Kind: "weekly", Family: "all", Status: "ok", LengthMinutes: 10080, UsedBasisPoints: 4000, ResetAt: now.Add(72 * time.Hour)}
-	snapshot := func(agent string, epoch int64, windows ...WindowObservation) QuotaObservation {
-		return QuotaObservation{Agent: agent, Source: "usage_read", Plan: "max", Epoch: epoch, Windows: windows}
+	session := record.WindowObservation{Kind: "five_hour", Family: "all", Status: "ok", LengthMinutes: 300, UsedBasisPoints: 1500, ResetAt: now.Add(3 * time.Hour)}
+	weekly := record.WindowObservation{Kind: "weekly", Family: "all", Status: "ok", LengthMinutes: 10080, UsedBasisPoints: 4000, ResetAt: now.Add(72 * time.Hour)}
+	snapshot := func(agent string, epoch int64, windows ...record.WindowObservation) record.QuotaObservation {
+		return record.QuotaObservation{Agent: agent, Source: "usage_read", Plan: "max", Epoch: epoch, Windows: windows}
 	}
 	quotas := func() []telemetry.Quota { return accountEvents[telemetry.Quota](t, s) }
 	observe := observeBalance(s)
@@ -166,7 +167,7 @@ func TestTelemetryBalanceDedup(t *testing.T) {
 		hour := session
 		hour.Kind, hour.LengthMinutes = "other", 60
 		before := len(quotas())
-		for _, q := range []QuotaObservation{
+		for _, q := range []record.QuotaObservation{
 			snapshot("codex", 0, session, weekly),  // another agent
 			snapshot("claude", 0, session, opus),   // another family
 			snapshot("claude", 0, session, hour),   // another window
@@ -187,9 +188,9 @@ func TestTelemetryBalanceDedup(t *testing.T) {
 	t.Run("split", func(t *testing.T) {
 		kinds := []string{"five_hour", "weekly", "other"}
 		families := []string{"all", "opus", "sonnet", "haiku", "sol", "terra", "luna", "fable"}
-		var windows []WindowObservation
+		var windows []record.WindowObservation
 		for i := range 40 {
-			windows = append(windows, WindowObservation{Kind: kinds[i%3], Family: families[i%len(families)], Status: "ok", LengthMinutes: int64(1000 + i), UsedBasisPoints: int64(100 * i), ResetAt: now.Add(time.Duration(i+1) * time.Hour)})
+			windows = append(windows, record.WindowObservation{Kind: kinds[i%3], Family: families[i%len(families)], Status: "ok", LengthMinutes: int64(1000 + i), UsedBasisPoints: int64(100 * i), ResetAt: now.Add(time.Duration(i+1) * time.Hour)})
 		}
 		before := len(quotas())
 		observe.Quota(snapshot("codex", 7, windows...))
@@ -231,7 +232,7 @@ func TestTelemetryBalanceEpoch(t *testing.T) {
 	observe := observeBalance(s)
 	reasons := []string{"account", "plan", "drift", "manual", "sentinelreason"}
 	for _, reason := range reasons {
-		observe.Reset(ResetObservation{Agent: "codex", Reason: reason})
+		observe.Reset(record.ResetObservation{Agent: "codex", Reason: reason})
 	}
 	resets := accountEvents[telemetry.Reset](t, s)
 	if len(resets) != len(reasons) {
@@ -243,9 +244,9 @@ func TestTelemetryBalanceEpoch(t *testing.T) {
 		}
 	}
 
-	window := WindowObservation{Kind: "five_hour", Family: "all", Status: "ok", LengthMinutes: 300, UsedBasisPoints: 500, ResetAt: time.Now().Add(time.Hour)}
+	window := record.WindowObservation{Kind: "five_hour", Family: "all", Status: "ok", LengthMinutes: 300, UsedBasisPoints: 500, ResetAt: time.Now().Add(time.Hour)}
 	for _, epoch := range []int64{1, 1, 2, 2} {
-		observe.Quota(QuotaObservation{Agent: "claude", Source: "usage_read", Epoch: epoch, Windows: []WindowObservation{window}})
+		observe.Quota(record.QuotaObservation{Agent: "claude", Source: "usage_read", Epoch: epoch, Windows: []record.WindowObservation{window}})
 	}
 	quotas := accountEvents[telemetry.Quota](t, s)
 	if len(quotas) != 2 || quotas[0].Epoch != 1 || quotas[1].Epoch != 2 {
@@ -308,13 +309,13 @@ func TestTelemetryBalanceEpoch(t *testing.T) {
 func TestTelemetryRouteRules(t *testing.T) {
 	s, _ := balanceStore(t)
 	observe := observeBalance(s)
-	sol := RouteTarget{Agent: "codex", Family: "sol", Effort: "medium"}
-	opus := RouteTarget{Agent: "claude", Family: "opus", Effort: "high"}
+	sol := record.RouteTarget{Agent: "codex", Family: "sol", Effort: "medium"}
+	opus := record.RouteTarget{Agent: "claude", Family: "opus", Effort: "high"}
 	rules := []string{"explicit", "availability", "cross_review", "pinned", "admission", "hysteresis", "balance", "outside_ladder"}
 	for i, rule := range rules {
-		observe.Route(RouteObservation{Role: "implement", Class: "sentinelclass", Candidates: []RouteTarget{sol, opus}, Chosen: opus, Incumbent: sol, Rule: rule, ScoreMin: float64(i) / 4})
+		observe.Route(record.RouteObservation{Role: "implement", Class: "sentinelclass", Candidates: []record.RouteTarget{sol, opus}, Chosen: opus, Incumbent: sol, Rule: rule, ScoreMin: float64(i) / 4})
 	}
-	observe.Route(RouteObservation{Role: "implement", Candidates: []RouteTarget{sol}, Chosen: sol, Incumbent: sol, Rule: "sentinelrule"})
+	observe.Route(record.RouteObservation{Role: "implement", Candidates: []record.RouteTarget{sol}, Chosen: sol, Incumbent: sol, Rule: "sentinelrule"})
 	got := accountEvents[telemetry.Route](t, s)
 	if len(got) != len(rules)+1 {
 		t.Fatalf("%+v", got)
@@ -465,7 +466,7 @@ func TestBalanceWithoutTelemetry(t *testing.T) {
 	t.Run("failure", func(t *testing.T) {
 		s.Close()
 		before := s.Health().Failures
-		observeBalance(s).Route(RouteObservation{Role: "plan", Rule: "pinned"})
+		observeBalance(s).Route(record.RouteObservation{Role: "plan", Rule: "pinned"})
 		if s.Health().Failures != before+1 {
 			t.Fatal("failed append not counted")
 		}

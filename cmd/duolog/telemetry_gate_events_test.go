@@ -13,7 +13,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/delegate"
+	"github.com/lorem-dev/duolog/internal/core/record"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/session"
@@ -310,8 +310,8 @@ func TestTelemetryRunEventsUseDelegationRun(t *testing.T) {
 	}
 	defer s.Close()
 	observe := observeAttempt(s, cfg)
-	observe(delegate.Attempt{Number: 1, Run: run, Role: "implement", Agent: "claude", Outcome: "done"})
-	observe(delegate.Attempt{Number: 1, Run: "worker-id", Role: "implement", Agent: "claude", Outcome: "done"})
+	observe(record.Attempt{Number: 1, Run: run, Role: "implement", Agent: "claude", Outcome: "done"})
+	observe(record.Attempt{Number: 1, Run: "worker-id", Role: "implement", Agent: "claude", Outcome: "done"})
 	got := runs(t, root)
 	if len(got) != 2 {
 		t.Fatalf("runs: %+v", got)
