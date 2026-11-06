@@ -444,9 +444,19 @@ func leadStoreCommand(a gate.Action) bool {
 	if a.Kind != "exec" {
 		return false
 	}
-	parts, uncertain := gate.ShellParts(a.Target, a.Shell)
-	if uncertain {
-		parts = append(parts, a.Target)
+	var parts []string
+	if lists, ok := gate.CommandWordLists(a.Target, a.Shell); ok {
+		// A plain line: the words of each command, without the prose of a
+		// commit message or the like.
+		for _, words := range lists {
+			parts = append(parts, strings.Join(words, " "))
+		}
+	} else {
+		var uncertain bool
+		parts, uncertain = gate.ShellParts(a.Target, a.Shell)
+		if uncertain {
+			parts = append(parts, a.Target)
+		}
 	}
 	for _, part := range parts {
 		for _, verb := range []string{"telemetry", "balance"} {

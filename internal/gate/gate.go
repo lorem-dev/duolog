@@ -49,6 +49,10 @@ type Action struct {
 	// own Claude session; see OwnToolResults. The hook sets it from the
 	// session id, never the worker.
 	OwnResult bool `json:"-"`
+	// Temp names the worker's own Claude temp folders, which hold only its
+	// session's scratchpad and task output; see ClaudeTemps. The hook sets it
+	// from the session id, never the worker.
+	Temp []string `json:"-"`
 }
 
 type Decision struct {
@@ -261,7 +265,8 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 		}
 	}
 	if readAsk != nil {
-		return *readAsk
+		// A line that names an outside path needs the person, whatever asked.
+		return decision(readAsk.Kind, readAsk.Reason, readAsk.Rule)
 	}
 	if a.Kind == "write" && m == mode.Ask {
 		return decision(Ask, "ask mode requires approval for writes", "mode ask")
@@ -944,16 +949,14 @@ func readCommandDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action,
 			asked = &Decision{Kind: Ask, Reason: reason, Rule: "read command", Mode: m}
 		}
 		for _, target := range targets {
-			if a.Work != "" {
-				target = RelativeTarget(a.Work, a.Cwd, expandHome(target))
-			}
+			target, own := readTarget(a, target)
 			if strings.ContainsAny(target, "*?[{") {
 				if statePattern(target) {
 					return Decision{Kind: Deny, Reason: "duolog state is not readable by workers", Rule: RuleState, Mode: m}, true
 				}
 				continue
 			}
-			d := Evaluate(p, lead, m, Action{Kind: "read", Target: target, Role: a.Role, Shell: shell})
+			d := Evaluate(p, lead, m, Action{Kind: "read", Target: target, Role: a.Role, Shell: shell, OwnResult: own})
 			if d.Kind == Deny {
 				d.Reason = "read command: " + d.Reason
 				return d, true

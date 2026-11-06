@@ -284,6 +284,9 @@ Codex workers and native Windows have the gate only.
 
 When a lead model runs `duolog telemetry` or reads the folder, a Claude lead
 asks you, and a Codex lead is told to have you run it in your terminal.
+Words in a quoted message, such as `git commit -m "..."`, `gh pr create
+--body "..."` or `echo "..."`, are prose and do not count as that command.
+A quoted script that a shell runs, such as `sh -c '...'`, still does.
 
 ## Reads and writes outside the work root need the person
 
@@ -292,6 +295,19 @@ line says `needs the person`. This covers read tools, writes and exec asks
 that name outside paths, such as `cat /outside/notes.txt` or
 `git -C /other log`. An explicit outside-path rule still applies
 as written; a broad `**` allow does not approve outside paths.
+
+The gate reads a plain shell line word by word, as the shell passes the
+words on. A search pattern or a print-only script is not a path: the
+pattern of `grep`, `rg` and `git grep`, a `sed -n '/x/,$p'` script, and an
+`awk` program that names no file. A backslash in such text is not a path
+separator. After `cd DIR`, a relative path counts as outside when it leaves
+the work root from either folder. A Claude worker's own temp folder,
+`/tmp/claude-<uid>/<project>/<session>`, holds only its session's scratchpad
+and task output, so it counts as the worker's own: it reads it freely, and
+an exec ask that names it goes to the lead. Another session's folder, and
+any path that resolves outside through `..`, `~` or a symlink, still needs
+the person. A line the gate cannot read word by word, such as one with `$`
+or a subshell, is judged as before.
 
 The lead's own hook guards shell commands that may run `duolog allow N`.
 For a Claude lead, it asks Claude Code to prompt the person. For a Codex lead,

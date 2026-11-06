@@ -83,7 +83,11 @@ func protectedDecision(a Action, m mode.Mode) (Decision, bool) {
 // wrapper, in a pipeline or after the PowerShell call operator, and behind
 // duolog's global flags, such as --lead L or --lead=L.
 func protectedCommand(command, shell string) bool {
-	for _, words := range protectedWords(command, shell) {
+	lists, ok := CommandWordLists(command, shell)
+	if !ok {
+		lists = protectedWords(command, shell)
+	}
+	for _, words := range lists {
 		for i, word := range words {
 			if ProgramName(word) == "duolog" && storeSubcommand(words[i+1:]) {
 				return true

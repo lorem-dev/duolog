@@ -154,11 +154,20 @@ func rgShortsKnown(cluster string) bool {
 
 // commandWords splits a part into the arguments the shell passes on. A quoted
 // word with spaces is one argument, and a path or glob in it keeps its spaces,
-// so every policy comparison sees what the program receives.
+// so every policy comparison sees what the program receives. A here-string,
+// <<< and its word, goes to standard input: it names no file.
 func commandWords(part string) []string {
-	words := strings.Fields(part)
-	for i := range words {
-		words[i] = strings.ReplaceAll(words[i], quotedSpace, " ")
+	var words []string
+	fields := strings.Fields(part)
+	for i := 0; i < len(fields); i++ {
+		// The first word stays, so a part keeps a word to name its program.
+		if i > 0 && strings.HasPrefix(fields[i], "<<<") {
+			if fields[i] == "<<<" {
+				i++
+			}
+			continue
+		}
+		words = append(words, strings.ReplaceAll(fields[i], quotedSpace, " "))
 	}
 	return words
 }
@@ -277,14 +286,18 @@ func gitTargets(args []string) ([]string, string) {
 		return nil, ""
 	}
 	var targets []string
-	literal := false
+	literal, value := false, false
 	for _, word := range args[1:] {
 		switch {
 		case literal:
 			targets = append(targets, word)
+		case value:
+			// The pattern or format of --grep x and the like.
+			value = false
 		case word == "--":
 			literal = true
 		case strings.HasPrefix(word, "-"):
+			value = slices.Contains(patternOptions["git"], word)
 		default:
 			if _, path, found := strings.Cut(word, ":"); found && !pathutil.IsAbs(word) {
 				word = path

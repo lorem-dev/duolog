@@ -46,6 +46,7 @@ func TestTelemetryLeadAccess(t *testing.T) {
 		shell("cat " + quote(filepath.Join(telemetryRoot, "salt"))), shell("head " + quote(filepath.Join(telemetryRoot, "v1", "_account", "2026-11-01.ndjson"))),
 		shell("grep -r claude " + quote(filepath.Dir(telemetryRoot))), shell("ls " + quote(balanceRoot)),
 		shell("cat " + quote(filepath.Join(balanceRoot, "samples.ndjson"))),
+		shell(`git commit -m "x" && duolog telemetry show`), shell(`watch git commit -m "x; duolog balance reset"`),
 		{"Read", map[string]string{"file_path": filepath.Join(telemetryRoot, "salt")}},
 		{"Read", map[string]string{"file_path": filepath.Join(balanceRoot, "state.json")}},
 		{"Grep", map[string]string{"pattern": "claude", "path": telemetryRoot}},
@@ -53,6 +54,9 @@ func TestTelemetryLeadAccess(t *testing.T) {
 	}
 	open := []call{
 		shell("duolog doctor"), shell("go test ./..."), shell("cat notes.txt"), shell("duolog delegate implement --task telemetry.md"),
+		// Words in a quoted message are prose, not commands.
+		shell(`git commit -m "fix: keep telemetry and balance data for the person; duolog remember keeps the balance"`),
+		shell(`git commit -m "docs: duolog telemetry and duolog balance stay with the person"`),
 		{"Read", map[string]string{"file_path": filepath.Join(root, "README.md")}},
 		{"Grep", map[string]string{"pattern": "telemetry", "path": root}},
 	}

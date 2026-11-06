@@ -6,12 +6,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/session"
 )
@@ -420,6 +422,48 @@ func TestGateRebasesPathsFromHookCwd(t *testing.T) {
 		out, err := gateCommand(t, string(data), "gate", "--agent", "claude", "--event", "PreToolUse")
 		if err != nil || !strings.Contains(out, `"permissionDecision":"deny"`) {
 			t.Fatal(out, err)
+		}
+	}
+}
+
+// A Claude worker's own temp folder, named from its session id, is its own:
+// reading it needs nobody. Another session's folder is outside the work root,
+// and that ask, unanswered here, ends in a deny.
+func TestGateOwnClaudeTempFolder(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Claude's temp folder on POSIX")
+	}
+	_, root := gateSetup(t, mode.Full)
+	shortAskWait(t)
+	base := t.TempDir()
+	old := claudeTempBase
+	claudeTempBase = base
+	t.Cleanup(func() { claudeTempBase = old })
+	const session = "0019518a-6dc7-4bf8-a704-1eca8307686b"
+	temps := gate.ClaudeTemps(base, os.Getuid(), session, workRoot(root))
+	other := filepath.Join(filepath.Dir(temps[0]), "5c1c2d1e-1292-4483-a206-10c2405a3fb3")
+	for _, dir := range []string{temps[0], other} {
+		if err := os.MkdirAll(filepath.Join(dir, "scratchpad"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		tool  string
+		input map[string]string
+		deny  bool
+	}{
+		{"Bash", map[string]string{"command": "cat " + filepath.Join(temps[0], "scratchpad", "a.txt")}, false},
+		{"Read", map[string]string{"file_path": filepath.Join(temps[0], "scratchpad", "a.txt")}, false},
+		{"Bash", map[string]string{"command": "cat " + filepath.Join(other, "scratchpad", "a.txt")}, true},
+		{"Read", map[string]string{"file_path": filepath.Join(other, "scratchpad", "a.txt")}, true},
+	} {
+		data, _ := json.Marshal(map[string]any{"tool_name": tc.tool, "session_id": session, "cwd": root, "tool_input": tc.input})
+		out, err := gateCommand(t, string(data), "gate", "--agent", "claude", "--event", "PreToolUse")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(out, `"permissionDecision":"deny"`) != tc.deny {
+			t.Errorf("%s %v: %s", tc.tool, tc.input, out)
 		}
 	}
 }

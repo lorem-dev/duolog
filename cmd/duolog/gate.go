@@ -132,9 +132,7 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 		action.ProtectedRoots = roots
 		action.Peer = os.Getenv("DUOLOG_PEER")
 		action.Work = work
-		if agent == "claude" && action.Kind == "read" && action.Target != "" {
-			action.OwnResult = ownToolResult(envelope.SessionID, envelope.Cwd, action.Target)
-		}
+		ownFiles(action, agent, envelope.SessionID, envelope.Cwd)
 		if (action.Kind == "read" || action.Kind == "write") && action.Target != "" {
 			action.Target = gate.RelativeTarget(work, envelope.Cwd, action.Target)
 		}
@@ -254,6 +252,41 @@ func ownToolResult(sessionID, cwd, target string) bool {
 		target = filepath.Join(cwd, target)
 	}
 	return gate.OwnToolResults(trusthome.Claude(home), sessionID, target)
+}
+
+// ownFiles marks what a Claude worker's call reaches of its own: the temp
+// folders of its session, which hold only its scratchpad and task output and
+// which Claude names after the folder the session started in, the work root
+// or the hook's folder; and a read of its saved tool results or of a file in
+// those folders. Before it runs, Normalize has placed the read's path from the
+// hook's folder; action.Work is set.
+func ownFiles(action *gate.Action, agent, sessionID, cwd string) {
+	if agent != "claude" {
+		return
+	}
+	action.Temp = gate.ClaudeTemps(claudeTempBase, os.Getuid(), sessionID, action.Work, cwd)
+	if action.Kind == "read" && action.Target != "" {
+		action.OwnResult = ownToolResult(sessionID, cwd, action.Target) || gate.InTemp(action.Temp, absoluteTarget(cwd, action.Target))
+	}
+}
+
+// claudeTempBase is where Claude keeps its claude-<uid> temp folders on a
+// POSIX host; tests set another.
+var claudeTempBase = "/tmp"
+
+// absoluteTarget places a tool's path from the hook's folder, as
+// ownToolResult does. NormalizeAll has made the path relative to that folder
+// already, so its .. only climbs back out of it.
+func absoluteTarget(cwd, target string) string {
+	if rest, ok := strings.CutPrefix(target, "~/"); ok {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, rest)
+		}
+	}
+	if filepath.IsAbs(target) || cwd == "" {
+		return target
+	}
+	return filepath.Join(cwd, target)
 }
 
 // gateProtectedRoots names the telemetry and balance roots for the worker

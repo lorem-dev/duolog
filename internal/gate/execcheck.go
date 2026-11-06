@@ -289,67 +289,70 @@ func pathWord(word string) string {
 // it is judged as an operand.
 var patternOptions = map[string][]string{
 	"git":   {"--grep", "--author", "--committer", "--format", "--pretty"},
-	"rg":    {"--regexp", "--glob", "--iglob"},
-	"grep":  {"--regexp"},
-	"egrep": {"--regexp"},
-	"fgrep": {"--regexp"},
+	"rg":    {"--regexp", "--glob", "--iglob", "-e", "-g"},
+	"grep":  {"--regexp", "-e"},
+	"egrep": {"--regexp", "-e"},
+	"fgrep": {"--regexp", "-e"},
 }
 
 // ExecOutside checks file operands, not executable names or stream devices.
+// A plain POSIX line is read word by word as the shell passes the words on;
+// anything else is read coarsely, keeping every word that might be a path.
 func ExecOutside(a Action) bool {
+	if outside, ok := lexedExecOutside(a); ok {
+		return outside
+	}
 	parts, uncertain := ShellParts(a.Target, a.Shell)
 	if uncertain || len(parts) == 0 {
 		// Uncertain syntax can omit wrapped commands; retain their operands, and
 		// keep the parsed parts, whose operands have their quotes removed.
 		parts = append(rawExecParts(a.Target), parts...)
 	}
-	for _, part := range parts {
-		// A redirect can stand anywhere, even between an option and its value,
-		// so its file is judged on its own and the redirect leaves the words
-		// before any of them is taken as an option's value.
-		for _, target := range append(redirectTargets(part), inputTargets(part)...) {
-			if outsideOperand(a, target) {
+	return slices.ContainsFunc(parts, func(part string) bool { return partOutside(a, part) })
+}
+
+// partOutside is the coarse reading of one part: its words split at
+// whitespace, with the quotes at their ends trimmed.
+func partOutside(a Action, part string) bool {
+	// A redirect can stand anywhere, even between an option and its value,
+	// so its file is judged on its own and the redirect leaves the words
+	// before any of them is taken as an option's value.
+	if slices.ContainsFunc(append(redirectTargets(part), inputTargets(part)...), func(target string) bool { return outsideOperand(a, target) }) {
+		return true
+	}
+	words := withoutRedirects(strings.Fields(part))
+	start := execOperandStart(words)
+	var valued []string
+	if start > 0 && start <= len(words) {
+		valued = patternOptions[programName(words[start-1])]
+	}
+	options := true
+	for i := start; i < len(words); i++ {
+		word := strings.Trim(words[i], "'\"")
+		name, _, attached := strings.Cut(word, "=")
+		switch {
+		case !options:
+			// Past --, every word is an operand, even one that looks like an
+			// option, so a leading - is part of the path.
+			if outsideOperand(a, strings.Trim(word, "<>&|;()")) {
 				return true
 			}
-		}
-		words := withoutRedirects(strings.Fields(part))
-		start := execOperandStart(words)
-		var valued []string
-		if start > 0 && start <= len(words) {
-			valued = patternOptions[programName(words[start-1])]
-		}
-		options := true
-		for i := start; i < len(words); i++ {
-			word := strings.Trim(words[i], "'\"")
-			if !options {
-				// Past --, every word is an operand, even one that looks like an
-				// option, so a leading - is part of the path.
-				if outsideOperand(a, strings.Trim(word, "<>&|;()")) {
-					return true
-				}
-				continue
+		case word == "--":
+			options = false
+		case slices.Contains(valued, name):
+			if !attached {
+				i++
 			}
-			if word == "--" {
-				options = false
-				continue
-			}
-			name, _, attached := strings.Cut(word, "=")
-			if slices.Contains(valued, name) {
-				if !attached {
-					i++
-				}
-				continue
-			}
-			if outsideOperand(a, pathWord(word)) {
-				return true
-			}
+		case outsideOperand(a, pathWord(word)):
+			return true
 		}
 	}
 	return false
 }
 
 // outsideOperand reports whether a word that names a file names one outside
-// the work root. A stream device is not a file operand.
+// the work root. A stream device is not a file operand, and neither is a file
+// in the worker's own temp folder.
 func outsideOperand(a Action, target string) bool {
 	if target == "" {
 		return false
@@ -359,10 +362,42 @@ func outsideOperand(a Action, target string) bool {
 	if slices.Contains([]string{"/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"}, clean) || strings.HasPrefix(clean, "/dev/fd/") {
 		return false
 	}
+	if ownTemp(a, target) {
+		return false
+	}
 	if a.Work != "" {
 		target = RelativeTarget(a.Work, a.Cwd, target)
 	}
 	return outside(target)
+}
+
+// readTarget places a read command's path for the read rules, relative to the
+// work root, and reports whether it lies in the worker's own temp folder: a
+// file there reads as the worker's own tool results do.
+func readTarget(a Action, target string) (string, bool) {
+	target = expandHome(target)
+	own := ownTemp(a, target)
+	if a.Work != "" {
+		target = RelativeTarget(a.Work, a.Cwd, target)
+	}
+	return target, own
+}
+
+// ownTemp reports whether a path, absolute or from the hook's folder, is in
+// the worker's own temp folder.
+func ownTemp(a Action, target string) bool {
+	if !filepath.IsAbs(target) {
+		cwd := a.Cwd
+		if cwd == "" {
+			cwd = a.Work
+		}
+		if cwd == "" {
+			return false
+		}
+		// Not Join, which would clean away a .. that InTemp refuses.
+		target = cwd + string(filepath.Separator) + target
+	}
+	return InTemp(a.Temp, target)
 }
 
 // withoutRedirects drops the redirects of a part and the files they name, so
