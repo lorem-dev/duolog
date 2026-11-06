@@ -334,8 +334,15 @@ anywhere. A drive counts when a slash or a backslash follows it, as in
 that is text for a known program stays text, such as the separator of
 `cut -d/` or the pattern of `grep -e/api/`.
 
+`bash` and `sh` run the startup file of `--rcfile` or `--init-file` before
+the command. The gate judges that file with the read rules, and reads the
+`-c` script after it as any other. So `bash --rcfile ../peer/rc -i` needs the
+person, `bash --rcfile .env -i` is denied, and a startup file read from
+standard input, as `--rcfile /dev/stdin`, needs the person.
+
 An assignment in front of a program can make it read a file. Git reads
-`GIT_CONFIG_GLOBAL` and `GIT_DIR`, and `bash` reads `BASH_ENV`. The read rules
+`GIT_CONFIG_GLOBAL` and `GIT_DIR`, `bash` reads `BASH_ENV` and `sh` reads
+`ENV`. The read rules
 judge the value of such a variable, and of any variable whose name ends in
 `_FILE` or `_CONFIG`. So `GIT_CONFIG_GLOBAL=.duolog/x git log` is denied. Any
 assignment whose value, or a piece of it between colons, leaves the work root

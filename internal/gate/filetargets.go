@@ -142,6 +142,7 @@ func wordsFileTargets(split []scriptWord, env []string, depth int) fileTargets {
 	}
 	program, args := words[start-1], words[start:]
 	t.add(assignmentTargets(words[:start-1]))
+	t.add(wrapperTargets(words))
 	for _, word := range split[start:] {
 		if word.glob {
 			t.globs = append(t.globs, word.text)

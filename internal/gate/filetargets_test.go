@@ -222,6 +222,62 @@ func TestWrappedScriptsAreParsed(t *testing.T) {
 	wantLead(t, p, root, `find . -name '*.md' -exec sed -n 1p {} +`, `bash -o pipefail -c 'make x'`)
 }
 
+// bash runs the file of --rcfile or --init-file, and bash and sh run the file
+// that BASH_ENV or ENV names, before the command. The gate took the rc file
+// for the program, so it judged neither the file nor the -c script after it.
+func TestShellStartupFilesAreJudged(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	wantPersonInFull(t, p, root,
+		`bash --rcfile /etc/x -i`,
+		`bash --rcfile ../peer/rc -i`,
+		`bash --init-file /etc/x -c true`,
+		`sh --rcfile=../x -i`,
+		`bash --rcfile /dev/stdin -i`,
+		`bash --rcfile rc.sh -c 'sed 1r/etc/passwd x'`,
+		`bash --norc --init-file ../x -o pipefail -c true`,
+		`ENV=/etc/x sh -c true`,
+		`ENV=../x sh -c 'make test'`,
+		`BASH_ENV=../x bash -c 'make test'`,
+		`env BASH_ENV=/etc/x bash -c true`,
+	)
+	wantDeny(t, p, root, "read",
+		`bash --rcfile .env -i`,
+		`bash --init-file secrets/rc -c true`,
+		`ENV=.env sh -c true`,
+	)
+	wantDeny(t, p, root, RuleState,
+		`bash --rcfile .duolog/bus.ndjson -i`,
+		`ENV=.duolog/sessions.json sh -c true`,
+	)
+	wantDeny(t, p, root, "write", `bash --rcfile rc.sh -c 'sed -n w.git/hooks/pre-commit README.md'`)
+	wantLead(t, p, root,
+		`bash --rcfile rc.sh -i`,
+		`bash --init-file ci/rc -c 'make test'`,
+		`ENV=ci/rc sh -c 'make test'`,
+	)
+}
+
+func TestWrapperTargets(t *testing.T) {
+	for _, tc := range []struct {
+		command string
+		reads   []string
+		unknown bool
+	}{
+		{command: `bash --rcfile rc -i`, reads: []string{"rc"}},
+		{command: `bash --init-file=rc -c true`, reads: []string{"rc"}},
+		{command: `sudo -u x sh --rcfile a -c true`, reads: []string{"a"}},
+		{command: `bash --rcfile /dev/stdin -i`, reads: []string{"/dev/stdin"}, unknown: true},
+		// A file option of another program is not the shell's.
+		{command: `bash -c 'make --rcfile x'`},
+	} {
+		got := partFileTargets(tc.command)
+		if !slices.Equal(got.reads, tc.reads) || got.unknown != tc.unknown {
+			t.Errorf("%q: reads %q, unknown %v; want %q, %v", tc.command, got.reads, got.unknown, tc.reads, tc.unknown)
+		}
+	}
+}
+
 // find -execdir and -okdir run their command in the folder of each match, and
 // a starting point is a match in its own parent folder, so the command's
 // relative paths are relative to the search roots, not the working folder.

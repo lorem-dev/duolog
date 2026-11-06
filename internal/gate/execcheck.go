@@ -555,8 +555,8 @@ var wrapperValueOptions = map[string][]string{
 	"timeout": {"-s", "-k", "--signal", "--kill-after"},
 	"xargs":   {"-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s", "--arg-file", "--delimiter", "--max-args", "--max-procs", "--max-lines", "--max-chars"},
 	// A shell's -o and -O name an option, also when written +o and +O.
-	"sh":         {"-o", "-O", "+o", "+O"},
-	"bash":       {"-o", "-O", "+o", "+O"},
+	"sh":         {"-o", "-O", "+o", "+O", "--rcfile", "--init-file"},
+	"bash":       {"-o", "-O", "+o", "+O", "--rcfile", "--init-file"},
 	"zsh":        {"-o", "+o"},
 	"caffeinate": {"-t", "-w"},
 }
@@ -568,26 +568,50 @@ func wrapperOption(wrapper, word string) bool {
 }
 
 func execOperandStart(words []string) int {
+	return walkWrappers(words, nil)
+}
+
+// wrapperFileOptions lists, per wrapper, the options whose value is a file
+// that the wrapper or the program it starts reads code from: a shell's
+// startup file.
+var wrapperFileOptions = map[string][]string{
+	"sh":   {"--rcfile", "--init-file"},
+	"bash": {"--rcfile", "--init-file"},
+}
+
+// walkWrappers is execOperandStart. It calls visit, when not nil, for each
+// option of a wrapper with the value it takes, attached after = or in the
+// next word, or "" for none.
+func walkWrappers(words []string, visit func(wrapper, option, value string)) int {
 	for i := 0; i < len(words); {
 		word := strings.Trim(words[i], "'\"")
 		if execAssignment.MatchString(word) {
 			i++
 			continue
 		}
-		switch filepath.Base(word) {
+		wrapper := filepath.Base(word)
+		switch wrapper {
 		case "command", "builtin", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "powershell", "cmd",
 			"time", "nice", "ionice", "timeout", "nohup", "stdbuf", "setsid", "busybox", "doas", "watch", "parallel", "caffeinate":
 			i++
-			for i < len(words) && wrapperOption(filepath.Base(word), words[i]) {
+			for i < len(words) && wrapperOption(wrapper, words[i]) {
 				// An option such as sudo -u takes the next word as its value,
 				// so that word is not the program.
-				takesValue := slices.Contains(wrapperValueOptions[filepath.Base(word)], words[i])
+				option, value, _ := strings.Cut(words[i], "=")
+				if !strings.HasPrefix(option, "--") {
+					option, value = words[i], ""
+				}
+				takesValue := slices.Contains(wrapperValueOptions[wrapper], words[i])
 				i++
 				if takesValue && i < len(words) {
+					value = words[i]
 					i++
 				}
+				if visit != nil {
+					visit(wrapper, option, value)
+				}
 			}
-			if filepath.Base(word) == "timeout" && i < len(words) {
+			if wrapper == "timeout" && i < len(words) {
 				i++ // timeout's duration precedes the executable.
 			}
 		default:
@@ -595,6 +619,18 @@ func execOperandStart(words []string) int {
 		}
 	}
 	return len(words)
+}
+
+// wrapperTargets lists the files that the options of the wrappers in front
+// of a program name, as bash --rcfile does.
+func wrapperTargets(words []string) fileTargets {
+	var t fileTargets
+	walkWrappers(words, func(wrapper, option, value string) {
+		if value != "" && slices.Contains(wrapperFileOptions[wrapper], option) {
+			t.codeFile(value)
+		}
+	})
+	return t
 }
 
 // expandHome expands ~ and ~/x to the home folder. ~name, the home folder
