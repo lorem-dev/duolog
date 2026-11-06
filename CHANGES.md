@@ -56,8 +56,8 @@
   sessions and `held:` panes; `duolog peer release <id>` frees a closed one.
 - `routing.balance: pace` starts a new task on the role's `fallback` while its
   `use` agent runs ahead of its window, never onto a paid route.
-- `duolog peer list --long`, `peer show` and `peer view` show peers; `view`
-  needs Rex Remote Control. A `duolog-peers` skill runs them. See docs/rex.md.
+- `peer list --long`, `peer show`, `peer view` (with Rex Remote Control) and
+  `duolog-peers` show peers; the lead hears of stalled peers and expired asks.
 
 ### Changed
 

@@ -289,8 +289,10 @@ func TestWorkerAskPersonOnly(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// The ask is the first line; the line that tells the lead it expired follows.
+			data, _, _ = bytes.Cut(data, []byte("\n"))
 			var message bus.Message
-			if err := json.Unmarshal(bytes.TrimSpace(data), &message); err != nil {
+			if err := json.Unmarshal(data, &message); err != nil {
 				t.Fatal(err)
 			}
 			if message.K != "ask" || message.P != tc.person || bytes.Contains(data, []byte(`"p":true`)) != tc.person {

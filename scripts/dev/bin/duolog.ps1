@@ -7,10 +7,16 @@
 # native commands run with 'Continue' and their exit code decides.
 $ErrorActionPreference = 'Stop'
 
-# A worker without its gate must stop, as the installed hooks do: exit 2 for a
-# worker, 1 otherwise. An error the script does not handle ends the same way.
+# Inside a function $args is the function's own, so keep the script's here.
+$launcherCommand = if ($args.Count -ge 1) { [string]$args[0] } else { '' }
+
+# A worker's gate without its build must stop the tool, as the installed hooks
+# do: exit 2. A hook ends with 0, because for a Stop hook 2 means "do not
+# stop" and a peer would loop. Anything else fails with 1. An error the script
+# does not handle ends the same way.
 function Stop-Launcher {
-	if ([Environment]::GetEnvironmentVariable('DUOLOG_DEPTH') -match '^0*[1-9][0-9]*$') { exit 2 }
+	if ($script:launcherCommand -eq 'hook') { exit 0 }
+	if ($script:launcherCommand -eq 'gate' -and [Environment]::GetEnvironmentVariable('DUOLOG_DEPTH') -match '^0*[1-9][0-9]*$') { exit 2 }
 	exit 1
 }
 trap {
