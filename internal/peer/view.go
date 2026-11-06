@@ -67,11 +67,13 @@ func View(ctx context.Context, id, client string) (Viewed, error) {
 	return viewed, nil
 }
 
-// backCommand is the shell command that returns the client to block. It
-// names the rex that duolog found, which may be inside the Rex app and not
-// in PATH.
+// backCommand is the shell command that returns the client to block: it
+// selects the session, then focuses the block, as View does. It names the
+// rex that duolog found, which may be inside the Rex app and not in PATH.
 func backCommand(bin, client, block, session string) string {
-	return strings.Join([]string{shellWord(bin), "-C", shellWord(client), "focus", shellWord(block), "-s", shellWord(session)}, " ")
+	rex := shellWord(bin) + " -C " + shellWord(client)
+	return rex + " do session.select " + shellWord("session_id="+session) + " && " +
+		rex + " focus " + shellWord(block) + " -s " + shellWord(session)
 }
 
 // shellWord quotes s for a POSIX shell when it holds more than plain path

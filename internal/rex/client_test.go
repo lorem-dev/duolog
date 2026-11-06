@@ -2,6 +2,7 @@ package rex
 
 import (
 	"context"
+	"errors"
 	"os"
 	"slices"
 	"strings"
@@ -60,9 +61,25 @@ func TestFocusArgs(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := calls(t, c.Bin)
-	want := []string{"-C", "client:app", "focus", "block:peer", "-s", "session:peers"}
-	if len(got) != 1 || !slices.Equal(got[0], want) {
+	want := [][]string{
+		{"-C", "client:app", "do", "session.select", "session_id=session:peers"},
+		{"-C", "client:app", "focus", "block:peer", "-s", "session:peers"},
+	}
+	if !slices.EqualFunc(got, want, slices.Equal) {
 		t.Fatalf("%v", got)
+	}
+}
+
+// Recorded from Rex.app with Remote Control off: exit 1 and this line.
+func TestFocusExplainsRemoteControlOff(t *testing.T) {
+	c := install(t, testbin.Scenario{Exit: 1, Stderr: "Error: Rex.app is not accepting actions. Turn on Remote Control in its Settings under Rex Server."})
+	c.Session = "session:peers"
+	err := c.Focus(context.Background(), "client:app", "block:peer")
+	if !errors.Is(err, ErrRemoteControl) {
+		t.Fatalf("%v", err)
+	}
+	if got := calls(t, c.Bin); len(got) != 1 {
+		t.Fatalf("focused after a refused select: %v", got)
 	}
 }
 
@@ -70,7 +87,7 @@ func TestFocusErrorNamesFocus(t *testing.T) {
 	c := install(t, testbin.Scenario{Exit: 1, Stderr: "Error: client not found"})
 	c.Session = "session:peers"
 	err := c.Focus(context.Background(), "client:gone", "block:peer")
-	if err == nil || !strings.HasPrefix(err.Error(), "rex focus failed (exit 1): ") || !strings.Contains(err.Error(), "client not found") {
+	if err == nil || !strings.HasPrefix(err.Error(), "rex session.select failed (exit 1): ") || !strings.Contains(err.Error(), "client not found") {
 		t.Fatalf("%v", err)
 	}
 }
