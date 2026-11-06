@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/lorem-dev/duolog/internal/adapter/kit"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -272,13 +271,13 @@ func projectFolders(loc Locations) []string {
 	if loc.Home != "" {
 		home = filepath.Clean(loc.Home)
 	}
-	account := accountHome()
-	if account != "" {
-		account = kit.Canonical(account)
+	var account os.FileInfo
+	if name := accountHome(); name != "" {
+		account, _ = os.Stat(name)
 	}
 	var folders []string
 	for dir := filepath.Clean(loc.Root); dir != home; {
-		if account == "" || kit.Canonical(dir) != account {
+		if account == nil || !sameFolder(dir, account) {
 			folders = append(folders, dir)
 		}
 		parent := filepath.Dir(dir)
@@ -289,6 +288,13 @@ func projectFolders(loc Locations) []string {
 	}
 	slices.Reverse(folders)
 	return folders
+}
+
+// sameFolder reports whether dir is the folder that info describes, through
+// any spelling: a symlink, another case or a short name.
+func sameFolder(dir string, info os.FileInfo) bool {
+	other, err := os.Stat(dir)
+	return err == nil && os.SameFile(info, other)
 }
 
 // lookupEnv finds key in the shape's environment, the last entry winning,

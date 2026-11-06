@@ -3,10 +3,10 @@ package delegate
 import (
 	"context"
 	"fmt"
+	"time"
 
 	leadio "github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
-	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/run"
@@ -30,6 +30,16 @@ type ModelResolver interface {
 type Agent struct {
 	Worker Worker
 	Models ModelResolver
+	Login  Login
+}
+
+// checker returns the checker of the worker process p: the real one over the
+// logins of d, or the one NewChecker of d gives when a test replaced it.
+func (d Deps) checker(cacheDir string, p workerenv.Process) Checker {
+	if d.NewChecker != nil {
+		return d.NewChecker(cacheDir, p)
+	}
+	return NewChecker(d, cacheDir, p)
 }
 
 // resolveModel gives the concrete model of t through its agent's resolver.
@@ -65,8 +75,14 @@ type Deps struct {
 	Lead             map[string]leadio.Lead
 	ScanCapabilities func(ctx context.Context, agent, root string, environ []string) (capability.Inventory, error)
 	BridgeMCP        func(from, to, root string, names []string, tools map[string][]string, workerEnv []string) (*run.MCP, map[string]string)
-	// NewChecker checks a worker's logins on the worker's own built process.
-	NewChecker func(cacheDir string, p workerenv.Process) auth.Checker
+	// NewChecker, when set, replaces the checker that Run builds over the
+	// logins of Agents; a test sets it to script the answers.
+	NewChecker func(cacheDir string, p workerenv.Process) Checker
+	// OAuth checks a static HTTP server with the credentials the worker gets.
+	OAuth ServerOAuth
+	// RunLogin runs an agent's login command once, within the timeout, and says
+	// how it ended. A timeout that is not positive means the default.
+	RunLogin func(ctx context.Context, argv []string, timeout time.Duration) LoginResult
 	// PaidGate opens the account admission gate of one delegation: the user's
 	// account state, reads of the quota each built process sees, and the
 	// settings layers each build reads.

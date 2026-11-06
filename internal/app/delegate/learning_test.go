@@ -14,7 +14,6 @@ import (
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
-	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
@@ -691,8 +690,8 @@ func TestCalibrationRefusalsBeforeWorkerAreNotStarted(t *testing.T) {
 		{"task", func(h *harness, _ *Options) { put(h.t, h.path, "# Task: example\n\nno sections\n") }, false},
 		{"lead", func(_ *harness, opts *Options) { opts.Lead = "lead-gone" }, false},
 		{"preflight", func(h *harness, _ *Options) {
-			h.auth.agent = map[string]*auth.Problem{"codex": {Agent: "codex", Reason: "not logged in"}}
-			h.auth.login = auth.NeedsTerminal
+			h.auth.agent = map[string]*Problem{"codex": {Agent: "codex", Reason: "not logged in"}}
+			h.auth.login = NeedsTerminal
 		}, false},
 		{"worker", func(h *harness, _ *Options) { h.errs = []error{errors.New("worker crashed")} }, true},
 	} {
@@ -740,7 +739,7 @@ func TestLearningSumsUsageAcrossLoginRetry(t *testing.T) {
 	h := authHarness(t)
 	h.learning(true)
 	h.results = []run.Result{{AuthFailed: true, Usage: run.Usage{Input: 5, Write: 4, WriteHour: 1, Output: 1}}}
-	h.auth.login = auth.LoggedIn
+	h.auth.login = LoggedIn
 	out, err := h.run("implement")
 	h.requireCalls(2)
 	if err != nil || !out.Result.Done {

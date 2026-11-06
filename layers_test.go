@@ -48,7 +48,6 @@ var legacyTiers = map[string]legacyTier{
 	"internal/journal":    {tier: tierKit},
 	"internal/store":      {tier: tierKit},
 	"internal/project":    {tier: tierKit},
-	"internal/auth":       {tier: tierKit},
 	"internal/trust":      {tier: tierKit},
 	"internal/trusthome":  {tier: tierKit},
 	"internal/install":    {tier: tierKit},
@@ -82,7 +81,6 @@ var knownViolations = map[string]string{
 	"internal/app/calibrate -> internal/trust":                  "PR 36",
 	"internal/app/calibrate -> internal/trusthome":              "PR 36",
 	"internal/app/calibrate -> internal/workerenv":              "PR 35",
-	"internal/app/delegate -> internal/auth":                    "PR 38",
 	"internal/app/delegate -> internal/capability":              "PR 40",
 	"internal/app/delegate -> internal/adapter/config":          "after PR 10: RefuseRootEnv checks writable roots at launch",
 	"internal/app/delegate (test) -> internal/quota":            "PR 39",
@@ -134,7 +132,7 @@ var knownViolations = map[string]string{
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 60
+const maxKnownViolations = 59
 
 // Reasons of the allowed edges, one per target.
 const (

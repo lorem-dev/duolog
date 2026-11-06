@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/workertest"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
@@ -17,11 +16,9 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/lead/leadtest"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
-	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/run"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // Fake holds the fakes of one test and what they were called with.
@@ -59,17 +56,17 @@ func (f *Fake) Deps() delegate.Deps {
 		// The fake workers start nothing but give the launch words of the real
 		// agents, so the process the gate admits is the one a real run builds.
 		Agents: map[string]delegate.Agent{
-			"claude": {Worker: &Worker{f: f, launch: workertest.For("claude").Launch}, Models: models{}},
-			"codex":  {Worker: &Worker{f: f, launch: workertest.For("codex").Launch}, Models: models{}},
+			"claude": {Worker: &Worker{f: f, launch: workertest.For("claude").Launch}, Models: models{}, Login: Login{Agent: "claude"}},
+			"codex":  {Worker: &Worker{f: f, launch: workertest.For("codex").Launch}, Models: models{}, Login: Login{Agent: "codex"}},
 		},
-		Lead: map[string]leadio.Lead{"claude": &leadtest.Fake{}, "codex": &leadtest.Fake{}},
+		RunLogin: declineLogins,
+		Lead:     map[string]leadio.Lead{"claude": &leadtest.Fake{}, "codex": &leadtest.Fake{}},
 		ScanCapabilities: func(_ context.Context, agent, _ string, _ []string) (capability.Inventory, error) {
 			return capability.Inventory{Agent: agent, Unknown: true}, nil
 		},
 		BridgeMCP: func(_, _, _ string, _ []string, _ map[string][]string, _ []string) (*run.MCP, map[string]string) {
 			return nil, nil
 		},
-		NewChecker: func(string, workerenv.Process) auth.Checker { return checker{} },
 		PaidGate: func(cfg *config.Config) (*paidruns.Gate, error) {
 			g := *f.Gate
 			g.Config = cfg
@@ -86,15 +83,3 @@ type models struct{}
 func (models) Resolve(_ context.Context, _ *config.Config, _ string, t config.Target) (string, error) {
 	return t.Model, nil
 }
-
-// checker passes every login.
-type checker struct{}
-
-func (checker) Agent(context.Context, string) *auth.Problem { return nil }
-func (checker) Server(context.Context, string, string, *capability.Server) *auth.Problem {
-	return nil
-}
-func (checker) Login(context.Context, auth.Problem, time.Duration) auth.LoginResult {
-	return auth.Declined
-}
-func (checker) Forget(auth.Problem) {}

@@ -20,7 +20,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/lead/leadtest"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
-	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
@@ -107,8 +106,8 @@ func (w funcWorker) Launch(s run.Spec) []string                              { r
 // setWorker makes fn the worker of both agents.
 func (h *harness) setWorker(fn func(context.Context, run.Spec) (run.Result, error)) {
 	h.deps.Agents = map[string]Agent{
-		"claude": {Worker: funcWorker{fn, workertest.For("claude").Launch}, Models: h.models()},
-		"codex":  {Worker: funcWorker{fn, workertest.For("codex").Launch}, Models: h.models()},
+		"claude": {Worker: funcWorker{fn, workertest.For("claude").Launch}, Models: h.models(), Login: workertest.LoginFor("claude")},
+		"codex":  {Worker: funcWorker{fn, workertest.For("codex").Launch}, Models: h.models(), Login: workertest.LoginFor("codex")},
 	}
 }
 
@@ -119,7 +118,7 @@ func (h *harness) worker() func(context.Context, run.Spec) (run.Result, error) {
 
 // realWorkers makes the real Workers of both agents the harness's.
 func (h *harness) realWorkers() {
-	h.deps.Agents = map[string]Agent{"claude": {Worker: workertest.For("claude"), Models: h.models()}, "codex": {Worker: workertest.For("codex"), Models: h.models()}}
+	h.deps.Agents = map[string]Agent{"claude": {Worker: workertest.For("claude"), Models: h.models(), Login: workertest.LoginFor("claude")}, "codex": {Worker: workertest.For("codex"), Models: h.models(), Login: workertest.LoginFor("codex")}}
 }
 
 // argvOf is the argv a real Worker gives s.
@@ -196,7 +195,7 @@ func newHarness(t *testing.T) *harness {
 	// A duolog on the worker PATH, as where it is installed; set after Deps
 	// is built, which would replace it.
 	h.gateOnPath(true)
-	h.deps.NewChecker = func(_ string, p workerenv.Process) auth.Checker {
+	h.deps.NewChecker = func(_ string, p workerenv.Process) Checker {
 		h.checked = append(h.checked, p)
 		return h.auth
 	}

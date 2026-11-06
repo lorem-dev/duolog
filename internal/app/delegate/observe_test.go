@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/adapter/workertest"
-	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/run"
@@ -110,7 +109,7 @@ func TestAttemptObserverLearningOff(t *testing.T) {
 		{"auth", func(h *harness) {
 			h.lead("claude", mode.Edits, "high")
 			h.results = []run.Result{{AuthFailed: true, ErrorCode: run.CodeAuth, Usage: run.Usage{Input: 5, Output: 1}, UsageKnown: true}}
-			h.auth.login = auth.LoggedIn
+			h.auth.login = LoggedIn
 		}, 1, []step{{"failed", "auth"}, {"done", "none"}}},
 		{"exit", func(h *harness) {
 			h.errs = []error{fmt.Errorf("start: %w", run.ErrBinaryMissing)}
@@ -170,7 +169,7 @@ func TestAttemptCancellation(t *testing.T) {
 	h := authHarness(t)
 	h.results = []run.Result{{Interrupted: true, AuthFailed: true}}
 	h.errs = []error{context.Canceled}
-	h.auth.login = auth.LoggedIn
+	h.auth.login = LoggedIn
 	seen, opts := h.observed()
 	if _, err := h.runWith("implement", opts); err == nil {
 		t.Fatal("cancelled run succeeded")
@@ -182,7 +181,7 @@ func TestAttemptCancellation(t *testing.T) {
 
 	h = authHarness(t)
 	h.results = []run.Result{{AuthFailed: true, ErrorCode: run.CodeAuth}}
-	h.auth.login = auth.Declined
+	h.auth.login = Declined
 	seen, opts = h.observed()
 	_, _ = h.runWith("implement", opts)
 	h.requireCalls(1)

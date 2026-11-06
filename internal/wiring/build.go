@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/kit"
+	"github.com/lorem-dev/duolog/internal/adapter/mcpauth"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/doctor"
@@ -16,7 +17,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/app/profile"
-	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
@@ -31,7 +31,8 @@ func DelegateDeps() delegate.Deps {
 		Lead:             Leads(),
 		ScanCapabilities: capability.ScanEnv,
 		BridgeMCP:        capability.Bridge,
-		NewChecker:       auth.NewForProcess,
+		OAuth:            mcpauth.New(),
+		RunLogin:         kit.RunLogin,
 		PaidGate:         paidGate,
 		GateBinary:       workerenv.GateBinary,
 		Canonical:        kit.Canonical,

@@ -25,13 +25,15 @@ type Agent struct {
 	ResetTime func(text string, now time.Time) time.Time
 	// Models resolves this agent's model names.
 	Models delegate.ModelResolver
+	// Login checks this agent's logins and gives its login commands.
+	Login delegate.Login
 }
 
 // Agents returns the registered agents in order: claude, then codex.
 func Agents() []Agent {
 	return []Agent{
-		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}},
-		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}},
+		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}, Login: claude.Login{}},
+		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}, Login: codex.Login{}},
 	}
 }
 
@@ -68,7 +70,7 @@ func Names() []string {
 func delegateAgents() map[string]delegate.Agent {
 	out := map[string]delegate.Agent{}
 	for _, a := range Agents() {
-		out[a.Facts.Name] = delegate.Agent{Worker: a.Worker, Models: a.Models}
+		out[a.Facts.Name] = delegate.Agent{Worker: a.Worker, Models: a.Models, Login: a.Login}
 	}
 	return out
 }

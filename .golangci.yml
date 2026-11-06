@@ -89,7 +89,7 @@ linters:
       # .duolog/, the config and the files duolog writes into a project are meant
       # to be read by the person and by Git (0755 and 0644). Telemetry and the
       # calibration trees are not in this list, so their modes stay checked.
-      - path: ^(cmd|scripts)/|^internal/(adapter/codex|app/delegate|app/learn|app/peer|app/sync|adapter/session|artifact|auth|bus|capability|install|journal|learning|models|store|testbin)/|^internal/adapter/kit/process/
+      - path: ^(cmd|scripts)/|^internal/(adapter/codex|app/delegate|app/learn|app/peer|app/sync|adapter/session|artifact|bus|capability|install|journal|learning|models|store|testbin)/|^internal/adapter/kit/process/
         text: G30[126]
         linters: [gosec]
       # PowerShell accepts any prefix of -recurse; the arguments are in that order on purpose.
@@ -252,7 +252,7 @@ linters:
       - {path: '^internal/app/delegate/run\.go$', linters: [revive], text: 'file length is 1016 lines'} # internal/app/delegate/run.go: code lines 1016
       - {path: '^internal/app/delegate/run\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Run. has too many statements \(297 > |complexity 493 of func .(?:\(\*?\w+\)\.)?Run. is|function (?:\(\*?\w+\)\.)?Run is 190,'} # Run: cyclomatic 190, statements 297, cognitive 493
       - {path: '^internal/app/delegate/run\.go$', linters: [cyclop, gocognit], text: 'complexity 21 of func .(?:\(\*?\w+\)\.)?runProblems. is|function (?:\(\*?\w+\)\.)?runProblems is 18,'} # runProblems: cyclomatic 18, cognitive 21
-      - {path: '^internal/app/delegate/run\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .settleAuth. has too many statements \(52 > |complexity 25 of func .(?:\(\*?\w+\)\.)?settleAuth. is|function (?:\(\*?\w+\)\.)?settleAuth is 20,'} # settleAuth: cyclomatic 20, statements 52, cognitive 25
+      - {path: '^internal/app/delegate/run\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .settleAuth. has too many statements \(53 > |complexity 25 of func .(?:\(\*?\w+\)\.)?settleAuth. is|function (?:\(\*?\w+\)\.)?settleAuth is 20,'} # settleAuth: cyclomatic 20, statements 53, cognitive 25
       - {path: '^internal/app/delegate/run\.go$', linters: [nestif], text: '.if\ len\(opts\.Needs\)\ >\ 0. has complex nested blocks \(complexity: 18\)'} # if if len(opts.Needs) > 0: nesting 18
       - {path: '^internal/app/delegate/run\.go$', linters: [nestif], text: '.if\ modelErr\ !=\ nil. has complex nested blocks \(complexity: 105\)'} # if if modelErr != nil: nesting 105
       - {path: '^internal/app/delegate/run\.go$', linters: [nestif], text: '.if\ route\.IsFallback. has complex nested blocks \(complexity: 5\)'} # if if route.IsFallback: nesting 5

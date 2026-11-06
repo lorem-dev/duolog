@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
-	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/run"
@@ -115,7 +114,7 @@ func TestAttemptSettlementOnCancelRetryAndFallback(t *testing.T) {
 		reported := 0.25
 		h.results = []run.Result{{AuthFailed: true, Usage: run.Usage{Input: 100, Cached: 40, Output: 10}, UsageKnown: true,
 			UsageComplete: true, ReportedUSD: &reported, Billing: quota.RunEvidence{Expected: true, Seen: true, UsingOverage: true}}}
-		h.auth.login = auth.LoggedIn
+		h.auth.login = LoggedIn
 		o, err := h.run("implement")
 		if err != nil || !strings.HasPrefix(o.Line, "done=true") {
 			t.Fatal(o.Line, err)
@@ -220,7 +219,7 @@ func TestAttemptSettlementOnCancelRetryAndFallback(t *testing.T) {
 		h := newHarness(t)
 		h.paidReads("codex", "claude")
 		h.cfg.PaidRuns.Codex.Allow, h.cfg.PaidRuns.Codex.DailyCapUSD = true, 1000
-		h.auth.login = auth.LoggedIn
+		h.auth.login = LoggedIn
 		h.beforeStart = func() {
 			// The first run spends its whole estimate, and the cap then
 			// leaves room for half of another.

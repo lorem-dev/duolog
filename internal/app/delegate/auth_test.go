@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/run"
@@ -18,32 +17,32 @@ import (
 // fakeChecker answers the login checks of a test. A problem stays until a
 // login with result LoggedIn clears it.
 type fakeChecker struct {
-	agent  map[string]*auth.Problem
-	server map[string]*auth.Problem
-	login  auth.LoginResult
-	logins []auth.Problem
+	agent  map[string]*Problem
+	server map[string]*Problem
+	login  LoginResult
+	logins []Problem
 	// checked lists the servers checked, and inactive those with an inactive
 	// definition.
 	checked, inactive []string
 }
 
-func (f *fakeChecker) Agent(_ context.Context, agent string) *auth.Problem { return f.agent[agent] }
-func (f *fakeChecker) Server(_ context.Context, agent, name string, def *capability.Server) *auth.Problem {
+func (f *fakeChecker) Agent(_ context.Context, agent string) *Problem { return f.agent[agent] }
+func (f *fakeChecker) Server(_ context.Context, agent, name string, def *capability.Server) *Problem {
 	f.checked = append(f.checked, name)
 	if def != nil && def.Inactive {
 		f.inactive = append(f.inactive, name)
 	}
 	return f.server[name]
 }
-func (f *fakeChecker) Login(_ context.Context, p auth.Problem, _ time.Duration) auth.LoginResult {
+func (f *fakeChecker) Login(_ context.Context, p Problem, _ time.Duration) LoginResult {
 	f.logins = append(f.logins, p)
-	if f.login == auth.LoggedIn {
+	if f.login == LoggedIn {
 		delete(f.agent, p.Agent)
 		delete(f.server, p.Server)
 	}
 	return f.login
 }
-func (f *fakeChecker) Forget(auth.Problem) {}
+func (f *fakeChecker) Forget(Problem) {}
 
 // Re-review, the same class as Minor 2: the login preflight reads the
 // worker's own server definitions from the worker's environment. The
@@ -73,8 +72,8 @@ func authHarness(t *testing.T) *harness {
 
 func TestLoginThenWorkerRuns(t *testing.T) {
 	h := authHarness(t)
-	h.auth.agent = map[string]*auth.Problem{"codex": {Agent: "codex", Reason: "not logged in"}}
-	h.auth.login = auth.LoggedIn
+	h.auth.agent = map[string]*Problem{"codex": {Agent: "codex", Reason: "not logged in"}}
+	h.auth.login = LoggedIn
 	o, e := h.run("implement")
 	h.requireCalls(1)
 	if e != nil || len(h.auth.logins) != 1 || h.auth.logins[0].Command() != "codex login" || !strings.HasPrefix(o.Line, "done=true") {
@@ -83,10 +82,10 @@ func TestLoginThenWorkerRuns(t *testing.T) {
 }
 
 func TestDeclinedLoginGoesToLeadOnce(t *testing.T) {
-	for _, result := range []auth.LoginResult{auth.Declined} {
+	for _, result := range []LoginResult{Declined} {
 		h := authHarness(t)
 		h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "wiki"}}}, capability.Inventory{Agent: "claude"})
-		h.auth.server = map[string]*auth.Problem{"wiki": {Agent: "codex", Server: "wiki", Reason: "codex has no OAuth login for it"}}
+		h.auth.server = map[string]*Problem{"wiki": {Agent: "codex", Server: "wiki", Reason: "codex has no OAuth login for it"}}
 		h.auth.login = result
 		o, e := h.runNeeds("implement", "mcp:wiki")
 		h.requireCalls(0)
@@ -107,8 +106,8 @@ func TestDeclinedLoginGoesToLeadOnce(t *testing.T) {
 
 func TestLoginNeedsTerminal(t *testing.T) {
 	h := authHarness(t)
-	h.auth.agent = map[string]*auth.Problem{"codex": {Agent: "codex", Reason: "not logged in"}}
-	h.auth.login = auth.NeedsTerminal
+	h.auth.agent = map[string]*Problem{"codex": {Agent: "codex", Reason: "not logged in"}}
+	h.auth.login = NeedsTerminal
 	o, e := h.run("implement")
 	h.requireCalls(0)
 	if e != nil || len(o.Needs) != 1 || o.Needs[0] != "auth:codex" || !strings.Contains(o.Line, "Ask the person to run: ! codex login") {
@@ -119,7 +118,7 @@ func TestLoginNeedsTerminal(t *testing.T) {
 func TestStaticTokenRejectedGoesToLead(t *testing.T) {
 	h := authHarness(t)
 	h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "jira"}}}, capability.Inventory{Agent: "claude"})
-	h.auth.server = map[string]*auth.Problem{"jira": {Agent: "codex", Server: "jira", Static: true, Where: "config.toml [mcp_servers.jira]", Reason: "the server rejected the token from config (HTTP 401)"}}
+	h.auth.server = map[string]*Problem{"jira": {Agent: "codex", Server: "jira", Static: true, Where: "config.toml [mcp_servers.jira]", Reason: "the server rejected the token from config (HTTP 401)"}}
 	o, e := h.runNeeds("implement", "mcp:jira")
 	h.requireCalls(0)
 	// Nothing to log in to: no login runs, and the line names the entry.
@@ -130,13 +129,13 @@ func TestStaticTokenRejectedGoesToLead(t *testing.T) {
 
 func TestAuthFailureActions(t *testing.T) {
 	h := authHarness(t)
-	h.auth.agent = map[string]*auth.Problem{"codex": {Agent: "codex", Reason: "not logged in"}}
-	h.cfg.Capabilities.OnAuthFailure = auth.Lead
+	h.auth.agent = map[string]*Problem{"codex": {Agent: "codex", Reason: "not logged in"}}
+	h.cfg.Capabilities.OnAuthFailure = AuthLead
 	o, e := h.run("implement")
 	if e != nil || len(h.auth.logins) != 0 || o.Needs[0] != "auth:codex" || !strings.Contains(o.Line, "to log in, run: ! codex login") {
 		t.Fatal(o, e)
 	}
-	h.cfg.Capabilities.OnAuthFailure = auth.Fail
+	h.cfg.Capabilities.OnAuthFailure = AuthFail
 	if _, e = h.run("implement"); e == nil || !strings.Contains(e.Error(), "codex login: not logged in") {
 		t.Fatal(e)
 	}
@@ -149,7 +148,7 @@ func TestRunTimeRejection(t *testing.T) {
 	h := authHarness(t)
 	h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "wiki"}}}, capability.Inventory{Agent: "claude"})
 	h.results = []run.Result{{Done: false, Summary: "wiki said 401", Files: []string{}, Needs: []string{"auth:mcp:wiki"}}}
-	h.auth.login = auth.LoggedIn
+	h.auth.login = LoggedIn
 	o, e := h.runNeeds("implement", "mcp:wiki")
 	h.requireCalls(2)
 	if e != nil || len(h.auth.logins) != 1 || h.auth.logins[0].Command() != "codex mcp login wiki" || !strings.HasPrefix(o.Line, "done=true") {
@@ -172,7 +171,7 @@ func TestRunTimeAgentFailureWithStaticBridgedToken(t *testing.T) {
 	// The agent refusing its own login during the run is classified too.
 	h.results = []run.Result{{AuthFailed: true}}
 	h.calls = nil
-	h.auth.login = auth.Declined
+	h.auth.login = Declined
 	o, e = h.run("implement")
 	if e != nil || o.Needs[0] != "auth:codex" || len(h.auth.logins) != 1 {
 		t.Fatal(o, e)
@@ -190,9 +189,9 @@ func TestRunTimeAgentFailureWithStaticBridgedToken(t *testing.T) {
 func TestServersCheckedAfterAgentLogin(t *testing.T) {
 	h := authHarness(t)
 	h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "wiki"}}}, capability.Inventory{Agent: "claude"})
-	h.auth.agent = map[string]*auth.Problem{"codex": {Agent: "codex", Reason: "not logged in"}}
-	h.auth.server = map[string]*auth.Problem{"wiki": {Agent: "codex", Server: "wiki", Static: true, Where: "config.toml [mcp_servers.wiki]", Reason: "the server rejected the token from config (HTTP 401)"}}
-	h.auth.login = auth.LoggedIn
+	h.auth.agent = map[string]*Problem{"codex": {Agent: "codex", Reason: "not logged in"}}
+	h.auth.server = map[string]*Problem{"wiki": {Agent: "codex", Server: "wiki", Static: true, Where: "config.toml [mcp_servers.wiki]", Reason: "the server rejected the token from config (HTTP 401)"}}
+	h.auth.login = LoggedIn
 	o, e := h.runNeeds("implement", "mcp:wiki")
 	h.requireCalls(0)
 	if e != nil || len(h.auth.checked) == 0 || !strings.Contains(o.Line, "fix the credential") {

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/workerenv"
@@ -59,8 +58,8 @@ func TestDroppedOnlyLoginGoesToLeadWithoutLogin(t *testing.T) {
 		h := authHarness(t)
 		t.Setenv("OPENAI_API_KEY", secret)
 		unsetEnv(t, "ANTHROPIC_API_KEY")
-		h.cfg.Capabilities.OnAuthFailure = auth.LoginThenLead
-		h.auth.login = auth.LoggedIn
+		h.cfg.Capabilities.OnAuthFailure = AuthLoginThenLead
+		h.auth.login = LoggedIn
 		return h
 	}
 	check := func(t *testing.T, h *harness, o Outcome, e error, calls int) {
@@ -80,7 +79,7 @@ func TestDroppedOnlyLoginGoesToLeadWithoutLogin(t *testing.T) {
 
 	t.Run("preflight", func(t *testing.T) {
 		h := keys(t)
-		h.auth.agent = map[string]*auth.Problem{"codex": {Agent: "codex", Reason: "not logged in"}}
+		h.auth.agent = map[string]*Problem{"codex": {Agent: "codex", Reason: "not logged in"}}
 		o, e := h.run("implement")
 		check(t, h, o, e, 0)
 		// The notice was given, but the login still fails: the line says why again.
@@ -98,7 +97,7 @@ func TestDroppedOnlyLoginGoesToLeadWithoutLogin(t *testing.T) {
 	t.Run("unrelated mcp failure", func(t *testing.T) {
 		h := keys(t)
 		h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "wiki"}}}, capability.Inventory{Agent: "claude"})
-		h.auth.server = map[string]*auth.Problem{"wiki": {Agent: "codex", Server: "wiki", Reason: "codex has no OAuth login for it"}}
+		h.auth.server = map[string]*Problem{"wiki": {Agent: "codex", Server: "wiki", Reason: "codex has no OAuth login for it"}}
 		o, e := h.runNeeds("implement", "mcp:wiki")
 		h.requireCalls(1)
 		if e != nil || len(h.auth.logins) != 1 || h.auth.logins[0].Command() != "codex mcp login wiki" || !strings.HasPrefix(o.Line, "done=true") {
@@ -214,8 +213,8 @@ func TestClaimedNoticeSurvivesALongLine(t *testing.T) {
 
 	t.Run("refused login fails", func(t *testing.T) {
 		h := keys(t)
-		h.cfg.Capabilities.OnAuthFailure = auth.Fail
-		h.auth.agent = map[string]*auth.Problem{"codex": {Agent: "codex", Reason: long}}
+		h.cfg.Capabilities.OnAuthFailure = AuthFail
+		h.auth.agent = map[string]*Problem{"codex": {Agent: "codex", Reason: long}}
 		o, e := h.run("implement")
 		h.requireCalls(0)
 		if e == nil || !strings.HasPrefix(o.Line, "role implement: codex login: refused") {
@@ -226,8 +225,8 @@ func TestClaimedNoticeSurvivesALongLine(t *testing.T) {
 
 	t.Run("refused login goes to lead", func(t *testing.T) {
 		h := keys(t)
-		h.cfg.Capabilities.OnAuthFailure = auth.LoginThenLead
-		h.auth.agent = map[string]*auth.Problem{"codex": {Agent: "codex", Reason: long}}
+		h.cfg.Capabilities.OnAuthFailure = AuthLoginThenLead
+		h.auth.agent = map[string]*Problem{"codex": {Agent: "codex", Reason: long}}
 		o, e := h.run("implement")
 		h.requireCalls(0)
 		if e != nil || len(h.auth.logins) != 0 || len(o.Needs) != 1 || !strings.HasPrefix(o.Line, "role implement waits for lead: codex login: refused") {

@@ -18,7 +18,6 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
-	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/coauthor"
@@ -429,7 +428,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 				continue
 			}
 			if needsKind(opts.Needs, capability.KindMCP) {
-				notes = append(notes, auth.WorkerLine)
+				notes = append(notes, AuthWorkerLine)
 			}
 			for _, n := range notes {
 				capNotes += n + "\n"
@@ -540,14 +539,14 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 			return out, noticeErr
 		}
 		notices = append(notices, claimed...)
-		checker := d.NewChecker(cacheDir, pre)
+		checker := d.checker(cacheDir, pre)
 		// A worker that cannot sign in would fail after the lead waited for it,
 		// so its agent and the servers it needs are checked first.
 		// The servers are checked only once the agent is logged in, so a login
 		// that works checks them next.
 		for problems := preflight(ctx, checker, route.Agent, leadAgent, root, opts.Needs, bridged, pre.Env); len(problems) > 0; {
 			p := problems[0]
-			ok, authErr := settleAuth(ctx, cfg, reg, checker, leadID, role, p, &loginTried, &out)
+			ok, authErr := settleAuth(ctx, d, cfg, reg, checker, leadID, role, p, &loginTried, &out)
 			if authErr != nil || !ok {
 				return out, authErr
 			}
@@ -717,7 +716,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 				}
 				// A login that works lets the worker run once more; settleAuth
 				// tries one login per delegation, so this ends.
-				ok, authErr := settleAuth(ctx, cfg, reg, checker, leadID, role, problems[0], &loginTried, &out)
+				ok, authErr := settleAuth(ctx, d, cfg, reg, checker, leadID, role, problems[0], &loginTried, &out)
 				if authErr != nil || !ok {
 					out.Result = run.Result{}
 					return out, authErr
@@ -892,7 +891,7 @@ func ClaimMigration(reg *session.Registry, cfg *config.Config, leadID, agent str
 }
 
 // migrationLines names the billing keys a refused agent login may have lost.
-func migrationLines(cfg *config.Config, p auth.Problem) []string {
+func migrationLines(cfg *config.Config, p Problem) []string {
 	if p.Server != "" {
 		return nil
 	}
@@ -1044,8 +1043,8 @@ func workerBrief(root string) []byte {
 // the lead's definition, which is what the worker gets; the worker's own
 // servers are those the settings folders of workerEnv, its environment,
 // define.
-func preflight(ctx context.Context, checker auth.Checker, agent, leadAgent, root string, needs []string, bridged *run.MCP, workerEnv []string) []auth.Problem {
-	var out []auth.Problem
+func preflight(ctx context.Context, checker Checker, agent, leadAgent, root string, needs []string, bridged *run.MCP, workerEnv []string) []Problem {
+	var out []Problem
 	if p := checker.Agent(ctx, agent); p != nil {
 		return append(out, *p)
 	}
@@ -1081,13 +1080,13 @@ func preflight(ctx context.Context, checker auth.Checker, agent, leadAgent, root
 // runProblems reads a refused login from a finished run: an error the runner
 // classified, or auth: entries the worker put in needs.
 // The worker's own servers are those of workerEnv, its environment.
-func runProblems(agent, leadAgent, root string, r run.Result, bridged *run.MCP, taskNeeds, workerEnv []string) []auth.Problem {
+func runProblems(agent, leadAgent, root string, r run.Result, bridged *run.MCP, taskNeeds, workerEnv []string) []Problem {
 	// A finished run stays finished, whatever its log said about a login.
 	if r.Done {
 		return nil
 	}
-	var problems []auth.Problem
-	for _, p := range auth.FromNeeds(agent, r.Needs) {
+	var problems []Problem
+	for _, p := range fromNeeds(agent, r.Needs) {
 		// The worker writes these needs, so a server counts only when the task
 		// named it: its name reaches a login command and the line for the lead.
 		if p.Server == "" || slices.Contains(taskNeeds, capability.KindMCP+":"+p.Server) {
@@ -1097,11 +1096,11 @@ func runProblems(agent, leadAgent, root string, r run.Result, bridged *run.MCP, 
 	// The server name comes from the worker's errors, so it too counts only
 	// when the task named it.
 	if r.AuthFailed && (r.AuthServer == "" || slices.Contains(taskNeeds, capability.KindMCP+":"+r.AuthServer)) {
-		p := auth.Problem{Agent: agent, Server: r.AuthServer, Reason: "the worker's agent refused its login"}
+		p := Problem{Agent: agent, Server: r.AuthServer, Reason: "the worker's agent refused its login"}
 		if p.Server != "" {
 			p.Reason = "the server refused the worker's credentials"
 		}
-		problems = append([]auth.Problem{p}, problems...)
+		problems = append([]Problem{p}, problems...)
 	}
 	for i, p := range problems {
 		if p.Server == "" {
@@ -1125,24 +1124,26 @@ func runProblems(agent, leadAgent, root string, r run.Result, bridged *run.MCP, 
 // when the worker may start, after a login that worked. Otherwise the task goes
 // to the lead, as with on_missing lead_first, and out says why; the reason
 // names the agent or server and the config entry, never a value.
-func settleAuth(ctx context.Context, cfg *config.Config, reg *session.Registry, checker auth.Checker, leadID, role string, p auth.Problem, tried *bool, out *Outcome) (bool, error) {
+func settleAuth(ctx context.Context, d Deps, cfg *config.Config, reg *session.Registry, checker Checker, leadID, role string, p Problem, tried *bool, out *Outcome) (bool, error) {
+	// A problem from a worker's needs or its log has no login command yet.
+	p = d.withLogin(p)
 	action := cfg.Capabilities.OnAuthFailure
 	if action == "" {
-		action = auth.LoginThenLead
+		action = AuthLoginThenLead
 	}
 	reason := p.Subject() + ": " + p.Reason
 	// An agent login refused while a dropped key is in use most likely relied
 	// on that key. A browser login would switch the person's billing without
 	// asking, so none runs and the lead gets the migration line.
 	if migration := strings.Join(migrationLines(cfg, p), " "); migration != "" {
-		if action == auth.Fail {
+		if action == AuthFail {
 			return false, fmt.Errorf("%s; %s", reason, migration)
 		}
 		out.Needs = []string{p.Need()}
 		out.Line = oneLine("role " + role + " waits for lead: " + reason + "; " + migration + " Do the task here, or allow paid runs in paid_runs." + p.Agent + " and delegate again.")
 		return false, nil
 	}
-	if action == auth.Fail {
+	if action == AuthFail {
 		return false, fmt.Errorf("%s", reason)
 	}
 	command := p.Command()
@@ -1150,7 +1151,7 @@ func settleAuth(ctx context.Context, cfg *config.Config, reg *session.Registry, 
 	case p.Static:
 		reason += "; fix the credential in " + p.Where
 		command = ""
-	case action == auth.LoginThenLead && !*tried:
+	case action == AuthLoginThenLead && !*tried:
 		declined, err := reg.AuthDeclined(leadID, p.Key())
 		if err != nil {
 			return false, err
@@ -1162,8 +1163,8 @@ func settleAuth(ctx context.Context, cfg *config.Config, reg *session.Registry, 
 		*tried = true
 		timeout := time.Duration(cfg.Capabilities.LoginTimeoutSeconds) * time.Second
 		switch checker.Login(ctx, p, timeout) {
-		case auth.LoggedIn:
-			var again *auth.Problem
+		case LoggedIn:
+			var again *Problem
 			if p.Server == "" {
 				again = checker.Agent(ctx, p.Agent)
 			} else if !p.Static {
@@ -1173,11 +1174,11 @@ func settleAuth(ctx context.Context, cfg *config.Config, reg *session.Registry, 
 				return true, nil
 			}
 			reason += "; still refused after the login"
-		case auth.NeedsTerminal:
+		case NeedsTerminal:
 			out.Needs = []string{p.AuthNeed()}
 			out.Line = oneLine("role " + role + " waits for lead: " + reason + "; the login needs a terminal. Ask the person to run: ! " + command)
 			return false, nil
-		case auth.TimedOut:
+		case TimedOut:
 			// Not recorded as declined: the person may finish it from a terminal.
 			reason += "; the login timed out"
 		default:

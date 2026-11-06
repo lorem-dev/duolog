@@ -10,6 +10,8 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/claude"
 	"github.com/lorem-dev/duolog/internal/adapter/codex"
+	"github.com/lorem-dev/duolog/internal/core/agent"
+	"github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/run"
 )
 
@@ -27,6 +29,22 @@ func For(agent string) Worker {
 		return codex.Worker{}
 	}
 	return claude.Worker{}
+}
+
+// Login is the real Login of one agent.
+type Login interface {
+	Status(ctx context.Context, p launch.Process) *agent.LoginProblem
+	Server(ctx context.Context, p launch.Process, name string) *agent.LoginProblem
+	LoginArgv(server string) []string
+}
+
+// LoginFor returns the Login of the named agent: Codex's for "codex", Claude's
+// for any other name.
+func LoginFor(name string) Login {
+	if name == "codex" {
+		return codex.Login{}
+	}
+	return claude.Login{}
 }
 
 // Argv is the argv the Worker of s's agent gives s.
