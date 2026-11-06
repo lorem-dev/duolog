@@ -442,6 +442,20 @@ project. `duolog quota` and `duolog doctor` show the verdict of each agent's
 worker, peer and lead, with the signals, the account kind and a line such as
 `paid allowed: 1.20 of 5 USD in 24 h, 0.40 in flight`.
 
+A quota read that does not end in time is read once more, with twice the
+time. A busy machine can take seconds to start the agent's CLI, and a Claude
+read starts it twice in a row: for `/usage` and for `auth status`. When the
+second read also times out, duolog uses the last good read of the same
+account and route, marked `(cached 42s ago)` in `duolog quota`. It does so
+only while that read is under 10 minutes old and every window in it, the
+five-hour and weekly windows included, is under 80 % used. To reach its
+limit in 10 minutes, a window would then have to move more than 20 points,
+five times the pace that fills a five-hour window. An older read, a window
+nearer its limit, a read of another account and any other failed read stay
+`paid`. duolog cannot see a login you changed after the last good read, so
+it trusts that read for 10 minutes at most. It keeps the read in the account
+state, next to the spend, and never in the agent's own folders.
+
 duolog frees a slot and its estimate only when it can prove that the run or
 the pane ended. A hold it cannot settle, such as a pane whose `peer open`
 was stopped after the pane started, stays and shows in `duolog quota` and
