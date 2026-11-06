@@ -18,12 +18,12 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
+	"github.com/lorem-dev/duolog/internal/core/taskspec"
 	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
-	"github.com/lorem-dev/duolog/internal/task"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -897,7 +897,7 @@ func TestCellBriefDemotesStatementHeadings(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		brief, invalid = string(data), task.Validate(taskPath)
+		brief, invalid = string(data), taskspec.Validate(os.DirFS(filepath.Dir(taskPath)), filepath.Base(taskPath))
 		return delegate.Outcome{Result: runner.Result{Done: true}}, nil
 	}
 	f.run(t)

@@ -28,12 +28,12 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
+	"github.com/lorem-dev/duolog/internal/core/taskspec"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
-	"github.com/lorem-dev/duolog/internal/task"
 	"github.com/lorem-dev/duolog/internal/trust"
 	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/lorem-dev/duolog/internal/workerenv"
@@ -179,19 +179,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			}
 		}
 	}
-	source, err := task.Resolve(root, lookup)
-	if err != nil {
-		return out, fmt.Errorf("task file: %w; write it inside the project, such as .duolog/task.md, which Git ignores", err)
-	}
-	if err = task.Validate(source); err != nil {
-		return out, err
-	}
-	// The paths Write lists, to name what the worker changed outside them.
-	writes, err := task.WritePaths(source)
-	if err != nil {
-		return out, err
-	}
-	original, err := os.ReadFile(source)
+	writes, original, err := readTask(root, lookup)
 	if err != nil {
 		return out, err
 	}
@@ -469,7 +457,8 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				if err = os.WriteFile(copyPath, []byte(annotate(string(original), capNotes)), 0600); err != nil {
 					return out, err
 				}
-				if err = task.Validate(copyPath); err != nil {
+				// The copy is duolog's own file, read where it was written.
+				if err = taskspec.Validate(fileFS(copyPath)); err != nil {
 					return out, err
 				}
 			}
@@ -551,7 +540,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		}
 		readRules := leadRules
 		readRules.RoleSandbox = route.Sandbox
-		inline, inlineErr := task.Inline(copyPath, root, budget, func(path string) bool {
+		inline, inlineErr := inlineTask(root, copyPath, budget, func(path string) bool {
 			if pathutil.IsAbs(path) {
 				if rel, err := pathutil.Relative(root, path); err == nil {
 					path = rel
