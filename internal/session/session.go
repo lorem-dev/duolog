@@ -80,6 +80,11 @@ type Entry struct {
 	// StopNotified is the task, by path and generation, whose unfinished
 	// stop the peer's Stop hook already told the lead of: once per task.
 	StopNotified string `json:",omitempty"`
+	// IdleTurn is the turn, by transcript length, whose end the peer's Stop
+	// hook already told the lead of with a peer-idle message.
+	IdleTurn string `json:",omitempty"`
+	// ExitNotified is set once the lead was told the peer's process exited.
+	ExitNotified bool `json:",omitempty"`
 }
 type Registry struct {
 	Dir string

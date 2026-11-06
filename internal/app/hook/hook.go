@@ -40,6 +40,11 @@ type Env struct {
 	// Load returns the load of the lead with this session id: its peers, the
 	// session limits and the 5-hour window. Nil means none; the command sets it.
 	Load func(ctx context.Context, leadID string) load.Summary
+	// PeerIdle is the hook point for work that follows a peer going idle, such
+	// as starting queued work. The peer's Stop hook calls it after it posted
+	// the peer-idle message to the lead with the lead's session id and the
+	// peer id. Nil by default.
+	PeerIdle func(ctx context.Context, leadID, peerID string)
 }
 
 type Output struct {
@@ -222,6 +227,9 @@ func deliver(ctx context.Context, e Env, event string, register, includeRoster b
 	var data []byte
 	s, err := prepare(e, register, started)
 	if err == nil && s != nil {
+		if event == "UserPromptSubmit" || event == "PostToolUse" {
+			tellExited(ctx, e, s)
+		}
 		if data, err = receive(s); err != nil {
 			return Output{}
 		}

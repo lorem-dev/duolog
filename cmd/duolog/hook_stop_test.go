@@ -43,7 +43,9 @@ func TestHookCLIStopTellsTheLead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"s":"peer-abc123 stopped; task tasks/t.md is unfinished"`) || strings.Count(string(data), "\n") != 1 {
+	// The stop line, then the peer-idle line of the same turn end.
+	if !strings.Contains(string(data), `"s":"peer-abc123 stopped; task tasks/t.md is unfinished"`) ||
+		!strings.Contains(string(data), `"k":"peer-idle"`) || strings.Count(string(data), "\n") != 2 {
 		t.Fatalf("bus %s", data)
 	}
 }

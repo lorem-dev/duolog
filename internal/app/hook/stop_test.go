@@ -3,7 +3,9 @@ package hook
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,7 +35,8 @@ func stopSetup(t *testing.T, peer session.Entry) (Env, *session.Registry, *bus.B
 	return pane, r, b, session.Address(l)
 }
 
-func leadMail(t *testing.T, b *bus.Bus, address string) []bus.Message {
+// allMail reads every message the lead has not read.
+func allMail(t *testing.T, b *bus.Bus, address string) []bus.Message {
 	t.Helper()
 	lines, err := b.Inbox(address)
 	if err != nil {
@@ -48,6 +51,133 @@ func leadMail(t *testing.T, b *bus.Bus, address string) []bus.Message {
 		ms = append(ms, m)
 	}
 	return ms
+}
+
+// leadMail is the lead's unread mail without the peer-idle and peer-exit
+// events, which have tests of their own.
+func leadMail(t *testing.T, b *bus.Bus, address string) []bus.Message {
+	t.Helper()
+	var ms []bus.Message
+	for _, m := range allMail(t, b, address) {
+		if m.K != "peer-idle" && m.K != "peer-exit" {
+			ms = append(ms, m)
+		}
+	}
+	return ms
+}
+
+// kindMail is the lead's unread mail of one kind.
+func kindMail(t *testing.T, b *bus.Bus, address, kind string) []bus.Message {
+	t.Helper()
+	var ms []bus.Message
+	for _, m := range allMail(t, b, address) {
+		if m.K == kind {
+			ms = append(ms, m)
+		}
+	}
+	return ms
+}
+
+func stopInput(t *testing.T, transcript, last string) []byte {
+	t.Helper()
+	input, err := json.Marshal(map[string]any{"session_id": "peer-session-1", "hook_event_name": "Stop", "transcript_path": transcript, "last_assistant_message": last})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return input
+}
+
+// A peer's turn end posts one peer-idle message with the checkout relative to
+// the project and the first line of the last message, cut to 160 characters.
+func TestPeerStopPostsPeerIdle(t *testing.T) {
+	pane, r, b, address := stopSetup(t, session.Entry{})
+	work := filepath.Join(pane.Root, ".worktrees", "feat-x")
+	if _, err := r.Update("peer-abc123", func(e *session.Entry) { e.WorkRoot = work }); err != nil {
+		t.Fatal(err)
+	}
+	transcript := filepath.Join(t.TempDir(), "t.jsonl")
+	if err := os.WriteFile(transcript, []byte("one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pane.Input = stopInput(t, transcript, "\n  "+strings.Repeat("x", 200)+"\nsecond line")
+	var called []string
+	pane.PeerIdle = func(_ context.Context, lead, peer string) { called = append(called, lead+" "+peer) }
+	silent(t, Stop(context.Background(), pane))
+	ms := kindMail(t, b, address, "peer-idle")
+	want := "peer-abc123 idle in .worktrees/feat-x: " + strings.Repeat("x", 160)
+	if len(ms) != 1 || ms[0].S != want || ms[0].Ref != "peer-abc123" || ms[0].From != "codex/implement" {
+		t.Fatalf("peer-idle mail %+v, want one line %q", ms, want)
+	}
+	if len(called) != 1 || !strings.HasSuffix(called[0], " peer-abc123") {
+		t.Fatalf("PeerIdle calls %v, want one", called)
+	}
+}
+
+// Without a last message the line is only the place. A Stop that runs again
+// for the same transcript length posts nothing; a longer transcript posts.
+func TestPeerStopPeerIdleOncePerTurn(t *testing.T) {
+	pane, _, b, address := stopSetup(t, session.Entry{})
+	transcript := filepath.Join(t.TempDir(), "t.jsonl")
+	if err := os.WriteFile(transcript, []byte("one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pane.Input = stopInput(t, transcript, "")
+	var calls int
+	pane.PeerIdle = func(context.Context, string, string) { calls++ }
+	silent(t, Stop(context.Background(), pane))
+	silent(t, Stop(context.Background(), pane))
+	ms := kindMail(t, b, address, "peer-idle")
+	if len(ms) != 1 || ms[0].S != "peer-abc123 idle in ." || calls != 1 {
+		t.Fatalf("peer-idle mail %+v, %d calls, want one line for one turn", ms, calls)
+	}
+	if err := os.WriteFile(transcript, []byte("one\ntwo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	silent(t, Stop(context.Background(), pane))
+	if ms := kindMail(t, b, address, "peer-idle"); len(ms) != 1 || calls != 2 {
+		t.Fatalf("peer-idle mail %+v, %d calls, want one line for the next turn", ms, calls)
+	}
+}
+
+// A closed peer and a pane that is no peer post no peer-idle.
+func TestPeerStopPeerIdleStaysQuiet(t *testing.T) {
+	pane, _, b, address := stopSetup(t, session.Entry{Closed: true})
+	silent(t, Stop(context.Background(), pane))
+	pane.Environ = []string{"DUOLOG_DEPTH=1"}
+	silent(t, Stop(context.Background(), pane))
+	if ms := kindMail(t, b, address, "peer-idle"); len(ms) != 0 {
+		t.Fatalf("peer-idle mail %+v", ms)
+	}
+}
+
+// The lead's next prompt hook posts peer-exit once for a peer that exited or
+// is gone, and not for a live one or a closed one.
+func TestLeadHookPostsPeerExitOnce(t *testing.T) {
+	e, r, _ := setup(t, "claude")
+	SessionStart(context.Background(), e)
+	l := lead(t, r, e)
+	for _, id := range []string{"peer-exit01", "peer-live01", "peer-gone01", "peer-shut01"} {
+		x := session.Entry{ID: id, Lead: l.ID, Agent: "claude", Role: "review", Closed: id == "peer-shut01"}
+		if err := r.Record(x); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.Peers = func(_ context.Context, leadID string) []string {
+		if leadID != l.ID {
+			t.Errorf("Peers asked for lead %q, want %q", leadID, l.ID)
+		}
+		return []string{"peer-exit01 exited", "peer-live01 ready", "peer-gone01 gone", "peer-shut01 exited"}
+	}
+	first := content(t, Prompt(context.Background(), e), "UserPromptSubmit")
+	for _, want := range []string{"peer-exit peer-exit01: peer-exit01 exited in .", "peer-exit peer-gone01: peer-gone01 exited in ."} {
+		if !strings.Contains(first, want) {
+			t.Fatalf("first prompt hook output %q lacks %q", first, want)
+		}
+	}
+	if strings.Contains(first, "peer-live01") || strings.Contains(first, "peer-shut01") {
+		t.Fatalf("first prompt hook output %q names a live or closed peer", first)
+	}
+	silent(t, Prompt(context.Background(), e))
 }
 
 // A peer whose turn ends while its task is unfinished, by the rule of peer
