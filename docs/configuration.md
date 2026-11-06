@@ -219,6 +219,7 @@ The lead's own settings are the ceiling:
 | `capabilities` | What to do when the other agent lacks a skill, plugin or server |
 | `sync` | How agents and skills are generated. See [Sync](sync.md) |
 | `env_passthrough` | The only variables a worker inherits. A free run still drops names that bill per token |
+| `workers.inherit_plugins` | `false` (default): a Claude worker or peer turns off every plugin your user and project settings enable, except duolog's own. `true`: it loads them all, as your own sessions do. See [below](#what-workers-inherit) |
 | `rex` | Timeouts and capture settings for live sessions. See [Rex](rex.md) |
 | `rex.stuck_notify_minutes` | Minutes before `peer wait` sends one reminder for an unanswered question. Default: `5`; `0` disables reminders |
 | `rex.auto_answers` | Ordered `{match, answer}` rules for safe peer questions. Defaults to answering `Hooks need review` with `Continue without trusting`. A project list replaces the defaults; `[]` disables it. Trust and persistent approval grants are refused |
@@ -255,6 +256,15 @@ bridged. A
 too: Claude loads that file as project instructions when the project is inside
 the home folder. A `minimal` worker of either agent keeps its skills only when
 the task names a `skill:` or `plugin:` need.
+
+A Claude worker or peer also starts with your plugins off. Every enabled
+plugin adds its skills to every request, about 16 thousand tokens for a typical
+set. duolog reads `enabledPlugins` from the same user, project and local
+settings it reads for the route, and passes the worker an `enabledPlugins` map
+in `--settings` that sets each enabled plugin to `false`, except duolog's own.
+Your settings files are not changed, and the lead and your own sessions keep
+their plugins. Set `workers.inherit_plugins: true` to keep the old behavior.
+Codex workers are not changed here.
 
 A free run never gets a name that can bill per token, even when
 `env_passthrough` lists it. A free run is one that must stay on your

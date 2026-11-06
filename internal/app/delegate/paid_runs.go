@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/usage"
@@ -54,13 +55,25 @@ func workerEnv(in workerenv.ProcessInput) (workerenv.Process, error) {
 // variables, the run id and bridged servers' env, that pass Build's route
 // detection.
 func workerInput(cfg *config.Config, route coreroute.Route, variant workerenv.Variant, leadID, role, root string,
-	roots, extra []string) workerenv.ProcessInput {
+	roots, extra, needs []string) workerenv.ProcessInput {
 	home, _ := os.UserHomeDir()
 	environ := os.Environ()
 	return workerenv.ProcessInput{Agent: route.Agent, Shape: workerenv.Worker, Variant: variant, Config: cfg,
 		Locations: workerenv.Locations{Home: home, Root: root, GOOS: runtime.GOOS, Environ: environ},
 		Environ:   environ, LeadID: leadID, Role: role, StateDir: project.StateRoot(root),
-		Minimal: route.Context == "minimal", ProtectedRoots: roots, ExtraEnv: extra}
+		Minimal: route.Context == "minimal", ProtectedRoots: roots, ExtraEnv: extra, PluginNeeds: pluginNeeds(needs)}
+}
+
+// pluginNeeds are the plugin names among a task's "kind:name" needs; a Claude
+// worker keeps these plugins on.
+func pluginNeeds(needs []string) []string {
+	var names []string
+	for _, need := range needs {
+		if kind, name, err := capability.ParseNeed(need); err == nil && kind == capability.KindPlugin {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // variants are the variants delegation tries, in order: every free

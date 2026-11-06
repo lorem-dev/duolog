@@ -39,6 +39,9 @@ type LayerFacts struct {
 	Providers                 map[string]ProviderFacts
 	Profile, LaunchProfile    string
 	Profiles                  map[string]ProfileFacts
+	// EnabledPlugins are the Claude plugins the layer's enabledPlugins sets,
+	// by key, true for on; nil when the layer sets none.
+	EnabledPlugins map[string]bool
 }
 
 // ProviderFacts is what a layer's definition of a Codex model provider says,

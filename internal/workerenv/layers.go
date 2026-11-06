@@ -444,6 +444,18 @@ func claudeFacts(facts *LayerFacts, layer Layer, data []byte, endpoints map[stri
 			}
 		}
 	}
+	return readPlugins(facts, doc)
+}
+
+// readPlugins keeps the layer's enabledPlugins. It is no route, so a block
+// that is not a map of booleans is skipped and never counts the layer paid.
+func readPlugins(facts *LayerFacts, doc map[string]json.RawMessage) bool {
+	if raw, ok := doc["enabledPlugins"]; ok {
+		var plugins map[string]bool
+		if json.Unmarshal(raw, &plugins) == nil {
+			facts.EnabledPlugins = plugins
+		}
+	}
 	return true
 }
 

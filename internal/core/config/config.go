@@ -18,6 +18,7 @@ type Config struct {
 	Capabilities   Capabilities     `yaml:"capabilities" jsonschema_description:"Missing capability handling; defaults read skills and let the lead handle tools."`
 	Sync           Sync             `yaml:"sync" jsonschema_description:"Settings for generating agent and skill files; automatic sync defaults to true."`
 	EnvPassthrough []string         `yaml:"env_passthrough" jsonschema_description:"Environment variables passed to workers; defaults include native OS login and agent config directories, not API keys. A free run drops names that bill per token even when listed; only paid_runs.<agent>.allow lets them through."`
+	Workers        Workers          `yaml:"workers" jsonschema_description:"What Claude workers and peers inherit from the person's own settings."`
 	Rex            Rex              `yaml:"rex" jsonschema_description:"Terminal capture and startup settings; defaults to 20 lines and 120 seconds."`
 	Learning       Learning         `yaml:"learning" jsonschema_description:"Learning mode: task classes, classification rules, ladders and priors; off by default."`
 	Telemetry      Telemetry        `yaml:"telemetry" jsonschema_description:"Local telemetry that never leaves the machine; on by default. User level, except that a project may turn off its own events."`
@@ -31,6 +32,10 @@ type Config struct {
 	// tracks, that would widen paid runs or session limits or lower model
 	// prices, and session tiers above their defaults.
 	Notices []ConfigNotice `yaml:"-" json:"-" jsonschema:"-"`
+}
+
+type Workers struct {
+	InheritPlugins bool `yaml:"inherit_plugins" jsonschema_description:"Let Claude workers and peers load every plugin enabled in the user and project settings; defaults to false, which turns them off except duolog's own, since each adds tokens to every request."`
 }
 
 type Coauthors struct {

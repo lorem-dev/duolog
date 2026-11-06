@@ -449,7 +449,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		// environment the worker runs with.
 		runEnv := append([]string{"DUOLOG_RUN=" + att.run}, wm.env()...)
 		var base workerenv.Process
-		if base, err = workerEnv(workerInput(cfg, route, variant, leadID, role, root, opts.ProtectedRoots, runEnv)); err != nil {
+		if base, err = workerEnv(workerInput(cfg, route, variant, leadID, role, root, opts.ProtectedRoots, runEnv, opts.Needs)); err != nil {
 			return out, err
 		}
 		env := base.Env
@@ -537,7 +537,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		if bridged != nil {
 			extra = append(slices.Clone(runEnv), bridged.Env...)
 		}
-		in := workerInput(cfg, route, variant, leadID, role, root, opts.ProtectedRoots, extra)
+		in := workerInput(cfg, route, variant, leadID, role, root, opts.ProtectedRoots, extra, opts.Needs)
 		// The whole launch is admitted: Codex's exec with its sandbox flag
 		// and pins, Claude's -p with its permission flag. The runner adds
 		// none after it.

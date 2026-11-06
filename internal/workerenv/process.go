@@ -115,7 +115,7 @@ func Build(in ProcessInput) (Process, error) {
 			// by the lead.
 			p.Env = append(p.Env, "DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
 			p.FastPinned = in.Variant == Free
-			p.Settings = renderClaudeSettings(in.StateDir, in.Minimal, in.ExtraSettings, in.ProtectedRoots, p.FastPinned)
+			p.Settings = renderClaudeSettings(in.StateDir, in.Minimal, in.ExtraSettings, in.ProtectedRoots, workerPlugins(in), p.FastPinned)
 			p.Prefix = append(prefix, "--settings", p.Settings) //nolint:gocritic // prefix is Build's own clone of in.Prefix, handed to p
 		case "codex":
 			overrides, signals, pinned, err := codexOverrides(in.ExtraSettings, in.Variant == Free)

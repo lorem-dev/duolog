@@ -122,7 +122,8 @@ func goldenLayers(t *testing.T, p goldenPlace, agent string, cfg *config.Config)
 	switch agent {
 	case "claude":
 		p.write(t, filepath.Join(p.home, ".claude", "settings.json"),
-			`{"fastMode": true, "env": {"ANTHROPIC_BASE_URL": "https://llm.example.com/claude", "ANTHROPIC_API_KEY": "sk-ant-settings"}}`)
+			`{"fastMode": true, "env": {"ANTHROPIC_BASE_URL": "https://llm.example.com/claude", "ANTHROPIC_API_KEY": "sk-ant-settings"}, `+
+				`"enabledPlugins": {"alpha@market": true, "beta@market": true, "duolog@duolog": true}}`)
 	case "codex":
 		p.write(t, filepath.Join(p.home, ".codex", "config.toml"),
 			"model_provider = \"corp\"\nservice_tier = \"fast\"\n[model_providers.corp]\nname = \"corp\"\nbase_url = \"https://llm.corp.example/v1\"\nenv_key = \"CORP_LLM_KEY\"\n")

@@ -3,6 +3,8 @@ package workerenv
 import (
 	"encoding/json"
 	"path"
+	"slices"
+	"strings"
 
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 )
@@ -22,20 +24,28 @@ func ClaudeSettings(stateDir string, minimal bool, extra map[string]any) string 
 // caller's other sandbox keys, enabled among them, stay as given, so a sandbox
 // that is off stays off and the denies protect only one already on.
 func ClaudeSettingsWithRoots(stateDir string, minimal bool, extra map[string]any, roots []string) string {
-	return renderClaudeSettings(stateDir, minimal, extra, roots, true)
+	return renderClaudeSettings(stateDir, minimal, extra, roots, nil, true)
 }
 
 // renderClaudeSettings makes the --settings JSON of either variant. Fast
 // mode belongs to the variant, never to the caller's extras: pinned off in
 // the free one, and left out of the paid one, so the person's own settings
 // decide. A key is set or left out, never blanked. Roots join the sandbox
-// denies in both variants.
-func renderClaudeSettings(stateDir string, minimal bool, extra map[string]any, roots []string, pinFast bool) string {
+// denies in both variants. Plugins, when not nil, is the enabledPlugins map
+// of the launch; it is laid over any the caller's extras hold.
+func renderClaudeSettings(stateDir string, minimal bool, extra map[string]any, roots []string, plugins map[string]bool, pinFast bool) string {
 	settings := map[string]any{}
 	for key, value := range extra {
 		if key != "sandbox" && key != "fastMode" {
 			settings[key] = value
 		}
+	}
+	if plugins != nil {
+		merged := copyMap(extra["enabledPlugins"])
+		for key, on := range plugins {
+			merged[key] = on
+		}
+		settings["enabledPlugins"] = merged
 	}
 	if pinFast {
 		settings["fastMode"] = false
@@ -69,6 +79,46 @@ func renderClaudeSettings(stateDir string, minimal bool, extra map[string]any, r
 	}
 	data, _ := json.Marshal(settings)
 	return string(data)
+}
+
+// ownPlugin is the enabledPlugins key of duolog's own Claude plugin.
+const ownPlugin = "duolog@duolog"
+
+// workerPlugins is the enabledPlugins map of a worker or peer: every plugin the
+// layers leave enabled, the last layer that names one deciding, is turned
+// off, except duolog's own, which stays on. Each enabled plugin adds its
+// skills to every request, and a worker needs only duolog's. A plugin the task
+// needs (in.PluginNeeds) is left out of the map, so the person's setting for
+// it holds; one they did not enable stays as it is. It is nil when
+// workers.inherit_plugins is true or nothing is enabled. The layers are read
+// facts; no settings file is touched.
+func workerPlugins(in ProcessInput) map[string]bool {
+	if in.Config.Workers.InheritPlugins {
+		return nil
+	}
+	enabled := map[string]bool{}
+	for _, layer := range in.Layers {
+		for key, on := range layer.EnabledPlugins {
+			enabled[key] = on
+		}
+	}
+	out := map[string]bool{}
+	for key, on := range enabled {
+		name, _, _ := strings.Cut(key, "@")
+		needed := slices.ContainsFunc(in.PluginNeeds, func(n string) bool { return n == key || n == name })
+		switch {
+		case needed:
+			// The person's own setting holds.
+		case key == ownPlugin && on:
+			out[key] = true
+		case on:
+			out[key] = false
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // copyMap returns a shallow copy of v when it is a JSON object, else an empty
