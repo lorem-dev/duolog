@@ -65,8 +65,11 @@ func TestViewFocusesExistingTab(t *testing.T) {
 		t.Fatal(err)
 	}
 	focus := r.named("-C")
-	want := []string{"-C", recordedApp, "focus", "block:peer", "-s", "session:peers"}
-	if len(focus) != 1 || !slices.Equal(focus[0], want) {
+	want := [][]string{
+		{"-C", recordedApp, "do", "session.select", "session_id=session:peers"},
+		{"-C", recordedApp, "focus", "block:peer", "-s", "session:peers"},
+	}
+	if !slices.EqualFunc(focus, want, slices.Equal) {
 		t.Fatalf("%v", focus)
 	}
 	if len(r.spawns()) != 0 || len(r.keys()) != 0 || len(r.named("send")) != 0 || len(r.named("block close")) != 0 {
@@ -75,35 +78,11 @@ func TestViewFocusesExistingTab(t *testing.T) {
 	if sessionsFile(t, r) != before {
 		t.Fatal("view wrote a record")
 	}
-	// back: names the rex that duolog found, which need not be in PATH.
-	line := e.ID + " shown on client " + recordedApp + ": duolog | codex-implement; back: " + shellWord(r.bin) + " -C " + recordedApp + " focus block:lead -s sess"
-	if got.Line() != line || strings.Count(got.Line(), "\n") != 0 {
+	// The person is now in the peer's pane, where a typed command would go
+	// to the peer, so the line names the Rex way back instead of a command.
+	line := e.ID + " shown on client " + recordedApp + ": duolog | codex-implement; to return, use Previous Session in Rex"
+	if got.Line() != line || strings.Count(got.Line(), "\n") != 0 || strings.Contains(got.Line(), "back:") {
 		t.Fatalf("%q", got.Line())
-	}
-}
-
-func TestBackCommandQuotesTheRexPath(t *testing.T) {
-	got := backCommand("/Applications/Rex App.app/Contents/Helpers/x/Contents/MacOS/rex", "client:app", "block:lead", "sess")
-	want := "'/Applications/Rex App.app/Contents/Helpers/x/Contents/MacOS/rex' -C client:app focus block:lead -s sess"
-	if got != want {
-		t.Fatalf("%q", got)
-	}
-	if got := backCommand("/opt/it's/rex", "c", "b", "s"); got != `'/opt/it'\''s/rex' -C c focus b -s s` {
-		t.Fatalf("%q", got)
-	}
-	if got := backCommand("/usr/local/bin/rex", "c", "b", "s"); got != "/usr/local/bin/rex -C c focus b -s s" {
-		t.Fatalf("%q", got)
-	}
-}
-
-func TestViewLineWithoutBack(t *testing.T) {
-	r := newRig(t, baseScript())
-	e := r.ready()
-	t.Setenv("REX_BLOCK", "")
-	r.rex(viewScript(clientsOn(t, "sess")))
-	got, err := View(r.ctx, e.ID, "")
-	if err != nil || got.Back != "" || strings.Contains(got.Line(), "back:") {
-		t.Fatalf("%+v %v", got, err)
 	}
 }
 
@@ -139,8 +118,7 @@ func TestViewRefusesAmbiguousClient(t *testing.T) {
 			t.Fatal(err)
 		}
 		focus := r.named("-C")
-		want := []string{"-C", "client:x", "focus", "block:peer", "-s", "session:peers"}
-		if len(focus) != 1 || !slices.Equal(focus[0], want) {
+		if len(focus) != 2 || !slices.Equal(focus[1], []string{"-C", "client:x", "focus", "block:peer", "-s", "session:peers"}) {
 			t.Fatalf("%v", focus)
 		}
 		if len(r.named("client ls")) != 0 {

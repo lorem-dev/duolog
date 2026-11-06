@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // ClientInfo is one connected Rex client. A client lists every session it is
@@ -54,18 +55,35 @@ func (c Client) Clients(ctx context.Context) ([]ClientInfo, error) {
 	return clients, nil
 }
 
-// Focus shows a block on one named client. It sends no key and creates
-// nothing. The client's session switches to the block's session if Rex
-// does that on focus.
+// ErrRemoteControl reports that Rex.app refuses client actions. Without them
+// duolog cannot switch the app to another session.
+var ErrRemoteControl = errors.New("the Rex app does not accept actions; turn on Remote Control in its Settings under Rex Server, then try again")
+
+// Focus shows a block on one named client. It first selects the block's
+// session in the app, because focus alone does not switch the session the
+// app shows. It sends no key and creates nothing.
 func (c Client) Focus(ctx context.Context, client, block string) error {
 	if client == "" || block == "" || c.Session == "" {
 		return errors.New("rex focus: missing client, block or session")
 	}
-	_, err := c.call(ctx, "-C", client, "focus", block, "-s", c.Session)
-	// call names the first argument, which here is -C, not the command.
-	var e *Error
-	if errors.As(err, &e) {
-		e.Cmd = "focus"
+	if _, err := c.call(ctx, "-C", client, "do", "session.select", "session_id="+c.Session); err != nil {
+		return named(err, "session.select")
 	}
+	_, err := c.call(ctx, "-C", client, "focus", block, "-s", c.Session)
+	return named(err, "focus")
+}
+
+// named sets the command in a Rex error, because call names the first
+// argument, which here is -C. It turns the Remote Control refusal into
+// ErrRemoteControl.
+func named(err error, cmd string) error {
+	var e *Error
+	if !errors.As(err, &e) {
+		return err
+	}
+	if strings.Contains(e.Output, "not accepting actions") {
+		return ErrRemoteControl
+	}
+	e.Cmd = cmd
 	return err
 }

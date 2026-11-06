@@ -170,10 +170,12 @@ would have to work around them on purpose.
 
 `peer show` and `peer view` need `REX_SESSION`, like the other peer commands.
 `peer view` moves one client: `--client`, or else the only client that shows
-your session. It refuses when it cannot tell. When you run it from a Rex
-pane, the line it prints ends with a `back:` command that returns to that
-pane. The command names the rex that duolog found, which may be inside the
-Rex app.
+your session. It refuses when it cannot tell. Peers live in their own Rex
+session, so `peer view` asks Rex.app to switch to it. Rex.app does that only
+with Remote Control on, in its Settings under Rex Server; without it,
+`peer view` stops and says so. Afterwards you look at the peer's pane, and
+what you type goes to the peer. To return, use Previous Session in Rex, or
+pick your session in the sidebar.
 
 The `duolog-peers` skill runs `peer list --long` and `peer view` for the
 lead. Claude asks you before each `peer view`. The skill costs one model

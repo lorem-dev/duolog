@@ -6,21 +6,18 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"strings"
 
 	"github.com/lorem-dev/duolog/internal/rex"
 )
 
 // Viewed is the outcome of moving one Rex client to a peer's tab.
-type Viewed struct{ ID, Tab, Client, Back string }
+type Viewed struct{ ID, Tab, Client string }
 
-// Line is the one line `peer view` prints. It never holds screen text.
+// Line is the one line `peer view` prints. It never holds screen text. The
+// person now looks at the peer's pane, where a typed command would reach the
+// peer, so the way back is the Rex action, not a command.
 func (v Viewed) Line() string {
-	line := v.ID + " shown on client " + v.Client + ": " + v.Tab
-	if v.Back != "" {
-		line += "; back: " + v.Back
-	}
-	return line
+	return v.ID + " shown on client " + v.Client + ": " + v.Tab + "; to return, use Previous Session in Rex"
 }
 
 // View asks Rex to show a peer's existing tab on one client. It is passive:
@@ -59,31 +56,7 @@ func View(ctx context.Context, id, client string) (Viewed, error) {
 	if err := rc.Focus(ctx, client, entry.Block); err != nil {
 		return Viewed{}, err
 	}
-	viewed := Viewed{ID: entry.ID, Tab: tabLabel(entry.Agent, entry.Role), Client: client}
-	// Only a Rex pane has a block to come back to.
-	if block := os.Getenv("REX_BLOCK"); block != "" {
-		viewed.Back = backCommand(rc.Bin, client, block, os.Getenv("REX_SESSION"))
-	}
-	return viewed, nil
-}
-
-// backCommand is the shell command that returns the client to block. It
-// names the rex that duolog found, which may be inside the Rex app and not
-// in PATH.
-func backCommand(bin, client, block, session string) string {
-	return strings.Join([]string{shellWord(bin), "-C", shellWord(client), "focus", shellWord(block), "-s", shellWord(session)}, " ")
-}
-
-// shellWord quotes s for a POSIX shell when it holds more than plain path
-// and id characters.
-func shellWord(s string) string {
-	if s != "" && strings.IndexFunc(s, func(r rune) bool {
-		plain := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_@%+=:,./-", r)
-		return !plain
-	}) < 0 {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+	return Viewed{ID: entry.ID, Tab: tabLabel(entry.Agent, entry.Role), Client: client}, nil
 }
 
 // pickClient chooses the client to move. An explicit id wins. Otherwise it is
