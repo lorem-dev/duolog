@@ -373,6 +373,14 @@ func TestRenderPairsByExtension(t *testing.T) {
 	if pairs, err := renderPairs("custom.tmpl", "x/install.txt"); err != nil || pairs[0] != [2]string{"custom.tmpl", "x/install.txt"} {
 		t.Errorf("custom template: %v %v", pairs, err)
 	}
+	for tmpl, want := range map[string]string{
+		ps1Template: filepath.Join(".release", "install.ps1"),
+		shTemplate:  filepath.Join(".release", "install.sh"),
+	} {
+		if pairs, err := renderPairs(tmpl, ""); err != nil || pairs[0] != [2]string{tmpl, want} {
+			t.Errorf("template %s alone: %v %v, want output %s", tmpl, pairs, err, want)
+		}
+	}
 	if pairs, err := renderPairs("", ""); err != nil || len(pairs) != 2 {
 		t.Errorf("defaults: %v %v", pairs, err)
 	}

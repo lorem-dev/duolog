@@ -88,13 +88,16 @@ const (
 // renderPairs returns the template and output path of each file to render.
 // Without flags it is both installers. With -o alone the extension picks the
 // template, .sh or .ps1, and any other extension needs -template. With
-// -template alone the output is .release/install.sh.
+// -template alone the output is named after the template, without .tmpl, in
+// .release: install.ps1.tmpl renders .release/install.ps1.
 func renderPairs(tmpl, out string) ([][2]string, error) {
 	switch {
 	case tmpl == "" && out == "":
 		return [][2]string{{shTemplate, ".release/install.sh"}, {ps1Template, ".release/install.ps1"}}, nil
 	case out == "":
-		out = ".release/install.sh"
+		// The output keeps the template's own name in .release, so a
+		// PowerShell template never lands in install.sh.
+		out = filepath.Join(".release", strings.TrimSuffix(filepath.Base(tmpl), ".tmpl"))
 	case tmpl == "":
 		switch strings.ToLower(filepath.Ext(out)) {
 		case ".sh":
