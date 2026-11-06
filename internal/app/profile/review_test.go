@@ -43,7 +43,7 @@ func TestReviewReplayLabelsUseTheEffortThatRan(t *testing.T) {
 	f.rec.EffortCapped, f.rec.Effort = true, "medium"
 	rewriteRecords(t, f, f.rec)
 	f.fake(t, func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-		r := journal.Delegation{ID: "replayed", ProfileOf: delegate.OptionsFrom(ctx).ReplayOf, Entry: "codex/sol/medium", Agent: "codex", Model: "sol", Effort: "medium", EffortCapped: true}
+		r := journal.Delegation{ID: "replayed", ProfileOf: optionsFrom(ctx).ReplayOf, Entry: "codex/sol/medium", Agent: "codex", Model: "sol", Effort: "medium", EffortCapped: true}
 		if err := f.j.Append("delegations.ndjson", r); err != nil {
 			t.Fatal(err)
 		}
@@ -181,7 +181,7 @@ func TestReviewChainReplaysLeadDeltaAndLastOriginalTree(t *testing.T) {
 	calls := 0
 	f.fake(t, func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
 		calls++
-		wt := delegate.OptionsFrom(ctx).WorkRoot
+		wt := optionsFrom(ctx).WorkRoot
 		if calls == 1 {
 			writeTest(t, filepath.Join(wt, "plan.txt"), []byte("alternative plan\n"))
 			writeTest(t, filepath.Join(wt, "base.txt"), []byte("step one\n"))

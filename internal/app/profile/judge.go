@@ -126,7 +126,8 @@ func ParseVerdict(summary string, rubric []string) ([]Scored, error) {
 
 // Judge compares a replay blind and records scores in original/profile terms.
 // Its delegation is excluded from the learning journal by Options.Judge.
-func Judge(ctx context.Context, cfg *config.Config, s *store.Store, r Replay) (journal.Verdict, error) {
+// opts carries the lead, the work root and the roots the command resolved.
+func Judge(ctx context.Context, cfg *config.Config, s *store.Store, r Replay, opts delegate.Options) (journal.Verdict, error) {
 	var v journal.Verdict
 	if len(r.Delegations) == 0 {
 		return v, fmt.Errorf("judge needs a recorded delegation")
@@ -156,7 +157,6 @@ func Judge(ctx context.Context, cfg *config.Config, s *store.Store, r Replay) (j
 		}
 		originals = append(originals, data)
 	}
-	opts := delegate.OptionsFrom(ctx)
 	work := opts.WorkRoot
 	if work == "" {
 		work = project.CurrentWorkRoot(filepath.Dir(s.Dir))
@@ -192,8 +192,8 @@ func Judge(ctx context.Context, cfg *config.Config, s *store.Store, r Replay) (j
 			return v, err
 		}
 	}
-	ctxRun := delegate.WithOptions(ctx, delegate.Options{Judge: true, Entry: &target, WorkRoot: work, Lead: opts.Lead, AllowManualModel: opts.AllowManualModel, ProtectedRoots: opts.ProtectedRoots, Observe: opts.Observe})
-	out, err := runDelegate(ctxRun, cfg, s, "review_final", filepath.Join(dir, "task.md"), "")
+	out, err := Delegate(ctx, delegate.Request{Config: cfg, StateDir: s.Dir, Role: "review_final", TaskPath: filepath.Join(dir, "task.md"),
+		Options: delegate.Options{Judge: true, Entry: &target, WorkRoot: work, Lead: opts.Lead, AllowManualModel: opts.AllowManualModel, ProtectedRoots: opts.ProtectedRoots, Observe: opts.Observe}})
 	if err != nil {
 		return v, fmt.Errorf("judge: %w", err)
 	}

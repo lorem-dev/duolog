@@ -4,7 +4,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 )
 
@@ -21,7 +20,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	delegate.NewGate = paidrunstest.Factory(accounts)
+	PaidGate = paidrunstest.Factory(accounts)
 	code := m.Run()
 	_ = os.RemoveAll(accounts)
 	os.Exit(code)

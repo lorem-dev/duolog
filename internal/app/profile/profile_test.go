@@ -107,11 +107,23 @@ func newFixture(t *testing.T) *fixture {
 	return f
 }
 
+type optionsKey struct{}
+
+// optionsFrom is the options of the request that a fake delegation received.
+func optionsFrom(ctx context.Context) delegate.Options {
+	o, _ := ctx.Value(optionsKey{}).(delegate.Options)
+	return o
+}
+
+// fake replaces Delegate with fn, which gets the request's fields as
+// arguments and its options from optionsFrom(ctx).
 func (f *fixture) fake(t *testing.T, fn func(context.Context, *config.Config, *store.Store, string, string, string) (delegate.Outcome, error)) {
 	t.Helper()
-	previous := runDelegate
-	runDelegate = fn
-	t.Cleanup(func() { runDelegate = previous })
+	previous := Delegate
+	Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+		return fn(context.WithValue(ctx, optionsKey{}, r.Options), r.Config, &store.Store{Dir: r.StateDir}, r.Role, r.TaskPath, r.Thread)
+	}
+	t.Cleanup(func() { Delegate = previous })
 }
 
 func (f *fixture) run(t *testing.T, opts Options) Replay {
@@ -129,8 +141,8 @@ func (f *fixture) run(t *testing.T, opts Options) Replay {
 func TestReplayWorktreeAtBaseWithBeforePatch(t *testing.T) {
 	f := newFixture(t)
 	f.fake(t, func(ctx context.Context, _ *config.Config, s *store.Store, _, task, _ string) (delegate.Outcome, error) {
-		wt := delegate.OptionsFrom(ctx).WorkRoot
-		if wt != filepath.Join(f.s.Dir, WorktreeDir) || s != f.s {
+		wt := optionsFrom(ctx).WorkRoot
+		if wt != filepath.Join(f.s.Dir, WorktreeDir) || s.Dir != f.s.Dir {
 			t.Fatalf("work root %q, store %v", wt, s)
 		}
 		if head := gitTest(t, wt, "rev-parse", "HEAD"); head != f.rec.Base {
@@ -151,7 +163,7 @@ func TestReplayPassesEntryAndReplayOf(t *testing.T) {
 	f := newFixture(t)
 	want := config.Target{Agent: "codex", Model: "sol", Effort: "high"}
 	f.fake(t, func(ctx context.Context, _ *config.Config, _ *store.Store, role, _, _ string) (delegate.Outcome, error) {
-		o := delegate.OptionsFrom(ctx)
+		o := optionsFrom(ctx)
 		if role != "debug_hard" || o.Entry == nil || *o.Entry != want || o.ReplayOf != f.rec.ID || o.Lead != "lead-test" || !o.AllowManualModel {
 			t.Fatalf("role %q, options %+v", role, o)
 		}
@@ -169,7 +181,7 @@ func TestReplayPassesEntryAndReplayOf(t *testing.T) {
 func TestReplayProfilePatchHoldsOnlyReplayChanges(t *testing.T) {
 	f := newFixture(t)
 	f.fake(t, func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-		writeTest(t, filepath.Join(delegate.OptionsFrom(ctx).WorkRoot, "y.txt"), []byte("replayed\n"))
+		writeTest(t, filepath.Join(optionsFrom(ctx).WorkRoot, "y.txt"), []byte("replayed\n"))
 		return delegate.Outcome{Result: runner.Result{Done: true, Summary: "made y"}}, nil
 	})
 	r := f.run(t, Options{})
@@ -201,7 +213,7 @@ func TestReplayAppliesBinaryBeforePatch(t *testing.T) {
 	}
 	writeTest(t, filepath.Join(f.j.TaskDir(f.rec.Task, f.rec.ID), "before.patch"), patch)
 	f.fake(t, func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-		if !bytes.Equal(readTest(t, filepath.Join(delegate.OptionsFrom(ctx).WorkRoot, "binary.dat")), want) {
+		if !bytes.Equal(readTest(t, filepath.Join(optionsFrom(ctx).WorkRoot, "binary.dat")), want) {
 			t.Fatal("binary bytes differ")
 		}
 		return delegate.Outcome{}, nil
@@ -268,7 +280,7 @@ func TestChecksSeeReconstructedOriginalAndReplay(t *testing.T) {
 	c.Checks = []string{"git diff --exit-code -- base.txt"}
 	f.cfg.Learning.Classes[f.rec.Class] = c
 	f.fake(t, func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-		writeTest(t, filepath.Join(delegate.OptionsFrom(ctx).WorkRoot, "y.txt"), []byte("profile only\n"))
+		writeTest(t, filepath.Join(optionsFrom(ctx).WorkRoot, "y.txt"), []byte("profile only\n"))
 		return delegate.Outcome{Result: runner.Result{Summary: "replay"}}, nil
 	})
 	r := f.run(t, Options{})
@@ -371,7 +383,7 @@ func TestChainReplaysFollowingSteps(t *testing.T) {
 	writeTest(t, filepath.Join(dir, "answer.json"), []byte(`{"summary":"second answer"}`))
 	var calls []string
 	f.fake(t, func(ctx context.Context, _ *config.Config, _ *store.Store, role, task, _ string) (delegate.Outcome, error) {
-		o := delegate.OptionsFrom(ctx)
+		o := optionsFrom(ctx)
 		calls = append(calls, o.ReplayOf)
 		want := config.Target{Agent: "codex", Model: "sol", Effort: "high"}
 		if len(calls) == 2 {
@@ -430,7 +442,7 @@ func TestReplayRemovesWorktreeOnError(t *testing.T) {
 			defer cancel()
 			want := errors.New("worker failed")
 			f.fake(t, func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-				writeTest(t, filepath.Join(delegate.OptionsFrom(ctx).WorkRoot, "y.txt"), []byte("partial"))
+				writeTest(t, filepath.Join(optionsFrom(ctx).WorkRoot, "y.txt"), []byte("partial"))
 				if interrupted {
 					cancel()
 					return delegate.Outcome{}, context.Canceled
@@ -467,7 +479,7 @@ func TestReplayCleansStaleWorktree(t *testing.T) {
 			}
 			writeTest(t, filepath.Join(wt, "stale.txt"), []byte("stale"))
 			f.fake(t, func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-				if _, err := os.Stat(filepath.Join(delegate.OptionsFrom(ctx).WorkRoot, "stale.txt")); !os.IsNotExist(err) {
+				if _, err := os.Stat(filepath.Join(optionsFrom(ctx).WorkRoot, "stale.txt")); !os.IsNotExist(err) {
 					t.Fatal("stale content remains", err)
 				}
 				return delegate.Outcome{}, nil
@@ -491,7 +503,7 @@ func TestReplayNamesWorktreeWhenTrustRefuses(t *testing.T) {
 func TestReplayWorkerMayWriteInsideWorktree(t *testing.T) {
 	f := newFixture(t)
 	f.fake(t, func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-		wt := delegate.OptionsFrom(ctx).WorkRoot
+		wt := optionsFrom(ctx).WorkRoot
 		work := project.WorkRoot(wt, f.root)
 		for _, item := range []struct{ path, want string }{{"y.txt", gate.Allow}, {".duolog/task.md", gate.Deny}} {
 			a := gate.Action{Kind: "write", Target: gate.RelativeTarget(work, wt, filepath.Join(wt, item.path)), Role: "implement_complex"}

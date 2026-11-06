@@ -55,6 +55,8 @@ type harness struct {
 	checked []workerenv.Process
 	// leadAt is the time of the harness's last lead observation.
 	leadAt time.Time
+	// deps is what the harness passes to Run; a test may replace a field.
+	deps Deps
 }
 
 func put(t *testing.T, p, s string) {
@@ -115,20 +117,28 @@ func newHarness(t *testing.T) *harness {
 	// level plan or in a read-only role starts only then. Tests of a missing
 	// gate remove it.
 	h.claudeGate(true)
-	h.gateOnPath(true)
 	h.register(session.Lead{ID: "lead-123456", Target: config.Target{Agent: "codex", Model: "lead-model"}, Mode: mode.Ask})
-	oldRun, oldResolve, oldChecker, oldGate := runWorker, resolveModel, newChecker, NewGate
-	t.Cleanup(func() { runWorker = oldRun; resolveModel = oldResolve; newChecker = oldChecker; NewGate = oldGate })
 	h.auth = &fakeChecker{}
-	newChecker = func(_ string, p workerenv.Process) auth.Checker {
+	// The real functions, but for the ones that would start a binary or touch
+	// the user's account state.
+	h.deps = Deps{
+		ReadLeadState:    session.ReadLeadState,
+		ScanCapabilities: capability.ScanEnv,
+		BridgeMCP:        capability.Bridge,
+		Canonical:        filepath.Clean,
+	}
+	// A duolog on the worker PATH, as where it is installed; set after Deps
+	// is built, which would replace it.
+	h.gateOnPath(true)
+	h.deps.NewChecker = func(_ string, p workerenv.Process) auth.Checker {
 		h.checked = append(h.checked, p)
 		return h.auth
 	}
 	if h.gate, e = paidrunstest.Gate(filepath.Join(t.TempDir(), "accounts"), h.cfg); e != nil {
 		t.Fatal(e)
 	}
-	NewGate = func(*config.Config) (*paidruns.Gate, error) { return h.gate, nil }
-	runWorker = func(_ context.Context, s runner.Spec) (runner.Result, error) {
+	h.deps.PaidGate = func(*config.Config) (*paidruns.Gate, error) { return h.gate, nil }
+	h.deps.RunWorker = func(_ context.Context, s runner.Spec) (runner.Result, error) {
 		i := len(h.calls)
 		h.calls = append(h.calls, s)
 		if h.beforeStart != nil {
@@ -161,7 +171,7 @@ func newHarness(t *testing.T) *harness {
 		}
 		return r, e
 	}
-	resolveModel = func(ctx context.Context, cfg *config.Config, dir string, target config.Target) (string, error) {
+	h.deps.ResolveModel = func(ctx context.Context, cfg *config.Config, dir string, target config.Target) (string, error) {
 		return (models.Resolver{List: func(context.Context) ([]route.Entry, string, error) {
 			return catalog.Models, "fixture", nil
 		}}).Resolve(ctx, cfg, target)
@@ -217,14 +227,13 @@ func (h *harness) observe(o session.LeadObservation) {
 }
 func (h *harness) run(role string) (Outcome, error) {
 	h.t.Helper()
-	return Run(context.Background(), h.cfg, h.s, role, h.path, "topic")
+	return h.runWith(role, Options{})
 }
 
 // A turn cap in the options reaches the worker's spec.
 func TestMaxTurnsReachesWorker(t *testing.T) {
 	h := newHarness(t)
-	ctx := WithOptions(context.Background(), Options{MaxTurns: 12})
-	if _, err := Run(ctx, h.cfg, h.s, "implement", h.path, "topic"); err != nil {
+	if _, err := h.runWith("implement", Options{MaxTurns: 12}); err != nil {
 		t.Fatal(err)
 	}
 	h.requireCalls(1)
@@ -693,7 +702,7 @@ func TestFakeBinaryReceivesInlineAndEnv(t *testing.T) {
 	h := newHarness(t)
 	h.lead("codex", mode.Edits, "medium")
 	fake := testbin.Install(t, "claude", testbin.Scenario{Stdout: `{"session_id":"fake-worker","usage":{"input_tokens":17,"output_tokens":4},"structured_output":{"done":true,"summary":"Finished.","files":["a.go"],"needs":[]}}`})
-	runWorker = runner.Run
+	h.deps.RunWorker = runner.Run
 	o, e := h.run("review_final")
 	if e != nil || !o.Result.Done {
 		t.Fatal(o, e)
@@ -759,7 +768,7 @@ func TestUnregisteredLeadRefusesWorker(t *testing.T) {
 func TestFallbackFailureNamesBothAgents(t *testing.T) {
 	h := newHarness(t)
 	h.limited()
-	resolveModel = func(_ context.Context, _ *config.Config, _ string, target config.Target) (string, error) {
+	h.deps.ResolveModel = func(_ context.Context, _ *config.Config, _ string, target config.Target) (string, error) {
 		if target.Agent == "claude" {
 			return "", errors.New("bad catalog")
 		}
@@ -879,7 +888,7 @@ func (h *harness) fakeWorker(agent string) string {
 		scenario = testbin.Scenario{}
 	}
 	fake := testbin.Install(h.t, agent, scenario)
-	runWorker = func(ctx context.Context, spec runner.Spec) (runner.Result, error) {
+	h.deps.RunWorker = func(ctx context.Context, spec runner.Spec) (runner.Result, error) {
 		if agent == "codex" {
 			scenario.Writes = map[string]string{filepath.Join(spec.TaskDir, "answer.json"): answer}
 			data, err := json.Marshal(scenario)
@@ -927,8 +936,8 @@ func TestRegistryDamageStopsDelegation(t *testing.T) {
 				r := h.cfg.Roles[role]
 				r.Session = "resume"
 				h.cfg.Roles[role] = r
-				old := resolveModel
-				resolveModel = func(ctx context.Context, cfg *config.Config, dir string, target config.Target) (string, error) {
+				old := h.deps.ResolveModel
+				h.deps.ResolveModel = func(ctx context.Context, cfg *config.Config, dir string, target config.Target) (string, error) {
 					put(t, filepath.Join(h.s.Dir, "sessions.json"), "{")
 					return old(ctx, cfg, dir, target)
 				}
@@ -1091,9 +1100,8 @@ func TestDecisionPreservesHookChangesDuringTranscriptRead(t *testing.T) {
 			if err := h.reg.RegisterLead(before); err != nil {
 				t.Fatal(err)
 			}
-			originalRead := readLeadState
-			t.Cleanup(func() { readLeadState = originalRead })
-			readLeadState = func(agent, path string) (session.LeadState, error) {
+			originalRead := h.deps.ReadLeadState
+			h.deps.ReadLeadState = func(agent, path string) (session.LeadState, error) {
 				observed, err := originalRead(agent, path)
 				// Complete a hook after the decision took its registry snapshot,
 				// but before it applies the transcript observation.
@@ -1125,9 +1133,7 @@ func TestDecisionPreservesHookChangesDuringTranscriptRead(t *testing.T) {
 // Capability checks use fixed inventories instead of real agents.
 func (h *harness) inventories(target, lead capability.Inventory) {
 	h.t.Helper()
-	old := scanCapabilities
-	h.t.Cleanup(func() { scanCapabilities = old })
-	scanCapabilities = func(_ context.Context, agent, _ string, _ []string) (capability.Inventory, error) {
+	h.deps.ScanCapabilities = func(_ context.Context, agent, _ string, _ []string) (capability.Inventory, error) {
 		if agent == target.Agent {
 			return target, nil
 		}
@@ -1151,14 +1157,12 @@ func TestWorkerInventoryScansTheWorkersEnvironment(t *testing.T) {
 	caller := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", caller)
 	scanned := map[string][]string{}
-	old := scanCapabilities
-	t.Cleanup(func() { scanCapabilities = old })
-	scanCapabilities = func(_ context.Context, agent, _ string, environ []string) (capability.Inventory, error) {
+	h.deps.ScanCapabilities = func(_ context.Context, agent, _ string, environ []string) (capability.Inventory, error) {
 		scanned[agent] = environ
 		return capability.Inventory{Agent: agent, Unknown: true}, nil
 	}
 	opts := Options{Entry: &config.Target{Agent: "claude", Model: "sonnet", Effort: "medium"}, Person: true, Needs: []string{"mcp:tracker"}}
-	if out, err := Run(WithOptions(context.Background(), opts), h.cfg, h.s, "implement", h.path, "topic"); err != nil {
+	if out, err := h.runWith("implement", opts); err != nil {
 		t.Fatal(out.Line, err)
 	}
 	h.requireCalls(1)
@@ -1173,8 +1177,7 @@ func TestWorkerInventoryScansTheWorkersEnvironment(t *testing.T) {
 }
 func (h *harness) runNeeds(role string, needs ...string) (Outcome, error) {
 	h.t.Helper()
-	ctx := WithOptions(context.Background(), Options{Needs: needs})
-	return Run(ctx, h.cfg, h.s, role, h.path, "topic")
+	return h.runWith(role, Options{Needs: needs})
 }
 
 var skillSource = capability.Item{Kind: "skill", Name: "figma-use", Source: "/abs/figma-use/SKILL.md"}

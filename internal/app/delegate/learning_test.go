@@ -87,7 +87,7 @@ func (h *harness) record() journal.Delegation {
 }
 func (h *harness) runWith(role string, opts Options) (Outcome, error) {
 	h.t.Helper()
-	return Run(WithOptions(context.Background(), opts), h.cfg, h.s, role, h.path, "topic")
+	return Run(context.Background(), h.deps, Request{Config: h.cfg, StateDir: h.s.Dir, Role: role, TaskPath: h.path, Thread: "topic", Options: opts})
 }
 func diagnosis() map[string]string { return map[string]string{"output": "diagnosis"} }
 func noJournal(t *testing.T, h *harness) {
@@ -258,8 +258,8 @@ func TestLearningRecordsReplayFiles(t *testing.T) {
 	h := newHarness(t)
 	h.learning(true)
 	h.change = "b.go"
-	inner := runWorker
-	runWorker = func(ctx context.Context, s runner.Spec) (runner.Result, error) {
+	inner := h.deps.RunWorker
+	h.deps.RunWorker = func(ctx context.Context, s runner.Spec) (runner.Result, error) {
 		put(t, filepath.Join(s.TaskDir, "answer.json"), `{"done":true}`)
 		return inner(ctx, s)
 	}
@@ -358,8 +358,8 @@ func TestLearningCountsGateDenials(t *testing.T) {
 	if err := gate.Log(h.s, gate.Action{Kind: "exec", Target: "old", Role: "implement"}, gate.Decision{Kind: gate.Deny}); err != nil {
 		t.Fatal(err)
 	}
-	inner := runWorker
-	runWorker = func(ctx context.Context, s runner.Spec) (runner.Result, error) {
+	inner := h.deps.RunWorker
+	h.deps.RunWorker = func(ctx context.Context, s runner.Spec) (runner.Result, error) {
 		for _, d := range []struct{ role, kind string }{{"implement", gate.Deny}, {"tests", gate.Deny}, {"implement", gate.Allow}, {"implement", gate.Ask}} {
 			if err := gate.Log(h.s, gate.Action{Kind: "exec", Target: "rm -rf x", Role: d.role}, gate.Decision{Kind: d.kind}); err != nil {
 				t.Fatal(err)
@@ -549,7 +549,7 @@ func TestWorkRootOptionIsUsed(t *testing.T) {
 		trusted += fmt.Sprintf("[projects.%q]\ntrust_level = \"trusted\"\n[hooks.state.%q]\ntrusted_hash = \"fixture-hash\"\n", dir, filepath.Join(dir, ".codex", "hooks.json")+":PreToolUse:0:0")
 	}
 	put(t, filepath.Join(os.Getenv("HOME"), ".codex", "config.toml"), trusted)
-	runWorker = func(_ context.Context, s runner.Spec) (runner.Result, error) {
+	h.deps.RunWorker = func(_ context.Context, s runner.Spec) (runner.Result, error) {
 		h.calls = append(h.calls, s)
 		put(t, filepath.Join(s.Cwd, "made.go"), "made\n")
 		return runner.Result{Done: true, Summary: "ok", Files: []string{"made.go"}, Needs: []string{}}, nil
@@ -715,17 +715,6 @@ func TestCalibrationRefusalsBeforeWorkerAreNotStarted(t *testing.T) {
 	}
 }
 
-func TestOptionsFromReadsContext(t *testing.T) {
-	entry := target("codex/sol/high")
-	got := OptionsFrom(WithOptions(context.Background(), Options{Entry: entry, ReplayOf: "task-1", WorkRoot: "/w"}))
-	if got.Entry != entry || got.ReplayOf != "task-1" || got.WorkRoot != "/w" {
-		t.Fatalf("%+v", got)
-	}
-	if got := OptionsFrom(context.Background()); got.Entry != nil {
-		t.Fatalf("%+v", got)
-	}
-}
-
 func TestLearningJournalsWaitsForLead(t *testing.T) {
 	h := newHarness(t)
 	h.learning(true)
@@ -789,8 +778,8 @@ func TestLearningQuotaIsInfra(t *testing.T) {
 func TestLearningErrorKeepsAnswer(t *testing.T) {
 	h := newHarness(t)
 	h.learning(true)
-	inner := runWorker
-	runWorker = func(ctx context.Context, s runner.Spec) (runner.Result, error) {
+	inner := h.deps.RunWorker
+	h.deps.RunWorker = func(ctx context.Context, s runner.Spec) (runner.Result, error) {
 		path := filepath.Join(h.s.Dir, "journal", "delegations.ndjson")
 		if err := os.MkdirAll(path, 0700); err != nil {
 			t.Fatal(err)

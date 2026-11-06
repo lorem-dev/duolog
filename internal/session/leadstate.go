@@ -17,23 +17,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
-// LeadState is the most recent native transcript observation. Empty fields are
-// unknown; in particular, a missing effort must not cap a worker's effort.
-type LeadState struct {
-	Model, Effort, ApprovalPolicy string
-	Mode                          mode.Mode
-}
-
-// LeadRoute is one observation of how the lead itself was started: its
-// command line and its environment, as the lead's own process tree holds
-// them. Only a caller that saw the lead may make one; duolog's own
-// environment never stands for the lead. It feeds reports only.
-type LeadRoute struct {
-	Agent   string
-	Argv    []string
-	Environ []string
-}
-
 // LeadInput is the Build input that reports the lead from observation r: the
 // lead shape, the free variant, and the observed argv and environment byte
 // for byte, which Build passes on unchanged. home and root place its

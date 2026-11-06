@@ -48,8 +48,7 @@ func newProfileCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		ctx := delegate.WithOptions(cmd.Context(), delegate.Options{Lead: opts.Lead, AllowManualModel: opts.AllowManualModel, ProtectedRoots: opts.ProtectedRoots, Observe: opts.Observe})
-		verdict, err := profile.Judge(ctx, cfg, s, replay)
+		verdict, err := profile.Judge(cmd.Context(), cfg, s, replay, delegate.Options{Lead: opts.Lead, AllowManualModel: opts.AllowManualModel, ProtectedRoots: opts.ProtectedRoots, Observe: opts.Observe})
 		if err != nil {
 			return err
 		}

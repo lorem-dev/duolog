@@ -523,10 +523,10 @@ func judgeOnce(ctx context.Context, env JudgeEnv, c config.Class, dir string, n 
 	admitted, err := env.paid(ctx, target, func() (int64, error) {
 		// Built once the call is admitted, with what the plan still allows it.
 		budget, waiting := StepOptions(ctx)
-		ctxRun := delegate.WithOptions(ctx, delegate.Options{Judge: true, Calibration: true, Entry: &target, WorkRoot: slot, Lead: env.Lead,
-			ProtectedRoots: env.ProtectedRoots, Budget: budget, Waiting: waiting})
+		jobOpts := delegate.Options{Judge: true, Calibration: true, Entry: &target, WorkRoot: slot, Lead: env.Lead,
+			ProtectedRoots: env.ProtectedRoots, Budget: budget, Waiting: waiting}
 		var runErr error
-		out, runErr = env.Delegate(ctxRun, env.Cfg, env.Store, "review_final", taskPath, "")
+		out, runErr = env.Delegate(ctx, delegate.Request{Config: env.Cfg, StateDir: env.delegationState(), Role: "review_final", TaskPath: taskPath, Options: jobOpts})
 		return out.Result.Usage.Input + out.Result.Usage.Output, runErr
 	})
 	if !admitted && err == nil {

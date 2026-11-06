@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/app/calibrate"
-	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/quota"
@@ -53,7 +52,7 @@ func newCalibrationAccounts(cfg *config.Config, root string) *calibrationAccount
 }
 
 func (a *calibrationAccounts) open() (*paidruns.Gate, error) {
-	a.once.Do(func() { a.gate, a.err = delegate.NewGate(a.cfg) })
+	a.once.Do(func() { a.gate, a.err = delegateDeps.PaidGate(a.cfg) })
 	return a.gate, a.err
 }
 

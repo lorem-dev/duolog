@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/core/config"
@@ -34,9 +33,9 @@ func reportGate(t *testing.T, cfg *config.Config, read func(context.Context, wor
 	if read != nil {
 		g.Cache.Read = read
 	}
-	old := delegate.NewGate
-	delegate.NewGate = func(*config.Config) (*paidruns.Gate, error) { return g, nil }
-	t.Cleanup(func() { delegate.NewGate = old })
+	old := PaidGate
+	PaidGate = func(*config.Config) (*paidruns.Gate, error) { return g, nil }
+	t.Cleanup(func() { PaidGate = old })
 	return g
 }
 

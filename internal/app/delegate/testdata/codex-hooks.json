@@ -1,0 +1,83 @@
+{
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog gate --agent codex --event PermissionRequest; elif [ \"${DUOLOG_DEPTH:-0}\" -ge 1 ] 2>/dev/null; then exit 2; fi",
+            "commandWindows": "powershell -NoProfile -NonInteractive -Command \"& ([Environment]::SystemDirectory + '\\where.exe') /Q ([char]36 + 'PATH:duolog'); if ([int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] -eq 0) { duolog gate --agent codex --event PermissionRequest; exit [int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] }; if ([Environment]::GetEnvironmentVariable('DUOLOG_DEPTH') -match '^0*[1-9][0-9]*$') { exit 2 }; exit 0\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook PostToolUse --agent codex; fi",
+            "commandWindows": "powershell -NoProfile -NonInteractive -Command \"& ([Environment]::SystemDirectory + '\\where.exe') /Q ([char]36 + 'PATH:duolog'); if ([int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] -eq 0) { duolog hook PostToolUse --agent codex; exit [int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] }; exit 0\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog gate --agent codex --event PreToolUse; elif [ \"${DUOLOG_DEPTH:-0}\" -ge 1 ] 2>/dev/null; then exit 2; fi",
+            "commandWindows": "powershell -NoProfile -NonInteractive -Command \"& ([Environment]::SystemDirectory + '\\where.exe') /Q ([char]36 + 'PATH:duolog'); if ([int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] -eq 0) { duolog gate --agent codex --event PreToolUse; exit [int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] }; if ([Environment]::GetEnvironmentVariable('DUOLOG_DEPTH') -match '^0*[1-9][0-9]*$') { exit 2 }; exit 0\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook SessionEnd --agent codex; fi",
+            "commandWindows": "powershell -NoProfile -NonInteractive -Command \"& ([Environment]::SystemDirectory + '\\where.exe') /Q ([char]36 + 'PATH:duolog'); if ([int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] -eq 0) { duolog hook SessionEnd --agent codex; exit [int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] }; exit 0\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook SessionStart --agent codex; fi",
+            "commandWindows": "powershell -NoProfile -NonInteractive -Command \"& ([Environment]::SystemDirectory + '\\where.exe') /Q ([char]36 + 'PATH:duolog'); if ([int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] -eq 0) { duolog hook SessionStart --agent codex; exit [int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] }; exit 0\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook Stop --agent codex; fi",
+            "commandWindows": "powershell -NoProfile -NonInteractive -Command \"& ([Environment]::SystemDirectory + '\\where.exe') /Q ([char]36 + 'PATH:duolog'); if ([int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] -eq 0) { duolog hook Stop --agent codex; exit [int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] }; exit 0\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook UserPromptSubmit --agent codex; fi",
+            "commandWindows": "powershell -NoProfile -NonInteractive -Command \"& ([Environment]::SystemDirectory + '\\where.exe') /Q ([char]36 + 'PATH:duolog'); if ([int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] -eq 0) { duolog hook UserPromptSubmit --agent codex; exit [int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] }; exit 0\""
+          }
+        ]
+      }
+    ]
+  }
+}

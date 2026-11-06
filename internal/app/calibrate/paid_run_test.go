@@ -27,9 +27,9 @@ func sharedGate(t *testing.T, cfg *config.Config) *paidruns.Gate {
 	if err != nil {
 		t.Fatal(err)
 	}
-	old := delegate.NewGate
-	delegate.NewGate = func(*config.Config) (*paidruns.Gate, error) { return g, nil }
-	t.Cleanup(func() { delegate.NewGate = old })
+	old := realDeps.PaidGate
+	realDeps.PaidGate = func(*config.Config) (*paidruns.Gate, error) { return g, nil }
+	t.Cleanup(func() { realDeps.PaidGate = old })
 	return g
 }
 

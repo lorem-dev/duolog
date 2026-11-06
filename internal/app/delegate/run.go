@@ -18,7 +18,6 @@ import (
 	"crypto/sha256"
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gofrs/flock"
-	"github.com/lorem-dev/duolog/internal/adapter/models"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/bus"
@@ -106,26 +105,6 @@ type Options struct {
 	// on or off; nil observes nothing.
 	Observe Observer
 }
-type optionsKey struct{}
-
-func WithOptions(ctx context.Context, opts Options) context.Context {
-	return context.WithValue(ctx, optionsKey{}, opts)
-}
-
-// OptionsFrom returns the options Run takes from ctx.
-func OptionsFrom(ctx context.Context) Options {
-	opts, _ := ctx.Value(optionsKey{}).(Options)
-	return opts
-}
-
-var runWorker = runner.Run
-var resolveModel = models.Resolve
-var readLeadState = session.ReadLeadState
-var scanCapabilities = capability.ScanEnv
-var bridgeMCP = capability.Bridge
-
-// newChecker checks a worker's logins on the worker's own built process.
-var newChecker = auth.NewForProcess
 
 func Place(cfg *config.Config, taskPath string, route coreroute.Route) (Placement, error) {
 	root, err := os.Getwd()
@@ -134,9 +113,13 @@ func Place(cfg *config.Config, taskPath string, route coreroute.Route) (Placemen
 	}
 	return place(cfg, taskPath, root, route)
 }
-func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath, thread string) (out Outcome, err error) {
+
+// Run delegates one task to a worker, reaching outside the package only
+// through d.
+func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 	started := time.Now()
-	opts := OptionsFrom(ctx)
+	cfg, role, taskPath, thread, opts := r.Config, r.Role, r.TaskPath, r.Thread, r.Options
+	s := &store.Store{Dir: r.StateDir}
 	// workerStarted says a worker ran; until then every refusal is a
 	// NotStartedError. A calibration step needs a worker's result, so for one
 	// a placement in the lead or a wait for the lead is a refusal too.
@@ -213,7 +196,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	if err != nil {
 		return out, err
 	}
-	lead, leadMode, err := observedLead(reg, lead, started)
+	lead, leadMode, err := observedLead(d, reg, lead, started)
 	if err != nil {
 		return out, err
 	}
@@ -268,7 +251,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		return out, err
 	}
 	// Every worker run is admitted by the account gate, one permit per run.
-	accounts, err := NewGate(cfg)
+	accounts, err := d.PaidGate(cfg)
 	if err != nil {
 		return out, err
 	}
@@ -405,13 +388,13 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		if len(opts.Needs) > 0 {
 			// The worker's inventory is what its own environment's settings
 			// folders hold; the lead's is duolog's own.
-			target, scanErr := scanCapabilities(ctx, route.Agent, root, env)
+			target, scanErr := d.ScanCapabilities(ctx, route.Agent, root, env)
 			if scanErr != nil {
 				return out, scanErr
 			}
 			lead := capability.Inventory{Agent: leadAgent, Unknown: true}
 			if leadAgent != "" {
-				if lead, scanErr = scanCapabilities(ctx, leadAgent, root, os.Environ()); scanErr != nil {
+				if lead, scanErr = d.ScanCapabilities(ctx, leadAgent, root, os.Environ()); scanErr != nil {
 					return out, scanErr
 				}
 			}
@@ -425,7 +408,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			bridged = nil
 			if len(bridge) > 0 {
 				var failed map[string]string
-				bridged, failed = bridgeMCP(leadAgent, route.Agent, root, bridge, cfg.Capabilities.MCPTools, env)
+				bridged, failed = d.BridgeMCP(leadAgent, route.Agent, root, bridge, cfg.Capabilities.MCPTools, env)
 				for _, name := range bridge {
 					if why, ok := failed[name]; ok {
 						need := capability.KindMCP + ":" + name
@@ -494,7 +477,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		case noHome && wm.needsPreflight():
 			// Nothing the worker's agent loads can be read, so nothing shows
 			// its gate.
-			return out, wm.gatePreflight(route.Agent, root, pre.Env, protected)
+			return out, wm.gatePreflight(d, route.Agent, root, pre.Env, protected)
 		case noHome:
 			// The worker runs as one without duolog's hooks would, and the lead
 			// learns why. Claude needs no hook approval or folder trust.
@@ -523,7 +506,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		// cannot be shown to run does not start, and the other agent does not
 		// run in its place.
 		if wm.needsPreflight() {
-			if err = wm.gatePreflight(route.Agent, root, pre.Env, protected); err != nil {
+			if err = wm.gatePreflight(d, route.Agent, root, pre.Env, protected); err != nil {
 				return out, err
 			}
 		}
@@ -559,7 +542,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			return out, noticeErr
 		}
 		notices = append(notices, claimed...)
-		checker := newChecker(cacheDir, pre)
+		checker := d.NewChecker(cacheDir, pre)
 		// A worker that cannot sign in would fail after the lead waited for it,
 		// so its agent and the servers it needs are checked first.
 		// The servers are checked only once the agent is logged in, so a login
@@ -576,7 +559,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				problems = problems[1:]
 			}
 		}
-		model, modelErr := resolveModel(ctx, cfg, filepath.Join(s.Dir, "cache"), route.Target)
+		model, modelErr := d.ResolveModel(ctx, cfg, filepath.Join(s.Dir, "cache"), route.Target)
 		if modelErr != nil {
 			if missingBinary(modelErr) {
 				err = modelErr
@@ -624,13 +607,13 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				if err != nil || refusal != nil {
 					return nil, refusal, err
 				}
-				if err := a.sameRoute(ctx, pre, cacheDir); err != nil {
+				if err := a.sameRoute(ctx, d, pre, cacheDir); err != nil {
 					return nil, nil, err
 				}
 				// The process that launches is the one admitted: its gate is
 				// shown to run once more, from its own environment.
 				if wm.needsPreflight() {
-					if err := wm.gatePreflight(route.Agent, root, a.permit.Process.Env, protected); err != nil {
+					if err := wm.gatePreflight(d, route.Agent, root, a.permit.Process.Env, protected); err != nil {
 						return nil, nil, errors.Join(err, a.release(ctx))
 					}
 				}
@@ -692,7 +675,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				workerStarted = true
 				out.Result, err = func() (runner.Result, error) {
 					defer func() { _ = reg.SetWaiting(leadID, token, 0) }() // best effort: the entry is only a wait marker
-					return runWorker(ctx, spec)
+					return d.RunWorker(ctx, spec)
 				}()
 				att.worker(run, route, retry, out.Result, err)
 				// Settled once, with what this run measured, before a retry

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/core/config"
@@ -16,15 +15,15 @@ import (
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
-// skillGate makes delegate.NewGate open one gate on a temporary account
+// skillGate makes delegateDeps.PaidGate open one gate on a temporary account
 // state, whose Claude reads show an API key route when paid is set, and
 // returns a pointer to the gate it opened.
 func skillGate(t *testing.T, paid bool) **paidruns.Gate {
 	t.Helper()
 	dir := t.TempDir()
 	var g *paidruns.Gate
-	open := delegate.NewGate
-	delegate.NewGate = func(cfg *config.Config) (*paidruns.Gate, error) {
+	open := delegateDeps.PaidGate
+	delegateDeps.PaidGate = func(cfg *config.Config) (*paidruns.Gate, error) {
 		var err error
 		if g, err = paidrunstest.Gate(dir, cfg); err != nil {
 			return nil, err
@@ -38,7 +37,7 @@ func skillGate(t *testing.T, paid bool) **paidruns.Gate {
 		}
 		return g, nil
 	}
-	t.Cleanup(func() { delegate.NewGate = open })
+	t.Cleanup(func() { delegateDeps.PaidGate = open })
 	return &g
 }
 

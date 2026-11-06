@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/runner"
-	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"io/fs"
 	"os"
@@ -678,9 +677,9 @@ func fakeJudge(t *testing.T) *int {
 	trustJudgeSlot(t)
 	calls := 0
 	old := runDelegate
-	runDelegate = func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
+	runDelegate = func(_ context.Context, r delegate.Request) (delegate.Outcome, error) {
 		calls++
-		first, err := os.ReadFile(filepath.Join(delegate.OptionsFrom(ctx).WorkRoot, "a.patch"))
+		first, err := os.ReadFile(filepath.Join(r.Options.WorkRoot, "a.patch"))
 		if err != nil {
 			t.Fatal(err)
 		}

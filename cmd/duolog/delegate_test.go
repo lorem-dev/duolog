@@ -75,7 +75,7 @@ func TestDelegateRejectsBadFeatures(t *testing.T) {
 	ran := false
 	old := runDelegate
 	t.Cleanup(func() { runDelegate = old })
-	runDelegate = func(context.Context, *config.Config, *store.Store, string, string, string) (delegate.Outcome, error) {
+	runDelegate = func(context.Context, delegate.Request) (delegate.Outcome, error) {
 		ran = true
 		return delegate.Outcome{}, nil
 	}
@@ -92,8 +92,8 @@ func TestDelegateUseFlag(t *testing.T) {
 	var got delegate.Options
 	old := runDelegate
 	t.Cleanup(func() { runDelegate = old })
-	runDelegate = func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-		got = delegate.OptionsFrom(ctx)
+	runDelegate = func(_ context.Context, r delegate.Request) (delegate.Outcome, error) {
+		got = r.Options
 		return delegate.Outcome{Line: "done=true"}, nil
 	}
 	out, e := executeBusCommand(t, "delegate", "debug_hard", "--task", "task.md", "--use", "codex/sol/high", "--features", "output=diagnosis", "--class", "debug")
@@ -118,8 +118,8 @@ func TestDelegateEscalationFlags(t *testing.T) {
 	ran := 0
 	old := runDelegate
 	t.Cleanup(func() { runDelegate = old })
-	runDelegate = func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-		got = delegate.OptionsFrom(ctx)
+	runDelegate = func(_ context.Context, r delegate.Request) (delegate.Outcome, error) {
+		got = r.Options
 		ran++
 		return delegate.Outcome{Line: "done=true"}, nil
 	}

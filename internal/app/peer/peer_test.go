@@ -28,6 +28,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/testbin"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 const splitReply = `{"session_id":"session:peers","anchor_id":"block:lead","block_ids":["block:peer"],"split_ids":["split:s"],"revision":4}`
@@ -153,9 +154,15 @@ func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
 	if r.gate, err = paidrunstest.Gate(filepath.Join(home, "accounts"), r.cfg); err != nil {
 		t.Fatal(err)
 	}
-	oldGate := delegate.NewGate
-	delegate.NewGate = func(*config.Config) (*paidruns.Gate, error) { return r.gate, nil }
-	t.Cleanup(func() { delegate.NewGate = oldGate })
+	oldGate := PaidGate
+	PaidGate = func(*config.Config) (*paidruns.Gate, error) { return r.gate, nil }
+	t.Cleanup(func() { PaidGate = oldGate })
+	// The held-gate check is the real one, on the real gate binary lookup.
+	oldHeld := HeldGate
+	HeldGate = func(agent, root string, env []string) error {
+		return delegate.HeldGate(delegate.Deps{GateBinary: workerenv.GateBinary}, agent, root, env)
+	}
+	t.Cleanup(func() { HeldGate = oldHeld })
 	oldPoll, oldSettle, oldSend, oldKey, oldGrace, oldSleep, oldResolve := pollInterval, settleDelay, sendDelay, keyDelay, workGrace, sleep, resolveModel
 	r.defaultSend, r.defaultKey = oldSend, oldKey
 	t.Cleanup(func() {

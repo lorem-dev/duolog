@@ -5,11 +5,6 @@ import (
 	"os"
 )
 
-// Unfinished is the rule of duolog peer status: a peer's task is unfinished
-// while the peer is open and the task it was sent is still recorded. A wait
-// that sees the peer go idle after the task clears it.
-func (e Entry) Unfinished() bool { return !e.Closed && e.Task != "" }
-
 // watchKey keeps a peer's watch markers apart from a lead's wait markers,
 // which share the registry's waiting map.
 func watchKey(peer string) string { return "watch:" + peer }
@@ -31,7 +26,7 @@ func (r *Registry) Watched(peer string) (bool, error) { return r.IsWaiting(watch
 
 // stopKey names one sent task: its path and its generation, which each send
 // sets anew.
-func (e Entry) stopKey() string { return e.Task + "\n" + e.TaskGeneration }
+func stopKey(e Entry) string { return e.Task + "\n" + e.TaskGeneration }
 
 // ClaimStopNotice records, under the registry lock, that the lead is told
 // the peer stopped with its task unfinished. It returns the entry and true
@@ -43,10 +38,10 @@ func (r *Registry) ClaimStopNotice(peer string) (Entry, bool, error) {
 	err := r.access(true, func(s *state) error {
 		for i := range s.Entries {
 			x := &s.Entries[i]
-			if x.ID != peer || !x.Unfinished() || x.StopNotified == x.stopKey() {
+			if x.ID != peer || !x.Unfinished() || x.StopNotified == stopKey(*x) {
 				continue
 			}
-			x.StopNotified = x.stopKey()
+			x.StopNotified = stopKey(*x)
 			entry, claimed = *x, true
 			return nil
 		}
@@ -61,7 +56,7 @@ func (r *Registry) ClaimStopNotice(peer string) (Entry, bool, error) {
 func (r *Registry) ReleaseStopNotice(claimed Entry) error {
 	return r.access(true, func(s *state) error {
 		for i := range s.Entries {
-			if x := &s.Entries[i]; x.ID == claimed.ID && x.StopNotified == claimed.stopKey() {
+			if x := &s.Entries[i]; x.ID == claimed.ID && x.StopNotified == stopKey(claimed) {
 				x.StopNotified = ""
 			}
 		}
