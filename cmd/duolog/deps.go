@@ -74,18 +74,17 @@ func (d *cmdDeps) calibrateDeps() calibration.Deps {
 		Verify:   calibration.VerifyIsolated,
 		Rand:     coin,
 		Environ:  workerenv.Environ,
-		Agents:   calibrationAgents(),
+		Trees:    calibrationTrees(),
 	}
 }
 
-// calibrationAgents gives calibration the ports of each registered agent.
-func calibrationAgents() map[string]calibration.Agent {
-	out := map[string]calibration.Agent{}
-	installers := wiring.CalibrationInstallers()
-	for name, t := range wiring.CalibrationTrusts() {
-		out[name] = calibration.Agent{Trust: t, Installer: installers[name]}
+// calibrationTrees is each registered agent's tree guard, by agent name.
+func calibrationTrees() calibration.Trees {
+	trees := calibration.Trees{}
+	for _, a := range wiring.Agents() {
+		trees[a.Facts.Name] = a.Tree
 	}
-	return out
+	return trees
 }
 
 // coin is true or false with equal chance.

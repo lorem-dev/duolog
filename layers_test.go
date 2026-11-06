@@ -75,7 +75,7 @@ var knownViolations = map[string]string{
 	"internal/app/calibrate (test) -> internal/quota":           "PR 29",
 	"internal/app/calibrate (test) -> internal/adapter/session": "PR 29",
 	"internal/app/calibrate (test) -> internal/wiring":          "PR 29: the cell tests run real delegations on wiring.DelegateDeps",
-	"internal/app/calibrate -> github.com/pelletier/go-toml/v2": "PR 45",
+	"internal/app/calibrate -> github.com/pelletier/go-toml/v2": "stays: cell.go definesCheck reads a project's pyproject.toml, which is not tree guard code (ruling on PR 45)",
 	"internal/app/delegate -> internal/capability":              "PR 40",
 	"internal/app/delegate -> internal/adapter/config":          "after PR 10: RefuseRootEnv checks writable roots at launch",
 	"internal/app/delegate (test) -> internal/quota":            "PR 39",

@@ -123,17 +123,9 @@ func RunCell(ctx context.Context, env CellEnv, c Cell, t TaskRecord, start Start
 	if err != nil {
 		return r, err
 	}
-	// The settings the worker's agent loads are those its own environment
-	// selects; Claude's decide whether the tree needs a local gate.
-	claudeEnv, err := env.WorkerEnviron(env.Cfg, "claude")
-	if err != nil {
-		return r, err
-	}
-	workerEnv, err := env.WorkerEnviron(env.Cfg, entry.Agent)
-	if err != nil {
-		return r, err
-	}
-	cleanup, err := env.NewTreeAt(ctx, env.Root, t.Parent, tree, claudeEnv)
+	// The settings each agent loads are those its own environment selects;
+	// Claude's decide whether the tree needs a local gate.
+	cleanup, err := NewTreeAt(ctx, env.Root, t.Parent, tree, env.TreePreparer(env.Cfg))
 	if err != nil {
 		return r, err
 	}
@@ -142,7 +134,7 @@ func RunCell(ctx context.Context, env CellEnv, c Cell, t TaskRecord, start Start
 		r.State, r.Reason = CellLeakage, err.Error()
 		return r, saveCell(dir, r, false)
 	}
-	if err := env.CheckTreeTrust(entry.Agent, tree, workerEnv); err != nil {
+	if err := env.CheckTree(env.Cfg, entry.Agent, tree); err != nil {
 		return r, fmt.Errorf("calibration cell %s: %w", c.ID, err)
 	}
 	taskPath := filepath.Join(dir, "task.md")

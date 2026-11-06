@@ -497,20 +497,12 @@ func judgeOnce(ctx context.Context, env JudgeEnv, c config.Class, dir string, n 
 	if err != nil {
 		return Call{}, 0, err
 	}
-	claudeEnv, err := env.WorkerEnviron(env.Cfg, "claude")
-	if err != nil {
-		return Call{}, 0, err
-	}
-	workerEnv, err := env.WorkerEnviron(env.Cfg, target.Agent)
-	if err != nil {
-		return Call{}, 0, err
-	}
-	cleanup, err := env.NewJudgeSlot(ctx, env.Root, slot, files, claudeEnv)
+	cleanup, err := NewJudgeSlot(ctx, env.Root, slot, files, env.TreePreparer(env.Cfg))
 	if err != nil {
 		return Call{}, 0, err
 	}
 	defer func() { err = errors.Join(err, cleanup()) }()
-	if err := env.CheckTreeTrust(target.Agent, slot, workerEnv); err != nil {
+	if err := env.CheckTree(env.Cfg, target.Agent, slot); err != nil {
 		return Call{}, 0, fmt.Errorf("judge: %w", err)
 	}
 	// Calibration keeps the task copy in the slot's own state, the only
@@ -571,11 +563,10 @@ func JudgeSlot(root string) (string, error) {
 // readies a tree slot: it empties dir but for the project's
 // .codex/hooks.json, written afresh, and starts a fresh repository there,
 // so the task copy stays in it and nothing a worker wrote into .git reaches
-// the next call. It then gives Claude the duolog gate as NewTreeAt does,
-// judged from environ, the environment a Claude worker gets, and writes
-// files. dir must neither be inside repo nor hold it. The cleanup empties dir
-// again but for the hooks.
-func (d Deps) NewJudgeSlot(ctx context.Context, repo, dir string, files map[string][]byte, environ []string) (cleanup func() error, err error) {
+// the next call. It then runs prepare, each agent's TreeGuard.Prepare as
+// NewTreeAt does (nil prepares nothing), and writes files. dir must neither
+// be inside repo nor hold it. The cleanup empties dir again but for the hooks.
+func NewJudgeSlot(ctx context.Context, repo, dir string, files map[string][]byte, prepare func(dir string) error) (cleanup func() error, err error) {
 	if inside(repo, dir) || inside(dir, repo) {
 		return nil, fmt.Errorf("judge slot %s must be outside the project %s", dir, repo)
 	}
@@ -610,8 +601,10 @@ func (d Deps) NewJudgeSlot(ctx context.Context, repo, dir string, files map[stri
 	if err != nil {
 		return nil, err
 	}
-	if err := d.addClaudeGate(dir, environ); err != nil {
-		return nil, errors.Join(err, cleanup())
+	if prepare != nil {
+		if err := prepare(dir); err != nil {
+			return nil, errors.Join(err, cleanup())
+		}
 	}
 	for name, data := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {

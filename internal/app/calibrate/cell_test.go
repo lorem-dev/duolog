@@ -104,7 +104,7 @@ func newCellFixtureWith(t *testing.T, parentFiles map[string]string) *cellFixtur
 			},
 			Verify:  VerifyIsolated,
 			Environ: launchtest.Environ,
-			Agents:  trustDeps().Agents,
+			Trees:   realTrees(),
 		},
 		Checks: func(_ context.Context, dir string, commands []string) []journal.Check {
 			f.checkCalls++
@@ -688,12 +688,8 @@ func TestRunCellTokenCap(t *testing.T) {
 // it: the worker runs with rules, not "sandbox only".
 func TestRunCellClaudeTreeHasGate(t *testing.T) {
 	f := newCellFixture(t)
-	hooks, err := launchtest.HooksJSON("claude", 150)
-	if err != nil {
-		t.Fatal(err)
-	}
 	// Installed after the parent and not committed.
-	write(t, f.root, ".claude/settings.json", string(hooks))
+	write(t, f.root, ".claude/settings.json", claudeGateJSON(t))
 	var out delegate.Outcome
 	fake := f.realClaude(t, testbin.Scenario{Stdout: parseAnswer, Writes: map[string]string{"parse.go": "package widget\n\nfunc Parse(line string) []string { return nil }\n"}}, &out)
 	r := f.run(t)
@@ -758,17 +754,14 @@ func TestRunCellWorkerGetsProtectedRoots(t *testing.T) {
 // local settings file out, so that layer holds only duolog's gate.
 func TestRunCellRefusesClaudeTreeWithHooksOff(t *testing.T) {
 	off := `{"disableAllHooks":true}`
-	gate, err := launchtest.HooksJSON("claude", 150)
-	if err != nil {
-		t.Fatal(err)
-	}
+	gate := claudeGateJSON(t)
 	for _, tc := range []struct {
 		name         string
 		parent       map[string]string
 		userSettings string
 	}{
 		{"project settings", map[string]string{".claude/settings.json": off}, ""},
-		{"project settings with the gate", map[string]string{".claude/settings.json": `{"disableAllHooks":true,` + string(gate)[1:]}, ""},
+		{"project settings with the gate", map[string]string{".claude/settings.json": `{"disableAllHooks":true,` + gate[1:]}, ""},
 		{"user settings", nil, off},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

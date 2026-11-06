@@ -1,10 +1,12 @@
 package calibration
 
 import (
+	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/app/delegate"
-	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
@@ -27,30 +29,57 @@ type Deps struct {
 	// environ, as Build makes it without settings layers, extras or a lead:
 	// workerenv.Environ is the real one.
 	Environ func(cfg *config.Config, agent string, environ []string) ([]string, error)
-	// Agents holds each registered agent's ports by name.
-	Agents map[string]Agent
+	// Trees holds each agent's TreeGuard, by agent name.
+	Trees Trees
 }
 
-// Trust reads what an agent's settings and approvals say about duolog's
-// hooks for a process whose environment is environ, as delegate.Trust does.
-type Trust interface {
-	Hooks(root string, environ []string) (coreagent.TrustState, error)
-	Folder(root string, environ []string) (bool, error)
+// TreeGuard is what an agent needs of a calibration tree or judge slot before
+// its worker runs there. environ is the environment that agent's worker gets
+// (workerenv.Environ): the settings, approvals and trusted folders read are
+// those it selects, not duolog's own.
+type TreeGuard interface {
+	// Prepare gives dir what the agent needs from duolog, such as the gate in
+	// its settings when nothing else gives it one there.
+	Prepare(dir string, environ []string) error
+	// Check says what the agent still lacks in dir: the gate, or the trust
+	// only the person can grant. It returns nil when a worker may run there.
+	Check(dir string, environ []string) error
 }
 
-// Installer renders an agent's hooks: with a nil existing file and a gate
-// timeout in seconds, the whole hooks document. It is the Installer port of
-// app/install, which wiring fills; calibration needs only Hooks.
-type Installer interface {
-	Hooks(existing []byte, timeout int) ([]byte, []string, error)
+// Trees are the tree guards of the agents, by agent name.
+type Trees map[string]TreeGuard
+
+// TreePreparer returns the function that prepares a tree for every agent of
+// d.Trees, in name order, each with the environment its worker gets under cfg
+// (WorkerEnviron). No guards prepare nothing.
+func (d Deps) TreePreparer(cfg *config.Config) func(dir string) error {
+	return func(dir string) error {
+		for _, name := range slices.Sorted(maps.Keys(d.Trees)) {
+			environ, err := d.WorkerEnviron(cfg, name)
+			if err != nil {
+				return err
+			}
+			if err := d.Trees[name].Prepare(dir, environ); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 }
 
-// Agent holds what calibration asks of one registered agent. A nil port fails
-// closed: a tree of an agent with no Trust is refused, and one with no
-// Installer gets no gate written.
-type Agent struct {
-	Trust     Trust
-	Installer Installer
+// CheckTree asks agent's guard whether a worker of agent may run in dir, under
+// the environment that worker gets under cfg. An agent with no guard is
+// refused.
+func (d Deps) CheckTree(cfg *config.Config, agent, dir string) error {
+	guard, ok := d.Trees[agent]
+	if !ok {
+		return fmt.Errorf("no tree guard for agent %s", agent)
+	}
+	environ, err := d.WorkerEnviron(cfg, agent)
+	if err != nil {
+		return err
+	}
+	return guard.Check(dir, environ)
 }
 
 // cellLimit is the time cap of one cell.

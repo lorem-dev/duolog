@@ -17,7 +17,6 @@ import (
 	"strconv"
 	"strings"
 
-	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/journal"
@@ -50,8 +49,8 @@ func NewTree(ctx context.Context, repo, commit string) (dir string, cleanup func
 }
 
 // codexHooks is where Codex reads a project's hooks; claudeLocal is the
-// personal Claude settings file, where a tree gets duolog's gate when
-// nothing else gives Claude one there.
+// personal Claude settings file, where the Claude TreeGuard gives a tree
+// duolog's gate when nothing else gives Claude one there.
 const (
 	codexHooks  = ".codex/hooks.json"
 	claudeLocal = ".claude/settings.local.json"
@@ -61,10 +60,6 @@ const (
 // into a slot leaves the commit's copies out, and the tree's commit does not
 // track them.
 var treeOwn = []string{codexHooks, claudeLocal}
-
-// gateTimeout is the gate's hook timeout in seconds, as duolog install
-// writes it.
-const gateTimeout = 150
 
 // TreeSlot is the folder cell slot n of root's project works in:
 // <user cache dir>/duolog/calibration/<project id>/tree-<n>. It stays the
@@ -94,10 +89,10 @@ func projectID(root string) string {
 // duolog gate, from the person's settings, the plugin or the commit's
 // project settings, the tree gets the gate in .claude/settings.local.json.
 // dir must neither be inside repo nor hold it. The cleanup empties dir but
-// for the Codex hooks, which the person approved in that place. environ is
-// the environment a Claude worker gets (workerenv.Environ): the settings
-// that decide whether Claude already runs the gate are those it selects.
-func (d Deps) NewTreeAt(ctx context.Context, repo, commit, dir string, environ []string) (cleanup func() error, err error) {
+// for the Codex hooks, which the person approved in that place. prepare is
+// each agent's TreeGuard.Prepare (Deps.TreePreparer), run once the tree is
+// exported; nil prepares nothing.
+func NewTreeAt(ctx context.Context, repo, commit, dir string, prepare func(dir string) error) (cleanup func() error, err error) {
 	if err := PrepareTree(ctx, repo, dir); err != nil {
 		return nil, err
 	}
@@ -105,8 +100,10 @@ func (d Deps) NewTreeAt(ctx context.Context, repo, commit, dir string, environ [
 	if err := export(ctx, repo, commit, dir, treeOwn); err != nil {
 		return nil, errors.Join(err, cleanup())
 	}
-	if err := d.addClaudeGate(dir, environ); err != nil {
-		return nil, errors.Join(err, cleanup())
+	if prepare != nil {
+		if err := prepare(dir); err != nil {
+			return nil, errors.Join(err, cleanup())
+		}
 	}
 	return cleanup, nil
 }
@@ -147,44 +144,10 @@ func PrepareTree(ctx context.Context, repo, dir string) error {
 }
 
 // WorkerEnviron is the environment a free worker of agent gets under cfg
-// from duolog's own (Deps.Environ), for NewTreeAt, NewJudgeSlot and
-// CheckTreeTrust. delegate checks the gate once more on the process it
-// admits, the paid variant's included.
+// from duolog's own (Deps.Environ), for the tree guards. delegate checks the
+// gate once more on the process it admits, the paid variant's included.
 func (d Deps) WorkerEnviron(cfg *config.Config, agent string) ([]string, error) {
 	return d.Environ(cfg, agent, os.Environ())
-}
-
-// addClaudeGate writes duolog's Claude hooks into dir's local settings
-// unless Claude already runs the gate in dir for a worker whose environment
-// is environ.
-func (d Deps) addClaudeGate(dir string, environ []string) error {
-	var state coreagent.TrustState
-	var err error
-	if t := d.Agents["claude"].Trust; t != nil {
-		state, err = t.Hooks(dir, environ)
-	}
-	if errors.Is(err, coreagent.ErrNoHome) {
-		// The worker's own settings cannot be read, so they cannot be shown
-		// to run the gate: the tree gets its own, and delegate refuses a cell
-		// whose gate it cannot show.
-		state, err = coreagent.TrustState{}, nil
-	}
-	if err != nil || state.Installed {
-		return err
-	}
-	installer := d.Agents["claude"].Installer
-	if installer == nil {
-		return errors.New("calibration: no installer for claude, so the tree has no gate to write")
-	}
-	hooks, _, err := installer.Hooks(nil, gateTimeout)
-	if err != nil {
-		return err
-	}
-	target := filepath.Join(dir, filepath.FromSlash(claudeLocal))
-	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
-		return err
-	}
-	return os.WriteFile(target, hooks, 0o600)
 }
 
 // clearTree empties dir but for its Codex hooks, kept only as a regular
@@ -251,49 +214,6 @@ func emptyDirKeeping(dir string, keep []string) error {
 		}
 	}
 	return errors.Join(errs...)
-}
-
-// CheckTreeTrust says what an agent needs before a worker runs in dir. Codex
-// needs the folder trusted and its hooks approved; duolog only reads the
-// Codex config, and the person grants both in Codex. Claude needs no trust,
-// but the duolog gate must be active for it in dir: installed, and no
-// settings layer Claude loads there sets disableAllHooks. environ is the
-// environment the worker gets (workerenv.Environ): the settings, approvals
-// and trusted folders read are those it selects, not duolog's own.
-//
-// An agent with no Trust cannot be shown trusted: its tree is refused.
-func (d Deps) CheckTreeTrust(agent, dir string, environ []string) error {
-	var folder bool
-	var hooks coreagent.TrustState
-	err := fmt.Errorf("the trust of %s cannot be read, so no cell runs in the calibration tree %s", agent, dir)
-	if t := d.Agents[agent].Trust; t != nil {
-		if folder, err = t.Folder(dir, environ); err == nil {
-			if hooks, err = t.Hooks(dir, environ); err == nil {
-				return treeTrust(agent, dir, folder, hooks)
-			}
-		}
-	}
-	if errors.Is(err, coreagent.ErrNoHome) {
-		return fmt.Errorf("the %s worker's environment names no home folder, so duolog cannot read the settings it loads in the calibration tree %s, and no cell runs there: add HOME (USERPROFILE on Windows) to env_passthrough", agent, dir)
-	}
-	return err
-}
-
-// treeTrust is CheckTreeTrust once the folder trust and hook state are read.
-func treeTrust(agent, dir string, folder bool, hooks coreagent.TrustState) error {
-	if agent == "claude" {
-		if hooks.HooksOff != "" {
-			return fmt.Errorf("Claude would run without the duolog gate in the calibration tree %s, so no cell runs there: %s sets disableAllHooks; remove it from that file, or from the commit's .claude settings with a branch that lacks it", dir, hooks.HooksOff) //nolint:staticcheck // ST1005: Claude is a product name
-		}
-		if hooks.Installed {
-			return nil
-		}
-		return fmt.Errorf("Claude has no duolog gate in the calibration tree %s, so no cell runs there: duolog writes it to %s when no other settings run it; check that the folder is writable", dir, claudeLocal) //nolint:staticcheck // ST1005: Claude is a product name
-	}
-	if folder && hooks.Trusted {
-		return nil
-	}
-	return fmt.Errorf("Codex must trust the calibration tree %s and its hooks need approval: open Codex in %s once, trust the folder and approve its hooks in /hooks", dir, dir) //nolint:staticcheck // ST1005: Codex is a product name
 }
 
 // Export writes the tree of commit into dst as a new repository with one

@@ -27,17 +27,6 @@ func doctorAgents() map[string]doctor.Agent {
 	return out
 }
 
-// CalibrationTrusts gives calibrate the Trust of each registered agent by
-// name. Calibrate is not imported here: its tests import wiring, so cmd/duolog
-// builds calibrate's Agent values from these.
-func CalibrationTrusts() map[string]delegate.Trust {
-	out := map[string]delegate.Trust{}
-	for _, a := range Agents() {
-		out[a.Facts.Name] = a.Trust
-	}
-	return out
-}
-
 // Agent is one registered agent. Later ports add their fields here.
 type Agent struct {
 	Facts  agent.Descriptor
@@ -66,13 +55,23 @@ type Agent struct {
 	Allow remember.NativeAllow
 	// Probe is how doctor checks the agent.
 	Probe doctor.Probe
+	// Tree guards a calibration tree for the agent's worker. It has the
+	// methods of calibration.TreeGuard, which wiring cannot import.
+	Tree TreeGuard
+}
+
+// TreeGuard is what an agent needs of a calibration tree: see
+// calibration.TreeGuard, whose method set it repeats.
+type TreeGuard interface {
+	Prepare(dir string, environ []string) error
+	Check(dir string, environ []string) error
 }
 
 // Agents returns the registered agents in order: claude, then codex.
 func Agents() []Agent {
 	return []Agent{
-		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}, Login: claude.Login{}, Trust: claude.Trust{}, Installer: claude.Installer{}, Sync: claude.Format{}, Allow: claude.NativeAllow{}, Probe: claude.Probe{}},
-		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}, Login: codex.Login{}, Trust: codex.Trust{}, Installer: codex.Installer{}, Sync: codex.Format{}, Allow: codex.NativeAllow{}, Probe: codex.Probe{}},
+		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}, Login: claude.Login{}, Trust: claude.Trust{}, Installer: claude.Installer{}, Sync: claude.Format{}, Allow: claude.NativeAllow{}, Probe: claude.Probe{}, Tree: claude.Tree{}},
+		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}, Login: codex.Login{}, Trust: codex.Trust{}, Installer: codex.Installer{}, Sync: codex.Format{}, Allow: codex.NativeAllow{}, Probe: codex.Probe{}, Tree: codex.Tree{}},
 	}
 }
 
@@ -90,17 +89,6 @@ func InstallDeps() install.Deps {
 		d.Agents = append(d.Agents, install.Agent{Name: a.Facts.Name, Installer: a.Installer})
 	}
 	return d
-}
-
-// CalibrationInstallers gives calibrate the Installer of each registered agent
-// by name; cmd/duolog builds calibrate's Agent values from these and from
-// CalibrationTrusts.
-func CalibrationInstallers() map[string]install.Installer {
-	out := map[string]install.Installer{}
-	for _, a := range Agents() {
-		out[a.Facts.Name] = a.Installer
-	}
-	return out
 }
 
 // HookEnv fills the Events and Lead of env.Agent. An agent that is not
