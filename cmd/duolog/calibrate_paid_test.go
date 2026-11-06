@@ -146,3 +146,79 @@ func TestCalibrationUsableShareQuotaThroughGate(t *testing.T) {
 		t.Fatalf("a fresh read did not read: %d then %d (%v)", before, *reads, err)
 	}
 }
+
+// duolog calibrate status says when the run waits for a session.
+func TestCalibrationSessionWaitStatus(t *testing.T) {
+	root := learningRepo(t, true)
+	fakeQuota(t)
+	stateDir := filepath.Join(root, ".duolog")
+	run := approvedRun(t, stateDir)
+	run.WaitReason = "waiting for a session of codex"
+	if err := run.Save(stateDir); err != nil {
+		t.Fatal(err)
+	}
+	out, err := executeBusCommand(t, "calibrate", "status")
+	if err != nil || !strings.Contains(out, "waiting for a session of codex") {
+		t.Fatalf("status: %v\n%s", err, out)
+	}
+}
+
+// Calibration's accounts adapter answers which step receipts still hold an
+// account reservation, reconciles before a resume, and feeds the shared
+// rate learner once per step from the reads it made, in real units.
+func TestCalibrationSharedRatesThroughGate(t *testing.T) {
+	isolatedRouteConfig(t)
+	t.Chdir(t.TempDir())
+	used := 10.0
+	readsGate(t, func(ctx context.Context, p workerenv.Process) (quota.Snapshot, error) {
+		s, err := paidrunstest.Subscription(ctx, p)
+		s.Windows[0].UsedPercent, s.Windows[1].UsedPercent = used, used
+		return s, err
+	})
+	cfg, err := config.Load(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := newCalibrationAccounts(cfg, ".")
+	g, err := a.open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = g.Store.Update(context.Background(), func(st *paidruns.State) error {
+		st.Reservations["r1"] = paidruns.Reservation{ID: "r1", Agent: "codex", Step: "h/c001.1", Shape: workerenv.Worker,
+			Variant: workerenv.Free, Session: true, Task: true, Created: time.Now(), Supervisor: paidruns.Owner{PID: os.Getpid()}}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if held, err := a.Held(context.Background(), "h/c001.1"); err != nil || !held {
+		t.Fatalf("a held receipt: %v %v", held, err)
+	}
+	if held, err := a.Held(context.Background(), "h/c002.1"); err != nil || held {
+		t.Fatalf("an unknown receipt: %v %v", held, err)
+	}
+	if err := a.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// Two reads around a step: one observation of the movement.
+	q := a.Quota()
+	if _, err := q.Get(context.Background(), "codex", false); err != nil {
+		t.Fatal(err)
+	}
+	used = 20
+	if _, err := q.Get(context.Background(), "codex", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Observe(context.Background(), "codex", "sol", 1_000_000, 0, 100_000); err != nil {
+		t.Fatal(err)
+	}
+	if a.observedAt["codex"].IsZero() {
+		t.Fatal("the step was not observed")
+	}
+	// The same reads again observe nothing more.
+	before := a.observedAt["codex"]
+	if err := a.Observe(context.Background(), "codex", "sol", 1_000_000, 0, 100_000); err != nil || !a.observedAt["codex"].Equal(before) {
+		t.Fatalf("observed the same reads twice: %v", err)
+	}
+}

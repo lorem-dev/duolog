@@ -77,6 +77,11 @@ type Spend struct {
 	// JudgePct is the part of WeeklyPct that spends the plan's judge share:
 	// judge calls and the estimates of planned rewrites.
 	JudgePct map[string]float64 `json:"judge_pct,omitempty"`
+	// PaidUSD is what the run's steps on a paid route cost, by agent, and
+	// JudgeUSD the part of it judge calls and planned rewrites took; the plan's
+	// approved USD bounds them.
+	PaidUSD  map[string]float64 `json:"paid_usd,omitempty"`
+	JudgeUSD map[string]float64 `json:"judge_usd,omitempty"`
 }
 
 type Approval struct {
@@ -96,6 +101,14 @@ type Run struct {
 	Spend    Spend     `json:"spend"`
 	Pause    time.Time `json:"pause,omitzero"`
 	Stopped  string    `json:"stopped,omitempty"`
+	// WaitReason says what the run waits for while a step waits for a
+	// session slot of the user's account, "" otherwise.
+	WaitReason string `json:"wait_reason,omitempty"`
+	// Receipts are the last step receipt of each cell, rewrite or judge
+	// series, as step.attempt: each actual start takes a new one, which tags
+	// its account reservation, so a resume can tell a step whose worker may
+	// still run and never reuses one for an uncharged rerun.
+	Receipts map[string]string `json:"receipts,omitempty"`
 }
 
 // NewRun saves a fresh run at the survey step with its own sampling seed.

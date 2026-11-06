@@ -110,7 +110,7 @@ func (s *Store) enter(ctx context.Context, in Admission, l *line, tier TierResul
 		case l.ticket == "":
 			st.NextTicket++
 			st.Tickets = append(st.Tickets, Ticket{ID: r.ID, Agent: r.Agent, Sequence: st.NextTicket,
-				Created: now, Owner: l.owner, Expires: l.expires})
+				Created: now, Owner: l.owner, Expires: l.expires, Step: r.Step})
 			l.ticket = r.ID
 		}
 		return nil

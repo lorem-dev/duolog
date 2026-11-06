@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/calibration"
 	"github.com/lorem-dev/duolog/internal/config"
@@ -38,6 +39,13 @@ type calibrationAccounts struct {
 	once sync.Once
 	gate *paidruns.Gate
 	err  error
+
+	// latest is each agent's last successful read, base the read the next
+	// observation measures from, and observedAt the read the last one ended at.
+	mu         sync.Mutex
+	latest     map[string]quota.Snapshot
+	base       map[string]quota.Snapshot
+	observedAt map[string]time.Time
 }
 
 func newCalibrationAccounts(cfg *config.Config, root string) *calibrationAccounts {
@@ -75,11 +83,80 @@ func (a *calibrationAccounts) Quota() *calibration.QuotaCache {
 		if err != nil {
 			return nil, err
 		}
+		a.remember(agent, s)
 		if s.Rejected || s.SpendControlReached {
 			return nil, errors.New("quota rejected or spend control reached")
 		}
 		return quotaWindows(s), nil
 	}}
+}
+
+// remember keeps a successful read: the latest, and the first as the base of
+// the next observation.
+func (a *calibrationAccounts) remember(agent string, s quota.Snapshot) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.latest == nil {
+		a.latest, a.base, a.observedAt = map[string]quota.Snapshot{}, map[string]quota.Snapshot{}, map[string]time.Time{}
+	}
+	a.latest[agent] = s
+	if _, ok := a.base[agent]; !ok {
+		a.base[agent] = s
+	}
+}
+
+// Reconcile ends the account reservations whose owners are proven gone,
+// before a resume runs anything again; an uncertain one stays held.
+func (a *calibrationAccounts) Reconcile(ctx context.Context) error {
+	g, err := a.open()
+	if err != nil {
+		return err
+	}
+	in := g.Reconcile
+	in.Now = time.Now()
+	return g.Store.Reconcile(ctx, in)
+}
+
+// Held reports whether a step receipt still holds an account reservation.
+func (a *calibrationAccounts) Held(ctx context.Context, receipt string) (bool, error) {
+	g, err := a.open()
+	if err != nil {
+		return false, err
+	}
+	return g.Store.StepHeld(ctx, receipt)
+}
+
+// Observe feeds the shared rate learner one finished step: the movement
+// between the read before it and the latest read, over the step's tokens,
+// in real units. Without a read after the base there is nothing to measure,
+// and the same reads are never observed twice.
+func (a *calibrationAccounts) Observe(ctx context.Context, agent, family string, input, cached, output int64) error {
+	a.mu.Lock()
+	before, after := a.base[agent], a.latest[agent]
+	a.mu.Unlock()
+	if after.ReadAt.IsZero() || !after.ReadAt.After(before.ReadAt) {
+		return nil
+	}
+	g, err := a.open()
+	if err != nil {
+		return err
+	}
+	var key string
+	if err := g.Store.View(ctx, func(st paidruns.State) error {
+		key = st.AccountKeys[agent+"/"+quota.IdentityAccount]
+		return nil
+	}); err != nil {
+		return err
+	}
+	in := paidruns.Interval{Agent: agent, Family: family, Fingerprint: paidruns.Fingerprint(agent, key, after),
+		Before: before, After: after, Input: input, Cached: cached, Output: output}
+	if err := g.Store.Observe(ctx, a.cfg, in); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.base[agent], a.observedAt[agent] = after, after.ReadAt
+	a.mu.Unlock()
+	return nil
 }
 
 // Budgets reports each agent's billing through the gate, from the same reads

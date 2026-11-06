@@ -728,7 +728,7 @@ func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.
 	}
 	return f(&calibration.Runner{
 		StateDir: s.Dir, Root: root, Cfg: runCfg, Run: run, Plan: p, Manifest: m,
-		Quota: accounts.Quota(), Now: time.Now, Billing: p.LimitBilling(current),
+		Quota: accounts.Quota(), Now: time.Now, Billing: p.LimitBilling(current), Accounts: accounts,
 		Cell: func(ctx context.Context, c calibration.Cell, t calibration.TaskRecord, start calibration.StartFunc) (calibration.CellResult, error) {
 			return calibration.RunCell(ctx, env, c, t, start)
 		},
@@ -783,7 +783,10 @@ func rewriteStatement(root string, cfg *config.Config, s *store.Store, runDir, l
 		if err := calibration.StartStep(start); err != nil {
 			return "", 0, err
 		}
-		ctx = delegate.WithOptions(ctx, delegate.Options{Lead: lead, Entry: &target, WorkRoot: work, Calibration: true, ProtectedRoots: launchProtectedRoots()})
+		// The rewrite's budget and wait notice, which its start set.
+		budget, waiting := calibration.StepOptions(ctx)
+		ctx = delegate.WithOptions(ctx, delegate.Options{Lead: lead, Entry: &target, WorkRoot: work, Calibration: true, ProtectedRoots: launchProtectedRoots(),
+			Budget: budget, Waiting: waiting})
 		out, err := runDelegate(ctx, cfg, s, "docs", taskPath, "")
 		tokens := out.Result.Usage.Input + out.Result.Usage.Output
 		if err != nil {
@@ -948,7 +951,7 @@ func newCalibrateJudgeCommand() *cobra.Command {
 		// approved budgets or today's where they are stricter.
 		accounts := newCalibrationAccounts(judgeCfg, root)
 		r := &calibration.Runner{StateDir: s.Dir, Root: root, Cfg: judgeCfg, Run: run, Manifest: m,
-			Quota: accounts.Quota(), Now: time.Now, Out: out}
+			Quota: accounts.Quota(), Now: time.Now, Out: out, Accounts: accounts}
 		if approvedPlan != nil {
 			current, err := accounts.Budgets(cmd.Context())
 			if err != nil {

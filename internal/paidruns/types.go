@@ -74,6 +74,8 @@ type Reservation struct {
 	Started    bool              `json:"started,omitempty"`
 	Launching  bool              `json:"launching,omitempty"`
 	Retained   string            `json:"retained,omitempty"`
+	// Step is the receipt of the calibration step that holds it, "" for none.
+	Step string `json:"step,omitempty"`
 }
 
 // Settlement is the measured end of a reservation. The Store computes
@@ -128,6 +130,8 @@ type Ticket struct {
 	Created  time.Time `json:"created"`
 	Owner    Owner     `json:"owner"`
 	Expires  time.Time `json:"expires"`
+	// Step is the receipt of the calibration step that waits, "" for none.
+	Step string `json:"step,omitempty"`
 }
 
 // State is the account state that every project of the user shares: money,

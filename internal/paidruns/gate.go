@@ -42,6 +42,11 @@ const (
 // not at all. A pane open never waits, since a pane stays open long, and a
 // calibration cell waits until a slot frees or ctx ends, whatever Wait says.
 // A delegation passes SessionWait.
+//
+// Budget, for a calibration step, is what the approved plan still allows it:
+// admission refuses a task that does not fit, and a calibration step waits
+// for a slot only with Budget.WaitForSession. Waiting, when set, hears true
+// once the request starts to wait for a slot and false when it stops.
 type Request struct {
 	Input                                workerenv.ProcessInput
 	Family, Role, Class, ExistingSession string
@@ -49,6 +54,8 @@ type Request struct {
 	Owner                                Owner
 	Calibration, OpenPeer                bool
 	Wait                                 time.Duration
+	Budget                               *StepBudget
+	Waiting                              func(bool)
 }
 
 // Permit is an admitted launch: the process to run, built for this
@@ -170,6 +177,8 @@ func (g *Gate) Acquire(ctx context.Context, req Request) (Permit, error) {
 	switch {
 	case req.OpenPeer:
 		wait = 0
+	case req.Calibration && req.Budget != nil && !req.Budget.WaitForSession:
+		wait = 0
 	case req.Calibration:
 		wait = -1
 	}
@@ -182,8 +191,22 @@ func (g *Gate) Acquire(ctx context.Context, req Request) (Permit, error) {
 	if wait > 0 {
 		l.expires = start.Add(wait)
 	}
+	// The caller hears when the request starts to wait and when it stops.
+	waiting := false
+	notify := func() {
+		if req.Waiting != nil && (l.ticket != "") != waiting {
+			waiting = !waiting
+			req.Waiting(waiting)
+		}
+	}
+	defer func() {
+		if waiting {
+			req.Waiting(false)
+		}
+	}()
 	permit, last, refusal, err := g.attempt(ctx, req, id, l, false)
 	for {
+		notify()
 		if err != nil {
 			return Permit{}, errors.Join(err, g.Store.leave(ctx, l))
 		}
@@ -237,6 +260,11 @@ func (g *Gate) check(req Request) error {
 		return errors.New("paid runs: a peer request either opens a pane or sends to an open session")
 	case req.Calibration && in.Shape != workerenv.Worker:
 		return errors.New("paid runs: a calibration cell is a worker")
+	case req.Budget != nil && !req.Calibration:
+		return errors.New("paid runs: only a calibration step has a step budget")
+	}
+	if req.Budget != nil {
+		return req.Budget.validate()
 	}
 	return nil
 }
@@ -303,12 +331,23 @@ func (g *Gate) attempt(ctx context.Context, req Request, id string, l *line, fre
 		}
 		est.Windows = costs
 	}
+	// What the approved plan still allows the step, checked in the same
+	// admission as the account's cap and slots.
+	step := ""
+	if b := req.Budget; b != nil {
+		if reason := b.check(est, a.Verdict == Paid); reason != "" {
+			r := refuse(a, ReasonStepBudget, reason)
+			r.EstimateUSD, r.EstimateSource = est.USD, est.Source
+			return Permit{}, Admission{}, r, nil
+		}
+		step = b.Key()
+	}
 	tier := SelectTier(a, s, samples, view.Tiers[agent], g.Config)
 
 	in := Admission{
 		Reservation: Reservation{ID: id, SessionID: req.ExistingSession, Agent: agent, Role: req.Role, Class: req.Class,
 			Family: family, Shape: p.Shape, Variant: p.Variant, Supervisor: req.Owner, Estimate: est,
-			Session: req.Input.Shape == workerenv.Worker || req.OpenPeer, Task: true},
+			Session: req.Input.Shape == workerenv.Worker || req.OpenPeer, Task: true, Step: step},
 		Assessment: a,
 		TotalLimit: g.totalLimit(),
 		AgentLimit: tier.Limit,

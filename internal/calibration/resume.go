@@ -131,6 +131,9 @@ func WriteStatus(w io.Writer, run *Run, p Plan, now time.Time) error {
 	if run.Approved != nil {
 		fmt.Fprintf(&b, "approved: plan %s at %s\n", run.Approved.Hash, run.Approved.Time.UTC().Format(time.RFC3339))
 	}
+	if run.WaitReason != "" {
+		fmt.Fprintf(&b, "waiting: %s\n", run.WaitReason)
+	}
 	agents := map[string]bool{}
 	for agent := range run.Spend.WeeklyPct {
 		agents[agent] = true

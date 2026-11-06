@@ -105,7 +105,7 @@ func admit(ctx context.Context, g *paidruns.Gate, cfg *config.Config, in workere
 	role, class string, records []journal.Delegation, opts Options) (*permitRun, *paidruns.Refusal, error) {
 	req := paidruns.Request{Input: in, Family: models.Normalize(route.Agent, route.Model), Role: role, Class: class,
 		Records: records, Owner: paidruns.ProcessOwner(os.Getpid()), Calibration: opts.Calibration,
-		Wait: paidruns.SessionWait(cfg)}
+		Wait: paidruns.SessionWait(cfg), Budget: opts.Budget, Waiting: opts.Waiting}
 	permit, err := g.Acquire(ctx, req)
 	var refusal *paidruns.Refusal
 	if errors.As(err, &refusal) {

@@ -97,6 +97,11 @@ type Options struct {
 	// ProtectedRoots are the telemetry and balance roots the command resolved;
 	// they reach the worker's launch settings.
 	ProtectedRoots []string
+	// Budget is what an approved calibration plan still allows this step; the
+	// account gate admits each of its runs within it. Waiting hears when a run
+	// starts and stops waiting for a session slot.
+	Budget  *paidruns.StepBudget
+	Waiting func(bool)
 	// Observe receives every worker run, failed ones included, with learning
 	// on or off; nil observes nothing.
 	Observe Observer

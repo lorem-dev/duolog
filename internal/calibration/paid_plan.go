@@ -148,15 +148,21 @@ func (p Plan) LimitBilling(current map[string]BillingBudget) map[string]BillingB
 }
 
 // AdmitBilled decides a calibration step of agent billed as b. A paid route
-// is admitted on its opt-ins alone, with or without windows: its money is
-// admitted by the account gate when the step's worker starts, under the cap
-// and the plan's approved USD. Any other route keeps Admit's window rules on
-// the usable share of its account, which a personal account leaves as they
-// were.
+// needs no window: it is stopped without its opt-ins or once the run spent
+// the plan's approved USD, and paused while the agent's 24-hour cap has
+// nothing left, for a resume to read the budget again; each worker's money
+// is then admitted by the account gate when it starts. Any other route keeps
+// Admit's window rules on the usable share of its account, which a personal
+// account leaves as they were.
 func AdmitBilled(agent string, b BillingBudget, ws []Window, cost CellCost, spend Spend, cfg config.Calibration, held float64, now time.Time) Decision {
 	if b.paid() {
-		if !b.opted() {
+		switch {
+		case !b.opted():
 			return Decision{Stop: "paid calibration not allowed"}
+		case b.ApprovedUSD > 0 && spend.PaidUSD[agent] >= b.ApprovedUSD-usdSlack:
+			return Decision{Stop: stopCap}
+		case b.CapUSD > 0 && b.remaining() <= usdSlack:
+			return Decision{Wait: now.Add(capRetry)}
 		}
 		return Decision{Admit: true}
 	}
