@@ -187,20 +187,28 @@ func newPeerCommand() *cobra.Command {
 	release := run("release <id>", "End the account hold of a pane that no session records, as quota and doctor show it", cobra.ExactArgs(1), func(ctx context.Context, _ *cobra.Command, args []string) (string, error) {
 		return peer.Release(ctx, args[0])
 	})
-	root.AddCommand(open, wait, send, status, answer, closeCmd, list, release, newPeerShowCommand(&lead), newPeerViewCommand(&lead), newPeerLaunchCommand())
+	root.AddCommand(open, wait, send, status, answer, closeCmd, list, release, newPeerQueueCommand(&lead), newPeerShowCommand(&lead), newPeerViewCommand(&lead), newPeerLaunchCommand())
 	return root
 }
 
-// peerClose closes a peer and says so when its pane was already gone.
+// peerClose closes a peer and says so when its pane was already gone. The
+// freed session goes to the lead's queue: a detached run opens what it can.
 func peerClose(ctx context.Context, _ *cobra.Command, args []string) (string, error) {
 	note, err := peer.CloseNote(ctx, args[0])
 	if err != nil {
 		return "", err
 	}
+	line := args[0] + " closed"
 	if note != "" {
-		return args[0] + " closed; " + note, nil
+		line += "; " + note
 	}
-	return args[0] + " closed", nil
+	switch started, err := startQueueRun(ctx); {
+	case err != nil:
+		line += "; queue run not started: " + err.Error()
+	case started:
+		line += "; queue run started"
+	}
+	return line, nil
 }
 
 // errPeerShowModel is the refusal when a model may read the output.

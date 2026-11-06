@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/lorem-dev/duolog/internal/project"
 	"io"
 	"os"
 	"path/filepath"
@@ -21,7 +20,6 @@ import (
 	"unicode"
 
 	"github.com/gofrs/flock"
-	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/models"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
@@ -35,7 +33,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/rex"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
-	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/task"
 )
 
@@ -133,6 +130,10 @@ type Options struct {
 	// ObserveAttempt receives each task a peer was sent, once it has ended, as
 	// a run placed on the peer.
 	ObserveAttempt delegate.Observer
+	// WorkDir, when set, is the folder whose checkout a peer works in, as if
+	// the command ran there; the queue opens each item in its own. Empty is
+	// the command's working folder.
+	WorkDir string
 }
 
 // Operation is one open, send or close as the library ran it: its agent, how
@@ -215,72 +216,6 @@ type leadInfo struct {
 	target  *config.Target
 	mode    mode.Mode
 	address string
-}
-
-func setup(ctx context.Context) (*env, error) { return setupFor(ctx, true) }
-
-func setupFor(ctx context.Context, requireLead bool) (*env, error) {
-	e, err := setupRecords(ctx, requireLead)
-	if err != nil {
-		return nil, err
-	}
-	if e.bus, err = bus.Open(e.dir, e.cfg.Wire); err != nil {
-		return nil, err
-	}
-	return e, nil
-}
-
-// setupViewer is the setup of the passive viewers, show and view. It needs
-// no lead and opens no bus, so it creates no bus state and works with a bus
-// the caller may only read. e.bus is nil.
-func setupViewer(ctx context.Context) (*env, error) { return setupRecords(ctx, false) }
-
-// setupRecords checks the caller and opens the registry and Rex, but not the
-// bus.
-func setupRecords(ctx context.Context, requireLead bool) (*env, error) {
-	if depth, _ := strconv.Atoi(os.Getenv("DUOLOG_DEPTH")); depth >= 1 {
-		return nil, fmt.Errorf("workers cannot open or control peer sessions (DUOLOG_DEPTH=%d)", depth)
-	}
-	opts, _ := ctx.Value(optionsKey{}).(Options)
-	if opts.Root == "" {
-		return nil, errors.New("peer: missing project root")
-	}
-	if os.Getenv("REX_SESSION") == "" {
-		return nil, errors.New("peer sessions need Rex: REX_SESSION is not set; run this command in a Rex pane")
-	}
-	client, ok := rex.Detect()
-	if !ok {
-		return nil, errors.New("peer sessions need Rex: no rex executable in PATH, REX_BIN_DIR or the Rex app")
-	}
-	root, err := filepath.Abs(opts.Root)
-	if err != nil {
-		return nil, err
-	}
-	cfg := opts.Config
-	if cfg == nil {
-		if cfg, err = configfile.Load(root); err != nil {
-			return nil, err
-		}
-	}
-	s, err := store.Open(root)
-	if err != nil {
-		return nil, err
-	}
-	reg, err := session.Open(s.Dir)
-	if err != nil {
-		return nil, err
-	}
-	leadID := opts.Lead
-	if requireLead {
-		lead, err := reg.ResolveLead(opts.Lead)
-		if err != nil {
-			return nil, err
-		}
-		leadID = lead.ID
-	}
-	root = project.CurrentWorkRoot(root)
-	client.Dir = root
-	return &env{opts: opts, root: root, dir: s.Dir, cfg: cfg, reg: reg, rex: client, leadID: leadID}, nil
 }
 
 // lead reads the lead's live mode and target. A lead that is not registered
@@ -404,7 +339,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 		}
 	}
 	if limit := e.cfg.Limits.MaxLiveSessions; limit > 0 && len(here) >= limit {
-		return Entry{}, fmt.Errorf("max_live_sessions is %d and %s session %s is still open; close it with duolog peer close %s first", limit, route.Agent, here[0].ID, here[0].ID)
+		return Entry{}, refused(fmt.Sprintf("max_live_sessions is %d and %s session %s is still open; close it with duolog peer close %s first", limit, route.Agent, here[0].ID, here[0].ID))
 	}
 	model, err := resolveModel(ctx, e.cfg, filepath.Join(e.dir, "cache"), route.Target)
 	if err != nil {
