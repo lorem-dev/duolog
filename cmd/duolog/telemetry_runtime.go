@@ -13,9 +13,9 @@ import (
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/core/record"
 	"github.com/lorem-dev/duolog/internal/core/route"
+	"github.com/lorem-dev/duolog/internal/core/usage"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/telemetry"
-	"github.com/lorem-dev/duolog/internal/usage"
 )
 
 // The bounds telemetry checks numbers against: maxSafe for counts, maxSecs

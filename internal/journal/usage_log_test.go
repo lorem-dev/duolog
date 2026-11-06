@@ -1,12 +1,13 @@
-package usage
+package journal
 
 import (
-	"github.com/lorem-dev/duolog/internal/config"
 	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lorem-dev/duolog/internal/core/usage"
 )
 
 func logFile(t *testing.T, data string) string {
@@ -27,7 +28,7 @@ func logFile(t *testing.T, data string) string {
 }
 func TestStatsCost(t *testing.T) {
 	path := logFile(t, "{\"role\":\"mechanical\",\"agent\":\"codex\",\"model\":\"gpt-6-luna\",\"input\":1000000,\"cached\":0,\"output\":0}\n")
-	table, err := Summarize(path)
+	table, err := SummarizeUsage(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +38,7 @@ func TestStatsCost(t *testing.T) {
 }
 func TestStatsWarnsWhenPriceIsForOldVersion(t *testing.T) {
 	path := logFile(t, "{\"agent\":\"codex\",\"model\":\"gpt-7-luna\",\"input\":100}\n")
-	table, err := Summarize(path)
+	table, err := SummarizeUsage(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +51,7 @@ func TestStatsWarnsWhenPriceIsForOldVersion(t *testing.T) {
 }
 func TestStatsCachedInputAndOutput(t *testing.T) {
 	path := logFile(t, "{\"agent\":\"codex\",\"model\":\"gpt-6-luna\",\"input\":1000000,\"cached\":500000,\"output\":1000000}\n")
-	table, err := Summarize(path)
+	table, err := SummarizeUsage(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,10 +61,10 @@ func TestStatsCachedInputAndOutput(t *testing.T) {
 }
 func TestStatsMissingAndMalformed(t *testing.T) {
 	path := logFile(t, "not json\n")
-	if _, err := Summarize(path); err == nil {
+	if _, err := SummarizeUsage(path); err == nil {
 		t.Fatal("expected malformed record error")
 	}
-	if _, err := Summarize(path + "missing"); err != nil {
+	if _, err := SummarizeUsage(path + "missing"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -72,7 +73,7 @@ func TestStatsUsesProjectPrices(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(filepath.Dir(path), "config.yaml"), []byte("models:\n  luna:\n    input: 3\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	table, err := Summarize(path)
+	table, err := SummarizeUsage(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +84,7 @@ func TestStatsUsesProjectPrices(t *testing.T) {
 
 func TestStatsClaudeAliasHasUnknownActualVersion(t *testing.T) {
 	path := logFile(t, `{"role":"review_final","agent":"claude","model":"opus","effort":"high","effort_capped":false,"input":1000000,"cached":0,"output":0}`+"\n")
-	table, err := Summarize(path)
+	table, err := SummarizeUsage(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,44 +97,6 @@ func TestStatsClaudeAliasHasUnknownActualVersion(t *testing.T) {
 	}
 }
 
-func TestCostMatchesSummarize(t *testing.T) {
-	logFile(t, "")
-	cfg, err := config.Load(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if usd, ok := Cost(cfg, "codex", "gpt-6.1-sol", Tokens{Input: 1_000_000}); !ok || math.Abs(usd-2.00) > 1e-9 {
-		t.Fatal(usd, ok)
-	}
-	if _, ok := Cost(cfg, "codex", "no-such-model", Tokens{Input: 1}); ok {
-		t.Fatal("unknown model priced")
-	}
-}
-
-// Claude charges a five-minute cache write at 1.25x and a one-hour write at
-// 2x the input price, so the same tokens cost more as writes than as input.
-func TestCacheWritesCostMoreThanInput(t *testing.T) {
-	logFile(t, "")
-	cfg, err := config.Load(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	cost := func(tokens Tokens) float64 {
-		t.Helper()
-		usd, ok := Cost(cfg, "claude", "opus", tokens)
-		if !ok {
-			t.Fatal("opus unpriced")
-		}
-		return usd
-	}
-	plain := cost(Tokens{Input: 1_000_000})
-	minute := cost(Tokens{Input: 1_000_000, Write: 1_000_000})
-	hour := cost(Tokens{Input: 1_000_000, Write: 1_000_000, WriteHour: 1_000_000})
-	if math.Abs(plain-4) > 1e-9 || math.Abs(minute-5) > 1e-9 || math.Abs(hour-8) > 1e-9 {
-		t.Fatalf("plain %v, five-minute writes %v, one-hour writes %v; want 4, 5, 8", plain, minute, hour)
-	}
-}
-
 // A recorded Claude result line, as delegate writes it to usage.ndjson, costs
 // what Claude reported for it: total_cost_usd 0.00128465 for Haiku with 4
 // input, 28035 cache reads, 4792 one-hour cache writes and 91 output tokens.
@@ -142,9 +105,9 @@ func TestCacheWritesCostMoreThanInput(t *testing.T) {
 func TestStatsPricesRecordedClaudeCacheWrites(t *testing.T) {
 	recorded := `{"role":"mechanical","agent":"claude","model":"haiku","effort":"low","effort_capped":false,"input":32831,"cached":28035,"cache_write":4792,"cache_write_1h":4792,"output":91}`
 	old := `{"role":"mechanical","agent":"claude","model":"haiku","effort":"low","effort_capped":false,"input":32831,"cached":28035,"output":91}`
-	summarize := func(line string) Table {
+	summarize := func(line string) usage.Table {
 		t.Helper()
-		table, err := Summarize(logFile(t, line+"\n"))
+		table, err := SummarizeUsage(logFile(t, line+"\n"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -173,7 +136,7 @@ func TestStatsRejectsCacheWritesOutsideInput(t *testing.T) {
 		`{"agent":"claude","model":"opus","input":100,"cache_write":10,"cache_write_1h":20}`,
 		`{"agent":"claude","model":"opus","input":100,"cache_write":-1}`,
 	} {
-		if _, err := Summarize(logFile(t, line+"\n")); err == nil {
+		if _, err := SummarizeUsage(logFile(t, line+"\n")); err == nil {
 			t.Fatalf("%s: expected invalid token counts", line)
 		}
 	}

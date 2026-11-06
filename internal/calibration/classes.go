@@ -7,16 +7,17 @@ import (
 	"path/filepath"
 	"slices"
 
+	learnio "github.com/lorem-dev/duolog/internal/app/learn"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/learning"
 	"go.yaml.in/yaml/v3"
 )
 
 // ClassesProposal is what the classes step offers: classes and rules for
 // recurring work no rule fits, and survey checks that differ from the config.
 type ClassesProposal struct {
-	Proposals []learning.ClassProposal
+	Proposals []learn.ClassProposal
 	Checks    map[string][]string // class -> checks that differ from config
 }
 
@@ -36,11 +37,11 @@ func ProposeClassesFrom(cfg *config.Config, cands []Candidate, s Survey) Classes
 		}
 		class := c.Class
 		if class == "" {
-			class = learning.Unclassified
+			class = learn.Unclassified
 		}
 		ds = append(ds, journal.Delegation{ID: c.ID, Task: c.ID, Role: c.Role, Features: c.Features, RuleClass: class, Class: class})
 	}
-	p := ClassesProposal{Proposals: learning.ProposeClasses(cfg, ds, nil)}
+	p := ClassesProposal{Proposals: learn.ProposeClasses(cfg, ds, nil)}
 	for class, checks := range s.Checks {
 		current, ok := cfg.Learning.Classes[class]
 		if !ok || slices.Equal(checks, current.Checks) {
@@ -71,7 +72,7 @@ func ApplyClasses(root string, cfg *config.Config, p ClassesProposal, skip []str
 			return nil, nil, fmt.Errorf("no classes proposal named %q", name)
 		}
 	}
-	proposals := slices.DeleteFunc(slices.Clone(p.Proposals), func(q learning.ClassProposal) bool { return slices.Contains(skip, q.Name) })
+	proposals := slices.DeleteFunc(slices.Clone(p.Proposals), func(q learn.ClassProposal) bool { return slices.Contains(skip, q.Name) })
 	classes := slices.DeleteFunc(slices.Sorted(maps.Keys(p.Checks)), func(class string) bool { return slices.Contains(skip, ChecksName(class)) })
 	if len(proposals) == 0 && len(classes) == 0 {
 		old, err = os.ReadFile(filepath.Join(root, ".duolog", "config.yaml"))
@@ -80,23 +81,23 @@ func ApplyClasses(root string, cfg *config.Config, p ClassesProposal, skip []str
 		}
 		return old, old, err
 	}
-	return learning.EditConfig(root, func(l *yaml.Node) error {
+	return learnio.EditConfig(root, func(l *yaml.Node) error {
 		rules := cfg.Learning.Classify
 		for _, q := range proposals {
 			var err error
-			if rules, err = learning.AddClass(l, rules, q); err != nil {
+			if rules, err = learnio.AddClass(l, rules, q); err != nil {
 				return err
 			}
 		}
 		for _, class := range classes {
-			if err := learning.SetClassChecks(l, class, p.Checks[class]); err != nil {
+			if err := learnio.SetClassChecks(l, class, p.Checks[class]); err != nil {
 				return err
 			}
 		}
 		return nil
 	}, func(loaded *config.Config) error {
 		for _, q := range proposals {
-			if err := learning.VerifyClass(loaded, q); err != nil {
+			if err := learn.VerifyClass(loaded, q); err != nil {
 				return err
 			}
 		}

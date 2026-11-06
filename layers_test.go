@@ -149,10 +149,10 @@ var knownViolations = map[string]string{
 	"internal/hook -> internal/config":                        "PR 10",
 	"internal/hook -> internal/session":                       "PR 34",
 	"internal/hook -> internal/store":                         "PR 42",
-	"internal/learning -> go.yaml.in/yaml/v3":                 "PR 12",
-	"internal/learning -> internal/config":                    "PR 10",
-	"internal/learning -> internal/journal":                   "PR 12",
-	"internal/learning -> os":                                 "PR 12",
+	"internal/app/learn -> internal/config":                   "PR 10",
+	"internal/core/learn -> go.yaml.in/yaml/v3":               "PR 16: Render moves out once calibrate.go shrinks",
+	"internal/core/learn -> internal/config":                  "PR 10",
+	"internal/core/learn -> internal/journal":                 "journal.Outcomes moves to core/record",
 	"internal/paidruns -> github.com/gofrs/flock":             "PR 22, boundary",
 	"internal/paidruns -> golang.org/x/sys/unix":              "PR 22, boundary; darwin only",
 	"internal/paidruns -> golang.org/x/sys/windows":           "PR 22, boundary; windows only",
@@ -196,12 +196,11 @@ var knownViolations = map[string]string{
 	"internal/task -> internal/project":                       "PR 11",
 	"internal/task -> os":                                     "PR 11",
 	"internal/task -> syscall":                                "PR 11",
-	"internal/usage -> internal/config":                       "PR 10",
-	"internal/usage -> os":                                    "PR 12",
+	"internal/core/usage -> internal/config":                  "PR 10",
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 114
+const maxKnownViolations = 113
 
 // boundaryExceptions are the imports of the security boundary that stay on
 // purpose ("security boundary: moves only"). Empty until PR 20.

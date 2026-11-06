@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/learning"
 )
 
 // confirmedVerdict is a calibration verdict on task with original's mean
@@ -284,7 +284,7 @@ func TestSeedStatsMatchesPersonalEvidence(t *testing.T) {
 	vs = append(vs, journal.Verdict{Kind: "verdict", ID: "v3", Run: "cal-1", Task: "t3", Class: "tests", Original: opus, Profile: sol,
 		Source: "calibration", Scores: []journal.Score{{Criterion: "correct", Original: 3, Profile: 0}}})
 
-	personal := learning.AggregateAll(cfg, nil, nil, vs, cs)["tests"]
+	personal := learn.AggregateAll(cfg, nil, nil, vs, cs)["tests"]
 	p := BuildProjectPart(Survey{}, Manifest{}, Summarize(cfg, cs, vs, testTime, "1.3.0"))
 	if err := ValidateProject(p); err != nil {
 		t.Fatal(err)

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/learning"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/spf13/cobra"
@@ -131,7 +131,7 @@ func newTaskFinishCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		classProposal := len(learning.ProposeClasses(cfg, ds, declined)) > 0
+		classProposal := len(learn.ProposeClasses(cfg, ds, declined)) > 0
 		var runs []journal.Delegation
 		for _, d := range ds {
 			if d.Task == task.ID && d.ProfileOf == "" {
@@ -160,16 +160,16 @@ func newTaskFinishCommand() *cobra.Command {
 			record.Delegations = append(record.Delegations, d.ID)
 			record.USD += d.USD
 		}
-		st := learning.Aggregate(cfg, ds, ts, vs)
-		offers := learning.Offers(cfg, runs, st, vs)
-		changed := learning.Changed(cfg, learning.Propose(cfg, st, vs))
+		st := learn.Aggregate(cfg, ds, ts, vs)
+		offers := learn.Offers(cfg, runs, st, vs)
+		changed := learn.Changed(cfg, learn.Propose(cfg, st, vs))
 		if err := j.Append("tasks.ndjson", record); err != nil {
 			return err
 		}
 		if _, err := j.CloseTask(l.ID); err != nil {
 			return err
 		}
-		return learning.WriteReport(cmd.OutOrStdout(), cfg, task, runs, offers, changed, classProposal)
+		return learn.WriteReport(cmd.OutOrStdout(), cfg, task, runs, offers, changed, classProposal)
 	}}
 	cmd.Flags().StringVar(&lead, "lead", "", "Registered lead session ID (defaults to DUOLOG_LEAD)")
 	return cmd

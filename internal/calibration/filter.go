@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/learning"
 )
 
 var releaseSubject = regexp.MustCompile(`(?i)^(release|bump|chore\(release\)|v?\d+\.\d+\.\d+\b)`)
@@ -123,7 +123,7 @@ func Classify(c *Candidate, cfg *config.Config) {
 	}
 	c.Features = map[string]string{"output": output, "scope": scope, "components": components}
 	c.Role = map[string]string{"code": "implement", "tests": "tests", "docs": "docs"}[output]
-	c.Class = learning.Classify(cfg.Learning.Classify, c.Role, c.Features)
+	c.Class = learn.Classify(cfg.Learning.Classify, c.Role, c.Features)
 	if c.Excluded == "" && slices.Contains(specClasses, c.Class) && !specSource(c.StatementSource) {
 		c.Excluded = "class needs a spec task"
 	}

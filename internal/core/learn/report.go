@@ -1,4 +1,4 @@
-package learning
+package learn
 
 import (
 	"fmt"
@@ -7,8 +7,8 @@ import (
 	"text/tabwriter"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/usage"
+	"github.com/lorem-dev/duolog/internal/core/record"
+	"github.com/lorem-dev/duolog/internal/core/usage"
 )
 
 // Offer describes one alternative run and the estimated replay plus judge cost.
@@ -30,9 +30,9 @@ func JudgeTarget(l config.Learning, a, b config.Target) config.Target {
 	return l.Judges[0].Target()
 }
 
-func taskSteps(task []journal.Delegation) []journal.Delegation {
+func taskSteps(task []record.Delegation) []record.Delegation {
 	out := slices.Clone(task)
-	slices.SortStableFunc(out, func(a, b journal.Delegation) int {
+	slices.SortStableFunc(out, func(a, b record.Delegation) int {
 		if a.Step < b.Step {
 			return -1
 		}
@@ -45,7 +45,7 @@ func taskSteps(task []journal.Delegation) []journal.Delegation {
 }
 
 // WriteTable lists live delegations in step order and their final status.
-func WriteTable(w io.Writer, task []journal.Delegation) error {
+func WriteTable(w io.Writer, task []record.Delegation) error {
 	rows := taskSteps(task)
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	if _, err := fmt.Fprintln(tw, "STEP\tCLASS\tROLE\tTARGET\tUSD\tOUTCOME"); err != nil {
@@ -57,9 +57,9 @@ func WriteTable(w io.Writer, task []journal.Delegation) error {
 		}
 		outcome := "failed"
 		switch {
-		case d.Outcome == journal.OutcomeInfra:
+		case d.Outcome == record.OutcomeInfra:
 			outcome = "infra"
-		case d.Outcome == journal.OutcomeLead:
+		case d.Outcome == record.OutcomeLead:
 			outcome = "needs"
 		case d.RunHere:
 			outcome = "run here"
@@ -68,9 +68,9 @@ func WriteTable(w io.Writer, task []journal.Delegation) error {
 		case d.Done:
 			outcome = "done"
 		}
-		if d.Outcome != journal.OutcomeInfra && d.Outcome != journal.OutcomeLead {
+		if d.Outcome != record.OutcomeInfra && d.Outcome != record.OutcomeLead {
 			for _, later := range rows[i+1:] {
-				if later.ProfileOf == "" && later.Outcome != journal.OutcomeInfra && later.Outcome != journal.OutcomeLead && later.EscalatedFrom == d.ID {
+				if later.ProfileOf == "" && later.Outcome != record.OutcomeInfra && later.Outcome != record.OutcomeLead && later.EscalatedFrom == d.ID {
 					outcome = "escalated"
 					break
 				}
@@ -89,7 +89,7 @@ func WriteTable(w io.Writer, task []journal.Delegation) error {
 
 // WriteReport prints the fixed end-of-task conversation, leaving approval and
 // outcome collection to the lead and the person.
-func WriteReport(w io.Writer, cfg *config.Config, t journal.OpenTask, task []journal.Delegation, offers []Offer, learnChanged, classProposal bool) error {
+func WriteReport(w io.Writer, cfg *config.Config, t record.OpenTask, task []record.Delegation, offers []Offer, learnChanged, classProposal bool) error {
 	count := 0
 	total := 0.0
 	for _, d := range task {
@@ -137,7 +137,7 @@ func WriteReport(w io.Writer, cfg *config.Config, t journal.OpenTask, task []jou
 
 // Offers chooses at most two distinct ladder/target alternatives, preferring
 // cheaper entries near the ran entry's estimate over cells with few judgments.
-func Offers(cfg *config.Config, task []journal.Delegation, st Stats, vs []journal.Verdict) []Offer {
+func Offers(cfg *config.Config, task []record.Delegation, st Stats, vs []record.Verdict) []Offer {
 	l := cfg.Learning
 	var offers []Offer
 	offered := map[[2]string]bool{}
@@ -214,7 +214,7 @@ func Offers(cfg *config.Config, task []journal.Delegation, st Stats, vs []journa
 	return offers
 }
 
-func offerEstimate(cfg *config.Config, d journal.Delegation, from, to, judge config.Target, candidate config.EntryStat, judgeUSD float64, judgeKnown bool) (float64, bool) {
+func offerEstimate(cfg *config.Config, d record.Delegation, from, to, judge config.Target, candidate config.EntryStat, judgeUSD float64, judgeKnown bool) (float64, bool) {
 	// Cost with one million input and output tokens equals Input+Output of the
 	// normalized model alias, with the same agent/price checks as live costing.
 	price := func(t config.Target) (float64, bool) {

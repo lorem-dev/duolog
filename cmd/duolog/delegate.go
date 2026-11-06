@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/delegate"
-	"github.com/lorem-dev/duolog/internal/learning"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -21,7 +21,7 @@ func newDelegateCommand() *cobra.Command {
 	var allowManual bool
 	cmd := &cobra.Command{Use: "delegate <role>", Short: "Delegate a task and print its answer", Long: "Delegate a task and print its answer.\n\nThe task file needs the sections ## Goal, ## Read, ## Write, ## Limits and ## Check.", Args: cobra.ExactArgs(1), SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
 		opts := delegate.Options{Lead: lead, AllowManualModel: allowManual, Needs: needs, Class: class, EscalateFrom: escalateFrom, EscalateReason: reason}
-		parsed, err := learning.ParseFeatures(features)
+		parsed, err := learn.ParseFeatures(features)
 		if err == nil && (escalateFrom == "") != (reason == "") {
 			err = errors.New("--escalate-from and --reason go together: name the delegation you leave and why")
 		}
@@ -74,7 +74,7 @@ func newDelegateCommand() *cobra.Command {
 	cmd.Flags().StringVar(&class, "class", "", "Task class for learning mode, instead of the one the features give")
 	cmd.Flags().StringVar(&use, "use", "", "Run on this target, as agent/model/effort, instead of the routed one")
 	cmd.Flags().StringVar(&escalateFrom, "escalate-from", "", "In learning mode, the delegation id to leave for the next entry of its class ladder")
-	cmd.Flags().StringVar(&reason, "reason", "", "Why the delegation is left: "+strings.Join(learning.EscalationReasons, ", "))
+	cmd.Flags().StringVar(&reason, "reason", "", "Why the delegation is left: "+strings.Join(learn.EscalationReasons, ", "))
 	cmd.Flags().BoolVar(&allowManual, "allow-manual-model", false, "Allow models reserved for manual selection")
 	_ = cmd.MarkFlagRequired("task")
 	return cmd

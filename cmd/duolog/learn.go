@@ -9,10 +9,11 @@ import (
 	"slices"
 	"time"
 
+	learnio "github.com/lorem-dev/duolog/internal/app/learn"
 	"github.com/lorem-dev/duolog/internal/calibration"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/learning"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -63,13 +64,13 @@ func newLearnCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		classes := learning.ProposeClasses(cfg, ds, declined)
+		classes := learn.ProposeClasses(cfg, ds, declined)
 		if cmd.Flags().Changed("apply-class") || cmd.Flags().Changed("decline-class") {
 			name := applyClass
 			if cmd.Flags().Changed("decline-class") {
 				name = declineClass
 			}
-			matches := slices.DeleteFunc(slices.Clone(classes), func(p learning.ClassProposal) bool { return p.Name != name })
+			matches := slices.DeleteFunc(slices.Clone(classes), func(p learn.ClassProposal) bool { return p.Name != name })
 			if len(matches) != 1 {
 				return fmt.Errorf("class proposal %q must identify one current proposal", name)
 			}
@@ -84,7 +85,7 @@ func newLearnCommand() *cobra.Command {
 				}
 				return j.Append("declined.ndjson", classDecline{Declined: journal.Declined{Time: time.Now().UTC(), Name: name}, Group: matches[0].DeclineKey()})
 			}
-			_, _, err := learning.ApplyClass(root, cfg, matches[0])
+			_, _, err := learnio.ApplyClass(root, cfg, matches[0])
 			return err
 		}
 		cs, err := journal.ReadAll[journal.CalibrationResult](j, journal.CalibrationFile)
@@ -93,7 +94,7 @@ func newLearnCommand() *cobra.Command {
 		}
 		// The shared project part seeds the order only while the person has
 		// no calibration results of their own.
-		var seed learning.Stats
+		var seed learn.Stats
 		if shared, ok, err := calibration.ReadProject(filepath.Join(root, ".duolog")); err != nil {
 			return err
 		} else if ok {
@@ -103,11 +104,11 @@ func newLearnCommand() *cobra.Command {
 			return err
 		}
 		for _, p := range classes {
-			old, updated, err := previewConfig(root, func(tmp string) ([]byte, []byte, error) { return learning.ApplyClass(tmp, cfg, p) })
+			old, updated, err := previewConfig(root, func(tmp string) ([]byte, []byte, error) { return learnio.ApplyClass(tmp, cfg, p) })
 			if err != nil {
 				return err
 			}
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "class proposal %s:\nevidence: %s\nproposed .duolog/config.yaml:\n%sapply with: duolog learn --apply-class %s; decline with: duolog learn --decline-class %s\n", p.Name, p.Evidence, learning.LineDiff(old, updated), p.Name, p.Name); err != nil {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "class proposal %s:\nevidence: %s\nproposed .duolog/config.yaml:\n%sapply with: duolog learn --apply-class %s; decline with: duolog learn --decline-class %s\n", p.Name, p.Evidence, learn.LineDiff(old, updated), p.Name, p.Name); err != nil {
 				return err
 			}
 		}
@@ -120,17 +121,17 @@ func newLearnCommand() *cobra.Command {
 	return cmd
 }
 
-func learnOrder(cmd *cobra.Command, root string, cfg *config.Config, ds []journal.Delegation, ts []journal.Task, vs []journal.Verdict, cs []journal.CalibrationResult, seed learning.Stats, apply bool) error {
+func learnOrder(cmd *cobra.Command, root string, cfg *config.Config, ds []journal.Delegation, ts []journal.Task, vs []journal.Verdict, cs []journal.CalibrationResult, seed learn.Stats, apply bool) error {
 	if err := sayLearningOff(cmd.OutOrStdout(), cfg); err != nil {
 		return err
 	}
-	p, st, kept := learning.ProposeGated(cfg, ds, ts, vs, cs, seed)
+	p, st, kept := learn.ProposeGated(cfg, ds, ts, vs, cs, seed)
 	for _, key := range slices.Sorted(maps.Keys(kept)) {
 		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s: %s, keeps the configured order\n", key, kept[key]); err != nil {
 			return err
 		}
 	}
-	if !learning.Changed(cfg, p) {
+	if !learn.Changed(cfg, p) {
 		_, err := fmt.Fprintln(cmd.OutOrStdout(), "no change to the learned order")
 		return err
 	}
@@ -139,24 +140,24 @@ func learnOrder(cmd *cobra.Command, root string, cfg *config.Config, ds []journa
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	data, err := learning.Render(p)
+	data, err := learn.Render(p)
 	if err != nil {
 		return err
 	}
 	out := cmd.OutOrStdout()
-	if _, err := fmt.Fprintf(out, "proposed .duolog/routing.learned.yaml:\n%sevidence:\n", learning.LineDiff(old, data)); err != nil {
+	if _, err := fmt.Fprintf(out, "proposed .duolog/routing.learned.yaml:\n%sevidence:\n", learn.LineDiff(old, data)); err != nil {
 		return err
 	}
 	var keys []string
 	for key, v := range p.Ladders {
 		one := config.LearnedRouting{Ladders: map[string]config.LearnedLadder{key: v}}
-		if learning.Changed(cfg, one) {
+		if learn.Changed(cfg, one) {
 			keys = append(keys, key)
 		}
 	}
 	slices.Sort(keys)
 	for _, key := range keys {
-		for _, line := range learning.Evidence(st, key) {
+		for _, line := range learn.Evidence(st, key) {
 			if _, err := fmt.Fprintln(out, line); err != nil {
 				return err
 			}

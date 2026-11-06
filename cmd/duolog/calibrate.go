@@ -17,9 +17,9 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/calibration"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/learning"
 	"github.com/lorem-dev/duolog/internal/profile"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/spf13/cobra"
@@ -193,7 +193,7 @@ func newCalibrateClassesCommand() *cobra.Command {
 				return err
 			}
 			if !bytes.Equal(old, updated) {
-				fmt.Fprintf(out, "updated .duolog/config.yaml:\n%s", learning.LineDiff(old, updated))
+				fmt.Fprintf(out, "updated .duolog/config.yaml:\n%s", learn.LineDiff(old, updated))
 			}
 			_, err = fmt.Fprintln(out, "next: duolog calibrate mine")
 			return err
@@ -227,7 +227,7 @@ func writeClasses(out io.Writer, id string, cfg *config.Config, p calibration.Cl
 	if bytes.Equal(old, updated) {
 		b.WriteString("no change to .duolog/config.yaml\n")
 	} else {
-		fmt.Fprintf(&b, "proposed .duolog/config.yaml:\n%s", learning.LineDiff(old, updated))
+		fmt.Fprintf(&b, "proposed .duolog/config.yaml:\n%s", learn.LineDiff(old, updated))
 		b.WriteString("leave one out with: --skip <name>\n")
 	}
 	b.WriteString("apply with: duolog calibrate classes --apply")
@@ -1117,7 +1117,7 @@ func newCalibrateProposeCommand() *cobra.Command {
 			fmt.Fprintf(out, "calibration run %s\n", run.ID)
 		}
 		// ProposeGated uses the seed only without personal results.
-		var seed learning.Stats
+		var seed learn.Stats
 		if hasShared {
 			seed = calibration.SeedStats(cfg, shared)
 			if !slices.ContainsFunc(cs, func(c journal.CalibrationResult) bool { return c.Kind == "result" }) {
@@ -1127,8 +1127,8 @@ func newCalibrateProposeCommand() *cobra.Command {
 		if err := sayLearningOff(out, cfg); err != nil {
 			return err
 		}
-		p, _, kept := learning.ProposeGated(cfg, ds, ts, vs, cs, seed)
-		orderChanged := learning.Changed(cfg, p)
+		p, _, kept := learn.ProposeGated(cfg, ds, ts, vs, cs, seed)
+		orderChanged := learn.Changed(cfg, p)
 		if !orderChanged {
 			fmt.Fprintln(out, "no change to the learned order")
 		} else {
@@ -1136,11 +1136,11 @@ func newCalibrateProposeCommand() *cobra.Command {
 			if err != nil && !os.IsNotExist(err) {
 				return err
 			}
-			data, err := learning.Render(p)
+			data, err := learn.Render(p)
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(out, "proposed .duolog/routing.learned.yaml:\n%s", learning.LineDiff(old, data))
+			fmt.Fprintf(out, "proposed .duolog/routing.learned.yaml:\n%s", learn.LineDiff(old, data))
 		}
 		for _, key := range slices.Sorted(maps.Keys(kept)) {
 			fmt.Fprintf(out, "class %s: %s, keeps the configured order\n", key, kept[key])
@@ -1171,7 +1171,7 @@ func newCalibrateProposeCommand() *cobra.Command {
 				if bytes.Equal(old, updated) {
 					fmt.Fprintf(out, "no change to %s\n", name)
 				} else {
-					fmt.Fprintf(out, "updated %s:\n%s", name, learning.LineDiff(old, updated))
+					fmt.Fprintf(out, "updated %s:\n%s", name, learn.LineDiff(old, updated))
 				}
 			} else {
 				if err := calibration.ValidateProject(part, people...); err != nil {
@@ -1186,7 +1186,7 @@ func newCalibrateProposeCommand() *cobra.Command {
 					return err
 				}
 				if projectChanged = !bytes.Equal(old, updated); projectChanged {
-					fmt.Fprintf(out, "proposed %s:\n%s", name, learning.LineDiff(old, updated))
+					fmt.Fprintf(out, "proposed %s:\n%s", name, learn.LineDiff(old, updated))
 				} else {
 					fmt.Fprintf(out, "no change to %s\n", name)
 				}

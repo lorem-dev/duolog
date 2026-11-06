@@ -1,5 +1,5 @@
-// Package learning classifies delegations and chooses ladder entries for them.
-package learning
+// Package learn classifies delegations and chooses ladder entries for them.
+package learn
 
 import (
 	"fmt"

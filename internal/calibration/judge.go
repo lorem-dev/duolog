@@ -17,11 +17,11 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/learn"
+	"github.com/lorem-dev/duolog/internal/core/usage"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/learning"
 	"github.com/lorem-dev/duolog/internal/profile"
-	"github.com/lorem-dev/duolog/internal/usage"
 )
 
 // JudgeDir is kept in a run's folder; each verdict writes JudgeDir/<id>/.
@@ -87,7 +87,7 @@ func Pairs(run *Run) []Pair {
 
 // JudgeTargets gives a pair of different agents the first judge of each, and
 // a pair of one agent the first judge of another agent. Without such a judge
-// it falls back to learning.JudgeTarget.
+// it falls back to learn.JudgeTarget.
 func JudgeTargets(l config.Learning, a, b config.Target) []config.Target {
 	var out []config.Target
 	seen := map[string]bool{}
@@ -101,7 +101,7 @@ func JudgeTargets(l config.Learning, a, b config.Target) []config.Target {
 		}
 	}
 	if len(out) == 0 {
-		if t := learning.JudgeTarget(l, a, b); t.Agent != "" {
+		if t := learn.JudgeTarget(l, a, b); t.Agent != "" {
 			out = append(out, t)
 		}
 	}

@@ -12,12 +12,12 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/learn"
+	"github.com/lorem-dev/duolog/internal/core/usage"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/learning"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
-	"github.com/lorem-dev/duolog/internal/usage"
 )
 
 // shuffle returns true when the original goes first. Ordering is kept out of
@@ -143,7 +143,7 @@ func Judge(ctx context.Context, cfg *config.Config, s *store.Store, r Replay) (j
 	if err != nil {
 		return v, err
 	}
-	target := learning.JudgeTarget(cfg.Learning, from.Target(), to.Target())
+	target := learn.JudgeTarget(cfg.Learning, from.Target(), to.Target())
 	if target.Agent == "" {
 		return v, fmt.Errorf("no judge target configured")
 	}

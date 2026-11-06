@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/usage"
+	"github.com/lorem-dev/duolog/internal/core/usage"
 )
 
 // PlanFile is the costed plan of a run, kept in its folder until approved.

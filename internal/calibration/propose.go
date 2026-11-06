@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/learning"
 )
 
 // Summarize counts the calibration results that count, per ladder and entry:
@@ -25,7 +25,7 @@ func Summarize(cfg *config.Config, cs []journal.CalibrationResult, vs []journal.
 		quality, weight                            float64
 	}
 	tallies := map[key]tally{}
-	for _, o := range learning.CalibrationObservations(vs, cs) {
+	for _, o := range learn.CalibrationObservations(vs, cs) {
 		k := key{o.Key, o.Result.Entry}
 		t := tallies[k]
 		t.tasks++
@@ -131,8 +131,8 @@ func BuildProjectPart(s Survey, m Manifest, evidence map[string][]EvidenceRow) P
 // evidence as calibration tasks. A row's entry is the ladder's entry of its
 // agent, family and effort, so a project alias of a family takes its
 // evidence.
-func SeedStats(cfg *config.Config, p ProjectPart) learning.Stats {
-	st := learning.Stats{}
+func SeedStats(cfg *config.Config, p ProjectPart) learn.Stats {
+	st := learn.Stats{}
 	for key, rows := range p.Evidence {
 		entries, ok := ladderEntries(cfg, key)
 		if !ok {
@@ -168,7 +168,7 @@ func SeedStats(cfg *config.Config, p ProjectPart) learning.Stats {
 }
 
 // ladderEntries returns the configured entries of a ladder key: a class, or
-// class.role for a step ladder. Exact class names come first, as in learning.
+// class.role for a step ladder. Exact class names come first, as in learn.
 func ladderEntries(cfg *config.Config, key string) ([]config.LadderEntry, bool) {
 	if c, ok := cfg.Learning.Classes[key]; ok {
 		return c.Ladder, true

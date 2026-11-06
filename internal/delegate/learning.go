@@ -13,14 +13,14 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/learn"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
+	"github.com/lorem-dev/duolog/internal/core/usage"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/learning"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/store"
-	"github.com/lorem-dev/duolog/internal/usage"
 )
 
 const delegationsFile = "delegations.ndjson"
@@ -116,16 +116,16 @@ func beginLearning(cfg *config.Config, s *store.Store, leadID, role, id string, 
 	if left.ID != "" {
 		rec.EscalationReason = opts.EscalateReason
 	}
-	rec.RuleClass = learning.Classify(l.Classify, role, opts.Features)
+	rec.RuleClass = learn.Classify(l.Classify, role, opts.Features)
 	rec.Class = opts.Class
 	if rec.Class == "" {
 		rec.Class = rec.RuleClass
 	}
 	if rec.RuleClass == "" {
-		rec.RuleClass = learning.Unclassified
+		rec.RuleClass = learn.Unclassified
 	}
 	if rec.Class == "" {
-		rec.Class = learning.Unclassified
+		rec.Class = learn.Unclassified
 	}
 	if opts.ReplayOf != "" {
 		recs, err := journal.ReadAll[journal.Delegation](j, delegationsFile)
@@ -165,7 +165,7 @@ func beginLearning(cfg *config.Config, s *store.Store, leadID, role, id string, 
 		rec.RoleMismatch = !slices.Contains(c.Roles, role)
 	}
 	if lr.after != "" && opts.Entry == nil {
-		if _, ok := learning.Choose(l, rec.Class, role, nil, lr.after); !ok {
+		if _, ok := learn.Choose(l, rec.Class, role, nil, lr.after); !ok {
 			return nil, fmt.Errorf("class %s has no entry after %s; do it yourself or name another role", rec.Class, lr.after)
 		}
 	}
@@ -189,8 +189,8 @@ func beginLearning(cfg *config.Config, s *store.Store, leadID, role, id string, 
 // reason is a known signal and that the left run says something about its
 // entry's quality.
 func escalated(j *journal.Journal, leadID string, opts Options) (journal.Delegation, error) {
-	if !slices.Contains(learning.EscalationReasons, opts.EscalateReason) {
-		return journal.Delegation{}, fmt.Errorf("unknown escalation reason %q; use one of %s", opts.EscalateReason, strings.Join(learning.EscalationReasons, ", "))
+	if !slices.Contains(learn.EscalationReasons, opts.EscalateReason) {
+		return journal.Delegation{}, fmt.Errorf("unknown escalation reason %q; use one of %s", opts.EscalateReason, strings.Join(learn.EscalationReasons, ", "))
 	}
 	task, ok, err := j.CurrentTask(leadID)
 	if err != nil {
@@ -235,14 +235,14 @@ func (lr *learnRun) route(cfg *config.Config, role string, unavailable map[strin
 		return nil
 	}
 	lr.next = learnRoute{why: "role"}
-	if lr.rec.Class == learning.Unclassified {
+	if lr.rec.Class == learn.Unclassified {
 		return nil
 	}
 	cursor := lr.after
-	var choice learning.Choice
+	var choice learn.Choice
 	var ok bool
 	for {
-		choice, ok = learning.Choose(cfg.Learning, lr.rec.Class, role, unavailable, cursor)
+		choice, ok = learn.Choose(cfg.Learning, lr.rec.Class, role, unavailable, cursor)
 		if !ok || lr.after == "" {
 			break
 		}
@@ -350,7 +350,7 @@ func (lr *learnRun) note() string {
 	if lr.implicit {
 		s += "; no task was open: opened one, run duolog task finish when this task ends"
 	}
-	if lr.rec.Class == learning.Unclassified {
+	if lr.rec.Class == learn.Unclassified {
 		s += "; unclassified: add --features or --class"
 	}
 	if lr.rec.RoleMismatch {

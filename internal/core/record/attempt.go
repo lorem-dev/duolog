@@ -5,7 +5,7 @@ package record
 import (
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/usage"
+	"github.com/lorem-dev/duolog/internal/core/usage"
 )
 
 // Attempt is one actual run of a task: a worker process, a peer turn, or a

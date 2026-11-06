@@ -1,4 +1,4 @@
-package learning
+package learn
 
 import (
 	"github.com/lorem-dev/duolog/internal/config"

@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/learning"
 )
 
 const verdictCriterion = "structure matches what was asked"
@@ -75,14 +75,14 @@ func TestVerdictPartialCorrectionAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stats := learning.Aggregate(cfg, nil, nil, vs)
+	stats := learn.Aggregate(cfg, nil, nil, vs)
 	if stats["skeleton"]["claude/opus/high"].Quality != 2 || stats["skeleton"]["codex/sol/high"].Quality != 2 {
 		t.Fatal(stats)
 	}
 	if out, err := executeBusCommand(t, "verdict", "v1", "confirm"); err != nil {
 		t.Fatal(out, err)
 	}
-	stats = learning.Aggregate(cfg, nil, nil, readVerdicts(t, j))
+	stats = learn.Aggregate(cfg, nil, nil, readVerdicts(t, j))
 	if stats["skeleton"]["claude/opus/high"].Quality != 3 || stats["skeleton"]["codex/sol/high"].Quality != 1.5 {
 		t.Fatal(stats)
 	}

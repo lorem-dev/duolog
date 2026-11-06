@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/core/usage"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/testbin"
-	"github.com/lorem-dev/duolog/internal/usage"
 )
 
 // TestProbeRefusesSettingsRoute is review finding I1: the user's Claude

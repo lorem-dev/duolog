@@ -1,10 +1,11 @@
-package learning
+package learn
 
 import (
 	"fmt"
 	"slices"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/record"
 	"github.com/lorem-dev/duolog/internal/journal"
 )
 
@@ -12,13 +13,13 @@ import (
 type Stats map[string]map[string]config.EntryStat
 
 // Aggregate combines live outcomes, replay costs and decided comparisons.
-func Aggregate(cfg *config.Config, ds []journal.Delegation, ts []journal.Task, vs []journal.Verdict) Stats {
+func Aggregate(cfg *config.Config, ds []record.Delegation, ts []record.Task, vs []record.Verdict) Stats {
 	return AggregateAll(cfg, ds, ts, vs, nil)
 }
 
 // AggregateAll is Aggregate plus the calibration results in cs and the
 // calibration verdicts on them; see addCalibration.
-func AggregateAll(cfg *config.Config, ds []journal.Delegation, ts []journal.Task, vs []journal.Verdict, cs []journal.CalibrationResult) Stats {
+func AggregateAll(cfg *config.Config, ds []record.Delegation, ts []record.Task, vs []record.Verdict, cs []record.CalibrationResult) Stats {
 	st := Stats{}
 	update := func(key, entry string, f func(*config.EntryStat)) {
 		if st[key] == nil {
@@ -99,7 +100,7 @@ func AggregateAll(cfg *config.Config, ds []journal.Delegation, ts []journal.Task
 	return st
 }
 
-func effectiveEntry(d journal.Delegation) string {
+func effectiveEntry(d record.Delegation) string {
 	if d.EffortCapped {
 		if entry, err := config.ParseEntryKey(d.Entry); err == nil {
 			entry.Effort = d.Effort
@@ -116,14 +117,14 @@ func observe(s *config.EntryStat, q, w float64) {
 
 // decided joins each judge verdict to its latest decision, preserving the
 // judge's criteria when a correction only replaces some of them.
-func decided(vs []journal.Verdict) []journal.Verdict {
-	decisions := map[string]journal.Verdict{}
+func decided(vs []record.Verdict) []record.Verdict {
+	decisions := map[string]record.Verdict{}
 	for _, v := range vs {
 		if v.Kind == "decision" {
 			decisions[v.ID] = v
 		}
 	}
-	var out []journal.Verdict
+	var out []record.Verdict
 	for _, v := range vs {
 		if v.Kind != "verdict" {
 			continue
@@ -147,7 +148,7 @@ func decided(vs []journal.Verdict) []journal.Verdict {
 	}
 	return out
 }
-func scoreMeans(scores []journal.Score) (a, b float64, ok bool) {
+func scoreMeans(scores []record.Score) (a, b float64, ok bool) {
 	if len(scores) == 0 {
 		return 0, 0, false
 	}

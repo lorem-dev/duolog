@@ -8,9 +8,8 @@ import (
 	"text/tabwriter"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/learning"
-	"github.com/lorem-dev/duolog/internal/usage"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +23,7 @@ func newStatsCommand() *cobra.Command {
 		if classes {
 			return statsClasses(cmd, root)
 		}
-		table, err := usage.Summarize(filepath.Join(root, ".duolog", "usage.ndjson"))
+		table, err := journal.SummarizeUsage(filepath.Join(root, ".duolog", "usage.ndjson"))
 		if err != nil {
 			return err
 		}
@@ -70,7 +69,7 @@ func statsClasses(cmd *cobra.Command, root string) error {
 	if err != nil {
 		return err
 	}
-	st := learning.Aggregate(cfg, ds, ts, vs)
+	st := learn.Aggregate(cfg, ds, ts, vs)
 	var keys []string
 	for key := range st {
 		keys = append(keys, key)

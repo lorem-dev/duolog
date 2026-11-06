@@ -3,8 +3,8 @@ package calibration
 import (
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/learning"
 )
 
 func TestRecordResultsIdempotent(t *testing.T) {
@@ -73,7 +73,7 @@ func TestRecordResultsUsesStepLadder(t *testing.T) {
 	if ladders["t1"] != "skeleton.plan" || ladders["t2"] != "skeleton" {
 		t.Fatalf("ladders = %v, want t1 skeleton.plan and t2 skeleton", ladders)
 	}
-	st := learning.AggregateAll(cfg, nil, nil, nil, cs)
+	st := learn.AggregateAll(cfg, nil, nil, nil, cs)
 	if st["skeleton.plan"]["claude/opus/high"].CalibrationTasks != 1 || st["skeleton"]["claude/opus/high"].CalibrationTasks != 1 {
 		t.Fatalf("stats = %+v, want one task under each ladder", st)
 	}

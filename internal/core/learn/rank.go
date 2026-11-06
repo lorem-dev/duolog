@@ -1,4 +1,4 @@
-package learning
+package learn
 
 import (
 	"bytes"
@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/journal"
+	"github.com/lorem-dev/duolog/internal/core/record"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -80,7 +80,7 @@ func configured(l config.Learning, key string) (class, role string, c config.Cla
 
 // Propose ranks ladders with evidence or an existing learned order. A decided
 // winning profile may add an entry without changing the project's config.
-func Propose(cfg *config.Config, st Stats, vs []journal.Verdict) config.LearnedRouting {
+func Propose(cfg *config.Config, st Stats, vs []record.Verdict) config.LearnedRouting {
 	l := cfg.Learning
 	keys := map[string]bool{}
 	for k := range st {

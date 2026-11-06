@@ -1,10 +1,10 @@
-package learning
+package learn
 
 import (
 	"slices"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/journal"
+	"github.com/lorem-dev/duolog/internal/core/record"
 )
 
 // calibrationSource tags the verdicts and results of duolog calibrate.
@@ -22,9 +22,9 @@ type runTask struct{ run, task string }
 // countedResults returns the results that count: per class only those of the
 // run with the latest result, none of a task dropped from its run, and the
 // last one per run, task and entry.
-func countedResults(cs []journal.CalibrationResult) []journal.CalibrationResult {
+func countedResults(cs []record.CalibrationResult) []record.CalibrationResult {
 	dropped := map[runTask]bool{}
-	latest := map[string]journal.CalibrationResult{}
+	latest := map[string]record.CalibrationResult{}
 	for _, c := range cs {
 		switch c.Kind {
 		case "drop":
@@ -38,7 +38,7 @@ func countedResults(cs []journal.CalibrationResult) []journal.CalibrationResult 
 	}
 	type key struct{ run, task, entry string }
 	index := map[key]int{}
-	var out []journal.CalibrationResult
+	var out []record.CalibrationResult
 	for _, c := range cs {
 		if c.Kind != "result" || c.Run != latest[c.Class].Run || dropped[runTask{c.Run, c.Task}] {
 			continue
@@ -56,8 +56,8 @@ func countedResults(cs []journal.CalibrationResult) []journal.CalibrationResult 
 
 // calibrationVerdicts returns the confirmed or corrected calibration verdicts
 // by run and task.
-func calibrationVerdicts(vs []journal.Verdict) map[runTask][]journal.Verdict {
-	out := map[runTask][]journal.Verdict{}
+func calibrationVerdicts(vs []record.Verdict) map[runTask][]record.Verdict {
+	out := map[runTask][]record.Verdict{}
 	for _, v := range decided(vs) {
 		if v.Source == calibrationSource {
 			k := runTask{v.Run, v.Task}
@@ -76,7 +76,7 @@ func calibrationVerdicts(vs []journal.Verdict) map[runTask][]journal.Verdict {
 // result on the task compares, is not evidence.
 type CalibrationObservation struct {
 	Key      string
-	Result   journal.CalibrationResult
+	Result   record.CalibrationResult
 	Judged   bool
 	Quality  float64
 	Evidence bool
@@ -85,7 +85,7 @@ type CalibrationObservation struct {
 // CalibrationObservations returns one observation per counted task and
 // entry. A passed result's quality is the mean of the entry's score means
 // over the decided verdicts on the task.
-func CalibrationObservations(vs []journal.Verdict, cs []journal.CalibrationResult) []CalibrationObservation {
+func CalibrationObservations(vs []record.Verdict, cs []record.CalibrationResult) []CalibrationObservation {
 	results := countedResults(cs)
 	if len(results) == 0 {
 		return nil
@@ -93,7 +93,7 @@ func CalibrationObservations(vs []journal.Verdict, cs []journal.CalibrationResul
 	verdicts := calibrationVerdicts(vs)
 	// Results recorded without a ladder take the one their verdicts name,
 	// else the class's.
-	ladder := func(c journal.CalibrationResult) string {
+	ladder := func(c record.CalibrationResult) string {
 		if c.Ladder != "" {
 			return c.Ladder
 		}
@@ -163,7 +163,7 @@ func (o CalibrationObservation) Weight() float64 {
 // result at quality 0, a judged one at its quality, each at its Weight. A
 // pass without a decided verdict adds no quality. Only an observation with
 // evidence adds a calibration task.
-func addCalibration(update func(key, entry string, f func(*config.EntryStat)), vs []journal.Verdict, cs []journal.CalibrationResult) {
+func addCalibration(update func(key, entry string, f func(*config.EntryStat)), vs []record.Verdict, cs []record.CalibrationResult) {
 	for _, o := range CalibrationObservations(vs, cs) {
 		update(o.Key, o.Result.Entry, func(s *config.EntryStat) {
 			if o.Evidence {
@@ -182,11 +182,11 @@ func addCalibration(update func(key, entry string, f func(*config.EntryStat)), v
 // never both. A ladder whose two orders differ takes with only when every
 // entry with calibration tasks, and every entry that moved, has at least 3;
 // otherwise it keeps base and kept names it with NoDifference.
-func ProposeGated(cfg *config.Config, ds []journal.Delegation, ts []journal.Task, vs []journal.Verdict, cs []journal.CalibrationResult, seed Stats) (p config.LearnedRouting, st Stats, kept map[string]string) {
-	live := slices.DeleteFunc(slices.Clone(vs), func(v journal.Verdict) bool { return v.Source == calibrationSource })
+func ProposeGated(cfg *config.Config, ds []record.Delegation, ts []record.Task, vs []record.Verdict, cs []record.CalibrationResult, seed Stats) (p config.LearnedRouting, st Stats, kept map[string]string) {
+	live := slices.DeleteFunc(slices.Clone(vs), func(v record.Verdict) bool { return v.Source == calibrationSource })
 	base := Propose(cfg, Aggregate(cfg, ds, ts, vs), live)
 	verdicts := live
-	if slices.ContainsFunc(cs, func(c journal.CalibrationResult) bool { return c.Kind == "result" }) {
+	if slices.ContainsFunc(cs, func(c record.CalibrationResult) bool { return c.Kind == "result" }) {
 		st = AggregateAll(cfg, ds, ts, vs, cs)
 		verdicts = append(slices.Clone(live), calibrationWinners(vs, cs)...)
 	} else {
@@ -230,12 +230,12 @@ func separated(stats map[string]config.EntryStat, before, after []string) bool {
 // into a confirmed verdict whose profile is the higher side, so Propose may
 // add that entry to its ladder as it does a winning profile. A pair's sides
 // are in entry-key order, so the winner may be either.
-func calibrationWinners(vs []journal.Verdict, cs []journal.CalibrationResult) []journal.Verdict {
+func calibrationWinners(vs []record.Verdict, cs []record.CalibrationResult) []record.Verdict {
 	counted := map[runTask]bool{}
 	for _, c := range countedResults(cs) {
 		counted[runTask{c.Run, c.Task}] = true
 	}
-	var out []journal.Verdict
+	var out []record.Verdict
 	for _, v := range decided(vs) {
 		if v.Source != calibrationSource || !counted[runTask{v.Run, v.Task}] {
 			continue
@@ -253,7 +253,7 @@ func calibrationWinners(vs []journal.Verdict, cs []journal.CalibrationResult) []
 			}
 		}
 		// The scores are already corrected; a later confirm keeps them.
-		out = append(out, v, journal.Verdict{Kind: "decision", ID: v.ID, Decision: "confirm"})
+		out = append(out, v, record.Verdict{Kind: "decision", ID: v.ID, Decision: "confirm"})
 	}
 	return out
 }

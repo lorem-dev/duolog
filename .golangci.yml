@@ -89,7 +89,7 @@ linters:
       # .duolog/, the config and the files duolog writes into a project are meant
       # to be read by the person and by Git (0755 and 0644). Telemetry and the
       # calibration trees are not in this list, so their modes stay checked.
-      - path: ^(cmd|scripts)/|^internal/(adapter/models|agentsync|artifact|auth|bus|capability|delegate|install|journal|learning|models|peer|runner|session|store|testbin)/
+      - path: ^(cmd|scripts)/|^internal/(adapter/models|agentsync|app/learn|artifact|auth|bus|capability|delegate|install|journal|learning|models|peer|runner|session|store|testbin)/
         text: G30[126]
         linters: [gosec]
       # PowerShell accepts any prefix of -recurse; the arguments are in that order on purpose.
@@ -292,16 +292,16 @@ linters:
       - {path: '^internal/install/install\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .mergeHooks. is too long \(63 > |complexity 33 of func .(?:\(\*?\w+\)\.)?mergeHooks. is|function (?:\(\*?\w+\)\.)?mergeHooks is 21,'} # mergeHooks: cyclomatic 21, lines 63, cognitive 33
       - {path: '^internal/install/install\.go$', linters: [nestif], text: '.if\ o\.Scope\ !=\ "user". has complex nested blocks \(complexity: 6\)'} # if if o.Scope != "user": nesting 6
       - {path: '^internal/install/instructions\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?insertOffer is 21,'} # insertOffer: cyclomatic 21
-      - {path: '^internal/learning/aggregate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .AggregateAll. has too many statements \(46 > |complexity 41 of func .(?:\(\*?\w+\)\.)?AggregateAll. is|function (?:\(\*?\w+\)\.)?AggregateAll is 28,'} # AggregateAll: cyclomatic 28, statements 46, cognitive 41
-      - {path: '^internal/learning/aggregate\.go$', linters: [gocognit], text: 'complexity 24 of func .(?:\(\*?\w+\)\.)?decided. is'} # decided: cognitive 24
-      - {path: '^internal/learning/calibration\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .CalibrationObservations. has too many statements \(41 > |complexity 27 of func .(?:\(\*?\w+\)\.)?CalibrationObservations. is|function (?:\(\*?\w+\)\.)?CalibrationObservations is 18,'} # CalibrationObservations: cyclomatic 18, statements 41, cognitive 27
-      - {path: '^internal/learning/propose\.go$', linters: [cyclop, gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?EditConfig. is|function (?:\(\*?\w+\)\.)?EditConfig is 19,'} # EditConfig: cyclomatic 19, cognitive 23
-      - {path: '^internal/learning/propose\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .classCandidates. has too many statements \(60 > |complexity 44 of func .(?:\(\*?\w+\)\.)?classCandidates. is|function (?:\(\*?\w+\)\.)?classCandidates is 26,'} # classCandidates: cyclomatic 26, statements 60, cognitive 44
-      - {path: '^internal/learning/rank\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?LineDiff is 16,'} # LineDiff: cyclomatic 16
-      - {path: '^internal/learning/rank\.go$', linters: [cyclop, gocognit], text: 'complexity 34 of func .(?:\(\*?\w+\)\.)?Rank. is|function (?:\(\*?\w+\)\.)?Rank is 17,'} # Rank: cyclomatic 17, cognitive 34
-      - {path: '^internal/learning/report\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Offers. has too many statements \(54 > |complexity 51 of func .(?:\(\*?\w+\)\.)?Offers. is|function (?:\(\*?\w+\)\.)?Offers is 28,'} # Offers: cyclomatic 28, statements 54, cognitive 51
-      - {path: '^internal/learning/report\.go$', linters: [gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?WriteReport. is'} # WriteReport: cognitive 23
-      - {path: '^internal/learning/report\.go$', linters: [cyclop, gocognit], text: 'complexity 21 of func .(?:\(\*?\w+\)\.)?WriteTable. is|function (?:\(\*?\w+\)\.)?WriteTable is 18,'} # WriteTable: cyclomatic 18, cognitive 21
+      - {path: '^internal/core/learn/aggregate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .AggregateAll. has too many statements \(46 > |complexity 41 of func .(?:\(\*?\w+\)\.)?AggregateAll. is|function (?:\(\*?\w+\)\.)?AggregateAll is 28,'} # AggregateAll: cyclomatic 28, statements 46, cognitive 41
+      - {path: '^internal/core/learn/aggregate\.go$', linters: [gocognit], text: 'complexity 24 of func .(?:\(\*?\w+\)\.)?decided. is'} # decided: cognitive 24
+      - {path: '^internal/core/learn/calibration\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .CalibrationObservations. has too many statements \(41 > |complexity 27 of func .(?:\(\*?\w+\)\.)?CalibrationObservations. is|function (?:\(\*?\w+\)\.)?CalibrationObservations is 18,'} # CalibrationObservations: cyclomatic 18, statements 41, cognitive 27
+      - {path: '^internal/app/learn/propose\.go$', linters: [cyclop, gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?EditConfig. is|function (?:\(\*?\w+\)\.)?EditConfig is 19,'} # EditConfig: cyclomatic 19, cognitive 23
+      - {path: '^internal/core/learn/propose\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .classCandidates. has too many statements \(60 > |complexity 44 of func .(?:\(\*?\w+\)\.)?classCandidates. is|function (?:\(\*?\w+\)\.)?classCandidates is 26,'} # classCandidates: cyclomatic 26, statements 60, cognitive 44
+      - {path: '^internal/core/learn/rank\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?LineDiff is 16,'} # LineDiff: cyclomatic 16
+      - {path: '^internal/core/learn/rank\.go$', linters: [cyclop, gocognit], text: 'complexity 34 of func .(?:\(\*?\w+\)\.)?Rank. is|function (?:\(\*?\w+\)\.)?Rank is 17,'} # Rank: cyclomatic 17, cognitive 34
+      - {path: '^internal/core/learn/report\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Offers. has too many statements \(54 > |complexity 51 of func .(?:\(\*?\w+\)\.)?Offers. is|function (?:\(\*?\w+\)\.)?Offers is 28,'} # Offers: cyclomatic 28, statements 54, cognitive 51
+      - {path: '^internal/core/learn/report\.go$', linters: [gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?WriteReport. is'} # WriteReport: cognitive 23
+      - {path: '^internal/core/learn/report\.go$', linters: [cyclop, gocognit], text: 'complexity 21 of func .(?:\(\*?\w+\)\.)?WriteTable. is|function (?:\(\*?\w+\)\.)?WriteTable is 18,'} # WriteTable: cyclomatic 18, cognitive 21
       - {path: '^internal/adapter/models/models\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?Resolve is 16,'} # Resolve: cyclomatic 16
       - {path: '^internal/paidruns/admission\.go$', linters: [cyclop, gocognit], text: 'complexity 22 of func .(?:\(\*?\w+\)\.)?admit. is|function (?:\(\*?\w+\)\.)?admit is 23,'} # admit: cyclomatic 23, cognitive 22
       - {path: '^internal/paidruns/admission\.go$', linters: [cyclop, gocognit], text: 'complexity 27 of func .(?:\(\*?\w+\)\.)?validate. is|function (?:\(\*?\w+\)\.)?validate is 28,'} # validate: cyclomatic 28, cognitive 27
@@ -382,7 +382,7 @@ linters:
       - {path: '^internal/testbin/fake/main\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .run. has too many statements \(107 > |complexity 75 of func .(?:\(\*?\w+\)\.)?run. is|function (?:\(\*?\w+\)\.)?run is 43,'} # run: cyclomatic 43, statements 107, cognitive 75
       - {path: '^internal/trust/trust\.go$', linters: [cyclop, gocognit], text: 'complexity 24 of func .(?:\(\*?\w+\)\.)?HooksEnv. is|function (?:\(\*?\w+\)\.)?HooksEnv is 19,'} # HooksEnv: cyclomatic 19, cognitive 24
       - {path: '^internal/trust/trust\.go$', linters: [cyclop, gocognit], text: 'complexity 29 of func .(?:\(\*?\w+\)\.)?hooksAt. is|function (?:\(\*?\w+\)\.)?hooksAt is 20,'} # hooksAt: cyclomatic 20, cognitive 29
-      - {path: '^internal/usage/usage\.go$', linters: [funlen, gocognit], text: 'Function .Summarize. has too many statements \(45 > |complexity 22 of func .(?:\(\*?\w+\)\.)?Summarize. is'} # Summarize: statements 45, cognitive 22
+      - {path: '^internal/journal/usage_log\.go$', linters: [funlen, gocognit], text: 'Function .SummarizeUsage. has too many statements \(45 > |complexity 22 of func .(?:\(\*?\w+\)\.)?SummarizeUsage. is'} # SummarizeUsage: statements 45, cognitive 22
       - {path: '^internal/workerenv/layers\.go$', linters: [cyclop, gocognit], text: 'complexity 38 of func .(?:\(\*?\w+\)\.)?claudeFacts. is|function (?:\(\*?\w+\)\.)?claudeFacts is 20,'} # claudeFacts: cyclomatic 20, cognitive 38
       - {path: '^internal/workerenv/layers\.go$', linters: [gocognit], text: 'complexity 25 of func .(?:\(\*?\w+\)\.)?resolveCodex. is'} # resolveCodex: cognitive 25
       - {path: '^internal/workerenv/layers\.go$', linters: [nestif], text: '.if\ ok. has complex nested blocks \(complexity: 9\)'} # if if ok: nesting 9

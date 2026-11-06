@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/learning"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +20,7 @@ func classProposalJournal(t *testing.T, root, taskID string) *journal.Journal {
 		t.Fatal(err)
 	}
 	for i := 1; i <= 5; i++ {
-		d := journal.Delegation{ID: fmt.Sprintf("u%d", i), Task: taskID, Step: i, Role: "review_final", Class: learning.Unclassified, RuleClass: learning.Unclassified, Done: true}
+		d := journal.Delegation{ID: fmt.Sprintf("u%d", i), Task: taskID, Step: i, Role: "review_final", Class: learn.Unclassified, RuleClass: learn.Unclassified, Done: true}
 		if err := j.Append("delegations.ndjson", d); err != nil {
 			t.Fatal(err)
 		}
@@ -61,7 +61,7 @@ func TestLearnApplyClass(t *testing.T) {
 		t.Fatal(out, err)
 	}
 	cfg, err := config.Load(root)
-	if err != nil || learning.Classify(cfg.Learning.Classify, "review_final", nil) != "review_final_misc" {
+	if err != nil || learn.Classify(cfg.Learning.Classify, "review_final", nil) != "review_final_misc" {
 		t.Fatal(cfg, err)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".duolog", config.LearnedRoutingFile)); !os.IsNotExist(err) {
@@ -129,12 +129,12 @@ func TestLearnClassCollisionFlagsActOnCurrentGroup(t *testing.T) {
 		feature string
 	}{{7, "yes"}, {5, "no"}} {
 		for i := 0; i < group.count; i++ {
-			if err := j.Append("delegations.ndjson", journal.Delegation{Class: learning.Unclassified, Role: "review_final", Features: map[string]string{"exemplar": group.feature}}); err != nil {
+			if err := j.Append("delegations.ndjson", journal.Delegation{Class: learn.Unclassified, Role: "review_final", Features: map[string]string{"exemplar": group.feature}}); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
-	readProposals := func() []learning.ClassProposal {
+	readProposals := func() []learn.ClassProposal {
 		cfg, err := config.Load(root)
 		if err != nil {
 			t.Fatal(err)
@@ -147,7 +147,7 @@ func TestLearnClassCollisionFlagsActOnCurrentGroup(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return learning.ProposeClasses(cfg, ds, declined)
+		return learn.ProposeClasses(cfg, ds, declined)
 	}
 	ps := readProposals()
 	if len(ps) != 1 || ps[0].Rule.When["exemplar"] != "yes" {
@@ -167,7 +167,7 @@ func TestLearnClassCollisionFlagsActOnCurrentGroup(t *testing.T) {
 		t.Fatal(ps)
 	}
 	cfg, err := config.Load(root)
-	if err != nil || learning.Classify(cfg.Learning.Classify, "review_final", map[string]string{"exemplar": "no"}) != "review_final_misc" || learning.Classify(cfg.Learning.Classify, "review_final", map[string]string{"exemplar": "yes"}) == "review_final_misc" {
+	if err != nil || learn.Classify(cfg.Learning.Classify, "review_final", map[string]string{"exemplar": "no"}) != "review_final_misc" || learn.Classify(cfg.Learning.Classify, "review_final", map[string]string{"exemplar": "yes"}) == "review_final_misc" {
 		t.Fatal(cfg, err)
 	}
 }
