@@ -181,6 +181,22 @@ same task sends it. Each message is one line, and the lead's hooks
 deliver it with the next prompt or tool call. Answer with `peer status`,
 `peer send` or `peer close`.
 
+### The peer-idle and peer-exit events
+
+Two more messages tell the lead that a peer needs a look, whatever its task:
+
+| Event | Message to the lead on the bus |
+|---|---|
+| The peer ends a turn | kind `peer-idle`: `<peer-id> idle in <folder>`, then the first line of its last message, up to 160 characters, when the hook knows it |
+| `duolog peer list` sees the peer's process exited or gone | kind `peer-exit`: `<peer-id> exited in <folder>` |
+
+`<folder>` is the peer's checkout relative to the project, `.` for the
+project itself. The `Stop` hook sends one `peer-idle` per turn: it remembers
+the transcript length, so a hook that runs again for the same turn sends
+nothing. The lead's next prompt or tool hook sends `peer-exit`, once per peer;
+a peer you closed with `peer close` sends none. Both show as one short line,
+like other bus messages.
+
 The `Stop` hook runs only where duolog's hooks run in the peer. An older
 install gets it when you update the plugin or run `duolog install` again.
 A Codex peer runs it
