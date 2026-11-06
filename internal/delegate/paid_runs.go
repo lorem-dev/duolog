@@ -195,8 +195,9 @@ func (a *permitRun) finish(ctx context.Context, cfg *config.Config, route router
 	return nil
 }
 
-// refusalLine says why the gate refused a candidate, for the lead.
-func refusalLine(r *paidruns.Refusal) string {
+// RefusalLine says why the gate refused a candidate, for the lead. Peer
+// commands word their refusals with it too.
+func RefusalLine(r *paidruns.Refusal) string {
 	switch r.Reason {
 	case paidruns.ReasonFreeVariantPaid, paidruns.ReasonNotAllowed:
 		var signals []string

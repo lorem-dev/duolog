@@ -27,6 +27,11 @@ func (e *env) autoAnswer(ctx context.Context, entry session.Entry, screen Screen
 			return e.declinePlugin(ctx, entry, screen, pluginOffer{})
 		}
 	}
+	// A billing choice, such as using an API key the agent found, is the
+	// lead's to answer, whatever auto_answers match.
+	if billingQuestion(screen) {
+		return false, nil
+	}
 	choice := ""
 	action := gate.Action{Kind: "answer", Role: entry.Role}
 	decision := gate.Decision{Kind: gate.Allow, Reason: "configured peer answer", Rule: "rex.auto_answers"}

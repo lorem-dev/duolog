@@ -9,6 +9,8 @@ import (
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/paidruns"
+	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"github.com/lorem-dev/duolog/internal/workerenv"
@@ -94,6 +96,35 @@ func TestMigrationSurvivesQuestionAndError(t *testing.T) {
 		}
 		// The notice is claimed: the next open in this lead adds nothing.
 		r.rex(baseScript())
+		if e := r.open("implement"); e.State != Ready || strings.Contains(e.Note, "no longer get") {
+			t.Fatalf("%+v", e)
+		}
+	})
+
+	// A pane the account gate refuses opens nothing, and the refusal still
+	// carries the claimed line.
+	t.Run("refused", func(t *testing.T) {
+		r := newRig(t, baseScript())
+		keys(t)
+		read := r.gate.Cache.Read
+		paid := true
+		r.gate.Cache.Read = func(ctx context.Context, p workerenv.Process) (quota.Snapshot, error) {
+			s, err := read(ctx, p)
+			if paid {
+				s.Billing.RouteSignals = []workerenv.Signal{{Name: "auth:apiKey", Layer: "account/read"}}
+			}
+			return s, err
+		}
+		_, err := Open(r.ctx, "implement")
+		if err == nil || !strings.Contains(err.Error(), "codex worker is paid") || strings.Count(err.Error(), line) != 1 || !strings.HasSuffix(err.Error(), "; "+line) {
+			t.Fatalf("%v", err)
+		}
+		if len(r.spawns()) != 0 {
+			t.Fatal("a refused pane was opened")
+		}
+		// A fresh read, not the cached paid one.
+		paid = false
+		r.gate.Cache = &paidruns.Cache{Read: read}
 		if e := r.open("implement"); e.State != Ready || strings.Contains(e.Note, "no longer get") {
 			t.Fatalf("%+v", e)
 		}

@@ -61,7 +61,8 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	delegate.NewGate = paidrunstest.Factory(accounts)
+	// One state per test folder: a peer's open, send and close share it.
+	delegate.NewGate = paidrunstest.ByWorkingDir(accounts)
 	code := m.Run()
 	_ = os.RemoveAll(accounts)
 	os.Exit(code)

@@ -5,7 +5,10 @@ package paidrunstest
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
@@ -35,6 +38,21 @@ func Factory(root string) func(*config.Config) (*paidruns.Gate, error) {
 			return nil, err
 		}
 		return Gate(dir, cfg)
+	}
+}
+
+// ByWorkingDir returns a gate opener for delegate.NewGate that keeps one
+// account state per working folder under root: the commands of one test,
+// which runs in its own folder, share it, as a peer's open, send and close
+// must, and tests in other folders never see it.
+func ByWorkingDir(root string) func(*config.Config) (*paidruns.Gate, error) {
+	return func(cfg *config.Config) (*paidruns.Gate, error) {
+		wd, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+		sum := sha256.Sum256([]byte(wd))
+		return Gate(filepath.Join(root, hex.EncodeToString(sum[:8])), cfg)
 	}
 }
 

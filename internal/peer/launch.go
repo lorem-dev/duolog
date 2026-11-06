@@ -10,29 +10,30 @@ import (
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
-// agentArgv is the interactive command of a peer. The lead's mode picks the
-// native permission flags, and updates are switched off the way task 1 proved:
-// a Codex setting and a Claude variable. Nothing here bypasses the sandbox.
-// roots join a Claude peer's denyRead; Codex reads have only the gate.
-func agentArgv(route router.Route, m mode.Mode, stateDir string, roots ...string) []string {
+// agentArgv is the interactive command of a peer: the built process's prefix
+// once, with its settings or global overrides, then the pane's own flags. The
+// lead's mode picks the native permission flags. Updates are off through the
+// process: Codex's setting in its prefix, Claude's variable in its
+// environment. Nothing here bypasses the sandbox; Claude's protected roots
+// are in its settings, and Codex reads have only the gate.
+func agentArgv(route router.Route, m mode.Mode, p workerenv.Process) []string {
 	switch route.Agent {
 	case "codex":
-		args := []string{"codex", "-m", route.Model}
+		args := p.Argv("-m", route.Model)
 		args = append(args, mode.Args("codex", m, route.Sandbox)...)
 		if route.Effort != "" {
 			args = append(args, "-c", `model_reasoning_effort="`+route.Effort+`"`)
 		}
-		args = append(args, "-c", "check_for_update_on_startup=false", "-c", "tui.notifications=false", "-c", "notify=[]")
+		args = append(args, "-c", "tui.notifications=false", "-c", "notify=[]")
 		if route.Context == "minimal" {
 			args = append(args, "-c", "project_doc_max_bytes=0")
 		}
 		return args
 	case "claude":
-		args := []string{"claude", "--model", route.Model}
+		args := p.Argv("--model", route.Model)
 		if route.Effort != "" {
 			args = append(args, "--effort", route.Effort)
 		}
-		args = append(args, "--settings", workerenv.ClaudeSettingsWithRoots(stateDir, route.Context == "minimal", map[string]any{"preferredNotifChannel": "notifications_disabled"}, roots))
 		// A peer cannot delegate: the gate denies a spawn, and without the tools the
 		// peer does not spend turns trying. One value with =, as the option takes a list.
 		args = append(args, "--disallowedTools=Agent,Task")
@@ -41,16 +42,29 @@ func agentArgv(route router.Route, m mode.Mode, stateDir string, roots ...string
 	return nil
 }
 
-// agentEnv lists NAME=VALUE pairs for the pane. REX_ names never pass on: a
-// worker that learns the session could rename or rearrange the lead's terminal.
-// DUOLOG_PEER names the pane's entry, which the gate puts on the worker's asks.
-func agentEnv(cfg *config.Config, agent, leadID, role, peerID string) []string {
-	pairs := workerenv.Passthrough(cfg.EnvPassthrough)
-	if agent == "claude" {
-		// A worker's auto memory would land in the project's memory, read by the lead.
-		pairs = append(pairs, "DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
+// agentEnv builds a peer pane's process: its environment, its argv prefix and
+// its settings, from one launch description, as delegate's workerEnv does for
+// a worker. The env file and the argv both come from it. REX_ names never pass
+// on: a worker that learns the session could rename or rearrange the lead's
+// terminal. DUOLOG_PEER names the pane's entry, which the gate puts on the
+// worker's asks.
+func agentEnv(in workerenv.ProcessInput) (workerenv.Process, error) {
+	in.Shape = workerenv.Peer
+	return workerenv.Build(in)
+}
+
+// peerInput describes the pane of route in variant: environ, the route's
+// context, the state folder and protected roots its Claude settings deny,
+// and Claude's notifications off.
+func peerInput(cfg *config.Config, route router.Route, variant workerenv.Variant, leadID, role, peerID, stateDir string,
+	roots, environ []string) workerenv.ProcessInput {
+	in := workerenv.ProcessInput{Agent: route.Agent, Shape: workerenv.Peer, Variant: variant, Config: cfg,
+		Environ: environ, LeadID: leadID, Role: role, PeerID: peerID, StateDir: stateDir,
+		Minimal: route.Context == "minimal", ProtectedRoots: roots}
+	if route.Agent == "claude" {
+		in.ExtraSettings = map[string]any{"preferredNotifChannel": "notifications_disabled"}
 	}
-	return append(pairs, workerenv.Path(), "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+leadID, "DUOLOG_ROLE="+role, "DUOLOG_PEER="+peerID)
+	return in
 }
 
 // writeEnvFile stores the pane's variables for duolog peer launch, which deletes

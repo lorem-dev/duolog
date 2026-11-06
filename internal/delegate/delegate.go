@@ -636,7 +636,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				return out, admitErr
 			}
 			if refusal != nil {
-				refusals = append(refusals, refusalLine(refusal))
+				refusals = append(refusals, RefusalLine(refusal))
 				priorAgent = route.Agent
 				unavailable[route.Agent] = true
 				continue
@@ -728,7 +728,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			}
 			if retryRefusal != nil {
 				// The gate refused the run once more: the next candidate.
-				refusals = append(refusals, refusalLine(retryRefusal))
+				refusals = append(refusals, RefusalLine(retryRefusal))
 				priorAgent = route.Agent
 				unavailable[route.Agent] = true
 				continue

@@ -5,6 +5,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/router"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 	"os"
 	"path/filepath"
 	"slices"
@@ -69,7 +70,7 @@ func TestTelemetryDenyReadSettings(t *testing.T) {
 	roots := []string{"/t/telemetry", "/t/balance", "/t/telemetry"}
 	for _, context := range []string{"minimal", "project"} {
 		route := router.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Context: context}
-		denied := peerDenied(peerSandbox(t, agentArgv(route, mode.Ask, state, roots...)))
+		denied := peerDenied(peerSandbox(t, agentArgv(route, mode.Ask, peerProcess(t, &config.Config{}, route, workerenv.Free, state, roots...))))
 		if len(denied) < 3 || denied[len(denied)-2] != "/t/telemetry" || denied[len(denied)-1] != "/t/balance" {
 			t.Fatal(context, denied)
 		}
@@ -77,7 +78,8 @@ func TestTelemetryDenyReadSettings(t *testing.T) {
 			t.Fatal(context, denied)
 		}
 	}
-	codex := agentArgv(router.Route{Target: config.Target{Agent: "codex", Model: "sol"}}, mode.Ask, state, roots...)
+	codexRoute := router.Route{Target: config.Target{Agent: "codex", Model: "sol"}}
+	codex := agentArgv(codexRoute, mode.Ask, peerProcess(t, &config.Config{}, codexRoute, workerenv.Free, state, roots...))
 	if strings.Contains(strings.Join(codex, " "), "/t/") {
 		t.Fatal(codex)
 	}
@@ -91,7 +93,12 @@ func TestAgentEnvPinsExecutableDirectory(t *testing.T) {
 	for _, parent := range []string{"", t.TempDir()} {
 		t.Setenv("PATH", parent)
 		for _, agent := range []string{"claude", "codex"} {
-			pairs := agentEnv(&config.Config{EnvPassthrough: []string{"PATH", "Path"}}, agent, "lead", "docs", "peer-test")
+			route := router.Route{Target: config.Target{Agent: agent, Model: "sol"}}
+			p, err := agentEnv(peerInput(&config.Config{EnvPassthrough: []string{"PATH", "Path"}}, route, workerenv.Free, "lead", "docs", "peer-test", "", nil, os.Environ()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			pairs := p.Env
 			count := 0
 			want := "PATH=" + filepath.Dir(exe)
 			if parent != "" {
