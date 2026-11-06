@@ -206,11 +206,15 @@ func TestDocsPaidKeyMigration(t *testing.T) {
 		if !strings.Contains(section, "`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`") {
 			t.Error("CHANGES.md 1.4.0 does not name the dropped keys")
 		}
-		// Development is everything before the first version section.
-		dev, _, _ := strings.Cut(string(b), "\n## 1.")
+		// 1.5.0 added paid runs. Before the release its notes are the
+		// Development section, everything before the first version section.
+		notes, _, _ := strings.Cut(string(b), "\n## 1.")
+		if _, rest, ok := strings.Cut(string(b), "\n## 1.5.0\n"); ok {
+			notes, _, _ = strings.Cut(rest, "\n## ")
+		}
 		for _, want := range []string{"`paid_runs.<agent>.allow`", "`daily_cap_usd`"} {
-			if !strings.Contains(dev, want) {
-				t.Errorf("CHANGES.md Development lacks %s", want)
+			if !strings.Contains(notes, want) {
+				t.Errorf("CHANGES.md notes for 1.5.0 lack %s", want)
 			}
 		}
 	}
