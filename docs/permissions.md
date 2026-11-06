@@ -322,6 +322,10 @@ that name outside paths, such as `cat /outside/notes.txt` or
 `git -C /other log`. An explicit outside-path rule still applies
 as written; a broad `**` allow does not approve outside paths.
 
+This holds in every mode. `full` mode confirms the asks of the policy rules,
+but not an exec ask that names an outside path, such as
+`gawk -E /etc/passwd`. Only the person can allow such a command.
+
 The lead's own hook guards shell commands that may run `duolog allow N`.
 For a Claude lead, it asks Claude Code to prompt the person. For a Codex lead,
 it denies the command. The hint names the owning lead and the project folder.

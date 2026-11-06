@@ -277,8 +277,8 @@ linters:
       - {path: '^internal/gate/execcheck\.go$', linters: [gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?needsReview. is'} # needsReview: cognitive 23
       - {path: '^internal/gate/execcheck\.go$', linters: [cyclop, gocognit], text: 'complexity 25 of func .(?:\(\*?\w+\)\.)?rawExecParts. is|function (?:\(\*?\w+\)\.)?rawExecParts is 22,'} # rawExecParts: cyclomatic 22, cognitive 25
       - {path: '^internal/gate/execcheck\.go$', linters: [gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?redirectTargets. is'} # redirectTargets: cognitive 23
-      - {path: '^internal/gate/gate\.go$', linters: [revive], text: 'file length is 942 lines'} # internal/gate/gate.go: code lines 942
-      - {path: '^internal/gate/gate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Evaluate. has too many statements \(142 > |complexity 169 of func .(?:\(\*?\w+\)\.)?Evaluate. is|function (?:\(\*?\w+\)\.)?Evaluate is 119,'} # Evaluate: cyclomatic 119, statements 142, cognitive 169
+      - {path: '^internal/gate/gate\.go$', linters: [revive], text: 'file length is 940 lines'} # internal/gate/gate.go: code lines 940
+      - {path: '^internal/gate/gate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Evaluate. has too many statements \(141 > |complexity 166 of func .(?:\(\*?\w+\)\.)?Evaluate. is|function (?:\(\*?\w+\)\.)?Evaluate is 117,'} # Evaluate: cyclomatic 117, statements 141, cognitive 166
       - {path: '^internal/gate/gate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .commandAfterKeywords. has too many statements \(57 > |complexity 45 of func .(?:\(\*?\w+\)\.)?commandAfterKeywords. is|function (?:\(\*?\w+\)\.)?commandAfterKeywords is 26,'} # commandAfterKeywords: cyclomatic 26, statements 57, cognitive 45
       - {path: '^internal/gate/gate\.go$', linters: [cyclop, gocognit], text: 'complexity 43 of func .(?:\(\*?\w+\)\.)?denyCommand. is|function (?:\(\*?\w+\)\.)?denyCommand is 31,'} # denyCommand: cyclomatic 31, cognitive 43
       - {path: '^internal/gate/gate\.go$', linters: [gocognit], text: 'complexity 26 of func .(?:\(\*?\w+\)\.)?expandBraces. is'} # expandBraces: cognitive 26

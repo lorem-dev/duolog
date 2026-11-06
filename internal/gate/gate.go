@@ -286,9 +286,7 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 		if d.Kind != Allow && d.Kind != Ask && d.Kind != Deny {
 			d = decision(Deny, "invalid policy decision", "invalid policy")
 		}
-		if m == mode.Full && d.Kind == Ask {
-			d = decision(Allow, "full mode confirms action", "mode full: "+d.Rule)
-		}
+		d = confirmInFull(m, d)
 		if d.Kind == Deny {
 			return d
 		}
