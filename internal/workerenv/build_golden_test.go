@@ -250,6 +250,9 @@ func goldenCases() []goldenCase {
 			in.ExtraSettings = map[string]any{"model": "opus"}
 			in.ExtraEnv = extraEnv
 		}},
+		goldenCase{"claude_worker_free_compact_window", "claude", Worker, Free, func(p goldenPlace, in *ProcessInput) {
+			in.Config.Workers.CompactWindow = "250000"
+		}},
 		goldenCase{"claude_peer_free_prefix", "claude", Peer, Free, func(p goldenPlace, in *ProcessInput) {
 			in.Prefix = []string{"claude", "--model", "opus"}
 		}},

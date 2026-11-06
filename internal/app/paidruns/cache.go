@@ -27,6 +27,7 @@ type Cache struct {
 	mu      sync.Mutex
 	entries map[string]cacheEntry
 	envKeys map[string]string
+	plans   map[string]string
 }
 
 type cacheEntry struct {
@@ -60,6 +61,7 @@ func (c *Cache) Get(ctx context.Context,
 		if err != nil {
 			return workerenv.Process{}, quota.Snapshot{}, Assessment{}, err
 		}
+		knownPlan := c.Plan(p.Agent)
 		s, cached := c.lookup(p.CacheKey, fresh || rebuilt, quotaMaxAge(cfg))
 		var readErr error
 		if !cached {
@@ -77,10 +79,41 @@ func (c *Cache) Get(ctx context.Context,
 			}
 			return p, s, Assessment{}, errors.New("paid runs: the process was built without the provider env_key the read found")
 		}
+		// The plan the read found sets the compact window of a Claude worker or
+		// peer. The cache key does not hold it, so the read stays valid: the
+		// process is built again once, without a new read.
+		if p, err = c.withPlan(p, s, readErr, knownPlan, build); err != nil {
+			return workerenv.Process{}, quota.Snapshot{}, Assessment{}, err
+		}
 		a := Evaluate(p, s, readErr, evidence, cfg, c.now())
 		c.store(p.CacheKey, s, a, readErr)
 		return p, s, a, readErr
 	}
+}
+
+// withPlan keeps the plan a successful Claude read found and, when it differs
+// from known, the plan p was built with, builds the process again with it.
+// Otherwise it returns p.
+func (c *Cache) withPlan(p workerenv.Process, s quota.Snapshot, readErr error, known string,
+	build func() (workerenv.Process, error)) (workerenv.Process, error) {
+	if learned := readErr == nil && p.Agent == "claude" && s.Plan != "" && s.Plan != known; !learned {
+		return p, nil
+	}
+	c.mu.Lock()
+	if c.plans == nil {
+		c.plans = map[string]string{}
+	}
+	c.plans[p.Agent] = s.Plan
+	c.mu.Unlock()
+	return build()
+}
+
+// Plan is the plan of agent that an earlier read found, empty when none did.
+// build passes it to workerenv.Build as ProcessInput.Plan.
+func (c *Cache) Plan(agent string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.plans[agent]
 }
 
 // After reads anew the quota that the built process p sees, as Get would,

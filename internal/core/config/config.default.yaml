@@ -12,6 +12,16 @@ coauthors:
   claude: "{name} <noreply@anthropic.com>"
   codex: "OpenAI Codex {model} <noreply@openai.com>"
 
+# Claude workers and peers compact at this context size (tokens). auto reads
+# the Claude plan at worker start and takes the window from compact_ladder; 0
+# leaves Claude's own default. The lead is not changed.
+workers:
+  compact_window: auto
+  compact_ladder:
+    pro: 250000
+    max: 500000
+    ultra: 700000
+
 wire:
   max_summary_bytes: 200
   max_line_bytes: 512

@@ -207,6 +207,7 @@ The lead's own settings are the ceiling:
 | `sync` | How agents and skills are generated. See [Sync](sync.md) |
 | `env_passthrough` | The only variables a worker inherits. A free run still drops names that bill per token |
 | `workers.inherit_plugins` | `false` (default): a Claude worker or peer turns off every plugin your user and project settings enable, except duolog's own. `true`: it loads them all, as your own sessions do. See [below](#what-workers-inherit) |
+| `workers.compact_window` | `auto` (default): Claude workers and peers compact at the size `workers.compact_ladder` gives for your plan. `0`: Claude's own default. `100000` to `1000000`: the context size in tokens at which they compact. See [below](#what-workers-inherit) |
 | `rex` | Timeouts and capture settings for live sessions. See [Rex](rex.md) |
 | `rex.stuck_notify_minutes` | Minutes before `peer wait` sends one reminder for an unanswered question. Default: `5`; `0` disables reminders |
 | `rex.auto_answers` | Ordered `{match, answer}` rules for safe peer questions. Defaults to answering `Hooks need review` with `Continue without trusting`. A project list replaces the defaults; `[]` disables it. Trust and persistent approval grants are refused |
@@ -252,6 +253,32 @@ in `--settings` that sets each enabled plugin to `false`, except duolog's own.
 Your settings files are not changed, and the lead and your own sessions keep
 their plugins. Set `workers.inherit_plugins: true` to keep the old behavior.
 Codex workers are not changed here.
+
+`workers.compact_window` sets the context size, in tokens, at which Claude
+workers and peers compact. When it is not `0`, duolog sets
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW` to it in the `env` block of the `--settings`
+that every Claude worker and peer gets. It is `auto` (the default), `0`
+(Claude's own default) or a number from `100000` to `1000000`. The lead is not
+touched: set the lead's own threshold with Claude's `/autocompact`. Codex
+workers are not changed.
+
+`auto` reads your Claude plan at worker start, from the same quota read that
+admits the worker, and takes the window from `workers.compact_ladder`. A plan
+that is not in the map, or one the read could not name, gets `0`: no entry.
+The values below are first guesses and will be set again after a measurement.
+
+| Plan | `workers.compact_ladder` default |
+|---|---|
+| `pro` (the $20 plan) | `250000` |
+| `max` (the $100 plan) | `500000` |
+| `ultra` (the $200 plan) | `700000` |
+
+duolog takes the plan name from what Claude reports. If Claude reports the
+$200 plan as `max`, as it does today, an `ultra` account gets the `max` value.
+
+Your own `compact_ladder` replaces single keys, such as `pro: 300000`, and
+adds plans (`free`, `team`, `business`, `enterprise`, `edu`). Each value is `0`
+or from `100000` to `1000000`.
 
 A free run never gets a name that can bill per token, even when
 `env_passthrough` lists it. A free run is one that must stay on your
