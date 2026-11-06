@@ -176,11 +176,13 @@ func Build(in ProcessInput) (Process, error) {
 		if err != nil {
 			return Process{}, err
 		}
+		// The extras go first: one that repeats a passed name replaces it.
+		extras := sel.extra(in.ExtraEnv, in.Variant == Paid)
 		p.Env = append(slices.Clone(sel.pairs), path, "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+in.LeadID, "DUOLOG_ROLE="+in.Role)
 		if in.Shape == Peer {
 			p.Env = append(p.Env, "DUOLOG_PEER="+in.PeerID)
 		}
-		p.Env = append(p.Env, sel.extra(in.ExtraEnv, in.Variant == Paid)...)
+		p.Env = append(p.Env, extras...)
 		switch in.Agent {
 		case "claude":
 			// A worker's auto memory would land in the project's memory, read
@@ -356,19 +358,32 @@ func (s *envSelection) extra(pairs []string, routes bool) []string {
 		own, route := s.route(name)
 		switch {
 		case !route:
-			out = append(out, pair)
+			out = s.replace(out, name, pair)
 		case own && routes:
-			out = append(out, pair)
+			out = s.replace(out, name, pair)
 			if !s.trusted(name, value) {
 				s.signals = append(s.signals, Signal{Name: "env:" + name, Layer: "mcp"})
 			}
 		case own && s.trusted(name, value):
-			out = append(out, pair)
+			out = s.replace(out, name, pair)
 		case own:
 			s.dropped = append(s.dropped, name)
 		}
 	}
 	return out
+}
+
+// replace adds an accepted extra pair so that its name is in the process once,
+// with this value, as the process would see it: an earlier pair of the name,
+// passed or extra, goes, and so does the signal that pair raised.
+func (s *envSelection) replace(out []string, name, pair string) []string {
+	isName := func(p string) bool { n, _, _ := strings.Cut(p, "="); return s.same(n, name) }
+	s.pairs = slices.DeleteFunc(s.pairs, isName)
+	s.signals = slices.DeleteFunc(s.signals, func(g Signal) bool {
+		n, ok := strings.CutPrefix(g.Name, "env:")
+		return ok && s.same(n, name)
+	})
+	return append(slices.DeleteFunc(out, isName), pair)
 }
 
 // report takes the signals of an observed environment that is used as it is.

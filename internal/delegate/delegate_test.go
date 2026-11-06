@@ -785,6 +785,38 @@ func TestPartialWorkPlacementUsesAnnotatedCopy(t *testing.T) {
 	}
 }
 
+// A quota end that hands the task to a Claude lead names the task as a path
+// from the current folder, as answerPointer does, not as an absolute path.
+// The placement keeps the real path for its callers.
+func TestQuotaHandOffNamesTaskRelatively(t *testing.T) {
+	h := newHarness(t)
+	h.gitRepo()
+	h.lead("claude", mode.Edits, "high")
+	h.limited()
+	o, e := h.run("implement")
+	h.requireCalls(1)
+	if e != nil || o.RunHere == nil {
+		t.Fatal(o, e)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, err := filepath.Rel(cwd, h.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "run here: self task=" + filepath.ToSlash(rel); !strings.HasSuffix(o.Line, want) {
+		t.Errorf("line %q does not end in %q", o.Line, want)
+	}
+	if strings.Contains(o.Line, "task="+h.path) {
+		t.Errorf("line holds the absolute task path: %s", o.Line)
+	}
+	if o.RunHere.Task != h.path {
+		t.Errorf("RunHere.Task = %q, want %q", o.RunHere.Task, h.path)
+	}
+}
+
 func TestAnswerFieldsStayOnOneLine(t *testing.T) {
 	h := newHarness(t)
 	h.results = []runner.Result{{Done: true, Summary: "Done\r\nnow", Files: []string{"a\nb.go", "c\rd.go"}, Needs: []string{"help\nplease"}}}

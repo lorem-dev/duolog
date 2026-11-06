@@ -113,6 +113,31 @@ func TestDroppedOnlyLoginGoesToLeadWithoutLogin(t *testing.T) {
 	})
 }
 
+// Notices follow the line with "; ", except after one that ends in a full
+// stop, which the next notice follows with a space: ".;" never appears.
+func TestJoinNotices(t *testing.T) {
+	migration := workerenv.MigrationLine("codex", "OPENAI_API_KEY")
+	overage := "codex worker ran on paid overage; duolog stopped further runs"
+	if !strings.HasSuffix(migration, ".") {
+		t.Fatalf("the migration line no longer ends in a full stop: %q", migration)
+	}
+	for _, c := range []struct {
+		notices []string
+		want    string
+	}{
+		{nil, ""},
+		{[]string{migration}, "; " + migration},
+		{[]string{overage}, "; " + overage},
+		{[]string{migration, overage}, "; " + migration + " " + overage},
+		{[]string{overage, migration}, "; " + overage + "; " + migration},
+	} {
+		got := joinNotices(c.notices)
+		if got != c.want || strings.Contains(got, ".;") {
+			t.Errorf("joinNotices(%q) = %q, want %q", c.notices, got, c.want)
+		}
+	}
+}
+
 // A claimed migration line does not come again in this lead, so a line that
 // is too long is cut before it and the line follows whole, however the run
 // ends.
