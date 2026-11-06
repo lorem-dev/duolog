@@ -33,6 +33,10 @@ func spec(t *testing.T, agent string) Spec {
 	return rebuilt(t, Spec{Route: coreroute.Route{Target: config.Target{Agent: agent, Model: model, Effort: effort}, Sandbox: "read-only", Context: "minimal"}, Mode: mode.Plan, TaskDir: t.TempDir(), Cwd: t.TempDir(), Stdin: []byte("<stdin>\nImplement the task.\n</stdin>")})
 }
 
+// heldDisallowed is the --disallowedTools value of spec's Claude worker,
+// which the gate holds read-only (mode.GateHeld).
+var heldDisallowed = "--disallowedTools=Agent,Task," + strings.Join(mode.HeldDisallowedTools(false), ",")
+
 // rebuilt builds s's free worker process again, after a test changed what
 // the build reads: the context, the folder, the roots, the MCP env or PATH.
 func rebuilt(t *testing.T, s Spec) Spec {
@@ -129,7 +133,10 @@ func TestClaudeArgvDisallowsSubagents(t *testing.T) {
 		}
 	}
 	s.MCP = nil
-	containsArgs(t, Argv(s), "--disallowedTools=Agent,Task")
+	// spec's worker is a read-only role at level plan, held by the gate.
+	containsArgs(t, Argv(s), heldDisallowed)
+	s.Route.Sandbox, s.Mode = "workspace-write", mode.Edits
+	containsArgs(t, Argv(rebuilt(t, s)), "--disallowedTools=Agent,Task")
 	if line := strings.Join(Argv(spec(t, "codex")), " "); strings.Contains(line, "disallowedTools") || strings.Contains(line, "Agent") {
 		t.Fatal(line)
 	}

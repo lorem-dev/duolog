@@ -86,6 +86,7 @@ func peerProjectWithoutLead(t *testing.T, capture testbin.Scenario) (root, rex s
 	}
 	t.Helper()
 	isolatedRouteConfig(t)
+	claudeGateRuns(t)
 	root = t.TempDir()
 	t.Chdir(root)
 	t.Setenv("REX_SESSION", "sess")

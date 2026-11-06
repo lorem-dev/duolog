@@ -39,7 +39,7 @@ func TestWorkerFastModePinned(t *testing.T) {
 			if settings.AutoMemoryEnabled == nil || *settings.AutoMemoryEnabled || len(settings.Sandbox.Filesystem.DenyRead) == 0 {
 				t.Fatal(thread, context, args[i+1])
 			}
-			if !slices.Contains(args, "--disallowedTools=Agent,Task") {
+			if !slices.Contains(args, heldDisallowed) {
 				t.Fatal(args)
 			}
 		}

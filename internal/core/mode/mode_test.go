@@ -37,7 +37,7 @@ func TestModeArgsTable(t *testing.T) {
 	for _, tc := range []struct {
 		m             Mode
 		codex, claude string
-	}{{Plan, "read-only", "plan"}, {Ask, "workspace-write", "default"}, {Edits, "workspace-write", "acceptEdits"}, {Full, "workspace-write", "acceptEdits"}} {
+	}{{Plan, "read-only", "default"}, {Ask, "workspace-write", "default"}, {Edits, "workspace-write", "acceptEdits"}, {Full, "workspace-write", "acceptEdits"}} {
 		if got := Args("codex", tc.m, "workspace-write"); !reflect.DeepEqual(got, []string{"-s", tc.codex}) {
 			t.Errorf("%s: %v", tc.m, got)
 		}
@@ -80,6 +80,29 @@ func TestRoleSandboxNarrowsMode(t *testing.T) {
 		}
 	}
 }
+
+// A Claude worker or peer never starts in Claude's plan mode, whatever the
+// level, the sandbox or the name it is given: plan waits for a person to
+// approve leaving it, and a worker or peer has none. Codex keeps read-only.
+func TestClaudeNeverLaunchesInPlan(t *testing.T) {
+	for _, m := range []Mode{Plan, Ask, Edits, Full, "unknown"} {
+		for _, sb := range []string{"read-only", "workspace-write", ""} {
+			if got := strings.Join(Args("claude", m, sb), " "); strings.Contains(got, "plan") {
+				t.Errorf("claude %s %s: %s", m, sb, got)
+			}
+		}
+		if got := Args("codex", m, "read-only"); !reflect.DeepEqual(got, []string{"-s", "read-only"}) {
+			t.Errorf("codex %s read-only: %v", m, got)
+		}
+	}
+	if got := Flags("claude", "plan"); !reflect.DeepEqual(got, []string{"--permission-mode", "default"}) {
+		t.Errorf("Flags(claude, plan) = %v", got)
+	}
+	if got := Default("claude", Plan, "read-only"); got != "default" {
+		t.Errorf("Default(claude, plan) = %q", got)
+	}
+}
+
 func TestLower(t *testing.T) {
 	modes := []Mode{Plan, Ask, Edits, Full}
 	for i, a := range modes {

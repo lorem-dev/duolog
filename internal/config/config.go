@@ -108,6 +108,9 @@ type Rule struct {
 	Match    string   `yaml:"match" jsonschema_description:"Glob expression selecting paths or commands; ** matches all paths."`
 	Decision string   `yaml:"decision" jsonschema_description:"Permission result for a matching rule; deny takes precedence over allow." jsonschema:"enum=allow,enum=deny,enum=ask"`
 	Roles    []string `yaml:"roles" jsonschema_description:"Roles to which the rule applies; an omitted list applies to every role."`
+	// ReadOnly marks the MCP tools an allow rule names as tools that only
+	// read, so a worker at level plan or in a read-only role may run them.
+	ReadOnly bool `yaml:"read_only,omitempty" jsonschema_description:"For an mcp allow rule only: the tools it names only read, so a worker at level plan or in a read-only role may run them too."`
 }
 
 type Capabilities struct {

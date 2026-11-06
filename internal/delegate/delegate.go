@@ -558,7 +558,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		state, folder, trustErr := gateState(route.Agent, root, pre.Env)
 		noHome := errors.Is(trustErr, trusthome.ErrNoHome)
 		switch {
-		case noHome && wm.needsGate():
+		case noHome && wm.needsPreflight():
 			// Nothing the worker's agent loads can be read, so nothing shows
 			// its gate.
 			return out, wm.gatePreflight(route.Agent, root, pre.Env, protected)
@@ -586,9 +586,10 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		if noHome {
 			warning += "; " + noHomeProblem()
 		}
-		// A looser worker whose gate cannot be shown to run does not start, and
-		// the other agent does not run in its place.
-		if wm.needsGate() {
+		// A looser worker, or one that only the gate keeps read-only, whose gate
+		// cannot be shown to run does not start, and the other agent does not
+		// run in its place.
+		if wm.needsPreflight() {
 			if err = wm.gatePreflight(route.Agent, root, pre.Env, protected); err != nil {
 				return out, err
 			}
@@ -697,7 +698,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				}
 				// The process that launches is the one admitted: its gate is
 				// shown to run once more, from its own environment.
-				if wm.needsGate() {
+				if wm.needsPreflight() {
 					if err := wm.gatePreflight(route.Agent, root, a.permit.Process.Env, protected); err != nil {
 						return nil, nil, errors.Join(err, a.release(ctx))
 					}

@@ -3,6 +3,7 @@ package peer
 import (
 	"encoding/json"
 	"os"
+	"strings"
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
@@ -16,8 +17,8 @@ import (
 // grants a permission. Updates are off through the process: Codex's setting
 // in its prefix, Claude's variable in its environment. Nothing here bypasses
 // the sandbox; Claude's protected roots are in its settings, and Codex reads
-// have only the gate.
-func agentArgv(route coreroute.Route, p workerenv.Process) []string {
+// have only the gate. m is the lead's mode the pane opened under.
+func agentArgv(route coreroute.Route, m mode.Mode, p workerenv.Process) []string {
 	switch route.Agent {
 	case "codex":
 		args := p.LaunchArgv("-m", route.Model)
@@ -36,7 +37,13 @@ func agentArgv(route coreroute.Route, p workerenv.Process) []string {
 		}
 		// A peer cannot delegate: the gate denies a spawn, and without the tools the
 		// peer does not spend turns trying. One value with =, as the option takes a list.
-		return append(args, "--disallowedTools=Agent,Task")
+		disallowed := []string{"Agent", "Task"}
+		// A peer that only the gate keeps read-only starts without the built-in
+		// tools that are not read-only either, a second wall behind the gate.
+		if mode.GateHeld(route.Agent, m, route.Sandbox) {
+			disallowed = append(disallowed, mode.HeldDisallowedTools(true)...)
+		}
+		return append(args, "--disallowedTools="+strings.Join(disallowed, ","))
 	}
 	return nil
 }
@@ -74,6 +81,12 @@ func peerInput(cfg *config.Config, route coreroute.Route, m mode.Mode, variant w
 		Minimal: route.Context == "minimal", ProtectedRoots: roots, Launch: paneLaunch(route, m)}
 	if run != "" {
 		in.ExtraEnv = []string{"DUOLOG_RUN=" + run}
+	}
+	// A pane opened under a lead in plan stays at level plan when the lead
+	// later moves to a looser mode: the gate takes DUOLOG_MODE only to lower.
+	// A read-only role needs none; its role sandbox holds it.
+	if m == mode.Plan {
+		in.ExtraEnv = append(in.ExtraEnv, "DUOLOG_MODE="+string(mode.Plan))
 	}
 	if route.Agent == "claude" {
 		in.ExtraSettings = map[string]any{"preferredNotifChannel": "notifications_disabled"}

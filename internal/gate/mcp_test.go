@@ -37,14 +37,20 @@ func TestMCPRules(t *testing.T) {
 		{Action: "mcp", Match: "wiki/read", Decision: Allow, Roles: []string{"implement"}},
 		{Action: "unknown", Match: "*", Decision: Allow},
 	}}
-	for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
-		// A listed tool runs in every mode: the person named it.
-		check(t, p, LeadRules{RoleSandbox: "read-only"}, m, Action{Kind: "mcp", Target: "mcp_jira/jira_get_issue", Role: "review_final"}, Allow)
+	for _, m := range []mode.Mode{mode.Ask, mode.Edits, mode.Full} {
+		// A listed tool runs in every mode above plan: the person named it.
+		check(t, p, LeadRules{}, m, Action{Kind: "mcp", Target: "mcp_jira/jira_get_issue", Role: "implement"}, Allow)
 		// An unlisted tool asks, in full mode too, and an unknown-tool allow
 		// does not cover it.
 		check(t, p, LeadRules{}, m, Action{Kind: "mcp", Target: "mcp_jira/jira_create_issue", Role: "implement"}, Ask)
 		check(t, p, LeadRules{}, m, Action{Kind: "mcp", Target: "jira/delete_issue", Role: "implement"}, Deny)
 	}
+	// At plan or in a read-only role a tool needs a read_only mark; the
+	// listed tool has none (TestPlanDeniesToolsTheGateCannotJudge).
+	for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
+		check(t, p, LeadRules{RoleSandbox: "read-only"}, m, Action{Kind: "mcp", Target: "mcp_jira/jira_get_issue", Role: "review_final"}, Deny)
+	}
+	check(t, p, LeadRules{}, mode.Plan, Action{Kind: "mcp", Target: "jira/delete_issue", Role: "implement"}, Deny)
 	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "mcp", Target: "wiki/read", Role: "implement"}, Allow)
 	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "mcp", Target: "wiki/read", Role: "review_final"}, Ask)
 	// The lead's own deny wins over a project allow.
