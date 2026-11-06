@@ -71,7 +71,7 @@ func TestJudgeTaskIsBlind(t *testing.T) {
 	if err := task.Validate(path); err != nil {
 		t.Fatal(err)
 	}
-	refs, err := task.References(path)
+	refs, err := task.References(path, root)
 	if err != nil {
 		t.Fatal(err)
 	}

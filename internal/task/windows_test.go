@@ -18,7 +18,7 @@ func TestWindowsReadPathsAndCRLF(t *testing.T) {
 	if err := os.WriteFile(task, []byte("## Goal\r\nx\r\n## Read\r\n- `src\\file.txt`:2-2\r\n## Write\r\n## Limits\r\n## Check\r\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	refs, err := References(task)
+	refs, err := References(task, root)
 	if err != nil || len(refs) != 1 || refs[0].Path != "src/file.txt" {
 		t.Fatal(refs, err)
 	}
