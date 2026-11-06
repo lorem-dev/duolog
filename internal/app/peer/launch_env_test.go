@@ -70,7 +70,7 @@ func TestTelemetryDenyReadSettings(t *testing.T) {
 	roots := []string{"/t/telemetry", "/t/balance", "/t/telemetry"}
 	for _, context := range []string{"minimal", "project"} {
 		route := coreroute.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Context: context}
-		denied := peerDenied(peerSandbox(t, agentArgv(route, peerProcess(t, &config.Config{}, route, workerenv.Free, state, roots...))))
+		denied := peerDenied(peerSandbox(t, agentArgv(route, mode.Ask, peerProcess(t, &config.Config{}, route, workerenv.Free, state, roots...))))
 		if len(denied) < 3 || denied[len(denied)-2] != "/t/telemetry" || denied[len(denied)-1] != "/t/balance" {
 			t.Fatal(context, denied)
 		}
@@ -79,7 +79,7 @@ func TestTelemetryDenyReadSettings(t *testing.T) {
 		}
 	}
 	codexRoute := coreroute.Route{Target: config.Target{Agent: "codex", Model: "sol"}}
-	codex := agentArgv(codexRoute, peerProcess(t, &config.Config{}, codexRoute, workerenv.Free, state, roots...))
+	codex := agentArgv(codexRoute, mode.Ask, peerProcess(t, &config.Config{}, codexRoute, workerenv.Free, state, roots...))
 	if strings.Contains(strings.Join(codex, " "), "/t/") {
 		t.Fatal(codex)
 	}

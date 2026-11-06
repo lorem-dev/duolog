@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/quota"
 )
 
@@ -40,6 +41,11 @@ func claudeArgv(s Spec) []string {
 	// A worker cannot delegate. The gate denies a spawn anyway; without the tools
 	// the worker does not spend turns trying.
 	disallowed := []string{"Agent", "Task"}
+	// A worker that only the gate keeps read-only starts without the
+	// built-in tools that are not read-only, a second wall behind the gate.
+	if mode.GateHeld(s.Route.Agent, s.Mode, s.Route.Sandbox) {
+		disallowed = append(disallowed, mode.HeldDisallowedTools(false)...)
+	}
 	if s.MCP != nil {
 		// These options take a list, so each gets one comma-joined value with =.
 		if s.MCP.ConfigPath != "" {

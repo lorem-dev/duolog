@@ -842,6 +842,10 @@
           },
           "type": "array",
           "description": "Roles to which the rule applies; an omitted list applies to every role."
+        },
+        "read_only": {
+          "type": "boolean",
+          "description": "For an mcp allow rule only: the tools it names only read, so a worker at level plan or in a read-only role may run them too."
         }
       },
       "additionalProperties": false,
@@ -998,7 +1002,7 @@
             "auto",
             "bypassPermissions"
           ],
-          "description": "Native Claude permission mode a worker starts in; it never exceeds the lead's mode. Absent means duolog's default."
+          "description": "Native Claude permission mode a worker starts in; it never exceeds the lead's mode. plan sets the worker's level to plan: it starts in default, and the gate keeps it read-only. Absent means duolog's default."
         },
         "codex": {
           "type": "string",

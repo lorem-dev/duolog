@@ -7,6 +7,22 @@ import (
 	"github.com/lorem-dev/duolog/internal/mode"
 )
 
+// A read-only role's Claude worker or peer starts in Claude's default mode,
+// not plan, so the gate alone keeps it read-only. Its decisions do not
+// depend on the native mode: at every lead level it denies a write outside
+// the peer's report and a command that is not named read-only, and it
+// allows the report.
+func TestReadOnlyRoleStaysReadOnlyWithoutClaudePlan(t *testing.T) {
+	p := policy(t)
+	ro := LeadRules{RoleSandbox: "read-only"}
+	for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
+		check(t, p, ro, m, Action{Kind: "write", Target: "main.go", Role: "review_final", Peer: "peer-abc123"}, Deny)
+		check(t, p, ro, m, Action{Kind: "write", Target: "main.go", Role: "review_final"}, Deny)
+		check(t, p, ro, m, Action{Kind: "exec", Target: "touch main.go", Role: "review_final"}, Deny)
+		check(t, p, ro, m, Action{Kind: "write", Target: ReportPath("peer-abc123"), Role: "review_final", Peer: "peer-abc123"}, Allow)
+	}
+}
+
 // A peer may write its own report file and nothing else under .duolog.
 func TestPeerWritesOnlyItsOwnReport(t *testing.T) {
 	p := policy(t)

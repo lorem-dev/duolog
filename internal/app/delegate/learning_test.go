@@ -645,6 +645,7 @@ func TestCalibrationNeedsTheGateInTheWorkersEnvironment(t *testing.T) {
 		setup       func(h *harness, alternate string)
 	}{
 		{"claude gate only in the caller's CLAUDE_CONFIG_DIR", "claude/sonnet/high", func(h *harness, alternate string) {
+			h.claudeGate(false) // the project's own, which newHarness installs
 			put(h.t, filepath.Join(alternate, "settings.json"), gate)
 			h.t.Setenv("CLAUDE_CONFIG_DIR", alternate)
 		}},

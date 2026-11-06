@@ -14,6 +14,8 @@ const (
 )
 
 var (
-	Parse = coremode.Parse
-	Lower = coremode.Lower
+	Parse               = coremode.Parse
+	Lower               = coremode.Lower
+	GateHeld            = coremode.GateHeld
+	HeldDisallowedTools = coremode.HeldDisallowedTools
 )

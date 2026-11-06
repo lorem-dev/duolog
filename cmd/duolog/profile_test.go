@@ -22,6 +22,7 @@ func TestProfileRejectsBadEntry(t *testing.T) {
 
 func TestProfilePrintsVerdictScreen(t *testing.T) {
 	root := learningRepo(t, true)
+	claudeGateRuns(t) // the judge is a read-only Claude worker
 	if err := os.WriteFile(filepath.Join(root, ".duolog", "config.yaml"), []byte("learning:\n  enabled: true\n  judges: [{agent: claude, model: opus, effort: high}]\n  classes:\n    docs:\n      rubric: [quality]\n      checks: [git --version, no-such-program-x]\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
