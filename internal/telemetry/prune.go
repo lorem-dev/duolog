@@ -133,8 +133,22 @@ func (s *Store) stampDue(every time.Duration) bool {
 	return due(info.ModTime(), s.o.Now().UTC(), every)
 }
 
-// linkStamp links the dated temporary stamp in at its name; tests replace it
-// to act as a file system without hard links.
+// renameStamp moves the dated temporary stamp to its name and fails with
+// fs.ErrExist when a stamp is there already; tests replace it to act as a
+// system or file system that cannot rename without replacing.
+var renameStamp = renameNoReplace
+
+// errRenameUnsupported is a rename that refuses to replace failing because
+// the system or file system cannot do it. Each platform's renameFailure
+// returns it only for the errors documented to mean that, and only it
+// sends newStamp to the link.
+var errRenameUnsupported = fmt.Errorf("telemetry: no rename without replace: %w", errors.ErrUnsupported)
+
+// unsupported marks err, a rename's own error, as missing support.
+func unsupported(err error) error { return fmt.Errorf("%w: %w", errRenameUnsupported, err) }
+
+// linkStamp links the dated temporary stamp in at its name where renameStamp
+// fails; tests replace it to act as a file system without hard links.
 var linkStamp = func(r *os.Root, oldname, newname string) error { return r.Link(oldname, newname) }
 
 // stampTemp is a temporary stamp: its name holds the Unix second it was made
@@ -143,11 +157,18 @@ var stampTemp = regexp.MustCompile(`^` + regexp.QuoteMeta(stampName) + `\.new\.(
 
 // newStamp creates a missing stamp dated at the Unix epoch, so it records no
 // completed prune. The stamp appears at its name already dated: it is made
-// under a temporary name and linked in, so no one can lock it, or read it
-// as due, between its creation and its date. A file system without hard
-// links, such as exFAT, FAT32 or some SMB shares, refuses the link; there the
-// stamp is created in place and then dated, and the checks under the lock
-// decide.
+// under a temporary name and moved there, so no one can lock it, or read it
+// as due, between its creation and its date. The move is a rename that
+// refuses to replace a stamp, so the stamp never has a second name, and a
+// process that loses the race to another creator drops its temporary and
+// uses the stamp that won. A rename Windows refuses because another process
+// holds the file is tried again; any other failure but missing support is
+// returned. Where the system or file system cannot rename
+// that way, the temporary is linked in and then removed, and for that moment
+// the stamp has two links, which openRetried waits out. A file system
+// without hard links either, such as exFAT, FAT32 or some SMB shares, refuses
+// the link too; there the stamp is created in place and then dated, and the
+// checks under the lock decide.
 func (s *Store) newStamp() error {
 	if _, err := s.root.Lstat(stampName); !errors.Is(err, fs.ErrNotExist) {
 		return nil // lockFile checks what is there
@@ -162,9 +183,19 @@ func (s *Store) newStamp() error {
 		return scrub(err)
 	}
 	f.Close()
-	defer func() { _ = s.root.Remove(tmp) }() // best effort: removeStaleStamps clears a leftover
+	// Best effort, and a no-op once renamed: removeStaleStamps clears a
+	// leftover. Windows refuses to remove a linked-in name while the stamp is
+	// open anywhere, so the removal is retried there.
+	defer func() { _ = retried(func() error { return s.root.Remove(tmp) }) }()
 	epoch := time.Unix(0, 0)
 	if err := s.root.Chtimes(tmp, epoch, epoch); err != nil {
+		return scrub(err)
+	}
+	err = retry(func() error { return renameStamp(s.root, tmp, stampName) }, sharingError)
+	switch {
+	case err == nil, errors.Is(err, fs.ErrExist):
+		return nil
+	case !errors.Is(err, errRenameUnsupported):
 		return scrub(err)
 	}
 	err = linkStamp(s.root, tmp, stampName)
@@ -537,22 +568,37 @@ func (s *Store) evict(e evictable, held string, m *Maintenance) int64 {
 }
 
 // retried runs a rename or removal again while Windows reports the sharing
-// errors of a file another process holds open, as store.Rename does.
+// errors of a file another process holds open, or access denied for one
+// being deleted, as store.Rename does.
 func retried(op func() error) error {
-	return retry(op, runtime.GOOS == "windows")
+	// ERROR_ACCESS_DENIED; not a Unix errno here.
+	return retry(op, func(err error) bool { return errors.Is(err, syscall.Errno(5)) || sharingError(err) })
 }
 
-func retry(op func() error, windows bool) error {
-	for attempt := 0; ; attempt++ {
+// windowsErrors is true where errors are Windows error codes; tests set it
+// to run the Windows retries elsewhere.
+var windowsErrors = runtime.GOOS == "windows"
+
+// retryAttempts is how many times retry runs an operation at most.
+const retryAttempts = 8
+
+// retry runs op again, after a growing pause, while windowsErrors is set
+// and transient holds for its error.
+func retry(op func() error, transient func(error) bool) error {
+	for attempt := 1; ; attempt++ {
 		err := op()
-		// ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION and
-		// ERROR_LOCK_VIOLATION; these numbers are not Unix errnos here.
-		transient := windows && (errors.Is(err, syscall.Errno(5)) || errors.Is(err, syscall.Errno(32)) || errors.Is(err, syscall.Errno(33)))
-		if !transient || attempt == 7 {
+		if !windowsErrors || !transient(err) || attempt == retryAttempts {
 			return err
 		}
-		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
+		time.Sleep(time.Duration(attempt) * 10 * time.Millisecond)
 	}
+}
+
+// sharingError is ERROR_SHARING_VIOLATION or ERROR_LOCK_VIOLATION, which
+// Windows reports while another process holds the file; these numbers are
+// not Unix errnos here.
+func sharingError(err error) bool {
+	return errors.Is(err, syscall.Errno(32)) || errors.Is(err, syscall.Errno(33))
 }
 
 // pruneCategory maps a failed check or step to a closed error.

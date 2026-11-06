@@ -37,6 +37,8 @@ var (
 	errUnsafe  = errors.New("telemetry: unsafe file")
 	errOwner   = errors.New("telemetry: foreign owner")
 	errNFS     = errors.New("telemetry: root on NFS")
+	// errLinked is a file with more than one name, which is never trusted.
+	errLinked = fmt.Errorf("%w: more than one link", errUnsafe)
 )
 
 // refusedError names the refusal and nothing else, so an error printed by
@@ -321,17 +323,38 @@ func sameDir(r *os.Root, root string) error {
 // that was checked before anything is truncated, written or chmodded. Name
 // uses forward slashes.
 func openRegular(r *os.Root, name string, flags int) (*os.File, error) {
-	return openChecked(r, name, flags, true)
+	return openRetried(r, name, flags, true)
 }
 
 // openReading opens a telemetry file read only with every check of
 // openRegular and writes nothing: a file or directory that is merely too
 // open is read as it is.
 func openReading(r *os.Root, name string) (*os.File, error) {
-	return openChecked(r, name, os.O_RDONLY, false)
+	return openRetried(r, name, os.O_RDONLY, false)
 }
 
-// openChecked is openRegular; repair tightens the modes it finds too open.
+// stampOpens is how many times openRetried opens a stamp that has more than
+// one link before it reports it unsafe.
+const stampOpens = 8
+
+// openRetried is openChecked, run again for the stamp. Where the system
+// cannot rename without replacing, newStamp links its temporary in and then
+// removes it, so the stamp can have two names for a moment: a stamp with
+// more than one link is opened again after a short pause, and only one that
+// keeps them is unsafe. Two links are never accepted.
+func openRetried(r *os.Root, name string, flags int, repair bool) (*os.File, error) {
+	for attempt := 1; ; attempt++ {
+		f, err := openChecked(r, name, flags, repair)
+		if name != stampName || !errors.Is(err, errLinked) || attempt == stampOpens {
+			return f, err
+		}
+		race("stamp linked")
+		time.Sleep(time.Duration(attempt) * 5 * time.Millisecond)
+	}
+}
+
+// openChecked is one attempt of openRegular; repair tightens the modes it
+// finds too open.
 func openChecked(r *os.Root, name string, flags int, repair bool) (*os.File, error) {
 	m := fileName.FindStringSubmatch(name)
 	if m == nil || (m[1] != "" && !validDay(m[1])) {
@@ -385,8 +408,11 @@ func confirmFile(r *os.Root, name string, f *os.File, before os.FileInfo, repair
 	if err != nil {
 		return scrub(err)
 	}
-	if !info.Mode().IsRegular() || !singleLink(info) {
+	if !info.Mode().IsRegular() {
 		return errUnsafe
+	}
+	if !singleLink(info) {
+		return errLinked
 	}
 	if before != nil && !os.SameFile(unwrap(info), before) {
 		return errUnsafe
