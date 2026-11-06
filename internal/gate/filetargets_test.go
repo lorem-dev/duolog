@@ -1,10 +1,13 @@
 package gate
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
@@ -359,6 +362,137 @@ func TestBuiltinAndBareAssignmentsAreJudged(t *testing.T) {
 		`GIT_CONFIG_GLOBAL=.duolog/bus.ndjson; export GIT_CONFIG_GLOBAL; git log`,
 	)
 	wantLead(t, p, root, `builtin export CGO_ENABLED=0; go build ./...`, `FOO=bar; make x`)
+}
+
+// A glob segment that starts with a dot can match .. in bash before 5.2 and
+// in dash, and a glob can match a symlink that leads out. The gate judged
+// the glob as a literal name inside the work root.
+func TestGlobsThatCanLeaveTheWorkRoot(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	wantPerson(t, p, root,
+		// The reviews' commands.
+		`cat .?/peer-gone/go.mod`,
+		`cd .? && cat peer-gone/go.mod`,
+		`cat */../../x`,
+		// The other spellings of a segment that can match ..
+		`cat ..*/x`,
+		`cat .[.]/x`,
+		`cat sub/.?/.?/x`,
+		`cp .?/x out`,
+		`grep -n x .?/peer/go.mod`,
+	)
+	// .* can match .duolog, so the state rule denies it first.
+	wantDeny(t, p, root, RuleState, `cat .*/x`)
+	wantLead(t, p, root,
+		`cat *.go`,
+		`cat sub/.?/x`,
+		`grep -n x internal/*/gate.go`,
+		`find . -name '.*' -type f | make x`,
+	)
+
+	// A glob that matches a symlink out of the work root.
+	other := t.TempDir()
+	if err := os.WriteFile(filepath.Join(other, "a"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(other, filepath.Join(root, "sub", "link")); err != nil {
+		t.Skipf("no symlink: %v", err)
+	}
+	wantPerson(t, p, root, `cat sub/lin?/a`, `cat sub/*/a`, `cp sub/l*/a out`)
+	wantLead(t, p, root, `cat sub/*.go`)
+	// The shell reads [!x] as any character but x, where Go's path.Match reads
+	// the ! as a character of the class.
+	wantPerson(t, p, root, `cat sub/[!x]ink/a`, `cp sub/l[!x]nk/a out`)
+	// Go's path.Match knows no POSIX class, and reads [[!] as [ and ^ where
+	// bash reads [ and !, so each bracket expression counts as any character.
+	if err := os.Symlink(other, filepath.Join(root, "sub", "!ink")); err != nil {
+		t.Fatal(err)
+	}
+	wantPerson(t, p, root,
+		`cat sub/[[:alpha:]]ink/a`,
+		`cp sub/l[[:lower:]]nk/a out`,
+		`cat sub/[[!]ink/a`,
+		`cat sub/[]!]ink/a`,
+	)
+	wantLead(t, p, root, `cat sub/[[:digit:]]*.go`, `cat sub/[a-z]x.go`)
+}
+
+func TestBracketsAsAny(t *testing.T) {
+	for pattern, want := range map[string]string{
+		`a[!x]b`:          `a?b`,
+		`[[:alpha:]]nk/x`: `?nk/x`,
+		`[[!]lnk`:         `?lnk`,
+		`[]!]ink`:         `?ink`,
+		`[^]a]`:           `?`,
+		`[[.-.]a]z`:       `?z`,
+		`a[b/c]`:          `a?b/c]`,
+		`x[`:              `x?`,
+		`*.go`:            `*.go`,
+	} {
+		if got := bracketsAsAny(pattern); got != want {
+			t.Errorf("%q: %q, want %q", pattern, got, want)
+		}
+	}
+}
+
+// Symlinks back to their own folder make a glob's expansion grow with every
+// segment, so the gate could run past the hook's timeout. The expansion now
+// has a budget of names and time; a glob that spends it counts as outside.
+func TestGlobExpansionIsBounded(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	for _, name := range []string{"a", "b", "c"} {
+		if err := os.Symlink(".", filepath.Join(root, name)); err != nil {
+			t.Skipf("no symlink: %v", err)
+		}
+	}
+	command := `false && ls ` + strings.Repeat("*/", 10) + "x"
+	start := time.Now()
+	wantPersonInFull(t, p, root, command)
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("%q took %v", command, elapsed)
+	}
+	// A glob within the budget is judged by its matches as before.
+	wantLead(t, p, root, `ls */*/x`)
+}
+
+// A glob segment that starts with a dot and a glob character counts as ..,
+// since the shell's classes, such as [!x] and [[:punct:]], can match a dot
+// where Go's path.Match cannot.
+func TestGlobClassesThatCanMatchDotDot(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	wantPerson(t, p, root,
+		`cat .[!x]/peer/secret`,
+		`cat .[[:punct:]]/peer/secret`,
+		`cp .[!a-z]/x out`,
+	)
+	wantLead(t, p, root, `cat [!x]*.go`, `cat sub/[!.]*.go`)
+}
+
+// A quoted piece of a word does not quote the rest: in cat .?"/peer/go.mod"
+// the ? still expands and can match ... The gate took the whole word as
+// quoted and judged only the literal text, so the ask went to the lead.
+func TestPartlyQuotedGlobWords(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	wantPersonInFull(t, p, root,
+		// The review's command.
+		`cat .?"/peer/go.mod"`,
+		`cat '.'?/peer/go.mod`,
+		`cat .["!"x]/peer/go.mod`,
+		`cp README.md .?"/peer/x"`,
+	)
+	for _, command := range []string{`cat ".?/peer/go.mod"`, `cat .\?/peer/go.mod`, `cat '.*'/peer/go.mod`} {
+		a := Action{Kind: "exec", Target: command, Role: "implement", Work: root, Cwd: root}
+		if ExecOutside(a) {
+			t.Errorf("%q: ExecOutside true; every glob character is quoted", command)
+		}
+	}
 }
 
 // sed -i with a backup suffix also writes the backup. GNU sed puts the input's
