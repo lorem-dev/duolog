@@ -169,6 +169,9 @@ jobs:
         run: GOOS=darwin make lint-go
       - name: Go linters (windows)
         run: GOOS=windows make lint-go
+      # A size exception whose function or file was fixed must leave the list.
+      - name: Size exceptions still fire
+        run: make lint-exceptions
 
   cross-build:
     name: cross-build (all release targets)

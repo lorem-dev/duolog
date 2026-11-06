@@ -1,26 +1,54 @@
 version: "2"
 run:
   build-tags: [e2e]
+  # Paths in the exclusion rules are relative to go.mod, wherever the config is
+  # read from (scripts/lint/exceptions.py runs a copy without the exceptions).
+  relative-path-mode: gomod
 linters:
   default: standard # errcheck, govet, ineffassign, staticcheck, unused
   enable:
     - bodyclose
     - contextcheck
     - copyloopvar
+    - cyclop
     - durationcheck
     - errorlint
+    - funlen
     - gocheckcompilerdirectives
+    - gocognit
     - gocritic
     - gosec
     - makezero
     - misspell
     - nilerr
+    - nestif
     - nilnesserr
     - noctx
     - nolintlint
+    - revive
     - unconvert
     - wastedassign
   settings:
+    # Size and complexity limits for new code. The functions and files that
+    # are over a limit today are listed under "size exceptions" below; the list
+    # may only shrink (make lint-exceptions fails when a line no longer fires).
+    funlen:
+      lines: 60
+      statements: 40
+      ignore-comments: true
+    gocognit:
+      min-complexity: 20
+    cyclop:
+      max-complexity: 15
+      package-average: 8
+    nestif:
+      min-complexity: 5
+    revive:
+      # Only the file-length rule; the other revive rules are style.
+      enable-all-rules: false
+      rules:
+        - name: file-length-limit
+          arguments: [{max: 600, skipComments: true, skipBlankLines: true}]
     errcheck:
       check-type-assertions: true
     govet:
@@ -76,6 +104,243 @@ linters:
       # signature change. Excluded until then.
       - text: .
         linters: [contextcheck, noctx]
+      # Tests repeat setup on purpose and may be long: no function limits, and no
+      # file-length limit (peer_test.go is 1883 lines).
+      - path: _test\.go
+        linters: [funlen, gocognit, cyclop, nestif, revive]
+      # Size exceptions: what is over a limit today, one line per function, nested
+      # if and file, with its size in the comment. New code meets the limits. A
+      # line can only be removed or lowered: make lint-exceptions fails when a line
+      # no longer fires, and make lint-exceptions-update rewrites the block (it
+      # refuses to add a finding or raise a number). Do not edit it by hand.
+      # BEGIN size exceptions
+      - {path: '^cmd/duolog/calibrate\.go$', linters: [revive], text: 'file length is 1135 lines'} # cmd/duolog/calibrate.go: code lines 1135
+      - {path: '^cmd/duolog/calibrate\.go$', linters: [funlen, gocognit], text: 'Function .newCalibrateClassesCommand. is too long \(63 > |complexity 30 of func .(?:\(\*?\w+\)\.)?newCalibrateClassesCommand. is'} # newCalibrateClassesCommand: lines 63, cognitive 30
+      - {path: '^cmd/duolog/calibrate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newCalibrateJudgeCommand. is too long \(139 > |complexity 88 of func .(?:\(\*?\w+\)\.)?newCalibrateJudgeCommand. is|function (?:\(\*?\w+\)\.)?newCalibrateJudgeCommand is 47,'} # newCalibrateJudgeCommand: cyclomatic 47, lines 139, cognitive 88
+      - {path: '^cmd/duolog/calibrate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newCalibrateMineCommand. is too long \(81 > |complexity 41 of func .(?:\(\*?\w+\)\.)?newCalibrateMineCommand. is|function (?:\(\*?\w+\)\.)?newCalibrateMineCommand is 20,'} # newCalibrateMineCommand: cyclomatic 20, lines 81, cognitive 41
+      - {path: '^cmd/duolog/calibrate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newCalibratePlanCommand. is too long \(148 > |complexity 97 of func .(?:\(\*?\w+\)\.)?newCalibratePlanCommand. is|function (?:\(\*?\w+\)\.)?newCalibratePlanCommand is 48,'} # newCalibratePlanCommand: cyclomatic 48, lines 148, cognitive 97
+      - {path: '^cmd/duolog/calibrate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newCalibrateProposeCommand. is too long \(153 > |complexity 108 of func .(?:\(\*?\w+\)\.)?newCalibrateProposeCommand. is|function (?:\(\*?\w+\)\.)?newCalibrateProposeCommand is 46,'} # newCalibrateProposeCommand: cyclomatic 46, lines 153, cognitive 108
+      - {path: '^cmd/duolog/calibrate\.go$', linters: [gocognit], text: 'complexity 22 of func .(?:\(\*?\w+\)\.)?newCalibrateSurveyCommand. is'} # newCalibrateSurveyCommand: cognitive 22
+      - {path: '^cmd/duolog/calibrate\.go$', linters: [gocognit], text: 'complexity 21 of func .(?:\(\*?\w+\)\.)?rewriteStatement. is'} # rewriteStatement: cognitive 21
+      - {path: '^cmd/duolog/calibrate\.go$', linters: [cyclop, funlen], text: 'Function .withCalibrationRunner. has too many statements \(46 > |function (?:\(\*?\w+\)\.)?withCalibrationRunner is 18,'} # withCalibrationRunner: cyclomatic 18, statements 46
+      - {path: '^cmd/duolog/calibrate\.go$', linters: [funlen, gocognit], text: 'Function .writeJudge. has too many statements \(41 > |complexity 28 of func .(?:\(\*?\w+\)\.)?writeJudge. is'} # writeJudge: statements 41, cognitive 28
+      - {path: '^cmd/duolog/calibrate\.go$', linters: [nestif], text: '.if\ approve\ !=\ "". has complex nested blocks \(complexity: 12\)'} # if if approve != "": nesting 12
+      - {path: '^cmd/duolog/calibrate\.go$', linters: [nestif], text: '.if\ hasRun. has complex nested blocks \(complexity: 19\)'} # if if hasRun: nesting 19
+      - {path: '^cmd/duolog/caps\.go$', linters: [cyclop, gocognit], text: 'complexity 37 of func .(?:\(\*?\w+\)\.)?newCapsCommand. is|function (?:\(\*?\w+\)\.)?newCapsCommand is 16,'} # newCapsCommand: cyclomatic 16, cognitive 37
+      - {path: '^cmd/duolog/coauthors\.go$', linters: [gocognit], text: 'complexity 25 of func .(?:\(\*?\w+\)\.)?newCoauthorsCommand. is'} # newCoauthorsCommand: cognitive 25
+      - {path: '^cmd/duolog/decide\.go$', linters: [cyclop, gocognit], text: 'complexity 27 of func .(?:\(\*?\w+\)\.)?newDecideCommand. is|function (?:\(\*?\w+\)\.)?newDecideCommand is 16,'} # newDecideCommand: cyclomatic 16, cognitive 27
+      - {path: '^cmd/duolog/delegate\.go$', linters: [funlen, gocognit], text: 'Function .newDelegateCommand. is too long \(62 > |complexity 27 of func .(?:\(\*?\w+\)\.)?newDelegateCommand. is'} # newDelegateCommand: lines 62, cognitive 27
+      - {path: '^cmd/duolog/gate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .evaluateHook. has too many statements \(88 > |complexity 58 of func .(?:\(\*?\w+\)\.)?evaluateHook. is|function (?:\(\*?\w+\)\.)?evaluateHook is 43,'} # evaluateHook: cyclomatic 43, statements 88, cognitive 58
+      - {path: '^cmd/duolog/gate\.go$', linters: [gocognit], text: 'complexity 22 of func .(?:\(\*?\w+\)\.)?newDecisionsCommand. is'} # newDecisionsCommand: cognitive 22
+      - {path: '^cmd/duolog/gate\.go$', linters: [cyclop, gocognit], text: 'complexity 40 of func .(?:\(\*?\w+\)\.)?newGateCommand. is|function (?:\(\*?\w+\)\.)?newGateCommand is 16,'} # newGateCommand: cyclomatic 16, cognitive 40
+      - {path: '^cmd/duolog/gate\.go$', linters: [nestif], text: '.if\ !isWorker\(\). has complex nested blocks \(complexity: 10\)'} # if if !isWorker(): nesting 10
+      - {path: '^cmd/duolog/lead\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?leadIdentity is 16,'} # leadIdentity: cyclomatic 16
+      - {path: '^cmd/duolog/lead\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newLeadRegisterCommand. is too long \(115 > |complexity 67 of func .(?:\(\*?\w+\)\.)?newLeadRegisterCommand. is|function (?:\(\*?\w+\)\.)?newLeadRegisterCommand is 37,'} # newLeadRegisterCommand: cyclomatic 37, lines 115, cognitive 67
+      - {path: '^cmd/duolog/leadguard\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .leadGuard. has too many statements \(75 > |complexity 85 of func .(?:\(\*?\w+\)\.)?leadGuard. is|function (?:\(\*?\w+\)\.)?leadGuard is 40,'} # leadGuard: cyclomatic 40, statements 75, cognitive 85
+      - {path: '^cmd/duolog/leadguard\.go$', linters: [nestif], text: '.if\ agent\ ==\ "codex". has complex nested blocks \(complexity: 8\)'} # if if agent == "codex": nesting 8
+      - {path: '^cmd/duolog/learn\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?learnOrder is 16,'} # learnOrder: cyclomatic 16
+      - {path: '^cmd/duolog/learn\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newLearnCommand. is too long \(84 > |complexity 51 of func .(?:\(\*?\w+\)\.)?newLearnCommand. is|function (?:\(\*?\w+\)\.)?newLearnCommand is 25,'} # newLearnCommand: cyclomatic 25, lines 84, cognitive 51
+      - {path: '^cmd/duolog/learn\.go$', linters: [nestif], text: '.if\ cmd\.Flags\(\)\.Changed\("apply\-class"\)\ \|\|\ cmd\.Flags\(\)\.Changed\("decline\-class"\). has complex nested blocks \(complexity: 7\)'} # if if cmd.Flags().Changed("apply-class") || cmd.Flags().Changed("decline-class"): nesting 7
+      - {path: '^cmd/duolog/peer\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newPeerCommand. is too long \(107 > |complexity 39 of func .(?:\(\*?\w+\)\.)?newPeerCommand. is|function (?:\(\*?\w+\)\.)?newPeerCommand is 19,'} # newPeerCommand: cyclomatic 19, lines 107, cognitive 39
+      - {path: '^cmd/duolog/quota\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newQuotaCommand. is too long \(62 > |complexity 42 of func .(?:\(\*?\w+\)\.)?newQuotaCommand. is|function (?:\(\*?\w+\)\.)?newQuotaCommand is 18,'} # newQuotaCommand: cyclomatic 18, lines 62, cognitive 42
+      - {path: '^cmd/duolog/quota\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .printQuota. has too many statements \(49 > |complexity 63 of func .(?:\(\*?\w+\)\.)?printQuota. is|function (?:\(\*?\w+\)\.)?printQuota is 29,'} # printQuota: cyclomatic 29, statements 49, cognitive 63
+      - {path: '^cmd/duolog/quota\.go$', linters: [nestif], text: '.if\ err\ !=\ nil. has complex nested blocks \(complexity: 7\)'} # if if err != nil: nesting 7
+      - {path: '^cmd/duolog/remember\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newRememberCommand. is too long \(76 > |complexity 37 of func .(?:\(\*?\w+\)\.)?newRememberCommand. is|function (?:\(\*?\w+\)\.)?newRememberCommand is 18,'} # newRememberCommand: cyclomatic 18, lines 76, cognitive 37
+      - {path: '^cmd/duolog/remember\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?rememberMCP is 19,'} # rememberMCP: cyclomatic 19
+      - {path: '^cmd/duolog/roster\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newRosterCommand. is too long \(65 > |complexity 40 of func .(?:\(\*?\w+\)\.)?newRosterCommand. is|function (?:\(\*?\w+\)\.)?newRosterCommand is 16,'} # newRosterCommand: cyclomatic 16, lines 65, cognitive 40
+      - {path: '^cmd/duolog/route\.go$', linters: [funlen, gocognit], text: 'Function .newRouteCommand. is too long \(62 > |complexity 22 of func .(?:\(\*?\w+\)\.)?newRouteCommand. is'} # newRouteCommand: lines 62, cognitive 22
+      - {path: '^cmd/duolog/skill\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newSkillCommand. is too long \(124 > |complexity 71 of func .(?:\(\*?\w+\)\.)?newSkillCommand. is|function (?:\(\*?\w+\)\.)?newSkillCommand is 39,'} # newSkillCommand: cyclomatic 39, lines 124, cognitive 71
+      - {path: '^cmd/duolog/skill\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .runSkillTests. has too many statements \(75 > |complexity 43 of func .(?:\(\*?\w+\)\.)?runSkillTests. is|function (?:\(\*?\w+\)\.)?runSkillTests is 26,'} # runSkillTests: cyclomatic 26, statements 75, cognitive 43
+      - {path: '^cmd/duolog/stats\.go$', linters: [gocognit], text: 'complexity 22 of func .(?:\(\*?\w+\)\.)?newStatsCommand. is'} # newStatsCommand: cognitive 22
+      - {path: '^cmd/duolog/sync\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newSyncCommand. is too long \(70 > |complexity 41 of func .(?:\(\*?\w+\)\.)?newSyncCommand. is|function (?:\(\*?\w+\)\.)?newSyncCommand is 26,'} # newSyncCommand: cyclomatic 26, lines 70, cognitive 41
+      - {path: '^cmd/duolog/task\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newTaskFinishCommand. is too long \(90 > |complexity 46 of func .(?:\(\*?\w+\)\.)?newTaskFinishCommand. is|function (?:\(\*?\w+\)\.)?newTaskFinishCommand is 23,'} # newTaskFinishCommand: cyclomatic 23, lines 90, cognitive 46
+      - {path: '^cmd/duolog/task\.go$', linters: [gocognit], text: 'complexity 28 of func .(?:\(\*?\w+\)\.)?newTaskStartCommand. is'} # newTaskStartCommand: cognitive 28
+      - {path: '^cmd/duolog/telemetry\.go$', linters: [gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?newTelemetryPurgeCommand. is'} # newTelemetryPurgeCommand: cognitive 23
+      - {path: '^cmd/duolog/telemetry\.go$', linters: [cyclop, gocognit], text: 'complexity 22 of func .(?:\(\*?\w+\)\.)?telemetryWarnings. is|function (?:\(\*?\w+\)\.)?telemetryWarnings is 16,'} # telemetryWarnings: cyclomatic 16, cognitive 22
+      - {path: '^cmd/duolog/telemetry\.go$', linters: [cyclop, funlen], text: 'Function .writeTelemetryEnabled. has too many statements \(44 > |function (?:\(\*?\w+\)\.)?writeTelemetryEnabled is 18,'} # writeTelemetryEnabled: cyclomatic 18, statements 44
+      - {path: '^cmd/duolog/verdict\.go$', linters: [cyclop, gocognit], text: 'complexity 36 of func .(?:\(\*?\w+\)\.)?newVerdictCommand. is|function (?:\(\*?\w+\)\.)?newVerdictCommand is 23,'} # newVerdictCommand: cyclomatic 23, cognitive 36
+      - {path: '^internal/agentsync/lock\.go$', linters: [gocognit], text: 'complexity 25 of func .(?:\(\*?\w+\)\.)?LoadLock. is'} # LoadLock: cognitive 25
+      - {path: '^internal/agentsync/lock\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?pruneWorktreeLocks is 17,'} # pruneWorktreeLocks: cyclomatic 17
+      - {path: '^internal/agentsync/lock\.go$', linters: [nestif], text: '.if\ errors\.Is\(err,\ os\.ErrNotExist\). has complex nested blocks \(complexity: 13\)'} # if if errors.Is(err, os.ErrNotExist): nesting 13
+      - {path: '^internal/agentsync/sync\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Run. has too many statements \(44 > |complexity 23 of func .(?:\(\*?\w+\)\.)?Run. is|function (?:\(\*?\w+\)\.)?Run is 23,'} # Run: cyclomatic 23, statements 44, cognitive 23
+      - {path: '^internal/agentsync/sync\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .apply. has too many statements \(44 > |complexity 25 of func .(?:\(\*?\w+\)\.)?apply. is|function (?:\(\*?\w+\)\.)?apply is 22,'} # apply: cyclomatic 22, statements 44, cognitive 25
+      - {path: '^internal/agentsync/sync\.go$', linters: [cyclop, gocognit], text: 'complexity 35 of func .(?:\(\*?\w+\)\.)?skillUnits. is|function (?:\(\*?\w+\)\.)?skillUnits is 19,'} # skillUnits: cyclomatic 19, cognitive 35
+      - {path: '^internal/agentsync/toml\.go$', linters: [gocognit], text: 'complexity 26 of func .(?:\(\*?\w+\)\.)?tomlMultiline. is'} # tomlMultiline: cognitive 26
+      - {path: '^internal/artifact/artifact\.go$', linters: [nestif], text: '.if\ at\ >=\ 0. has complex nested blocks \(complexity: 6\)'} # if if at >= 0: nesting 6
+      - {path: '^internal/bus/bus\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .InboxLimited. has too many statements \(43 > |complexity 30 of func .(?:\(\*?\w+\)\.)?InboxLimited. is|function (?:\(\*?\w+\)\.)?InboxLimited is 25,'} # InboxLimited: cyclomatic 25, statements 43, cognitive 30
+      - {path: '^internal/calibration/cell\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .RunCell. has too many statements \(89 > |complexity 30 of func .(?:\(\*?\w+\)\.)?RunCell. is|function (?:\(\*?\w+\)\.)?RunCell is 33,'} # RunCell: cyclomatic 33, statements 89, cognitive 30
+      - {path: '^internal/calibration/classes\.go$', linters: [cyclop, gocognit], text: 'complexity 29 of func .(?:\(\*?\w+\)\.)?ApplyClasses. is|function (?:\(\*?\w+\)\.)?ApplyClasses is 16,'} # ApplyClasses: cyclomatic 16, cognitive 29
+      - {path: '^internal/calibration/isolate\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?extract is 16,'} # extract: cyclomatic 16
+      - {path: '^internal/calibration/isolate\.go$', linters: [cyclop, gocognit], text: 'complexity 37 of func .(?:\(\*?\w+\)\.)?writeEntries. is|function (?:\(\*?\w+\)\.)?writeEntries is 19,'} # writeEntries: cyclomatic 19, cognitive 37
+      - {path: '^internal/calibration/judge\.go$', linters: [revive], text: 'file length is 632 lines'} # internal/calibration/judge.go: code lines 632
+      - {path: '^internal/calibration/judge\.go$', linters: [cyclop, gocognit], text: 'complexity 30 of func .(?:\(\*?\w+\)\.)?Combine. is|function (?:\(\*?\w+\)\.)?Combine is 17,'} # Combine: cyclomatic 17, cognitive 30
+      - {path: '^internal/calibration/judge\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Judge. has too many statements \(59 > |complexity 29 of func .(?:\(\*?\w+\)\.)?Judge. is|function (?:\(\*?\w+\)\.)?Judge is 22,'} # Judge: cyclomatic 22, statements 59, cognitive 29
+      - {path: '^internal/calibration/judge\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .JudgePair. has too many statements \(58 > |complexity 30 of func .(?:\(\*?\w+\)\.)?JudgePair. is|function (?:\(\*?\w+\)\.)?JudgePair is 24,'} # JudgePair: cyclomatic 24, statements 58, cognitive 30
+      - {path: '^internal/calibration/judge\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?NewJudgeSlot is 16,'} # NewJudgeSlot: cyclomatic 16
+      - {path: '^internal/calibration/judge\.go$', linters: [cyclop, funlen], text: 'Function .judgeOnce. has too many statements \(43 > |function (?:\(\*?\w+\)\.)?judgeOnce is 19,'} # judgeOnce: cyclomatic 19, statements 43
+      - {path: '^internal/calibration/judge\.go$', linters: [cyclop, gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?openPair. is|function (?:\(\*?\w+\)\.)?openPair is 17,'} # openPair: cyclomatic 17, cognitive 23
+      - {path: '^internal/calibration/mine\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Mine. has too many statements \(77 > |complexity 69 of func .(?:\(\*?\w+\)\.)?Mine. is|function (?:\(\*?\w+\)\.)?Mine is 37,'} # Mine: cyclomatic 37, statements 77, cognitive 69
+      - {path: '^internal/calibration/mine\.go$', linters: [cyclop, gocognit], text: 'complexity 21 of func .(?:\(\*?\w+\)\.)?WriteTaskFiles. is|function (?:\(\*?\w+\)\.)?WriteTaskFiles is 16,'} # WriteTaskFiles: cyclomatic 16, cognitive 21
+      - {path: '^internal/calibration/plan\.go$', linters: [revive], text: 'file length is 815 lines'} # internal/calibration/plan.go: code lines 815
+      - {path: '^internal/calibration/plan\.go$', linters: [cyclop, gocognit], text: 'complexity 31 of func .(?:\(\*?\w+\)\.)?Approve. is|function (?:\(\*?\w+\)\.)?Approve is 17,'} # Approve: cyclomatic 17, cognitive 31
+      - {path: '^internal/calibration/plan\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .BuildPlan. has too many statements \(121 > |complexity 82 of func .(?:\(\*?\w+\)\.)?BuildPlan. is|function (?:\(\*?\w+\)\.)?BuildPlan is 43,'} # BuildPlan: cyclomatic 43, statements 121, cognitive 82
+      - {path: '^internal/calibration/plan\.go$', linters: [gocognit], text: 'complexity 26 of func .(?:\(\*?\w+\)\.)?Cells. is'} # Cells: cognitive 26
+      - {path: '^internal/calibration/plan\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .RenderPlan. has too many statements \(86 > |complexity 53 of func .(?:\(\*?\w+\)\.)?RenderPlan. is|function (?:\(\*?\w+\)\.)?RenderPlan is 29,'} # RenderPlan: cyclomatic 29, statements 86, cognitive 53
+      - {path: '^internal/calibration/plan\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .measureClass. has too many statements \(71 > |complexity 36 of func .(?:\(\*?\w+\)\.)?measureClass. is|function (?:\(\*?\w+\)\.)?measureClass is 19,'} # measureClass: cyclomatic 19, statements 71, cognitive 36
+      - {path: '^internal/calibration/plan\.go$', linters: [nestif], text: '.if\ len\(run\.Cells\)\ >\ 0. has complex nested blocks \(complexity: 7\)'} # if if len(run.Cells) > 0: nesting 7
+      - {path: '^internal/calibration/project\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .ValidateProject. has too many statements \(43 > |complexity 48 of func .(?:\(\*?\w+\)\.)?ValidateProject. is|function (?:\(\*?\w+\)\.)?ValidateProject is 23,'} # ValidateProject: cyclomatic 23, statements 43, cognitive 48
+      - {path: '^internal/calibration/project\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?validateRow is 17,'} # validateRow: cyclomatic 17
+      - {path: '^internal/calibration/propose\.go$', linters: [gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?SeedStats. is'} # SeedStats: cognitive 23
+      - {path: '^internal/calibration/resume\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?Resume is 16,'} # Resume: cyclomatic 16
+      - {path: '^internal/calibration/resume\.go$', linters: [gocognit], text: 'complexity 21 of func .(?:\(\*?\w+\)\.)?WriteStatus. is'} # WriteStatus: cognitive 21
+      - {path: '^internal/calibration/run\.go$', linters: [revive], text: 'file length is 846 lines'} # internal/calibration/run.go: code lines 846
+      - {path: '^internal/calibration/run\.go$', linters: [cyclop, gocognit], text: 'complexity 22 of func .(?:\(\*?\w+\)\.)?Execute. is|function (?:\(\*?\w+\)\.)?Execute is 22,'} # Execute: cyclomatic 22, cognitive 22
+      - {path: '^internal/calibration/run\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Race. has too many statements \(45 > |complexity 37 of func .(?:\(\*?\w+\)\.)?Race. is|function (?:\(\*?\w+\)\.)?Race is 23,'} # Race: cyclomatic 23, statements 45, cognitive 37
+      - {path: '^internal/calibration/run\.go$', linters: [gocognit], text: 'complexity 27 of func .(?:\(\*?\w+\)\.)?race. is'} # race: cognitive 27
+      - {path: '^internal/calibration/run\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .rewriteAll. has too many statements \(71 > |complexity 58 of func .(?:\(\*?\w+\)\.)?rewriteAll. is|function (?:\(\*?\w+\)\.)?rewriteAll is 30,'} # rewriteAll: cyclomatic 30, statements 71, cognitive 58
+      - {path: '^internal/calibration/run\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .runCell. has too many statements \(51 > |complexity 21 of func .(?:\(\*?\w+\)\.)?runCell. is|function (?:\(\*?\w+\)\.)?runCell is 22,'} # runCell: cyclomatic 22, statements 51, cognitive 21
+      - {path: '^internal/calibration/sample\.go$', linters: [cyclop, gocognit], text: 'complexity 25 of func .(?:\(\*?\w+\)\.)?draw. is|function (?:\(\*?\w+\)\.)?draw is 21,'} # draw: cyclomatic 21, cognitive 25
+      - {path: '^internal/calibration/sources\.go$', linters: [revive], text: 'file length is 861 lines'} # internal/calibration/sources.go: code lines 861
+      - {path: '^internal/calibration/sources\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Collect. has too many statements \(73 > |complexity 37 of func .(?:\(\*?\w+\)\.)?Collect. is|function (?:\(\*?\w+\)\.)?Collect is 30,'} # Collect: cyclomatic 30, statements 73, cognitive 37
+      - {path: '^internal/calibration/sources\.go$', linters: [gocognit], text: 'complexity 27 of func .(?:\(\*?\w+\)\.)?applyPRs. is'} # applyPRs: cognitive 27
+      - {path: '^internal/calibration/sources\.go$', linters: [cyclop, gocognit], text: 'complexity 34 of func .(?:\(\*?\w+\)\.)?applySpecs. is|function (?:\(\*?\w+\)\.)?applySpecs is 17,'} # applySpecs: cyclomatic 17, cognitive 34
+      - {path: '^internal/calibration/sources\.go$', linters: [cyclop, gocognit], text: 'complexity 28 of func .(?:\(\*?\w+\)\.)?hiddenTests. is|function (?:\(\*?\w+\)\.)?hiddenTests is 22,'} # hiddenTests: cyclomatic 22, cognitive 28
+      - {path: '^internal/calibration/sources\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .ledgerCandidates. has too many statements \(47 > |complexity 37 of func .(?:\(\*?\w+\)\.)?ledgerCandidates. is|function (?:\(\*?\w+\)\.)?ledgerCandidates is 17,'} # ledgerCandidates: cyclomatic 17, statements 47, cognitive 37
+      - {path: '^internal/calibration/sources\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .markGenerated. has too many statements \(42 > |complexity 41 of func .(?:\(\*?\w+\)\.)?markGenerated. is|function (?:\(\*?\w+\)\.)?markGenerated is 20,'} # markGenerated: cyclomatic 20, statements 42, cognitive 41
+      - {path: '^internal/calibration/survey\.go$', linters: [cyclop, gocognit], text: 'complexity 27 of func .(?:\(\*?\w+\)\.)?RunSurvey. is|function (?:\(\*?\w+\)\.)?RunSurvey is 16,'} # RunSurvey: cyclomatic 16, cognitive 27
+      - {path: '^internal/calibration/survey\.go$', linters: [cyclop, gocognit], text: 'complexity 26 of func .(?:\(\*?\w+\)\.)?proposeCommands. is|function (?:\(\*?\w+\)\.)?proposeCommands is 17,'} # proposeCommands: cyclomatic 17, cognitive 26
+      - {path: '^internal/calibration/survey\.go$', linters: [nestif], text: '.if\ len\(s\.Facts\.Test\)\ ==\ 0. has complex nested blocks \(complexity: 5\)'} # if if len(s.Facts.Test) == 0: nesting 5
+      - {path: '^internal/calibration/validate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .validateChecks. has too many statements \(53 > |complexity 23 of func .(?:\(\*?\w+\)\.)?validateChecks. is|function (?:\(\*?\w+\)\.)?validateChecks is 22,'} # validateChecks: cyclomatic 22, statements 53, cognitive 23
+      - {path: '^internal/capability/bridge\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Bridge. has too many statements \(56 > |complexity 41 of func .(?:\(\*?\w+\)\.)?Bridge. is|function (?:\(\*?\w+\)\.)?Bridge is 22,'} # Bridge: cyclomatic 22, statements 56, cognitive 41
+      - {path: '^internal/capability/bridge\.go$', linters: [gocognit], text: 'complexity 26 of func .(?:\(\*?\w+\)\.)?claude. is'} # claude: cognitive 26
+      - {path: '^internal/capability/bridge\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .codex. has too many statements \(42 > |complexity 27 of func .(?:\(\*?\w+\)\.)?codex. is|function (?:\(\*?\w+\)\.)?codex is 16,'} # codex: cyclomatic 16, statements 42, cognitive 27
+      - {path: '^internal/capability/bridge\.go$', linters: [cyclop, gocognit], text: 'complexity 38 of func .(?:\(\*?\w+\)\.)?staticWhy. is|function (?:\(\*?\w+\)\.)?staticWhy is 20,'} # staticWhy: cyclomatic 20, cognitive 38
+      - {path: '^internal/capability/inventory\.go$', linters: [nestif], text: '.if\ err\ ==\ nil. has complex nested blocks \(complexity: 6\)'} # if if err == nil: nesting 6
+      - {path: '^internal/capability/resolve\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Resolve. has too many statements \(43 > |complexity 28 of func .(?:\(\*?\w+\)\.)?Resolve. is|function (?:\(\*?\w+\)\.)?Resolve is 22,'} # Resolve: cyclomatic 22, statements 43, cognitive 28
+      - {path: '^internal/capability/servers\.go$', linters: [cyclop, funlen], text: 'Function .parseCodex. has too many statements \(43 > |function (?:\(\*?\w+\)\.)?parseCodex is 21,'} # parseCodex: cyclomatic 21, statements 43
+      - {path: '^internal/coauthor/coauthor\.go$', linters: [nestif], text: '.if\ err\ !=\ nil. has complex nested blocks \(complexity: 6\)'} # if if err != nil: nesting 6
+      - {path: '^internal/config/config\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Load. has too many statements \(62 > |complexity 42 of func .(?:\(\*?\w+\)\.)?Load. is|function (?:\(\*?\w+\)\.)?Load is 30,'} # Load: cyclomatic 30, statements 62, cognitive 42
+      - {path: '^internal/config/config\.go$', linters: [gocognit], text: 'complexity 27 of func .(?:\(\*?\w+\)\.)?resolveYAMLNode. is'} # resolveYAMLNode: cognitive 27
+      - {path: '^internal/config/config\.go$', linters: [cyclop, gocognit], text: 'complexity 62 of func .(?:\(\*?\w+\)\.)?validateEnums. is|function (?:\(\*?\w+\)\.)?validateEnums is 22,'} # validateEnums: cyclomatic 22, cognitive 62
+      - {path: '^internal/config/learning\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .validateLearning. has too many statements \(41 > |complexity 35 of func .(?:\(\*?\w+\)\.)?validateLearning. is|function (?:\(\*?\w+\)\.)?validateLearning is 18,'} # validateLearning: cyclomatic 18, statements 41, cognitive 35
+      - {path: '^internal/delegate/delegate\.go$', linters: [revive], text: 'file length is 1039 lines'} # internal/delegate/delegate.go: code lines 1039
+      - {path: '^internal/delegate/delegate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Run. has too many statements \(243 > |complexity 380 of func .(?:\(\*?\w+\)\.)?Run. is|function (?:\(\*?\w+\)\.)?Run is 149,'} # Run: cyclomatic 149, statements 243, cognitive 380
+      - {path: '^internal/delegate/delegate\.go$', linters: [cyclop, gocognit], text: 'complexity 21 of func .(?:\(\*?\w+\)\.)?runProblems. is|function (?:\(\*?\w+\)\.)?runProblems is 18,'} # runProblems: cyclomatic 18, cognitive 21
+      - {path: '^internal/delegate/delegate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .settleAuth. has too many statements \(52 > |complexity 25 of func .(?:\(\*?\w+\)\.)?settleAuth. is|function (?:\(\*?\w+\)\.)?settleAuth is 20,'} # settleAuth: cyclomatic 20, statements 52, cognitive 25
+      - {path: '^internal/delegate/delegate\.go$', linters: [nestif], text: '.if\ lead\.TranscriptPath\ !=\ "". has complex nested blocks \(complexity: 8\)'} # if if lead.TranscriptPath != "": nesting 8
+      - {path: '^internal/delegate/delegate\.go$', linters: [nestif], text: '.if\ len\(opts\.Needs\)\ >\ 0. has complex nested blocks \(complexity: 18\)'} # if if len(opts.Needs) > 0: nesting 18
+      - {path: '^internal/delegate/delegate\.go$', linters: [nestif], text: '.if\ modelErr\ !=\ nil. has complex nested blocks \(complexity: 79\)'} # if if modelErr != nil: nesting 79
+      - {path: '^internal/delegate/learning\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .beginLearning. has too many statements \(59 > |complexity 51 of func .(?:\(\*?\w+\)\.)?beginLearning. is|function (?:\(\*?\w+\)\.)?beginLearning is 35,'} # beginLearning: cyclomatic 35, statements 59, cognitive 51
+      - {path: '^internal/delegate/learning\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?finish is 18,'} # finish: cyclomatic 18
+      - {path: '^internal/delegate/learning\.go$', linters: [nestif], text: '.if\ opts\.ReplayOf\ !=\ "". has complex nested blocks \(complexity: 11\)'} # if if opts.ReplayOf != "": nesting 11
+      - {path: '^internal/doctor/catalog\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .checkModels. has too many statements \(52 > |complexity 57 of func .(?:\(\*?\w+\)\.)?checkModels. is|function (?:\(\*?\w+\)\.)?checkModels is 27,'} # checkModels: cyclomatic 27, statements 52, cognitive 57
+      - {path: '^internal/doctor/catalog\.go$', linters: [nestif], text: '.if\ ok. has complex nested blocks \(complexity: 5\)'} # if if ok: nesting 5
+      - {path: '^internal/doctor/doctor\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Run. has too many statements \(95 > |complexity 73 of func .(?:\(\*?\w+\)\.)?Run. is|function (?:\(\*?\w+\)\.)?Run is 39,'} # Run: cyclomatic 39, statements 95, cognitive 73
+      - {path: '^internal/doctor/doctor\.go$', linters: [nestif], text: '.if\ opts\.Probe. has complex nested blocks \(complexity: 5\)'} # if if opts.Probe: nesting 5
+      - {path: '^internal/doctor/probe\.go$', linters: [gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?probe. is'} # probe: cognitive 23
+      - {path: '^internal/doctor/probe\.go$', linters: [nestif], text: '.if\ agent\ ==\ "codex". has complex nested blocks \(complexity: 5\)'} # if if agent == "codex": nesting 5
+      - {path: '^internal/gate/adapter\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Normalize. has too many statements \(62 > |complexity 51 of func .(?:\(\*?\w+\)\.)?Normalize. is|function (?:\(\*?\w+\)\.)?Normalize is 47,'} # Normalize: cyclomatic 47, statements 62, cognitive 51
+      - {path: '^internal/gate/ask\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Escalate. has too many statements \(60 > |complexity 36 of func .(?:\(\*?\w+\)\.)?Escalate. is|function (?:\(\*?\w+\)\.)?Escalate is 30,'} # Escalate: cyclomatic 30, statements 60, cognitive 36
+      - {path: '^internal/gate/execcheck\.go$', linters: [gocognit], text: 'complexity 29 of func .(?:\(\*?\w+\)\.)?ExecOutside. is'} # ExecOutside: cognitive 29
+      - {path: '^internal/gate/execcheck\.go$', linters: [gocognit], text: 'complexity 24 of func .(?:\(\*?\w+\)\.)?hiddenDeny. is'} # hiddenDeny: cognitive 24
+      - {path: '^internal/gate/execcheck\.go$', linters: [gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?needsReview. is'} # needsReview: cognitive 23
+      - {path: '^internal/gate/execcheck\.go$', linters: [cyclop, gocognit], text: 'complexity 25 of func .(?:\(\*?\w+\)\.)?rawExecParts. is|function (?:\(\*?\w+\)\.)?rawExecParts is 22,'} # rawExecParts: cyclomatic 22, cognitive 25
+      - {path: '^internal/gate/gate\.go$', linters: [revive], text: 'file length is 822 lines'} # internal/gate/gate.go: code lines 822
+      - {path: '^internal/gate/gate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Evaluate. has too many statements \(125 > |complexity 148 of func .(?:\(\*?\w+\)\.)?Evaluate. is|function (?:\(\*?\w+\)\.)?Evaluate is 104,'} # Evaluate: cyclomatic 104, statements 125, cognitive 148
+      - {path: '^internal/gate/gate\.go$', linters: [cyclop, gocognit], text: 'complexity 43 of func .(?:\(\*?\w+\)\.)?denyCommand. is|function (?:\(\*?\w+\)\.)?denyCommand is 31,'} # denyCommand: cyclomatic 31, cognitive 43
+      - {path: '^internal/gate/gate\.go$', linters: [gocognit], text: 'complexity 26 of func .(?:\(\*?\w+\)\.)?expandBraces. is'} # expandBraces: cognitive 26
+      - {path: '^internal/gate/gate\.go$', linters: [cyclop, gocognit], text: 'complexity 21 of func .(?:\(\*?\w+\)\.)?matches. is|function (?:\(\*?\w+\)\.)?matches is 18,'} # matches: cyclomatic 18, cognitive 21
+      - {path: '^internal/gate/gate\.go$', linters: [cyclop, gocognit], text: 'complexity 35 of func .(?:\(\*?\w+\)\.)?readCommandDecision. is|function (?:\(\*?\w+\)\.)?readCommandDecision is 21,'} # readCommandDecision: cyclomatic 21, cognitive 35
+      - {path: '^internal/gate/gate\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?readOnlyCommand is 18,'} # readOnlyCommand: cyclomatic 18
+      - {path: '^internal/gate/gate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .shellParts. has too many statements \(84 > |complexity 67 of func .(?:\(\*?\w+\)\.)?shellParts. is|function (?:\(\*?\w+\)\.)?shellParts is 50,'} # shellParts: cyclomatic 50, statements 84, cognitive 67
+      - {path: '^internal/gate/gate\.go$', linters: [nestif], text: '.if\ \(a\.Kind\ ==\ "read"\ \|\|\ a\.Kind\ ==\ "write"\)\ \&\&\ outside\(a\.Target\). has complex nested blocks \(complexity: 5\)'} # if if (a.Kind == "read" || a.Kind == "write") && outside(a.Target): nesting 5
+      - {path: '^internal/gate/gate\.go$', linters: [nestif], text: '.if\ a\.Kind\ ==\ "read"\ \|\|\ a\.Kind\ ==\ "write". has complex nested blocks \(complexity: 5\)'} # if if a.Kind == "read" || a.Kind == "write": nesting 5
+      - {path: '^internal/gate/gate\.go$', linters: [nestif], text: '.if\ words\[0\]\ ==\ "rm". has complex nested blocks \(complexity: 5\)'} # if if words[0] == "rm": nesting 5
+      - {path: '^internal/gate/lead\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .ImportLead. has too many statements \(41 > |complexity 70 of func .(?:\(\*?\w+\)\.)?ImportLead. is|function (?:\(\*?\w+\)\.)?ImportLead is 33,'} # ImportLead: cyclomatic 33, statements 41, cognitive 70
+      - {path: '^internal/gate/lead\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?claudeDeny is 16,'} # claudeDeny: cyclomatic 16
+      - {path: '^internal/gate/lead\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?claudePathPattern is 18,'} # claudePathPattern: cyclomatic 18
+      - {path: '^internal/gate/lead\.go$', linters: [nestif], text: '.if\ agent\ ==\ "claude". has complex nested blocks \(complexity: 17\)'} # if if agent == "claude": nesting 17
+      - {path: '^internal/gate/protected\.go$', linters: [cyclop, gocognit], text: 'complexity 29 of func .(?:\(\*?\w+\)\.)?protectedDecision. is|function (?:\(\*?\w+\)\.)?protectedDecision is 22,'} # protectedDecision: cyclomatic 22, cognitive 29
+      - {path: '^internal/gate/protected\.go$', linters: [cyclop, gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?searchRoots. is|function (?:\(\*?\w+\)\.)?searchRoots is 19,'} # searchRoots: cyclomatic 19, cognitive 23
+      - {path: '^internal/gate/readcommand\.go$', linters: [cyclop, gocognit], text: 'complexity 40 of func .(?:\(\*?\w+\)\.)?known. is|function (?:\(\*?\w+\)\.)?known is 22,'} # known: cyclomatic 22, cognitive 40
+      - {path: '^internal/gate/readcommand\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .readCommandTargets. has too many statements \(69 > |complexity 76 of func .(?:\(\*?\w+\)\.)?readCommandTargets. is|function (?:\(\*?\w+\)\.)?readCommandTargets is 42,'} # readCommandTargets: cyclomatic 42, statements 69, cognitive 76
+      - {path: '^internal/gate/readcommand\.go$', linters: [cyclop, gocognit], text: 'complexity 41 of func .(?:\(\*?\w+\)\.)?recursiveSearch. is|function (?:\(\*?\w+\)\.)?recursiveSearch is 22,'} # recursiveSearch: cyclomatic 22, cognitive 41
+      - {path: '^internal/gate/readcommand\.go$', linters: [nestif], text: '.if\ name\ ==\ "rg". has complex nested blocks \(complexity: 8\)'} # if if name == "rg": nesting 8
+      - {path: '^internal/gate/readglobs\.go$', linters: [gocognit], text: 'complexity 29 of func .(?:\(\*?\w+\)\.)?readGlobMatchesDeny. is'} # readGlobMatchesDeny: cognitive 29
+      - {path: '^internal/gate/state\.go$', linters: [cyclop, gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?recursiveStateRead. is|function (?:\(\*?\w+\)\.)?recursiveStateRead is 18,'} # recursiveStateRead: cyclomatic 18, cognitive 23
+      - {path: '^internal/hook/hook\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Wake. has too many statements \(41 > |complexity 35 of func .(?:\(\*?\w+\)\.)?Wake. is|function (?:\(\*?\w+\)\.)?Wake is 21,'} # Wake: cyclomatic 21, statements 41, cognitive 35
+      - {path: '^internal/hook/hook\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .prepare. has too many statements \(55 > |complexity 38 of func .(?:\(\*?\w+\)\.)?prepare. is|function (?:\(\*?\w+\)\.)?prepare is 35,'} # prepare: cyclomatic 35, statements 55, cognitive 38
+      - {path: '^internal/hook/hook\.go$', linters: [nestif], text: '.if\ current\ !=\ previous. has complex nested blocks \(complexity: 8\)'} # if if current != previous: nesting 8
+      - {path: '^internal/install/install\.go$', linters: [cyclop, gocognit], text: 'complexity 48 of func .(?:\(\*?\w+\)\.)?Remove. is|function (?:\(\*?\w+\)\.)?Remove is 22,'} # Remove: cyclomatic 22, cognitive 48
+      - {path: '^internal/install/install\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Run. has too many statements \(60 > |complexity 52 of func .(?:\(\*?\w+\)\.)?Run. is|function (?:\(\*?\w+\)\.)?Run is 28,'} # Run: cyclomatic 28, statements 60, cognitive 52
+      - {path: '^internal/install/install\.go$', linters: [cyclop, gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?apply. is|function (?:\(\*?\w+\)\.)?apply is 20,'} # apply: cyclomatic 20, cognitive 23
+      - {path: '^internal/install/install\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .mergeHooks. is too long \(63 > |complexity 33 of func .(?:\(\*?\w+\)\.)?mergeHooks. is|function (?:\(\*?\w+\)\.)?mergeHooks is 21,'} # mergeHooks: cyclomatic 21, lines 63, cognitive 33
+      - {path: '^internal/install/install\.go$', linters: [nestif], text: '.if\ o\.Scope\ !=\ "user". has complex nested blocks \(complexity: 6\)'} # if if o.Scope != "user": nesting 6
+      - {path: '^internal/install/instructions\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?insertOffer is 21,'} # insertOffer: cyclomatic 21
+      - {path: '^internal/learning/aggregate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .AggregateAll. has too many statements \(46 > |complexity 41 of func .(?:\(\*?\w+\)\.)?AggregateAll. is|function (?:\(\*?\w+\)\.)?AggregateAll is 28,'} # AggregateAll: cyclomatic 28, statements 46, cognitive 41
+      - {path: '^internal/learning/aggregate\.go$', linters: [gocognit], text: 'complexity 24 of func .(?:\(\*?\w+\)\.)?decided. is'} # decided: cognitive 24
+      - {path: '^internal/learning/calibration\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .CalibrationObservations. has too many statements \(41 > |complexity 27 of func .(?:\(\*?\w+\)\.)?CalibrationObservations. is|function (?:\(\*?\w+\)\.)?CalibrationObservations is 18,'} # CalibrationObservations: cyclomatic 18, statements 41, cognitive 27
+      - {path: '^internal/learning/propose\.go$', linters: [cyclop, gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?EditConfig. is|function (?:\(\*?\w+\)\.)?EditConfig is 19,'} # EditConfig: cyclomatic 19, cognitive 23
+      - {path: '^internal/learning/propose\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .classCandidates. has too many statements \(60 > |complexity 44 of func .(?:\(\*?\w+\)\.)?classCandidates. is|function (?:\(\*?\w+\)\.)?classCandidates is 26,'} # classCandidates: cyclomatic 26, statements 60, cognitive 44
+      - {path: '^internal/learning/rank\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?LineDiff is 16,'} # LineDiff: cyclomatic 16
+      - {path: '^internal/learning/rank\.go$', linters: [cyclop, gocognit], text: 'complexity 34 of func .(?:\(\*?\w+\)\.)?Rank. is|function (?:\(\*?\w+\)\.)?Rank is 17,'} # Rank: cyclomatic 17, cognitive 34
+      - {path: '^internal/learning/report\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Offers. has too many statements \(54 > |complexity 51 of func .(?:\(\*?\w+\)\.)?Offers. is|function (?:\(\*?\w+\)\.)?Offers is 28,'} # Offers: cyclomatic 28, statements 54, cognitive 51
+      - {path: '^internal/learning/report\.go$', linters: [gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?WriteReport. is'} # WriteReport: cognitive 23
+      - {path: '^internal/learning/report\.go$', linters: [cyclop, gocognit], text: 'complexity 21 of func .(?:\(\*?\w+\)\.)?WriteTable. is|function (?:\(\*?\w+\)\.)?WriteTable is 18,'} # WriteTable: cyclomatic 18, cognitive 21
+      - {path: '^internal/models/models\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?Resolve is 16,'} # Resolve: cyclomatic 16
+      - {path: '^internal/peer/auto_answer\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .autoAnswer. has too many statements \(52 > |complexity 54 of func .(?:\(\*?\w+\)\.)?autoAnswer. is|function (?:\(\*?\w+\)\.)?autoAnswer is 32,'} # autoAnswer: cyclomatic 32, statements 52, cognitive 54
+      - {path: '^internal/peer/auto_answer\.go$', linters: [nestif], text: '.if\ entry\.Agent\ ==\ "codex"\ \&\&\ strings\.Contains\(screen\.Text,\ commandQuestion\). has complex nested blocks \(complexity: 15\)'} # if if entry.Agent == "codex" && strings.Contains(screen.Text, commandQuestion): nesting 15
+      - {path: '^internal/peer/peer\.go$', linters: [revive], text: 'file length is 1159 lines'} # internal/peer/peer.go: code lines 1159
+      - {path: '^internal/peer/peer\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Open. has too many statements \(69 > |complexity 31 of func .(?:\(\*?\w+\)\.)?Open. is|function (?:\(\*?\w+\)\.)?Open is 27,'} # Open: cyclomatic 27, statements 69, cognitive 31
+      - {path: '^internal/peer/peer\.go$', linters: [cyclop, gocognit], text: 'complexity 21 of func .(?:\(\*?\w+\)\.)?Status. is|function (?:\(\*?\w+\)\.)?Status is 16,'} # Status: cyclomatic 16, cognitive 21
+      - {path: '^internal/peer/peer\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .observe. has too many statements \(42 > |complexity 32 of func .(?:\(\*?\w+\)\.)?observe. is|function (?:\(\*?\w+\)\.)?observe is 18,'} # observe: cyclomatic 18, statements 42, cognitive 32
+      - {path: '^internal/peer/peer\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?pendingAsk is 17,'} # pendingAsk: cyclomatic 17
+      - {path: '^internal/peer/peer\.go$', linters: [gocognit], text: 'complexity 21 of func .(?:\(\*?\w+\)\.)?pick. is'} # pick: cognitive 21
+      - {path: '^internal/peer/peer\.go$', linters: [gocognit], text: 'complexity 26 of func .(?:\(\*?\w+\)\.)?settle. is'} # settle: cognitive 26
+      - {path: '^internal/peer/peer\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .watch. has too many statements \(65 > |complexity 77 of func .(?:\(\*?\w+\)\.)?watch. is|function (?:\(\*?\w+\)\.)?watch is 36,'} # watch: cyclomatic 36, statements 65, cognitive 77
+      - {path: '^internal/peer/peer\.go$', linters: [nestif], text: '.if\ screen\.Queued. has complex nested blocks \(complexity: 6\)'} # if if screen.Queued: nesting 6
+      - {path: '^internal/peer/peer\.go$', linters: [nestif], text: '.if\ worked\ \|\|\ time\.Since\(begin\)\ >=\ workGrace. has complex nested blocks \(complexity: 5\)'} # if if worked || time.Since(begin) >= workGrace: nesting 5
+      - {path: '^internal/peer/screen\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?Parse is 17,'} # Parse: cyclomatic 17
+      - {path: '^internal/peer/screen\.go$', linters: [cyclop, gocognit], text: 'complexity 24 of func .(?:\(\*?\w+\)\.)?questionText. is|function (?:\(\*?\w+\)\.)?questionText is 16,'} # questionText: cyclomatic 16, cognitive 24
+      - {path: '^internal/peer/screen\.go$', linters: [nestif], text: '.if\ ok. has complex nested blocks \(complexity: 6\)'} # if if ok: nesting 6
+      - {path: '^internal/profile/chain\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .prepareReplay. has too many statements \(60 > |complexity 82 of func .(?:\(\*?\w+\)\.)?prepareReplay. is|function (?:\(\*?\w+\)\.)?prepareReplay is 34,'} # prepareReplay: cyclomatic 34, statements 60, cognitive 82
+      - {path: '^internal/profile/chain\.go$', linters: [nestif], text: '.if\ chain. has complex nested blocks \(complexity: 6\)'} # if if chain: nesting 6
+      - {path: '^internal/profile/judge\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Judge. has too many statements \(79 > |complexity 32 of func .(?:\(\*?\w+\)\.)?Judge. is|function (?:\(\*?\w+\)\.)?Judge is 31,'} # Judge: cyclomatic 31, statements 79, cognitive 32
+      - {path: '^internal/profile/judge\.go$', linters: [cyclop, gocognit], text: 'complexity 28 of func .(?:\(\*?\w+\)\.)?ParseVerdict. is|function (?:\(\*?\w+\)\.)?ParseVerdict is 25,'} # ParseVerdict: cyclomatic 25, cognitive 28
+      - {path: '^internal/profile/profile\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Run. has too many statements \(139 > |complexity 78 of func .(?:\(\*?\w+\)\.)?Run. is|function (?:\(\*?\w+\)\.)?Run is 58,'} # Run: cyclomatic 58, statements 139, cognitive 78
+      - {path: '^internal/quota/claude\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .readClaude. has too many statements \(70 > |complexity 50 of func .(?:\(\*?\w+\)\.)?readClaude. is|function (?:\(\*?\w+\)\.)?readClaude is 41,'} # readClaude: cyclomatic 41, statements 70, cognitive 50
+      - {path: '^internal/rex/session\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .NewSession. is too long \(62 > |complexity 26 of func .(?:\(\*?\w+\)\.)?NewSession. is|function (?:\(\*?\w+\)\.)?NewSession is 19,'} # NewSession: cyclomatic 19, lines 62, cognitive 26
+      - {path: '^internal/rex/session\.go$', linters: [nestif], text: '.if\ block\ ==\ "". has complex nested blocks \(complexity: 9\)'} # if if block == "": nesting 9
+      - {path: '^internal/router/router\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Resolve. has too many statements \(42 > |complexity 35 of func .(?:\(\*?\w+\)\.)?Resolve. is|function (?:\(\*?\w+\)\.)?Resolve is 30,'} # Resolve: cyclomatic 30, statements 42, cognitive 35
+      - {path: '^internal/router/router\.go$', linters: [nestif], text: '.if\ opts\.Lead\ !=\ nil. has complex nested blocks \(complexity: 5\)'} # if if opts.Lead != nil: nesting 5
+      - {path: '^internal/router/router\.go$', linters: [nestif], text: '.if\ primary\.Agent\ ==\ "claude". has complex nested blocks \(complexity: 6\)'} # if if primary.Agent == "claude": nesting 6
+      - {path: '^internal/router/router\.go$', linters: [nestif], text: '.if\ unavailable\[route\.Agent\]. has complex nested blocks \(complexity: 8\)'} # if if unavailable[route.Agent]: nesting 8
+      - {path: '^internal/runner/runner\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Run. has too many statements \(130 > |complexity 62 of func .(?:\(\*?\w+\)\.)?Run. is|function (?:\(\*?\w+\)\.)?Run is 57,'} # Run: cyclomatic 57, statements 130, cognitive 62
+      - {path: '^internal/runner/runner\.go$', linters: [cyclop, gocognit], text: 'complexity 28 of func .(?:\(\*?\w+\)\.)?readLog. is|function (?:\(\*?\w+\)\.)?readLog is 21,'} # readLog: cyclomatic 21, cognitive 28
+      - {path: '^internal/runner/runner\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?resetTime is 17,'} # resetTime: cyclomatic 17
+      - {path: '^internal/session/resolve\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .ResolveLead. has too many statements \(44 > |complexity 38 of func .(?:\(\*?\w+\)\.)?ResolveLead. is|function (?:\(\*?\w+\)\.)?ResolveLead is 23,'} # ResolveLead: cyclomatic 23, statements 44, cognitive 38
+      - {path: '^internal/session/resolve\.go$', linters: [nestif], text: '.if\ id\ !=\ "". has complex nested blocks \(complexity: 7\)'} # if if id != "": nesting 7
+      - {path: '^internal/session/session\.go$', linters: [cyclop, gocognit], text: 'complexity 35 of func .(?:\(\*?\w+\)\.)?RecordLimited. is|function (?:\(\*?\w+\)\.)?RecordLimited is 17,'} # RecordLimited: cyclomatic 17, cognitive 35
+      - {path: '^internal/session/session\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?access is 17,'} # access: cyclomatic 17
+      - {path: '^internal/session/session\.go$', linters: [cyclop, gocognit], text: 'complexity 24 of func .(?:\(\*?\w+\)\.)?observeLead. is|function (?:\(\*?\w+\)\.)?observeLead is 19,'} # observeLead: cyclomatic 19, cognitive 24
+      - {path: '^internal/session/session\.go$', linters: [nestif], text: '.if\ limit\ >\ 0. has complex nested blocks \(complexity: 6\)'} # if if limit > 0: nesting 6
+      - {path: '^internal/skilltest/models\.go$', linters: [gocognit], text: 'complexity 24 of func .(?:\(\*?\w+\)\.)?DefaultTargets. is'} # DefaultTargets: cognitive 24
+      - {path: '^internal/skilltest/plan\.go$', linters: [cyclop, gocognit], text: 'complexity 21 of func .(?:\(\*?\w+\)\.)?ReadPlan. is|function (?:\(\*?\w+\)\.)?ReadPlan is 16,'} # ReadPlan: cyclomatic 16, cognitive 21
+      - {path: '^internal/task/task\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Inline. has too many statements \(42 > |complexity 27 of func .(?:\(\*?\w+\)\.)?Inline. is|function (?:\(\*?\w+\)\.)?Inline is 19,'} # Inline: cyclomatic 19, statements 42, cognitive 27
+      - {path: '^internal/task/task\.go$', linters: [cyclop, gocognit], text: 'complexity 27 of func .(?:\(\*?\w+\)\.)?References. is|function (?:\(\*?\w+\)\.)?References is 18,'} # References: cyclomatic 18, cognitive 27
+      - {path: '^internal/telemetry/compress\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?compress is 16,'} # compress: cyclomatic 16
+      - {path: '^internal/telemetry/compress\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .writeTemp. has too many statements \(49 > |complexity 25 of func .(?:\(\*?\w+\)\.)?writeTemp. is|function (?:\(\*?\w+\)\.)?writeTemp is 21,'} # writeTemp: cyclomatic 21, statements 49, cognitive 25
+      - {path: '^internal/telemetry/compress\.go$', linters: [nestif], text: '.if\ old\ !=\ nil. has complex nested blocks \(complexity: 6\)'} # if if old != nil: nesting 6
+      - {path: '^internal/telemetry/protect\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?openChecked is 16,'} # openChecked: cyclomatic 16
+      - {path: '^internal/telemetry/prune\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .prunePartition. has too many statements \(54 > |complexity 31 of func .(?:\(\*?\w+\)\.)?prunePartition. is|function (?:\(\*?\w+\)\.)?prunePartition is 22,'} # prunePartition: cyclomatic 22, statements 54, cognitive 31
+      - {path: '^internal/telemetry/status\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Status. is too long \(67 > |complexity 27 of func .(?:\(\*?\w+\)\.)?Status. is|function (?:\(\*?\w+\)\.)?Status is 22,'} # Status: cyclomatic 22, lines 67, cognitive 27
+      - {path: '^internal/testbin/fake/[^/]+$', linters: [cyclop], text: 'the average complexity for the package main is '} # main
+      - {path: '^internal/testbin/fake/main\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .run. has too many statements \(108 > |complexity 75 of func .(?:\(\*?\w+\)\.)?run. is|function (?:\(\*?\w+\)\.)?run is 43,'} # run: cyclomatic 43, statements 108, cognitive 75
+      - {path: '^internal/trust/trust\.go$', linters: [gocognit], text: 'complexity 25 of func .(?:\(\*?\w+\)\.)?hooksAt. is'} # hooksAt: cognitive 25
+      - {path: '^internal/usage/usage\.go$', linters: [funlen, gocognit], text: 'Function .Summarize. has too many statements \(45 > |complexity 22 of func .(?:\(\*?\w+\)\.)?Summarize. is'} # Summarize: statements 45, cognitive 22
+      - {path: '^scripts/thirdparty/main\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?classifyLicense is 19,'} # classifyLicense: cyclomatic 19
+      - {path: '^scripts/thirdparty/main\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .run. has too many statements \(41 > |complexity 32 of func .(?:\(\*?\w+\)\.)?run. is|function (?:\(\*?\w+\)\.)?run is 16,'} # run: cyclomatic 16, statements 41, cognitive 32
+      # END size exceptions
       # An unchecked type assertion in a test panics on a wrong type, and the
       # test fails with a stack. Only the bare message matches: unchecked calls
       # name their function and stay reported.
@@ -85,3 +350,7 @@ linters:
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
+  # funlen, gocognit and cyclop all report at the func line. With the default
+  # (one issue per line) only the first showed, which is why funlen reported
+  # nothing on a 533-line function.
+  uniq-by-line: false

@@ -1,5 +1,5 @@
 .PHONY: build test vet lint docs-lint schema schema-write third-party third-party-check version-check
-.PHONY: fmt fmt-check lint-go lint-sh lint-actions lint-yaml vuln deps-outdated
+.PHONY: fmt fmt-check lint-go lint-exceptions lint-exceptions-update lint-sh lint-actions lint-yaml vuln deps-outdated
 
 # Pinned in tools/go.mod; shellcheck-py and yamllint are pinned here.
 TOOL = go tool -modfile=tools/go.mod
@@ -35,6 +35,15 @@ fmt-check:
 # built for the host, and GOOS only reaches the packages it analyses.
 lint-go:
 	@bin=$$(env -u GOOS -u GOARCH $(TOOL) -n golangci-lint) && $$bin run
+
+# Runs lint-go for linux, darwin and windows without the size exceptions and
+# fails when a listed exception no longer fires.
+lint-exceptions:
+	uv run scripts/lint/exceptions.py check
+
+# Rewrites the exceptions after a function or file shrank; it refuses to add one.
+lint-exceptions-update:
+	uv run scripts/lint/exceptions.py update
 
 lint-sh: install-script
 	uvx --from shellcheck-py==$(SHELLCHECK_PY) shellcheck $(SH_FILES) .release/install.sh
