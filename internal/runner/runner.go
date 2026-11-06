@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -80,21 +79,10 @@ func permissionArgs(agent string, s Spec) []string {
 		args = mode.Flags(agent, s.Native)
 		extras = agent == "codex" && s.Native == "workspace-write" && (s.Mode == mode.Edits || s.Mode == mode.Full)
 	}
-	if agent != "codex" || !slices.Equal(args, []string{"-s", "workspace-write"}) {
-		return args
+	if !extras {
+		return mode.PinCodexSandbox(agent, args, false, nil)
 	}
-	network, roots := false, []string{}
-	if extras {
-		network = s.Network
-		if s.WritableRoots != nil {
-			roots = s.WritableRoots
-		}
-	}
-	list, err := json.Marshal(roots)
-	if err != nil {
-		list = []byte("[]")
-	}
-	return append(args, "-c", fmt.Sprintf("sandbox_workspace_write.network_access=%t", network), "-c", "sandbox_workspace_write.writable_roots="+string(list))
+	return mode.PinCodexSandbox(agent, args, s.Network, s.WritableRoots)
 }
 
 // MCP is what a worker needs to start servers bridged from the lead's agent.

@@ -13,12 +13,39 @@ import (
 // and lower-cased when the volume ignores case. macOS and Windows always
 // fold: on a volume that does not ignore case that only makes more paths
 // overlap, never fewer.
+//
+// On macOS a path through the data volume's firmlinks
+// (/System/Volumes/Data/Users is /Users) is spelled from /.
 func Canonical(name string) string {
 	resolved := filepath.Clean(Resolved(filepath.Clean(name)))
+	if mapped := firmlinked(runtime.GOOS, resolved); mapped != resolved {
+		resolved = filepath.Clean(Resolved(mapped))
+	}
 	if foldsCase(resolved) {
 		resolved = strings.ToLower(resolved)
 	}
 	return resolved
+}
+
+// dataVolume is where macOS mounts the writable data volume; its firmlinks
+// make /System/Volumes/Data/<x> the same folder as /<x>.
+const dataVolume = "/System/Volumes/Data"
+
+// firmlinked spells a path below the macOS data volume from /, so that both
+// spellings of one folder compare equal. Mapping a path that is not a
+// firmlink only adds overlaps, never removes them. Other systems keep name.
+func firmlinked(goos, name string) string {
+	if goos != "darwin" || len(name) < len(dataVolume) || !strings.EqualFold(name[:len(dataVolume)], dataVolume) {
+		return name
+	}
+	rest := name[len(dataVolume):]
+	switch {
+	case rest == "" || rest == "/":
+		return "/"
+	case rest[0] == '/':
+		return rest
+	}
+	return name
 }
 
 // Overlap reports whether one of two local folders is the other or lies

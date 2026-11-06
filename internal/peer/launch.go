@@ -13,12 +13,14 @@ import (
 // agentArgv is the interactive command of a peer. The lead's mode picks the
 // native permission flags, and updates are switched off the way task 1 proved:
 // a Codex setting and a Claude variable. Nothing here bypasses the sandbox.
-// roots join a Claude peer's denyRead; Codex reads have only the gate.
+// roots join a Claude peer's denyRead; Codex reads have only the gate. A
+// Codex workspace-write peer gets no network and no writable root beyond the
+// project, whatever Codex's own config files say, as a worker does.
 func agentArgv(route router.Route, m mode.Mode, stateDir string, roots ...string) []string {
 	switch route.Agent {
 	case "codex":
 		args := []string{"codex", "-m", route.Model}
-		args = append(args, mode.Args("codex", m, route.Sandbox)...)
+		args = append(args, mode.PinCodexSandbox("codex", mode.Args("codex", m, route.Sandbox), false, nil)...)
 		if route.Effort != "" {
 			args = append(args, "-c", `model_reasoning_effort="`+route.Effort+`"`)
 		}

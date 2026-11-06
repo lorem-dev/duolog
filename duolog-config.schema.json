@@ -806,7 +806,7 @@
             "$ref": "#/$defs/WorkerMode"
           },
           "type": "object",
-          "description": "Native mode per model family, such as luna or haiku; it only lowers: combined with the role entry by taking the lower, and alone at most duolog's default."
+          "description": "Native mode per model family, such as luna or haiku; it only lowers: combined with the role entry by taking the lower; alone, a value above duolog's default changes nothing. Read-only roles ignore it."
         }
       },
       "additionalProperties": false,

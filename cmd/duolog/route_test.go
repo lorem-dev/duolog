@@ -148,7 +148,11 @@ func TestRoutePermissionJSON(t *testing.T) {
 		t.Fatal(text)
 	}
 	writeUserConfig(t, "worker_modes:\n  families:\n    sol: {codex: read-only}\n")
-	if text := runRoute(t, "review_intermediate"); !strings.Contains(text, "codex sol medium mode=plan native=read-only (family sol)") {
+	if text := runRoute(t, "implement"); !strings.Contains(text, "codex sol medium mode=plan native=read-only (family sol)") {
+		t.Fatal(text)
+	}
+	// Re-review m2: a read-only role ignores family entries.
+	if text := runRoute(t, "review_intermediate"); strings.Contains(text, "native=") {
 		t.Fatal(text)
 	}
 }

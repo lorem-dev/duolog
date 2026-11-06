@@ -30,13 +30,18 @@ func TestWorkersCannotStartAgents(t *testing.T) {
 		"node /usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js -p hi", "node.exe C:/npm/node_modules/@openai/codex/bin/codex.js exec hi",
 		// Prefixes that run the command they wrap.
 		"env claude -p hi", "FOO=1 claude -p hi", "time codex exec hi", "nohup claude -p hi &", "cmd /c claude -p hi", "env FOO=1 npx @openai/codex exec hi",
+		// Re-review m3: npm: specifiers, tarballs and prefix options with values.
+		"deno run -A npm:@anthropic-ai/claude-code -p hi", "deno run -A npm:@openai/codex@1.2 exec hi",
+		"npx https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-1.0.0.tgz -p hi",
+		"npx ./anthropic-ai-claude-code-1.0.0.tgz -p hi", "npx /tmp/openai-codex-0.9.tgz exec hi",
+		"exec -a x claude -p hi", "timeout -s KILL 5 claude -p hi", "timeout --signal=KILL 5 codex exec hi", "sudo -s claude -p hi", "sudo -u root claude -p hi",
 	} {
 		a := Action{Kind: "exec", Target: command, Role: "implement"}
 		if d := Evaluate(cfg.Policy, LeadRules{}, mode.Full, a); d.Kind != Deny {
 			t.Errorf("%q: %+v", command, d)
 		}
 	}
-	for _, command := range []string{"claudette build", "codexgen test", "npx prettier --check .", "npm exec eslint .", "pnpm dlx tsc --noEmit"} {
+	for _, command := range []string{"claudette build", "codexgen test", "npx prettier --check .", "npm exec eslint .", "pnpm dlx tsc --noEmit", "deno run -A npm:prettier .", "npx ./prettier-3.0.0.tgz .", "sudo -u claude whoami"} {
 		if d := Evaluate(cfg.Policy, LeadRules{}, mode.Full, Action{Kind: "exec", Target: command, Role: "implement"}); d.Kind == Deny {
 			t.Errorf("%q denied: %+v", command, d)
 		}

@@ -1,5 +1,11 @@
 package mode
 
+import (
+	"encoding/json"
+	"slices"
+	"strconv"
+)
+
 // Rank orders the native names duolog offers a worker. Claude: plan 0,
 // default 1, acceptEdits 2, auto 3, bypassPermissions 4. Codex: read-only 0,
 // workspace-write 2. Every other name is not offered: (-1, false).
@@ -62,6 +68,27 @@ func Flags(agent, native string) []string {
 		return []string{"--permission-mode", native}
 	}
 	return nil
+}
+
+// PinCodexSandbox adds the network and writable-roots keys to the flags of a
+// Codex workspace-write launch, so that Codex's own config files (a cloned
+// repository's .codex/config.toml included) cannot widen the sandbox. Other
+// flags come back unchanged. roots nil means none.
+func PinCodexSandbox(agent string, args []string, network bool, roots []string) []string {
+	if agent != "codex" || len(args) != 2 || args[0] != "-s" || args[1] != "workspace-write" {
+		return args
+	}
+	if roots == nil {
+		roots = []string{}
+	}
+	// A JSON array of strings is a TOML array of basic strings.
+	list, err := json.Marshal(roots)
+	if err != nil {
+		list = []byte("[]")
+	}
+	return append(slices.Clone(args),
+		"-c", "sandbox_workspace_write.network_access="+strconv.FormatBool(network),
+		"-c", "sandbox_workspace_write.writable_roots="+string(list))
 }
 
 // Ceiling is what the lead allows a worker.

@@ -9,7 +9,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/trusthome"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -103,7 +102,7 @@ func Hooks(agent, root string) (State, error) {
 			}
 		}
 		state.Installed = state.Installed || settingsGate
-		if plugin && !settingsGate && !install.PluginInstalled(home) {
+		if plugin && !settingsGate && !install.PluginInstalled(root, home) {
 			state.Unproven = "the duolog Claude plugin is enabled but not installed; run duolog install"
 		}
 		return state, nil
@@ -121,8 +120,9 @@ func Hooks(agent, root string) (State, error) {
 		return State{}, err
 	}
 	var unproven State
+	stale := install.StaleApprovals(home)
 	for _, path := range []string{filepath.Join(root, ".codex", "hooks.json"), filepath.Join(CodexHome(home), "hooks.json")} {
-		state, err := hooksAt(path, s)
+		state, err := hooksAt(path, s, stale)
 		if err != nil {
 			return State{}, err
 		}
@@ -149,7 +149,10 @@ func hooksOff(path string) bool {
 	return json.Unmarshal(data, &doc) == nil && doc.Off
 }
 
-func hooksAt(path string, s settings) (State, error) {
+// hooksAt finds an approved duolog gate in the Codex hooks file at path.
+// stale maps approval keys to the hashes that duolog install made stale by
+// changing the gate command (install.StaleApprovals).
+func hooksAt(path string, s settings, stale map[string]string) (State, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return State{}, nil
@@ -174,24 +177,30 @@ func hooksAt(path string, s settings) (State, error) {
 				continue
 			}
 			for approved, state := range s.Hooks.State {
-				// Codex stores the snake_case event name; hooks.json uses PascalCase.
-				for _, event := range []string{":pre_tool_use:", ":PreToolUse:"} {
-					approvedPath, suffix, ok := strings.Cut(approved, event)
-					if !ok || suffix != fmt.Sprintf("%d:%d", i, j) || state.TrustedHash == "" ||
-						pathutil.Clean(pathutil.Resolved(approvedPath)) != pathutil.Clean(pathutil.Resolved(path)) {
-						continue
-					}
-					// Codex's hash algorithm is unknown here, and Codex skips a
-					// hook whose command changed after approval. duolog installs
-					// only its own command, so any other command at an approved
-					// position cannot be shown to be the approved one.
-					if hook.Command == posix && hook.CommandWindows == windows && len(hook.Args) == 0 {
-						return State{Trusted: true, Installed: true}, nil
-					}
-					if unproven.Unproven == "" {
-						unproven = State{Trusted: true, Installed: true, Unproven: "the approved Codex gate hook in " + path +
-							" is not duolog's gate command, and Codex skips a hook changed after approval; run duolog install and approve it in /hooks"}
-					}
+				approvedPath, suffix, ok := install.ApprovalPath(approved)
+				if !ok || suffix != fmt.Sprintf("%d:%d", i, j) || state.TrustedHash == "" ||
+					pathutil.Clean(pathutil.Resolved(approvedPath)) != pathutil.Clean(pathutil.Resolved(path)) {
+					continue
+				}
+				// Codex's hash algorithm is unknown here, and Codex skips a
+				// hook whose command changed after approval. duolog installs
+				// only its own command, so any other command at an approved
+				// position cannot be shown to be the approved one; nor can
+				// duolog's own command when install rewrote it after the
+				// approval and Codex still holds the hash it had then.
+				reason := ""
+				switch {
+				case hook.Command != posix || hook.CommandWindows != windows || len(hook.Args) != 0:
+					reason = "the approved Codex gate hook in " + path +
+						" is not duolog's gate command, and Codex skips a hook changed after approval; run duolog install and approve it in /hooks"
+				case stale[approved] == state.TrustedHash:
+					reason = "duolog install changed the Codex gate hook in " + path +
+						" after Codex approved it, and Codex skips a hook changed after approval; approve it again in /hooks"
+				default:
+					return State{Trusted: true, Installed: true}, nil
+				}
+				if unproven.Unproven == "" {
+					unproven = State{Trusted: true, Installed: true, Unproven: reason}
 				}
 			}
 		}

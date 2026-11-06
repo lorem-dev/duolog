@@ -34,6 +34,9 @@ func startsAgent(command, shell string) bool {
 			if !commandPosition(words[:i]) {
 				break
 			}
+			if prefixValue(words, i) {
+				continue // an option's value, such as the user of sudo -u
+			}
 			name := ProgramName(word)
 			if name == "claude" || name == "codex" || agentRunner(name, words[i+1:]) {
 				return true
@@ -43,12 +46,40 @@ func startsAgent(command, shell string) bool {
 	return false
 }
 
+// valueOptions are, per prefix, the options whose value is the next word,
+// such as exec -a NAME, timeout -s SIGNAL and sudo -u USER.
+var valueOptions = map[string][]string{
+	"exec":    {"-a"},
+	"timeout": {"-s", "-k", "--signal", "--kill-after"},
+	"sudo":    {"-u", "-g", "--user", "--group"},
+	"doas":    {"-u"},
+	"env":     {"-u", "--unset"},
+	"xargs":   {"-a", "-I", "-d", "-E"},
+}
+
+// prefixValue reports whether words[i] is the value of an option of the
+// nearest prefix before it.
+func prefixValue(words []string, i int) bool {
+	if i == 0 {
+		return false
+	}
+	option := strings.Trim(words[i-1], `"'`)
+	for j := i - 1; j >= 0; j-- {
+		if options, ok := valueOptions[ProgramName(strings.Trim(words[j], `"'`))]; ok {
+			return slices.Contains(options, option)
+		}
+	}
+	return false
+}
+
 // commandPosition reports whether the words before a word only lead up to a
-// command: prefixes, their options, numbers and VAR=value assignments.
+// command: prefixes, their options and option values, numbers and VAR=value
+// assignments.
 func commandPosition(before []string) bool {
-	for _, word := range before {
+	for i, word := range before {
 		w := strings.Trim(word, `"'`)
 		switch {
+		case prefixValue(before, i):
 		case slices.Contains(commandPrefixes, ProgramName(w)):
 		case strings.HasPrefix(w, "-") || strings.HasPrefix(w, "/") && len(w) <= 3:
 		case strings.Contains(w, "=") && !strings.HasPrefix(w, "="):
@@ -84,22 +115,45 @@ func agentRunner(name string, args []string) bool {
 	default:
 		return false
 	}
-	for _, arg := range args {
-		a := strings.ToLower(strings.Trim(arg, `"'`))
-		for _, pkg := range agentPackages {
-			if a == pkg || strings.HasPrefix(a, pkg+"@") {
-				return true
-			}
+	return slices.ContainsFunc(args, agentPackage)
+}
+
+// agentPackage reports whether a package runner argument names one of the
+// CLI packages: the name with or without a version or an npm: prefix, a URL
+// or path inside the package, or its tarball.
+func agentPackage(word string) bool {
+	a := strings.TrimPrefix(strings.ToLower(strings.Trim(word, `"'`)), "npm:")
+	for _, pkg := range agentPackages {
+		if a == pkg || strings.HasPrefix(a, pkg+"@") {
+			return true
+		}
+	}
+	return agentScript(word) || agentTarball(a)
+}
+
+// agentScript reports whether a word is a file inside one of the CLI
+// packages, or an npm: specifier for one (deno run npm:<pkg>).
+func agentScript(word string) bool {
+	w := strings.ToLower(pathutil.Slashes(strings.Trim(word, `"'`)))
+	for _, pkg := range agentPackages {
+		if strings.Contains(w, pkg+"/") || w == "npm:"+pkg || strings.HasPrefix(w, "npm:"+pkg+"@") {
+			return true
 		}
 	}
 	return false
 }
 
-// agentScript reports whether a word is a file inside one of the CLI packages.
-func agentScript(word string) bool {
-	w := strings.ToLower(pathutil.Slashes(strings.Trim(word, `"'`)))
-	for _, pkg := range agentPackages {
-		if strings.Contains(w, pkg+"/") {
+// agentTarball reports whether a word is a tarball of one of the CLIs, as
+// the registry names it (claude-code-1.0.0.tgz) or npm pack does
+// (anthropic-ai-claude-code-1.0.0.tgz).
+func agentTarball(word string) bool {
+	w := strings.ToLower(pathutil.Slashes(word))
+	if !strings.HasSuffix(w, ".tgz") && !strings.HasSuffix(w, ".tar.gz") {
+		return false
+	}
+	base := w[strings.LastIndex(w, "/")+1:]
+	for _, prefix := range []string{"claude-code-", "anthropic-ai-claude-code-", "codex-", "openai-codex-"} {
+		if strings.HasPrefix(base, prefix) {
 			return true
 		}
 	}

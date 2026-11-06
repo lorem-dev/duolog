@@ -71,7 +71,7 @@ func newRouteCommand() *cobra.Command {
 				observeBalance(tel).Route(routeObservation(cfg, args[0], route, opts))
 				tel.Close()
 			}
-			request := cfg.WorkerModes.Request(args[0], config.Families(cfg, route.Model), route.Agent)
+			request := cfg.WorkerModes.Request(args[0], config.RouteFamilies(cfg, args[0], route.Model, route.Sandbox), route.Agent)
 			var permission any = mode.Resolve(route.Agent, request, ceiling, route.Sandbox)
 			if noLead {
 				permission = map[string]string{"request": request.Native, "source": cmp.Or(request.Source, "default"), "ceiling": "no lead"}

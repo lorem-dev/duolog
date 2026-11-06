@@ -277,6 +277,35 @@ func TestDuologModeOnlyWithAnEntry(t *testing.T) {
 	}
 }
 
+// Re-review m1 and m2: a family entry that asks above duolog's default does
+// not lower the level below the default's, and a family entry does not set
+// the gate of a read-only role to plan.
+func TestFamilyEntryKeepsTheDefaultsLevel(t *testing.T) {
+	h := newHarness(t)
+	h.claudeGate(true)
+	h.gateOnPath(true)
+	h.workerModes("  families:\n    opus: {claude: bypassPermissions}\n    haiku: {claude: acceptEdits}\n    luna: {codex: workspace-write}\n")
+	h.leadNative("claude", mode.Full, "bypassPermissions")
+	for _, tc := range []struct{ role, agent, model string }{
+		{"implement", "claude", "opus"},
+		{"review_final", "claude", "haiku"},
+		{"review_intermediate", "codex", "luna"},
+	} {
+		h.calls = nil
+		out, err := h.runOn(tc.role, tc.agent, tc.model)
+		if err != nil {
+			t.Fatal(tc, err)
+		}
+		c := h.calls[0]
+		if env := strings.Join(c.Env, "\n"); strings.Contains(env, "DUOLOG_MODE=") || strings.Contains(out.Line, "native=") {
+			t.Errorf("%v: mode %s native %s: %s; %s", tc, c.Mode, c.Native, env, out.Line)
+		}
+	}
+	if c := h.calls[0]; c.Mode != mode.Plan {
+		t.Errorf("review_intermediate mode %s", c.Mode)
+	}
+}
+
 // Claude review I1, Codex review 2: at launch the roots are checked again,
 // canonically, against the credential folders and the folders that hold the
 // gate and the agents.
@@ -319,6 +348,50 @@ func TestWritableRootCheckedAgainAtLaunch(t *testing.T) {
 		out, err := h.run("implement")
 		if len(h.calls) != 0 || err == nil || !strings.Contains(out.Line, "gate preflight failed") {
 			t.Errorf("%s: calls %d, %v %q", tc.name, len(h.calls), err, out.Line)
+		}
+	}
+}
+
+// Re-review Important 2: a project source that moves a role's route (a
+// learning ladder step, a version pin, the lead's --use) cannot escape a
+// family entry that lowers the role's route as the person configured it.
+func TestRouteChangeCannotEscapeFamilyLowering(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		model string // the step the project's ladder gives implement
+		use   string // the --use model, instead of a ladder
+	}{
+		{name: "ladder moves to opus", model: "opus"},
+		{name: "ladder pins a haiku version", model: "claude-3-5-haiku-20241022"},
+		{name: "lead moves it with --use", use: "opus"},
+	} {
+		h := newHarness(t)
+		h.claudeGate(true)
+		h.gateOnPath(true)
+		userDir, _ := os.UserConfigDir()
+		put(t, filepath.Join(userDir, "duolog", "config.yaml"), "roles:\n  implement: {use: {agent: claude, model: haiku, effort: medium}}\nworker_modes:\n  roles:\n    implement: {claude: bypassPermissions}\n  families:\n    haiku: {claude: plan}\n")
+		project := "learning:\n  enabled: true\n"
+		if tc.model != "" {
+			project += "  classes:\n    mine:\n      description: mine\n      roles: [implement]\n      steps:\n        implement: [{agent: claude, model: " + tc.model + ", effort: medium, prior: 3}]\n      ladder: [{agent: claude, model: " + tc.model + ", effort: medium, prior: 3}]\n"
+		}
+		put(t, filepath.Join(h.s.Dir, "config.yaml"), project)
+		var err error
+		if h.cfg, err = config.Load(h.root); err != nil {
+			t.Fatal(tc.name, err)
+		}
+		h.leadNative("claude", mode.Full, "bypassPermissions")
+		var out Outcome
+		if tc.use != "" {
+			out, err = h.runOn("implement", "claude", tc.use)
+		} else {
+			out, err = h.runWith("implement", Options{Class: "mine"})
+		}
+		if err != nil {
+			t.Fatal(tc.name, out, err)
+		}
+		h.requireCalls(1)
+		if c := h.calls[0]; c.Native != "plan" {
+			t.Errorf("%s: %s on %s, want plan (%s)", tc.name, c.Native, c.Route.Model, out.Line)
 		}
 	}
 }

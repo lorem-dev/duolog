@@ -34,7 +34,7 @@ var gateBinary = workerenv.GateBinary
 // named the native mode, when the resolved sandbox is workspace-write at
 // level edits or full.
 func resolveWorkerMode(cfg *config.Config, role string, route router.Route, lead session.Lead, effective mode.Mode) workerMode {
-	req := cfg.WorkerModes.Request(role, config.Families(cfg, route.Model), route.Agent)
+	req := cfg.WorkerModes.Request(role, config.RouteFamilies(cfg, role, route.Model, route.Sandbox), route.Agent)
 	ceiling := mode.NewCeiling(lead.Agent, lead.Native, lead.Mode, effective)
 	w := workerMode{Resolved: mode.Resolve(route.Agent, req, ceiling, route.Sandbox), Request: req.Native}
 	if route.Agent == "codex" && w.Native == "workspace-write" && (w.Level == mode.Edits || w.Level == mode.Full) && route.Sandbox == "workspace-write" {

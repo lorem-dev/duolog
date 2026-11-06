@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/lorem-dev/duolog/internal/pathutil"
 	"github.com/lorem-dev/duolog/internal/trusthome"
 )
 
@@ -98,22 +99,38 @@ func ClaudeSettingsFiles(root, home string) []string {
 }
 
 // PluginInstalled reports whether Claude lists the duolog plugin as installed
-// under home, in a folder whose hooks.json holds the gate. An enabled plugin
-// that is not installed runs no hook.
-func PluginInstalled(home string) bool {
+// under home for the project root, in a folder whose hooks.json holds the
+// gate. An enabled plugin that is not installed runs no hook. An install at
+// user scope counts everywhere; a project or local install only for its own
+// projectPath; any other scope does not count.
+func PluginInstalled(root, home string) bool {
 	data, err := os.ReadFile(filepath.Join(trusthome.Claude(home), "plugins", "installed_plugins.json"))
 	if err != nil {
 		return false
 	}
 	var doc struct {
 		Plugins map[string][]struct {
+			Scope       string `json:"scope"`
+			ProjectPath string `json:"projectPath"`
 			InstallPath string `json:"installPath"`
 		} `json:"plugins"`
 	}
 	if json.Unmarshal(data, &doc) != nil {
 		return false
 	}
+	if abs, err := filepath.Abs(root); err == nil && root != "" {
+		root = abs
+	}
 	for _, in := range doc.Plugins[pluginKey] {
+		switch in.Scope {
+		case "", "user":
+		case "project", "local":
+			if in.ProjectPath == "" || root == "" || pathutil.Canonical(in.ProjectPath) != pathutil.Canonical(root) {
+				continue
+			}
+		default:
+			continue
+		}
 		if in.InstallPath != "" && HasGate(filepath.Join(in.InstallPath, "hooks", "hooks.json")) {
 			return true
 		}

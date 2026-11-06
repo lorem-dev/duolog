@@ -52,7 +52,8 @@ resolves it for each worker:
 
 1. A role entry and a family entry both count; the lower one wins. Only a
    role entry can ask for more than duolog's default; a family entry alone
-   gives at most `acceptEdits` or `workspace-write`.
+   gives at most `acceptEdits` or `workspace-write`, and one that asks more
+   changes nothing. A read-only role ignores family entries.
 2. The result never goes above the lead's mode, including a lower mode set
    with `duolog mode`. A read-only role stays read-only.
 3. Claude `auto` needs a lead that is in `auto` at level `edits`, or at
@@ -65,8 +66,9 @@ When an entry applies, the worker's gate level follows the same result.
 `duolog delegate` sets `DUOLOG_MODE` for the worker, and the gate takes the
 lower of that and the lead's mode. A missing or forged value can only lower
 the level, never raise it. So an entry that lowers a family, such as
-`luna: {codex: read-only}`, binds the gate as well as the flag. An entry for a
-read-only role sets the gate to `plan`, which denies web reads. Without an
+`luna: {codex: read-only}`, binds the gate as well as the flag. A role entry
+for a read-only role sets the gate to `plan`, which denies web reads; a
+family entry does not. Without an
 entry delegate sets no `DUOLOG_MODE`, and the gate keeps the lead's mode as
 before.
 
@@ -86,10 +88,13 @@ So before a worker starts in a looser mode, or with Codex network or extra
 roots, `duolog delegate` checks that the gate can run for that agent here:
 
 - Claude: the duolog gate hooks are in a settings file, or the duolog plugin
-  is enabled and installed, and `disableAllHooks` is off.
+  is enabled and installed for the user or for this project, and
+  `disableAllHooks` is off.
 - Codex: the folder is trusted, and an approved gate hook runs duolog's own
   gate command. Codex skips a hook whose command changed after approval, so
-  an approval of another command does not count.
+  an approval of another command does not count. When `duolog install`
+  changes the gate command, the approval Codex held then does not count
+  either; approve the hook again in `/hooks`.
 - The `duolog` binary is on the worker's PATH.
 - No writable root overlaps a protected folder, checked again at launch.
 
@@ -127,6 +132,8 @@ allows more. Codex's own config files then cannot widen a worker. Whether
 `codex exec` honours these keys is NOT VERIFIED.
 
 Peers (`duolog peer`) do not use `worker_modes`; they keep the default flags.
+A Codex `workspace-write` peer gets the same `false` and `[]`, so a cloned
+repository's `.codex/config.toml` cannot widen it either.
 
 ## The default rules
 
@@ -199,6 +206,14 @@ before another command, a shell glob, a program path with `..` and `git -c`
 ask in every mode, because the gate reads the command text and cannot see what
 they do. A path can match a deny
 by accident: `go test ./secrets/...` is denied by the `secrets/` rule.
+
+Workers cannot start `claude` or `codex` themselves (rule `agent launch`).
+The gate denies them by any program path or Windows launcher, behind
+prefixes such as `env`, `timeout` or `sudo`, and through package runners
+such as `npx`, `pnpm dlx` or `deno run npm:`, a tarball of either CLI
+included. This check reads the command text, so a script or interpreter that
+starts an agent, such as `python3 -c "import os; os.system('claude')"`, is
+not caught.
 
 Secrets include nested `.env` and `.env.*` files. Paths outside the working
 tree ask in every mode, unless an explicit outside-path rule applies. A broad

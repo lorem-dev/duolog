@@ -49,11 +49,13 @@
 
 ### Changed
 
-- Codex workers get `network_access` false and no extra writable roots unless
-  `worker_modes` allows them; `.codex/config.toml` no longer widens a worker.
+- Codex workers get no network and no extra writable roots, even without
+  `worker_modes`; give a role `network: true` in `worker_modes` to restore it.
 
 ### Security
 
+- Codex peers ignore `network_access` and `writable_roots` in
+  `.codex/config.toml`, so a cloned repository cannot widen their sandbox.
 - Workers cannot start `claude` or `codex` through any path, `.cmd` or `.ps1`
   launcher, `npx`-style runner or `env` prefix.
 

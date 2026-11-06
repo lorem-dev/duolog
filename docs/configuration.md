@@ -455,6 +455,11 @@ spend more than them; see
 Without it, workers get duolog's default flags: Claude `acceptEdits` at most,
 Codex `workspace-write` at most. Peers ignore the section.
 
+Even without this section, every Codex `workspace-write` worker and peer
+runs with no network and no writable roots beyond the project, whatever
+`.codex/config.toml` says; to give a worker network back, add a role entry
+with `network: true` here in your user config.
+
 ```yaml
 worker_modes:
   roles:
@@ -491,19 +496,23 @@ are the only way to loosen it. They need a role with a `workspace-write`
 sandbox and `codex` unset or `workspace-write`. With `codex` unset they ask
 for `workspace-write`, and they apply when the lead is in `edits` or `full`.
 
-duolog refuses a root that is a volume root, the home folder or a parent of
-it, or a folder that holds or lies in credentials or agent and duolog
-settings: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`, `~/.docker`,
-`~/.kube`, the keychains and keyrings, `~/.claude`, `~/.codex`, and on
+duolog refuses a root that is a file, a volume root, the home folder or a
+parent of it, or a folder that holds or lies in credentials, agent and
+duolog settings, or programs the lead runs: `~/.ssh`, `~/.aws`, `~/.gnupg`,
+`~/.config/gh`, `~/.config/git`, `~/.docker`, `~/.kube`, the keychains and
+keyrings, `~/Library/LaunchAgents`, `~/.claude`, `~/.codex`, and on
 Windows the Credential Manager, Vault and DPAPI folders under `%APPDATA%`
-and `%LOCALAPPDATA%`. It compares the folders after it resolves symlinks,
-and without case where the volume ignores case. `delegate` checks the roots
+and `%LOCALAPPDATA%`. It compares the folders after it resolves symlinks and
+the macOS `/System/Volumes/Data` firmlinks, and without case where the
+volume ignores case. `delegate` checks the roots
 again before each run. Then it also refuses the folders on the worker PATH
 that hold `duolog`, `claude` or `codex`, and duolog's state.
 
 For one worker, the role entry and the family entry both count and the lower
 one wins. Only a role entry can ask for more than duolog's default. A family
-entry only lowers: alone it gives at most `acceptEdits` or `workspace-write`.
+entry only lowers: alone it gives at most `acceptEdits` or `workspace-write`,
+and one that asks more changes nothing. A read-only role ignores family
+entries, so they do not set its gate to `plan`.
 The result never goes above the lead's mode, and Claude `auto` needs a lead
 in `auto` or `full`. `DUOLOG_MODE` can only lower the level further.
 [Permissions](permissions.md#a-workers-native-mode) has the full resolution
@@ -517,7 +526,11 @@ so `config.local.yaml` cannot undo a lowering in `config.yaml`. A project
 layer that changes a role under `roles` drops what that role's entry asks
 above duolog's default, network and writable roots included. A family entry
 also applies by the family your user config gives a model, so a project that
-changes `models.<name>.family` cannot escape it. A cloned project therefore
+changes `models.<name>.family` cannot escape it. It applies by the families
+of the role's route in your user config as well (its `use` and `fallback`
+models and their `model_map` counterparts), so a learning ladder,
+`routing.learned.yaml`, a `model_map`, a version pin or `--use` that moves
+the role to another model cannot escape it either. A cloned project therefore
 cannot start workers in a looser mode. `duolog doctor` names each ignored
 value and shows the effective entries; `duolog route` shows what a role gets.
 

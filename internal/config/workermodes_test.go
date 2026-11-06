@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/pathutil"
 )
 
 func userConfigPath(t *testing.T) string {
@@ -99,9 +100,15 @@ func TestWorkerModesRefusedRoots(t *testing.T) {
 // volume that ignores it and through symlinks, and the list covers the
 // common credential folders.
 func TestWorkerModesRefusedRootAliases(t *testing.T) {
-	cases := []string{"~/.aws", "~/.aws/sso", "~/.gnupg", "~/.config/gh", "~/.docker", "~/.kube", "~/.local/share/keyrings", "LINK", "LINKBELOW"}
+	cases := []string{"~/.aws", "~/.aws/sso", "~/.gnupg", "~/.config/gh", "~/.docker", "~/.kube", "~/.local/share/keyrings", "LINK", "LINKBELOW",
+		// Re-review m5: files, and folders whose contents the lead runs.
+		"FILE", "~/.config/git", "~/.config/git/hooks", "~/Library/LaunchAgents"}
 	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
 		cases = append(cases, "~/.SSH", "~/Library/keychains", "~/.Claude", "HOMEUPPER")
+	}
+	if runtime.GOOS == "darwin" {
+		// The data volume's firmlinks: the same folders under another path.
+		cases = append(cases, "FIRMLINK", "FIRMLINKHOME", "/System/Volumes/Data", "/system/volumes/DATA")
 	}
 	for _, root := range cases {
 		dir := isolatedRoot(t)
@@ -121,6 +128,15 @@ func TestWorkerModesRefusedRootAliases(t *testing.T) {
 			}
 		case "HOMEUPPER":
 			root = strings.ToUpper(home)
+		case "FILE":
+			root = filepath.Join(t.TempDir(), "netrc")
+			if err := os.WriteFile(root, []byte("machine x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		case "FIRMLINK":
+			root = filepath.Join("/System/Volumes/Data", pathutil.Resolved(home), ".ssh")
+		case "FIRMLINKHOME":
+			root = filepath.Join("/System/Volumes/Data", pathutil.Resolved(home))
 		}
 		writeConfig(t, userConfigPath(t), fmt.Sprintf("worker_modes:\n  roles:\n    implement: {codex: workspace-write, writable_roots: [%q]}\n", root))
 		if _, err := Load(dir); err == nil || !strings.Contains(err.Error(), "worker_modes.roles.implement.writable_roots[0]") {
@@ -243,7 +259,7 @@ func TestWorkerModesProjectRolesAndModelsCannotRaise(t *testing.T) {
 	ceiling := mode.NewCeiling("claude", "bypassPermissions", mode.Full, mode.Full)
 	resolve := func(cfg *Config, role, model string) mode.Resolved {
 		route := cfg.Roles[role]
-		return mode.Resolve("claude", cfg.WorkerModes.Request(role, Families(cfg, model), "claude"), ceiling, route.Sandbox)
+		return mode.Resolve("claude", cfg.WorkerModes.Request(role, Families(cfg, role, model), "claude"), ceiling, route.Sandbox)
 	}
 	t.Run("family entry on a changed or new role", func(t *testing.T) {
 		root := isolatedRoot(t)
@@ -302,6 +318,27 @@ func TestWorkerModesProjectRolesAndModelsCannotRaise(t *testing.T) {
 			t.Errorf("%+v", r)
 		}
 	})
+	// Re-review Important 2: routes chosen outside roles.<R>.
+	t.Run("a route moved outside roles", func(t *testing.T) {
+		root := isolatedRoot(t)
+		writeConfig(t, userConfigPath(t), "roles:\n  implement: {use: {agent: claude, model: haiku}, fallback: {agent: claude, model: sonnet}}\n  docs: {use: {agent: claude, model: haiku}, fallback: {agent: claude, model: haiku}}\nworker_modes:\n  roles:\n    implement: {claude: bypassPermissions, codex: workspace-write}\n    docs: {codex: workspace-write}\n  families:\n    haiku: {claude: plan}\n    luna: {codex: read-only}\n")
+		writeConfig(t, filepath.Join(root, ".duolog/config.yaml"), "sync:\n  agents:\n    model_map: {haiku: sol}\n")
+		cfg, err := Load(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// A ladder step, routing.learned.yaml or --use on opus or a haiku pin.
+		for _, model := range []string{"opus", "claude-3-5-haiku-20241022", "claude-opus-5-5"} {
+			if r := resolve(cfg, "implement", model); r.Native != "plan" {
+				t.Errorf("implement on %s: %+v", model, r)
+			}
+		}
+		// A project model_map moves the derived Codex fallback from luna to sol.
+		req := cfg.WorkerModes.Request("docs", Families(cfg, "docs", "sol"), "codex")
+		if req.Native != "read-only" {
+			t.Errorf("docs on the mapped sol: %+v", req)
+		}
+	})
 }
 
 // A family entry lowers a role entry; alone it asks no more than duolog's
@@ -309,7 +346,7 @@ func TestWorkerModesProjectRolesAndModelsCannotRaise(t *testing.T) {
 func TestWorkerModesFamilyOnlyLowers(t *testing.T) {
 	w := WorkerModes{
 		Roles:    map[string]WorkerMode{"implement": {Claude: "bypassPermissions"}},
-		Families: map[string]WorkerMode{"haiku": {Claude: "auto"}, "opus": {Claude: "bypassPermissions"}},
+		Families: map[string]WorkerMode{"haiku": {Claude: "auto"}, "opus": {Claude: "bypassPermissions"}, "sonnet": {Claude: "plan"}},
 	}
 	for _, tc := range []struct {
 		role   string
@@ -318,7 +355,9 @@ func TestWorkerModesFamilyOnlyLowers(t *testing.T) {
 	}{
 		{"implement", []string{"haiku"}, mode.Request{Native: "auto", Source: "role implement, family haiku"}},
 		{"implement", []string{"opus"}, mode.Request{Native: "bypassPermissions", Source: "role implement, family opus"}},
-		{"tests", []string{"opus"}, mode.Request{Native: "acceptEdits", Source: "family opus"}},
+		// Re-review m1: alone, an entry above the default is skipped.
+		{"tests", []string{"opus"}, mode.Request{}},
+		{"tests", []string{"opus", "haiku", "sonnet"}, mode.Request{Native: "plan", Source: "family sonnet"}},
 		{"tests", []string{"sol"}, mode.Request{}},
 		{"implement", []string{"opus", "haiku"}, mode.Request{Native: "auto", Source: "role implement, family opus, family haiku"}},
 	} {
@@ -330,7 +369,7 @@ func TestWorkerModesFamilyOnlyLowers(t *testing.T) {
 
 func TestFamily(t *testing.T) {
 	cfg, _ := Load(isolatedRoot(t))
-	for model, want := range map[string]string{"sol": "sol", "luna": "luna", "sonnet": "sonnet", "gpt-6.1-sol": "sol", "claude-haiku-5-5": "haiku", "other": "other"} {
+	for model, want := range map[string]string{"sol": "sol", "luna": "luna", "sonnet": "sonnet", "gpt-6.1-sol": "sol", "claude-haiku-5-5": "haiku", "claude-3-5-haiku-20241022": "haiku", "claude-3-opus-latest": "opus", "other": "other"} {
 		if got := Family(cfg, model); got != want {
 			t.Errorf("Family(%q)=%q want %q", model, got, want)
 		}
