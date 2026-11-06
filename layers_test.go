@@ -70,7 +70,6 @@ var appOrder = []string{"launch", "lead", "quota", "learn", "paidruns", "gate", 
 // with the PR that removes each. The list may only shrink; a move may rename a
 // key when the same import gets a new path at one end.
 var knownViolations = map[string]string{
-	"internal/adapter/config (test) -> internal/gate":           "PR 19",
 	"internal/app/calibrate (test) -> internal/adapter/config":  "after PR 10: its tests load the config files",
 	"internal/app/calibrate (test) -> internal/quota":           "PR 29",
 	"internal/app/calibrate (test) -> internal/adapter/session": "PR 29",
@@ -85,7 +84,7 @@ var knownViolations = map[string]string{
 	"internal/gate -> github.com/gofrs/flock":                   "PR 20, boundary",
 	"internal/gate -> github.com/pelletier/go-toml/v2":          "PR 20, boundary",
 	"internal/gate -> internal/bus":                             "PR 20, boundary",
-	"internal/gate -> internal/config":                          "PR 20, boundary",
+	"internal/gate (test) -> internal/config":                   "PR 20, boundary",
 	"internal/gate -> internal/adapter/session":                 "PR 20, boundary",
 	"internal/gate -> internal/store":                           "PR 20, boundary",
 	"internal/gate -> internal/trust":                           "PR 20, boundary",
@@ -118,7 +117,7 @@ var knownViolations = map[string]string{
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 45
+const maxKnownViolations = 44
 
 // Reasons of the allowed edges, one per target.
 const (
@@ -192,8 +191,21 @@ func invalidAllowedEdges(m map[string]string) []string {
 }
 
 // boundaryExceptions are the imports of the security boundary that stay on
-// purpose ("security boundary: moves only"). Empty until PR 20.
-var boundaryExceptions = map[string]string{}
+// purpose ("security boundary: moves only").
+var boundaryExceptions = map[string]string{
+	// core/policy reads the file system as part of the security decision: the
+	// protected-path check compares file identity, the exec checks expand ~ with
+	// the home folder, and the state checks place paths under the work root.
+	// Moving them behind a port changes the gate's logic, so it waits for the
+	// 1.6.0 follow-up. Only os is allowed: never os/exec, net, syscall, an
+	// adapter or an app package.
+	"internal/core/policy -> os": "security boundary: moves only; protected.go and execcheck.go import os for the decision (state.go reads through RelativeTarget)",
+	// The policy's tests load the default policy through the config file reader.
+	"internal/core/policy (test) -> internal/adapter/config": "security boundary: moves only; helpers_test.go and nested_agent_test.go load the default config",
+}
+
+// boundaryPackages are the packages whose imports boundaryExceptions may hold.
+var boundaryPackages = []string{"internal/core/policy", "internal/app/gate", "internal/core/paidrules", "internal/app/paidruns", "internal/adapter/paidstore"}
 
 // layerViolation is one import that breaks a rule.
 type layerViolation struct {
@@ -309,6 +321,22 @@ func TestLayers(t *testing.T) {
 		}
 		if got := invalidAllowedEdges(allowedEdges); len(got) != 0 {
 			t.Errorf("allowedEdges has invalid keys %q", got)
+		}
+	})
+	t.Run("boundary", func(t *testing.T) {
+		for key, reason := range boundaryExceptions {
+			from, _, _ := strings.Cut(key, " -> ")
+			from = strings.TrimSuffix(from, " (test)")
+			if !slices.Contains(boundaryPackages, from) {
+				t.Errorf("%s: %s is not a boundary package", key, from)
+			}
+			if !strings.HasPrefix(reason, "security boundary: moves only; ") {
+				t.Errorf("%s: reason %q must start with %q", key, reason, "security boundary: moves only; ")
+			}
+			// core/policy may import os in production code and nothing else.
+			if strings.HasPrefix(key, "internal/core/policy -> ") && key != "internal/core/policy -> os" {
+				t.Errorf("%s: core/policy may import only os", key)
+			}
 		}
 	})
 	t.Run("stale", func(t *testing.T) {

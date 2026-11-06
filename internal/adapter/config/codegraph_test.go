@@ -7,7 +7,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 )
 
 func TestDefaultCodegraphReadTools(t *testing.T) {
@@ -35,20 +35,20 @@ func TestDefaultCodegraphReadTools(t *testing.T) {
 		}
 		for role := range cfg.Roles {
 			for _, agent := range []string{"claude", "codex"} {
-				a, err := gate.Normalize(agent, []byte(fmt.Sprintf(`{"tool_name":"mcp__codegraph__%s","tool_input":{},"mcp_server":{"name":"codegraph"}}`, tool)))
+				a, err := policy.Normalize(agent, []byte(fmt.Sprintf(`{"tool_name":"mcp__codegraph__%s","tool_input":{},"mcp_server":{"name":"codegraph"}}`, tool)))
 				if err != nil {
 					t.Fatal(err)
 				}
 				a.Role = role
-				d := gate.Evaluate(cfg.Policy, gate.LeadRules{}, mode.Ask, a)
-				if d.Kind != gate.Allow {
+				d := policy.Evaluate(cfg.Policy, policy.LeadRules{}, mode.Ask, a)
+				if d.Kind != policy.Allow {
 					t.Errorf("%s %s %s: %+v", agent, role, tool, d)
 				}
 			}
 		}
 	}
 	for _, target := range []string{"codegraph/codegraph_init", "codegraph/codegraph_delete"} {
-		if d := gate.Evaluate(cfg.Policy, gate.LeadRules{}, mode.Ask, gate.Action{Kind: "mcp", Target: target}); d.Kind != gate.Ask {
+		if d := policy.Evaluate(cfg.Policy, policy.LeadRules{}, mode.Ask, policy.Action{Kind: "mcp", Target: target}); d.Kind != policy.Ask {
 			t.Errorf("unlisted tool %s: %+v", target, d)
 		}
 	}

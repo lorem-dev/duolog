@@ -8,20 +8,13 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/pathutil"
+	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/trust"
 	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/pelletier/go-toml/v2"
 )
-
-type LeadRules struct {
-	Deny []config.Rule
-	Mode mode.Mode
-	// RoleSandbox is supplied from the resolved role, never from hook input.
-	RoleSandbox string
-}
 
 // ImportLead reads only the orchestrator's agent settings. Settings can narrow
 // the registry's live mode, but cannot raise it or remove an inherited deny.

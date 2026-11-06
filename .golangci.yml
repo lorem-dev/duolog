@@ -98,7 +98,7 @@ linters:
         text: G30[126]
         linters: [gosec]
       # PowerShell accepts any prefix of -recurse; the arguments are in that order on purpose.
-      - path: internal/gate/gate\.go
+      - path: internal/core/policy/gate\.go
         text: argOrder
         linters: [gocritic]
       # Tests and the test binaries start short-lived commands without a context.
@@ -269,35 +269,35 @@ linters:
       - {path: '^internal/app/doctor/workermodes\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?describeWorkerMode is 16,'} # describeWorkerMode: cyclomatic 16
       - {path: '^internal/app/doctor/workermodes\.go$', linters: [gocognit], text: 'complexity 29 of func .(?:\(\*?\w+\)\.)?workerModeFindings. is'} # workerModeFindings: cognitive 29
       - {path: '^internal/app/doctor/workermodes\.go$', linters: [nestif], text: '.if\ agent\ ==\ "codex". has complex nested blocks \(complexity: 10\)'} # if if agent == "codex": nesting 10
-      - {path: '^internal/gate/adapter\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Normalize. has too many statements \(62 > |complexity 51 of func .(?:\(\*?\w+\)\.)?Normalize. is|function (?:\(\*?\w+\)\.)?Normalize is 47,'} # Normalize: cyclomatic 47, statements 62, cognitive 51
+      - {path: '^internal/core/policy/adapter\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Normalize. has too many statements \(62 > |complexity 51 of func .(?:\(\*?\w+\)\.)?Normalize. is|function (?:\(\*?\w+\)\.)?Normalize is 47,'} # Normalize: cyclomatic 47, statements 62, cognitive 51
       - {path: '^internal/gate/ask\.go$', linters: [cyclop, funlen], text: 'Function .Escalate. has too many statements \(54 > |function (?:\(\*?\w+\)\.)?Escalate is 20,'} # Escalate: cyclomatic 20, statements 54
-      - {path: '^internal/gate/execcheck\.go$', linters: [cyclop, gocognit], text: 'complexity 31 of func .(?:\(\*?\w+\)\.)?hiddenDeny. is|function (?:\(\*?\w+\)\.)?hiddenDeny is 21,'} # hiddenDeny: cyclomatic 21, cognitive 31
-      - {path: '^internal/gate/execcheck\.go$', linters: [gocognit], text: 'complexity 32 of func .(?:\(\*?\w+\)\.)?inputTargets. is'} # inputTargets: cognitive 32
-      - {path: '^internal/gate/execcheck\.go$', linters: [gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?needsReview. is'} # needsReview: cognitive 23
-      - {path: '^internal/gate/execcheck\.go$', linters: [cyclop, gocognit], text: 'complexity 25 of func .(?:\(\*?\w+\)\.)?rawExecParts. is|function (?:\(\*?\w+\)\.)?rawExecParts is 22,'} # rawExecParts: cyclomatic 22, cognitive 25
-      - {path: '^internal/gate/execcheck\.go$', linters: [gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?redirectTargets. is'} # redirectTargets: cognitive 23
-      - {path: '^internal/gate/gate\.go$', linters: [revive], text: 'file length is 909 lines'} # internal/gate/gate.go: code lines 909
-      - {path: '^internal/gate/gate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Evaluate. has too many statements \(118 > |complexity 133 of func .(?:\(\*?\w+\)\.)?Evaluate. is|function (?:\(\*?\w+\)\.)?Evaluate is 94,'} # Evaluate: cyclomatic 94, statements 118, cognitive 133
-      - {path: '^internal/gate/gate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .commandAfterKeywords. has too many statements \(57 > |complexity 45 of func .(?:\(\*?\w+\)\.)?commandAfterKeywords. is|function (?:\(\*?\w+\)\.)?commandAfterKeywords is 26,'} # commandAfterKeywords: cyclomatic 26, statements 57, cognitive 45
-      - {path: '^internal/gate/gate\.go$', linters: [cyclop, gocognit], text: 'complexity 43 of func .(?:\(\*?\w+\)\.)?denyCommand. is|function (?:\(\*?\w+\)\.)?denyCommand is 31,'} # denyCommand: cyclomatic 31, cognitive 43
-      - {path: '^internal/gate/gate\.go$', linters: [gocognit], text: 'complexity 26 of func .(?:\(\*?\w+\)\.)?expandBraces. is'} # expandBraces: cognitive 26
-      - {path: '^internal/gate/gate\.go$', linters: [cyclop, gocognit], text: 'complexity 22 of func .(?:\(\*?\w+\)\.)?readCommandDecision. is|function (?:\(\*?\w+\)\.)?readCommandDecision is 16,'} # readCommandDecision: cyclomatic 16, cognitive 22
-      - {path: '^internal/gate/gate\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?readOnlyCommand is 18,'} # readOnlyCommand: cyclomatic 18
-      - {path: '^internal/gate/gate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .shellParts. has too many statements \(92 > |complexity 74 of func .(?:\(\*?\w+\)\.)?shellParts. is|function (?:\(\*?\w+\)\.)?shellParts is 54,'} # shellParts: cyclomatic 54, statements 92, cognitive 74
-      - {path: '^internal/gate/gate\.go$', linters: [nestif], text: '.if\ a\.Kind\ ==\ "read"\ \|\|\ a\.Kind\ ==\ "write". has complex nested blocks \(complexity: 5\)'} # if if a.Kind == "read" || a.Kind == "write": nesting 5
-      - {path: '^internal/gate/gate\.go$', linters: [nestif], text: '.if\ words\[0\]\ ==\ "rm". has complex nested blocks \(complexity: 5\)'} # if if words[0] == "rm": nesting 5
+      - {path: '^internal/core/policy/execcheck\.go$', linters: [cyclop, gocognit], text: 'complexity 31 of func .(?:\(\*?\w+\)\.)?hiddenDeny. is|function (?:\(\*?\w+\)\.)?hiddenDeny is 21,'} # hiddenDeny: cyclomatic 21, cognitive 31
+      - {path: '^internal/core/policy/execcheck\.go$', linters: [gocognit], text: 'complexity 32 of func .(?:\(\*?\w+\)\.)?inputTargets. is'} # inputTargets: cognitive 32
+      - {path: '^internal/core/policy/execcheck\.go$', linters: [gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?needsReview. is'} # needsReview: cognitive 23
+      - {path: '^internal/core/policy/execcheck\.go$', linters: [cyclop, gocognit], text: 'complexity 25 of func .(?:\(\*?\w+\)\.)?rawExecParts. is|function (?:\(\*?\w+\)\.)?rawExecParts is 22,'} # rawExecParts: cyclomatic 22, cognitive 25
+      - {path: '^internal/core/policy/execcheck\.go$', linters: [gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?redirectTargets. is'} # redirectTargets: cognitive 23
+      - {path: '^internal/core/policy/gate\.go$', linters: [revive], text: 'file length is 909 lines'} # internal/core/policy/gate.go: code lines 909
+      - {path: '^internal/core/policy/gate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Evaluate. has too many statements \(118 > |complexity 133 of func .(?:\(\*?\w+\)\.)?Evaluate. is|function (?:\(\*?\w+\)\.)?Evaluate is 94,'} # Evaluate: cyclomatic 94, statements 118, cognitive 133
+      - {path: '^internal/core/policy/gate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .commandAfterKeywords. has too many statements \(57 > |complexity 45 of func .(?:\(\*?\w+\)\.)?commandAfterKeywords. is|function (?:\(\*?\w+\)\.)?commandAfterKeywords is 26,'} # commandAfterKeywords: cyclomatic 26, statements 57, cognitive 45
+      - {path: '^internal/core/policy/gate\.go$', linters: [cyclop, gocognit], text: 'complexity 43 of func .(?:\(\*?\w+\)\.)?denyCommand. is|function (?:\(\*?\w+\)\.)?denyCommand is 31,'} # denyCommand: cyclomatic 31, cognitive 43
+      - {path: '^internal/core/policy/gate\.go$', linters: [gocognit], text: 'complexity 26 of func .(?:\(\*?\w+\)\.)?expandBraces. is'} # expandBraces: cognitive 26
+      - {path: '^internal/core/policy/gate\.go$', linters: [cyclop, gocognit], text: 'complexity 22 of func .(?:\(\*?\w+\)\.)?readCommandDecision. is|function (?:\(\*?\w+\)\.)?readCommandDecision is 16,'} # readCommandDecision: cyclomatic 16, cognitive 22
+      - {path: '^internal/core/policy/gate\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?readOnlyCommand is 18,'} # readOnlyCommand: cyclomatic 18
+      - {path: '^internal/core/policy/gate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .shellParts. has too many statements \(92 > |complexity 74 of func .(?:\(\*?\w+\)\.)?shellParts. is|function (?:\(\*?\w+\)\.)?shellParts is 54,'} # shellParts: cyclomatic 54, statements 92, cognitive 74
+      - {path: '^internal/core/policy/gate\.go$', linters: [nestif], text: '.if\ a\.Kind\ ==\ "read"\ \|\|\ a\.Kind\ ==\ "write". has complex nested blocks \(complexity: 5\)'} # if if a.Kind == "read" || a.Kind == "write": nesting 5
+      - {path: '^internal/core/policy/gate\.go$', linters: [nestif], text: '.if\ words\[0\]\ ==\ "rm". has complex nested blocks \(complexity: 5\)'} # if if words[0] == "rm": nesting 5
       - {path: '^internal/gate/lead\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .ImportLead. has too many statements \(41 > |complexity 70 of func .(?:\(\*?\w+\)\.)?ImportLead. is|function (?:\(\*?\w+\)\.)?ImportLead is 33,'} # ImportLead: cyclomatic 33, statements 41, cognitive 70
       - {path: '^internal/gate/lead\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?claudeDeny is 16,'} # claudeDeny: cyclomatic 16
       - {path: '^internal/gate/lead\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?claudePathPattern is 18,'} # claudePathPattern: cyclomatic 18
       - {path: '^internal/gate/lead\.go$', linters: [nestif], text: '.if\ agent\ ==\ "claude". has complex nested blocks \(complexity: 17\)'} # if if agent == "claude": nesting 17
-      - {path: '^internal/gate/protected\.go$', linters: [cyclop, gocognit], text: 'complexity 29 of func .(?:\(\*?\w+\)\.)?protectedDecision. is|function (?:\(\*?\w+\)\.)?protectedDecision is 22,'} # protectedDecision: cyclomatic 22, cognitive 29
-      - {path: '^internal/gate/protected\.go$', linters: [cyclop, gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?searchRoots. is|function (?:\(\*?\w+\)\.)?searchRoots is 19,'} # searchRoots: cyclomatic 19, cognitive 23
-      - {path: '^internal/gate/readcommand\.go$', linters: [cyclop, gocognit], text: 'complexity 40 of func .(?:\(\*?\w+\)\.)?known. is|function (?:\(\*?\w+\)\.)?known is 22,'} # known: cyclomatic 22, cognitive 40
-      - {path: '^internal/gate/readcommand\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .readCommandTargets. has too many statements \(69 > |complexity 76 of func .(?:\(\*?\w+\)\.)?readCommandTargets. is|function (?:\(\*?\w+\)\.)?readCommandTargets is 42,'} # readCommandTargets: cyclomatic 42, statements 69, cognitive 76
-      - {path: '^internal/gate/readcommand\.go$', linters: [cyclop, gocognit], text: 'complexity 41 of func .(?:\(\*?\w+\)\.)?recursiveSearch. is|function (?:\(\*?\w+\)\.)?recursiveSearch is 22,'} # recursiveSearch: cyclomatic 22, cognitive 41
-      - {path: '^internal/gate/readcommand\.go$', linters: [nestif], text: '.if\ name\ ==\ "rg". has complex nested blocks \(complexity: 8\)'} # if if name == "rg": nesting 8
-      - {path: '^internal/gate/readglobs\.go$', linters: [gocognit], text: 'complexity 29 of func .(?:\(\*?\w+\)\.)?readGlobMatchesDeny. is'} # readGlobMatchesDeny: cognitive 29
-      - {path: '^internal/gate/state\.go$', linters: [cyclop, gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?recursiveStateRead. is|function (?:\(\*?\w+\)\.)?recursiveStateRead is 18,'} # recursiveStateRead: cyclomatic 18, cognitive 23
+      - {path: '^internal/core/policy/protected\.go$', linters: [cyclop, gocognit], text: 'complexity 29 of func .(?:\(\*?\w+\)\.)?protectedDecision. is|function (?:\(\*?\w+\)\.)?protectedDecision is 22,'} # protectedDecision: cyclomatic 22, cognitive 29
+      - {path: '^internal/core/policy/protected\.go$', linters: [cyclop, gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?searchRoots. is|function (?:\(\*?\w+\)\.)?searchRoots is 19,'} # searchRoots: cyclomatic 19, cognitive 23
+      - {path: '^internal/core/policy/readcommand\.go$', linters: [cyclop, gocognit], text: 'complexity 40 of func .(?:\(\*?\w+\)\.)?known. is|function (?:\(\*?\w+\)\.)?known is 22,'} # known: cyclomatic 22, cognitive 40
+      - {path: '^internal/core/policy/readcommand\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .readCommandTargets. has too many statements \(69 > |complexity 76 of func .(?:\(\*?\w+\)\.)?readCommandTargets. is|function (?:\(\*?\w+\)\.)?readCommandTargets is 42,'} # readCommandTargets: cyclomatic 42, statements 69, cognitive 76
+      - {path: '^internal/core/policy/readcommand\.go$', linters: [cyclop, gocognit], text: 'complexity 41 of func .(?:\(\*?\w+\)\.)?recursiveSearch. is|function (?:\(\*?\w+\)\.)?recursiveSearch is 22,'} # recursiveSearch: cyclomatic 22, cognitive 41
+      - {path: '^internal/core/policy/readcommand\.go$', linters: [nestif], text: '.if\ name\ ==\ "rg". has complex nested blocks \(complexity: 8\)'} # if if name == "rg": nesting 8
+      - {path: '^internal/core/policy/readglobs\.go$', linters: [gocognit], text: 'complexity 29 of func .(?:\(\*?\w+\)\.)?readGlobMatchesDeny. is'} # readGlobMatchesDeny: cognitive 29
+      - {path: '^internal/core/policy/state\.go$', linters: [cyclop, gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?recursiveStateRead. is|function (?:\(\*?\w+\)\.)?recursiveStateRead is 18,'} # recursiveStateRead: cyclomatic 18, cognitive 23
       - {path: '^internal/app/hook/hook\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Wake. has too many statements \(41 > |complexity 35 of func .(?:\(\*?\w+\)\.)?Wake. is|function (?:\(\*?\w+\)\.)?Wake is 21,'} # Wake: cyclomatic 21, statements 41, cognitive 35
       - {path: '^internal/app/hook/hook\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .prepare. has too many statements \(58 > |complexity 32 of func .(?:\(\*?\w+\)\.)?prepare. is|function (?:\(\*?\w+\)\.)?prepare is 30,'} # prepare: cyclomatic 30, statements 58, cognitive 32
       - {path: '^internal/app/hook/hook\.go$', linters: [nestif], text: '.if\ current\ !=\ previous. has complex nested blocks \(complexity: 8\)'} # if if current != previous: nesting 8
