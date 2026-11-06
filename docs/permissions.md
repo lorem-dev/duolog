@@ -207,7 +207,7 @@ judges `/tmp/out`. A script that both `sed`s can run must parse both ways,
 or it needs the person.
 
 `grep`, `jq`, `sort`, `uniq` and `file` pass only with options that change
-the output, so `jq -f`, `sort -o`, `uniq - out`, `file -m.env` and ugrep's
+the output, so `jq -f`, `sort -o`, `uniq - out`, `file -m magic` and ugrep's
 `grep --filter` ask. A `jq` filter
 that names `env` or a `$` variable asks, because it can print the worker's
 API keys. The context options `-A`, `-B`, `-C`, `--after-context`,
@@ -221,6 +221,15 @@ before another command, a shell glob, a program path with `..` and `git -c`
 ask in every mode, because the gate reads the command text and cannot see what
 they do. A path can match a deny
 by accident: `go test ./secrets/...` is denied by the `secrets/` rule.
+
+An option value in the same word as a short option counts as a path when it
+starts with `/`, `~` or `.`, after an optional `@`, or holds a `/` or a `\`
+anywhere. A drive counts when a slash or a backslash follows it, as in
+`-oC:\out`, and on Windows also alone, as in `-oD:out`. So
+`sort -o/tmp/out x`, `make -C../peer` and
+`sort -o_/../../out x` need the person, and `file -m.env x` is denied. A value
+that is text for a known program stays text, such as the separator of
+`cut -d/` or the pattern of `grep -e/api/`.
 
 Workers cannot start `claude` or `codex` themselves (rule `agent launch`).
 The gate denies them by any program path or Windows launcher, behind
