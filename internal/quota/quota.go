@@ -211,6 +211,7 @@ func (r runner) command(ctx context.Context, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, r.bin, r.p.Argv(args...)[1:]...)
 	cmd.Dir = r.dir
 	cmd.WaitDelay = 200 * time.Millisecond
+	configureProcess(cmd)
 	// Non-nil, so that an empty environment never means duolog's own.
 	cmd.Env = append([]string{}, r.p.Env...)
 	// Never surface stderr: it can contain account details or credentials.
