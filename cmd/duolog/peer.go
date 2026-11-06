@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/peer"
+	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/spf13/cobra"
 )
 
@@ -164,8 +166,11 @@ func newPeerCommand() *cobra.Command {
 		}
 		return args[0] + " closed", nil
 	})
-	var listJSON bool
+	var listJSON, listLong bool
 	list := &cobra.Command{Use: "list", Short: "List this lead's peer states without answering questions", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		if listLong && listJSON {
+			return errors.New("--long and --json cannot be used together")
+		}
 		ctx, cancel, err := peerContext(cmd, lead, false, 0)
 		if err != nil {
 			return err
@@ -178,6 +183,9 @@ func newPeerCommand() *cobra.Command {
 		if listJSON {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(peers)
 		}
+		if listLong {
+			return writeLongList(cmd.OutOrStdout(), peers, time.Now())
+		}
 		for _, p := range peers {
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", p.ID, p.State); err != nil {
 				return err
@@ -185,9 +193,50 @@ func newPeerCommand() *cobra.Command {
 		}
 		return nil
 	}}
-	list.Flags().BoolVar(&listJSON, "json", false, "Print peer IDs and states as JSON")
-	root.AddCommand(open, wait, send, status, answer, closeCmd, list, newPeerLaunchCommand())
+	list.Flags().BoolVar(&listJSON, "json", false, "Print peers as JSON; id and state keep their old values")
+	list.Flags().BoolVar(&listLong, "long", false, "Print a table with role, agent, task, last event and tab")
+	root.AddCommand(open, wait, send, status, answer, closeCmd, list, newPeerShowCommand(&lead), newPeerViewCommand(&lead), newPeerLaunchCommand())
 	return root
+}
+
+// errPeerShowModel is the refusal when a model may read the output.
+var errPeerShowModel = errors.New("duolog peer show prints a peer's screen only to your own terminal, so no model reads it; run it in a terminal outside the agent, or use duolog peer view <id>")
+
+// agentAncestor names a Claude or Codex process above this one; tests
+// replace it.
+var agentAncestor = session.AgentAncestor
+
+// newPeerShowCommand prints the last lines of a peer's pane to the person's
+// terminal. It refuses before any Rex call whenever a model may read the
+// output, and it has no flag that overrides the refusal. The checks guard
+// against accidents; no check can prove that a terminal is the person's.
+// The lead hook also stops a lead's tool call that names it (peerShowLeadGuard).
+func newPeerShowCommand(lead *string) *cobra.Command {
+	var lines int
+	cmd := &cobra.Command{Use: "show <id>", Short: "Print the last lines of a peer's screen to your own terminal", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if modelContext(cmd) {
+			return errPeerShowModel
+		}
+		// A pty and a cleaned environment pass the check above, as under
+		// script or in a new Rex or tmux pane; an agent process above
+		// this one still shows.
+		if agent := agentAncestor(); agent != "" {
+			return fmt.Errorf("%w (a %s process runs this command)", errPeerShowModel, agent)
+		}
+		ctx, cancel, err := peerContext(cmd, *lead, false, 0)
+		if err != nil {
+			return err
+		}
+		defer cancel()
+		shown, err := peer.Show(ctx, args[0], lines)
+		if err != nil {
+			return err
+		}
+		_, err = io.WriteString(cmd.OutOrStdout(), shown.Text())
+		return err
+	}}
+	cmd.Flags().IntVar(&lines, "lines", peer.DefaultShowLines, fmt.Sprintf("Number of lines, 1 to %d", peer.MaxShowLines))
+	return cmd
 }
 
 // newPeerLaunchCommand starts a peer's program with exactly the variables in its
@@ -235,3 +284,24 @@ func launchEnv(base, set []string) []string {
 }
 
 var paneVariables = []string{"TERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "COLORTERM", "COLUMNS", "LINES", "LANG", "LANGUAGE", "TMPDIR", "TZ", "SHELL"}
+
+// newPeerViewCommand moves the person's Rex client to a peer's existing tab.
+// It prints one line and never the screen.
+func newPeerViewCommand(lead *string) *cobra.Command {
+	var client string
+	view := &cobra.Command{Use: "view <id>", Short: "Show a peer's tab on your Rex client; look, do not type", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel, err := peerContext(cmd, *lead, false, 0)
+		if err != nil {
+			return err
+		}
+		defer cancel()
+		viewed, err := peer.View(ctx, args[0], client)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), viewed.Line())
+		return err
+	}}
+	view.Flags().StringVar(&client, "client", "", "Rex client to move (default: the one client that shows this session)")
+	return view
+}
