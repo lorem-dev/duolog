@@ -216,9 +216,11 @@ model turn and the lines it prints.
 marker variable, output that is not a terminal, a worker, or a Claude or
 Codex process above it. The lead hook also stops a lead's tool call that
 names `duolog peer show`, behind any wrapper: Claude asks you, Codex denies
-it. These refusals guard against accidents. They are not a barrier: no
-check can prove that a terminal is yours, and a model that ignored them
-would have to work around them on purpose.
+it. A Claude lead that runs in `bypassPermissions` or `auto` is not asked;
+`peer show`'s own refusal still applies. These refusals guard against
+accidents. They are not a barrier: no check can prove that a terminal is
+yours, and a model that ignored them would have to work around them on
+purpose.
 
 `peer show` and `peer view` need `REX_SESSION`, like the other peer commands.
 `peer view` moves one client: `--client`, or else the only client that shows
