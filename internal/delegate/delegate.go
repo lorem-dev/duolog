@@ -128,7 +128,7 @@ func Place(cfg *config.Config, taskPath string, route router.Route) (Placement, 
 }
 func place(cfg *config.Config, taskPath, root string, route router.Route) (Placement, error) {
 	p := Placement{Where: "self", Model: route.Model, Effort: route.Effort, Task: taskPath}
-	refs, err := task.References(taskPath)
+	refs, err := task.References(taskPath, root)
 	if err != nil {
 		return p, err
 	}
