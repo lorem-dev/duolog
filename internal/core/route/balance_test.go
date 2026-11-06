@@ -3,7 +3,7 @@ package route
 import (
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 func TestResolveBalancesByPace(t *testing.T) {

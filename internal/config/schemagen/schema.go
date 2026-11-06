@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/invopop/jsonschema"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 // Generate returns the configuration schema without reading configuration files.

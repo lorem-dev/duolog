@@ -16,9 +16,10 @@ import (
 	"text/tabwriter"
 	"time"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/models"
 	"github.com/lorem-dev/duolog/internal/capability"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/usage"
 	"github.com/lorem-dev/duolog/internal/delegate"
@@ -82,7 +83,7 @@ func newSkillCommand() *cobra.Command {
 		if err != nil {
 			return fmt.Errorf("%s: %w", planPath, err)
 		}
-		cfg, err := config.Load(root)
+		cfg, err := configfile.Load(root)
 		if err != nil {
 			return err
 		}

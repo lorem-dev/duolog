@@ -3,7 +3,7 @@ package learn
 import (
 	"slices"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 // Choice is the ladder entry picked for one delegation. Why is prior or

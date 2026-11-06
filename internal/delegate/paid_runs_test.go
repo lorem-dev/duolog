@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/auth"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/quota"

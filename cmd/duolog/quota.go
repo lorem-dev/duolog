@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/quota"
@@ -59,7 +59,7 @@ func newQuotaCommand() *cobra.Command {
 		}
 		// The free reads use the person's config, so the worker's process, its
 		// proxy and CA variables included, is the one read.
-		cfg, err := config.Load(root)
+		cfg, err := configfile.Load(root)
 		if err != nil {
 			return err
 		}

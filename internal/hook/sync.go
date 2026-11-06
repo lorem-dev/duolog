@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/agentsync"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/gate"
 )
 
@@ -20,7 +21,7 @@ func syncConfig(e Env) (config.Sync, bool) {
 	if info, err := os.Stat(filepath.Join(e.Root, ".duolog")); err != nil || !info.IsDir() {
 		return config.Sync{}, false
 	}
-	cfg, err := config.Load(e.Root)
+	cfg, err := configfile.Load(e.Root)
 	if err != nil {
 		return config.Sync{}, false
 	}

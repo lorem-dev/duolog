@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
 	"github.com/lorem-dev/duolog/internal/gate"

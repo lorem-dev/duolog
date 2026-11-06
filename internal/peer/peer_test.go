@@ -14,8 +14,9 @@ import (
 	"testing"
 	"time"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/bus"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/route"
 	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
@@ -126,7 +127,7 @@ func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
 	r := &rig{t: t, root: t.TempDir()}
 	t.Chdir(r.root)
 	var err error
-	if r.cfg, err = config.Load(r.root); err != nil {
+	if r.cfg, err = configfile.Load(r.root); err != nil {
 		t.Fatal(err)
 	}
 	r.cfg.Rex.StartTimeoutSeconds = 5

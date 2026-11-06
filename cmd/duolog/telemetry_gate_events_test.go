@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/bus"
-	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/record"
 	"github.com/lorem-dev/duolog/internal/gate"
@@ -52,7 +52,7 @@ func answerGateAsks(t *testing.T, reg *session.Registry, root, answer string) {
 	if answer == "" {
 		return
 	}
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func answerGateAsks(t *testing.T, reg *session.Registry, root, answer string) {
 // gateEvents reads this project's gate events.
 func gateEvents(t *testing.T, root string) []telemetry.Gate {
 	t.Helper()
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func TestTelemetryGateAsks(t *testing.T) {
 		answerGateAsks(t, reg, root, gate.Allow)
 		a := gate.Action{Kind: "exec", Target: "custom-command", Role: "implement"}
 		initial := gate.Decision{Kind: gate.Ask, Rule: "on_unmatched", Mode: mode.Ask}
-		cfg, err := config.Load(root)
+		cfg, err := configfile.Load(root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -300,7 +300,7 @@ func TestTelemetryRunEventsUseDelegationRun(t *testing.T) {
 	const run = "fedcba9876543210fedcba9876543210"
 	_, root, _ := gateTelemetrySetup(t, mode.Ask, "")
 	t.Setenv("DUOLOG_DEPTH", "")
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +364,7 @@ func TestTelemetryGateFailure(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			cfg, err := config.Load(root)
+			cfg, err := configfile.Load(root)
 			if err != nil {
 				t.Fatal(err)
 			}

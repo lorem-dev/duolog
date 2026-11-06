@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 // A route name counts as dropped when a worker no longer gets it: set in

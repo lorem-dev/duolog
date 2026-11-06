@@ -6,8 +6,9 @@ import (
 	"sort"
 	"strings"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/capability"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/session"
 )
@@ -79,7 +80,7 @@ func StartNote(root string, lead session.Lead) string {
 	if !capability.HasDuolog(other, root) {
 		note += "; " + other + " has no duolog hooks: sandbox only"
 	}
-	if cfg, err := config.Load(root); err == nil && cfg.Coauthors.Enabled {
+	if cfg, err := configfile.Load(root); err == nil && cfg.Coauthors.Enabled {
 		note += "; commits: add duolog coauthors"
 	}
 	return note

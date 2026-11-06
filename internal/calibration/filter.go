@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"
 )

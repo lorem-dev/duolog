@@ -6,7 +6,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/profile"
@@ -30,7 +31,7 @@ func newProfileCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cfg, err := config.Load(root)
+		cfg, err := configfile.Load(root)
 		if err != nil {
 			return err
 		}

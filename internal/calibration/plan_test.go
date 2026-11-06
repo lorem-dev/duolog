@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 // planManifest holds 3 round 1 and 3 round 2 tasks per class. Round 2's

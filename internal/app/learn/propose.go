@@ -10,7 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	corelearn "github.com/lorem-dev/duolog/internal/core/learn"
 	"go.yaml.in/yaml/v3"
 )
@@ -141,7 +142,7 @@ func EditConfig(root string, edit func(learning *yaml.Node) error, verify func(*
 	if err = os.WriteFile(path, updated, 0600); err != nil {
 		return old, nil, err
 	}
-	loaded, loadErr := config.Load(root)
+	loaded, loadErr := configfile.Load(root)
 	err = loadErr
 	if err == nil && verify != nil {
 		err = verify(loaded)

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 // codexLayerFacts reads files as the user and project Codex layers.

@@ -1,7 +1,7 @@
 package usage
 
 import (
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"math"
 	"os"
 	"path/filepath"
@@ -27,7 +27,7 @@ func logFile(t *testing.T, data string) string {
 
 func TestCostMatchesSummarize(t *testing.T) {
 	logFile(t, "")
-	cfg, err := config.Load(t.TempDir())
+	cfg, err := configfile.Load(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestCostMatchesSummarize(t *testing.T) {
 // 2x the input price, so the same tokens cost more as writes than as input.
 func TestCacheWritesCostMoreThanInput(t *testing.T) {
 	logFile(t, "")
-	cfg, err := config.Load(t.TempDir())
+	cfg, err := configfile.Load(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

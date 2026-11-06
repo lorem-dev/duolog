@@ -9,7 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	corelearn "github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/core/record"
 	"go.yaml.in/yaml/v3"
@@ -24,7 +25,7 @@ func defaults(t *testing.T) config.Learning {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("XDG_CONFIG_HOME", home)
 	t.Setenv("APPDATA", home)
-	cfg, err := config.Load(t.TempDir())
+	cfg, err := configfile.Load(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +55,7 @@ func TestProposeClassOffersNextGroupAfterApply(t *testing.T) {
 	if _, _, err := ApplyClass(root, cfg, first); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := config.Load(root)
+	loaded, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +66,7 @@ func TestProposeClassOffersNextGroupAfterApply(t *testing.T) {
 	if _, _, err := ApplyClass(root, loaded, ps[0]); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err = config.Load(root)
+	loaded, err = configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +87,7 @@ func proposalRoot(t *testing.T, contents string) (string, *config.Config) {
 			t.Fatal(err)
 		}
 	}
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +114,7 @@ func TestApplyClassKeepsCommentsAndLoads(t *testing.T) {
 	if err != nil || !bytes.Equal(data, updated) {
 		t.Fatal(string(data), err)
 	}
-	loaded, err := config.Load(root)
+	loaded, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +133,7 @@ func TestApplyClassInsertsRuleBeforeFirstMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := config.Load(root)
+	loaded, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +152,7 @@ func TestApplyClassCreatesConfigWithEffectiveRules(t *testing.T) {
 	if !strings.HasPrefix(string(updated), "# yaml-language-server: $schema=https://raw.githubusercontent.com/lorem-dev/duolog/main/duolog-config.schema.json\n") {
 		t.Fatal(string(updated))
 	}
-	loaded, err := config.Load(root)
+	loaded, err := configfile.Load(root)
 	if err != nil || len(loaded.Learning.Classify) != len(cfg.Learning.Classify)+1 {
 		t.Fatal(loaded, err)
 	}
@@ -187,7 +188,7 @@ func TestApplyClassRestoresWhenLocalLayerMasksRule(t *testing.T) {
 	if err := os.WriteFile(local, []byte("learning:\n  classify: [{when: {}, class: docs}]\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +213,7 @@ func TestEditConfigKeepsComments(t *testing.T) {
 	if !bytes.Contains(updated, []byte("# team note")) {
 		t.Fatalf("lost the comment: %s", updated)
 	}
-	loaded, err := config.Load(root)
+	loaded, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -12,8 +12,9 @@ import (
 	"testing"
 	"time"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/capability"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/testbin"
@@ -30,7 +31,7 @@ func setup(t *testing.T) (*config.Config, Options, string) {
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	root := t.TempDir()
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}

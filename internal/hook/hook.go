@@ -12,9 +12,10 @@ import (
 	"strings"
 	"time"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/roster"
 	"github.com/lorem-dev/duolog/internal/session"
@@ -106,7 +107,7 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 			return nil, err
 		}
 	}
-	cfg, err := config.Load(e.Root)
+	cfg, err := configfile.Load(e.Root)
 	if err != nil {
 		return nil, err
 	}

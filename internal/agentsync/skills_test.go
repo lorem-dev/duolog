@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 const skillMD = "---\nname: probe\ndescription: Probes things.\n---\n# Probe\n\nBody stays   exactly\n\tas it is.\n"

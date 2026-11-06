@@ -5,7 +5,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 // fiveHourLimit is the used share of the five-hour window above which an

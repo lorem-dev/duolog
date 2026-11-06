@@ -12,7 +12,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/pelletier/go-toml/v2"
 )
 

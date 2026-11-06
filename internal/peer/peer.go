@@ -21,10 +21,11 @@ import (
 	"unicode"
 
 	"github.com/gofrs/flock"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/models"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/coauthor"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
@@ -257,7 +258,7 @@ func setupRecords(ctx context.Context, requireLead bool) (*env, error) {
 	}
 	cfg := opts.Config
 	if cfg == nil {
-		if cfg, err = config.Load(root); err != nil {
+		if cfg, err = configfile.Load(root); err != nil {
 			return nil, err
 		}
 	}

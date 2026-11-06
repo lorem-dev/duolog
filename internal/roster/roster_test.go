@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/capability"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/session"
 )
 
@@ -19,7 +20,7 @@ func setup(t *testing.T) (*config.Config, *session.Registry) {
 	for _, key := range []string{"HOME", "USERPROFILE", "XDG_CONFIG_HOME", "APPDATA"} {
 		t.Setenv(key, home)
 	}
-	cfg, err := config.Load(t.TempDir())
+	cfg, err := configfile.Load(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

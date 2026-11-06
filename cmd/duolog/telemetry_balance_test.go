@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/core/record"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/telemetry"
@@ -27,7 +27,7 @@ func balanceStore(t *testing.T) (*telemetry.Store, string) {
 	t.Helper()
 	telemetryRoot := telemetryHome(t)
 	dir := t.TempDir()
-	cfg, err := config.Load(dir)
+	cfg, err := configfile.Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,7 +394,7 @@ func TestBalanceWithoutTelemetry(t *testing.T) {
 	}
 	want := answers()
 	root := mustGetwd(t)
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}

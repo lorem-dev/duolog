@@ -11,8 +11,9 @@ import (
 	"testing"
 	"time"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/calibration"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/testbin"
@@ -176,7 +177,7 @@ func TestCalibrateJudgeStopsAtLeadReserve(t *testing.T) {
 // rewriteFixture is a run folder with one task to rewrite.
 func rewriteFixture(t *testing.T, root string) (*config.Config, *store.Store, string, calibration.TaskRecord) {
 	t.Helper()
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +335,7 @@ func TestCalibrateJudgeRefusesChangedJudges(t *testing.T) {
 	calls := fakeJudge(t)
 	stateDir := filepath.Join(root, ".duolog")
 	run := ranRun(t, stateDir)
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,7 +384,7 @@ func TestCalibratePlanAgainAfterJudgesChanged(t *testing.T) {
 			writeConfig("")
 			stateDir := filepath.Join(root, ".duolog")
 			run := ranRun(t, stateDir)
-			cfg, err := config.Load(root)
+			cfg, err := configfile.Load(root)
 			if err != nil {
 				t.Fatal(err)
 			}

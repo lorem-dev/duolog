@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/bus"
-	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -15,7 +15,7 @@ func openBus() (*bus.Bus, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		return nil, err
 	}

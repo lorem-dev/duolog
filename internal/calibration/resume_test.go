@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 func TestResumeSkipsDoneRerunsRunning(t *testing.T) {

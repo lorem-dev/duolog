@@ -9,7 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/session"
@@ -243,7 +244,7 @@ func TestOutcomeForUnfinishedTask(t *testing.T) {
 
 func TestTaskStartPrintsProtocol(t *testing.T) {
 	root := learningRepo(t, true)
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}

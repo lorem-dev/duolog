@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/coauthor"
-	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -38,7 +38,7 @@ func TestCoauthorsCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}

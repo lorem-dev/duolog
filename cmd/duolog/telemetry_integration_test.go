@@ -17,7 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/record"
 	"github.com/lorem-dev/duolog/internal/gate"
@@ -413,7 +414,7 @@ func TestTelemetryEndToEnd(t *testing.T) {
 	if again := routeAnswer(); again != route {
 		t.Fatalf("route changed: %s\n%s", again, route)
 	}
-	cfg, err := config.Load(checkout)
+	cfg, err := configfile.Load(checkout)
 	if err != nil {
 		t.Fatal(err)
 	}

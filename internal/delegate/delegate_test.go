@@ -14,11 +14,12 @@ import (
 	"testing"
 	"time"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/models"
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/paidruns"
@@ -94,7 +95,7 @@ func newHarness(t *testing.T) *harness {
 	h := &harness{t: t, root: t.TempDir()}
 	t.Chdir(h.root)
 	var e error
-	h.cfg, e = config.Load(h.root)
+	h.cfg, e = configfile.Load(h.root)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -1139,7 +1140,7 @@ func TestWorkerInventoryScansTheWorkersEnvironment(t *testing.T) {
 	userDir, _ := os.UserConfigDir()
 	put(t, filepath.Join(userDir, "duolog", "config.yaml"), "env_passthrough: [PATH, HOME, USER]\n")
 	var err error
-	if h.cfg, err = config.Load(h.root); err != nil {
+	if h.cfg, err = configfile.Load(h.root); err != nil {
 		t.Fatal(err)
 	}
 	caller := t.TempDir()

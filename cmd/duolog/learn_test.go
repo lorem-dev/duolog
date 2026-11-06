@@ -3,7 +3,8 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"os"
@@ -60,7 +61,7 @@ func TestLearnApplyClass(t *testing.T) {
 	if out, err := executeBusCommand(t, "learn", "--apply-class", "review_final_misc"); err != nil {
 		t.Fatal(out, err)
 	}
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil || learn.Classify(cfg.Learning.Classify, "review_final", nil) != "review_final_misc" {
 		t.Fatal(cfg, err)
 	}
@@ -135,7 +136,7 @@ func TestLearnClassCollisionFlagsActOnCurrentGroup(t *testing.T) {
 		}
 	}
 	readProposals := func() []learn.ClassProposal {
-		cfg, err := config.Load(root)
+		cfg, err := configfile.Load(root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -166,7 +167,7 @@ func TestLearnClassCollisionFlagsActOnCurrentGroup(t *testing.T) {
 	if ps := readProposals(); len(ps) != 0 {
 		t.Fatal(ps)
 	}
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil || learn.Classify(cfg.Learning.Classify, "review_final", map[string]string{"exemplar": "no"}) != "review_final_misc" || learn.Classify(cfg.Learning.Classify, "review_final", map[string]string{"exemplar": "yes"}) == "review_final_misc" {
 		t.Fatal(cfg, err)
 	}
@@ -249,7 +250,7 @@ func TestLearnPrintsDiffAndApplyWrites(t *testing.T) {
 	if out, err := executeBusCommand(t, "learn", "--apply"); err != nil {
 		t.Fatal(out, err)
 	}
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil || len(cfg.Learning.Learned["debug"].Order) == 0 {
 		t.Fatal(cfg, err)
 	}
@@ -340,7 +341,7 @@ func TestLearnUsesCalibrationEvidence(t *testing.T) {
 	if out, err := executeBusCommand(t, "learn", "--apply"); err != nil {
 		t.Fatal(out, err)
 	}
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil || len(cfg.Learning.Learned["tests"].Order) == 0 || cfg.Learning.Learned["tests"].Order[0] != "codex/sol/medium" {
 		t.Fatal(cfg.Learning.Learned, err)
 	}
@@ -368,7 +369,7 @@ func TestLearnSeedsFromProjectPart(t *testing.T) {
 	if out, err := executeBusCommand(t, "learn", "--apply"); err != nil {
 		t.Fatal(out, err)
 	}
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil || len(cfg.Learning.Learned["tests"].Order) == 0 || cfg.Learning.Learned["tests"].Order[0] != "codex/sol/medium" {
 		t.Fatal(cfg.Learning.Learned, err)
 	}

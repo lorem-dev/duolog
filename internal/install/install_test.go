@@ -11,7 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"github.com/lorem-dev/duolog/plugin"
 )
@@ -234,7 +235,7 @@ func TestHookTimeoutAboveAskTimeout(t *testing.T) {
 	home, root := setup(t)
 	write(t, filepath.Join(root, ".duolog/config.yaml"), "version: 1\npolicy:\n  ask_timeout_seconds: 300\n")
 	run(t, Options{Scope: "project", Agent: "both", Home: home, Root: root})
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +281,7 @@ func TestCreatesConfigWithModeline(t *testing.T) {
 	if first != "# yaml-language-server: $schema="+config.SchemaURL {
 		t.Fatalf("first line %q", first)
 	}
-	if _, err := config.Load(root); err != nil {
+	if _, err := configfile.Load(root); err != nil {
 		t.Fatal(err)
 	}
 }

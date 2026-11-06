@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 var ErrTooLong = errors.New("message too long; use duolog put for larger content")

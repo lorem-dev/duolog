@@ -9,7 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
@@ -170,7 +171,7 @@ func calibrationGate(agent, root string, env []string) error {
 // worker's environment, whose agent folders are protected too.
 func protectedRoot(roots, protected, env []string) string {
 	for _, root := range roots {
-		if reason := config.RefuseRootEnv(root, env); reason != "" {
+		if reason := configfile.RefuseRootEnv(root, env); reason != "" {
 			return "writable root " + root + ": " + reason
 		}
 		for _, p := range protected {

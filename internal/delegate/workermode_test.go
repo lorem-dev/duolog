@@ -13,7 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/runner"
@@ -27,7 +28,7 @@ func (h *harness) workerModes(yaml string) {
 	userDir, _ := os.UserConfigDir()
 	put(h.t, filepath.Join(userDir, "duolog", "config.yaml"), "worker_modes:\n"+yaml)
 	var err error
-	if h.cfg, err = config.Load(h.root); err != nil {
+	if h.cfg, err = configfile.Load(h.root); err != nil {
 		h.t.Fatal(err)
 	}
 }
@@ -385,7 +386,7 @@ func TestRouteChangeCannotEscapeFamilyLowering(t *testing.T) {
 		}
 		put(t, filepath.Join(h.s.Dir, "config.yaml"), project)
 		var err error
-		if h.cfg, err = config.Load(h.root); err != nil {
+		if h.cfg, err = configfile.Load(h.root); err != nil {
 			t.Fatal(tc.name, err)
 		}
 		h.leadNative("claude", mode.Full, "bypassPermissions")
@@ -456,7 +457,7 @@ func TestGatePreflightReadsTheWorkersSettings(t *testing.T) {
 		passthrough := cmp.Or(tc.passthrough, "["+home+", USER]")
 		put(t, filepath.Join(userDir, "duolog", "config.yaml"), "env_passthrough: "+passthrough+"\nworker_modes:\n  roles:\n    implement: {"+tc.entry+"}\n")
 		var err error
-		if h.cfg, err = config.Load(h.root); err != nil {
+		if h.cfg, err = configfile.Load(h.root); err != nil {
 			t.Fatal(err)
 		}
 		h.leadNative("claude", mode.Full, tc.lead)
@@ -475,7 +476,7 @@ func TestGatePreflightReadsTheWorkersSettings(t *testing.T) {
 	userDir, _ := os.UserConfigDir()
 	put(t, filepath.Join(userDir, "duolog", "config.yaml"), "env_passthrough: ["+home+", USER, CLAUDE_CONFIG_DIR]\nworker_modes:\n  roles:\n    implement: {claude: bypassPermissions}\n")
 	var err error
-	if h.cfg, err = config.Load(h.root); err != nil {
+	if h.cfg, err = configfile.Load(h.root); err != nil {
 		t.Fatal(err)
 	}
 	h.leadNative("claude", mode.Full, "bypassPermissions")
@@ -488,7 +489,7 @@ func TestGatePreflightReadsTheWorkersSettings(t *testing.T) {
 	h.claudeGate(true)
 	userDir, _ = os.UserConfigDir()
 	put(t, filepath.Join(userDir, "duolog", "config.yaml"), "env_passthrough: [PATH, USER]\n")
-	if h.cfg, err = config.Load(h.root); err != nil {
+	if h.cfg, err = configfile.Load(h.root); err != nil {
 		t.Fatal(err)
 	}
 	h.lead("claude", mode.Edits, "high")

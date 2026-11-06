@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/agentsync"
-	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/trust"
 	"github.com/spf13/cobra"
@@ -33,7 +33,7 @@ func newSyncCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cfg, err := config.Load(root)
+		cfg, err := configfile.Load(root)
 		if err != nil {
 			return err
 		}

@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/agentsync"
 	"github.com/lorem-dev/duolog/internal/bus"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/session"
@@ -23,7 +24,7 @@ import (
 
 func defaults(t *testing.T) *config.Config {
 	t.Helper()
-	cfg, err := config.Load(t.TempDir())
+	cfg, err := configfile.Load(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

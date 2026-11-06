@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/profile"
 	"github.com/lorem-dev/duolog/internal/testbin"

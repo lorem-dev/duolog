@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/peer"
 	"github.com/lorem-dev/duolog/internal/session"
@@ -31,7 +31,7 @@ func peerContext(cmd *cobra.Command, lead string, allowManual bool, timeout time
 	if err != nil {
 		return nil, nil, err
 	}
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		return nil, nil, err
 	}

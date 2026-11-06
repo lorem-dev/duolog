@@ -1,7 +1,8 @@
 package route
 
 import (
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"strings"
 	"testing"
 )
@@ -15,7 +16,7 @@ func defaults(t *testing.T) *config.Config {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("XDG_CONFIG_HOME", home)
 	t.Setenv("APPDATA", home)
-	cfg, err := config.Load(t.TempDir())
+	cfg, err := configfile.Load(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

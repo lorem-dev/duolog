@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"
 )
@@ -71,7 +71,7 @@ func TestVerdictPartialCorrectionAllowed(t *testing.T) {
 	}
 	// The existing aggregator overlays only this criterion. The second survives,
 	// and the latest decision wins over an earlier confirm.
-	cfg, err := config.Load(filepath.Dir(filepath.Dir(j.Dir)))
+	cfg, err := configfile.Load(filepath.Dir(filepath.Dir(j.Dir)))
 	if err != nil {
 		t.Fatal(err)
 	}

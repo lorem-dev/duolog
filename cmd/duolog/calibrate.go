@@ -15,8 +15,9 @@ import (
 	"strings"
 	"time"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/calibration"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/journal"
@@ -78,7 +79,7 @@ func newCalibrateSurveyCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cfg, err := config.Load(root)
+		cfg, err := configfile.Load(root)
 		if err != nil {
 			return err
 		}
@@ -152,7 +153,7 @@ func newCalibrateClassesCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cfg, err := config.Load(root)
+		cfg, err := configfile.Load(root)
 		if err != nil {
 			return err
 		}
@@ -245,7 +246,7 @@ func newCalibrateMineCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cfg, err := config.Load(root)
+		cfg, err := configfile.Load(root)
 		if err != nil {
 			return err
 		}
@@ -396,7 +397,7 @@ func newCalibratePlanCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cfg, err := config.Load(root)
+		cfg, err := configfile.Load(root)
 		if err != nil {
 			return err
 		}
@@ -649,7 +650,7 @@ func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.
 	if err != nil {
 		return err
 	}
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		return err
 	}
@@ -840,7 +841,7 @@ func newCalibrateStatusCommand() *cobra.Command {
 			return err
 		}
 		// A config that does not load has nothing to note; the run is shown.
-		if cfg, err := config.Load(root); err == nil {
+		if cfg, err := configfile.Load(root); err == nil {
 			for _, note := range cfg.Calibration.Ignored {
 				if _, err := fmt.Fprintf(out, "note: %s\n", note); err != nil {
 					return err
@@ -857,7 +858,7 @@ func newCalibrateJudgeCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cfg, err := config.Load(root)
+		cfg, err := configfile.Load(root)
 		if err != nil {
 			return err
 		}
@@ -1056,7 +1057,7 @@ func newCalibrateProposeCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cfg, err := config.Load(root)
+		cfg, err := configfile.Load(root)
 		if err != nil {
 			return err
 		}

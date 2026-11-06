@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/bus"
-	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 )
 
@@ -29,7 +29,7 @@ func TestDecisionsUnderDepthRefused(t *testing.T) {
 func TestDecisionCommands(t *testing.T) {
 	r, root := gateSetup(t, mode.Ask)
 	t.Setenv("DUOLOG_DEPTH", "")
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestAskHookLogsFinalOutcome(t *testing.T) {
 	for _, outcome := range []string{"allow", "deny", "timeout", "ended", "missing lead"} {
 		t.Run(outcome, func(t *testing.T) {
 			r, root := gateSetup(t, mode.Ask)
-			cfg, err := config.Load(root)
+			cfg, err := configfile.Load(root)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -166,7 +166,7 @@ func TestAskHookLogsFinalOutcome(t *testing.T) {
 func TestDecisionRefusesEndedLead(t *testing.T) {
 	r, root := gateSetup(t, mode.Ask)
 	t.Setenv("DUOLOG_DEPTH", "")
-	cfg, _ := config.Load(root)
+	cfg, _ := configfile.Load(root)
 	b, err := bus.Open(r.Dir, cfg.Wire)
 	if err != nil {
 		t.Fatal(err)
@@ -187,7 +187,7 @@ func TestDecisionWithoutLeadEnvUsesFlag(t *testing.T) {
 	r, root := gateSetup(t, mode.Ask)
 	t.Setenv("DUOLOG_DEPTH", "")
 	t.Setenv("DUOLOG_LEAD", "")
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestDecisionWithoutLeadEnvUsesFlag(t *testing.T) {
 func TestDecisionIsRefusedWhenItCanChangeNothing(t *testing.T) {
 	r, root := gateSetup(t, mode.Ask)
 	t.Setenv("DUOLOG_DEPTH", "")
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}

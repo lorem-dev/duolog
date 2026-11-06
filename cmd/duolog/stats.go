@@ -7,7 +7,7 @@ import (
 	"slices"
 	"text/tabwriter"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/spf13/cobra"
@@ -61,7 +61,7 @@ func statsClasses(cmd *cobra.Command, root string) error {
 	} else if err != nil {
 		return err
 	}
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		return err
 	}

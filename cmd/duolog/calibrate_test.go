@@ -19,8 +19,9 @@ import (
 	"testing"
 	"time"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/calibration"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/quota"
 )
@@ -289,7 +290,7 @@ func TestCalibrateClassesApply(t *testing.T) {
 	if out, err := executeBusCommand(t, "calibrate", "classes", "--apply"); err != nil {
 		t.Fatal(out, err)
 	}
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}

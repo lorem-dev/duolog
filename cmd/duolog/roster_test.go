@@ -5,14 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
 func TestRosterAliasesAndVersions(t *testing.T) {
 	isolatedRouteConfig(t)
 	routeLead(t)
-	cfg, err := config.Load(t.TempDir())
+	cfg, err := configfile.Load(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

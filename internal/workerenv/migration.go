@@ -3,7 +3,7 @@ package workerenv
 import (
 	"runtime"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 // DroppedKeys lists, per agent, the route names that the agent's workers no

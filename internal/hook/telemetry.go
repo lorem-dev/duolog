@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/telemetry"
 )
 
@@ -42,7 +42,7 @@ func telemetryStart(ctx context.Context, e Env) string {
 	if info, err := os.Stat(filepath.Join(e.Root, ".duolog")); err != nil || !info.IsDir() {
 		return ""
 	}
-	cfg, err := config.Load(e.Root)
+	cfg, err := configfile.Load(e.Root)
 	if err != nil {
 		return ""
 	}

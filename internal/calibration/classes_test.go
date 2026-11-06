@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 )
 
 // unmatched returns n candidates of one role and feature set that no default
@@ -50,7 +50,7 @@ func TestApplyClassesWritesChecks(t *testing.T) {
 	if bytes.Equal(old, updated) {
 		t.Fatalf("old == updated: %s", updated)
 	}
-	loaded, err := config.Load(root)
+	loaded, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,7 +15,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -86,7 +87,7 @@ func openPersonStore() (*telemetry.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		return nil, err
 	}

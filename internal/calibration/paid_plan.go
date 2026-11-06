@@ -7,7 +7,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 // Verdicts of an agent's route, as the account gate gives them.

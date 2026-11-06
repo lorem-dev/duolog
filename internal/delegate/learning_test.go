@@ -12,9 +12,10 @@ import (
 	"testing"
 	"time"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/capability"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/usage"
@@ -39,7 +40,7 @@ func (h *harness) enableLearning() {
 	h.t.Helper()
 	put(h.t, filepath.Join(h.s.Dir, "config.yaml"), "learning:\n  enabled: true\n")
 	var err error
-	if h.cfg, err = config.Load(h.root); err != nil {
+	if h.cfg, err = configfile.Load(h.root); err != nil {
 		h.t.Fatal(err)
 	}
 }
@@ -658,7 +659,7 @@ func TestCalibrationNeedsTheGateInTheWorkersEnvironment(t *testing.T) {
 			userDir, _ := os.UserConfigDir()
 			put(t, filepath.Join(userDir, "duolog", "config.yaml"), "env_passthrough: [PATH, HOME, USER]\n")
 			var err error
-			if h.cfg, err = config.Load(h.root); err != nil {
+			if h.cfg, err = configfile.Load(h.root); err != nil {
 				t.Fatal(err)
 			}
 			tc.setup(h, t.TempDir())

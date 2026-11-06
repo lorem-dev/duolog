@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 func win(used, elapsed float64) *PaceWindow { return &PaceWindow{Used: used, Elapsed: elapsed} }

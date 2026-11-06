@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/calibration"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/paidruns/paidrunstest"
@@ -120,7 +121,7 @@ func TestCalibrationUsableShareQuotaThroughGate(t *testing.T) {
 			ResetsAt: time.Now().Add(time.Hour), Severity: "rejected"}}}
 		return s, err
 	})
-	cfg, err := config.Load(".")
+	cfg, err := configfile.Load(".")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +184,7 @@ func TestCalibrationSharedRatesThroughGate(t *testing.T) {
 		last = s.ReadAt
 		return s, err
 	})
-	cfg, err := config.Load(".")
+	cfg, err := configfile.Load(".")
 	if err != nil {
 		t.Fatal(err)
 	}

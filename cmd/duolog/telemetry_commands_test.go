@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/telemetry"
 	"github.com/lorem-dev/duolog/internal/testbin"
@@ -73,7 +73,7 @@ func telemetryCommand(t *testing.T, stdin string, args ...string) (stdout, stder
 // seedStore opens the store of the project at root with its clock at at.
 func seedStore(t *testing.T, root string, at time.Time) *telemetry.Store {
 	t.Helper()
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +348,7 @@ func TestTelemetryCommands(t *testing.T) {
 					t.Fatalf("%s lost %q:\n%s", verb, want, data)
 				}
 			}
-			cfg, err := config.Load(root)
+			cfg, err := configfile.Load(root)
 			if err != nil || cfg.Telemetry.Enabled != enabled || cfg.Telemetry.RetentionDays != 10 || !cfg.Learning.Enabled {
 				t.Fatalf("%s: %+v %v", verb, cfg.Telemetry, err)
 			}
@@ -366,7 +366,7 @@ func TestTelemetryCommands(t *testing.T) {
 		if _, _, err := telemetryCommand(t, "", "off"); err != nil {
 			t.Fatal(err)
 		}
-		if cfg, err := config.Load(root); err != nil || cfg.Telemetry.Enabled {
+		if cfg, err := configfile.Load(root); err != nil || cfg.Telemetry.Enabled {
 			t.Fatalf("created config: %v", err)
 		}
 	})

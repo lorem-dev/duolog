@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/usage"
 )
@@ -18,7 +18,7 @@ import (
 // priced as before.
 func SummarizeUsage(path string) (usage.Table, error) {
 	var table usage.Table
-	cfg, err := config.Load(filepath.Dir(filepath.Dir(path)))
+	cfg, err := configfile.Load(filepath.Dir(filepath.Dir(path)))
 	if err != nil {
 		return table, err
 	}

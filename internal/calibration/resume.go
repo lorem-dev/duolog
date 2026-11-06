@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 // NextStep names the duolog calibrate command after each step.

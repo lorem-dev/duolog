@@ -12,7 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/record"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
@@ -102,7 +103,7 @@ func (p *delegationProject) run(role string) (string, error) {
 // runs reads this project's run events.
 func runs(t *testing.T, root string) []telemetry.Run {
 	t.Helper()
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +143,7 @@ func TestAttemptNoVendorText(t *testing.T) {
 	if out, err := p.run("review_final"); err == nil {
 		t.Fatal("failed worker succeeded:", out)
 	}
-	cfg, err := config.Load(p.root)
+	cfg, err := configfile.Load(p.root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +196,7 @@ func TestAttemptNoVendorText(t *testing.T) {
 // finite and in range.
 func TestAttemptUsageAndCost(t *testing.T) {
 	isolatedRouteConfig(t)
-	cfg, err := config.Load(t.TempDir())
+	cfg, err := configfile.Load(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +328,7 @@ func TestAttemptNoopSink(t *testing.T) {
 		}
 	})
 	t.Run("failed", func(t *testing.T) {
-		cfg, err := config.Load(p.root)
+		cfg, err := configfile.Load(p.root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -373,7 +374,7 @@ func TestPlacementObservations(t *testing.T) {
 	if got := runs(t, p.root); len(got) != 0 {
 		t.Fatalf("run here recorded a run: %+v", got)
 	}
-	cfg, err := config.Load(p.root)
+	cfg, err := configfile.Load(p.root)
 	if err != nil {
 		t.Fatal(err)
 	}

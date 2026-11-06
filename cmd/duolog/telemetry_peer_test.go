@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/core/record"
 	"github.com/lorem-dev/duolog/internal/peer"
 	"github.com/lorem-dev/duolog/internal/session"
@@ -74,7 +74,7 @@ func claudeHolding(text string) string {
 // peerEvents reads this project's peer and run events.
 func peerEvents(t *testing.T, root string) ([]telemetry.Peer, []telemetry.Run) {
 	t.Helper()
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
