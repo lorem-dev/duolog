@@ -164,8 +164,11 @@ func newPeerCommand() *cobra.Command {
 		}
 		return args[0] + " closed", nil
 	})
-	var listJSON bool
+	var listJSON, listLong bool
 	list := &cobra.Command{Use: "list", Short: "List this lead's peer states without answering questions", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		if listLong && listJSON {
+			return errors.New("--long and --json cannot be used together")
+		}
 		ctx, cancel, err := peerContext(cmd, lead, false, 0)
 		if err != nil {
 			return err
@@ -178,6 +181,9 @@ func newPeerCommand() *cobra.Command {
 		if listJSON {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(peers)
 		}
+		if listLong {
+			return writeLongList(cmd.OutOrStdout(), peers, time.Now())
+		}
 		for _, p := range peers {
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", p.ID, p.State); err != nil {
 				return err
@@ -185,7 +191,8 @@ func newPeerCommand() *cobra.Command {
 		}
 		return nil
 	}}
-	list.Flags().BoolVar(&listJSON, "json", false, "Print peer IDs and states as JSON")
+	list.Flags().BoolVar(&listJSON, "json", false, "Print peers as JSON; id and state keep their old values")
+	list.Flags().BoolVar(&listLong, "long", false, "Print a table with role, agent, task, last event and tab")
 	root.AddCommand(open, wait, send, status, answer, closeCmd, list, newPeerLaunchCommand())
 	return root
 }
