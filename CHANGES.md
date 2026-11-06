@@ -52,8 +52,8 @@
   per account; a delegation waits `limits.session_wait_seconds` for a slot.
 - `paid_runs.usable_share` (0.5) keeps a workspace account to that share of its
   window; `paid_runs.claude.subscription_endpoints` names subscription URLs.
-- `duolog quota` and `duolog doctor` show billing by agent and signal, spend,
-  sessions and `held:` panes; `duolog peer release <id>` frees a closed one.
+- `duolog quota` and `doctor` show billing, spend, sessions and `held:` panes;
+  a timed-out quota read retries once; `peer release <id>` frees a closed one.
 - `routing.balance: pace` starts a new task on the role's `fallback` while its
   `use` agent runs ahead of its window, never onto a paid route.
 - `peer list --long`, `show`, `view` (Rex Remote Control) and `duolog-peers`

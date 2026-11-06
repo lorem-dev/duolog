@@ -447,6 +447,14 @@ project. `duolog quota` and `duolog doctor` show the verdict of each agent's
 worker, peer and lead, with the signals, the account kind and a line such as
 `paid allowed: 1.20 of 5 USD in 24 h, 0.40 in flight`.
 
+A quota read that does not end in time is read once more, with twice the
+time. A busy machine can take seconds to start the agent's CLI, and a Claude
+read starts it twice in a row: for `/usage` and for `auth status`. A second
+read that also fails is a failed read, so the verdict is `paid`, as before.
+duolog never uses an older read in its place. The read for
+`routing.balance: pace` is not read again: an agent whose read fails is left
+out of the balance.
+
 duolog frees a slot and its estimate only when it can prove that the run or
 the pane ended. A hold it cannot settle, such as a pane whose `peer open`
 was stopped after the pane started, stays and shows in `duolog quota` and
