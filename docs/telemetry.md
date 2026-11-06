@@ -172,8 +172,9 @@ worker, with or without global flags such as `--lead`.
 
 A lead model is not the person, and what it reads leaves the machine with its
 context. When a Claude lead runs a `duolog telemetry` command, or reads the
-folder, you confirm the call. A Codex lead is told to have you run it in your
-terminal. Besides the first notice, a session start says at most
+folder, you confirm the call, unless the lead runs in `bypassPermissions` or
+`auto` (see [Permissions](permissions.md)). A Codex lead is told to have you
+run it in your terminal. Besides the first notice, a session start says at most
 `telemetry: unhealthy`. A `doctor` that a model runs, or whose output goes
 to a pipe, says only `telemetry: on, healthy`, `off` or `unhealthy`: no path,
 id, size or day. `doctor` in your own terminal shows the full line and the
