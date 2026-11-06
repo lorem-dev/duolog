@@ -1,7 +1,8 @@
 // render-install renders the POSIX and PowerShell installer templates to dist.
 // A release passes its tag with -version so each asset installs its own
 // release; without it the assets resolve the latest release. With -template and/or -o,
-// it renders a single custom file instead.
+// it renders a single custom file instead; with -o alone, its .sh or .ps1
+// extension picks the template.
 //
 // Usage: go run ./scripts/render-install [-version <tag>] [-template <path>] [-o <path>]
 package main
@@ -65,15 +66,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	pairs := [][2]string{{"scripts/install-template/install.sh.tmpl", ".release/install.sh"}, {"scripts/install-template/install.ps1.tmpl", ".release/install.ps1"}}
-	if *tmplFlag != "" || *outFlag != "" {
-		if *tmplFlag == "" {
-			*tmplFlag = pairs[0][0]
-		}
-		if *outFlag == "" {
-			*outFlag = pairs[0][1]
-		}
-		pairs = [][2]string{{*tmplFlag, *outFlag}}
+	pairs, err := renderPairs(*tmplFlag, *outFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "render-install: %v\n", err)
+		os.Exit(1)
 	}
 	for _, pair := range pairs {
 		if err := renderTemplate(pair[0], pair[1], data); err != nil {
@@ -82,6 +78,34 @@ func main() {
 		}
 		fmt.Printf("rendered %s\n", pair[1])
 	}
+}
+
+const (
+	shTemplate  = "scripts/install-template/install.sh.tmpl"
+	ps1Template = "scripts/install-template/install.ps1.tmpl"
+)
+
+// renderPairs returns the template and output path of each file to render.
+// Without flags it is both installers. With -o alone the extension picks the
+// template, .sh or .ps1, and any other extension needs -template. With
+// -template alone the output is .release/install.sh.
+func renderPairs(tmpl, out string) ([][2]string, error) {
+	switch {
+	case tmpl == "" && out == "":
+		return [][2]string{{shTemplate, ".release/install.sh"}, {ps1Template, ".release/install.ps1"}}, nil
+	case out == "":
+		out = ".release/install.sh"
+	case tmpl == "":
+		switch strings.ToLower(filepath.Ext(out)) {
+		case ".sh":
+			tmpl = shTemplate
+		case ".ps1":
+			tmpl = ps1Template
+		default:
+			return nil, fmt.Errorf("cannot tell the template from %q: name a .sh or .ps1 output, or pass -template", out)
+		}
+	}
+	return [][2]string{{tmpl, out}}, nil
 }
 
 // renderTemplate parses the template at tmplPath, executes it with
@@ -106,7 +130,7 @@ func renderTemplate(tmplPath, outPath string, data templateData) error {
 		return fmt.Errorf("execute template: %w", err)
 	}
 	result := rendered.Bytes()
-	if strings.HasSuffix(outPath, ".ps1") {
+	if strings.EqualFold(filepath.Ext(outPath), ".ps1") {
 		result = bytes.ReplaceAll(result, []byte("\n"), []byte("\r\n"))
 	}
 	return os.WriteFile(outPath, result, 0755)

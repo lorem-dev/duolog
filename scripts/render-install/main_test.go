@@ -328,6 +328,56 @@ func TestPowerShellInstallerAddsUserPath(t *testing.T) {
 	}
 }
 
+// With -o alone the extension picks the template, so an install.ps1 is never
+// the POSIX installer under a PowerShell name.
+func TestRenderPairsByExtension(t *testing.T) {
+	dir := t.TempDir()
+	for _, tc := range []struct {
+		out, tmpl, want string
+	}{
+		{"x/install.ps1", ps1Template, "$version = 'v1.4.1' }\r\n"},
+		{"x/Install.PS1", ps1Template, "$version = 'v1.4.1' }\r\n"},
+		{"x/install.sh", shTemplate, "#!/bin/sh\n"},
+	} {
+		pairs, err := renderPairs("", tc.out)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.out, err)
+		}
+		if len(pairs) != 1 || pairs[0] != [2]string{tc.tmpl, tc.out} {
+			t.Fatalf("%s: pairs = %v, want %s", tc.out, pairs, tc.tmpl)
+		}
+		data := defaultData()
+		data.Version = "v1.4.1"
+		out := filepath.Join(dir, filepath.Base(tc.out))
+		// The pairs name templates from the repository root.
+		if err := renderTemplate(filepath.Join("..", "..", pairs[0][0]), out, data); err != nil {
+			t.Fatal(err)
+		}
+		body, err := os.ReadFile(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(body), tc.want) {
+			t.Errorf("%s lacks %q", tc.out, tc.want)
+		}
+		if tc.tmpl == ps1Template && bytes.Contains(body, []byte("#!/bin/sh")) {
+			t.Errorf("%s is the POSIX installer", tc.out)
+		}
+	}
+	for _, out := range []string{"x/install", "x/install.txt", "x/install.ps1.bak"} {
+		if pairs, err := renderPairs("", out); err == nil {
+			t.Errorf("%s: pairs = %v, want an error asking for -template", out, pairs)
+		}
+	}
+	// -template still renders any output name, and the defaults stay.
+	if pairs, err := renderPairs("custom.tmpl", "x/install.txt"); err != nil || pairs[0] != [2]string{"custom.tmpl", "x/install.txt"} {
+		t.Errorf("custom template: %v %v", pairs, err)
+	}
+	if pairs, err := renderPairs("", ""); err != nil || len(pairs) != 2 {
+		t.Errorf("defaults: %v %v", pairs, err)
+	}
+}
+
 func TestRenderErrors(t *testing.T) {
 	dir := t.TempDir()
 	if err := renderTemplate(filepath.Join(dir, "missing"), filepath.Join(dir, "out"), defaultData()); err == nil {
