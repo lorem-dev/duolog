@@ -12,7 +12,7 @@ import (
 // pluginsBuild builds a Claude launch whose user settings enable three
 // plugins besides duolog's own, and returns the enabledPlugins of its
 // --settings JSON.
-func pluginsBuild(t *testing.T, shape Shape, inherit bool, project string) map[string]bool {
+func pluginsBuild(t *testing.T, shape Shape, inherit bool, project string, needs ...string) map[string]bool {
 	t.Helper()
 	tmp := t.TempDir()
 	home, root := filepath.Join(tmp, "home"), filepath.Join(tmp, "project")
@@ -39,7 +39,7 @@ func pluginsBuild(t *testing.T, shape Shape, inherit bool, project string) map[s
 		}
 	}
 	proc, err := Build(ProcessInput{Agent: "claude", Shape: shape, Variant: Free, Config: cfg,
-		Locations: loc, Environ: loc.Environ, Layers: layers})
+		Locations: loc, Environ: loc.Environ, Layers: layers, PluginNeeds: needs})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,6 +83,34 @@ func TestWorkerPluginsFollowTheLastLayer(t *testing.T) {
 func TestInheritPluginsKeepsThePersonsPlugins(t *testing.T) {
 	if got := pluginsBuild(t, Worker, true, ""); len(got) != 0 {
 		t.Fatalf("inherit_plugins must leave enabledPlugins out, got %v", got)
+	}
+}
+
+func TestNeededPluginStaysOn(t *testing.T) {
+	// A need names the plugin with or without its marketplace.
+	for _, need := range []string{"figma", "figma@market"} {
+		got := pluginsBuild(t, Worker, false, "", need)
+		want := map[string]bool{"superpowers@market": false, "crit@market": false, "duolog@duolog": true}
+		if len(got) != len(want) {
+			t.Fatalf("%s: got %v, want %v", need, got, want)
+		}
+		for key, value := range want {
+			if v, ok := got[key]; !ok || v != value {
+				t.Fatalf("%s: got %v, want %v", need, got, want)
+			}
+		}
+	}
+}
+
+func TestNeededPluginThatIsNotEnabledAddsNothing(t *testing.T) {
+	got := pluginsBuild(t, Worker, false, "", "unknown")
+	if len(got) != 4 {
+		t.Fatal(got)
+	}
+	for key, on := range got {
+		if on && key != "duolog@duolog" {
+			t.Fatal("no new true", got)
+		}
 	}
 }
 

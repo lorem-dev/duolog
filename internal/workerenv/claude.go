@@ -3,6 +3,8 @@ package workerenv
 import (
 	"encoding/json"
 	"path"
+	"slices"
+	"strings"
 
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 )
@@ -85,7 +87,9 @@ const ownPlugin = "duolog@duolog"
 // workerPlugins is the enabledPlugins map of a worker or peer: every plugin the
 // layers leave enabled, the last layer that names one deciding, is turned
 // off, except duolog's own, which stays on. Each enabled plugin adds its
-// skills to every request, and a worker needs only duolog's. It is nil when
+// skills to every request, and a worker needs only duolog's. A plugin the task
+// needs (in.PluginNeeds) is left out of the map, so the person's setting for
+// it holds; one they did not enable stays as it is. It is nil when
 // workers.inherit_plugins is true or nothing is enabled. The layers are read
 // facts; no settings file is touched.
 func workerPlugins(in ProcessInput) map[string]bool {
@@ -100,7 +104,11 @@ func workerPlugins(in ProcessInput) map[string]bool {
 	}
 	out := map[string]bool{}
 	for key, on := range enabled {
+		name, _, _ := strings.Cut(key, "@")
+		needed := slices.ContainsFunc(in.PluginNeeds, func(n string) bool { return n == key || n == name })
 		switch {
+		case needed:
+			// The person's own setting holds.
 		case key == ownPlugin && on:
 			out[key] = true
 		case on:

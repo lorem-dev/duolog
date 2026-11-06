@@ -60,6 +60,9 @@ type ProcessInput struct {
 	ProtectedRoots                 []string
 	ExtraEnv                       []string
 	Launch                         []string
+	// PluginNeeds names the Claude plugins the task needs, as "name" or
+	// "name@marketplace"; a Claude worker keeps those it has enabled.
+	PluginNeeds []string
 }
 
 // Process is what a launch gets: its environment, the argv prefix with the
