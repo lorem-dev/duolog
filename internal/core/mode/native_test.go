@@ -21,8 +21,11 @@ func TestResolveTable(t *testing.T) {
 		{"claude", "bypassPermissions", Edits, Edits, "acceptEdits", "workspace-write", "acceptEdits", Edits, "lead edits", false},
 		{"claude", "bypassPermissions", Full, Full, "bypassPermissions", "workspace-write", "bypassPermissions", Full, "", true},
 		{"claude", "bypassPermissions", Full, Edits, "bypassPermissions", "workspace-write", "acceptEdits", Edits, "duolog mode", false},
-		{"claude", "bypassPermissions", Full, Full, "bypassPermissions", "read-only", "plan", Plan, "role sandbox", false},
-		{"claude", "plan", Full, Full, "bypassPermissions", "workspace-write", "plan", Plan, "", false},
+		{"claude", "bypassPermissions", Full, Full, "bypassPermissions", "read-only", "default", Plan, "role sandbox", false},
+		// Claude's plan waits for a person; the gate keeps level plan read-only.
+		{"claude", "plan", Full, Full, "bypassPermissions", "workspace-write", "default", Plan, "", false},
+		{"claude", "plan", Plan, Plan, "plan", "read-only", "default", Plan, "", false},
+		{"claude", "default", Full, Full, "bypassPermissions", "read-only", "default", Plan, "role sandbox", false},
 		{"codex", "read-only", Full, Full, "", "workspace-write", "read-only", Plan, "", false},
 		{"codex", "workspace-write", Ask, Ask, "", "workspace-write", "workspace-write", Ask, "lead ask", false},
 		{"codex", "danger-full-access", Full, Full, "", "workspace-write", "workspace-write", Full, "not offered", false},
@@ -78,6 +81,9 @@ func TestResolveNeverAboveLead(t *testing.T) {
 							}
 							if sb == "read-only" && got.Level != Plan {
 								t.Fatalf("read-only sandbox gave %+v", got)
+							}
+							if agent == "claude" && got.Native == "plan" {
+								t.Fatalf("claude worker in plan: %q lead %s eff %s: %+v", req, lead, eff, got)
 							}
 							if agent == "claude" && got.Native == "auto" && !c.Auto {
 								t.Fatalf("auto without an auto lead: %+v %+v", c, got)
