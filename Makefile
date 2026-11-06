@@ -22,12 +22,13 @@ vet:
 lint:
 	@files=$$(gofmt -l .); if [ -n "$$files" ]; then echo "gofmt needed:" >&2; echo "$$files" >&2; exit 1; fi
 
+# The formatters have their own config, so that lint-go does not report them.
 fmt:
-	$(TOOL) golangci-lint fmt
+	$(TOOL) golangci-lint fmt -c .golangci.fmt.yml
 	$(TOOL) shfmt -p -w $(SH_FILES)
 
 fmt-check:
-	$(TOOL) golangci-lint fmt --diff
+	$(TOOL) golangci-lint fmt -c .golangci.fmt.yml --diff
 	$(TOOL) shfmt -p -d $(SH_FILES)
 
 lint-go:

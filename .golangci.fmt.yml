@@ -1,0 +1,8 @@
+version: "2"
+# Used by `make fmt` and `make fmt-check`. It is apart from .golangci.yml so that
+# `make lint-go` does not report formatting.
+formatters:
+  enable: [gofumpt, goimports]
+  settings:
+    goimports:
+      local-prefixes: [github.com/lorem-dev/duolog]
