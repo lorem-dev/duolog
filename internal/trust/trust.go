@@ -9,6 +9,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/trusthome"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -150,6 +151,80 @@ func HooksEnv(agent, root string, environ []string) (State, error) {
 		}
 	}
 	return unproven, nil
+}
+
+// HeldGateProblem says why a Claude process whose environment is environ
+// cannot be shown to run duolog's gate before each tool call, for a launch
+// that only the gate keeps read-only; "" when it can. Every PreToolUse hook
+// that names the gate, in the settings files and the enabled plugin, must be
+// the command duolog install writes (install.HookGroup.GateProgram), run by
+// gate, the duolog on the launch's PATH, and one of them must cover every
+// tool. A hook that only names the gate, such as one in a shell comment, or
+// that runs another or a missing duolog, proves nothing.
+func HeldGateProblem(root string, environ []string, gate string) string {
+	home, err := trusthome.HomeIn(environ)
+	if err != nil {
+		return err.Error()
+	}
+	files := install.ClaudeSettingsFilesIn(root, home, environ)
+	if install.PluginEnabledIn(root, home, environ) {
+		files = append(files, install.PluginGateFilesIn(root, home, environ)...)
+	}
+	proven := false
+	for _, path := range files {
+		for _, group := range install.ReadHooks(path)["PreToolUse"] {
+			for i := range group.Hooks {
+				if !group.IsGate(i) {
+					continue
+				}
+				if problem := heldHookProblem(path, group, i, gate); problem != "" {
+					return problem
+				}
+				proven = proven || group.CoversEveryTool()
+			}
+		}
+	}
+	if !proven {
+		return "no Claude PreToolUse hook runs duolog's gate for every tool; run duolog install"
+	}
+	return ""
+}
+
+// heldHookProblem says why handler i of group, a hook in the file at path
+// that names the gate, does not prove the gate runs; "" when it does.
+func heldHookProblem(path string, group install.HookGroup, i int, gate string) string {
+	program, ok := group.GateProgram(i, "claude", "PreToolUse")
+	why := "it is not the gate command duolog install writes"
+	if ok && !sameProgram(program, gate) {
+		ok, why = false, "it runs "+program+", not the duolog on the worker PATH ("+gate+")"
+	}
+	if ok {
+		return ""
+	}
+	h := group.Hooks[i]
+	text := strings.Join(append([]string{h.Command}, h.Args...), " ")
+	return fmt.Sprintf("run duolog install: the Claude PreToolUse hook in %s does not prove the gate runs, since %s (hook %q)", path, why, text)
+}
+
+// sameProgram reports whether a hook's program is gate: a bare name, which
+// the hook's shell finds on the PATH where gate was found, or an absolute
+// path to the same existing file.
+func sameProgram(program, gate string) bool {
+	if !strings.ContainsAny(program, `/\`) {
+		return true
+	}
+	if !filepath.IsAbs(program) {
+		return false
+	}
+	info, err := os.Stat(program)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	if filepath.Clean(program) == filepath.Clean(gate) {
+		return true
+	}
+	other, err := os.Stat(gate)
+	return err == nil && os.SameFile(info, other)
 }
 
 // hooksOff reports whether the Claude settings file sets disableAllHooks. A

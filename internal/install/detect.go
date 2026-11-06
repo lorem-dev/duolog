@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
@@ -52,6 +53,37 @@ func (g HookGroup) IsGate(i int) bool {
 		}
 	}
 	return false
+}
+
+// GateProgram returns the program of handler i when it is exactly the gate
+// that duolog install writes for agent and event: a program named duolog,
+// then gate --agent <agent> --event <event>, as a command with args or as one
+// command of plain words, with no comment or other shell text. IsGate only
+// recognises the gate's name, so it also accepts a hook that never runs it.
+func (g HookGroup) GateProgram(i int, agent, event string) (string, bool) {
+	h := g.Hooks[i]
+	if h.Type != "command" {
+		return "", false
+	}
+	program, args := h.Command, h.Args
+	if len(args) == 0 {
+		if strings.ContainsAny(h.Command, "#;&|$`'\"<>(){}[]*?~!\\=%^\n\r") {
+			return "", false
+		}
+		words := strings.Fields(h.Command)
+		if len(words) == 0 {
+			return "", false
+		}
+		program, args = words[0], words[1:]
+	}
+	if program == "" || strings.ContainsAny(program, "\n\r") || !slices.Equal(args, []string{"gate", "--agent", agent, "--event", event}) {
+		return "", false
+	}
+	base := program[strings.LastIndexAny(program, `/\`)+1:]
+	if name := strings.ToLower(base); name != "duolog" && name != "duolog.exe" {
+		return "", false
+	}
+	return program, true
 }
 
 // IsOurs reports whether handler i of the group is duolog's.
@@ -116,9 +148,16 @@ func PluginInstalled(root, home string) bool {
 // PluginInstalledIn is PluginInstalled for a Claude process whose
 // environment is environ.
 func PluginInstalledIn(root, home string, environ []string) bool {
+	return len(PluginGateFilesIn(root, home, environ)) > 0
+}
+
+// PluginGateFilesIn lists the hooks.json files of the duolog plugin installs
+// that count for root, as PluginInstalledIn counts them, whose gate applies
+// to every tool.
+func PluginGateFilesIn(root, home string, environ []string) []string {
 	data, err := os.ReadFile(filepath.Join(trusthome.ClaudeIn(home, environ), "plugins", "installed_plugins.json"))
 	if err != nil {
-		return false
+		return nil
 	}
 	var doc struct {
 		Plugins map[string][]struct {
@@ -128,11 +167,12 @@ func PluginInstalledIn(root, home string, environ []string) bool {
 		} `json:"plugins"`
 	}
 	if json.Unmarshal(data, &doc) != nil {
-		return false
+		return nil
 	}
 	if abs, err := filepath.Abs(root); err == nil && root != "" {
 		root = abs
 	}
+	var files []string
 	for _, in := range doc.Plugins[pluginKey] {
 		switch in.Scope {
 		case "", "user":
@@ -143,11 +183,11 @@ func PluginInstalledIn(root, home string, environ []string) bool {
 		default:
 			continue
 		}
-		if in.InstallPath != "" && HasGate(filepath.Join(in.InstallPath, "hooks", "hooks.json")) {
-			return true
+		if path := filepath.Join(in.InstallPath, "hooks", "hooks.json"); in.InstallPath != "" && HasGate(path) {
+			files = append(files, path)
 		}
 	}
-	return false
+	return files
 }
 
 // PluginEnabled applies project and local plugin settings after user settings. An

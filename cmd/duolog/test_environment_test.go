@@ -71,6 +71,9 @@ func TestMain(m *testing.M) {
 	// A gate ask reads its reply every 10 ms instead of every half second; the
 	// answers in these tests come at once.
 	gate.AskPoll = 10 * time.Millisecond
+	// A test that answers an ask in this process plays the person's terminal,
+	// whatever agent runs the tests; a test of the walk starts duolog itself.
+	agentAbove = func([]string) bool { return false }
 	code := m.Run()
 	_ = os.RemoveAll(accounts)
 	if duologBuild.dir != "" {

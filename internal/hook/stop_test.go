@@ -83,14 +83,15 @@ func TestPeerStopTellsOncePerTask(t *testing.T) {
 }
 
 // holdLock takes the named lock of the state folder, as another process that
-// stalls with it would, until the test ends.
-func holdLock(t *testing.T, dir, name string) {
+// stalls with it would, until release is called or the test ends.
+func holdLock(t *testing.T, dir, name string) (release func()) {
 	t.Helper()
 	l := flock.New(filepath.Join(dir, name))
 	if err := l.Lock(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = l.Close() })
+	return func() { _ = l.Close() }
 }
 
 // stopReturns runs Stop and fails the test when it does not return soon.
@@ -108,13 +109,20 @@ func stopReturns(t *testing.T, ctx context.Context, pane Env) {
 
 // A bus or registry lock that another process holds never holds back the
 // peer's stop: the line is dropped. So does a cancellation after Stop began
-// to wait.
+// to wait. A dropped line does not use up the task's one line: the next stop,
+// once the lock is free, sends it, and only once.
 func TestPeerStopReturnsWithAHeldLock(t *testing.T) {
 	for _, name := range []string{"bus.lock", "sessions.lock"} {
 		t.Run(name, func(t *testing.T) {
-			pane, _, _, _ := stopSetup(t, session.Entry{Task: "t.md"})
-			holdLock(t, filepath.Join(pane.Root, ".duolog"), name)
+			pane, _, b, address := stopSetup(t, session.Entry{Task: "t.md"})
+			release := holdLock(t, filepath.Join(pane.Root, ".duolog"), name)
 			stopReturns(t, context.Background(), pane)
+			release()
+			stopReturns(t, context.Background(), pane)
+			stopReturns(t, context.Background(), pane)
+			if ms := leadMail(t, b, address); len(ms) != 1 || ms[0].S != "peer-abc123 stopped; task t.md is unfinished" {
+				t.Fatalf("lead mail %+v, want one line once the lock is free", ms)
+			}
 		})
 		t.Run(name+" cancelled", func(t *testing.T) {
 			pane, _, _, _ := stopSetup(t, session.Entry{Task: "t.md"})

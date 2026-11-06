@@ -2,6 +2,7 @@ package hook
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"unicode/utf8"
@@ -77,8 +78,20 @@ func tellStopped(ctx context.Context, root, dir, peer string) error {
 		return err
 	}
 	text := cutBytes(entry.ID+" stopped; task "+entry.Task+" is unfinished", cfg.Wire.MaxSummaryBytes)
-	_, err = b.Within(ctx).Send(bus.Message{From: entry.Agent + "/" + entry.Role, To: session.Address(lead), K: "status", Ref: entry.ID, S: text})
-	return err
+	return sendClaimed(ctx, reg, b, entry, bus.Message{From: entry.Agent + "/" + entry.Role, To: session.Address(lead), K: "status", Ref: entry.ID, S: text})
+}
+
+// sendClaimed sends the stop line that entry's claim stands for. When it is
+// not sent, the claim goes back, so a later stop on the same task sends it;
+// that wait is bounded too, since ctx may be over.
+func sendClaimed(ctx context.Context, reg *session.Registry, b *bus.Bus, entry session.Entry, m bus.Message) error {
+	_, err := b.Within(ctx).Send(m)
+	if err == nil {
+		return nil
+	}
+	release, cancel := context.WithTimeout(context.WithoutCancel(ctx), store.NoticeWait)
+	defer cancel()
+	return errors.Join(err, reg.Within(release).ReleaseStopNotice(entry))
 }
 
 // cutBytes keeps at most n bytes of s and never splits a character.

@@ -12,12 +12,15 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
+	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -363,6 +366,89 @@ func TestGateHeldClaudeWorkerNeedsItsGate(t *testing.T) {
 		t.Fatal(out.Line, err)
 	}
 	h.requireCalls(1)
+}
+
+// unprovenGates are Claude settings whose PreToolUse hook names the gate but
+// cannot be shown to run it: the gate's words in a shell comment, and an
+// absolute path to a duolog that does not exist.
+func unprovenGates(t *testing.T) map[string]string {
+	missing, _ := json.Marshal(filepath.Join(t.TempDir(), "gone", "duolog"))
+	return map[string]string{
+		"comment":            `{"permissions":{"allow":["Write","Edit","Bash(*)"]},"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"true # duolog gate --agent claude --event PreToolUse"}]}]}}`,
+		"missing executable": `{"permissions":{"allow":["Write","Edit","Bash(*)"]},"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":` + string(missing) + `,"args":["gate","--agent","claude","--event","PreToolUse"]}]}]}}`,
+	}
+}
+
+// Re-review 3: a held Claude worker starts only when its hook is the gate
+// command duolog install writes, run by the duolog the launch uses. A hook
+// that only names the gate, or runs a duolog that is not there, starts
+// nothing, and the message names the hook and duolog install.
+func TestHeldWorkerRefusesAnUnprovenGateHook(t *testing.T) {
+	for name, settings := range unprovenGates(t) {
+		h := newHarness(t)
+		h.gateOnPath(true)
+		put(h.t, filepath.Join(h.root, ".claude", "settings.local.json"), settings)
+		h.lead("claude", mode.Full, "high")
+		out, err := h.runOn("review_final", "claude", "haiku")
+		h.requireCalls(0)
+		if err == nil || !strings.Contains(out.Line, "gate preflight failed") || !strings.Contains(out.Line, "duolog install") || !strings.Contains(out.Line, "settings.local.json") {
+			t.Errorf("%s: %v %q", name, err, out.Line)
+		}
+	}
+	// The command install writes, as one string or as program and args, runs.
+	for _, settings := range []string{
+		`{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"duolog gate --agent claude --event PreToolUse"}]}]}}`,
+		`{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"duolog","args":["gate","--agent","claude","--event","PreToolUse"]}]}]}}`,
+	} {
+		h := newHarness(t)
+		h.gateOnPath(true)
+		put(h.t, filepath.Join(h.root, ".claude", "settings.local.json"), settings)
+		h.lead("claude", mode.Full, "high")
+		if out, err := h.runOn("review_final", "claude", "haiku"); err != nil {
+			t.Fatal(settings, out.Line, err)
+		}
+	}
+}
+
+// Re-review 4: a worker started under a lead in plan keeps level plan when
+// the lead moves to acceptEdits while it runs, as a peer does: the gate,
+// reading the live lead mode and the worker's environment, still denies its
+// write command and its web read.
+func TestWorkerKeepsPlanWhenItsLeadLoosens(t *testing.T) {
+	h := newHarness(t)
+	h.claudeGate(true)
+	h.gateOnPath(true)
+	h.leadNative("claude", mode.Plan, "plan")
+	policy := h.cfg.Policy
+	policy.Rules = append([]config.Rule{{Action: "exec", Match: "touch *", Decision: gate.Allow}}, policy.Rules...)
+	var during []gate.Decision
+	h.beforeStart = func() {
+		h.leadNative("claude", mode.Edits, "acceptEdits")
+		_, live, err := gate.LeadMode(h.reg, "lead-123456", time.Now())
+		if err != nil || live != mode.Edits {
+			t.Fatal("the lead did not move:", live, err)
+		}
+		env := h.calls[len(h.calls)-1].Process.Env
+		m := gate.WorkerMode(live, trusthome.Getenv(env, "DUOLOG_MODE"))
+		lead := gate.LeadRules{RoleSandbox: h.cfg.Roles["review_final"].Sandbox}
+		for _, a := range []gate.Action{
+			{Kind: "exec", Target: "touch marker.txt", Role: "review_final"},
+			{Kind: "net", Target: "https://example.com/", Role: "review_final"},
+		} {
+			during = append(during, gate.Evaluate(policy, lead, m, a))
+		}
+	}
+	if out, err := h.runOn("review_final", "claude", "haiku"); err != nil {
+		t.Fatal(out.Line, err)
+	}
+	if len(during) != 2 {
+		t.Fatal("the worker did not run")
+	}
+	for _, d := range during {
+		if d.Kind != gate.Deny || d.Mode != mode.Plan {
+			t.Errorf("after the lead loosened: %+v", d)
+		}
+	}
 }
 
 // Re-review m1 and m2: a family entry that asks above duolog's default does

@@ -10,8 +10,8 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/gate"
-	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/session"
 )
 
@@ -64,14 +64,56 @@ var personGuarded = map[string]string{
 	"telemetry and balance": "duolog telemetry show",
 }
 
+// uncertainGuarded are the personGuarded commands the lead guard cannot read
+// for sure: a lead that decides by itself is still asked about them, since
+// such a command may run in another project (staysInProject). A quoted rule
+// is a literal word and does not count.
+var uncertainGuarded = map[string]bool{"allow without number": true}
+
+// A quote changes no word into a plain one: a quoted cd, flag or expansion
+// that is a real word of the command is still asked, and a quoted rule of
+// duolog remember is one literal word.
+func TestSelfDecidingLeadReadsQuotedWords(t *testing.T) {
+	stateDir, root := leadTrustProject(t, "claude", "bypassPermissions")
+	for _, tc := range []struct {
+		command string
+		asked   bool
+	}{
+		{`duolog remember 'cat /elsewhere/notes.txt'`, false},
+		{`duolog remember "cat /elsewhere/notes.txt"`, false},
+		{`duolog remember 'Bash(cat /elsewhere/*)'`, false},
+		{`duolog remember 'cd /elsewhere && cat notes.txt'`, false},
+		{`duolog allow '1'`, false},
+		{`'cd' /elsewhere && duolog allow 1`, true},
+		{`"cd" /elsewhere; duolog allow 1`, true},
+		{`duolog allow 1 '--project' /elsewhere`, true},
+		{`duolog allow 1 '--project=/elsewhere'`, true},
+		{`du'olog' allow 1 '-C' /elsewhere`, true},
+		{`'env' X=1 duolog allow 1`, true},
+		{`duolog allow "$N"`, true},
+		{`duolog allow 1 "$X"`, true},
+		{"duolog allow 1 \"`pwd`\"", true},
+		{`duolog allow 1 "a\b"`, true},
+		{`duolog allow 1 'x`, true},
+		{`duolog remember 'cat /elsewhere/notes.txt`, true},
+	} {
+		d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, "bypassPermissions", tc.command))
+		if ok != tc.asked {
+			t.Errorf("%s: %+v, asked %v, want %v", tc.command, d, ok, tc.asked)
+		}
+	}
+}
+
 // A Claude lead in bypassPermissions or auto decides by itself: no guard asks
-// the person, and duolog allow for a person-only ask goes ahead.
+// the person about a plain call, and duolog allow for a person-only ask goes
+// ahead.
 func TestSelfDecidingLeadIsNotAsked(t *testing.T) {
 	for _, native := range []string{"bypassPermissions", "auto"} {
 		stateDir, root := leadTrustProject(t, "claude", native)
 		for guard, command := range personGuarded {
-			if d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, native, command)); ok {
-				t.Errorf("%s lead, %s (%s): %+v", native, guard, command, d)
+			d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, native, command))
+			if ok != uncertainGuarded[guard] {
+				t.Errorf("%s lead, %s (%s): %+v, asked %v", native, guard, command, d, ok)
 			}
 		}
 	}

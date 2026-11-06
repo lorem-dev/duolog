@@ -226,15 +226,24 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 			}
 		}
 	}
+	// Plan's limit is hard, so it comes before every return that asks: an ask
+	// is answered by an allow, which would run the call. Only a command proved
+	// to be permitted reads passes; an uncertain one is denied, not asked.
+	if m == mode.Plan && a.Kind != "read" {
+		safe := a.Kind == "exec" && !uncertain && len(parts) > 0
+		for _, part := range parts {
+			safe = safe && allowedReadCommand(p, a.Role, part, a.Shell)
+		}
+		if !safe {
+			return decision(Deny, "plan mode permits only reads", "mode plan")
+		}
+	}
 	if a.Kind == "read" && a.OwnResult && outside(a.Target) {
 		return decision(Allow, "the worker's own saved tool result", "own tool results")
 	}
 	if (a.Kind == "read" || a.Kind == "write") && outside(a.Target) {
 		for _, rule := range p.Rules {
 			if rule.Decision != Deny && matchesExplicitOutside(rule, a) {
-				if a.Kind == "write" && m == mode.Plan {
-					return decision(Deny, "plan mode permits only reads", "mode plan")
-				}
 				if a.Kind == "write" && m == mode.Ask {
 					return decision(Ask, "ask mode requires approval for writes", "mode ask")
 				}
@@ -247,15 +256,6 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	// including in full mode. A known read ask still needs the mode check below.
 	if readAsk == nil && (a.Target == "" || uncertain) {
 		return decision(Ask, "tool target or shell syntax requires approval", "unverified action")
-	}
-	if m == mode.Plan && a.Kind != "read" {
-		safe := a.Kind == "exec"
-		for _, part := range parts {
-			safe = safe && allowedReadCommand(p, a.Role, part, a.Shell)
-		}
-		if !safe {
-			return decision(Deny, "plan mode permits only reads", "mode plan")
-		}
 	}
 	if readAsk != nil {
 		return *readAsk
