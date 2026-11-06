@@ -268,6 +268,95 @@ func TestGlobsThatCanLeaveTheWorkRoot(t *testing.T) {
 	wantLead(t, p, root, `cat sub/*.go`)
 }
 
+// awk reads a file with getline < FILE and writes one with print > FILE, and
+// runs a command with system(), a pipe or |&. gawk reads a program file with
+// -f, -E and --exec and an include file with -i and --include. The gate took
+// such a file for the program text.
+func TestAwkFilesAreJudged(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	wantPerson(t, p, root,
+		// The reviews' commands.
+		`awk 'BEGIN{while((getline l<"/etc/passwd")>0)print l}'`,
+		`awk '{print >"/tmp/x"}' go.mod`,
+		`gawk -E /etc/passwd`,
+		`gawk --exec /etc/passwd`,
+		`gawk -i /etc/passwd 'BEGIN{exit}'`,
+		// The other file options, attached or apart.
+		`awk -f ../peer/x.awk go.mod`,
+		`awk -f/etc/x go.mod`,
+		`gawk --file=../x.awk go.mod`,
+		`gawk --include=../x.awk 'BEGIN{}'`,
+		`gawk -E../x.awk go.mod`,
+		`gawk '@include "../x.awk"; BEGIN{}'`,
+		`gawk -l ../ext 'BEGIN{}'`,
+		`gawk -o../out 'BEGIN{}'`,
+		// A file inside the program, with a relative path.
+		`awk '{print > "../out"}' go.mod`,
+		`awk '{print >> "../out"}' go.mod`,
+		`awk '{printf "%s", $0 > "../out"}' go.mod`,
+		`awk 'BEGIN{getline l < "../peer/go.mod"; print l}'`,
+		`awk 'BEGIN { while ((getline line < "../x") > 0) n++ }'`,
+		// A command, or a file the gate cannot name.
+		`awk 'BEGIN{system("cat go.mod")}'`,
+		`awk '{print | "sort"}' go.mod`,
+		`awk 'BEGIN{"date" | getline d; print d}'`,
+		`gawk 'BEGIN{print "x" |& "cat"}'`,
+		`awk '{print > $1}' go.mod`,
+		`awk '{print > "a" $1}' go.mod`,
+		`gawk '@load "ext"; BEGIN{}'`,
+		`awk --unknown-option 'BEGIN{}'`,
+	)
+	wantDeny(t, p, root, "write",
+		`awk '{print > ".git/config"}' go.mod`,
+		`awk -o.git/hooks/x 'BEGIN{}'`,
+	)
+	wantDeny(t, p, root, RuleState,
+		`awk 'BEGIN{getline l < ".duolog/bus.ndjson"; print l}'`,
+		`gawk -i.duolog/sessions.json 'BEGIN{}'`,
+	)
+	wantDeny(t, p, root, "read",
+		`awk -f.env go.mod`,
+		`gawk '@include "secrets/x"; BEGIN{}'`,
+	)
+	wantLead(t, p, root,
+		`awk '{print $1}' go.mod`,
+		`awk -F: '$3 > 100 {print $1}' go.mod`,
+		`awk '{print > "out.txt"}' go.mod`,
+		`awk -v n=1 'NR==n' go.mod`,
+		`awk 'BEGIN{x = 1 < 2; print (3 > 2), x || 0}'`,
+		`awk -F/ '{print $1/2}' go.mod`,
+		`awk -f prog.awk go.mod`,
+		`awk '{print "a|b>c<d"}' go.mod`,
+	)
+}
+
+func TestAwkTargets(t *testing.T) {
+	for _, tc := range []struct {
+		command       string
+		reads, writes []string
+		unknown       bool
+	}{
+		{command: `awk 'BEGIN{while((getline l<"/etc/passwd")>0)print l}'`, reads: []string{"/etc/passwd"}},
+		{command: `awk '{print >"/tmp/x"}' go.mod`, reads: []string{"go.mod"}, writes: []string{"/tmp/x"}},
+		{command: `gawk -E /etc/passwd`, reads: []string{"/etc/passwd"}},
+		{command: `gawk -i /etc/passwd 'BEGIN{exit}'`, reads: []string{"/etc/passwd"}},
+		{command: `awk -f a.awk -f b.awk x n=1 y`, reads: []string{"a.awk", "b.awk", "x", "y"}},
+		{command: `awk -vfoo=1 -F, '{print}' x`, reads: []string{"x"}},
+		{command: `awk 'BEGIN { if (a > 1 && b < 2) print (a > b) }'`},
+		{command: `awk '$1 ~ /a>b|c/ {print $1 > "o" ; n = 4 / 2}' x`, reads: []string{"x"}, writes: []string{"o"}},
+		{command: `awk '# print > "/etc/x"` + "\n" + `{print}' x`, reads: []string{"x"}},
+		{command: `awk '{print > $1}' x`, reads: []string{"x"}, unknown: true},
+		{command: `awk 'BEGIN{system("id")}'`, unknown: true},
+		{command: `awk`, unknown: true},
+	} {
+		got := partFileTargets(tc.command)
+		if !slices.Equal(got.reads, tc.reads) || !slices.Equal(got.writes, tc.writes) || got.unknown != tc.unknown {
+			t.Errorf("%q: reads %q, writes %q, unknown %v; want %q, %q, %v", tc.command, got.reads, got.writes, got.unknown, tc.reads, tc.writes, tc.unknown)
+		}
+	}
+}
+
 func TestSedTargets(t *testing.T) {
 	for _, tc := range []struct {
 		command       string

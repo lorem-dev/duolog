@@ -83,6 +83,8 @@ func commandFileTargets(part string, depth int) fileTargets {
 	switch name {
 	case "sed", "gsed":
 		t.add(sedTargets(args))
+	case "awk", "gawk", "mawk", "nawk":
+		t.add(awkTargets(args))
 	default:
 		t.paths = attachedValues(name, args)
 	}
@@ -131,7 +133,6 @@ func assignmentTargets(words []string) fileTargets {
 var attachedTextShorts = map[string]string{
 	"grep": "e", "egrep": "e", "fgrep": "e", "rg": "egr", "git": "eSG",
 	"cut": "d", "sort": "t", "paste": "d", "join": "t", "column": "s", "xargs": "dEI",
-	"awk": "Fv", "gawk": "Fv", "mawk": "Fv", "nawk": "Fv",
 }
 
 // attachedValues lists the values that a program's short options carry in

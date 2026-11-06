@@ -198,9 +198,14 @@ judges the files of the `r`, `R`, `w` and `W` commands and the `s///w` flag,
 with or without a blank before the name. So `sed '1r/etc/passwd' x` needs the
 person, and `sed 'w.git/config' x` is denied. The `e` command, the `s///e` flag
 and a script the gate cannot read need the person, because the gate cannot
-name what they reach. `grep`, `jq`, `sort`, `uniq` and
-`file` pass only with options that change the output, so `jq -f`, `sort -o`,
-`uniq - out`, `file -m magic` and ugrep's `grep --filter` ask. A `jq` filter
+name what they reach. `awk` gets the same check. The gate judges the files of
+`getline <`, of `print >` and `>>`, of the `-f`, `-E`, `--exec`, `-i` and
+`--include` options and of gawk's `@include`. A pipe, `|&`, `system()`,
+`@load`, `-l` and a file name that is not one string need the person.
+
+`grep`, `jq`, `sort`, `uniq` and `file` pass only with options that change
+the output, so `jq -f`, `sort -o`, `uniq - out`, `file -m magic` and ugrep's
+`grep --filter` ask. A `jq` filter
 that names `env` or a `$` variable asks, because it can print the worker's
 API keys. The context options `-A`, `-B`, `-C`, `--after-context`,
 `--before-context` and `--context` of `rg` and `grep` read with a number, as in
