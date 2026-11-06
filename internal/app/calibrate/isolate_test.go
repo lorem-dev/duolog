@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/install"
+	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
 // gateHooks is a Codex hooks.json with the duolog gate on every tool.
@@ -224,9 +225,7 @@ func symlink(t *testing.T, root, name, target string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(target, path); err != nil {
-		t.Fatal(err)
-	}
+	testbin.Symlink(t, target, path)
 }
 
 func TestExportRefusesEscapingLinks(t *testing.T) {

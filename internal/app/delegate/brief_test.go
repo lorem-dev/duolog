@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
 func TestWorkerBriefLeadsTheInput(t *testing.T) {
@@ -50,9 +52,7 @@ func TestWorkerBriefRefusesLinksAndLargeFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	brief := filepath.Join(root, ".duolog", "brief.md")
-	if err := os.Symlink(secret, brief); err != nil {
-		t.Fatal(err)
-	}
+	testbin.Symlink(t, secret, brief)
 	if got := workerBrief(root); got != nil {
 		t.Fatalf("symlinked brief: %q, want nil", got)
 	}
