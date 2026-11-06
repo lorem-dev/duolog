@@ -15,6 +15,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// agentAbove reports whether the caller runs in an agent session
+// (session.AgentAbove); tests replace it.
+var agentAbove = session.AgentAbove
+
 func newDecideCommand(kind string) *cobra.Command {
 	var leadFlag string
 	cmd := &cobra.Command{Use: kind + " <n>", Short: "Answer a worker permission request", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
@@ -56,19 +60,51 @@ func newDecideCommand(kind string) *cobra.Command {
 		if !ok {
 			return fmt.Errorf("lead is unavailable or has ended")
 		}
-		address := session.Address(lead)
-		caller, err := reg.ResolveLead(leadFlag)
-		if err != nil {
+		if err := checkCaller(reg, lead, n, leadFlag); err != nil {
 			return err
 		}
-		if caller.ID != lead.ID {
-			return fmt.Errorf("request %d does not belong to lead %q", n, caller.ID)
-		}
-		_, err = b.Send(bus.Message{From: address, To: request.From, K: kind, Ref: strconv.FormatInt(n, 10), S: kind})
+		_, err = b.Send(bus.Message{From: session.Address(lead), To: request.From, K: kind, Ref: strconv.FormatInt(n, 10), S: kind})
 		return err
 	}}
 	cmd.Flags().StringVar(&leadFlag, "lead", "", "Optional check: lead session ID or bus address that must own the request")
 	return cmd
+}
+
+// checkCaller refuses an answer to request n, owned by lead, from a caller
+// that does not own it. The caller is the lead among this command's parent
+// processes: --lead cannot change it. An agent session above it that is no
+// lead of this project answers nothing here: it may be another project's
+// lead that changed folder. An agent process between this command and the
+// lead makes it a worker or peer, refused too. Only a caller with no agent
+// above it, as the person's own terminal, goes on to --lead as before;
+// leadFlag must agree in every case.
+//
+// This check is best effort, like the lead guard. It follows the live parent
+// chain and CLAUDECODE, and every process runs as the same user: a process
+// that detaches, as with nohup, setsid, tmux new -d or a Rex pane, is
+// re-parented away from its lead, may drop CLAUDECODE, and then looks like
+// the person's terminal. No check within one user tells them apart.
+func checkCaller(reg *session.Registry, lead session.Lead, n int64, leadFlag string) error {
+	// Leads that share one process: the owner, or the one --lead names.
+	above, found, err := reg.AncestorLead(lead.ID, leadFlag)
+	switch {
+	case err != nil:
+		return err
+	case found && above.ID != lead.ID:
+		return fmt.Errorf("request %d belongs to another lead, not to lead %q, which runs this command; --lead does not change that", n, above.ID)
+	case found && leadFlag == "" && session.CurrentLead(os.Environ()) == "":
+		return nil
+	case !found && agentAbove(os.Environ()):
+		return fmt.Errorf("request %d: this command runs in an agent session that is no lead of this project; the person answers it in their own terminal, or the lead runs duolog lead register in its own session", n)
+	}
+	caller, err := reg.ResolveLead(leadFlag)
+	if err != nil {
+		return err
+	}
+	if caller.ID != lead.ID {
+		return fmt.Errorf("request %d does not belong to lead %q", n, caller.ID)
+	}
+	return nil
 }
 
 // alreadyAnswered returns the first decision recorded for a request.

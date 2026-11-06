@@ -47,7 +47,7 @@ func Run(o Options) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	timeout := 150
+	timeout := GateTimeout
 	var edits []edit
 	var report Report
 	var regated []string // Codex hooks files whose gate command changes

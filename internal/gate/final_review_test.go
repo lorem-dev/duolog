@@ -45,7 +45,11 @@ func TestOutsidePathsBeatCatchAllAndFull(t *testing.T) {
 	p := policy(t)
 	for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
 		for _, kind := range []string{"read", "write"} {
-			check(t, p, LeadRules{}, m, Action{Kind: kind, Target: "../home/.zshrc", Role: "implement"}, Ask)
+			want := Ask
+			if kind == "write" && m == mode.Plan {
+				want = Deny // plan's limit comes before the outside ask
+			}
+			check(t, p, LeadRules{}, m, Action{Kind: kind, Target: "../home/.zshrc", Role: "implement"}, want)
 		}
 		check(t, p, LeadRules{}, m, Action{Kind: "read", Target: "apps/web/.env", Role: "review_final"}, Deny)
 		check(t, p, LeadRules{}, m, Action{Kind: "read", Target: "apps/web/.env.local", Role: "review_final"}, Deny)

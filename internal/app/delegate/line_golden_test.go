@@ -162,8 +162,10 @@ func TestRunLineGolden(t *testing.T) {
 		{"run_quota_to_lead", func(t *testing.T, h *harness) {
 			h.limited()
 		}},
-		// The lead here is Codex, so the fallback is a Claude worker.
+		// The lead here is Codex, so the fallback is a Claude worker. It has
+		// no Claude gate, so the line carries the hooks note too.
 		{"run_quota_fallback", func(t *testing.T, h *harness) {
+			h.claudeGate(false)
 			h.limited()
 			h.results = append(h.results, runner.Result{Done: true, Summary: "Completed by the other agent.", Files: []string{"a.go"}, Needs: []string{}})
 		}},
