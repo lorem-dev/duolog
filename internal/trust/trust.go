@@ -60,15 +60,22 @@ func Folder(agent, root string) (bool, error) {
 }
 
 // FolderEnv is Folder for an agent process whose environment is environ: the
-// Codex home it reads is the one that environment selects.
+// home folder and the Codex home it reads are the ones that environment
+// selects. An environment without a home folder is trusthome.ErrNoHome.
 func FolderEnv(agent, root string, environ []string) (bool, error) {
 	if agent == "claude" {
 		return true, nil
 	}
-	home, err := os.UserHomeDir()
+	home, err := trusthome.HomeIn(environ)
 	if err != nil {
 		return false, err
 	}
+	return folderIn(home, root, environ)
+}
+
+// FolderInEnv is FolderIn for a process whose environment is environ: its
+// CODEX_HOME, else .codex under home.
+func FolderInEnv(home, root string, environ []string) (bool, error) {
 	return folderIn(home, root, environ)
 }
 
@@ -99,14 +106,16 @@ func Hooks(agent, root string) (State, error) {
 }
 
 // HooksEnv is Hooks for an agent process whose environment is environ: the
-// Claude config directory and the Codex home, with their settings, plugins
-// and approvals, are the ones that environment selects, not duolog's own.
+// home folder, the Claude config directory and the Codex home, with their
+// settings, plugins and approvals, are the ones that environment selects, not
+// duolog's own. An environment without a home folder is
+// trusthome.ErrNoHome.
 func HooksEnv(agent, root string, environ []string) (State, error) {
+	home, err := trusthome.HomeIn(environ)
+	if err != nil {
+		return State{}, err
+	}
 	if agent == "claude" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return State{}, err
-		}
 		plugin := install.PluginEnabledIn(root, home, environ)
 		state := State{Trusted: true, Installed: plugin}
 		settingsGate := false
@@ -121,10 +130,6 @@ func HooksEnv(agent, root string, environ []string) (State, error) {
 			state.Unproven = "the duolog Claude plugin is enabled but not installed; run duolog install"
 		}
 		return state, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return State{}, err
 	}
 	s, err := readEnv(home, environ)
 	if err != nil {

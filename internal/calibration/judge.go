@@ -525,12 +525,20 @@ func judgeOnce(ctx context.Context, env JudgeEnv, c config.Class, dir string, n 
 	if err != nil {
 		return Call{}, 0, err
 	}
-	cleanup, err := NewJudgeSlot(ctx, env.Root, slot, files)
+	claudeEnv, err := WorkerEnviron(env.Cfg, "claude")
+	if err != nil {
+		return Call{}, 0, err
+	}
+	workerEnv, err := WorkerEnviron(env.Cfg, target.Agent)
+	if err != nil {
+		return Call{}, 0, err
+	}
+	cleanup, err := NewJudgeSlot(ctx, env.Root, slot, files, claudeEnv)
 	if err != nil {
 		return Call{}, 0, err
 	}
 	defer func() { err = errors.Join(err, cleanup()) }()
-	if err := CheckTreeTrust(target.Agent, slot); err != nil {
+	if err := CheckTreeTrust(target.Agent, slot, workerEnv); err != nil {
 		return Call{}, 0, fmt.Errorf("judge: %w", err)
 	}
 	// Calibration keeps the task copy in the slot's own state, the only
@@ -593,10 +601,11 @@ func JudgeSlot(root string) (string, error) {
 // readies a tree slot: it empties dir but for the project's
 // .codex/hooks.json, written afresh, and starts a fresh repository there,
 // so the task copy stays in it and nothing a worker wrote into .git reaches
-// the next call. It then gives Claude the duolog gate as NewTreeAt does and
-// writes files. dir must neither be inside repo nor hold it. The cleanup
-// empties dir again but for the hooks.
-func NewJudgeSlot(ctx context.Context, repo, dir string, files map[string][]byte) (cleanup func() error, err error) {
+// the next call. It then gives Claude the duolog gate as NewTreeAt does,
+// judged from environ, the environment a Claude worker gets, and writes
+// files. dir must neither be inside repo nor hold it. The cleanup empties dir
+// again but for the hooks.
+func NewJudgeSlot(ctx context.Context, repo, dir string, files map[string][]byte, environ []string) (cleanup func() error, err error) {
 	if inside(repo, dir) || inside(dir, repo) {
 		return nil, fmt.Errorf("judge slot %s must be outside the project %s", dir, repo)
 	}
@@ -631,7 +640,7 @@ func NewJudgeSlot(ctx context.Context, repo, dir string, files map[string][]byte
 	if err != nil {
 		return nil, err
 	}
-	if err := addClaudeGate(dir); err != nil {
+	if err := addClaudeGate(dir, environ); err != nil {
 		return nil, errors.Join(err, cleanup())
 	}
 	for name, data := range files {

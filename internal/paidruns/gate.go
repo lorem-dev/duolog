@@ -16,6 +16,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/quota"
+	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -470,6 +471,11 @@ func (g *Gate) build(ctx context.Context, req Request) func() (workerenv.Process
 				return workerenv.Process{}, err
 			}
 			in.Locations.Environ = own.Env
+			// The home whose settings the agent loads is the process's own,
+			// when its environment names one, such as a HOME in paid env.
+			if home, err := trusthome.HomeIn(own.Env); err == nil {
+				in.Locations.Home = home
+			}
 			layers, err := g.Layers(ctx, in)
 			if err != nil {
 				return workerenv.Process{}, err

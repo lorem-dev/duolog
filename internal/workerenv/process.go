@@ -216,6 +216,16 @@ func Build(in ProcessInput) (Process, error) {
 	return p, nil
 }
 
+// Environ is the environment a free worker of agent gets from environ under
+// cfg, as Build makes it without settings layers, extras or a lead: what a
+// check that starts no worker reads to judge the settings folders that
+// worker's agent loads, its home, CLAUDE_CONFIG_DIR and CODEX_HOME. A launch
+// still judges the process it builds itself.
+func Environ(cfg *config.Config, agent string, environ []string) ([]string, error) {
+	p, err := Build(ProcessInput{Agent: agent, Shape: Worker, Variant: Free, Config: cfg, Environ: environ})
+	return p.Env, err
+}
+
 // effectiveFast reports whether the layers leave fast mode on, by the value
 // of the last layer that sets one, and names that layer. Managed policy comes
 // last, so it wins as it does in Claude. A layer that already holds the

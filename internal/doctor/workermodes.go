@@ -1,12 +1,15 @@
 package doctor
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"sort"
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/trust"
+	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -52,7 +55,7 @@ func workerModeFindings(cfg *config.Config, root string) []Finding {
 				if !looser {
 					continue
 				}
-				if problem := gateProblem(agent, root); problem != "" {
+				if problem := gateProblem(cfg, agent, root); problem != "" {
 					out = append(out, Finding{"warning", fmt.Sprintf("%s, but the gate cannot be shown to run for %s here: %s; delegate refuses such a run", ask, agent, problem)})
 				}
 			}
@@ -107,22 +110,54 @@ func describeWorkerMode(agent string, e config.WorkerMode) (native, extras strin
 	return native, extras, looser, applies
 }
 
-// gateProblem says why the gate cannot be shown to run for agent in root, or
-// "" when it can.
-func gateProblem(agent, root string) string {
-	state, err := trust.Hooks(agent, root)
-	if err != nil {
-		return err.Error()
+// gateProblem says why the gate cannot be shown to run for a worker of agent
+// in root, or "" when it can. It reads what delegate's gate preflight reads:
+// the hooks, folder trust and gate binary of the environment a worker gets,
+// env_passthrough applied, in each variant that may run, never duolog's own.
+func gateProblem(cfg *config.Config, agent, root string) string {
+	variants := []workerenv.Variant{workerenv.Free}
+	if cfg.PaidRuns.Agent(agent).Allow {
+		variants = append(variants, workerenv.Paid)
 	}
-	folder, err := trust.Folder(agent, root)
+	for _, variant := range variants {
+		p, err := workerenv.Build(workerenv.ProcessInput{Agent: agent, Shape: workerenv.Worker, Variant: variant, Config: cfg, Environ: os.Environ()})
+		if err != nil {
+			return err.Error()
+		}
+		if problem := envGateProblem(agent, root, p.Env); problem != "" {
+			if variant == workerenv.Paid {
+				problem = "in the paid variant: " + problem
+			}
+			return problem
+		}
+	}
+	return ""
+}
+
+// envGateProblem is gateProblem for the worker environment env.
+func envGateProblem(agent, root string, env []string) string {
+	state, err := trust.HooksEnv(agent, root, env)
 	if err != nil {
-		return err.Error()
+		return workerEnvError(err)
+	}
+	folder, err := trust.FolderEnv(agent, root, env)
+	if err != nil {
+		return workerEnvError(err)
 	}
 	if problem := trust.GateProblem(agent, state, folder); problem != "" {
 		return problem
 	}
-	if _, err := gateBinary(workerenv.Path()); err != nil {
+	if _, err := gateBinary("PATH=" + trusthome.Getenv(env, "PATH")); err != nil {
 		return err.Error()
 	}
 	return ""
+}
+
+// workerEnvError words a read error, and names the passthrough when the
+// worker's environment has no home folder.
+func workerEnvError(err error) string {
+	if errors.Is(err, trusthome.ErrNoHome) {
+		return err.Error() + " for the worker, so the settings its agent loads cannot be read; add it to env_passthrough"
+	}
+	return err.Error()
 }

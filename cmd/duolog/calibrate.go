@@ -556,7 +556,7 @@ func newCalibratePlanCommand() *cobra.Command {
 		if err := writePlanTree(ctx, out, root, p); err != nil {
 			return err
 		}
-		return writeJudgeSlot(ctx, out, root, p)
+		return writeJudgeSlot(ctx, out, cfg, root, p)
 	}}
 	cmd.Flags().StringVar(&approve, "approve", "", "Approve the saved plan with this hash and create its cells")
 	return cmd
@@ -583,7 +583,7 @@ func writePlanTree(ctx context.Context, out io.Writer, root string, p calibratio
 // writeJudgeSlot readies the judge slot of a plan with a Codex judge call or
 // rewrite, with the project's hooks in it, and names it, so the person can
 // trust the folder and approve its hooks in Codex before the run.
-func writeJudgeSlot(ctx context.Context, out io.Writer, root string, p calibration.Plan) error {
+func writeJudgeSlot(ctx context.Context, out io.Writer, cfg *config.Config, root string, p calibration.Plan) error {
 	if !p.HasJudge("codex") {
 		return nil
 	}
@@ -591,7 +591,11 @@ func writeJudgeSlot(ctx context.Context, out io.Writer, root string, p calibrati
 	if err != nil {
 		return err
 	}
-	if _, err := calibration.NewJudgeSlot(ctx, root, slot, nil); err != nil {
+	claudeEnv, err := calibration.WorkerEnviron(cfg, "claude")
+	if err != nil {
+		return err
+	}
+	if _, err := calibration.NewJudgeSlot(ctx, root, slot, nil, claudeEnv); err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(out, "judge folder: %s (open Codex in this folder once, trust it and approve its hooks in /hooks; judge calls and rewrites run there)\n", slot)
@@ -748,13 +752,21 @@ func rewriteStatement(root string, cfg *config.Config, s *store.Store, runDir, l
 		if err != nil {
 			return "", 0, err
 		}
-		cleanup, err := calibration.NewJudgeSlot(ctx, root, work, map[string][]byte{"reference.patch": reference, "subject.txt": []byte(t.Subject + "\n")})
+		target := cfg.Learning.Judges[0].Target()
+		claudeEnv, err := calibration.WorkerEnviron(cfg, "claude")
+		if err != nil {
+			return "", 0, err
+		}
+		workerEnv, err := calibration.WorkerEnviron(cfg, target.Agent)
+		if err != nil {
+			return "", 0, err
+		}
+		cleanup, err := calibration.NewJudgeSlot(ctx, root, work, map[string][]byte{"reference.patch": reference, "subject.txt": []byte(t.Subject + "\n")}, claudeEnv)
 		if err != nil {
 			return "", 0, err
 		}
 		defer func() { err = errors.Join(err, cleanup()) }()
-		target := cfg.Learning.Judges[0].Target()
-		if err := calibration.CheckTreeTrust(target.Agent, work); err != nil {
+		if err := calibration.CheckTreeTrust(target.Agent, work, workerEnv); err != nil {
 			return "", 0, err
 		}
 		dir := filepath.Join(runDir, "rewrites", t.ID)

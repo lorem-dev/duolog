@@ -22,15 +22,27 @@ const ActionBridge = "bridge"
 var lookupEnv = os.LookupEnv
 
 // Bridgeable lists the servers of agent that a worker of the other agent could
-// borrow, and why the others cannot be. It reads config files only.
+// borrow, and why the others cannot be. It reads config files only, those of
+// duolog's own environment; Bridge checks again with the worker's.
 func Bridgeable(agent, root string) (ok []string, not map[string]string) {
+	f, err := own()
+	if err != nil {
+		return nil, map[string]string{}
+	}
+	return bridgeableIn(agent, root, f)
+}
+
+// bridgeableIn is Bridgeable for the servers in the config files under f.
+// The worker's own Codex config is judged from duolog's environment.
+func bridgeableIn(agent, root string, f folders) (ok []string, not map[string]string) {
 	not = map[string]string{}
 	other := "codex"
 	if agent == "codex" {
 		other = "claude"
 	}
-	for name, s := range Servers(agent, root) {
-		if why := staticWhy(s, other, root); why != "" {
+	worker, workerErr := own()
+	for name, s := range serversIn(agent, root, f) {
+		if why := staticWhy(s, other, root, worker, workerErr); why != "" {
 			not[name] = why
 		} else {
 			ok = append(ok, name)
@@ -43,8 +55,10 @@ func Bridgeable(agent, root string) (ok []string, not map[string]string) {
 var codexName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// staticWhy says why s cannot go to agent to, from its definition alone.
-func staticWhy(s Server, to, root string) string {
+// staticWhy says why s cannot go to agent to, from its definition alone and
+// the worker's own Codex config under worker; workerErr is why worker could
+// not be found, such as an environment without a home folder.
+func staticWhy(s Server, to, root string, worker folders, workerErr error) string {
 	if s.Why != "" {
 		return s.Why
 	}
@@ -56,7 +70,11 @@ func staticWhy(s Server, to, root string) string {
 		if !codexName.MatchString(s.Name) {
 			return "its name has characters that a Codex -c key cannot hold"
 		}
-		if codexHas(root, s.Name) {
+		if workerErr != nil {
+			// -c keys would merge into a table that cannot be read.
+			return "the worker's Codex config cannot be read: " + workerErr.Error()
+		}
+		if codexHas(root, s.Name, worker) {
 			// -c keys would merge into that table, a disabled one too.
 			return "the worker's Codex config has a server of that name"
 		}
@@ -124,11 +142,13 @@ func expand(text string) (string, error) {
 // for one run. Every env and header value goes to MCP.Env under a generated
 // name, and the config refers to it by that name, so no value reaches a file
 // or argv. tools limits the tools of a server. workerEnv is the environment
-// the worker already gets; a name that would replace one of its values fails.
+// the worker already gets; a name that would replace one of its values fails,
+// and the worker's own Codex config is the one that environment selects.
 // A server that cannot be bridged is left out, with the reason in failed.
 func Bridge(from, to, root string, names []string, tools map[string][]string, workerEnv []string) (*runner.MCP, map[string]string) {
 	failed := map[string]string{}
 	servers := Servers(from, root)
+	worker, workerErr := foldersIn(workerEnv)
 	taken := map[string]string{}
 	for _, kv := range workerEnv {
 		k, v, _ := strings.Cut(kv, "=")
@@ -144,7 +164,7 @@ func Bridge(from, to, root string, names []string, tools map[string][]string, wo
 			failed[name] = "the lead's config does not define it"
 			continue
 		}
-		if why := staticWhy(s, to, root); why != "" {
+		if why := staticWhy(s, to, root, worker, workerErr); why != "" {
 			failed[name] = why
 			continue
 		}
@@ -194,7 +214,7 @@ func Bridge(from, to, root string, names []string, tools map[string][]string, wo
 				hidden = append(hidden, k)
 			}
 		}
-		if exclude, legacy := codexShellPolicy(root); legacy {
+		if exclude, legacy := codexShellPolicy(root, worker); legacy {
 			out.CodexArgs = append(out.CodexArgs, "-c", "shell_environment_policy.exclude="+tomlArray(append(exclude, hidden...)))
 		} else {
 			for _, k := range hidden {

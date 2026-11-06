@@ -36,6 +36,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/task"
 	"github.com/lorem-dev/duolog/internal/trust"
+	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -121,7 +122,7 @@ func OptionsFrom(ctx context.Context) Options {
 var runWorker = runner.Run
 var resolveModel = models.Resolve
 var readLeadState = session.ReadLeadState
-var scanCapabilities = capability.Scan
+var scanCapabilities = capability.ScanEnv
 var bridgeMCP = capability.Bridge
 
 // newChecker checks a worker's logins on the worker's own built process.
@@ -458,13 +459,15 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		var bridge []string
 		var bridged *runner.MCP
 		if len(opts.Needs) > 0 {
-			target, scanErr := scanCapabilities(ctx, route.Agent, root)
+			// The worker's inventory is what its own environment's settings
+			// folders hold; the lead's is duolog's own.
+			target, scanErr := scanCapabilities(ctx, route.Agent, root, env)
 			if scanErr != nil {
 				return out, scanErr
 			}
 			lead := capability.Inventory{Agent: leadAgent, Unknown: true}
 			if leadAgent != "" {
-				if lead, scanErr = scanCapabilities(ctx, leadAgent, root); scanErr != nil {
+				if lead, scanErr = scanCapabilities(ctx, leadAgent, root, os.Environ()); scanErr != nil {
 					return out, scanErr
 				}
 			}
@@ -554,16 +557,40 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		}
 		// The hooks, approvals and folder trust the worker loads are those its
 		// own environment selects, not duolog's.
+		protected := append(slices.Clone(opts.ProtectedRoots), filepath.Join(root, ".duolog"), s.Dir)
 		state, folder, trustErr := gateState(route.Agent, root, pre.Env)
+		noHome := errors.Is(trustErr, trusthome.ErrNoHome)
+		switch {
+		case noHome && wm.needsGate():
+			// Nothing the worker's agent loads can be read, so nothing shows
+			// its gate.
+			return out, wm.gatePreflight(route.Agent, root, pre.Env, protected)
+		case noHome:
+			// The worker runs as one without duolog's hooks would, and the lead
+			// learns why. Claude needs no hook approval or folder trust.
+			claude := route.Agent == "claude"
+			state, folder, trustErr = trust.State{Trusted: claude}, claude, nil
+		}
 		if trustErr != nil {
 			return out, trustErr
 		}
+		// A calibration cell's promise is that none runs without the gate.
+		if opts.Calibration {
+			if err = calibrationGate(route.Agent, root, pre.Env); err != nil {
+				return out, err
+			}
+		}
 		if warning, err = trustWarning(route, role, state, folder); err != nil {
+			if noHome {
+				err = fmt.Errorf("%w; %s", err, noHomeProblem())
+			}
 			return out, err
+		}
+		if noHome {
+			warning += "; " + noHomeProblem()
 		}
 		// A looser worker whose gate cannot be shown to run does not start, and
 		// the other agent does not run in its place.
-		protected := append(slices.Clone(opts.ProtectedRoots), filepath.Join(root, ".duolog"), s.Dir)
 		if wm.needsGate() {
 			if err = wm.gatePreflight(route.Agent, root, pre.Env, protected); err != nil {
 				return out, err
@@ -606,14 +633,14 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		// so its agent and the servers it needs are checked first.
 		// The servers are checked only once the agent is logged in, so a login
 		// that works checks them next.
-		for problems := preflight(ctx, checker, route.Agent, leadAgent, root, opts.Needs, bridged); len(problems) > 0; {
+		for problems := preflight(ctx, checker, route.Agent, leadAgent, root, opts.Needs, bridged, pre.Env); len(problems) > 0; {
 			p := problems[0]
 			ok, authErr := settleAuth(ctx, cfg, reg, checker, leadID, role, p, &loginTried, &out)
 			if authErr != nil || !ok {
 				return out, authErr
 			}
 			if p.Server == "" {
-				problems = preflight(ctx, checker, route.Agent, leadAgent, root, opts.Needs, bridged)
+				problems = preflight(ctx, checker, route.Agent, leadAgent, root, opts.Needs, bridged, pre.Env)
 			} else {
 				problems = problems[1:]
 			}
@@ -632,7 +659,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			// resolved native flags and the Codex sandbox pins; the runner
 			// refuses it if this spec asks for other ones.
 			spec := runner.Spec{Route: route, Mode: wm.Level, Native: wm.Native, Network: wm.Network, WritableRoots: wm.WritableRoots, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Persistent: route.Session == "resume", KeepMCP: needsKind(withoutBridged(opts.Needs, bridged), capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin), MCP: bridged, ProtectedRoots: opts.ProtectedRoots}
-			spec.MCP = limitOwn(spec, opts.Needs, cfg.Capabilities.MCPTools)
+			spec.MCP = limitOwn(spec, opts.Needs, cfg.Capabilities.MCPTools, pre.Env)
 			spec.MaxTurns = opts.MaxTurns
 			var entry *session.Entry
 			if route.Session == "resume" {
@@ -675,6 +702,11 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				// shown to run once more, from its own environment.
 				if wm.needsGate() {
 					if err := wm.gatePreflight(route.Agent, root, a.permit.Process.Env, protected); err != nil {
+						return nil, nil, errors.Join(err, a.release(ctx))
+					}
+				}
+				if opts.Calibration {
+					if err := calibrationGate(route.Agent, root, a.permit.Process.Env); err != nil {
 						return nil, nil, errors.Join(err, a.release(ctx))
 					}
 				}
@@ -769,7 +801,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				if usageErr := appendUsage(s.Dir, role, route, out.Result, wm.Native); usageErr != nil {
 					return out, errors.Join(err, usageErr)
 				}
-				problems := runProblems(route.Agent, leadAgent, root, out.Result, bridged, opts.Needs)
+				problems := runProblems(route.Agent, leadAgent, root, out.Result, bridged, opts.Needs, current.permit.Process.Env)
 				if len(problems) == 0 || out.Result.Interrupted || out.Result.QuotaEnded {
 					break
 				}
@@ -1216,13 +1248,15 @@ func workerBrief(root string) []byte {
 
 // preflight checks the worker's login and the login of every MCP server the
 // task needs, bridged or the worker's own. A bridged server is checked with
-// the lead's definition, which is what the worker gets.
-func preflight(ctx context.Context, checker auth.Checker, agent, leadAgent, root string, needs []string, bridged *runner.MCP) []auth.Problem {
+// the lead's definition, which is what the worker gets; the worker's own
+// servers are those the settings folders of workerEnv, its environment,
+// define.
+func preflight(ctx context.Context, checker auth.Checker, agent, leadAgent, root string, needs []string, bridged *runner.MCP, workerEnv []string) []auth.Problem {
 	var out []auth.Problem
 	if p := checker.Agent(ctx, agent); p != nil {
 		return append(out, *p)
 	}
-	own, lent := capability.Servers(agent, root), map[string]capability.Server{}
+	own, lent := capability.ServersEnv(agent, root, workerEnv), map[string]capability.Server{}
 	if bridged != nil {
 		lent = capability.Servers(leadAgent, root)
 	}
@@ -1253,7 +1287,8 @@ func preflight(ctx context.Context, checker auth.Checker, agent, leadAgent, root
 
 // runProblems reads a refused login from a finished run: an error the runner
 // classified, or auth: entries the worker put in needs.
-func runProblems(agent, leadAgent, root string, r runner.Result, bridged *runner.MCP, taskNeeds []string) []auth.Problem {
+// The worker's own servers are those of workerEnv, its environment.
+func runProblems(agent, leadAgent, root string, r runner.Result, bridged *runner.MCP, taskNeeds, workerEnv []string) []auth.Problem {
 	// A finished run stays finished, whatever its log said about a login.
 	if r.Done {
 		return nil
@@ -1279,7 +1314,7 @@ func runProblems(agent, leadAgent, root string, r runner.Result, bridged *runner
 		if p.Server == "" {
 			continue
 		}
-		defs := capability.Servers(agent, root)
+		defs := capability.ServersEnv(agent, root, workerEnv)
 		if bridged != nil && slices.Contains(bridged.Names, p.Server) {
 			defs = capability.Servers(leadAgent, root)
 		}
@@ -1373,7 +1408,8 @@ func settleAuth(ctx context.Context, cfg *config.Config, reg *session.Registry, 
 
 // limitOwn adds capabilities.mcp_tools for the worker's own servers that the
 // task needs, so that the list filters them as it filters a bridged server.
-func limitOwn(spec runner.Spec, needs []string, tools map[string][]string) *runner.MCP {
+// The worker's servers are those of workerEnv, its environment.
+func limitOwn(spec runner.Spec, needs []string, tools map[string][]string, workerEnv []string) *runner.MCP {
 	var own []string
 	for _, need := range withoutBridged(needs, spec.MCP) {
 		if kind, name, err := capability.ParseNeed(need); err == nil && kind == capability.KindMCP {
@@ -1383,7 +1419,7 @@ func limitOwn(spec runner.Spec, needs []string, tools map[string][]string) *runn
 	if spec.Route.Agent == "codex" {
 		// enabled_tools for a server Codex does not define, such as a plugin's,
 		// would make a table with no transport, which Codex refuses.
-		defs := capability.Servers("codex", spec.Cwd)
+		defs := capability.ServersEnv("codex", spec.Cwd, workerEnv)
 		own = slices.DeleteFunc(own, func(name string) bool { _, ok := defs[name]; return !ok })
 	}
 	codexArgs, allowed := capability.Limit(spec.Route.Agent, own, tools)

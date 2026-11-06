@@ -11,7 +11,6 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/trust"
-	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -62,16 +61,29 @@ func (s Server) Static() bool {
 // Servers reads the MCP servers that agent defines in its config files for the
 // project at root, with the agent's own precedence. A disabled Codex server is
 // left out, as Codex does not start it.
+// They are the servers of duolog's own environment, the lead's; ServersEnv
+// reads a worker's.
 func Servers(agent, root string) map[string]Server {
-	h, err := home()
+	return ServersEnv(agent, root, os.Environ())
+}
+
+// ServersEnv is Servers for an agent process whose environment is environ:
+// the config files are those under its home folder, CLAUDE_CONFIG_DIR and
+// CODEX_HOME. An environment without a home folder gives none.
+func ServersEnv(agent, root string, environ []string) map[string]Server {
+	f, err := foldersIn(environ)
 	if err != nil {
 		return nil
 	}
+	return serversIn(agent, root, f)
+}
+
+func serversIn(agent, root string, f folders) map[string]Server {
 	switch agent {
 	case "claude":
-		return claudeServers(root, h)
+		return claudeServers(root, f)
 	case "codex":
-		return codexServers(root, h)
+		return codexServers(root, f)
 	}
 	return nil
 }
@@ -87,12 +99,12 @@ type claudeProject struct {
 
 // claudeServers applies Claude's precedence: local, then project, then user.
 // The whole entry of the winning scope is used; fields are not merged.
-func claudeServers(root, h string) map[string]Server {
+func claudeServers(root string, f folders) map[string]Server {
 	var state struct {
 		MCP      map[string]json.RawMessage `json:"mcpServers"`
 		Projects map[string]claudeProject   `json:"projects"`
 	}
-	statePath := trusthome.ClaudeState(h)
+	statePath := f.claudeState()
 	readJSON(statePath, &state)
 	project := state.Projects[root]
 	if local, ok := state.Projects[filepath.ToSlash(root)]; ok && project.MCP == nil {
@@ -109,7 +121,7 @@ func claudeServers(root, h string) map[string]Server {
 	readJSON(mcpJSON, &file)
 	for name, raw := range file.MCP {
 		s := parseClaude(name, "project", mcpJSON, raw)
-		if !claudeApproved(name, root, h, project) {
+		if !claudeApproved(name, root, f, project) {
 			// Claude asks before it starts a server from a project file; a
 			// server the user never approved must not start in another agent,
 			// and it does not hide the user's server of the same name.
@@ -138,11 +150,11 @@ func claudeServers(root, h string) map[string]Server {
 
 // claudeApproved reads the approval of a .mcp.json server. The settings files in
 // the project count only after the folder was trusted, as in Claude.
-func claudeApproved(name, root, h string, project claudeProject) bool {
+func claudeApproved(name, root string, f folders, project claudeProject) bool {
 	all := project.EnableAllMCPServer != nil && *project.EnableAllMCPServer
 	enabled := slices.Contains(project.Enabled, name)
 	disabled := slices.Contains(project.Disabled, name)
-	for _, path := range install.ClaudeSettingsFiles(root, h) {
+	for _, path := range install.ClaudeSettingsFilesIn(root, f.home, f.environ) {
 		// Both settings files in the project are the project's own, so they
 		// approve nothing until the person trusted the folder.
 		if strings.HasPrefix(path, filepath.Join(root, ".claude")+string(filepath.Separator)) && !project.TrustDialogPassed {
@@ -214,8 +226,8 @@ func parseClaude(name, scope, file string, raw json.RawMessage) Server {
 // codexServers reads config.toml in CODEX_HOME, then the project's
 // .codex/config.toml when Codex trusts the folder. A project value replaces the
 // user value of the same key, table by table, as Codex merges its layers.
-func codexServers(root, h string) map[string]Server {
-	merged, files, user := codexMerged(root, h)
+func codexServers(root string, f folders) map[string]Server {
+	merged, files, user := codexMerged(root, f)
 	out := make(map[string]Server)
 	for name, value := range merged {
 		table := value.(map[string]any)
@@ -233,11 +245,11 @@ func codexServers(root, h string) map[string]Server {
 
 // codexMerged returns the merged mcp_servers tables, disabled ones too, with the
 // file that set each last, and the path of the user file.
-func codexMerged(root, h string) (merged map[string]any, files map[string]string, user string) {
-	user = filepath.Join(trust.CodexHome(h), "config.toml")
+func codexMerged(root string, f folders) (merged map[string]any, files map[string]string, user string) {
+	user = filepath.Join(f.codex(), "config.toml")
 	merged, files = map[string]any{}, map[string]string{}
 	layers := []string{user}
-	if trusted, err := trust.FolderIn(h, root); err == nil && trusted {
+	if trusted, err := trust.FolderInEnv(f.home, root, f.environ); err == nil && trusted {
 		layers = append(layers, filepath.Join(root, ".codex", "config.toml"))
 	}
 	for _, path := range layers {
@@ -270,8 +282,14 @@ func codexMerged(root, h string) (merged map[string]any, files map[string]string
 // a new server `"x"` with no transport, and Codex would refuse its config. A
 // name that a bare key cannot hold is left out, as the bridge leaves it out.
 func CodexOff(root string) []string {
+	return CodexOffEnv(root, os.Environ())
+}
+
+// CodexOffEnv is CodexOff for a Codex worker whose environment is environ:
+// the servers turned off are those its own CODEX_HOME defines.
+func CodexOffEnv(root string, environ []string) []string {
 	var names []string
-	for name := range Servers("codex", root) {
+	for name := range ServersEnv("codex", root, environ) {
 		if codexName.MatchString(name) {
 			names = append(names, name)
 		}
@@ -284,14 +302,10 @@ func CodexOff(root string) []string {
 	return args
 }
 
-// codexHas reports whether the worker's Codex config has a table for name,
-// even a disabled one: -c keys would merge into it.
-func codexHas(root, name string) bool {
-	h, err := home()
-	if err != nil {
-		return false
-	}
-	merged, _, _ := codexMerged(root, h)
+// codexHas reports whether the worker's Codex config under worker has a table
+// for name, even a disabled one: -c keys would merge into it.
+func codexHas(root, name string, worker folders) bool {
+	merged, _, _ := codexMerged(root, worker)
 	_, ok := merged[name]
 	return ok
 }
@@ -408,13 +422,9 @@ func stringList(v any) []string {
 // reads its servers. Codex refuses filters next to the older exclude or
 // include_only keys, so a policy in the older form gets its exclude list back,
 // to be extended rather than replaced.
-func codexShellPolicy(root string) (exclude []string, legacy bool) {
-	h, err := home()
-	if err != nil {
-		return nil, false
-	}
-	layers := []string{filepath.Join(trust.CodexHome(h), "config.toml")}
-	if trusted, err := trust.FolderIn(h, root); err == nil && trusted {
+func codexShellPolicy(root string, worker folders) (exclude []string, legacy bool) {
+	layers := []string{filepath.Join(worker.codex(), "config.toml")}
+	if trusted, err := trust.FolderInEnv(worker.home, root, worker.environ); err == nil && trusted {
 		layers = append(layers, filepath.Join(root, ".codex", "config.toml"))
 	}
 	for _, path := range layers {

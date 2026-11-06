@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -393,7 +394,7 @@ func TestNewTreeAtReplacesSlot(t *testing.T) {
 	write(t, dir, "stale.txt", "left over\n")
 	write(t, dir, ".git/HEAD", "ref: refs/heads/main\n")
 
-	cleanup, err := NewTreeAt(ctx, root, c1, dir)
+	cleanup, err := NewTreeAt(ctx, root, c1, dir, os.Environ())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +414,7 @@ func TestNewTreeAtReplacesSlot(t *testing.T) {
 		t.Fatalf("cleanup left %s missing or not empty", dir)
 	}
 	// The next cell reuses the kept folder.
-	cleanup, err = NewTreeAt(ctx, root, c1, dir)
+	cleanup, err = NewTreeAt(ctx, root, c1, dir, os.Environ())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -429,7 +430,7 @@ func TestNewTreeAtRefusesProjectFolders(t *testing.T) {
 	c1 := commit(t, root, "add a")
 	for _, dir := range []string{filepath.Join(root, "x"), root, filepath.Dir(root)} {
 		write(t, root, "x/keep.txt", "k\n")
-		cleanup, err := NewTreeAt(context.Background(), root, c1, dir)
+		cleanup, err := NewTreeAt(context.Background(), root, c1, dir, os.Environ())
 		if err == nil {
 			_ = cleanup()
 			t.Fatalf("NewTreeAt exported into %s", dir)
@@ -454,7 +455,7 @@ func TestNewTreeAtCopiesCodexHooksFromHead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cleanup, err := NewTreeAt(ctx, root, c1, dir)
+	cleanup, err := NewTreeAt(ctx, root, c1, dir, os.Environ())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +472,7 @@ func TestNewTreeAtCopiesCodexHooksFromHead(t *testing.T) {
 	write(t, bare, "a.txt", "a\n")
 	c2 := commit(t, bare, "add a")
 	other, _ := TreeSlot(bare, 0)
-	cleanup, err = NewTreeAt(ctx, bare, c2, other)
+	cleanup, err = NewTreeAt(ctx, bare, c2, other, os.Environ())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -495,7 +496,7 @@ func TestNewTreeAtCopiesCodexHooksFromWorkingCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cleanup, err := NewTreeAt(ctx, root, c1, dir)
+	cleanup, err := NewTreeAt(ctx, root, c1, dir, os.Environ())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -509,7 +510,7 @@ func TestNewTreeAtCopiesCodexHooksFromWorkingCopy(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, ".codex", "hooks.json")); err != nil {
 		t.Fatal(err)
 	}
-	cleanup, err = NewTreeAt(ctx, root, c1, dir)
+	cleanup, err = NewTreeAt(ctx, root, c1, dir, os.Environ())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,24 +534,78 @@ func TestCheckTreeTrust(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			trustCodex(t, home, dir, tc.folder, tc.hooks)
-			err := CheckTreeTrust("codex", dir)
+			err := CheckTreeTrust("codex", dir, os.Environ())
 			if err == nil || !strings.Contains(err.Error(), dir) || !strings.Contains(err.Error(), "hooks") {
 				t.Fatalf("CheckTreeTrust = %v, want an error naming %s and its hooks", err, dir)
 			}
 		})
 	}
 	trustCodex(t, home, dir, true, true)
-	if err := CheckTreeTrust("codex", dir); err != nil {
+	if err := CheckTreeTrust("codex", dir, os.Environ()); err != nil {
 		t.Fatalf("CheckTreeTrust on a trusted tree: %v", err)
 	}
 	// Claude needs no trust, but a tree without the duolog gate is refused.
 	bare := t.TempDir()
-	if err := CheckTreeTrust("claude", bare); err == nil || !strings.Contains(err.Error(), bare) || !strings.Contains(err.Error(), "gate") {
+	if err := CheckTreeTrust("claude", bare, os.Environ()); err == nil || !strings.Contains(err.Error(), bare) || !strings.Contains(err.Error(), "gate") {
 		t.Fatalf("CheckTreeTrust for claude without a gate = %v, want an error naming %s and the gate", err, bare)
 	}
 	write(t, bare, ".claude/settings.local.json", claudeGate(t))
-	if err := CheckTreeTrust("claude", bare); err != nil {
+	if err := CheckTreeTrust("claude", bare, os.Environ()); err != nil {
 		t.Fatalf("CheckTreeTrust for claude with the gate: %v", err)
+	}
+}
+
+// Re-review, Important 2: the tree's gate is judged from the worker's own
+// environment. The caller's CLAUDE_CONFIG_DIR runs the gate and its
+// CODEX_HOME trusts the tree, but the worker gets neither: the tree gets a
+// local Claude gate, and Codex is refused for the folder trust the worker's
+// own home lacks.
+func TestTreeTrustReadsTheWorkersEnvironment(t *testing.T) {
+	home := tempHome(t)
+	ctx := context.Background()
+	root := project(t)
+	write(t, root, "a.txt", "a\n")
+	c1 := commit(t, root, "add a")
+	dir, err := TreeSlot(root, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := []string{"HOME=" + home, "USERPROFILE=" + home, "PATH=" + os.Getenv("PATH")}
+	caller := t.TempDir()
+	write(t, caller, "settings.json", claudeGate(t))
+	t.Setenv("CLAUDE_CONFIG_DIR", caller)
+
+	bare := t.TempDir()
+	if err := CheckTreeTrust("claude", bare, worker); err == nil {
+		t.Error("claude: a tree whose gate is only in the caller's CLAUDE_CONFIG_DIR passed")
+	}
+	cleanup, err := NewTreeAt(ctx, root, c1, dir, worker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cleanup() })
+	if !install.HasGate(filepath.Join(dir, ".claude", "settings.local.json")) {
+		t.Error("claude: no local gate in the tree, although the worker's settings have none")
+	}
+
+	// trustCodex writes <home>/.codex/config.toml, so CODEX_HOME is that
+	// .codex folder.
+	callerHome := t.TempDir()
+	codexHome := filepath.Join(callerHome, ".codex")
+	write(t, dir, ".codex/hooks.json", gateHooks)
+	trustCodex(t, callerHome, dir, true, true)
+	t.Setenv("CODEX_HOME", codexHome)
+	trustCodex(t, home, dir, false, true)
+	if err := CheckTreeTrust("codex", dir, worker); err == nil {
+		t.Error("codex: a tree trusted only in the caller's CODEX_HOME passed")
+	}
+	// Passed on, the caller's folders are the worker's, and they count.
+	both := append(slices.Clone(worker), "CLAUDE_CONFIG_DIR="+caller, "CODEX_HOME="+codexHome)
+	if err := CheckTreeTrust("claude", bare, both); err != nil {
+		t.Errorf("claude with CLAUDE_CONFIG_DIR passed on: %v", err)
+	}
+	if err := CheckTreeTrust("codex", dir, both); err != nil {
+		t.Errorf("codex with CODEX_HOME passed on: %v", err)
 	}
 }
 
@@ -578,7 +633,7 @@ func TestNewTreeAtAddsClaudeGate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cleanup, err := NewTreeAt(ctx, root, c1, dir)
+	cleanup, err := NewTreeAt(ctx, root, c1, dir, os.Environ())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -589,7 +644,7 @@ func TestNewTreeAtAddsClaudeGate(t *testing.T) {
 	if out := git(t, dir, "ls-files"); out != "a.txt" {
 		t.Fatalf("the tree's commit tracks %q, want only a.txt", out)
 	}
-	if err := CheckTreeTrust("claude", dir); err != nil {
+	if err := CheckTreeTrust("claude", dir, os.Environ()); err != nil {
 		t.Fatalf("CheckTreeTrust: %v", err)
 	}
 	if err := cleanup(); err != nil {
@@ -598,7 +653,7 @@ func TestNewTreeAtAddsClaudeGate(t *testing.T) {
 
 	// The person's own Claude settings run the gate: no second copy.
 	write(t, filepath.Join(home, ".claude"), "settings.json", claudeGate(t))
-	cleanup, err = NewTreeAt(ctx, root, c1, dir)
+	cleanup, err = NewTreeAt(ctx, root, c1, dir, os.Environ())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -621,14 +676,14 @@ func TestNewJudgeSlotGivesClaudeGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cleanup, err := NewJudgeSlot(ctx, root, slot, map[string][]byte{"a.patch": []byte("+a\n")})
+	cleanup, err := NewJudgeSlot(ctx, root, slot, map[string][]byte{"a.patch": []byte("+a\n")}, os.Environ())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !install.HasGate(filepath.Join(slot, ".claude", "settings.local.json")) {
 		t.Fatal("the judge slot has no Claude gate")
 	}
-	if err := CheckTreeTrust("claude", slot); err != nil {
+	if err := CheckTreeTrust("claude", slot, os.Environ()); err != nil {
 		t.Fatalf("CheckTreeTrust: %v", err)
 	}
 	// A worker leaves a link in place of the hooks and a Codex config.
@@ -645,7 +700,7 @@ func TestNewJudgeSlotGivesClaudeGate(t *testing.T) {
 	if err := cleanup(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewJudgeSlot(ctx, root, slot, nil); err != nil {
+	if _, err := NewJudgeSlot(ctx, root, slot, nil, os.Environ()); err != nil {
 		t.Fatal(err)
 	}
 	if data, _ := os.ReadFile(outside); string(data) != "keep\n" {
@@ -676,7 +731,7 @@ func TestCleanupKeepsApprovedHooks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cleanup, err := NewTreeAt(ctx, root, c1, dir)
+	cleanup, err := NewTreeAt(ctx, root, c1, dir, os.Environ())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -702,7 +757,7 @@ func TestCleanupKeepsApprovedHooks(t *testing.T) {
 		t.Fatal(err)
 	}
 	symlink(t, dir, ".codex/hooks.json", outside)
-	cleanup, err = NewTreeAt(ctx, root, c1, dir)
+	cleanup, err = NewTreeAt(ctx, root, c1, dir, os.Environ())
 	if err != nil {
 		t.Fatal(err)
 	}

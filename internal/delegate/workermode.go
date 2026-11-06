@@ -1,6 +1,7 @@
 package delegate
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -107,10 +108,17 @@ func gateState(agent, root string, env []string) (trust.State, bool, error) {
 // runs with, never from duolog's own.
 func (w workerMode) gatePreflight(agent, root string, env, protected []string) error {
 	state, folder, err := gateState(agent, root, env)
-	if err != nil {
+	problem := ""
+	switch {
+	case errors.Is(err, trusthome.ErrNoHome):
+		// The agent falls back to a home env does not name, so its settings
+		// cannot be read and its gate cannot be shown.
+		problem = noHomeProblem()
+	case err != nil:
 		return err
+	default:
+		problem = trust.GateProblem(agent, state, folder)
 	}
-	problem := trust.GateProblem(agent, state, folder)
 	pathEnv := "PATH=" + trusthome.Getenv(env, "PATH")
 	gate, err := gateBinary(pathEnv)
 	if problem == "" && err != nil {
@@ -124,6 +132,36 @@ func (w workerMode) gatePreflight(agent, root string, env, protected []string) e
 		return nil
 	}
 	return fmt.Errorf("gate preflight failed for %s %s (%s): %s; nothing ran", agent, w.Native, w.Source, problem)
+}
+
+// noHomeProblem says why nothing a worker's agent loads can be read from an
+// environment without a home folder.
+func noHomeProblem() string {
+	name := "HOME"
+	if runtime.GOOS == "windows" {
+		name = "USERPROFILE"
+	}
+	return "the worker's environment has no home folder (" + name + "), so the settings its agent loads cannot be read; add " + name + " to env_passthrough"
+}
+
+// calibrationGate refuses a calibration cell or rewrite whose gate cannot be
+// shown to run for the process whose environment is env, whatever its worker
+// mode: calibration promises that no cell runs without the gate.
+func calibrationGate(agent, root string, env []string) error {
+	state, folder, err := gateState(agent, root, env)
+	problem := ""
+	switch {
+	case errors.Is(err, trusthome.ErrNoHome):
+		problem = noHomeProblem()
+	case err != nil:
+		return err
+	default:
+		problem = trust.GateProblem(agent, state, folder)
+	}
+	if problem == "" {
+		return nil
+	}
+	return fmt.Errorf("calibration gate check failed for %s in %s: %s; no cell runs without the duolog gate, and nothing ran", agent, root, problem)
 }
 
 // protectedRoot names the first writable root that config refuses now, at

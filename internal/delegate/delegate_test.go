@@ -1064,11 +1064,48 @@ func (h *harness) inventories(target, lead capability.Inventory) {
 	h.t.Helper()
 	old := scanCapabilities
 	h.t.Cleanup(func() { scanCapabilities = old })
-	scanCapabilities = func(_ context.Context, agent, _ string) (capability.Inventory, error) {
+	scanCapabilities = func(_ context.Context, agent, _ string, _ []string) (capability.Inventory, error) {
 		if agent == target.Agent {
 			return target, nil
 		}
 		return lead, nil
+	}
+}
+
+// Re-review, Minor 2: the worker's inventory is scanned with the
+// environment the worker gets, so a server that only the caller's
+// CLAUDE_CONFIG_DIR defines, which env_passthrough does not pass, counts as
+// missing. The lead's inventory is duolog's own environment.
+func TestWorkerInventoryScansTheWorkersEnvironment(t *testing.T) {
+	h := newHarness(t)
+	h.lead("codex", mode.Edits, "high")
+	userDir, _ := os.UserConfigDir()
+	put(t, filepath.Join(userDir, "duolog", "config.yaml"), "env_passthrough: [PATH, HOME, USER]\n")
+	var err error
+	if h.cfg, err = config.Load(h.root); err != nil {
+		t.Fatal(err)
+	}
+	caller := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", caller)
+	scanned := map[string][]string{}
+	old := scanCapabilities
+	t.Cleanup(func() { scanCapabilities = old })
+	scanCapabilities = func(_ context.Context, agent, _ string, environ []string) (capability.Inventory, error) {
+		scanned[agent] = environ
+		return capability.Inventory{Agent: agent, Unknown: true}, nil
+	}
+	opts := Options{Entry: &config.Target{Agent: "claude", Model: "sonnet", Effort: "medium"}, Person: true, Needs: []string{"mcp:tracker"}}
+	if out, err := Run(WithOptions(context.Background(), opts), h.cfg, h.s, "implement", h.path, "topic"); err != nil {
+		t.Fatal(out.Line, err)
+	}
+	h.requireCalls(1)
+	worker := scanned["claude"]
+	depth, config := slices.Contains(worker, "DUOLOG_DEPTH=1"), slices.Contains(worker, "CLAUDE_CONFIG_DIR="+caller)
+	if !depth || config {
+		t.Errorf("the worker's inventory: DUOLOG_DEPTH=1 %t, caller's CLAUDE_CONFIG_DIR %t; want the worker's environment without it", depth, config)
+	}
+	if !slices.Contains(scanned["codex"], "CLAUDE_CONFIG_DIR="+caller) {
+		t.Error("the lead's inventory was not scanned with duolog's own environment")
 	}
 }
 func (h *harness) runNeeds(role string, needs ...string) (Outcome, error) {

@@ -529,3 +529,16 @@ func TestCodexOffNamesServersBare(t *testing.T) {
 		t.Fatalf("got %s, want %s", got, want)
 	}
 }
+
+// The same class as re-review Minor 2: the servers a skill test turns off
+// are those the worker's own CODEX_HOME defines, not duolog's.
+func TestCodexOffEnvReadsTheWorkersConfig(t *testing.T) {
+	home, root := env(t)
+	put(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.codegraph]\ncommand = 'cg'\n")
+	worker := t.TempDir()
+	put(t, filepath.Join(worker, "config.toml"), "[mcp_servers.tracker]\ncommand = 't'\n")
+	got := strings.Join(CodexOffEnv(root, []string{"HOME=" + home, "CODEX_HOME=" + worker}), "|")
+	if want := "-c|mcp_servers.tracker.enabled=false"; got != want {
+		t.Fatalf("got %s, want %s", got, want)
+	}
+}

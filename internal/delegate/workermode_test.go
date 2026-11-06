@@ -1,6 +1,7 @@
 package delegate
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -408,9 +409,10 @@ func TestGatePreflightReadsTheWorkersSettings(t *testing.T) {
 	for _, tc := range []struct {
 		name, agent, model, entry, lead string
 		setup                           func(h *harness, alternate string)
+		passthrough                     string
 	}{
-		{"claude gate only in the caller's CLAUDE_CONFIG_DIR", "claude", "sonnet", "claude: bypassPermissions", "bypassPermissions",
-			func(h *harness, alternate string) {
+		{name: "claude gate only in the caller's CLAUDE_CONFIG_DIR", agent: "claude", model: "sonnet", entry: "claude: bypassPermissions", lead: "bypassPermissions",
+			setup: func(h *harness, alternate string) {
 				h.claudeGate(false)
 				put(h.t, filepath.Join(os.Getenv("HOME"), ".claude", "settings.json"), `{}`)
 				put(h.t, filepath.Join(alternate, "settings.json"), `{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"duolog gate --agent claude --event PreToolUse"}]}]}}`)
@@ -418,18 +420,32 @@ func TestGatePreflightReadsTheWorkersSettings(t *testing.T) {
 			}},
 		// The hooks are approved in both homes, so only the folder trust the
 		// worker's own home lacks is left to the preflight.
-		{"codex folder trust only in the caller's CODEX_HOME", "codex", "sol", "codex: workspace-write, network: true", "bypassPermissions",
-			func(h *harness, alternate string) {
+		{name: "codex folder trust only in the caller's CODEX_HOME", agent: "codex", model: "sol", entry: "codex: workspace-write, network: true", lead: "bypassPermissions",
+			setup: func(h *harness, alternate string) {
 				put(h.t, filepath.Join(alternate, "config.toml"), read(h.t, filepath.Join(os.Getenv("HOME"), ".codex", "config.toml")))
 				h.codexHooksOnly()
 				h.t.Setenv("CODEX_HOME", alternate)
 			}},
+		// Re-review, Important 1: duolog's HOME is not the account's home and
+		// is not passed on, so the worker's agent falls back to a home the
+		// environment does not name. Its settings cannot be read, whatever
+		// duolog's own HOME holds.
+		{name: "claude gate only under the caller's HOME, HOME not passed", agent: "claude", model: "sonnet", entry: "claude: bypassPermissions", lead: "bypassPermissions",
+			passthrough: "[PATH, USER]",
+			setup: func(h *harness, _ string) {
+				h.claudeGate(false)
+				put(h.t, filepath.Join(os.Getenv("HOME"), ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"duolog gate --agent claude --event PreToolUse"}]}]}}`)
+			}},
+		{name: "codex trust only under the caller's HOME, HOME not passed", agent: "codex", model: "sol", entry: "codex: workspace-write, network: true", lead: "bypassPermissions",
+			passthrough: "[PATH, USER]",
+			setup:       func(h *harness, _ string) {}},
 	} {
 		h := newHarness(t)
 		h.gateOnPath(true)
 		tc.setup(h, t.TempDir())
 		userDir, _ := os.UserConfigDir()
-		put(t, filepath.Join(userDir, "duolog", "config.yaml"), "env_passthrough: [HOME, USER]\nworker_modes:\n  roles:\n    implement: {"+tc.entry+"}\n")
+		passthrough := cmp.Or(tc.passthrough, "[HOME, USER]")
+		put(t, filepath.Join(userDir, "duolog", "config.yaml"), "env_passthrough: "+passthrough+"\nworker_modes:\n  roles:\n    implement: {"+tc.entry+"}\n")
 		var err error
 		if h.cfg, err = config.Load(h.root); err != nil {
 			t.Fatal(err)
@@ -455,6 +471,19 @@ func TestGatePreflightReadsTheWorkersSettings(t *testing.T) {
 	}
 	h.leadNative("claude", mode.Full, "bypassPermissions")
 	if out, err := h.runOn("implement", "claude", "sonnet"); err != nil || len(h.calls) != 1 {
+		t.Fatal(out.Line, err)
+	}
+	// A worker that does not rely on the gate still runs without a home
+	// folder, and the lead learns that its settings could not be read.
+	h = newHarness(t)
+	h.claudeGate(true)
+	userDir, _ = os.UserConfigDir()
+	put(t, filepath.Join(userDir, "duolog", "config.yaml"), "env_passthrough: [PATH, USER]\n")
+	if h.cfg, err = config.Load(h.root); err != nil {
+		t.Fatal(err)
+	}
+	h.lead("claude", mode.Edits, "high")
+	if out, err := h.runOn("implement", "claude", "sonnet"); err != nil || len(h.calls) != 1 || !strings.Contains(out.Line, "no home folder") {
 		t.Fatal(out.Line, err)
 	}
 }

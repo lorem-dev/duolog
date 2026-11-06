@@ -382,7 +382,7 @@ func askSkill(cmd *cobra.Command, cfg *config.Config, root, work, prompt string,
 	// MCP server inherited from the user's Codex configuration.
 	bridge := &runner.MCP{}
 	if target.Agent == "codex" {
-		bridge.CodexArgs = capability.CodexOff(work)
+		bridge.CodexArgs = capability.CodexOffEnv(work, permit.Process.Env)
 	}
 	spec := runner.Spec{Route: route, SkillTest: true, TaskDir: work, Cwd: work, Stdin: []byte(prompt), Process: &permit.Process, MCP: bridge, Timeout: 10 * time.Minute}
 	spec.Started = func(pid int) error {

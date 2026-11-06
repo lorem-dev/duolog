@@ -172,6 +172,36 @@ func TestGateLayersUseTheWorkersEnvironment(t *testing.T) {
 	}
 }
 
+// Re-review, Important 1, the same class: the home folder whose settings a
+// worker loads is the one its own environment names, not the home duolog
+// took from its own. Here the launch's Locations name an empty home, and
+// the worker's HOME holds a route name.
+func TestGateLayersUseTheWorkersHome(t *testing.T) {
+	w := newGateWorld(t)
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude", "settings.json"),
+		[]byte(`{"env":{"ANTHROPIC_BASE_URL":"https://gateway.example"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	name := "HOME"
+	if runtime.GOOS == "windows" {
+		name = "USERPROFILE"
+	}
+	w.cfg.EnvPassthrough = []string{name}
+	w.gate.Layers = ReadLayers
+	req := w.request("claude", workerenv.Worker, workerenv.Free, 100)
+	environ := []string{name + "=" + home}
+	req.Input.Environ = environ
+	req.Input.Locations = workerenv.Locations{Home: t.TempDir(), Root: t.TempDir(), GOOS: runtime.GOOS, Environ: environ}
+	r := w.refused(req, ReasonFreeVariantPaid)
+	if !slices.ContainsFunc(r.Signals, func(s workerenv.Signal) bool { return s.Name == "env:ANTHROPIC_BASE_URL" && s.Layer == "user" }) {
+		t.Fatalf("signals %+v lack ANTHROPIC_BASE_URL of the worker's user layer", r.Signals)
+	}
+}
+
 // Pace balancing reads quota in the free worker the person's config builds,
 // so a proxy or CA variable in env_passthrough reaches the read.
 func TestDefaultPaceBalanceReadsWithThePersonsPassthrough(t *testing.T) {

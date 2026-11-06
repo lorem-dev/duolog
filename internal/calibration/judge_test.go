@@ -690,7 +690,7 @@ func TestJudgeSlotFreshGitPerCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	cleanup, err := NewJudgeSlot(ctx, root, slot, nil)
+	cleanup, err := NewJudgeSlot(ctx, root, slot, nil, os.Environ())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -698,7 +698,7 @@ func TestJudgeSlotFreshGitPerCall(t *testing.T) {
 	if err := cleanup(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewJudgeSlot(ctx, root, slot, nil); err != nil {
+	if _, err := NewJudgeSlot(ctx, root, slot, nil, os.Environ()); err != nil {
 		t.Fatal(err)
 	}
 	if exists(filepath.Join(slot, ".git", "hooks", "post-checkout")) {

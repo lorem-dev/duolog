@@ -149,6 +149,31 @@ func TestWorkerModesRefusedRootAliases(t *testing.T) {
 	}
 }
 
+// Re-review, Important 1: the worker's own home folder is protected, not
+// only duolog's: a writable root inside the worker's .codex is refused when
+// duolog's HOME is another folder.
+func TestRefuseRootEnvProtectsTheWorkersHome(t *testing.T) {
+	isolatedRoot(t)
+	worker := t.TempDir()
+	name := "HOME"
+	if runtime.GOOS == "windows" {
+		name = "USERPROFILE"
+	}
+	env := []string{name + "=" + worker}
+	for _, sub := range []string{".codex", ".claude", ".ssh"} {
+		root := filepath.Join(worker, sub, "inner")
+		if RefuseRoot(root) != "" {
+			t.Fatalf("%s is refused for duolog's own home too; the test needs another home", root)
+		}
+		if RefuseRootEnv(root, env) == "" {
+			t.Errorf("%s inside the worker's home is not refused", root)
+		}
+	}
+	if RefuseRootEnv(worker, env) == "" {
+		t.Error("the worker's home folder itself is not refused")
+	}
+}
+
 // Codex review 3: the Windows credential and vault folders are protected.
 func TestWorkerModesWindowsCredentialFolders(t *testing.T) {
 	env := map[string]string{"APPDATA": `C:\Users\study\AppData\Roaming`, "LOCALAPPDATA": `C:\Users\study\AppData\Local`}

@@ -538,8 +538,11 @@ func RefuseRoot(root string) string {
 }
 
 // RefuseRootEnv is RefuseRoot for a worker whose environment is environ: the
-// agent and credential folders that environment selects, such as its
-// CLAUDE_CONFIG_DIR or CODEX_HOME, are protected as well as duolog's own.
+// home folder and the agent and credential folders that environment selects,
+// such as its HOME, CLAUDE_CONFIG_DIR or CODEX_HOME, are protected as well as
+// duolog's own. An environ without a home folder protects duolog's home only;
+// a worker that relies on the gate is refused before then (delegate's gate
+// preflight), as its agent's home cannot be read from environ.
 func RefuseRootEnv(root string, environ []string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -548,7 +551,11 @@ func RefuseRootEnv(root string, environ []string) string {
 	if reason := refuseRoot(filepath.Clean(root), filepath.Clean(home), os.Getenv); reason != "" || environ == nil {
 		return reason
 	}
-	return refuseRoot(filepath.Clean(root), filepath.Clean(home), func(name string) string { return trusthome.Getenv(environ, name) })
+	getenv := func(name string) string { return trusthome.Getenv(environ, name) }
+	if worker, err := trusthome.HomeIn(environ); err == nil && filepath.IsAbs(worker) {
+		home = worker
+	}
+	return refuseRoot(filepath.Clean(root), filepath.Clean(home), getenv)
 }
 
 // refuseRoot compares canonical paths (pathutil.Canonical): symlinks in the

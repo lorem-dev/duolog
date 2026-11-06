@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -43,6 +44,26 @@ func (f *fakeChecker) Login(_ context.Context, p auth.Problem, _ time.Duration) 
 	return f.login
 }
 func (f *fakeChecker) Forget(auth.Problem) {}
+
+// Re-review, the same class as Minor 2: the login preflight reads the
+// worker's own server definitions from the worker's environment. The
+// caller's CLAUDE_CONFIG_DIR turns tracker off for the project, so with
+// duolog's view it would not be checked; the worker's home defines it on.
+func TestPreflightReadsTheWorkersServers(t *testing.T) {
+	h := newHarness(t)
+	home := os.Getenv("HOME")
+	put(t, filepath.Join(home, ".claude.json"), `{"mcpServers":{"tracker":{"type":"http","url":"https://tracker.example","headers":{"Authorization":"x"}}}}`)
+	caller := t.TempDir()
+	put(t, filepath.Join(caller, ".claude.json"), `{"mcpServers":{"tracker":{"type":"http","url":"https://tracker.example","headers":{"Authorization":"x"}}},"projects":{`+
+		strconv.Quote(h.root)+`:{"disabledMcpServers":["tracker"]}}}`)
+	t.Setenv("CLAUDE_CONFIG_DIR", caller)
+	worker := []string{"HOME=" + home, "USERPROFILE=" + home}
+	checker := &fakeChecker{}
+	preflight(context.Background(), checker, "claude", "", h.root, []string{"mcp:tracker"}, nil, worker)
+	if len(checker.checked) != 1 || checker.checked[0] != "tracker" {
+		t.Fatalf("checked %v; want tracker, which the worker's own settings turn on", checker.checked)
+	}
+}
 
 func authHarness(t *testing.T) *harness {
 	h := newHarness(t)
@@ -202,7 +223,7 @@ func TestRunProblemsTrustOnlyTheTask(t *testing.T) {
 func TestPreflightSkipsUnapprovedServer(t *testing.T) {
 	h := authHarness(t)
 	put(t, filepath.Join(h.root, ".mcp.json"), `{"mcpServers":{"svc":{"type":"http","url":"https://unapproved.invalid/mcp","headers":{"X-Api-Key":"${REVIEW_TOKEN}"}}}}`)
-	if got := preflight(context.Background(), h.auth, "claude", "codex", h.root, []string{"mcp:svc"}, nil); len(got) != 0 || len(h.auth.checked) != 0 {
+	if got := preflight(context.Background(), h.auth, "claude", "codex", h.root, []string{"mcp:svc"}, nil, os.Environ()); len(got) != 0 || len(h.auth.checked) != 0 {
 		t.Fatal(got, h.auth.checked)
 	}
 }

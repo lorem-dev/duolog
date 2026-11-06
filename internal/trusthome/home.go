@@ -3,11 +3,17 @@
 package trusthome
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 )
+
+// ErrNoHome is the error of HomeIn for an environment that names no home
+// folder: HOME, or USERPROFILE on Windows.
+var ErrNoHome = errors.New("the environment names no home folder")
 
 func Codex(home string) string {
 	return CodexIn(home, os.Environ())
@@ -19,6 +25,22 @@ func Claude(home string) string {
 // ClaudeState is the legacy global state file (MCP names only are read).
 func ClaudeState(home string) string {
 	return ClaudeStateIn(home, os.Environ())
+}
+
+// HomeIn is the home folder of a process whose environment is environ: its
+// HOME, or its USERPROFILE on Windows, as os.UserHomeDir reads duolog's own.
+// An environment without one is ErrNoHome: the agent would fall back to a
+// home, such as the account's passwd entry, that environ does not name, so
+// nothing under it can be read for that process.
+func HomeIn(environ []string) (string, error) {
+	name := "HOME"
+	if runtime.GOOS == "windows" {
+		name = "USERPROFILE"
+	}
+	if home := Getenv(environ, name); home != "" {
+		return home, nil
+	}
+	return "", fmt.Errorf("%w (%s)", ErrNoHome, name)
 }
 
 // CodexIn is the Codex config directory of a process whose environment is

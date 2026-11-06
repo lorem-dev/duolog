@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"github.com/lorem-dev/duolog/internal/store"
 	"os"
 	"os/exec"
@@ -18,7 +19,6 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/project"
-	"github.com/lorem-dev/duolog/internal/trust"
 	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -41,9 +41,10 @@ type Item struct {
 	NoBridge   string `json:"no_bridge,omitempty"`
 }
 
-// markBridge adds the servers from config files with what bridging can do.
-func markBridge(agent, root string, items []Item) []Item {
-	ok, not := Bridgeable(agent, root)
+// markBridge adds the servers from the config files under f with what
+// bridging can do.
+func markBridge(agent, root string, items []Item, f folders) []Item {
+	ok, not := bridgeableIn(agent, root, f)
 	for _, name := range ok {
 		items = append(items, Item{Kind: KindMCP, Name: name})
 	}
@@ -91,34 +92,66 @@ func (inv Inventory) KindUnknown(kind string) bool {
 // Home replaces the user home directory when set; tests use it.
 var Home string
 
-func home() (string, error) {
-	if Home != "" {
-		return Home, nil
-	}
-	return os.UserHomeDir()
+// folders is where one agent process finds its settings: its home folder,
+// and the environment whose CLAUDE_CONFIG_DIR and CODEX_HOME select the
+// folders under it.
+type folders struct {
+	home    string
+	environ []string
 }
 
-// Scan reads the lists from files and from one cheap command. root is the
-// project root; the command result is cached under root/.duolog/cache until a
-// config file of the agent changes. A missing binary gives an unknown inventory.
+// foldersIn are the folders of a process whose environment is environ. An
+// environment without a home folder is trusthome.ErrNoHome.
+func foldersIn(environ []string) (folders, error) {
+	if Home != "" {
+		return folders{Home, environ}, nil
+	}
+	h, err := trusthome.HomeIn(environ)
+	return folders{h, environ}, err
+}
+
+// own are duolog's own folders, which are the lead's.
+func own() (folders, error) { return foldersIn(os.Environ()) }
+
+func (f folders) claude() string      { return trusthome.ClaudeIn(f.home, f.environ) }
+func (f folders) claudeState() string { return trusthome.ClaudeStateIn(f.home, f.environ) }
+func (f folders) codex() string       { return trusthome.CodexIn(f.home, f.environ) }
+
+// Scan reads the lists of duolog's own environment, the lead's, as ScanEnv
+// does.
 func Scan(ctx context.Context, agent, root string) (Inventory, error) {
+	return ScanEnv(ctx, agent, root, os.Environ())
+}
+
+// ScanEnv reads the lists from files and from one cheap command, for an
+// agent process whose environment is environ: a worker's inventory reads the
+// home, CLAUDE_CONFIG_DIR and CODEX_HOME the worker gets, and the command
+// runs in that environment. root is the project root; the command result is
+// cached under root/.duolog/cache until a config file of the agent changes. A
+// missing binary gives an unknown inventory, and so does an environment that
+// names no home folder: nothing could be claimed about what it lacks.
+func ScanEnv(ctx context.Context, agent, root string, environ []string) (Inventory, error) {
 	inv := Inventory{Agent: agent, Items: []Item{}}
 	if _, err := exec.LookPath(agent); err != nil {
 		inv.Unknown = true
 		return inv, nil
 	}
-	h, err := home()
+	f, err := foldersIn(environ)
+	if errors.Is(err, trusthome.ErrNoHome) {
+		inv.Unknown = true
+		return inv, nil
+	}
 	if err != nil {
 		return inv, err
 	}
 	var items []Item
 	switch agent {
 	case "claude":
-		items = scanClaude(ctx, root, h)
+		items = scanClaude(ctx, root, f)
 		inv.UnknownKinds = []string{KindMCP}
 	case "codex":
 		var unknown []string
-		items, unknown = scanCodex(ctx, root, h)
+		items, unknown = scanCodex(ctx, root, f)
 		inv.UnknownKinds = unknown
 		for _, it := range items {
 			// Plugins may bring skills and MCP servers that no file lists.
@@ -130,7 +163,7 @@ func Scan(ctx context.Context, agent, root string) (Inventory, error) {
 	default:
 		inv.Unknown = true
 	}
-	inv.Items = normalize(markBridge(agent, root, items))
+	inv.Items = normalize(markBridge(agent, root, items, f))
 	path := filepath.Join(project.StateRoot(root), ".duolog", "cache", "inventory-"+agent+".json")
 	// An uninitialized project gets no cache, so that a read-only command does not
 	// create .duolog/ with no .gitignore, which hooks would then treat as set up.
@@ -152,27 +185,27 @@ func Scan(ctx context.Context, agent, root string) (Inventory, error) {
 	return inv, nil
 }
 
-func scanClaude(ctx context.Context, root, h string) []Item {
+func scanClaude(ctx context.Context, root string, f folders) []Item {
 	var items []Item
-	items = append(items, skillsIn(filepath.Join(trusthome.Claude(h), "skills"))...)
+	items = append(items, skillsIn(filepath.Join(f.claude(), "skills"))...)
 	items = append(items, skillsIn(filepath.Join(root, ".claude", "skills"))...)
 	var settings struct {
 		Enabled map[string]bool `json:"enabledPlugins"`
 	}
-	readJSON(filepath.Join(trusthome.Claude(h), "settings.json"), &settings)
+	readJSON(filepath.Join(f.claude(), "settings.json"), &settings)
 	type plugin struct {
 		ID          string `json:"id"`
 		Enabled     *bool  `json:"enabled"`
 		InstallPath string `json:"installPath"`
 	}
 	var plugins []plugin
-	if !claudePluginList(ctx, &plugins) {
+	if !claudePluginList(ctx, &plugins, f.environ) {
 		var installed struct {
 			Plugins map[string][]struct {
 				InstallPath string `json:"installPath"`
 			} `json:"plugins"`
 		}
-		readJSON(filepath.Join(trusthome.Claude(h), "plugins", "installed_plugins.json"), &installed)
+		readJSON(filepath.Join(f.claude(), "plugins", "installed_plugins.json"), &installed)
 		plugins = nil
 		for id, installs := range installed.Plugins {
 			for _, in := range installs {
@@ -199,7 +232,7 @@ func scanClaude(ctx context.Context, root, h string) []Item {
 		Projects map[string]servers `json:"projects"`
 	}
 	readJSON(filepath.Join(root, ".mcp.json"), &project)
-	readJSON(trusthome.ClaudeState(h), &user)
+	readJSON(f.claudeState(), &user)
 	// Only the keys are used: the values hold env and headers.
 	for _, set := range []map[string]json.RawMessage{project.MCP, user.MCP, user.Projects[root].MCP, user.Projects[filepath.ToSlash(root)].MCP} {
 		for name := range set {
@@ -211,23 +244,26 @@ func scanClaude(ctx context.Context, root, h string) []Item {
 
 func boolPtr(b bool) *bool { return &b }
 
-// claudePluginList runs `claude plugin list --json`, which needs no model.
-func claudePluginList(ctx context.Context, into any) bool {
+// claudePluginList runs `claude plugin list --json`, which needs no model,
+// in environ, so it lists the plugins of the folders that environment
+// selects.
+func claudePluginList(ctx context.Context, into any, environ []string) bool {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "claude", "plugin", "list", "--json")
+	cmd.Env = environ
 	cmd.Stdin = strings.NewReader("")
 	out, err := cmd.Output()
 	return err == nil && json.Unmarshal(out, into) == nil
 }
 
-func scanCodex(ctx context.Context, root, h string) ([]Item, []string) {
+func scanCodex(ctx context.Context, root string, f folders) ([]Item, []string) {
 	var items []Item
-	items = append(items, skillsIn(filepath.Join(h, ".agents", "skills"))...)
-	items = append(items, skillsIn(filepath.Join(trust.CodexHome(h), "skills"))...)
+	items = append(items, skillsIn(filepath.Join(f.home, ".agents", "skills"))...)
+	items = append(items, skillsIn(filepath.Join(f.codex(), "skills"))...)
 	items = append(items, skillsIn(filepath.Join(root, ".agents", "skills"))...)
 	items = append(items, skillsIn(filepath.Join(root, ".codex", "skills"))...)
-	config := filepath.Join(trust.CodexHome(h), "config.toml")
+	config := filepath.Join(f.codex(), "config.toml")
 	data, _ := os.ReadFile(config)
 	var parsed struct {
 		MCP map[string]struct {
@@ -243,7 +279,7 @@ func scanCodex(ctx context.Context, root, h string) ([]Item, []string) {
 			items = append(items, Item{Kind: KindMCP, Name: name})
 		}
 	}
-	plugins, ok := cachedPlugins(ctx, root, data)
+	plugins, ok := cachedPlugins(ctx, root, data, f.environ)
 	if !ok {
 		unknown = append(unknown, KindPlugin)
 	}
@@ -256,8 +292,9 @@ type cacheFile struct {
 }
 
 // cachedPlugins runs `codex plugin list --json` only when the hash of the
-// Codex config changed. The plain form prints 1.8 MB and is never used.
-func cachedPlugins(ctx context.Context, root string, config []byte) ([]Item, bool) {
+// Codex config changed. The plain form prints 1.8 MB and is never used. The
+// command runs in environ, the environment whose CODEX_HOME holds config.
+func cachedPlugins(ctx context.Context, root string, config []byte, environ []string) ([]Item, bool) {
 	sum := sha256.Sum256(config)
 	key := hex.EncodeToString(sum[:])
 	path := filepath.Join(root, ".duolog", "cache", "capabilities-codex.json")
@@ -268,6 +305,7 @@ func cachedPlugins(ctx context.Context, root string, config []byte) ([]Item, boo
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "codex", "plugin", "list", "--json")
+	cmd.Env = environ
 	cmd.Stdin = strings.NewReader("")
 	out, err := cmd.Output()
 	var list struct {
@@ -369,22 +407,22 @@ func find(inv Inventory, kind, name string) (Item, bool) {
 // agent's settings. Without them a worker has the sandbox only and no permission
 // rules. A path that only contains the word, such as a project folder, does not count.
 func HasDuolog(agent, root string) bool {
-	h, err := home()
+	f, err := own()
 	if err != nil {
 		return false
 	}
 	switch agent {
 	case "claude":
-		if install.PluginEnabled(root, h) {
+		if install.PluginEnabledIn(root, f.home, f.environ) {
 			return true
 		}
-		for _, path := range install.ClaudeSettingsFiles(root, h) {
+		for _, path := range install.ClaudeSettingsFilesIn(root, f.home, f.environ) {
 			if install.HasOurHook(path) {
 				return true
 			}
 		}
 	case "codex":
-		for _, path := range []string{filepath.Join(trust.CodexHome(h), "hooks.json"), filepath.Join(root, ".codex", "hooks.json")} {
+		for _, path := range []string{filepath.Join(f.codex(), "hooks.json"), filepath.Join(root, ".codex", "hooks.json")} {
 			if install.HasOurHook(path) {
 				return true
 			}
@@ -394,7 +432,7 @@ func HasDuolog(agent, root string) bool {
 				Enabled *bool `toml:"enabled"`
 			} `toml:"plugins"`
 		}
-		data, err := os.ReadFile(filepath.Join(trust.CodexHome(h), "config.toml"))
+		data, err := os.ReadFile(filepath.Join(f.codex(), "config.toml"))
 		if err != nil || toml.Unmarshal(data, &config) != nil {
 			return false
 		}
