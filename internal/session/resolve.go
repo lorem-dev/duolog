@@ -91,6 +91,9 @@ func (r *Registry) SetWaiting(id, token string, pid int) error {
 		}
 		if pid == 0 {
 			delete(s.Waiting[id], token)
+			if len(s.Waiting[id]) == 0 {
+				delete(s.Waiting, id)
+			}
 		} else {
 			s.Waiting[id][token] = pid
 		}

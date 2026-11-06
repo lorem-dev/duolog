@@ -3,6 +3,7 @@ package bus
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,6 +40,18 @@ type Message struct {
 type Bus struct {
 	dir  string
 	wire config.Wire
+	// within, when set, bounds every wait for the bus lock: see Within.
+	within context.Context
+}
+
+// Within returns the bus with every wait for its lock bounded by ctx: an
+// operation tries the lock again every few milliseconds and fails with ctx's
+// error once ctx ends. Best-effort notices use it, so that a process that
+// stalls with the lock cannot hold back a hook.
+func (b *Bus) Within(ctx context.Context) *Bus {
+	c := *b
+	c.within = ctx
+	return &c
 }
 
 // Directory is the shared state directory containing this bus and its registry.
@@ -68,7 +81,7 @@ func Open(dir string, w config.Wire) (*Bus, error) {
 // Inbox also holds the lock so cursor updates and tail repairs cannot race it.
 func (b *Bus) lock() (*flock.Flock, error) {
 	lock := flock.New(filepath.Join(b.dir, "bus.lock"))
-	if err := lock.Lock(); err != nil {
+	if err := store.Lock(b.within, lock); err != nil {
 		_ = lock.Close()
 		return nil, err
 	}

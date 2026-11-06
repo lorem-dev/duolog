@@ -47,6 +47,8 @@ func newHookCommand() *cobra.Command {
 			out = hook.PostTool(cmd.Context(), env)
 		case "SessionEnd", "session-end":
 			out = hook.SessionEnd(cmd.Context(), env)
+		case "Stop", "stop":
+			out = hook.Stop(cmd.Context(), env)
 		case "PreToolUse", "PermissionRequest":
 			out = hook.Observe(cmd.Context(), env)
 		case "wake", "Wake":
