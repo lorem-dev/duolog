@@ -925,6 +925,9 @@ func readCommandDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action,
 			asked = reasonAsk(a, m, reason)
 		}
 		for _, written := range targets {
+			// A stream device holds no file, and a redirect such as > /dev/null
+			// can read here as a file the command reads: only a deny counts.
+			device := streamDevice(expandHome(written))
 			target := workTarget(a, written)
 			if strings.ContainsAny(target, "*?[{") {
 				if statePattern(target) {
@@ -937,7 +940,7 @@ func readCommandDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action,
 				d.Reason = "read command: " + d.Reason
 				return d, true
 			}
-			if d.Kind != Allow && (asked == nil || PersonOnly(d)) {
+			if d.Kind != Allow && !device && (asked == nil || PersonOnly(d)) {
 				d.Reason = "read command: " + d.Reason
 				asked = &d
 			}
