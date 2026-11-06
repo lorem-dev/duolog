@@ -282,7 +282,12 @@ func billing(ctx context.Context, cfg *config.Config, root string, available map
 		}
 	}
 	for _, line := range account {
-		out = append(out, Finding{"info", line})
+		level := "info"
+		// A hold kept without a conclusion takes a slot and its estimate.
+		if strings.HasPrefix(line, "held: ") {
+			level = "warning"
+		}
+		out = append(out, Finding{level, line})
 	}
 	return out
 }

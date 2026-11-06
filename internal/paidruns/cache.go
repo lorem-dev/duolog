@@ -83,6 +83,26 @@ func (c *Cache) Get(ctx context.Context,
 	}
 }
 
+// After reads anew the quota that the built process p sees, as Get would,
+// and keeps the read for the next Get of p's key. When the read of p's key
+// is still younger than the quota age limit, it reads nothing and fresh is
+// true. A read that names a provider env_key p was not built with is not
+// kept and is an error, as in Get.
+func (c *Cache) After(ctx context.Context, p workerenv.Process, cfg *config.Config) (s quota.Snapshot, fresh bool, err error) {
+	if c.Read == nil {
+		return quota.Snapshot{}, false, errors.New("paid runs: cache has no reader")
+	}
+	if s, ok := c.lookup(p.CacheKey, false, quotaMaxAge(cfg)); ok {
+		return s, true, nil
+	}
+	s, err = c.Read(ctx, p)
+	if key := s.Billing.ProviderEnvKey; err == nil && key != "" && key != p.ProviderEnvKey {
+		return quota.Snapshot{}, false, errors.New("paid runs: the process was built without the provider env_key the read found")
+	}
+	c.store(p.CacheKey, s, Evaluate(p, s, err, quota.RunEvidence{}, cfg, c.now()), err)
+	return s, false, err
+}
+
 // ProviderEnvKey is the env_key of agent's default provider that an earlier
 // read found, empty when none did. build passes it to workerenv.Build as
 // ProcessInput.ProviderEnvKey.

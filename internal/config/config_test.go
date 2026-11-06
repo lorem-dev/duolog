@@ -10,7 +10,18 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// isolatedRoot is a project root in a Git checkout, with a temporary home:
+// its untracked local file is the person's own.
 func isolatedRoot(t *testing.T) string {
+	t.Helper()
+	root := archiveRoot(t)
+	gitRepo(t, root)
+	return root
+}
+
+// archiveRoot is a project root outside any Git checkout, as a downloaded
+// archive is, with a temporary home.
+func archiveRoot(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)

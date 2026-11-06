@@ -89,6 +89,56 @@ func gitRepo(t *testing.T, root string, args ...[]string) {
 	}
 }
 
+// TestLocalConfigOutsideGitIsShared is re-review finding N3: outside a Git
+// checkout, as in a downloaded archive, nothing proves that a
+// .duolog/config.local.yaml is the person's own, so it may only tighten. Its
+// opt-ins are ignored with notices that say why and where the person's own
+// opt-ins go.
+func TestLocalConfigOutsideGitIsShared(t *testing.T) {
+	root := archiveRoot(t)
+	writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), `paid_runs:
+  codex: {allow: true, daily_cap_usd: 500}
+limits:
+  max_total_sessions: 50
+calibration:
+  max_weekly_share: 0.9
+`)
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := cfg.PaidRuns.Agent("codex"); c.Allow || c.DailyCapUSD != 0 {
+		t.Errorf("local opt-in outside Git applied: %+v", c)
+	}
+	if cfg.Limits.MaxTotalSessions != 10 || cfg.Calibration.MaxWeeklyShare != .1 {
+		t.Errorf("limits %d, weekly share %v: the local file raised them", cfg.Limits.MaxTotalSessions, cfg.Calibration.MaxWeeklyShare)
+	}
+	keys := noticeKeys(cfg.Notices)
+	for _, want := range []string{"paid_runs.codex.allow", "paid_runs.codex.daily_cap_usd", "limits.max_total_sessions", localFile} {
+		if !slices.Contains(keys, want) {
+			t.Errorf("no notice for %s in %v", want, keys)
+		}
+	}
+	for _, n := range cfg.Notices {
+		if !strings.Contains(n.Reason, "outside a Git checkout") {
+			t.Errorf("notice %+v does not say why", n)
+		}
+		if n.Key == localFile && !strings.Contains(n.Reason, "user config") {
+			t.Errorf("notice %+v does not say where the person's own opt-ins go", n)
+		}
+	}
+
+	// A tightening local file outside Git still applies, without notices.
+	root = archiveRoot(t)
+	writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), "limits: {max_total_sessions: 4}\n")
+	if cfg, err = Load(root); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Limits.MaxTotalSessions != 4 || len(cfg.Notices) != 0 {
+		t.Errorf("tightening local outside Git: limit %d notices %v", cfg.Limits.MaxTotalSessions, cfg.Notices)
+	}
+}
+
 // TestTrackedLocalConfigIsShared is review finding I2: a committed
 // .duolog/config.local.yaml reaches everyone who clones the repository, so it
 // gets the shared file's rules: it may not turn spending on, raise a cap or

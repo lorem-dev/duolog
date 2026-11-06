@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,9 +17,17 @@ import (
 
 func yesPtr() *bool { v := true; return &v }
 
+// writeLocalConfig writes the person's own local config: untracked in a Git
+// checkout, since outside one it counts as shared.
 func writeLocalConfig(t *testing.T, contents string) {
 	t.Helper()
-	path := filepath.Join(mustGetwd(t), ".duolog", "config.local.yaml")
+	root := mustGetwd(t)
+	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
+		if out, err := exec.Command("git", "-C", root, "init", "-q").CombinedOutput(); err != nil {
+			t.Fatalf("git init: %v\n%s", err, out)
+		}
+	}
+	path := filepath.Join(root, ".duolog", "config.local.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}

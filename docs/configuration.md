@@ -21,7 +21,11 @@ A local file that Git tracks, for example one added with `git add -f`,
 reaches everyone who clones the repository. duolog then reads it with the
 rules of `.duolog/config.yaml`: it may only make paid runs, prices and the
 account limits stricter, and duolog names each value it ignores. When Git
-cannot say whether it tracks the file, duolog treats it as tracked.
+cannot say whether it tracks the file, duolog treats it as tracked. Outside
+a Git checkout, such as a project downloaded as an archive, nothing shows
+that the file is yours, so duolog reads it with the same rules, and
+`duolog doctor` says why its opt-ins were ignored. Put your own opt-ins in
+your user config there.
 
 The user config folder is the one that Go's `os.UserConfigDir` returns. On
 macOS it is `~/Library/Application Support`. On Linux it is `~/.config`.
@@ -367,6 +371,13 @@ project. `duolog quota` and `duolog doctor` show the verdict of each agent's
 worker, peer and lead, with the signals, the account kind and a line such as
 `paid allowed: 1.20 of 5 USD in 24 h, 0.40 in flight`.
 
+duolog frees a slot and its estimate only when it can prove that the run or
+the pane ended. A hold it cannot settle, such as a pane whose `peer open`
+was stopped after the pane started, stays and shows in `duolog quota` and
+`duolog doctor` as a `held:` line with the reason. Close the pane if it
+still runs, then end the hold with `duolog peer release <id>`. The command
+refuses while the pane or the command that holds it still runs.
+
 You share `.duolog/config.yaml` in Git, so a cloned repository must not turn
 on spending. That file may only make these stricter: `allow: false`,
 `calibrate: false`, a lower cap, a lower `usable_share` or
@@ -374,7 +385,7 @@ on spending. That file may only make these stricter: `allow: false`,
 not move an alias to another agent or family, and may not price a new alias,
 which paid runs then refuse. duolog ignores a looser value there, and
 `duolog quota` and `duolog doctor` name it. Turn paid runs on in an untracked
-`.duolog/config.local.yaml` or your user config.
+`.duolog/config.local.yaml` of a Git checkout or in your user config.
 
 duolog reads managed settings files, but managed policy outside files is not
 checked. A device management profile on macOS or a Windows registry policy

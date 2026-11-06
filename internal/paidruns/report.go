@@ -1,12 +1,15 @@
 package paidruns
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/quota"
@@ -35,6 +38,44 @@ type Report struct {
 	FastPinned      bool                  `json:"fast_pinned"`
 	Notices         []config.ConfigNotice `json:"notices,omitempty"`
 	ReadError       string                `json:"read_error,omitempty"`
+	Held            []Held                `json:"held,omitempty"`
+}
+
+// Held is a hold of any agent that reconciliation keeps without a
+// conclusion. Name is its peer id, else its reservation id: what duolog
+// peer release takes. EstimateUSD is the paid estimate it keeps off the cap.
+type Held struct {
+	Name        string          `json:"name"`
+	Agent       string          `json:"agent"`
+	Shape       workerenv.Shape `json:"shape"`
+	Created     time.Time       `json:"created"`
+	EstimateUSD float64         `json:"estimate_usd,omitempty"`
+	Reason      string          `json:"reason"`
+}
+
+// held lists the retained holds of view, one per name, oldest first.
+func (st State) held() []Held {
+	var out []Held
+	for _, id := range slices.Sorted(maps.Keys(st.Reservations)) {
+		r := st.Reservations[id]
+		if r.Retained == "" {
+			continue
+		}
+		name := cmp.Or(r.Peer, r.ID)
+		i := slices.IndexFunc(out, func(h Held) bool { return h.Name == name })
+		if i < 0 {
+			out = append(out, Held{Name: name, Agent: r.Agent, Shape: r.Shape, Created: r.Created, Reason: r.Retained})
+			i = len(out) - 1
+		}
+		if r.Paid && r.Task {
+			out[i].EstimateUSD += r.Estimate.USD
+		}
+		if r.Created.Before(out[i].Created) {
+			out[i].Created = r.Created
+		}
+	}
+	slices.SortStableFunc(out, func(a, b Held) int { return a.Created.Compare(b.Created) })
+	return out
 }
 
 // Report explains the billing of the launch in describes, without admitting
@@ -97,7 +138,7 @@ func (g *Gate) Report(ctx context.Context, in workerenv.ProcessInput) (Report, e
 	}
 	now := g.now()
 	r := Report{Assessment: a, Dropped: p.Dropped, EndpointEntries: p.EndpointEntries, FastPinned: p.FastPinned,
-		Notices: g.Config.Notices, TotalLimit: g.totalLimit()}
+		Notices: g.Config.Notices, TotalLimit: g.totalLimit(), Held: view.held()}
 	r.SpentUSD, r.InflightUSD = view.spent(agent, now)
 	for _, settled := range view.Settled {
 		if settled.Agent == agent && settled.Started && !settled.CompleteUsage && now.Sub(settled.Ended) < capSpan {
@@ -189,11 +230,19 @@ func (r Report) Lines() []string {
 }
 
 // AccountLines are what no single agent owns: the live sessions of all
-// agents and the config keys Load ignored. Every report of one gate holds
+// agents, the holds kept without a conclusion with the command that ends
+// each, and the config keys Load ignored. Every report of one gate holds
 // the same, so a caller prints them once, from any report, after the
 // agents' lines.
 func (r Report) AccountLines() []string {
 	lines := []string{fmt.Sprintf("sessions %d of %d in all", r.TotalLive, r.TotalLimit)}
+	for _, h := range r.Held {
+		what := fmt.Sprintf("%s %s, since %s", h.Agent, h.Shape, h.Created.UTC().Format(time.RFC3339))
+		if h.EstimateUSD > 0 {
+			what += fmt.Sprintf(", %.2f USD", h.EstimateUSD)
+		}
+		lines = append(lines, fmt.Sprintf("held: %s (%s): %s; end it with duolog peer release %s", h.Name, what, h.Reason, h.Name))
+	}
 	for _, n := range r.Notices {
 		lines = append(lines, "ignored config: "+n.Key+" ("+n.Reason+")")
 	}

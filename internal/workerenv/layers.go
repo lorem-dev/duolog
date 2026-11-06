@@ -31,13 +31,16 @@ type Layer struct {
 // LayerFacts is what one layer says about the billing route, by name only.
 // Layer is the layer's Name, for the signals Build derives from these facts.
 // EnvNames are the variable names the layer sets (Claude's env block) or
-// names as a credential (the env_key of Codex's selected provider);
+// names as a credential (the env_key of each Codex provider it defines);
 // EndpointEntries are the subscription_endpoints entries its base URLs
 // matched. FastMode is the layer's fastMode, nil when unset. Modified feeds
 // the verdict cache. An unreadable layer counts as paid. For Codex, Provider
-// is the model provider the layer selects, "" for none, and Providers are the
-// providers it defines, so that Build can resolve a selection made in one
-// layer against a definition in another.
+// is the model provider the layer selects at its top level, "" for none, and
+// Providers are the providers it defines; Profile is the profile its own
+// profile key selects, LaunchProfile the one the launch selects with
+// --profile, and Profiles the profiles it defines. Codex merges the layers
+// before it resolves either, so Build resolves a selection made in one layer
+// against a definition in another.
 type LayerFacts struct {
 	Layer                     string
 	Signals                   []Signal
@@ -47,6 +50,8 @@ type LayerFacts struct {
 	Unreadable                bool
 	Provider                  string
 	Providers                 map[string]ProviderFacts
+	Profile, LaunchProfile    string
+	Profiles                  map[string]ProfileFacts
 }
 
 // ProviderFacts is what a layer's definition of a Codex model provider says,
@@ -56,20 +61,71 @@ type ProviderFacts struct {
 	EnvKey     string
 }
 
-// resolveCodexProvider resolves the selected Codex model provider across
-// layers, the last selection winning. A definition in any layer that fails
-// the first-party test is the model_provider signal of that layer, since
-// layers merge and a later one cannot remove a base URL or a token; a
-// selection no layer defines is model_provider:unresolved, both paid, except
-// the built-in openai, which needs no definition. It returns the
-// definitions' env_key names, which no free process gets.
-func resolveCodexProvider(layers []LayerFacts) ([]Signal, []string) {
-	selected, by := "", ""
+// ProfileFacts is what a layer's definition of a Codex profile says, by name
+// only: the route signals its keys raise (a login method other than
+// chatgpt, a base URL override, a speed-shaped key) and the model provider
+// it selects, "" for none.
+type ProfileFacts struct {
+	Signals  []string
+	Provider string
+}
+
+// resolveCodex resolves the Codex profile and model provider across layers,
+// as Codex does after it merges them. The launch's --profile wins over every
+// profile key, and otherwise the last key wins. Every layer that defines the
+// selected profile adds the signals of its definition, and the last one that
+// names a provider there selects it over the top-level selections. A
+// selected profile that no layer defines, and no profile file the launch
+// names holds, is profile:unresolved, which is paid.
+func resolveCodex(layers []LayerFacts) ([]Signal, []string) {
+	provider, providerBy := "", ""
+	profile, profileBy, launch := "", "", false
 	for _, layer := range layers {
 		if layer.Provider != "" {
-			selected, by = layer.Provider, layer.Layer
+			provider, providerBy = layer.Provider, layer.Layer
+		}
+		if layer.LaunchProfile != "" {
+			profile, profileBy, launch = layer.LaunchProfile, "profile", true
+		} else if layer.Profile != "" && !launch {
+			profile, profileBy = layer.Profile, layer.Layer
 		}
 	}
+	var signals []Signal
+	if profile != "" {
+		defined := false
+		for _, layer := range layers {
+			// The profile file a launch names is a definition when it exists.
+			if launch && layer.Layer == "profile" && !layer.Modified.IsZero() {
+				defined = true
+			}
+			p, ok := layer.Profiles[profile]
+			if !ok {
+				continue
+			}
+			defined = true
+			for _, name := range p.Signals {
+				signals = append(signals, Signal{Name: name, Layer: layer.Layer})
+			}
+			if p.Provider != "" {
+				provider, providerBy = p.Provider, layer.Layer
+			}
+		}
+		if !defined {
+			signals = append(signals, Signal{Name: "profile:unresolved", Layer: profileBy})
+		}
+	}
+	more, keys := resolveCodexProvider(layers, provider, providerBy)
+	return append(signals, more...), keys
+}
+
+// resolveCodexProvider resolves the Codex model provider that layer by
+// selected against the definitions in every layer. A definition in any layer
+// that fails the first-party test is the model_provider signal of that
+// layer, since layers merge and a later one cannot remove a base URL or a
+// token; a selection no layer defines is model_provider:unresolved, both
+// paid, except the built-in openai, which needs no definition. It returns
+// the definitions' env_key names, which no free process gets.
+func resolveCodexProvider(layers []LayerFacts, selected, by string) ([]Signal, []string) {
 	if selected == "" {
 		return nil, nil
 	}
@@ -332,7 +388,8 @@ var errUnresolved = errors.New("unresolved policy")
 
 // ReadLayer reads the billing route fields of one layer: for Claude the env
 // names, apiKeyHelper present, forceLoginMethod and fastMode; for Codex the
-// login method, base URLs, the selected provider and speed-shaped keys.
+// login method, base URLs, speed-shaped keys, and the profiles and providers
+// it selects and defines.
 // Values are never kept or returned; the only value compared is a Claude base
 // URL, against endpoints. Helpers are never run. A missing optional file is
 // absent; a missing argv file, a read error, a file that cannot be stat'ed
@@ -508,63 +565,69 @@ type codexDoc struct {
 	ModelProviders map[string]codexProvider `toml:"model_providers"`
 }
 
-// codexFacts reads a Codex config document and the selected profile: the one
-// the launch names with --profile, else the file's profile key. A login
-// method other than chatgpt, a base URL override, a selected provider
-// defined here that fails the first-party test, and any speed-shaped key are
-// signals. The selection and the definitions are kept too: Build resolves a
-// provider selected and defined in different layers.
+// codexFacts reads a Codex config document. At its top level, a login
+// method other than chatgpt, a base URL override and any speed-shaped key
+// are signals. The profile and provider selections and the profile and
+// provider definitions are kept by name, with the signals of each profile's
+// keys: Codex merges every layer before it resolves a profile or a
+// provider, so Build resolves them across the layers (resolveCodex).
 func codexFacts(facts *LayerFacts, layer Layer, data []byte) bool {
 	var doc codexDoc
 	var tree map[string]any
 	if toml.Unmarshal(data, &doc) != nil || toml.Unmarshal(data, &tree) != nil {
 		return false
 	}
-	selected := layer.Profile
-	if selected == "" && doc.Profile != nil {
-		selected = *doc.Profile
+	for _, name := range viewSignals(doc.codexView, tree) {
+		facts.Signals = append(facts.Signals, Signal{Name: name, Layer: layer.Name})
 	}
-	views := []codexView{doc.codexView}
-	if profile, ok := doc.Profiles[selected]; ok && selected != "" {
-		views = append(views, profile)
+	facts.LaunchProfile = layer.Profile
+	if doc.Profile != nil {
+		facts.Profile = *doc.Profile
 	}
-	signal := func(name string) { facts.Signals = append(facts.Signals, Signal{Name: name, Layer: layer.Name}) }
 	profiles, _ := tree["profiles"].(map[string]any)
-	profile, _ := profiles[selected].(map[string]any)
-	if speedKey(tree) || selected != "" && speedKey(profile) {
-		signal("route:unknown-speed")
-	}
-	provider := ""
-	for _, view := range views {
-		if view.ForcedLoginMethod != nil && *view.ForcedLoginMethod != "chatgpt" {
-			signal("forced_login_method")
+	for name, view := range doc.Profiles {
+		if facts.Profiles == nil {
+			facts.Profiles = map[string]ProfileFacts{}
 		}
-		if view.OpenAIBaseURL != nil {
-			signal("openai_base_url")
-		}
-		if view.ChatGPTBaseURL != nil {
-			signal("chatgpt_base_url")
-		}
+		table, _ := profiles[name].(map[string]any)
+		p := ProfileFacts{Signals: viewSignals(view, table)}
 		if view.ModelProvider != nil {
-			provider = *view.ModelProvider
+			p.Provider = *view.ModelProvider
 		}
+		facts.Profiles[name] = p
 	}
-	facts.Provider = provider
+	if doc.ModelProvider != nil {
+		facts.Provider = *doc.ModelProvider
+	}
 	for name, p := range doc.ModelProviders {
 		if facts.Providers == nil {
 			facts.Providers = map[string]ProviderFacts{}
 		}
 		facts.Providers[name] = ProviderFacts{FirstParty: p.firstPartyAs(name), EnvKey: p.EnvKey}
-	}
-	if p, ok := doc.ModelProviders[provider]; ok && provider != "" {
 		if p.EnvKey != "" {
 			facts.EnvNames = append(facts.EnvNames, p.EnvKey)
 		}
-		if !p.firstPartyAs(provider) {
-			signal("model_provider")
-		}
 	}
 	return true
+}
+
+// viewSignals names the route signals of one Codex view, the top level of a
+// file or a profile, whose raw table is table.
+func viewSignals(view codexView, table map[string]any) []string {
+	var names []string
+	if speedKey(table) {
+		names = append(names, "route:unknown-speed")
+	}
+	if view.ForcedLoginMethod != nil && *view.ForcedLoginMethod != "chatgpt" {
+		names = append(names, "forced_login_method")
+	}
+	if view.OpenAIBaseURL != nil {
+		names = append(names, "openai_base_url")
+	}
+	if view.ChatGPTBaseURL != nil {
+		names = append(names, "chatgpt_base_url")
+	}
+	return names
 }
 
 // codexNameTables hold entries keyed by the name of something else, a

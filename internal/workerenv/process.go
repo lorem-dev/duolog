@@ -146,7 +146,7 @@ func Build(in ProcessInput) (Process, error) {
 	providerKeys := []string{in.ProviderEnvKey}
 	if in.Agent == "codex" {
 		p.Signals = append(p.Signals, codexArgvSpeed(in.Prefix, in.Locations)...)
-		signals, keys := resolveCodexProvider(in.Layers)
+		signals, keys := resolveCodex(in.Layers)
 		p.Signals = append(p.Signals, signals...)
 		providerKeys = append(providerKeys, keys...)
 	}

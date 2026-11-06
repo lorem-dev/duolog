@@ -178,7 +178,7 @@ func Load(root string) (*Config, error) {
 	projectTelemetryOff := false
 	layers := make([][]byte, len(paths))
 	var notices []ConfigNotice
-	localShared := false
+	localLabel := ""
 	for i, path := range paths {
 		if i == 1 {
 			// Telemetry is user level: keep the section as it stands before
@@ -200,21 +200,27 @@ func Load(root string) (*Config, error) {
 		}
 		// The project layer is committed: it may only tighten paid runs,
 		// prices and the account session limits. So may a local layer that
-		// Git tracks, since it reaches everyone who clones the repository.
+		// Git tracks, since it reaches everyone who clones the repository,
+		// and one outside a Git checkout, which nothing proves the person's.
 		shared := ""
 		switch {
 		case i == 1:
 			shared = projectFile
-		case i == 2 && gitTracks(root, localFile):
-			shared, localShared = trackedLocal, true
+		case i == 2:
+			shared = sharedLocal(root)
+			localLabel = shared
 		}
 		if shared != "" && node != nil {
+			before := len(notices)
 			for _, restrict := range projectRestrictors {
 				found, err := restrict(merged.Content[0], node, shared)
 				if err != nil {
 					return nil, fmt.Errorf("%s: %w", path, err)
 				}
 				notices = append(notices, found...)
+			}
+			if shared == outsideLocal && len(notices) > before {
+				notices = append(notices, outsideNotice)
 			}
 		}
 		mergeNode(&merged, node)
@@ -273,7 +279,7 @@ func Load(root string) (*Config, error) {
 	if err := validatePaidRuns(&cfg); err != nil {
 		return nil, err
 	}
-	if err := lowerSharedCaps(&cfg, layers[0], layers[1], layers[2], localShared); err != nil {
+	if err := lowerSharedCaps(&cfg, layers[0], layers[1], layers[2], localLabel); err != nil {
 		return nil, err
 	}
 	if cfg.Learning.Enabled {

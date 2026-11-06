@@ -82,6 +82,12 @@ type Reservation struct {
 	LaunchToken string `json:"launch_token,omitempty"`
 	// Step is the receipt of the calibration step that holds it, "" for none.
 	Step string `json:"step,omitempty"`
+	// Peer is the entry id of the peer pane it belongs to, its DUOLOG_PEER;
+	// "" for a worker. Launcher is the process of duolog peer launch in that
+	// pane, which records itself once it took the env file: while no pane is
+	// attached, it is the pane's presence. See Store.RecordLauncher.
+	Peer     string `json:"peer,omitempty"`
+	Launcher Owner  `json:"launcher,omitzero"`
 }
 
 // Settlement is the measured end of a reservation. The Store computes

@@ -292,7 +292,7 @@ requires_openai_auth = true
 		signals []string
 		env     []string
 	}{
-		{codexWant[0], []string{"model_provider"}, []string{"CORP_LLM_SECRET"}},
+		{codexWant[0], nil, []string{"CORP_LLM_SECRET", "UNUSED_SECRET"}},
 		{codexWant[1], []string{"forced_login_method"}, nil},
 		{codexWant[2], nil, nil},
 		{argvWant[0], []string{"chatgpt_base_url"}, nil},
@@ -311,6 +311,16 @@ requires_openai_auth = true
 		if !equal(facts.EnvNames, c.env) || len(facts.EndpointEntries) != 0 {
 			t.Errorf("codex layer %d env %v entries %v, want env %v", i, facts.EnvNames, facts.EndpointEntries, c.env)
 		}
+	}
+	// The user file's profile selects corp over the project's proxy: the
+	// profile and provider resolve across the settings layers.
+	var settings []LayerFacts
+	for _, layer := range codexWant {
+		settings = append(settings, ReadLayer("codex", layer, nil, read, fakeStat))
+	}
+	if signals, keys := resolveCodex(settings); !slices.Equal(signals, []Signal{{Name: "model_provider", Layer: "user"}}) ||
+		!slices.Equal(keys, []string{"CORP_LLM_SECRET"}) {
+		t.Errorf("codex settings resolve to %v, keys %v", signals, keys)
 	}
 	for _, content := range []string{"forced_login_method = ", denied, `profile = 3`} {
 		facts := ReadLayer("codex", codexWant[0], nil, fakeRead(map[string]string{codexWant[0].Path: content}), fakeStat)
@@ -375,8 +385,9 @@ func TestCodexFileSpeedIsUnknownRoute(t *testing.T) {
 		if c.speed {
 			want = []Signal{{Name: "route:unknown-speed", Layer: c.layer.Name}}
 		}
-		if facts.Unreadable || !slices.Equal(facts.Signals, want) || facts.Layer != c.layer.Name {
-			t.Errorf("%s: facts = %+v, want signals %v", c.name, facts, want)
+		resolved, _ := resolveCodex([]LayerFacts{facts})
+		if got := append(slices.Clone(facts.Signals), resolved...); facts.Unreadable || !slices.Equal(got, want) || facts.Layer != c.layer.Name {
+			t.Errorf("%s: facts = %+v, signals %v, want %v", c.name, facts, got, want)
 		}
 		data, _ := json.Marshal(facts)
 		if strings.Contains(string(data), value) {
@@ -389,8 +400,9 @@ func TestCodexFileSpeedIsUnknownRoute(t *testing.T) {
 	content := "profile = \"inline\"\n[profiles.inline]\nmodel = \"m\"\n[profiles.picked]\nmodel_provider = \"corp\"\n" +
 		"[model_providers.corp]\nenv_key = \"CORP_LLM_KEY\"\nrequires_openai_auth = true"
 	facts := ReadLayer("codex", picked, nil, fakeRead(map[string]string{user: content}), fakeStat)
-	if !equal(signalNames(facts.Signals), []string{"model_provider"}) || !equal(facts.EnvNames, []string{"CORP_LLM_KEY"}) {
-		t.Errorf("selected provider: %+v", facts)
+	signals, keys := resolveCodex([]LayerFacts{facts})
+	if !slices.Equal(signals, []Signal{{Name: "model_provider", Layer: "user"}}) || !slices.Equal(keys, []string{"CORP_LLM_KEY"}) {
+		t.Errorf("selected provider: signals %v keys %v, facts %+v", signals, keys, facts)
 	}
 
 	// Build carries the signal and adds no speed flag of its own; JSON holds

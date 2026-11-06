@@ -412,7 +412,8 @@ func (g *Gate) attemptOnce(ctx context.Context, req Request, id string, l *line,
 	in := Admission{
 		Reservation: Reservation{ID: id, SessionID: req.ExistingSession, Agent: agent, Role: req.Role, Class: req.Class,
 			Family: family, Shape: p.Shape, Variant: p.Variant, Supervisor: req.Owner, Estimate: est,
-			Session: req.Input.Shape == workerenv.Worker || req.OpenPeer, Task: true, Step: step, Route: RouteKey(p)},
+			Session: req.Input.Shape == workerenv.Worker || req.OpenPeer, Task: true, Step: step, Route: RouteKey(p),
+			Peer: peerID(req.Input)},
 		Assessment: a,
 		TotalLimit: g.totalLimit(),
 		AgentLimit: tier.Limit,
@@ -501,9 +502,12 @@ const learnTimeout = 20 * time.Second
 // tokens, in real units. Only a started run with complete usage, of a
 // verdict that is not paid and on the account it was admitted for, counts;
 // a pane, a calibration cell, whose steps observe themselves, and a run
-// whose context ended learn nothing. The read runs no model and spends no
-// tokens. A failed read or observation learns nothing, which leaves the
-// rates and the tier as they are.
+// whose context ended learn nothing. Nor does a run that ends while the read
+// of its process is younger than the quota age limit: its result does not
+// wait for a read, and so short an interval rarely moves a window enough
+// to count. The read runs no model and spends no tokens, and goes to the
+// cache, so the next admission uses it. A failed read or observation learns
+// nothing, which leaves the rates and the tier as they are.
 func (g *Gate) learn(ctx context.Context, p Permit, s Settlement) {
 	r := p.Reservation
 	if p.calibration || r.Shape != workerenv.Worker || p.Assessment.Verdict == Paid || !s.Started || !s.CompleteUsage ||
@@ -512,8 +516,8 @@ func (g *Gate) learn(ctx context.Context, p Permit, s Settlement) {
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), learnTimeout)
 	defer cancel()
-	after, err := g.Cache.Read(ctx, p.Process)
-	if err != nil {
+	after, fresh, err := g.Cache.After(ctx, p.Process, g.Config)
+	if err != nil || fresh {
 		return
 	}
 	key := ""

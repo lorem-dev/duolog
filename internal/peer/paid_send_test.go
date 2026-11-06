@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,6 +51,63 @@ func TestPeerOpenFailedMidLaunchFreesProvenUnstartedHold(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPeerReleaseEndsAnOrphanedHold is re-review finding N2: the launcher
+// took the env file, then peer open died before it recorded the pane. The
+// hold names the pane's peer id, and duolog peer release ends it once the
+// command that held it is gone, refunding the task that was never sent. A
+// pane that its entry records is closed with peer close instead.
+func TestPeerReleaseEndsAnOrphanedHold(t *testing.T) {
+	script := baseScript()
+	script["new"] = testbin.Scenario{Stdout: "{not json"}
+	r := newRig(t, script)
+	r.paidCodex()
+	old := openedEnvFile
+	openedEnvFile = func(path string) { _ = os.Remove(path) }
+	t.Cleanup(func() { openedEnvFile = old })
+	if _, err := Open(r.ctx, "implement"); err == nil {
+		t.Fatal("open succeeded")
+	}
+	held := r.accounts().Reservations
+	if len(held) != 1 {
+		t.Fatalf("held %+v, want the pane's hold", held)
+	}
+	var res paidruns.Reservation
+	for _, res = range held {
+	}
+	if res.Peer == "" {
+		t.Fatalf("the hold names no peer: %+v", res)
+	}
+	// This test process is the open's supervisor, and it still runs.
+	if _, err := Release(r.ctx, res.Peer); err == nil || !strings.Contains(err.Error(), "still runs") {
+		t.Fatalf("release while the supervisor runs: %v", err)
+	}
+	r.wantHeld(1, 1)
+	if err := r.gate.Store.Update(context.Background(), func(st *paidruns.State) error {
+		x := st.Reservations[res.ID]
+		x.Supervisor = paidruns.Owner{PID: math.MaxInt32, Birth: "gone"}
+		st.Reservations[res.ID] = x
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	line, err := Release(r.ctx, res.Peer)
+	if err != nil || !strings.Contains(line, res.Peer) {
+		t.Fatalf("release: %q, %v", line, err)
+	}
+	r.wantHeld(0, 0)
+	if spent := r.accounts().Settled; len(spent) != 0 {
+		t.Errorf("an unsent open was charged: %+v", spent)
+	}
+
+	// A recorded pane is closed, not released.
+	r = newRig(t, baseScript())
+	e := r.ready()
+	if _, err := Release(r.ctx, e.ID); err == nil || !strings.Contains(err.Error(), "duolog peer close "+e.ID) {
+		t.Fatalf("release of a recorded pane: %v", err)
+	}
+	r.wantHeld(1, 1)
 }
 
 // While rex opens the pane, its hold names the env file as its launch token,

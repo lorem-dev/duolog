@@ -60,6 +60,8 @@
   lead are billed, by signal name, with the paid spend and the sessions.
 - `routing.balance: pace` starts a new task on the role's `fallback` while its
   `use` agent runs ahead of its window, never onto a paid route.
+- `duolog peer release <id>` ends a pane's account hold that `duolog quota`
+  and `duolog doctor` show as `held:`, once the pane is closed.
 
 ### Changed
 
@@ -71,6 +73,8 @@
   mode and cloud surcharges, so spend is a lower bound.
 - The shared `.duolog/config.yaml` may only raise prices in `models`, and a
   `.duolog/config.local.yaml` that Git tracks follows the shared file's rules.
+- Outside a Git checkout, `.duolog/config.local.yaml` may only tighten, as the
+  shared file does; put your opt-ins in the user config there.
 
 ## 1.4.1
 

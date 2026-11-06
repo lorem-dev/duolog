@@ -74,10 +74,11 @@ type layerCaps struct {
 // lowerSharedCaps keeps a cap of the shared .duolog/config.yaml only when it
 // is not above the embedded and user layers: a committed config may lower
 // what calibration spends, never raise it for everyone who pulls it. The
-// local layer is the person's own and still wins, unless Git tracks it
-// (localShared): then it may only lower the caps too. Each layer is its
-// bytes, nil when the file does not exist.
-func lowerSharedCaps(cfg *Config, user, shared, local []byte, localShared bool) error {
+// local layer is the person's own and still wins, unless it counts as shared
+// (localShared names it, as sharedLocal does): then it may only lower the
+// caps too. Each layer is its bytes, nil when the file does not exist.
+func lowerSharedCaps(cfg *Config, user, shared, local []byte, localLabel string) error {
+	localShared := localLabel != ""
 	var layers [4]layerCaps
 	for i, data := range [][]byte{defaultConfig, user, shared, local} {
 		if err := yaml.Unmarshal(data, &layers[i]); err != nil {
@@ -107,7 +108,7 @@ func lowerSharedCaps(cfg *Config, user, shared, local []byte, localShared bool) 
 			cap    *float64
 			file   string
 			shared bool
-		}{{c.layer(layers[2]), projectFile, true}, {c.layer(layers[3]), trackedLocal, localShared}} {
+		}{{c.layer(layers[2]), projectFile, true}, {c.layer(layers[3]), localLabel, localShared}} {
 			switch {
 			case l.cap == nil:
 			case !l.shared || *l.cap <= value:

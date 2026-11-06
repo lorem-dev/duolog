@@ -84,23 +84,30 @@ var projectRestrictors = []func(base, layer *yaml.Node, file string) ([]ConfigNo
 	restrictProjectPaid, restrictProjectSessionLimits, restrictProjectRouting, restrictProjectModels,
 }
 
-// gitTracks reports whether Git tracks rel inside root. The local layer is
-// the person's own only while Git does not track it: a committed copy
-// reaches everyone who clones the repository. Outside a repository nothing
-// tracks it. When Git cannot answer, the file counts as tracked, so a layer
-// of unknown origin cannot turn spending on.
-func gitTracks(root, rel string) bool {
+// sharedLocal names the local layer in notices when it counts as shared, ""
+// when it is the person's own. It is the person's own only in a Git
+// checkout that does not track it: a committed copy reaches everyone who
+// clones the repository, and outside a checkout, as in a downloaded archive
+// or a copy without .git, nothing proves that the person wrote it. When Git
+// cannot answer, the file counts as tracked, so a layer of unknown origin
+// cannot turn spending on.
+func sharedLocal(root string) string {
 	var stderr bytes.Buffer
-	cmd := exec.Command("git", "-C", root, "ls-files", "-z", "--", rel)
+	cmd := exec.Command("git", "-C", root, "ls-files", "-z", "--", localFile)
 	cmd.Env = append(cmd.Environ(), "LC_ALL=C")
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	var exit *exec.ExitError
 	switch {
-	case err == nil:
-		return len(out) > 0
+	case err == nil && len(out) == 0:
+		return ""
 	case errors.As(err, &exit) && strings.Contains(stderr.String(), "not a git repository"):
-		return false
+		return outsideLocal
 	}
-	return true
+	return trackedLocal
 }
+
+// outsideNotice says, once, why a local layer outside a Git checkout had
+// values ignored and where the person's own go.
+var outsideNotice = ConfigNotice{Key: localFile, Reason: "outside a Git checkout nothing proves that it is your own, " +
+	"so it may only make paid runs, prices and session limits stricter; put your own opt-ins in the user config"}

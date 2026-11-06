@@ -217,14 +217,45 @@ func TestGateLearnsRatesFromOrdinaryWorkers(t *testing.T) {
 		}
 		return out
 	}
+	// A read younger than the quota age limit is still fresh; these runs end
+	// after it.
+	stale := func(w *gateWorld) { w.cfg.Balance.MaxAgeSeconds = 10 }
 	t.Run("complete usage learns", func(t *testing.T) {
 		w := newGateWorld(t)
+		stale(w)
 		p := w.acquire(w.request("claude", workerenv.Worker, workerenv.Free, 100))
 		w.now, w.used = w.now.Add(learnGap), 16
 		w.finish(p, Settlement{Started: true, CompleteUsage: true, Input: 1_000_000})
 		got := sessionSamples(w)
 		if len(got) != 1 || got[0].Family != "sonnet" || !near(got[0].Movement, 0.06) || !near(got[0].WeightedTokens, 1e6) {
 			t.Fatalf("session samples after an ordinary run: %+v, want one of 6 %% over 1M tokens", got)
+		}
+	})
+	// Re-review finding N4: the read after a run goes to the cache, so the
+	// next admission within the quota age uses it and reads nothing; and a
+	// run that ends while its admission's read is still fresh makes no read,
+	// so its result does not wait for one.
+	t.Run("the learn read goes to the cache", func(t *testing.T) {
+		w := newGateWorld(t)
+		stale(w)
+		req := w.request("claude", workerenv.Worker, workerenv.Free, 100)
+		p := w.acquire(req)
+		w.now, w.used = w.now.Add(learnGap), 16
+		w.finish(p, Settlement{Started: true, CompleteUsage: true, Input: 1_000_000})
+		reads := w.reads
+		s, _, err := w.gate.Read(context.Background(), req.Input, false)
+		if err != nil || w.reads != reads || !s.ReadAt.Equal(w.now) {
+			t.Fatalf("read after the run: %v, %d new reads, read at %v, want the learn read of %v", err, w.reads-reads, s.ReadAt, w.now)
+		}
+	})
+	t.Run("a fresh read makes no learn read", func(t *testing.T) {
+		w := newGateWorld(t)
+		p := w.acquire(w.request("claude", workerenv.Worker, workerenv.Free, 100))
+		reads := w.reads
+		w.now, w.used = w.now.Add(learnGap), 16
+		w.finish(p, Settlement{Started: true, CompleteUsage: true, Input: 1_000_000})
+		if got := sessionSamples(w); len(got) != 0 || w.reads != reads {
+			t.Fatalf("a run inside the quota age learned %+v with %d reads", got, w.reads-reads)
 		}
 	})
 	t.Run("incomplete usage learns nothing", func(t *testing.T) {

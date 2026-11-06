@@ -2,6 +2,7 @@ package paidruns
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -95,7 +96,8 @@ type conclusion struct {
 //
 //   - Not started: released when its supervisor is gone and never began a
 //     launch. After Launch, a child may run that no record names, so it
-//     stays held, unless its launch token is still there to take.
+//     stays held, unless its launch token is still there to take, or the
+//     pane's launcher that took it recorded itself and is gone.
 //   - Started: the child decides, a pane by the pane service and a process
 //     by its ID and birth identity. The end of the supervisor or the lead
 //     says nothing about a pane. A live or uncertain child stays held.
@@ -106,7 +108,8 @@ type conclusion struct {
 //     sent and is refunded.
 //
 // No age ends a reservation. Each one held without a conclusion says why in
-// Retained, for quota and doctor to show. Settled history older than the
+// Retained, for quota and doctor to show with the command that ends it
+// (EndHold). Settled history older than the
 // 24 hours the cap covers is dropped.
 //
 // The probes run outside the lock, on a copy of the state. The changes are
@@ -142,17 +145,7 @@ func (s *Store) Reconcile(ctx context.Context, in ReconcileInput) error {
 			case release:
 				delete(st.Reservations, id)
 			case end:
-				// A pane's open still holding its first task never sent it,
-				// since a send replaces that hold before anything is typed: it
-				// is refunded, as CloseSession does.
-				unsent := r.Shape == workerenv.Peer && r.Session
-				if _, settled := st.Settled[id]; r.Task && !settled && !unsent {
-					recovered := Settlement{ID: id, Agent: r.Agent, AccountKey: r.AccountKey, Started: true, Ended: now,
-						Windows: r.Estimate.Windows}
-					recovered.ChargedUSD = charge(r, recovered)
-					st.Settled[id] = recovered
-				}
-				delete(st.Reservations, id)
+				st.end(r, now)
 			default:
 				r.Retained = c.reason
 				st.Reservations[id] = r
@@ -165,6 +158,104 @@ func (s *Store) Reconcile(ctx context.Context, in ReconcileInput) error {
 		}
 		return nil
 	})
+}
+
+// end drops r, whose child ended, at now. A pane's open still holding its
+// first task never sent it, since a send replaces that hold before anything
+// is typed: it is refunded, as CloseSession does. Any other unsettled task
+// counts as a run of unknown cost: a paid one at least its estimate.
+func (st *State) end(r Reservation, now time.Time) {
+	unsent := r.Shape == workerenv.Peer && r.Session
+	if _, settled := st.Settled[r.ID]; r.Task && !settled && !unsent {
+		recovered := Settlement{ID: r.ID, Agent: r.Agent, AccountKey: r.AccountKey, Started: true, Ended: now,
+			Windows: r.Estimate.Windows}
+		recovered.ChargedUSD = charge(r, recovered)
+		st.Settled[r.ID] = recovered
+	}
+	delete(st.Reservations, r.ID)
+}
+
+// RecordLauncher records launcher, the process of duolog peer launch, on the
+// hold of the pane whose entry id is peer, its DUOLOG_PEER, while no pane is
+// attached to it. The launcher calls it once it took the env file and before
+// it starts the agent, so a peer open that dies before it records the pane
+// leaves the pane's presence behind. A pane that holds nothing changes
+// nothing.
+func (s *Store) RecordLauncher(ctx context.Context, peer string, launcher Owner) error {
+	if peer == "" || launcher.PID <= 0 {
+		return errors.New("paid runs: a launcher needs its peer and a process id")
+	}
+	return s.Update(ctx, func(st *State) error {
+		for id, r := range st.Reservations {
+			if r.Peer == peer && r.Session && !r.Started && r.Launcher == (Owner{}) {
+				r.Launcher = launcher
+				st.Reservations[id] = r
+			}
+		}
+		return nil
+	})
+}
+
+// EndHold ends the holds that name names, a peer entry id or a reservation
+// id, at the person's word: the command for a hold that reconciliation
+// retains. It refuses while any owner of one still runs: its pane, its
+// pane's launcher or process, or the command that holds it. One that cannot
+// be checked does not refuse, since the person says it is gone. Each hold
+// then ends as in a reconciliation that found its owners gone. It returns
+// the holds it ended.
+func (s *Store) EndHold(ctx context.Context, name string, in ReconcileInput) ([]Reservation, error) {
+	if in.Process == nil {
+		in.Process = ProbeProcess
+	}
+	now := in.Now
+	if now.IsZero() {
+		now = s.now()
+	}
+	var named []Reservation
+	if err := s.View(ctx, func(st State) error {
+		for _, id := range slices.Sorted(maps.Keys(st.Reservations)) {
+			if r := st.Reservations[id]; id == name || name != "" && r.Peer == name {
+				named = append(named, r)
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	if len(named) == 0 {
+		return nil, fmt.Errorf("paid runs: no hold named %s", name)
+	}
+	for _, r := range named {
+		if r.Child.Pane != "" && in.Pane != nil && in.Pane(ctx, r.Child) == Alive ||
+			r.Child.PID > 0 && in.Process(r.Child) == Alive ||
+			r.Launcher.PID > 0 && in.Process(r.Launcher) == Alive {
+			return nil, fmt.Errorf("paid runs: %s: its pane still runs; close it first", name)
+		}
+		if in.Process(r.Supervisor) == Alive {
+			return nil, fmt.Errorf("paid runs: %s: the command that holds it still runs (process %d)", name, r.Supervisor.PID)
+		}
+	}
+	var ended []Reservation
+	err := s.Update(ctx, func(st *State) error {
+		for _, probed := range named {
+			r, ok := st.Reservations[probed.ID]
+			if !ok || !sameRecord(r, probed) {
+				continue
+			}
+			st.end(r, now)
+			ended = append(ended, r)
+		}
+		return nil
+	})
+	return ended, err
+}
+
+// peerID is the peer entry id of the launch in, "" when it is no peer.
+func peerID(in workerenv.ProcessInput) string {
+	if in.Shape == workerenv.Peer {
+		return in.PeerID
+	}
+	return ""
 }
 
 // judge concludes what to do with r from its owners' presence.
@@ -181,6 +272,17 @@ func (in ReconcileInput) judge(ctx context.Context, r Reservation) conclusion {
 			// taking it keeps the launcher from starting anything.
 			if r.LaunchToken != "" && os.Remove(r.LaunchToken) == nil {
 				return conclusion{outcome: release}
+			}
+			// A launcher that took the token is the pane's program: the
+			// pane lives while it does.
+			if r.Launcher.PID > 0 {
+				switch in.Process(r.Launcher) {
+				case Alive:
+					return conclusion{reason: "its pane runs, but no peer entry records it"}
+				case Gone:
+					return conclusion{outcome: end}
+				}
+				return conclusion{reason: "its pane's launcher cannot be checked"}
 			}
 			return conclusion{reason: "its supervisor ended during the launch; a child may run unrecorded"}
 		}
@@ -219,7 +321,7 @@ func (in ReconcileInput) judge(ctx context.Context, r Reservation) conclusion {
 // sameRecord reports whether r is still the reservation that was probed: the
 // same owners in the same stage.
 func sameRecord(r, probed Reservation) bool {
-	return r.Supervisor == probed.Supervisor && r.Child == probed.Child &&
+	return r.Supervisor == probed.Supervisor && r.Child == probed.Child && r.Launcher == probed.Launcher &&
 		r.Started == probed.Started && r.Launching == probed.Launching &&
 		r.Task == probed.Task && r.Session == probed.Session &&
 		r.SessionID == probed.SessionID && r.Created.Equal(probed.Created)

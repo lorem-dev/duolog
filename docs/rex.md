@@ -48,6 +48,11 @@ register a lead.
 | 5 | `duolog peer status <id>` | Prints the state in one line |
 | 6 | `duolog peer close <id>` | Closes the pane. Changed files stay |
 
+When `peer open` stops after the pane started but before it recorded the
+pane, the pane's account hold stays. `duolog quota` and `duolog doctor` show
+it as a `held:` line. Close the pane in Rex, then run
+`duolog peer release <id>`.
+
 A peer belongs to its role and work root. Opening that role again in the same
 worktree reuses the peer. Opening it in another worktree starts a new peer.
 For peers, `max_live_sessions` applies per lead, agent and work root.

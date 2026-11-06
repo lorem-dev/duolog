@@ -120,7 +120,7 @@ func (in Admission) prepare() (Reservation, error) {
 		return Reservation{}, err
 	}
 	r := in.Reservation
-	r.AccountKey, r.Child, r.Launching, r.Retained, r.LaunchToken = "", Owner{}, false, "", ""
+	r.AccountKey, r.Child, r.Launching, r.Retained, r.LaunchToken, r.Launcher = "", Owner{}, false, "", "", Owner{}
 	r.Paid = in.Assessment.Verdict == Paid
 	r.Workspace = in.Assessment.Account == "workspace"
 	if !r.Task {

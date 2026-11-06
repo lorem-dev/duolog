@@ -87,6 +87,9 @@ const (
 	// trackedLocal names a local file that Git tracks in notices: it reaches
 	// everyone who clones the repository, like the project file.
 	trackedLocal = localFile + ", which Git tracks,"
+	// outsideLocal names a local file outside a Git checkout in notices:
+	// nothing proves that it is the person's own.
+	outsideLocal = localFile + ", outside a Git checkout,"
 )
 
 // restrictProjectPaid removes from the project layer each paid_runs value

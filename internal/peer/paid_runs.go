@@ -277,6 +277,42 @@ func (e *env) sessionEnded(ctx context.Context, entry session.Entry) error {
 	return g.CloseSession(ctx, entry.AccountSessionID)
 }
 
+// Release ends the account holds of a peer pane that no entry records, or
+// any hold named by its reservation id, as quota and doctor show them: the
+// slot and the estimate of an open that died after the pane's launcher took
+// its env file. It refuses a pane that its entry still records, which peer
+// close ends, and a hold whose pane, launcher or command still runs.
+func Release(ctx context.Context, id string) (string, error) {
+	e, err := setupFor(ctx, false)
+	if err != nil {
+		return "", err
+	}
+	if entry, err := e.find(id); err == nil && !entry.Closed {
+		return "", fmt.Errorf("peer %s is open; close it with duolog peer close %s", entry.ID, entry.ID)
+	}
+	g, err := e.accounts()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), accountTimeout)
+	defer cancel()
+	ended, err := g.Store.EndHold(ctx, id, g.Reconcile)
+	if err != nil {
+		return "", err
+	}
+	usd := 0.0
+	for _, r := range ended {
+		if r.Paid && !(r.Shape == workerenv.Peer && r.Session) {
+			usd += r.Estimate.USD
+		}
+	}
+	line := fmt.Sprintf("%s released: %d hold(s) ended", id, len(ended))
+	if usd > 0 {
+		line += fmt.Sprintf("; a sent task counts at its estimate of %.2f USD", usd)
+	}
+	return line, nil
+}
+
 // paneAbsent reports an open that rex refused or never reached, so no pane
 // exists that could hold the reservation.
 func paneAbsent(err error) bool {

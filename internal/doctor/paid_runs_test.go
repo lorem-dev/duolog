@@ -86,6 +86,26 @@ func joined(findings []Finding) string {
 	return strings.Join(lines, "\n")
 }
 
+// TestDoctorWarnsOfRetainedHolds is re-review finding N2: a hold that
+// reconciliation keeps without a conclusion is a warning that names it, its
+// reason and the command that ends it.
+func TestDoctorWarnsOfRetainedHolds(t *testing.T) {
+	cfg, opts, _ := setup(t)
+	g := reportGate(t, cfg, shapeReads)
+	if err := g.Store.Update(context.Background(), func(st *paidruns.State) error {
+		st.Reservations["pane"] = paidruns.Reservation{ID: "pane", Agent: "claude", Shape: workerenv.Peer, Peer: "p1",
+			Session: true, Task: true, Created: time.Now(), Retained: "its supervisor ended during the launch; a child may run unrecorded"}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	text := joined(Run(context.Background(), cfg, opts))
+	if !strings.Contains(text, "warning: held: p1 (claude peer, since ") ||
+		!strings.Contains(text, "a child may run unrecorded; end it with duolog peer release p1") {
+		t.Fatalf("no warning of the retained hold in\n%s", text)
+	}
+}
+
 // Doctor reports, per agent and shape, the verdict with its named signals
 // and layers, the account kind with its reasons and usable share, a matched
 // endpoint entry, the fast pin, withheld names and ignored config, the
