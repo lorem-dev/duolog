@@ -27,6 +27,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
+	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/paidruns"
@@ -76,11 +77,6 @@ func pause(ctx context.Context, d time.Duration) error {
 
 // ErrStuck means the task text is still in the input line of an idle session.
 var ErrStuck = errors.New("task text is stuck in the input line")
-
-// RunHereError carries the line that tells the lead where to do the task now.
-type RunHereError struct{ Line string }
-
-func (e *RunHereError) Error() string { return e.Line }
 
 // Entry is what Open and Wait report. Question is set for a question, and Note
 // is one line of context: a timeout, a run here line, or a closed session.
@@ -160,29 +156,7 @@ func observeOperation(ctx context.Context, op, agent, run string, started time.T
 	if opts.Observe == nil {
 		return
 	}
-	opts.Observe(Operation{Op: op, Agent: agent, Run: run, Outcome: operationOutcome(state, err), Duration: time.Since(started)})
-}
-
-func operationOutcome(state State, err error) string {
-	var here *RunHereError
-	switch {
-	case errors.As(err, &here):
-		return "lead"
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		return "interrupted"
-	case err != nil:
-		return "failed"
-	}
-	switch state {
-	case Ready:
-		return "done"
-	case Question, Interrupted:
-		return "needs"
-	case Limited:
-		return "lead"
-	}
-	// Closed, exited, or still starting when the start time ran out.
-	return "failed"
+	opts.Observe(Operation{Op: op, Agent: agent, Run: run, Outcome: corescreen.OperationOutcome(state, err), Duration: time.Since(started)})
 }
 
 // attempt reports the task the peer was sent as one run, once it has ended:
@@ -692,7 +666,7 @@ func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Ent
 				}
 				break
 			}
-			if stuckInput(screen, e.root, entry.Task) {
+			if corescreen.StuckInput(screen, e.root, entry.Task) {
 				if stuck++; stuck >= 2 {
 					return Entry{ID: entry.ID, State: Ready, Note: ErrStuck.Error()}, fmt.Errorf("peer %s: %w", entry.ID, ErrStuck)
 				}
@@ -768,28 +742,6 @@ func interruptedNote(entry session.Entry) string {
 	return note + "; send a follow-up with duolog peer send " + entry.ID + " <task>"
 }
 
-// stuckInput reports an idle input line that still holds the sent task line.
-func stuckInput(s Screen, root, taskPath string) bool {
-	return s.Composer && !s.Working && s.Input != "" && strings.HasPrefix(squash(strings.Join(s.Rows, "")), squash(probe(taskLine(root, taskPath))))
-}
-
-// taskLine is the line typed into the pane. It names the task file from the
-// pane's folder and stays short, so a usual task path keeps it on one row of
-// an 80-column pane.
-func taskLine(root, path string) string {
-	ref := path
-	if rel, err := filepath.Rel(root, path); err == nil && filepath.IsLocal(rel) {
-		ref = rel
-	}
-	return "Read " + ref + " and do it. Do not call rex. Reply \"done\"."
-}
-
-// probe is the start of a line: enough to tell it from a line that lost its start.
-func probe(text string) string { return cut(text, 40) }
-
-// squash drops all spaces: a row may break inside a word or at a space.
-func squash(s string) string { return strings.Join(strings.Fields(s), "") }
-
 // holds reports an input line that holds the text and nothing else, read across
 // the rows it wraps over. Claude's rows end with its box, so any row more is
 // input. Codex has no box: the first row that does not continue the text after
@@ -798,9 +750,9 @@ func holds(agent string, s Screen, text string) bool {
 	if !s.Composer {
 		return false
 	}
-	want, got := squash(text), ""
+	want, got := corescreen.Squash(text), ""
 	for _, row := range s.Rows {
-		next := got + squash(row)
+		next := got + corescreen.Squash(row)
 		if !strings.HasPrefix(want, next) {
 			return agent == "codex" && got == want
 		}
@@ -829,7 +781,7 @@ func (e *env) ask(entry session.Entry, question string) error {
 	for {
 		_, err := e.bus.Send(bus.Message{From: entry.Agent + "/" + entry.Role, To: e.address(entry.Lead), K: gate.Ask, Ref: entry.ID, S: text})
 		if errors.Is(err, bus.ErrTooLong) && len(text) > 20 {
-			text = cut(text, len(text)/2)
+			text = corescreen.Cut(text, len(text)/2)
 			continue
 		}
 		if err != nil {
@@ -864,7 +816,7 @@ func (e *env) markEnded(entry session.Entry, state State) (string, error) {
 	}
 	// The pane ended under the task: that run failed, and only this first time.
 	e.attempt(entry, "failed", runner.CodeExit)
-	msg := bus.Message{From: entry.Agent + "/" + entry.Role, To: e.address(entry.Lead), K: "status", Ref: entry.ID, S: cut(line, e.cfg.Wire.MaxSummaryBytes)}
+	msg := bus.Message{From: entry.Agent + "/" + entry.Role, To: e.address(entry.Lead), K: "status", Ref: entry.ID, S: corescreen.Cut(line, e.cfg.Wire.MaxSummaryBytes)}
 	if _, serr := e.bus.Send(msg); serr != nil {
 		return line, errors.Join(err, serr)
 	}
@@ -1005,7 +957,7 @@ func Send(ctx context.Context, id, taskRef string) (err error) {
 	if err := task.launch(ctx, ""); err != nil {
 		return errors.Join(err, e.unsent(ctx, entry, task))
 	}
-	text := taskLine(e.root, path)
+	text := corescreen.TaskLine(e.root, path)
 	if err := e.deliver(ctx, entry, text); err != nil {
 		if errors.Is(err, errNotDelivered) {
 			// Enter was never pressed: the task is proven unsent.
@@ -1372,7 +1324,7 @@ func (e *env) selectOption(ctx context.Context, entry session.Entry, screen Scre
 	if len(screen.Options) == 0 {
 		return fmt.Errorf("peer %s: the question has no options duolog can select; answer it in the pane", entry.ID)
 	}
-	target, err := pick(screen.Options, choice)
+	target, err := corescreen.Pick(screen.Options, choice)
 	if err != nil {
 		return fmt.Errorf("peer %s: %w", entry.ID, err)
 	}
@@ -1409,45 +1361,6 @@ func (e *env) selectOption(ctx context.Context, entry session.Entry, screen Scre
 		return err
 	}
 	return nil
-}
-
-// pick finds an option by number, exact label, unique prefix or unique part.
-func pick(options []Option, choice string) (int, error) {
-	if n, err := strconv.Atoi(choice); err == nil {
-		for i, o := range options {
-			if o.Number == n {
-				return i, nil
-			}
-		}
-	}
-	want := strings.ToLower(choice)
-	for _, match := range []func(label string) bool{
-		func(l string) bool { return l == want },
-		func(l string) bool { return strings.HasPrefix(l, want) },
-		func(l string) bool { return strings.Contains(l, want) },
-	} {
-		found := -1
-		for i, o := range options {
-			if match(strings.ToLower(o.Label)) {
-				if found >= 0 {
-					found = -2
-					break
-				}
-				found = i
-			}
-		}
-		if found >= 0 {
-			return found, nil
-		}
-		if found == -2 {
-			return 0, fmt.Errorf("%q matches more than one option", choice)
-		}
-	}
-	var labels []string
-	for _, o := range options {
-		labels = append(labels, o.Label)
-	}
-	return 0, fmt.Errorf("no option %q; the options are: %s", choice, strings.Join(labels, " | "))
 }
 
 // pendingAsk never advances the delivery cursor; the lead hook still receives

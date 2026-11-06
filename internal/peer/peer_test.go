@@ -18,6 +18,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/route"
+	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/paidruns"
@@ -1646,7 +1647,7 @@ func TestAutoAnswerRules(t *testing.T) {
 
 func TestCommandAskCannotUseTextRule(t *testing.T) {
 	r := newRig(t, withScreens(commandPrompt("unknown-command", false)))
-	r.cfg.Rex.AutoAnswers = []config.AutoAnswer{{Match: commandQuestion, Answer: "Yes, proceed"}}
+	r.cfg.Rex.AutoAnswers = []config.AutoAnswer{{Match: corescreen.CommandQuestion, Answer: "Yes, proceed"}}
 	e := r.open("implement")
 	if e.State != Question || len(r.keys()) != 0 {
 		t.Fatalf("%+v %v", e, r.keys())

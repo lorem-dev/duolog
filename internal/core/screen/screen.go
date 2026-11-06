@@ -1,4 +1,6 @@
-package peer
+// Package screen reads the bounded sample of a peer pane and decides on it. It
+// holds no I/O: the peer package captures the screen and acts on the reading.
+package screen
 
 import (
 	"regexp"
@@ -60,6 +62,9 @@ type Screen struct {
 	Text string
 }
 
+// CommandQuestion is the fixed prompt Codex shows above a command it wants to run.
+const CommandQuestion = "Would you like to run the following command?"
+
 const (
 	markers          = "›❯"
 	maxQuestionBytes = 200
@@ -111,13 +116,13 @@ func Parse(agent string, raw []byte) Screen {
 	if options, first, ok := findQuestion(lines); ok {
 		s.State, s.Options = Question, options
 		s.Question = questionText(lines, first, options)
-		if agent == "codex" && strings.Contains(s.Text, commandQuestion) {
-			if command := promptCommand(s.Text); command != "" {
+		if agent == "codex" && strings.Contains(s.Text, CommandQuestion) {
+			if command := PromptCommand(s.Text); command != "" {
 				menu := ""
 				if i := strings.Index(s.Question, "["); i >= 0 {
 					menu = " " + s.Question[i:]
 				}
-				s.Question = commandQuestion + " " + oneLine(command) + menu
+				s.Question = CommandQuestion + " " + oneLine(command) + menu
 			}
 		}
 		return s
@@ -125,7 +130,7 @@ func Parse(agent string, raw []byte) Screen {
 	if agent == "codex" && (strings.Contains(s.Text, "Queued follow-up inputs") || queuedCountRe.MatchString(s.Text)) && strings.Contains(s.Text, "shift+left to answer") {
 		s.Queued = true
 		s.State = Question
-		s.Question = cut(oneLine(s.Text), maxQuestionBytes)
+		s.Question = Cut(oneLine(s.Text), maxQuestionBytes)
 		return s
 	}
 	at, input, empty, rows := findComposer(agent, lines, solid)
@@ -332,6 +337,9 @@ func findQuestion(lines []string) ([]Option, int, bool) {
 	return nil, 0, false
 }
 
+// IsRule reports a line that is one horizontal rule.
+func IsRule(line string) bool { return ruleRe.MatchString(line) }
+
 func aboveIsRule(lines []string, i int) bool {
 	for j := i - 1; j >= 0; j-- {
 		if strings.TrimSpace(lines[j]) != "" {
@@ -418,9 +426,9 @@ func questionText(lines []string, first int, options []Option) string {
 		}
 	}
 	if ask != "" {
-		head = cut(head, maxHeadBytes-len(ask)-1) + " " + ask
+		head = Cut(head, maxHeadBytes-len(ask)-1) + " " + ask
 	}
-	text := cut(head, maxHeadBytes)
+	text := Cut(head, maxHeadBytes)
 	if len(options) > 0 {
 		var list []string
 		for _, o := range options {
@@ -432,11 +440,40 @@ func questionText(lines []string, first int, options []Option) string {
 		}
 		text += " [" + strings.Join(list, " | ") + "]"
 	}
-	return cut(text, maxQuestionBytes)
+	return Cut(text, maxQuestionBytes)
 }
 
-// cut keeps whole runes.
-func cut(s string, n int) string {
+func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// PromptCommand reads the displayed command, not the bounded question summary.
+// Only the command block below the fixed prompt and before the menu counts.
+func PromptCommand(text string) string {
+	_, rest, ok := strings.Cut(text, CommandQuestion)
+	if !ok {
+		return ""
+	}
+	var command []string
+	for _, line := range strings.Split(rest, "\n") {
+		line = strings.TrimSpace(line)
+		if numberedRe.MatchString(line) {
+			break
+		}
+		if len(command) == 0 {
+			if c, ok := strings.CutPrefix(line, "$ "); ok {
+				command = append(command, c)
+			}
+		} else {
+			if line == "" {
+				break
+			}
+			command = append(command, line)
+		}
+	}
+	return strings.Join(command, "\n")
+}
+
+// Cut keeps whole runes.
+func Cut(s string, n int) string {
 	if n < 0 {
 		n = 0
 	}

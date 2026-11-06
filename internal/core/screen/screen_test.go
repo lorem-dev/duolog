@@ -1,4 +1,4 @@
-package peer
+package screen
 
 import (
 	"os"
@@ -11,9 +11,18 @@ import (
 func fixture(t *testing.T, name string) string {
 	t.Helper()
 	_, file, _, _ := runtime.Caller(0)
-	data, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "scripts", "bench", "fixtures", "startup", name))
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "..", "scripts", "bench", "fixtures", "startup", name))
 	if err != nil {
 		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func fixtureText(name string) string {
+	_, file, _, _ := runtime.Caller(0)
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "..", "scripts", "bench", "fixtures", "startup", name))
+	if err != nil {
+		panic(err)
 	}
 	return string(data)
 }
@@ -211,10 +220,6 @@ func claudeWrapped(width int, text string) string {
 		rest = rest[n:]
 	}
 	return "\n" + rule + "\n" + rows + rule + "\n  ⏸ manual mode on · ? for shortcuts\n"
-}
-
-func claudeWorking() string {
-	return "✻ Channelling… (3s · esc to interrupt)\n" + claudeIdle("")
 }
 
 func TestWorkingLineIsBusyWithoutInterruptHint(t *testing.T) {

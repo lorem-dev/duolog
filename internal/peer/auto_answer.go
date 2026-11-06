@@ -8,12 +8,11 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
 )
-
-const commandQuestion = "Would you like to run the following command?"
 
 // autoAnswer gives command prompts to the gate and declines Claude's plugin
 // offers before considering text rules. A missing command or option leaves the
@@ -35,8 +34,8 @@ func (e *env) autoAnswer(ctx context.Context, entry session.Entry, screen Screen
 	choice := ""
 	action := gate.Action{Kind: "answer", Role: entry.Role}
 	decision := gate.Decision{Kind: gate.Allow, Reason: "configured peer answer", Rule: "rex.auto_answers"}
-	if entry.Agent == "codex" && strings.Contains(screen.Text, commandQuestion) {
-		command := promptCommand(screen.Text)
+	if entry.Agent == "codex" && strings.Contains(screen.Text, corescreen.CommandQuestion) {
+		command := corescreen.PromptCommand(screen.Text)
 		if command == "" {
 			return false, nil
 		}
@@ -113,33 +112,6 @@ func (e *env) autoAnswer(ctx context.Context, entry session.Entry, screen Screen
 	}
 	_, err := e.update(entry.ID, func(x *session.Entry) { x.Asked = "" })
 	return true, err
-}
-
-// promptCommand reads the displayed command, not the bounded question summary.
-// Only the command block below the fixed prompt and before the menu counts.
-func promptCommand(text string) string {
-	_, rest, ok := strings.Cut(text, commandQuestion)
-	if !ok {
-		return ""
-	}
-	var command []string
-	for _, line := range strings.Split(rest, "\n") {
-		line = strings.TrimSpace(line)
-		if numberedRe.MatchString(line) {
-			break
-		}
-		if len(command) == 0 {
-			if c, ok := strings.CutPrefix(line, "$ "); ok {
-				command = append(command, c)
-			}
-		} else {
-			if line == "" {
-				break
-			}
-			command = append(command, line)
-		}
-	}
-	return strings.Join(command, "\n")
 }
 
 // Strip only literal assignments. Shell expansions stay in the command so

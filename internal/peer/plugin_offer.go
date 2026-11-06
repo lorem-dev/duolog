@@ -10,6 +10,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
+	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -42,7 +43,7 @@ func readPluginOffer(screen Screen) (pluginOffer, bool) {
 	var offer pluginOffer
 	for _, line := range strings.Split(screen.Text, "\n") {
 		line = strings.TrimSpace(line)
-		if ruleRe.MatchString(line) {
+		if corescreen.IsRule(line) {
 			offer = pluginOffer{}
 		}
 		if m := offerPluginRe.FindStringSubmatch(line); m != nil {
@@ -52,7 +53,7 @@ func readPluginOffer(screen Screen) (pluginOffer, bool) {
 			offer.marketplace = m[1]
 		}
 		if m := offerTriggerRe.FindStringSubmatch(line); m != nil {
-			offer.trigger = cut(oneLine(m[1]), 60)
+			offer.trigger = corescreen.Cut(oneLine(m[1]), 60)
 		}
 		if offerAskRe.MatchString(line) {
 			if offerNameRe.MatchString(offer.plugin) && (offer.marketplace == "" || offerNameRe.MatchString(offer.marketplace)) {
@@ -74,7 +75,7 @@ func installQuestion(screen Screen) bool {
 	previous := ""
 	for _, line := range strings.Split(screen.Text, "\n") {
 		line = strings.TrimSpace(line)
-		if ruleRe.MatchString(line) {
+		if corescreen.IsRule(line) {
 			previous = ""
 			continue
 		}
