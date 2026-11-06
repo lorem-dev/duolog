@@ -193,7 +193,7 @@ func newPeerCommand() *cobra.Command {
 	}}
 	list.Flags().BoolVar(&listJSON, "json", false, "Print peers as JSON; id and state keep their old values")
 	list.Flags().BoolVar(&listLong, "long", false, "Print a table with role, agent, task, last event and tab")
-	root.AddCommand(open, wait, send, status, answer, closeCmd, list, newPeerShowCommand(&lead), newPeerLaunchCommand())
+	root.AddCommand(open, wait, send, status, answer, closeCmd, list, newPeerShowCommand(&lead), newPeerViewCommand(&lead), newPeerLaunchCommand())
 	return root
 }
 
@@ -278,3 +278,24 @@ func launchEnv(base, set []string) []string {
 }
 
 var paneVariables = []string{"TERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "COLORTERM", "COLUMNS", "LINES", "LANG", "LANGUAGE", "TMPDIR", "TZ", "SHELL"}
+
+// newPeerViewCommand moves the person's Rex client to a peer's existing tab.
+// It prints one line and never the screen.
+func newPeerViewCommand(lead *string) *cobra.Command {
+	var client string
+	view := &cobra.Command{Use: "view <id>", Short: "Show a peer's tab on your Rex client; look, do not type", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel, err := peerContext(cmd, *lead, false, 0)
+		if err != nil {
+			return err
+		}
+		defer cancel()
+		viewed, err := peer.View(ctx, args[0], client)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), viewed.Line())
+		return err
+	}}
+	view.Flags().StringVar(&client, "client", "", "Rex client to move (default: the one client that shows this session)")
+	return view
+}
