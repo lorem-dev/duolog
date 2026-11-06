@@ -256,28 +256,9 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 		return decision(Ask, "ask mode requires approval for writes", "mode ask")
 	}
 	result := decision(Allow, "allowed by policy", "policy")
+	wildOutside := wildcardAllowsOutside(a)
 	for _, part := range parts {
-		partAction := a
-		partAction.Target = part
-
-		d := decision(p.OnUnmatched, "no matching policy rule", "on_unmatched")
-		for _, rule := range p.Rules {
-			if rule.Decision != Deny && matches(rule, partAction) {
-				// A read-command wildcard grants reads only; a rule naming one exact
-				// command stays the project's own choice.
-				if a.Kind == "exec" && rule.Decision == Allow && strings.Contains(rule.Match, "*") && readOnlyRule(rule.Match) && !readOnlyCommand(part) {
-					continue
-				}
-				d = decision(rule.Decision, "matched project policy", rule.Action+" "+rule.Match)
-				break
-			}
-		}
-		if d.Kind != Allow && d.Kind != Ask && d.Kind != Deny {
-			d = decision(Deny, "invalid policy decision", "invalid policy")
-		}
-		if m == mode.Full && d.Kind == Ask {
-			d = decision(Allow, "full mode confirms action", "mode full: "+d.Rule)
-		}
+		d := partDecision(p, m, a, part, decision, wildOutside)
 		if d.Kind == Deny {
 			return d
 		}

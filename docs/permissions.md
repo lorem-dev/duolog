@@ -268,7 +268,9 @@ or a `*` needs the person, as in `sed '-i../*' -e s/a/b/ go.mod`. Each reading
 follows its own `sed`: BSD `sed` ends a bracket expression at its own `]`, so
 in `s/[/]/x/w /tmp/out` the first `/` belongs to the class, and the gate
 judges `/tmp/out`. A script that both `sed`s can run must parse both ways,
-or it needs the person.
+or it needs the person. A script that
+starts with `/`, as `sed '/TODO/d' x` does, is not a path, so `full` mode
+confirms it; the same holds for `awk '/re/' x` and the sets of `tr`.
 `awk` gets the same check. The gate judges the files of
 `getline <`, of `print >` and `>>`, of the `-f`, `-E`, `--exec`, `-i` and
 `--include` options and of gawk's `@include`. A pipe, `|&`, `system()`,
@@ -425,7 +427,17 @@ that name outside paths, such as `cat /outside/notes.txt` or
 `git -C /other log`. A word that starts with `~` counts as outside: `~` and
 `~/x` name the home folder, and `~name` the home folder of another login, so
 `tar czf home.tgz ~` needs the person. An explicit outside-path rule still
-applies as written; a broad `**` allow does not approve outside paths.
+applies as written; a broad `**` allow does not approve outside paths. Nor
+does an exec rule with a wildcard, which names programs, not paths: the default
+`make {check,...}*` allows `make check` but not `make check -C ../peer`, and
+`gofmt -w ../peer/x.go` needs the person too. `on_unmatched: allow` names
+no program at all, so it does not approve outside paths either: under it,
+`cp README.md ../peer/x` needs the person. A read command that the read
+rules have judged keeps its allow.
+
+This holds in every mode. `full` mode confirms the asks of the policy rules,
+but not an exec ask that names an outside path, such as
+`gawk -E /etc/passwd`. Only the person can allow such a command.
 
 The lead's own hook guards shell commands that may run `duolog allow N`.
 For a Claude lead, it asks Claude Code to prompt the person. For a Codex lead,

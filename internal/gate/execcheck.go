@@ -304,6 +304,13 @@ var patternOptions = map[string][]string{
 	"fgrep": {"--regexp"},
 }
 
+// ownOperandCheck lists the programs whose words operandsOutside leaves
+// alone when partFileTargets read the same command. The sed and awk parsers
+// judge every input file and option value of theirs, and what a script
+// names, so a script such as /^$/d is not taken for an absolute path. tr
+// reads only standard input; its operands are sets.
+var ownOperandCheck = []string{"sed", "gsed", "awk", "gawk", "mawk", "nawk", "tr"}
+
 // ExecOutside checks file operands, not executable names or stream devices.
 func ExecOutside(a Action) bool {
 	// A script or an option can name a file inside one word.
@@ -316,6 +323,10 @@ func ExecOutside(a Action) bool {
 		// keep the parsed parts, whose operands have their quotes removed.
 		parts = append(rawExecParts(a.Target), parts...)
 	}
+	var own []string
+	for _, part := range rawExecParts(a.Target) {
+		own = append(own, partFileTargets(part).own...)
+	}
 	for _, part := range parts {
 		// A redirect can stand anywhere, even between an option and its value,
 		// so its file is judged on its own and the redirect leaves the words
@@ -325,7 +336,7 @@ func ExecOutside(a Action) bool {
 				return true
 			}
 		}
-		if operandsOutside(a, withoutRedirects(strings.Fields(part))) {
+		if operandsOutside(a, withoutRedirects(strings.Fields(part)), own) {
 			return true
 		}
 	}
@@ -333,12 +344,19 @@ func ExecOutside(a Action) bool {
 }
 
 // operandsOutside reports whether the operands of one part's words name a
-// file outside the work root.
-func operandsOutside(a Action, words []string) bool {
+// file outside the work root. own lists the commands that the sed, awk and
+// tr parsers read; a part that is one of them is theirs to judge. A part
+// whose words only look like one, as FOO='1 sed' cat x does when split at
+// blanks, is judged here.
+func operandsOutside(a Action, words, own []string) bool {
 	start := execOperandStart(words)
 	var valued []string
 	if start > 0 && start <= len(words) {
-		valued = patternOptions[programName(words[start-1])]
+		program := programName(words[start-1])
+		if slices.Contains(ownOperandCheck, program) && slices.Contains(own, ownCommand(words[start-1:])) {
+			return false
+		}
+		valued = patternOptions[program]
 	}
 	options := true
 	for i := start; i < len(words); i++ {
