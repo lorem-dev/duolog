@@ -289,6 +289,14 @@ gate cannot see it. These checks also read a command that a wrapper or
 another program runs, such as `sudo`, `caffeinate`, `sh -c`,
 `bash -o pipefail -c` and `find -exec`.
 
+`find -execdir` and `-okdir` run their command in the folder of each match,
+and a starting point is a match in the folder that holds it. So the gate
+judges the command's relative paths, its plain words among them, from each
+starting point and from the folder that holds it, not from the working
+folder. A path that leaves the work root from any of them needs the person:
+`find <work root> -execdir cat x \;` reads `x` next to the work root.
+`find sub/deep -execdir cat ../x \;` stays inside and goes to the lead.
+
 `grep`, `jq`, `sort`, `uniq` and `file` pass only with options that change
 the output, so `jq -f`, `sort -o`, `uniq - out`, `file -m magic` and ugrep's
 `grep --filter` ask. A `jq` filter

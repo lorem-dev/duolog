@@ -420,6 +420,12 @@ func wordsOutside(a Action, part string, own []string) bool {
 			if next {
 				i++
 			}
+		case program == "find" && slices.Contains(findExecdir, word):
+			// The command runs in each match's folder, so fileTargetsOutside
+			// judges its words from the search roots instead.
+			for i+1 < len(words) && !slices.Contains([]string{";", "+"}, strings.Trim(withoutEscapes(a, words[i+1]), `'"`)) {
+				i++
+			}
 		case fieldOutside(a, word, options) || fieldOutside(a, unquoted.Replace(words[i]), options):
 			return true
 		}

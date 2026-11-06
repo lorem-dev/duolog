@@ -188,26 +188,127 @@ func programTargets(name string, args, env []string, split []scriptWord, depth i
 	return t
 }
 
+// findRoots returns the starting points of a find command, or . when it names
+// none: the words after find's own options and before its expression. GNU
+// find takes -H, -L, -P, -D with a word and -O with a level; BSD find also
+// takes -E, -X, -d, -s, -x and -f, whose word is a starting point.
+func findRoots(args []string) []string {
+	var roots []string
+	options := true
+	for i := 0; i < len(args); i++ {
+		word := args[i]
+		switch {
+		case options && (word == "-D" || word == "-f"):
+			if i+1 < len(args) {
+				i++
+				if word == "-f" {
+					roots = append(roots, args[i])
+				}
+			}
+		case options && (slices.Contains([]string{"-H", "-L", "-P", "-E", "-X", "-d", "-s", "-x"}, word) || strings.HasPrefix(word, "-O")):
+		case strings.HasPrefix(word, "-") || slices.Contains([]string{"(", ")", "!", ","}, word):
+			// The expression starts.
+			i = len(args)
+		default:
+			options = false
+			roots = append(roots, word)
+		}
+	}
+	if len(roots) == 0 {
+		return []string{"."}
+	}
+	return roots
+}
+
+// findExecdir lists find's actions that run their command in the folder of
+// each match.
+var findExecdir = []string{"-execdir", "-okdir"}
+
+// findCommandEnd returns the index of the ; or + that ends the command of
+// the action at words[start], or len(words).
+func findCommandEnd(words []string, start int) int {
+	end := start + 1
+	for end < len(words) && words[end] != ";" && words[end] != "+" {
+		end++
+	}
+	return end
+}
+
 // findExecTargets judges the commands that find runs with -exec, -execdir,
-// -ok and -okdir, each up to its ; or +.
+// -ok and -okdir, each up to its ; or +. -execdir and -okdir run theirs in
+// the folder of each match, so its relative paths, its words among them,
+// are judged from every folder that findFolders gives.
 func findExecTargets(words []scriptWord, env []string, depth int) fileTargets {
 	var t fileTargets
+	texts := make([]string, len(words))
+	for i, word := range words {
+		texts[i] = word.text
+	}
 	for i := 0; i < len(words); i++ {
-		if !slices.Contains([]string{"-exec", "-execdir", "-ok", "-okdir"}, words[i].text) {
+		if !slices.Contains([]string{"-exec", "-execdir", "-ok", "-okdir"}, texts[i]) {
 			continue
 		}
 		if depth >= maxScriptDepth {
 			t.unknown = true
 			return t
 		}
-		end := i + 1
-		for end < len(words) && words[end].text != ";" && words[end].text != "+" {
-			end++
+		end := findCommandEnd(texts, i)
+		inner := wordsFileTargets(words[i+1:end], env, depth+1)
+		if slices.Contains(findExecdir, texts[i]) {
+			inner.paths = append(inner.paths, execdirNames(texts[i+1:end])...)
+			inner.rebase(findFolders(findRoots(texts)))
 		}
-		t.add(wordsFileTargets(words[i+1:end], env, depth+1))
+		t.add(inner)
 		i = end
 	}
 	return t
+}
+
+// execdirNames returns the words of a command that can name a file, with
+// each word that holds a command line, as sh -c 'cat x' does, split at
+// blanks. find's {} stands for the match.
+func execdirNames(words []string) []string {
+	var names []string
+	for _, word := range words {
+		for _, field := range strings.Fields(word) {
+			if name := pathWord(field); name != "" && name != "{}" {
+				names = append(names, strings.Trim(name, `'"`))
+			}
+		}
+	}
+	return names
+}
+
+// findFolders returns the folders that -execdir runs its command in for the
+// given starting points: each starting point, and the folder that holds it,
+// since a starting point is itself a match. Deeper matches are inside both,
+// so a path that stays inside the work root from these stays inside from
+// theirs, but for .. that leads back up into the work root.
+func findFolders(roots []string) []string {
+	var folders []string
+	for _, root := range roots {
+		root = path.Clean(pathutil.Slashes(expandHome(root)))
+		folders = appendNew(folders, []string{root, path.Dir(root)})
+	}
+	return folders
+}
+
+// rebase judges the relative files of t from each folder instead of the
+// working folder. An absolute path, a ~ path and a stream stay as they are.
+func (t *fileTargets) rebase(folders []string) {
+	for _, list := range []*[]string{&t.reads, &t.writes, &t.paths, &t.named} {
+		var based []string
+		for _, name := range *list {
+			if name == "" || name == "-" || pathutil.IsAbs(name) || strings.HasPrefix(name, "~") || streamDevice(name) {
+				based = append(based, name)
+				continue
+			}
+			for _, folder := range folders {
+				based = append(based, path.Join(folder, pathutil.Slashes(name)))
+			}
+		}
+		*list = based
+	}
 }
 
 // fileVariables name a file or a folder that a program reads: git's config

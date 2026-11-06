@@ -222,6 +222,58 @@ func TestWrappedScriptsAreParsed(t *testing.T) {
 	wantLead(t, p, root, `find . -name '*.md' -exec sed -n 1p {} +`, `bash -o pipefail -c 'make x'`)
 }
 
+// find -execdir and -okdir run their command in the folder of each match, and
+// a starting point is a match in its own parent folder, so the command's
+// relative paths are relative to the search roots, not the working folder.
+// The gate judged them from the working folder, so find <work root> -execdir
+// cat x, which reads x next to the work root, went to the lead.
+func TestFindExecdirTargetsFollowTheSearchRoots(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	work := filepath.ToSlash(root)
+	wantPersonInFull(t, p, root,
+		`find `+work+` -execdir cat x \;`,
+		`find `+work+` -okdir cat x \;`,
+		`find `+work+` -maxdepth 0 -execdir sed -n 1rx {} \;`,
+		`find `+work+`/ -execdir sh -c 'cat notes' \;`,
+		`find -L `+work+` -execdir cat x {} +`,
+		`find . sub -execdir cat ../x \;`,
+		`find sub -execdir sh -c 'cat ../../x' \;`,
+		`find sub -execdir cat ../../x {} +`,
+	)
+	wantDeny(t, p, root, RuleState, `find sub -execdir awk 'BEGIN{getline l < "../.duolog/bus.ndjson"}' \;`)
+	// The write rule for .duolog sees the word first.
+	wantDeny(t, p, root, "", `find sub -execdir cat ../.duolog/bus.ndjson \;`)
+	wantDeny(t, p, root, "read", `find sub -execdir cat ../.env \;`)
+	// A path that stays inside every search root, from each match's folder,
+	// is the lead's to judge, also with a .. that the working folder would
+	// read as outside.
+	wantLead(t, p, root,
+		`find sub -execdir cat x \;`,
+		`find sub/deep -execdir cat ../x \;`,
+		`find . -name '*.go' -execdir gofmt -l {} +`,
+		`find sub -okdir rm {} \;`,
+		`find -name x -execdir cat y \;`,
+	)
+}
+
+func TestFindRoots(t *testing.T) {
+	for _, tc := range []struct {
+		args  []string
+		roots []string
+	}{
+		{args: nil, roots: []string{"."}},
+		{args: []string{"-name", "x"}, roots: []string{"."}},
+		{args: []string{"a", "b", "-type", "f"}, roots: []string{"a", "b"}},
+		{args: []string{"-H", "-L", "-P", "-D", "tree", "-O2", "a", "(", "-name", "x", ")"}, roots: []string{"a"}},
+		{args: []string{"-E", "-x", "-f", "a", "b", "!", "-name", "x"}, roots: []string{"a", "b"}},
+	} {
+		if got := findRoots(tc.args); !slices.Equal(got, tc.roots) {
+			t.Errorf("%q: %q, want %q", tc.args, got, tc.roots)
+		}
+	}
+}
+
 // BSD sed, as on macOS, takes the word after -i or -I as the backup suffix,
 // so the word after that is the script. The gate read the suffix as the
 // script, as GNU sed does, and the script as an input file. Both readings
