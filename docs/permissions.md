@@ -205,6 +205,15 @@ follows its own `sed`: BSD `sed` ends a bracket expression at its own `]`, so
 in `s/[/]/x/w /tmp/out` the first `/` belongs to the class, and the gate
 judges `/tmp/out`. A script that both `sed`s can run must parse both ways,
 or it needs the person.
+`awk` gets the same check. The gate judges the files of
+`getline <`, of `print >` and `>>`, of the `-f`, `-E`, `--exec`, `-i` and
+`--include` options and of gawk's `@include`. A pipe, `|&`, `system()`,
+`@load`, `-l`, a file name that is not one string and any use of `ARGV`,
+which names the input files, need the person. So does a `sed` or `awk`
+script read from standard input, as with `-f -` or `-f /dev/stdin`, since
+the gate cannot see it. These checks also read a command that a wrapper or
+another program runs, such as `sudo`, `caffeinate`, `sh -c`,
+`bash -o pipefail -c` and `find -exec`.
 
 `grep`, `jq`, `sort`, `uniq` and `file` pass only with options that change
 the output, so `jq -f`, `sort -o`, `uniq - out`, `file -m magic` and ugrep's

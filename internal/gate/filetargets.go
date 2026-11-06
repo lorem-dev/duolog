@@ -56,6 +56,17 @@ func (t *fileTargets) union(other fileTargets) {
 	}
 }
 
+// codeFile notes a file that a program reads code from, such as the script
+// of sed -f. The gate never sees what a file holds; a stream such as - or
+// /dev/stdin can feed code that no earlier write showed, so it is unknown.
+func (t *fileTargets) codeFile(name string) {
+	clean := path.Clean(pathutil.Slashes(name))
+	if name == "-" || clean == "/dev/stdin" || strings.HasPrefix(clean, "/dev/fd/") {
+		t.unknown = true
+	}
+	t.reads = append(t.reads, name)
+}
+
 // partFileTargets lists the file targets of one part of a shell line, as
 // rawExecParts splits it. The program after keywords and wrappers counts, and
 // so does a command line that a shell runs, as in sh -c 'sed ...'.
@@ -67,8 +78,12 @@ func partFileTargets(part string) fileTargets {
 const maxScriptDepth = 3
 
 func commandFileTargets(part string, depth int) fileTargets {
+	return wordsFileTargets(scriptWords(commandAfterKeywords(part)), depth)
+}
+
+// wordsFileTargets is commandFileTargets for a command split into words.
+func wordsFileTargets(split []scriptWord, depth int) fileTargets {
 	var t fileTargets
-	split := scriptWords(commandAfterKeywords(part))
 	words := make([]string, len(split))
 	for i, word := range split {
 		words[i] = word.text
@@ -107,8 +122,35 @@ func commandFileTargets(part string, depth int) fileTargets {
 		t.add(assignmentTargets(args))
 	case "sed", "gsed":
 		t.add(sedTargets(args))
+	case "awk", "gawk", "mawk", "nawk":
+		t.add(awkTargets(args))
+	case "find":
+		t.paths = attachedValues(name, args)
+		t.add(findExecTargets(split[start:], depth))
 	default:
 		t.paths = attachedValues(name, args)
+	}
+	return t
+}
+
+// findExecTargets judges the commands that find runs with -exec, -execdir,
+// -ok and -okdir, each up to its ; or +.
+func findExecTargets(words []scriptWord, depth int) fileTargets {
+	var t fileTargets
+	for i := 0; i < len(words); i++ {
+		if !slices.Contains([]string{"-exec", "-execdir", "-ok", "-okdir"}, words[i].text) {
+			continue
+		}
+		if depth >= maxScriptDepth {
+			t.unknown = true
+			return t
+		}
+		end := i + 1
+		for end < len(words) && words[end].text != ";" && words[end].text != "+" {
+			end++
+		}
+		t.add(wordsFileTargets(words[i+1:end], depth+1))
+		i = end
 	}
 	return t
 }
@@ -155,7 +197,6 @@ func assignmentTargets(words []string) fileTargets {
 var attachedTextShorts = map[string]string{
 	"grep": "e", "egrep": "e", "fgrep": "e", "rg": "egr", "git": "eSG",
 	"cut": "d", "sort": "t", "paste": "d", "join": "t", "column": "s", "xargs": "dEI",
-	"awk": "Fv", "gawk": "Fv", "mawk": "Fv", "nawk": "Fv",
 }
 
 // attachedValues lists the values that a program's short options carry in
@@ -364,86 +405,6 @@ func fileTargetDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, part
 	return Decision{}, false
 }
 
-// scriptWords splits a part into the words the shell passes on: quotes group
-// text and go away, and a backslash keeps the next character. It expands
-// nothing. A redirect and the file it names are left out, since the redirect
-// checks judge that file.
-func scriptWords(part string) []scriptWord {
-	var words []scriptWord
-	drop := false
-	for _, word := range splitScriptWords(part) {
-		switch {
-		case drop:
-			drop = false
-		case word.redirect:
-			// The file is the next word when the operator stands alone.
-			drop = strings.Trim(word.text, "0123456789<>&|-") == ""
-		default:
-			words = append(words, word)
-		}
-	}
-	return words
-}
-
-// scriptWord is one word of scriptWords. redirect means it starts with an
-// unquoted redirect operator, and quoted that some of it was quoted or
-// escaped, so the shell does not expand it as a glob.
-type scriptWord struct {
-	text             string
-	redirect, quoted bool
-}
-
-func splitScriptWords(part string) []scriptWord {
-	var words []scriptWord
-	var current scriptWord
-	var b strings.Builder
-	var quote byte
-	inWord, escaped := false, false
-	for i := 0; i < len(part); i++ {
-		c := part[i]
-		switch {
-		case escaped:
-			b.WriteByte(c)
-			escaped = false
-		case c == '\\' && quote != '\'':
-			escaped, inWord, current.quoted = true, true, true
-		case quote != 0:
-			if c != quote {
-				b.WriteByte(c)
-			} else {
-				quote = 0
-			}
-		case c == '\'' || c == '"':
-			quote, inWord, current.quoted = c, true, true
-		case strings.IndexByte(" \t\r\n", c) >= 0:
-			if inWord {
-				current.text = b.String()
-				words = append(words, current)
-				current, inWord = scriptWord{}, false
-				b.Reset()
-			}
-		default:
-			if !inWord {
-				current.redirect = redirectAt(part[i:])
-			}
-			b.WriteByte(c)
-			inWord = true
-		}
-	}
-	if inWord {
-		current.text = b.String()
-		words = append(words, current)
-	}
-	return words
-}
-
-// redirectAt reports whether text starts with a redirect operator, after an
-// optional stream number.
-func redirectAt(text string) bool {
-	operator := strings.TrimLeft(text, "0123456789")
-	return strings.HasPrefix(operator, "<") || strings.HasPrefix(operator, ">") || strings.HasPrefix(operator, "&>")
-}
-
 // sedTargets reads the options and the script of sed, GNU or BSD. The input
 // files are read, and written too with -i or -I. A script file given by -f is
 // read; what it holds stays unseen, as a Makefile's does. Each reading reads
@@ -531,7 +492,7 @@ func (o *sedOptions) next() string {
 // script notes the value of -e or -f.
 func (o *sedOptions) script(file bool, value string) {
 	if file {
-		o.targets.reads = append(o.targets.reads, value)
+		o.targets.codeFile(value)
 	} else {
 		o.scripts = append(o.scripts, value)
 	}
