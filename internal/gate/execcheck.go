@@ -354,6 +354,12 @@ func outsideOperand(a Action, target string) bool {
 	if target == "" {
 		return false
 	}
+	if strings.Contains(target, `\`) && posixShell(a) {
+		// A POSIX shell passes a backslash on as part of the word, or drops it
+		// as an escape; it never separates folders. The word is outside when
+		// either reading of it is.
+		return outsideOperand(a, strings.ReplaceAll(target, `\`, "")) || literalOutside(a, target)
+	}
 	target = expandHome(target)
 	clean := pathutil.Clean(target)
 	if slices.Contains([]string{"/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"}, clean) || strings.HasPrefix(clean, "/dev/fd/") {
