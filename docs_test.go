@@ -4,11 +4,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 func docFiles(t *testing.T) []string {
@@ -108,45 +109,93 @@ func docSection(t *testing.T, path, heading string) string {
 	return strings.Join(strings.Fields(strings.Join(section, " ")), " ")
 }
 
-// The interim patch drops API keys from the default inheritance and pins fast
-// mode off; the docs say so, explain the migration line, and do not advertise
-// paid_runs, which the config does not have yet.
+// A free run drops every name that can bill per token, listed or not, and pins
+// Claude fast mode off; a paid run needs the agent's paid_runs opt-in with a
+// daily cap. The docs say so, quote the migration line and the doctor example
+// as duolog prints them, and nowhere tell the person to hand a key to workers
+// through env_passthrough, which no longer reaches them.
 func TestDocsPaidKeyMigration(t *testing.T) {
-	inherit := docSection(t, filepath.Join("docs", "configuration.md"), "## What workers inherit")
+	page := filepath.Join("docs", "configuration.md")
+	inherit := docSection(t, page, "## What workers inherit")
 	for _, want := range []string{
 		"The default environment includes PATH, HOME and USER, plus `CODEX_HOME` and `CLAUDE_CONFIG_DIR`.",
 		"It leaves out `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`",
 		"billed per token",
-		"fast mode off",
+		"A free run never gets a name that can bill per token, even when `env_passthrough` lists it.",
+		"`paid_runs.<agent>.allow`",
+		// Fast mode is pinned off in the free variant only; the lead is
+		// reported, never changed.
+		"Free Claude workers and peers always start with fast mode off.",
 		`"fastMode": false`,
-		// The page quotes the 1.4.0 line with the defaults. The paid runs
-		// branch prints the paid_runs advice (workerenv.MigrationLine); the
-		// page moves to it when workers launch through workerenv.Build. An
-		// explicit list replaces the defaults, so the line keeps them all.
-		"claude workers no longer get ANTHROPIC_API_KEY by default. To let them use it, keep the default names and add the key, since an explicit list replaces the defaults: env_passthrough: [" +
-			strings.Join(append(config.DefaultEnvPassthrough("linux"), "ANTHROPIC_API_KEY"), ", ") + "]",
+		"duolog never changes the lead's settings",
+		"it only reports how the lead is billed",
+		// The warning wording and the doctor example, as duolog prints them.
+		workerenv.MigrationLine("claude", "ANTHROPIC_API_KEY"),
 		"`duolog doctor` warns",
-		"set in duolog's environment and not listed in `env_passthrough`",
-		"list it in an explicit `env_passthrough`",
-		// An explicit list replaces the defaults, so the example keeps them all.
-		"env_passthrough: [" + strings.Join(append(config.DefaultEnvPassthrough("linux"), "ANTHROPIC_API_KEY"), ", ") + "]",
-		"On Windows, also keep the Windows names above.",
+		"Example config: paid_runs: {claude: {allow: true, daily_cap_usd: 5, env: [ANTHROPIC_API_KEY]}}",
+		"set in duolog's environment or listed in `env_passthrough`",
+		"claude: {allow: true, daily_cap_usd: 5}",
+		"`paid_runs.<agent>.calibrate: true`",
 	} {
 		if !strings.Contains(inherit, want) {
 			t.Errorf("What workers inherit lacks %q", want)
 		}
 	}
-	// A listed key passes to workers, so listing it ends the line.
-	if strings.Contains(inherit, "or listed in `env_passthrough`") {
-		t.Error("What workers inherit says a listed key still gets the line")
+	for _, stale := range []string{
+		"list it in an explicit `env_passthrough`",
+		"keep the default names and add the key",
+		"duolog does not cap that spend",
+	} {
+		if strings.Contains(inherit, stale) {
+			t.Errorf("What workers inherit still says %q", stale)
+		}
 	}
-	for _, path := range append(docFiles(t), "CHANGES.md") {
+
+	paid := docSection(t, page, "## How paid runs are allowed and capped")
+	for _, want := range []string{
+		"| `paid_runs.<agent>.allow` | `false` |",
+		"| `paid_runs.<agent>.daily_cap_usd` | `0` |",
+		"Must be above 0 with `allow`",
+		"| `paid_runs.<agent>.env` |",
+		"Optional",
+		"| `paid_runs.<agent>.calibrate` | `false` |",
+		"Needs `allow` too",
+		"the last 24 hours, not a calendar day",
+		"runs in flight",
+		"the larger of",
+		"lower bound",
+		"never spends paid overage, workspace credits or reset credits",
+		"drive admission",
+		"may only make these stricter",
+		"managed policy outside files is not checked",
+	} {
+		if !strings.Contains(paid, want) {
+			t.Errorf("How paid runs are allowed and capped lacks %q", want)
+		}
+	}
+
+	// No page tells the person to restore a key through env_passthrough.
+	for _, path := range docFiles(t) {
 		for i, line := range docLines(t, path) {
-			if strings.Contains(line, "paid_runs") {
-				t.Errorf("%s:%d: advertises paid_runs, which the config does not have yet", path, i+1)
+			if strings.Contains(line, "env_passthrough") && strings.Contains(line, "_API_KEY") {
+				t.Errorf("%s:%d: hands an API key to workers through env_passthrough", path, i+1)
 			}
 		}
 	}
+
+	// Prices now drive admission of paid runs, not only estimates.
+	for _, path := range []string{filepath.Join("internal", "config", "config.default.yaml"), filepath.Join("internal", "config", "config.go"), "duolog-config.schema.json"} {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, stale := range []string{"never routing", "never for routing"} {
+			if strings.Contains(string(b), stale) {
+				t.Errorf("%s says prices are %q; they drive paid-run admission", path, stale)
+			}
+		}
+	}
+
 	if b, err := os.ReadFile("CHANGES.md"); err != nil {
 		t.Fatal(err)
 	} else {
@@ -156,6 +205,50 @@ func TestDocsPaidKeyMigration(t *testing.T) {
 		newest, _, _ := strings.Cut(rest, "\n## 1.")
 		if !strings.Contains(dev+newest, "`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`") {
 			t.Error("CHANGES.md Development and the newest version do not name the dropped keys")
+		}
+		for _, want := range []string{"`paid_runs.<agent>.allow`", "`daily_cap_usd`"} {
+			if !strings.Contains(dev, want) {
+				t.Errorf("CHANGES.md Development lacks %s", want)
+			}
+		}
+	}
+}
+
+// Live sessions are limited per account: by the agent's measured tier and for
+// all agents together. The docs give the defaults, what counts, how each
+// command waits, and that the shared project config may only tighten them.
+func TestDocsPaidSessionLimits(t *testing.T) {
+	limits := docSection(t, filepath.Join("docs", "configuration.md"), "## How many sessions run at once")
+	for _, want := range []string{
+		"| `limits.max_total_sessions` | `10` |",
+		"| `limits.sessions_by_tier.small` | `3` |",
+		"| `limits.sessions_by_tier.medium` | `5` |",
+		"| `limits.sessions_by_tier.large` | `10` |",
+		"| `limits.session_wait_seconds` | `60` |",
+		"An agent with no measured rate yet is `small`",
+		"A paid run or a workspace account runs one task at a time",
+		"An open peer pane counts, idle or busy.",
+		"An idle resumable thread runs no process and does not count.",
+		"`limits.max_live_sessions` still applies",
+		"the lower limit wins",
+		"first come first served",
+		"`duolog peer open` is refused at once",
+		"Calibration cells wait for a slot without a time limit",
+		"may only lower",
+		"A value above its default is capped at the default",
+	} {
+		if !strings.Contains(limits, want) {
+			t.Errorf("How many sessions run at once lacks %q", want)
+		}
+	}
+	// Examples name model families, never a version, and hold no personal data.
+	for _, bad := range []*regexp.Regexp{
+		regexp.MustCompile(`gpt-\d`),
+		regexp.MustCompile(`claude-(fable|opus|sonnet|haiku)-\d`),
+		regexp.MustCompile(`/Users/|/home/|@[a-z0-9-]+\.[a-z]`),
+	} {
+		if m := bad.FindString(limits); m != "" {
+			t.Errorf("How many sessions run at once holds %q", m)
 		}
 	}
 }

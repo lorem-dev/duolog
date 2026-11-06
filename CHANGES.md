@@ -44,12 +44,31 @@
 
 ### Added
 
-- `routing.balance: pace` (default) starts a new task on a role's `fallback`
-  while its `use` agent runs ahead of its weekly window by more than
-  `routing.margin` (default `0.10`) or is above 0.80 of its five-hour window.
-  It never moves work to a paid or overage run, and unknown quota keeps `use`.
-  `route`, `delegate` and `peer open` print the reason. The shared project
-  config cannot loosen it.
+- `paid_runs.<agent>.allow` with `daily_cap_usd` lets that agent's workers and
+  peers run paid once the subscription cannot, up to the cap in any 24 hours.
+- `paid_runs.<agent>.calibrate` lets calibration use a paid route, within the
+  USD you approve in its plan.
+- `limits.max_total_sessions` (10) and `limits.sessions_by_tier` (3, 5, 10 by
+  measured window) limit live sessions per account, across all projects.
+- A delegation waits up to `limits.session_wait_seconds` (60) for a session
+  slot; `peer open` is refused at once, and calibration cells wait.
+- `paid_runs.usable_share` (0.5) keeps a workspace account to that share of
+  each window; paid and workspace agents run one task at a time.
+- `paid_runs.claude.subscription_endpoints` names gateway URLs that count as
+  the subscription.
+- `duolog quota` and `duolog doctor` show how each agent's worker, peer and
+  lead are billed, by signal name, with the paid spend and the sessions.
+- `routing.balance: pace` starts a new task on the role's `fallback` while its
+  `use` agent runs ahead of its window, never onto a paid route.
+
+### Changed
+
+- Free workers and peers drop API keys and other names that bill per token,
+  even when `env_passthrough` lists them; `duolog doctor` shows the fix.
+- Calibration no longer refuses to start while `env_passthrough` lists an API
+  key, since its free runs drop the key.
+- The prices in `models` now drive admission of paid runs. They leave out fast
+  mode and cloud surcharges, so spend is a lower bound.
 
 ## 1.4.0
 

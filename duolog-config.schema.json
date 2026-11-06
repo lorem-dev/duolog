@@ -305,14 +305,14 @@
         },
         "limits": {
           "$ref": "#/$defs/Limits",
-          "description": "Worker delegation limits; defaults permit one worker per agent."
+          "description": "Worker and session limits: resumable sessions per lead, live sessions per account by measured tier and in all, and the slot wait."
         },
         "models": {
           "additionalProperties": {
             "$ref": "#/$defs/Model"
           },
           "type": "object",
-          "description": "Model aliases and price metadata; defaults include the eight vendor families."
+          "description": "Model aliases and their prices, which drive estimates and admission of paid runs; defaults include the eight vendor families."
         },
         "roles": {
           "additionalProperties": {
@@ -342,7 +342,7 @@
             "type": "string"
           },
           "type": "array",
-          "description": "Environment variables passed to workers; defaults include native OS login and agent config directories, not API keys."
+          "description": "Environment variables passed to workers; defaults include native OS login and agent config directories, not API keys. A free run drops names that bill per token even when listed; only paid_runs.\u003cagent\u003e.allow lets them through."
         },
         "rex": {
           "$ref": "#/$defs/Rex",
@@ -472,7 +472,7 @@
         },
         "max_live_sessions": {
           "type": "integer",
-          "description": "Maximum live resumable sessions per agent; defaults to 1 and excludes fresh runs."
+          "description": "Maximum live resumable sessions per lead and agent; defaults to 1 and excludes fresh runs. The account session limits apply too, and the lower one wins."
         },
         "self_max_read_files": {
           "type": "integer",
@@ -540,7 +540,7 @@
         },
         "priced_for": {
           "type": "string",
-          "description": "Version whose prices are recorded; used for estimates, never for routing."
+          "description": "Version whose prices are recorded; the prices drive estimates and admission of paid runs against the daily cap."
         },
         "input": {
           "type": "number",

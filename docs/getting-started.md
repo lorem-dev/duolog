@@ -157,8 +157,8 @@ Codex skips the hooks and prints no warning.
 Sign in to the agents you will use before you send a task. Workers do not
 get `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, and Claude workers start with
 fast mode off; both are new in 1.4.0. If an agent signs in only with a key,
-workers fail its login check. To pass the key, see
-[Configuration](configuration.md#if-you-use-an-api-key-on-purpose).
+workers fail its login check. To let paid runs use the key, under a daily
+cap, see [Configuration](configuration.md#if-you-use-an-api-key-on-purpose).
 Local telemetry is on by default; run `duolog telemetry off` to stop it. See
 [Telemetry](telemetry.md).
 

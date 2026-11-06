@@ -19,7 +19,7 @@ wire:
 
 limits:
   manual_only_models: [fable, astra]  # refused unless --allow-manual-model is passed
-  max_live_sessions: 1     # per agent; one-shot `fresh` runs do not count
+  max_live_sessions: 1     # per lead and agent; one-shot `fresh` runs do not count
   self_max_read_files: 3   # on a provider limit, the lead does a task this small itself
   self_max_read_lines: 200 # otherwise its own subagent does it
   # Live sessions per account, across every lead and project: running workers
@@ -49,7 +49,9 @@ routing:
 # Aliases only. Claude Code resolves its own. For Codex, duolog picks the newest visible
 # gpt-<version>-<family> in `codex debug models`. A full name in a role is a deliberate pin.
 # Prices are USD per 1M tokens, read from vendor pages on 2026-10-30, for the version in
-# priced_for. They drive `duolog stats` and `duolog doctor`, never routing.
+# priced_for. They drive admission of paid runs against paid_runs.<agent>.daily_cap_usd,
+# and the estimates of `duolog stats` and `duolog doctor`. They leave out fast mode and
+# cloud surcharges, so a paid run's cost is a lower bound.
 models:
   fable:  {agent: claude, priced_for: claude-fable-5-1,  input: 10.00, cached: 0.25, output: 50.00}
   opus:   {agent: claude, priced_for: claude-opus-5-5,   input: 4.00,  cached: 0.20, output: 20.00}
@@ -236,6 +238,8 @@ sync:
 
 # Variables spawned sessions inherit. Everything else is not passed on purpose.
 # Defaults come from the OS and include native login and CLI config variables.
+# A free run drops names that bill per token, such as API keys, even when this
+# list names them; see paid_runs below.
 
 rex:
   stuck_notify_minutes: 5

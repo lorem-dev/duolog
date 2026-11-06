@@ -18,14 +18,14 @@ type Config struct {
 	Coauthors      Coauthors        `yaml:"coauthors" jsonschema_description:"Commit co-author templates for workers; enabled by default."`
 	Version        int              `yaml:"version" jsonschema_description:"Configuration format version; defaults to 1."`
 	Wire           Wire             `yaml:"wire" jsonschema_description:"Task and message encoding and size limits; defaults suit the file bus."`
-	Limits         Limits           `yaml:"limits" jsonschema_description:"Worker delegation limits; defaults permit one worker per agent."`
-	Models         map[string]Model `yaml:"models" jsonschema_description:"Model aliases and price metadata; defaults include the eight vendor families."`
+	Limits         Limits           `yaml:"limits" jsonschema_description:"Worker and session limits: resumable sessions per lead, live sessions per account by measured tier and in all, and the slot wait."`
+	Models         map[string]Model `yaml:"models" jsonschema_description:"Model aliases and their prices, which drive estimates and admission of paid runs; defaults include the eight vendor families."`
 	Roles          map[string]Role  `yaml:"roles" jsonschema_description:"Named task routes; overrides merge by role and field into the eleven defaults."`
 	Sessions       Sessions         `yaml:"sessions" jsonschema_description:"Thread lifetime limits; defaults close large or idle threads."`
 	Policy         Policy           `yaml:"policy" jsonschema_description:"Permission rules constrained by the lead; defaults ask for unmatched actions."`
 	Capabilities   Capabilities     `yaml:"capabilities" jsonschema_description:"Missing capability handling; defaults read skills and let the lead handle tools."`
 	Sync           Sync             `yaml:"sync" jsonschema_description:"Settings for generating agent and skill files; automatic sync defaults to true."`
-	EnvPassthrough []string         `yaml:"env_passthrough" jsonschema_description:"Environment variables passed to workers; defaults include native OS login and agent config directories, not API keys."`
+	EnvPassthrough []string         `yaml:"env_passthrough" jsonschema_description:"Environment variables passed to workers; defaults include native OS login and agent config directories, not API keys. A free run drops names that bill per token even when listed; only paid_runs.<agent>.allow lets them through."`
 	Rex            Rex              `yaml:"rex" jsonschema_description:"Terminal capture and startup settings; defaults to 20 lines and 120 seconds."`
 	Learning       Learning         `yaml:"learning" jsonschema_description:"Learning mode: task classes, classification rules, ladders and priors; off by default."`
 	Telemetry      Telemetry        `yaml:"telemetry" jsonschema_description:"Local telemetry that never leaves the machine; on by default. User level, except that a project may turn off its own events."`
@@ -67,7 +67,7 @@ type Wire struct {
 
 type Limits struct {
 	ManualOnlyModels []string `yaml:"manual_only_models" jsonschema_description:"Model aliases requiring explicit manual permission; defaults to fable and astra."`
-	MaxLiveSessions  int      `yaml:"max_live_sessions" jsonschema_description:"Maximum live resumable sessions per agent; defaults to 1 and excludes fresh runs."`
+	MaxLiveSessions  int      `yaml:"max_live_sessions" jsonschema_description:"Maximum live resumable sessions per lead and agent; defaults to 1 and excludes fresh runs. The account session limits apply too, and the lower one wins."`
 	SelfMaxReadFiles int      `yaml:"self_max_read_files" jsonschema_description:"Maximum files for work handled by the lead on a provider limit; defaults to 3."`
 	SelfMaxReadLines int      `yaml:"self_max_read_lines" jsonschema_description:"Maximum lines for work handled by the lead on a provider limit; defaults to 200."`
 	// The account session limits count running workers and open peer panes
@@ -80,7 +80,7 @@ type Limits struct {
 type Model struct {
 	Agent     string  `yaml:"agent" jsonschema_description:"Vendor agent for this alias; defaults to claude or codex according to the family." jsonschema:"enum=claude,enum=codex"`
 	Family    string  `yaml:"family" jsonschema_description:"Codex model family used to resolve the newest visible version; absent for Claude aliases."`
-	PricedFor string  `yaml:"priced_for" jsonschema_description:"Version whose prices are recorded; used for estimates, never for routing."`
+	PricedFor string  `yaml:"priced_for" jsonschema_description:"Version whose prices are recorded; the prices drive estimates and admission of paid runs against the daily cap."`
 	Input     float64 `yaml:"input" jsonschema_description:"Input price in USD per million tokens; defaults to the recorded vendor price."`
 	Cached    float64 `yaml:"cached" jsonschema_description:"Cached input price in USD per million tokens; defaults to the recorded vendor price."`
 	Output    float64 `yaml:"output" jsonschema_description:"Output price in USD per million tokens; defaults to the recorded vendor price."`

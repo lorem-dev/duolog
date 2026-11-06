@@ -22,7 +22,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/learning"
 	"github.com/lorem-dev/duolog/internal/profile"
 	"github.com/lorem-dev/duolog/internal/store"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/spf13/cobra"
 )
 
@@ -635,22 +634,12 @@ func newCalibrateResumeCommand() *cobra.Command {
 	return cmd
 }
 
-// subscriptionOnly refuses calibration while env_passthrough hands a billing
-// key to workers. A worker with a key is billed per token, outside the quota
-// that calibration's caps read, so the caps would not hold. It names both
-// agents' keys, since the one list reaches the workers and judges of both.
-// Every calibration cell is a free run; paid calibration, with
-// paid_runs.<agent>.calibrate, is not built yet and will need its own check.
-func subscriptionOnly(cfg *config.Config) error {
-	keys := workerenv.ListedKeys(cfg.EnvPassthrough)
-	if len(keys) == 0 {
-		return nil
-	}
-	return fmt.Errorf("calibration runs on your subscription only, but env_passthrough passes %s to workers, which bills per token outside the quota its caps read; remove it from env_passthrough in .duolog/config.local.yaml, .duolog/config.yaml or your user config, keep the other names, and run the command again", strings.Join(keys, " and "))
-}
-
 // withCalibrationRunner holds the calibration lock and calls f with a
 // Runner for the latest run, whose plan must be approved and unchanged.
+// A billing key that env_passthrough lists stops nothing here: every step
+// launches through workerenv.Build, whose free variant drops the key, and the
+// account gate admits a paid route only with paid_runs.<agent>.calibrate
+// under the approved plan's budget.
 func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.Runner) error) error {
 	root, err := projectRoot()
 	if err != nil {
@@ -658,10 +647,6 @@ func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.
 	}
 	cfg, err := config.Load(root)
 	if err != nil {
-		return err
-	}
-	// Before the lock, the run and any quota reading: nothing is admitted.
-	if err := subscriptionOnly(cfg); err != nil {
 		return err
 	}
 	s, err := store.Open(root)
@@ -866,10 +851,6 @@ func newCalibrateJudgeCommand() *cobra.Command {
 		}
 		if _, ok := cfg.Learning.Classes[class]; class != "" && !ok {
 			return fmt.Errorf("unknown class %q", class)
-		}
-		// Judge calls spend quota too.
-		if err := subscriptionOnly(cfg); err != nil {
-			return err
 		}
 		s, err := store.Open(root)
 		if err != nil {
