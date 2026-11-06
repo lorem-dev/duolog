@@ -1,0 +1,12 @@
+paid_runs:
+  usable_share: 0.6
+  claude:
+    allow: true
+    daily_cap_usd: 5
+    calibrate: true
+    account: workspace
+    subscription_endpoints: {gateway: "https://gateway.example.invalid"}
+  codex:
+    allow: true
+    daily_cap_usd: 2.5
+    env: [OPENAI_API_KEY]

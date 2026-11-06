@@ -1,0 +1,5 @@
+worker_modes:
+  roles:
+    implement: {claude: auto, codex: workspace-write, network: true, writable_roots: ["~/go/pkg/mod"]}
+  families:
+    luna: {codex: read-only}

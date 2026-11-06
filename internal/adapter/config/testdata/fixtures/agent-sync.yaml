@@ -1,0 +1,6 @@
+sync:
+  agents:
+    model_map: {opus: sol, sonnet: terra}
+    default_effort: {opus: max}
+    codex_name: underscore
+    drop_keys: [color, tools]

@@ -1,0 +1,4 @@
+coauthors:
+  enabled: true
+  claude: "{name} <noreply@example.invalid>"
+  codex: "X <x@example.invalid>"

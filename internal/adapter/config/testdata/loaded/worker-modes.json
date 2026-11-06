@@ -1,0 +1,1242 @@
+{
+  "SkillTests": "ask",
+  "Coauthors": {
+    "Enabled": true,
+    "Claude": "{name} \u003cnoreply@anthropic.com\u003e",
+    "Codex": "OpenAI Codex {model} \u003cnoreply@openai.com\u003e"
+  },
+  "Version": 1,
+  "Wire": {
+    "MaxSummaryBytes": 200,
+    "MaxLineBytes": 512,
+    "InlineMaxBytes": 65536
+  },
+  "Limits": {
+    "ManualOnlyModels": [
+      "fable",
+      "astra"
+    ],
+    "MaxLiveSessions": 1,
+    "SelfMaxReadFiles": 3,
+    "SelfMaxReadLines": 200,
+    "MaxTotalSessions": 10,
+    "SessionsByTier": {
+      "Small": 3,
+      "Medium": 5,
+      "Large": 10
+    },
+    "SessionWaitSeconds": 60
+  },
+  "Models": {
+    "astra": {
+      "Agent": "codex",
+      "Family": "astra",
+      "PricedFor": "gpt-6-astra",
+      "Input": 10,
+      "Cached": 1,
+      "Output": 50,
+      "Note": ""
+    },
+    "fable": {
+      "Agent": "claude",
+      "Family": "",
+      "PricedFor": "claude-fable-5-1",
+      "Input": 10,
+      "Cached": 0.25,
+      "Output": 50,
+      "Note": ""
+    },
+    "haiku": {
+      "Agent": "claude",
+      "Family": "",
+      "PricedFor": "claude-haiku-5-5",
+      "Input": 0.1,
+      "Cached": 0.01,
+      "Output": 0.5,
+      "Note": "x5 above a 100K token prompt"
+    },
+    "luna": {
+      "Agent": "codex",
+      "Family": "luna",
+      "PricedFor": "gpt-6-luna",
+      "Input": 0.1,
+      "Cached": 0.01,
+      "Output": 0.5,
+      "Note": ""
+    },
+    "opus": {
+      "Agent": "claude",
+      "Family": "",
+      "PricedFor": "claude-opus-5-5",
+      "Input": 4,
+      "Cached": 0.2,
+      "Output": 20,
+      "Note": ""
+    },
+    "sol": {
+      "Agent": "codex",
+      "Family": "sol",
+      "PricedFor": "gpt-6.1-sol",
+      "Input": 2,
+      "Cached": 0.1,
+      "Output": 10,
+      "Note": ""
+    },
+    "sonnet": {
+      "Agent": "claude",
+      "Family": "",
+      "PricedFor": "claude-sonnet-5-5",
+      "Input": 2,
+      "Cached": 0.1,
+      "Output": 10,
+      "Note": ""
+    },
+    "terra": {
+      "Agent": "codex",
+      "Family": "terra",
+      "PricedFor": "gpt-6.1-terra",
+      "Input": 1,
+      "Cached": 0.05,
+      "Output": 5,
+      "Note": ""
+    }
+  },
+  "Roles": {
+    "debug": {
+      "Use": {
+        "Agent": "codex",
+        "Model": "sol",
+        "Effort": "medium"
+      },
+      "Fallback": {
+        "Agent": "claude",
+        "Model": "opus",
+        "Effort": "high"
+      },
+      "Sandbox": "read-only",
+      "Context": "project",
+      "Session": "resume"
+    },
+    "debug_hard": {
+      "Use": {
+        "Agent": "claude",
+        "Model": "opus",
+        "Effort": "high"
+      },
+      "Fallback": {
+        "Agent": "codex",
+        "Model": "sol",
+        "Effort": "high"
+      },
+      "Sandbox": "workspace-write",
+      "Context": "project",
+      "Session": "resume"
+    },
+    "docs": {
+      "Use": {
+        "Agent": "claude",
+        "Model": "sonnet",
+        "Effort": "medium"
+      },
+      "Fallback": {
+        "Agent": "codex",
+        "Model": "terra",
+        "Effort": "medium"
+      },
+      "Sandbox": "workspace-write",
+      "Context": "minimal",
+      "Session": "fresh"
+    },
+    "implement": {
+      "Use": {
+        "Agent": "codex",
+        "Model": "sol",
+        "Effort": "medium"
+      },
+      "Fallback": {
+        "Agent": "claude",
+        "Model": "sonnet",
+        "Effort": "medium"
+      },
+      "Sandbox": "workspace-write",
+      "Context": "project",
+      "Session": "fresh"
+    },
+    "implement_complex": {
+      "Use": {
+        "Agent": "codex",
+        "Model": "sol",
+        "Effort": "high"
+      },
+      "Fallback": {
+        "Agent": "claude",
+        "Model": "opus",
+        "Effort": "high"
+      },
+      "Sandbox": "workspace-write",
+      "Context": "project",
+      "Session": "fresh"
+    },
+    "mechanical": {
+      "Use": {
+        "Agent": "codex",
+        "Model": "luna",
+        "Effort": "low"
+      },
+      "Fallback": {
+        "Agent": "claude",
+        "Model": "haiku",
+        "Effort": "low"
+      },
+      "Sandbox": "workspace-write",
+      "Context": "minimal",
+      "Session": "fresh"
+    },
+    "plan": {
+      "Use": {
+        "Agent": "claude",
+        "Model": "opus",
+        "Effort": "high"
+      },
+      "Fallback": {
+        "Agent": "codex",
+        "Model": "sol",
+        "Effort": "high"
+      },
+      "Sandbox": "read-only",
+      "Context": "project",
+      "Session": "resume"
+    },
+    "planner": {
+      "Use": {
+        "Agent": "codex",
+        "Model": "sol",
+        "Effort": "medium"
+      },
+      "Fallback": {
+        "Agent": "claude",
+        "Model": "sonnet",
+        "Effort": "medium"
+      },
+      "Sandbox": "workspace-write",
+      "Context": "minimal",
+      "Session": "resume"
+    },
+    "review_final": {
+      "Use": {
+        "Agent": "claude",
+        "Model": "opus",
+        "Effort": "high"
+      },
+      "Fallback": {
+        "Agent": "codex",
+        "Model": "sol",
+        "Effort": "high"
+      },
+      "Sandbox": "read-only",
+      "Context": "project",
+      "Session": "fresh"
+    },
+    "review_intermediate": {
+      "Use": {
+        "Agent": "codex",
+        "Model": "sol",
+        "Effort": "medium"
+      },
+      "Fallback": {
+        "Agent": "claude",
+        "Model": "sonnet",
+        "Effort": "medium"
+      },
+      "Sandbox": "read-only",
+      "Context": "project",
+      "Session": "fresh"
+    },
+    "security_review": {
+      "Use": {
+        "Agent": "claude",
+        "Model": "opus",
+        "Effort": "high"
+      },
+      "Fallback": {
+        "Agent": "codex",
+        "Model": "sol",
+        "Effort": "high"
+      },
+      "Sandbox": "read-only",
+      "Context": "project",
+      "Session": "fresh"
+    },
+    "tests": {
+      "Use": {
+        "Agent": "codex",
+        "Model": "terra",
+        "Effort": "medium"
+      },
+      "Fallback": {
+        "Agent": "claude",
+        "Model": "sonnet",
+        "Effort": "medium"
+      },
+      "Sandbox": "workspace-write",
+      "Context": "project",
+      "Session": "fresh"
+    }
+  },
+  "Sessions": {
+    "ResumeMaxInputTokens": 150000,
+    "IdleCloseMinutes": 30
+  },
+  "Policy": {
+    "OnUnmatched": "ask",
+    "AskTimeoutSeconds": 120,
+    "Rules": [
+      {
+        "Action": "mcp",
+        "Match": "codegraph/codegraph_search",
+        "Decision": "allow",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "mcp",
+        "Match": "codegraph/codegraph_context",
+        "Decision": "allow",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "mcp",
+        "Match": "codegraph/codegraph_explore",
+        "Decision": "allow",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "mcp",
+        "Match": "codegraph/codegraph_node",
+        "Decision": "allow",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "mcp",
+        "Match": "codegraph/codegraph_callers",
+        "Decision": "allow",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "mcp",
+        "Match": "codegraph/codegraph_callees",
+        "Decision": "allow",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "mcp",
+        "Match": "codegraph/codegraph_impact",
+        "Decision": "allow",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "mcp",
+        "Match": "codegraph/codegraph_files",
+        "Decision": "allow",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "mcp",
+        "Match": "codegraph/codegraph_status",
+        "Decision": "allow",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "read",
+        "Match": "**",
+        "Decision": "allow",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "read",
+        "Match": "{**/.env,**/.env.*,**/*.pem,**/*.key,**/secrets/**}",
+        "Decision": "deny",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "write",
+        "Match": "{**/.duolog/**,**/.git,**/.git/**}",
+        "Decision": "deny",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "write",
+        "Match": "{.claude/settings*.json,.claude/hooks/**,.codex/**}",
+        "Decision": "deny",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "write",
+        "Match": "**",
+        "Decision": "allow",
+        "Roles": [
+          "planner",
+          "implement",
+          "implement_complex",
+          "mechanical",
+          "tests",
+          "docs",
+          "debug_hard"
+        ],
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "{go,cargo,npm,pnpm,uv,task,make} {test,lint,fmt,build}*",
+        "Decision": "allow",
+        "Roles": [
+          "planner",
+          "implement",
+          "implement_complex",
+          "mechanical",
+          "tests",
+          "docs",
+          "debug_hard"
+        ],
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "{npm,pnpm} run {test,lint,fmt,build}*",
+        "Decision": "allow",
+        "Roles": [
+          "planner",
+          "implement",
+          "implement_complex",
+          "mechanical",
+          "tests",
+          "docs",
+          "debug_hard"
+        ],
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "{npm,pnpm} run {type,typecheck,type:*}",
+        "Decision": "allow",
+        "Roles": [
+          "planner",
+          "implement",
+          "implement_complex",
+          "mechanical",
+          "tests",
+          "docs",
+          "debug_hard"
+        ],
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "uv run {pytest,ruff,ty}*",
+        "Decision": "allow",
+        "Roles": [
+          "planner",
+          "implement",
+          "implement_complex",
+          "mechanical",
+          "tests",
+          "docs",
+          "debug_hard"
+        ],
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "{./,}node_modules/.bin/{tsc,vue-tsc,eslint,prettier,biome,vitest,jest}*",
+        "Decision": "allow",
+        "Roles": [
+          "planner",
+          "implement",
+          "implement_complex",
+          "mechanical",
+          "tests",
+          "docs",
+          "debug_hard"
+        ],
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "{.venv/bin/,}{pytest,ruff,black,mypy,pyright,basedpyright,ty}*",
+        "Decision": "allow",
+        "Roles": [
+          "planner",
+          "implement",
+          "implement_complex",
+          "mechanical",
+          "tests",
+          "docs",
+          "debug_hard"
+        ],
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "{python,python3,.venv/bin/python} -m {pytest,ruff,mypy,black}*",
+        "Decision": "allow",
+        "Roles": [
+          "planner",
+          "implement",
+          "implement_complex",
+          "mechanical",
+          "tests",
+          "docs",
+          "debug_hard"
+        ],
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "{go vet,go build,gofmt,staticcheck,golangci-lint run}*",
+        "Decision": "allow",
+        "Roles": [
+          "planner",
+          "implement",
+          "implement_complex",
+          "mechanical",
+          "tests",
+          "docs",
+          "debug_hard"
+        ],
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "cargo {check,clippy,fmt,nextest}*",
+        "Decision": "allow",
+        "Roles": [
+          "planner",
+          "implement",
+          "implement_complex",
+          "mechanical",
+          "tests",
+          "docs",
+          "debug_hard"
+        ],
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "{clang-format,clang-tidy,cppcheck,ctest,cmake --build,ninja -C}*",
+        "Decision": "allow",
+        "Roles": [
+          "planner",
+          "implement",
+          "implement_complex",
+          "mechanical",
+          "tests",
+          "docs",
+          "debug_hard"
+        ],
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "make {check,typecheck,vet,format}*",
+        "Decision": "allow",
+        "Roles": [
+          "planner",
+          "implement",
+          "implement_complex",
+          "mechanical",
+          "tests",
+          "docs",
+          "debug_hard"
+        ],
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "{./gradlew,gradle} --offline {test,check,build}*",
+        "Decision": "allow",
+        "Roles": [
+          "planner",
+          "implement",
+          "implement_complex",
+          "mechanical",
+          "tests",
+          "docs",
+          "debug_hard"
+        ],
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "{./mvnw,mvn} -o {test,verify,compile}*",
+        "Decision": "allow",
+        "Roles": [
+          "planner",
+          "implement",
+          "implement_complex",
+          "mechanical",
+          "tests",
+          "docs",
+          "debug_hard"
+        ],
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "dotnet {build,test} --no-restore*",
+        "Decision": "allow",
+        "Roles": [
+          "planner",
+          "implement",
+          "implement_complex",
+          "mechanical",
+          "tests",
+          "docs",
+          "debug_hard"
+        ],
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "git {status,diff,log,show}*",
+        "Decision": "allow",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "{cat,head,tail,ls,pwd,wc,rg,grep,find,sed,jq,stat,file,du,tree,cut,nl,comm,sort,uniq,realpath,which,basename,dirname,shasum,md5,Get-Content,Get-ChildItem,Get-Location,Test-Path,Select-String,Get-Item}*",
+        "Decision": "allow",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "git {push,reset --hard,clean,rebase}*",
+        "Decision": "deny",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "rm -rf *",
+        "Decision": "deny",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "{claude,codex}",
+        "Decision": "deny",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "{claude,codex} *",
+        "Decision": "deny",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
+        "Match": "remove-item -recurse *",
+        "Decision": "deny",
+        "Roles": null,
+        "ReadOnly": false
+      },
+      {
+        "Action": "net",
+        "Match": "*",
+        "Decision": "ask",
+        "Roles": null,
+        "ReadOnly": false
+      }
+    ]
+  },
+  "Capabilities": {
+    "OnMissing": {
+      "Skill": "read_source",
+      "MCP": "lead_first",
+      "Plugin": "lead_first"
+    },
+    "Hints": {},
+    "OnAuthFailure": "login_then_lead",
+    "LoginTimeoutSeconds": 180,
+    "MCPTools": {}
+  },
+  "Sync": {
+    "Auto": true,
+    "Agents": {
+      "ModelMap": {
+        "fable": "astra",
+        "haiku": "luna",
+        "opus": "sol",
+        "sonnet": "terra"
+      },
+      "DefaultEffort": {
+        "fable": "high",
+        "haiku": "low",
+        "opus": "high",
+        "sonnet": "medium"
+      },
+      "EffortMap": {
+        "high": "high",
+        "low": "low",
+        "max": "max",
+        "medium": "medium",
+        "ultra": "max",
+        "xhigh": "xhigh"
+      },
+      "CodexName": "keep",
+      "DropKeys": [
+        "color"
+      ],
+      "Overrides": {}
+    },
+    "Skills": {
+      "DropKeys": []
+    }
+  },
+  "EnvPassthrough": [
+    "PATH",
+    "HOME",
+    "USER",
+    "CODEX_HOME",
+    "CLAUDE_CONFIG_DIR"
+  ],
+  "Workers": {
+    "InheritPlugins": false,
+    "CompactWindow": "auto",
+    "CompactLadder": {
+      "max": 500000,
+      "pro": 250000,
+      "ultra": 700000
+    }
+  },
+  "Lead": {
+    "CompactNotes": true
+  },
+  "Rex": {
+    "StuckNotifyMinutes": 5,
+    "AutoAnswers": [
+      {
+        "Match": "Hooks need review",
+        "Answer": "Continue without trusting"
+      }
+    ],
+    "CaptureLines": 20,
+    "StartTimeoutSeconds": 120
+  },
+  "Learning": {
+    "Enabled": false,
+    "Threshold": 2.5,
+    "QualityMargin": 0.25,
+    "PriorRuns": 2,
+    "Uncertainty": 0.5,
+    "ProfileBelowRuns": 3,
+    "Judges": [
+      {
+        "Agent": "claude",
+        "Model": "opus",
+        "Effort": "high",
+        "Prior": 0
+      },
+      {
+        "Agent": "codex",
+        "Model": "sol",
+        "Effort": "high",
+        "Prior": 0
+      }
+    ],
+    "Classify": [
+      {
+        "When": {
+          "role": "planner"
+        },
+        "Class": "feature"
+      },
+      {
+        "When": {
+          "output": "plan"
+        },
+        "Class": "skeleton"
+      },
+      {
+        "When": {
+          "exemplar": "no",
+          "output": "code"
+        },
+        "Class": "skeleton"
+      },
+      {
+        "When": {
+          "output": "review",
+          "target": "plan"
+        },
+        "Class": "plan_review"
+      },
+      {
+        "When": {
+          "outside_evidence": "yes"
+        },
+        "Class": "debug_multi"
+      },
+      {
+        "When": {
+          "components": "2+",
+          "output": "diagnosis"
+        },
+        "Class": "debug_multi"
+      },
+      {
+        "When": {
+          "output": "diagnosis"
+        },
+        "Class": "debug"
+      },
+      {
+        "When": {
+          "output": "tests"
+        },
+        "Class": "tests"
+      },
+      {
+        "When": {
+          "output": "review"
+        },
+        "Class": "review"
+      },
+      {
+        "When": {
+          "output": "docs"
+        },
+        "Class": "docs"
+      },
+      {
+        "When": {
+          "role": "mechanical"
+        },
+        "Class": "mechanical"
+      },
+      {
+        "When": {
+          "output": "code"
+        },
+        "Class": "implement"
+      }
+    ],
+    "Classes": {
+      "debug": {
+        "Description": "a root cause readable from one repository's code",
+        "Priority": "cost",
+        "Roles": [
+          "debug",
+          "debug_hard"
+        ],
+        "Ladder": [
+          {
+            "Agent": "codex",
+            "Model": "terra",
+            "Effort": "medium",
+            "Prior": 2.9
+          },
+          {
+            "Agent": "codex",
+            "Model": "sol",
+            "Effort": "medium",
+            "Prior": 2.9
+          },
+          {
+            "Agent": "claude",
+            "Model": "opus",
+            "Effort": "high",
+            "Prior": 2.9
+          }
+        ],
+        "Steps": null,
+        "Rubric": [
+          "correct against the tests and the brief",
+          "false claims (count)"
+        ],
+        "Checks": null
+      },
+      "debug_multi": {
+        "Description": "the cause spans several components or needs outside evidence such as logs, stacks or dumps",
+        "Priority": "quality",
+        "Roles": [
+          "debug_hard"
+        ],
+        "Ladder": [
+          {
+            "Agent": "claude",
+            "Model": "opus",
+            "Effort": "high",
+            "Prior": 2.8
+          },
+          {
+            "Agent": "codex",
+            "Model": "sol",
+            "Effort": "high",
+            "Prior": 2.3
+          }
+        ],
+        "Steps": null,
+        "Rubric": [
+          "root cause correct and shown with evidence",
+          "false claims (count)"
+        ],
+        "Checks": null
+      },
+      "docs": {
+        "Description": "documentation and changelog",
+        "Priority": "cost",
+        "Roles": [
+          "docs"
+        ],
+        "Ladder": [
+          {
+            "Agent": "claude",
+            "Model": "sonnet",
+            "Effort": "medium",
+            "Prior": 2.9
+          },
+          {
+            "Agent": "codex",
+            "Model": "terra",
+            "Effort": "medium",
+            "Prior": 2.9
+          }
+        ],
+        "Steps": null,
+        "Rubric": [
+          "correct against the tests and the brief",
+          "false claims (count)"
+        ],
+        "Checks": null
+      },
+      "feature": {
+        "Description": "a whole feature from a brief, handed to planner, which plans, implements and checks",
+        "Priority": "cost",
+        "Roles": [
+          "planner"
+        ],
+        "Ladder": [
+          {
+            "Agent": "codex",
+            "Model": "sol",
+            "Effort": "medium",
+            "Prior": 2.9
+          },
+          {
+            "Agent": "codex",
+            "Model": "sol",
+            "Effort": "high",
+            "Prior": 2.9
+          }
+        ],
+        "Steps": null,
+        "Rubric": [
+          "correct against the tests and the brief",
+          "false claims (count)"
+        ],
+        "Checks": null
+      },
+      "implement": {
+        "Description": "a change inside existing code with a clear brief and patterns to follow",
+        "Priority": "cost",
+        "Roles": [
+          "implement",
+          "implement_complex"
+        ],
+        "Ladder": [
+          {
+            "Agent": "codex",
+            "Model": "sol",
+            "Effort": "medium",
+            "Prior": 2.9
+          },
+          {
+            "Agent": "codex",
+            "Model": "sol",
+            "Effort": "high",
+            "Prior": 2.9
+          },
+          {
+            "Agent": "claude",
+            "Model": "opus",
+            "Effort": "high",
+            "Prior": 2.9
+          }
+        ],
+        "Steps": null,
+        "Rubric": [
+          "correct against the tests and the brief",
+          "false claims (count)"
+        ],
+        "Checks": null
+      },
+      "mechanical": {
+        "Description": "renames, moves and repetitive edits across files to a given plan",
+        "Priority": "cost",
+        "Roles": [
+          "mechanical"
+        ],
+        "Ladder": [
+          {
+            "Agent": "codex",
+            "Model": "terra",
+            "Effort": "low",
+            "Prior": 2.9
+          },
+          {
+            "Agent": "codex",
+            "Model": "terra",
+            "Effort": "medium",
+            "Prior": 2.9
+          }
+        ],
+        "Steps": null,
+        "Rubric": [
+          "correct against the tests and the brief",
+          "false claims (count)"
+        ],
+        "Checks": null
+      },
+      "plan_review": {
+        "Description": "find gaps, overreach and unrequested decisions in a plan or a first implementation",
+        "Priority": "quality",
+        "Roles": [
+          "review_final",
+          "review_intermediate"
+        ],
+        "Ladder": [
+          {
+            "Agent": "claude",
+            "Model": "opus",
+            "Effort": "high",
+            "Prior": 2.8
+          },
+          {
+            "Agent": "codex",
+            "Model": "sol",
+            "Effort": "high",
+            "Prior": 2.3
+          }
+        ],
+        "Steps": null,
+        "Rubric": [
+          "real gaps found (count)",
+          "invented gaps (count)",
+          "unrequested decisions found (count)"
+        ],
+        "Checks": null
+      },
+      "review": {
+        "Description": "a review of a diff",
+        "Priority": "cost",
+        "Roles": [
+          "review_intermediate",
+          "review_final",
+          "security_review"
+        ],
+        "Ladder": [
+          {
+            "Agent": "codex",
+            "Model": "sol",
+            "Effort": "medium",
+            "Prior": 2.9
+          },
+          {
+            "Agent": "claude",
+            "Model": "opus",
+            "Effort": "high",
+            "Prior": 2.9
+          }
+        ],
+        "Steps": null,
+        "Rubric": [
+          "correct against the tests and the brief",
+          "false claims (count)"
+        ],
+        "Checks": null
+      },
+      "skeleton": {
+        "Description": "new project, module or layer; the structure must be invented; no pattern in the code to copy",
+        "Priority": "quality",
+        "Roles": [
+          "plan",
+          "review_final",
+          "implement",
+          "implement_complex"
+        ],
+        "Ladder": [
+          {
+            "Agent": "codex",
+            "Model": "sol",
+            "Effort": "high",
+            "Prior": 2.7
+          },
+          {
+            "Agent": "claude",
+            "Model": "opus",
+            "Effort": "high",
+            "Prior": 2.7
+          }
+        ],
+        "Steps": {
+          "plan": [
+            {
+              "Agent": "claude",
+              "Model": "opus",
+              "Effort": "high",
+              "Prior": 2.8
+            },
+            {
+              "Agent": "codex",
+              "Model": "sol",
+              "Effort": "high",
+              "Prior": 2.3
+            }
+          ],
+          "review_final": [
+            {
+              "Agent": "claude",
+              "Model": "opus",
+              "Effort": "high",
+              "Prior": 2.8
+            },
+            {
+              "Agent": "codex",
+              "Model": "sol",
+              "Effort": "high",
+              "Prior": 2.3
+            }
+          ]
+        },
+        "Rubric": [
+          "structure matches what was asked",
+          "files, dependencies and settings nobody asked for (count)",
+          "decisions taken that should have been asked (count)",
+          "templates and conventions given in advance and broken (count)"
+        ],
+        "Checks": null
+      },
+      "tests": {
+        "Description": "tests for existing behaviour",
+        "Priority": "cost",
+        "Roles": [
+          "tests"
+        ],
+        "Ladder": [
+          {
+            "Agent": "codex",
+            "Model": "terra",
+            "Effort": "medium",
+            "Prior": 2.9
+          },
+          {
+            "Agent": "codex",
+            "Model": "sol",
+            "Effort": "medium",
+            "Prior": 2.9
+          }
+        ],
+        "Steps": null,
+        "Rubric": [
+          "correct against the tests and the brief",
+          "false claims (count)"
+        ],
+        "Checks": null
+      }
+    },
+    "Learned": null
+  },
+  "Telemetry": {
+    "Enabled": true,
+    "RetentionDays": 30,
+    "PruneEveryHours": 6,
+    "MaxMegabytes": 16,
+    "ProjectEnabled": true
+  },
+  "Calibration": {
+    "MaxWeeklyShare": 0.1,
+    "MaxWindowShare": 0.5,
+    "CellMaxMinutes": 45,
+    "CellMaxTokens": 1500000,
+    "CellMaxTurns": 100,
+    "HistoryDays": 90,
+    "Filter": {
+      "MinFiles": 1,
+      "MaxFiles": 20,
+      "MinLines": 10,
+      "MaxLines": 400,
+      "LargeMaxFiles": 40,
+      "LargeMaxLines": 1500
+    },
+    "Ignored": null
+  },
+  "WorkerModes": {
+    "Roles": {
+      "implement": {
+        "Claude": "auto",
+        "Codex": "workspace-write",
+        "Network": true,
+        "WritableRoots": [
+          "<home>/go/pkg/mod"
+        ]
+      }
+    },
+    "Families": {
+      "luna": {
+        "Claude": "",
+        "Codex": "read-only",
+        "Network": false,
+        "WritableRoots": null
+      }
+    },
+    "Ignored": null
+  },
+  "PaidRuns": {
+    "UsableShare": 0.5,
+    "Claude": {
+      "Allow": false,
+      "DailyCapUSD": 0,
+      "Calibrate": false,
+      "Env": [
+        "ANTHROPIC_API_KEY"
+      ],
+      "Account": "auto",
+      "SubscriptionEndpoints": {}
+    },
+    "Codex": {
+      "Allow": false,
+      "DailyCapUSD": 0,
+      "Calibrate": false,
+      "Env": [
+        "OPENAI_API_KEY"
+      ],
+      "Account": "auto"
+    }
+  },
+  "Balance": {
+    "MaxAgeSeconds": 120,
+    "MinIntervalShare": 0.05,
+    "Margin": 0.2
+  },
+  "Routing": {
+    "Balance": "pace",
+    "Margin": 0.1
+  }
+}

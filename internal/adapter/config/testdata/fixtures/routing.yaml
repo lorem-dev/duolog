@@ -1,0 +1,7 @@
+routing:
+  balance: off
+  margin: 0.2
+roles:
+  review:
+    use: {agent: codex, model: sol, effort: high}
+    fallback: {agent: claude, model: opus, effort: high}
