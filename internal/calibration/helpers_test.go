@@ -3,10 +3,26 @@ package calibration
 import (
 	"testing"
 	"time"
+
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 // testTime is a fixed UTC instant, so run ids and dates do not depend on the clock.
 var testTime = time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+
+// testCalibration holds the default caps. The admission tests in
+// internal/core/budget use the same helpers.
+func testCalibration() config.Calibration {
+	return config.Calibration{MaxWeeklyShare: 0.10, MaxWindowShare: 0.5}
+}
+
+func weekly(used float64) Window {
+	return Window{Kind: KindWeekly, UsedPercent: used, ResetsAt: testTime.Add(72 * time.Hour)}
+}
+
+func fiveHour(used float64) Window {
+	return Window{Kind: KindFiveHour, UsedPercent: used, ResetsAt: testTime.Add(3 * time.Hour)}
+}
 
 func stateDir(t *testing.T) string {
 	t.Helper()

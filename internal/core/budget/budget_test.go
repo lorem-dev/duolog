@@ -1,9 +1,8 @@
-package calibration
+package budget
 
 import (
 	"context"
 	"errors"
-	"reflect"
 	"testing"
 	"time"
 
@@ -202,24 +201,5 @@ func TestTrackStartsNewWindowAfterReset(t *testing.T) {
 	fresh.Track("codex", []Window{{Kind: KindFiveHour, UsedPercent: 7, ResetsAt: next}})
 	if want := (WindowSpend{ResetsAt: next, StartUsed: 7, LastUsed: 7}); fresh.Windows["codex"] != want {
 		t.Fatalf("first window = %+v, want %+v", fresh.Windows["codex"], want)
-	}
-}
-
-func TestRatesRoundTrip(t *testing.T) {
-	dir := stateDir(t)
-	rates, err := ReadRates(dir)
-	if err != nil || len(rates) != 0 {
-		t.Fatalf("ReadRates without a file = %v, %v; want empty", rates, err)
-	}
-	want := map[string]Rate{"claude": {WeeklyPerMTok: 0.5, WindowPerMTok: 3}}
-	if err := WriteRates(dir, want); err != nil {
-		t.Fatal(err)
-	}
-	got, err := ReadRates(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("ReadRates = %v, want %v", got, want)
 	}
 }

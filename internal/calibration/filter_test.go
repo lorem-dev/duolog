@@ -41,7 +41,7 @@ func files(dir string, n, lines int) []journal.FileChange {
 
 func TestFilterReasons(t *testing.T) {
 	base := func() Candidate {
-		return Candidate{Parent: "p", Ref: "r", Subject: "add parser", Files: files("a", 3, 60), author: "t"}
+		return Candidate{Parent: "p", Ref: "r", Subject: "add parser", Files: files("a", 3, 60), Author: "t"}
 	}
 	cases := []struct {
 		name      string
@@ -52,13 +52,13 @@ func TestFilterReasons(t *testing.T) {
 	}{
 		{"no parent", func(c *Candidate) { c.Parent = "" }, false, "no parent", false},
 		{"revert subject", func(c *Candidate) { c.Subject = `Revert "add x"` }, false, "revert", false},
-		{"revert body", func(c *Candidate) { c.body = "This reverts commit abc." }, false, "revert", false},
+		{"revert body", func(c *Candidate) { c.Body = "This reverts commit abc." }, false, "revert", false},
 		{"release", func(c *Candidate) { c.Subject = "release: 1.2.0" }, false, "release or version bump", false},
 		{"version", func(c *Candidate) { c.Subject = "v1.2.0" }, false, "release or version bump", false},
 		{"lockfile", func(c *Candidate) { c.Files = []journal.FileChange{{Path: "go.sum", Added: 40}} }, false, "lockfile only", false},
 		{"vendored", func(c *Candidate) { c.Files = []journal.FileChange{{Path: "vendor/x/y.go", Added: 40}} }, false, "generated or vendored only", false},
-		{"formatting", func(c *Candidate) { c.formatting = true }, false, "formatting only", false},
-		{"bot", func(c *Candidate) { c.author = "dependabot[bot]" }, false, "bot author", false},
+		{"formatting", func(c *Candidate) { c.Formatting = true }, false, "formatting only", false},
+		{"bot", func(c *Candidate) { c.Author = "dependabot[bot]" }, false, "bot author", false},
 		{"too many files", func(c *Candidate) { c.Files = files("a", 25, 100) }, false, "files outside 1-20", false},
 		{"too few lines", func(c *Candidate) { c.Files = files("a", 3, 5) }, false, "lines outside 10-400", false},
 		{"too many lines", func(c *Candidate) { c.Files = files("a", 3, 600) }, false, "lines outside 10-400", false},

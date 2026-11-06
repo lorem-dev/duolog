@@ -374,7 +374,7 @@ func (r *Runner) rewriteAll(ctx context.Context) (Outcome, bool, error) {
 			before = ws
 			r.Run.Spend.Raise(agent, before, cost)
 			if planned {
-				r.Run.Spend.addJudge(agent, cost.WeeklyPct)
+				r.Run.Spend.AddJudge(agent, cost.WeeklyPct)
 			}
 			heldUSD = r.holdUSD(agent, cellUSD(r.Cfg, agent, judge.Model, judgeTokensHigh), planned)
 			return true, r.Run.Save(r.StateDir)
@@ -621,7 +621,7 @@ func (r *Runner) settle(ctx context.Context, agent, family string, before []Wind
 	if weekly > cost.WeeklyPct {
 		r.Run.Spend.WeeklyPct[agent] += weekly - cost.WeeklyPct
 		if judge {
-			r.Run.Spend.addJudge(agent, weekly-cost.WeeklyPct)
+			r.Run.Spend.AddJudge(agent, weekly-cost.WeeklyPct)
 		}
 	}
 	return weekly, window, nil
@@ -643,14 +643,6 @@ func (r *Runner) release(agent string, before []Window, cost CellCost, judge boo
 func notStarted(err error) bool {
 	var ns *delegate.NotStartedError
 	return errors.As(err, &ns)
-}
-
-// addJudge counts weekly points of the agent's spend as judging's.
-func (s *Spend) addJudge(agent string, pct float64) {
-	if s.JudgePct == nil {
-		s.JudgePct = map[string]float64{}
-	}
-	s.JudgePct[agent] += pct
 }
 
 // learnRate gives an agent without a measured rate the one a judge call of

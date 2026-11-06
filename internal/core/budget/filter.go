@@ -1,4 +1,4 @@
-package calibration
+package budget
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/learn"
-	"github.com/lorem-dev/duolog/internal/journal"
+	"github.com/lorem-dev/duolog/internal/core/record"
 )
 
 var releaseSubject = regexp.MustCompile(`(?i)^(release|bump|chore\(release\)|v?\d+\.\d+\.\d+\b)`)
@@ -27,10 +27,10 @@ var specClasses = []string{"skeleton", "plan_review", "debug_multi"}
 // Large set.
 func Filter(c *Candidate, f config.CalibrationFilter, large bool) {
 	c.Excluded, c.Large = "", false
-	var kept []journal.FileChange
+	var kept []record.FileChange
 	for _, fc := range c.Files {
-		if vendored(fc.Path) || generatedName(fc.Path) || c.generated[fc.Path] {
-			c.dropped++
+		if vendored(fc.Path) || generatedName(fc.Path) || c.Generated[fc.Path] {
+			c.Dropped++
 			continue
 		}
 		kept = append(kept, fc)
@@ -68,19 +68,19 @@ func exclusion(c *Candidate) string {
 	switch {
 	case c.Parent == "":
 		return "no parent"
-	case strings.HasPrefix(c.Subject, "Revert ") || strings.Contains(c.body, "This reverts commit"):
+	case strings.HasPrefix(c.Subject, "Revert ") || strings.Contains(c.Body, "This reverts commit"):
 		return "revert"
 	case releaseSubject.MatchString(c.Subject):
 		return "release or version bump"
-	case len(c.Files) > 0 && !slices.ContainsFunc(c.Files, func(fc journal.FileChange) bool {
+	case len(c.Files) > 0 && !slices.ContainsFunc(c.Files, func(fc record.FileChange) bool {
 		return !slices.Contains(lockfiles, path.Base(fc.Path))
 	}):
 		return "lockfile only"
-	case len(c.Files) == 0 && c.dropped > 0:
+	case len(c.Files) == 0 && c.Dropped > 0:
 		return "generated or vendored only"
-	case c.formatting:
+	case c.Formatting:
 		return "formatting only"
-	case strings.Contains(c.author, "[bot]"):
+	case strings.Contains(c.Author, "[bot]"):
 		return "bot author"
 	}
 	return ""
@@ -139,7 +139,7 @@ func specSource(source string) bool {
 	return false
 }
 
-func all(files []journal.FileChange, match func(string) bool) bool {
+func all(files []record.FileChange, match func(string) bool) bool {
 	for _, fc := range files {
 		if !match(fc.Path) {
 			return false

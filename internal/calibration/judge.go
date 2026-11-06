@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/core/usage"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/journal"
@@ -83,29 +82,6 @@ func Pairs(run *Run) []Pair {
 		return cmp.Or(cmp.Compare(x.Class, y.Class), cmp.Compare(x.Task, y.Task), cmp.Compare(x.A, y.A), cmp.Compare(x.B, y.B))
 	})
 	return pairs
-}
-
-// JudgeTargets gives a pair of different agents the first judge of each, and
-// a pair of one agent the first judge of another agent. Without such a judge
-// it falls back to learn.JudgeTarget.
-func JudgeTargets(l config.Learning, a, b config.Target) []config.Target {
-	var out []config.Target
-	seen := map[string]bool{}
-	for _, e := range l.Judges {
-		switch {
-		case a.Agent == b.Agent && e.Agent != a.Agent:
-			return []config.Target{e.Target()}
-		case a.Agent != b.Agent && (e.Agent == a.Agent || e.Agent == b.Agent) && !seen[e.Agent]:
-			seen[e.Agent] = true
-			out = append(out, e.Target())
-		}
-	}
-	if len(out) == 0 {
-		if t := learn.JudgeTarget(l, a, b); t.Agent != "" {
-			out = append(out, t)
-		}
-	}
-	return out
 }
 
 // JudgeTask builds the judge's task and its five neutral files: the
@@ -584,8 +560,6 @@ func judgeOnce(ctx context.Context, env JudgeEnv, c config.Class, dir string, n 
 	return Call{Judge: targetKey(target), AFirst: aFirst, Scores: scores}, usd, nil
 }
 
-func targetKey(t config.Target) string { return t.Agent + "/" + t.Model + "/" + t.Effort }
-
 // JudgeSlot is the folder judge calls and statement rewrites work in, beside
 // the tree slots: <user cache dir>/duolog/calibration/<project id>/judge. It
 // stays the same from run to run, so the person trusts it in Codex once.
@@ -729,7 +703,7 @@ func (r *Runner) Judge(ctx context.Context, env JudgeEnv, pairs []Pair, judged m
 		step.budget = r.stepBudget(agent, r.newReceipt("judge"), true)
 		step.waiting = r.waiting(agent)
 		r.Run.Spend.Raise(agent, before, cost)
-		r.Run.Spend.addJudge(agent, cost.WeeklyPct)
+		r.Run.Spend.AddJudge(agent, cost.WeeklyPct)
 		// The high USD is held in the same save, so an interrupted call
 		// keeps it counted against the approved USD.
 		heldUSD := r.holdUSD(agent, cellUSD(r.Cfg, agent, target.Model, judgeTokensHigh), true)

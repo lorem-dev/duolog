@@ -1,11 +1,11 @@
-package calibration
+package budget
 
 import (
 	"math"
 	"slices"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/journal"
+	"github.com/lorem-dev/duolog/internal/core/record"
 )
 
 // Mean is what the journal says one delegation of a class costs.
@@ -39,7 +39,7 @@ var scopeDefaults = map[string]struct {
 // JournalMeans averages tokens (input and output) and seconds per class
 // over the delegations that say something about quality, leaving out the
 // profile reruns of another delegation.
-func JournalMeans(ds []journal.Delegation) ClassMeans {
+func JournalMeans(ds []record.Delegation) ClassMeans {
 	tokens := map[string][]int64{}
 	seconds := map[string]float64{}
 	for _, d := range ds {

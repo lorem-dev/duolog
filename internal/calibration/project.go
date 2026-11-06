@@ -29,24 +29,6 @@ type ProjectPart struct {
 	Evidence map[string][]EvidenceRow `yaml:"evidence"` // class -> rows
 }
 
-type SurveyFacts struct {
-	Languages  []string `yaml:"languages,omitempty" json:"languages,omitempty"`
-	Build      []string `yaml:"build,omitempty" json:"build,omitempty"`
-	Test       []string `yaml:"test,omitempty" json:"test,omitempty"`
-	Components []string `yaml:"components,omitempty" json:"components,omitempty"`
-}
-
-type ManifestTask struct {
-	ID              string            `yaml:"id" json:"id"`
-	Statement       string            `yaml:"statement" json:"statement"`
-	StatementSource string            `yaml:"statement_source" json:"statement_source"`
-	Class           string            `yaml:"class" json:"class"`
-	Verification    string            `yaml:"verification" json:"verification"`
-	Sources         []string          `yaml:"sources,omitempty" json:"sources,omitempty"` // "commit:<sha>", "plan:<path>#Task 3", "pr:12", "adr:<path>"
-	Hidden          []string          `yaml:"hidden,omitempty" json:"hidden,omitempty"`   // hidden test files
-	Features        map[string]string `yaml:"features,omitempty" json:"features,omitempty"`
-}
-
 // EvidenceRow is one entry's calibration evidence on a ladder. Judged tasks
 // verified by the judge alone count at half weight, so JudgedQuality is the
 // mean over the judged tasks at those weights, and JudgeOnly says how many
@@ -66,6 +48,13 @@ type EvidenceRow struct {
 	Evidence      int      `yaml:"evidence"`
 	Date          string   `yaml:"date"` // "2006-01-02" UTC
 	DuologVersion string   `yaml:"duolog_version"`
+}
+
+type SurveyFacts struct {
+	Languages  []string `yaml:"languages,omitempty" json:"languages,omitempty"`
+	Build      []string `yaml:"build,omitempty" json:"build,omitempty"`
+	Test       []string `yaml:"test,omitempty" json:"test,omitempty"`
+	Components []string `yaml:"components,omitempty" json:"components,omitempty"`
 }
 
 func projectPath(stateDir string) string { return filepath.Join(Dir(stateDir), ProjectFile) }

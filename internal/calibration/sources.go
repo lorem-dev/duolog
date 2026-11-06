@@ -25,37 +25,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/journal"
 )
 
-// Candidate is one past change that may become a calibration task.
-type Candidate struct {
-	ID              string // "k-" + first 12 hex of sha256(sources)
-	Parent, Ref     string // parent of the first commit; last commit
-	Commits         []string
-	Time            time.Time
-	StatementSource string // "plan", "spec", "pr", "issue", "commit", "reconstructed"
-	Statement       string
-	NeedsRewrite    bool // "commit" and "reconstructed"
-	Sources         []string
-	Subject         string               // first message line; never shown to a candidate
-	Files           []journal.FileChange // generated and vendored dropped
-	Lines           int
-	Components      []string
-	Hidden          []string // test files the change adds or changes
-	HiddenNames     []string
-	Role            string
-	Features        map[string]string
-	Class           string
-	Large           bool // inside the large stratum
-	Excluded        string
-
-	// Facts Filter reads; they never leave the package, so no author name
-	// or message reaches a manifest.
-	body       string
-	author     string
-	formatting bool
-	generated  map[string]bool
-	dropped    int
-}
-
 // GH runs the gh CLI with args in the project; nil skips pull requests.
 type GH func(ctx context.Context, args ...string) ([]byte, error)
 
@@ -309,7 +278,7 @@ func serviceIdentity(name, email string) bool {
 
 func single(c gitCommit) Candidate {
 	return Candidate{Parent: c.parent, Ref: c.sha, Commits: []string{c.sha}, Time: c.time,
-		Subject: c.subject, Files: c.files, body: c.body, author: c.author}
+		Subject: c.subject, Files: c.files, Body: c.body, Author: c.author}
 }
 
 // ledgerCandidates turns each completed task of an SDD ledger into one
@@ -356,12 +325,12 @@ func ledgerCandidates(ctx context.Context, root string, blobs *blobs, commits []
 			}
 			// The last commit speaks for the range; any message may revert.
 			k := Candidate{Parent: commits[i].parent, Ref: last, Commits: shas, Time: commits[j].time,
-				Subject: commits[j].subject, author: commits[j].author}
+				Subject: commits[j].subject, Author: commits[j].author}
 			var bodies []string
 			for n := i; n >= j; n-- {
 				bodies = append(bodies, commits[n].body)
 			}
-			k.body = strings.Join(bodies, "\n")
+			k.Body = strings.Join(bodies, "\n")
 			if k.Files, err = rangeFiles(ctx, root, commits[j:i+1]); err != nil {
 				return nil, nil, nil, err
 			}
@@ -704,7 +673,7 @@ func markFormatting(ctx context.Context, root string, candidates []Candidate) er
 			continue
 		}
 		if len(k.Commits) == 1 {
-			k.formatting = !substantive[k.Ref]
+			k.Formatting = !substantive[k.Ref]
 			continue
 		}
 		out, err := run(ctx, root, "diff", "-w", "--ignore-blank-lines", "--no-renames", "--no-ext-diff",
@@ -712,7 +681,7 @@ func markFormatting(ctx context.Context, root string, candidates []Candidate) er
 		if err != nil {
 			return err
 		}
-		k.formatting = len(bytes.TrimSpace(out)) == 0
+		k.Formatting = len(bytes.TrimSpace(out)) == 0
 	}
 	return nil
 }
@@ -809,10 +778,10 @@ func markGenerated(ctx context.Context, root string, blobs *blobs, candidates []
 	for i := range candidates {
 		for name, s := range at[i] {
 			if marks[s].generated || attributed[s] {
-				if candidates[i].generated == nil {
-					candidates[i].generated = map[string]bool{}
+				if candidates[i].Generated == nil {
+					candidates[i].Generated = map[string]bool{}
 				}
-				candidates[i].generated[name] = true
+				candidates[i].Generated[name] = true
 			}
 		}
 	}

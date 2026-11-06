@@ -8,38 +8,9 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/lorem-dev/duolog/internal/core/budget"
 )
-
-// ClassCount says what mining found for one class.
-type ClassCount struct {
-	Candidates int    `json:"candidates"`
-	Valid      int    `json:"valid"`
-	Selected   int    `json:"selected"`
-	Reserve    int    `json:"reserve"`
-	WindowDays int    `json:"window_days"`
-	Skipped    string `json:"skipped,omitempty"`
-}
-
-type Exclusion struct {
-	ID     string `json:"id"`
-	Reason string `json:"reason"`
-}
-
-// Manifest is the sample of one calibration run, kept in its manifest.json.
-type Manifest struct {
-	Seed         int64                 `json:"seed"`
-	Tasks        []ManifestTask        `json:"tasks"`   // selected, in sample order; Round 1 first
-	Round2       []string              `json:"round2"`  // task IDs held for round 2
-	Reserve      map[string][]string   `json:"reserve"` // class -> task IDs
-	Counts       map[string]ClassCount `json:"counts"`
-	Excluded     []Exclusion           `json:"excluded"`
-	Estimates    map[string]Estimate   `json:"estimates"`    // selected and reserve tasks
-	Verification map[string]string     `json:"verification"` // task ID -> verification, selected and reserve
-	Rewrite      []string              `json:"rewrite"`      // task IDs whose statement is rewritten in the run
-	RepoFiles    int                   `json:"repo_files"`
-	HistoryDays  int                   `json:"history_days"`
-	CheckSeconds float64               `json:"check_seconds"`
-}
 
 // Sampling bounds per class.
 const (
@@ -49,7 +20,7 @@ const (
 
 // Recency buckets, in days before now.
 const (
-	recentDays = 90
+	recentDays = budget.RecentDays
 	yearDays   = 365
 )
 

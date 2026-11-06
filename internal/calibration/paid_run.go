@@ -6,7 +6,6 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/lorem-dev/duolog/internal/paidruns"
 )
@@ -27,9 +26,6 @@ const (
 	// stopHeld ends a resume while an earlier attempt of a step still holds
 	// its account reservation: its worker may still run.
 	stopHeld = "step still held"
-	// capRetry is how long a paid route at its 24-hour cap pauses the run;
-	// the resume reads the budget afresh.
-	capRetry = time.Hour
 )
 
 // stepHolder carries, through a step's context, the budget and the wait
@@ -109,7 +105,7 @@ func (r *Runner) stepBudget(agent, stepID string, judge bool) *paidruns.StepBudg
 		return nil
 	}
 	b := r.billing()[agent]
-	u := b.usable()
+	u := b.Usable()
 	cal := r.Cfg.Calibration
 	weekly := cal.MaxWeeklyShare*100*u - r.Run.Spend.WeeklyPct[agent]
 	usd := b.ApprovedUSD - r.Run.Spend.PaidUSD[agent]
@@ -139,7 +135,7 @@ func (r *Runner) judgeUSDLeft(agent string) float64 {
 // agent runs on a paid route; judge marks a judge call or planned rewrite.
 // A negative usd takes a charge back, never below 0.
 func (r *Runner) chargeUSD(agent string, usd float64, judge bool) {
-	if !r.billing()[agent].paid() || usd == 0 || math.IsNaN(usd) {
+	if !r.billing()[agent].Paid() || usd == 0 || math.IsNaN(usd) {
 		return
 	}
 	if r.Run.Spend.PaidUSD == nil {
@@ -159,7 +155,7 @@ func (r *Runner) chargeUSD(agent string, usd float64, judge bool) {
 // worker spent keeps it counted against the approved USD. It returns what it
 // charged, 0 on a route that is not paid, for settleUSD.
 func (r *Runner) holdUSD(agent string, high float64, judge bool) float64 {
-	if !r.billing()[agent].paid() || !(high > 0) {
+	if !r.billing()[agent].Paid() || !(high > 0) {
 		return 0
 	}
 	r.chargeUSD(agent, high, judge)

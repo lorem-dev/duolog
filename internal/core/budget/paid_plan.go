@@ -1,4 +1,4 @@
-package calibration
+package budget
 
 import (
 	"fmt"
@@ -9,6 +9,14 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/core/config"
 )
+
+// stopCap is the stop reason of a step that would pass the approved cap; the
+// run in internal/calibration handles the same text.
+const stopCap = "approved cap"
+
+// capRetry is how long a paid route at its 24-hour cap pauses the run; the
+// resume reads the budget afresh.
+const capRetry = time.Hour
 
 // Verdicts of an agent's route, as the account gate gives them.
 const (

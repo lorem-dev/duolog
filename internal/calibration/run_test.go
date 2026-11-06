@@ -764,7 +764,7 @@ func TestRunChargeClearsWhenReadingCatchesUp(t *testing.T) {
 		ws = spend.WithResets("codex", ws, testTime)
 		spend.Track("codex", ws)
 		five := accountWindow(ws, KindFiveHour)
-		return five.UsedPercent + spend.outstanding("codex", *five)
+		return five.UsedPercent + spend.OutstandingFor("codex", *five)
 	}
 	if got := level(); got != 30+BoundWindow {
 		t.Fatalf("five-hour level %v before the reading shows the cell, want %v", got, 30+BoundWindow)
