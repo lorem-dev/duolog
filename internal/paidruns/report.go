@@ -135,8 +135,8 @@ func (g *Gate) Read(ctx context.Context, in workerenv.ProcessInput, fresh bool) 
 }
 
 // Lines says the report in short lines. The worker's lines also carry what
-// belongs to the agent: its spend, its sessions and those of all agents, and
-// the ignored config keys.
+// belongs to the agent: its spend and its sessions. What belongs to the
+// account and the config is in AccountLines.
 func (r Report) Lines() []string {
 	a := r.Assessment
 	who := a.Agent + " " + string(a.Shape)
@@ -185,8 +185,15 @@ func (r Report) Lines() []string {
 		lines = append(lines, fmt.Sprintf("%.2f of it at estimates: peers report no token counts", r.EstimatedUSD))
 	}
 	t := r.Sessions
-	lines = append(lines, fmt.Sprintf("%s sessions %d of %d (tier %s: %s)", a.Agent, t.Live, t.Limit, t.Tier, t.Reason),
-		fmt.Sprintf("sessions %d of %d in all", r.TotalLive, r.TotalLimit))
+	return append(lines, fmt.Sprintf("%s sessions %d of %d (tier %s: %s)", a.Agent, t.Live, t.Limit, t.Tier, t.Reason))
+}
+
+// AccountLines are what no single agent owns: the live sessions of all
+// agents and the config keys Load ignored. Every report of one gate holds
+// the same, so a caller prints them once, from any report, after the
+// agents' lines.
+func (r Report) AccountLines() []string {
+	lines := []string{fmt.Sprintf("sessions %d of %d in all", r.TotalLive, r.TotalLimit)}
 	for _, n := range r.Notices {
 		lines = append(lines, "ignored config: "+n.Key+" ("+n.Reason+")")
 	}

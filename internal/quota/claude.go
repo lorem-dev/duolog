@@ -21,15 +21,17 @@ func readClaude(ctx context.Context, run runner) (Snapshot, error) {
 	}
 	closeOnCancel := context.AfterFunc(ctx, func() { _ = stdout.Close() })
 	defer closeOnCancel()
-	// Keep the last report with windows; a windowless report still carries
-	// billing evidence, such as rate_limits_available false.
+	// Keep the last report with windows; every report's billing evidence,
+	// such as rate_limits_available false, counts, whatever its order.
 	var found, evidence *Snapshot
+	var billing BillingFacts
 	scanner := scanLines(stdout)
 	for scanner.Scan() {
 		s, err := parseClaudeUsage(scanner.Bytes())
 		if err != nil {
 			continue
 		}
+		billing.mergeClaudeUsage(s.Billing)
 		if len(s.Windows) > 0 {
 			found = &s
 		} else {
@@ -50,6 +52,7 @@ func readClaude(ctx context.Context, run runner) (Snapshot, error) {
 	} else if evidence != nil {
 		s = *evidence
 	}
+	s.Billing = billing
 	loggedIn, err := readClaudeAuth(ctx, run, &s)
 	if err != nil {
 		return Snapshot{Billing: s.Billing}, err
@@ -63,13 +66,34 @@ func readClaude(ctx context.Context, run runner) (Snapshot, error) {
 	return s, nil
 }
 
+// mergeClaudeUsage folds the billing evidence of one /usage report into b:
+// any report that says windows are not available, that overage is on or
+// that names a workspace reason counts, so a later report cannot hide an
+// earlier one's evidence, nor the reverse.
+func (b *BillingFacts) mergeClaudeUsage(from BillingFacts) {
+	if a := from.WindowsAvailable; a != nil && (b.WindowsAvailable == nil || !*a) {
+		available := *a
+		b.WindowsAvailable = &available
+	}
+	b.OverageEnabled = b.OverageEnabled || from.OverageEnabled
+	for _, reason := range from.WorkspaceReasons {
+		b.addWorkspaceReason(reason)
+	}
+}
+
+// claudeAuthTimeout bounds auth status. A cold Node start, the npm shim on
+// Windows or a busy machine can take seconds, so it leaves room for one
+// inside the read's own timeout, which still wins.
+var claudeAuthTimeout = 10 * time.Second
+
 // readClaudeAuth adds the plan and route evidence of auth status to s. The
 // read is bounded separately so it stays cheap; a failed read is missing
-// route evidence. It reports false only for an explicit logged-out reply.
-// The account and org of a read reply go to the identity sink, whose error
-// it returns; a failed read hands it nothing.
+// route evidence, and one that times out is an unknown route,
+// auth:timeout. Both are paid. It reports false only for an explicit
+// logged-out reply. The account and org of a read reply go to the identity
+// sink, whose error it returns; a failed read hands it nothing.
 func readClaudeAuth(ctx context.Context, run runner, s *Snapshot) (bool, error) {
-	authCtx, cancel := context.WithTimeout(ctx, time.Second)
+	authCtx, cancel := context.WithTimeout(ctx, claudeAuthTimeout)
 	defer cancel()
 	auth := run.command(authCtx, "auth", "status", "--json")
 	pipe, err := auth.StdoutPipe()
@@ -97,7 +121,11 @@ func readClaudeAuth(ctx context.Context, run runner, s *Snapshot) (bool, error) 
 		return false, nil
 	}
 	if !parsed || err != nil {
-		s.Billing.claudeRouteUnread()
+		if authCtx.Err() != nil {
+			s.Billing.claudeRouteTimedOut()
+		} else {
+			s.Billing.claudeRouteUnread()
+		}
 		return true, nil
 	}
 	s.Plan = plan(status.SubscriptionType)

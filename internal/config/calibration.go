@@ -74,9 +74,10 @@ type layerCaps struct {
 // lowerSharedCaps keeps a cap of the shared .duolog/config.yaml only when it
 // is not above the embedded and user layers: a committed config may lower
 // what calibration spends, never raise it for everyone who pulls it. The
-// local layer is the person's own and still wins. Each layer is its bytes,
-// nil when the file does not exist.
-func lowerSharedCaps(cfg *Config, user, shared, local []byte) error {
+// local layer is the person's own and still wins, unless Git tracks it
+// (localShared): then it may only lower the caps too. Each layer is its
+// bytes, nil when the file does not exist.
+func lowerSharedCaps(cfg *Config, user, shared, local []byte, localShared bool) error {
 	var layers [4]layerCaps
 	for i, data := range [][]byte{defaultConfig, user, shared, local} {
 		if err := yaml.Unmarshal(data, &layers[i]); err != nil {
@@ -92,17 +93,35 @@ func lowerSharedCaps(cfg *Config, user, shared, local []byte) error {
 		{"max_window_share", &cfg.Calibration.MaxWindowShare, func(l layerCaps) *float64 { return l.Calibration.MaxWindowShare }},
 	}
 	for _, c := range caps {
-		base, shared := c.layer(layers[0]), c.layer(layers[2])
+		base := c.layer(layers[0])
 		if user := c.layer(layers[1]); user != nil {
 			base = user
 		}
-		if shared == nil || base == nil || *shared <= *base || c.layer(layers[3]) != nil {
+		if base == nil || !localShared && c.layer(layers[3]) != nil {
 			continue
 		}
-		*c.value = *base
-		cfg.Calibration.Ignored = append(cfg.Calibration.Ignored, fmt.Sprintf(
-			"calibration.%s %s in .duolog/config.yaml is ignored: a shared config may only lower calibration caps; %s applies",
-			c.name, strconv.FormatFloat(*shared, 'f', -1, 64), strconv.FormatFloat(*base, 'f', -1, 64)))
+		// Replay the shared layers over the person's value: a shared one
+		// applies only when it does not raise the cap. NaN never passes.
+		value, changed := *base, false
+		for _, l := range []struct {
+			cap    *float64
+			file   string
+			shared bool
+		}{{c.layer(layers[2]), projectFile, true}, {c.layer(layers[3]), trackedLocal, localShared}} {
+			switch {
+			case l.cap == nil:
+			case !l.shared || *l.cap <= value:
+				value = *l.cap
+			default:
+				changed = true
+				cfg.Calibration.Ignored = append(cfg.Calibration.Ignored, fmt.Sprintf(
+					"calibration.%s %s in %s is ignored: a shared config may only lower calibration caps; %s applies",
+					c.name, strconv.FormatFloat(*l.cap, 'f', -1, 64), l.file, strconv.FormatFloat(value, 'f', -1, 64)))
+			}
+		}
+		if changed {
+			*c.value = value
+		}
 	}
 	return nil
 }

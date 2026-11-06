@@ -69,6 +69,8 @@
   key, since its free runs drop the key.
 - The prices in `models` now drive admission of paid runs. They leave out fast
   mode and cloud surcharges, so spend is a lower bound.
+- The shared `.duolog/config.yaml` may only raise prices in `models`, and a
+  `.duolog/config.local.yaml` that Git tracks follows the shared file's rules.
 
 ## 1.4.1
 

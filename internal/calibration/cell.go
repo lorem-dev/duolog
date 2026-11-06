@@ -164,7 +164,11 @@ func RunCell(ctx context.Context, env CellEnv, c Cell, t TaskRecord, start Start
 	u := out.Result.Usage
 	r.Tokens = u.Input + u.Output
 	r.Input, r.Cached, r.Output = u.Input, u.Cached, u.Output
+	// Spend is the larger of the token price and the CLI's reported cost.
 	r.USD, _ = usage.Cost(env.Cfg, entry.Agent, entry.Model, u)
+	if reported := out.Result.ReportedUSD; reported != nil && *reported > r.USD {
+		r.USD = *reported
+	}
 	switch {
 	case ctx.Err() != nil:
 		return r, ctx.Err()

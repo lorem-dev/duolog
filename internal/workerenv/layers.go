@@ -34,7 +34,10 @@ type Layer struct {
 // names as a credential (the env_key of Codex's selected provider);
 // EndpointEntries are the subscription_endpoints entries its base URLs
 // matched. FastMode is the layer's fastMode, nil when unset. Modified feeds
-// the verdict cache. An unreadable layer counts as paid.
+// the verdict cache. An unreadable layer counts as paid. For Codex, Provider
+// is the model provider the layer selects, "" for none, and Providers are the
+// providers it defines, so that Build can resolve a selection made in one
+// layer against a definition in another.
 type LayerFacts struct {
 	Layer                     string
 	Signals                   []Signal
@@ -42,6 +45,54 @@ type LayerFacts struct {
 	FastMode                  *bool
 	Modified                  time.Time
 	Unreadable                bool
+	Provider                  string
+	Providers                 map[string]ProviderFacts
+}
+
+// ProviderFacts is what a layer's definition of a Codex model provider says,
+// by name only: whether it passes the first-party test, and its env_key.
+type ProviderFacts struct {
+	FirstParty bool
+	EnvKey     string
+}
+
+// resolveCodexProvider resolves the selected Codex model provider across
+// layers, the last selection winning. A definition in any layer that fails
+// the first-party test is the model_provider signal of that layer, since
+// layers merge and a later one cannot remove a base URL or a token; a
+// selection no layer defines is model_provider:unresolved, both paid, except
+// the built-in openai, which needs no definition. It returns the
+// definitions' env_key names, which no free process gets.
+func resolveCodexProvider(layers []LayerFacts) ([]Signal, []string) {
+	selected, by := "", ""
+	for _, layer := range layers {
+		if layer.Provider != "" {
+			selected, by = layer.Provider, layer.Layer
+		}
+	}
+	if selected == "" {
+		return nil, nil
+	}
+	var signals []Signal
+	var keys []string
+	defined := false
+	for _, layer := range layers {
+		p, ok := layer.Providers[selected]
+		if !ok {
+			continue
+		}
+		defined = true
+		if !p.FirstParty {
+			signals = append(signals, Signal{Name: "model_provider", Layer: layer.Layer})
+		}
+		if p.EnvKey != "" {
+			keys = append(keys, p.EnvKey)
+		}
+	}
+	if !defined && selected != builtinOpenAI {
+		signals = append(signals, Signal{Name: "model_provider:unresolved", Layer: by})
+	}
+	return signals, keys
 }
 
 // Locations are the places the layers of one launch shape come from: the
@@ -415,17 +466,39 @@ type codexView struct {
 
 type codexProvider struct {
 	EnvKey             string `toml:"env_key"`
-	RequiresOpenAIAuth bool   `toml:"requires_openai_auth"`
+	RequiresOpenAIAuth *bool  `toml:"requires_openai_auth"`
 	BearerToken        any    `toml:"experimental_bearer_token"`
 	Auth               any    `toml:"auth"`
 	AWS                any    `toml:"aws"`
 	BaseURL            any    `toml:"base_url"`
+	HTTPHeaders        any    `toml:"http_headers"`
+	EnvHTTPHeaders     any    `toml:"env_http_headers"`
 }
+
+// builtinOpenAI is the id of Codex's built-in OpenAI provider. A live Codex
+// 0.165 read confirmed that it, like no selection, means the ChatGPT
+// subscription. It is the one provider id duolog knows: every other id
+// counts by its definition alone.
+const builtinOpenAI = "openai"
 
 // firstParty mirrors Codex's own first-party test, and also needs no base
 // URL override.
 func (p codexProvider) firstParty() bool {
-	return p.RequiresOpenAIAuth && p.EnvKey == "" && p.BearerToken == nil && p.Auth == nil && p.AWS == nil && p.BaseURL == nil
+	return p.RequiresOpenAIAuth != nil && *p.RequiresOpenAIAuth && p.EnvKey == "" && p.BearerToken == nil &&
+		p.Auth == nil && p.AWS == nil && p.BaseURL == nil
+}
+
+// firstPartyAs is the first-party test of the provider defined as name. A
+// definition of the built-in openai is the built-in provider while it
+// overrides no route: no env_key, base URL, bearer token, headers, auth or
+// AWS, and requires_openai_auth not false.
+func (p codexProvider) firstPartyAs(name string) bool {
+	if name != builtinOpenAI {
+		return p.firstParty()
+	}
+	return p.EnvKey == "" && p.BaseURL == nil && p.BearerToken == nil && p.HTTPHeaders == nil &&
+		p.EnvHTTPHeaders == nil && p.Auth == nil && p.AWS == nil &&
+		(p.RequiresOpenAIAuth == nil || *p.RequiresOpenAIAuth)
 }
 
 type codexDoc struct {
@@ -439,8 +512,8 @@ type codexDoc struct {
 // the launch names with --profile, else the file's profile key. A login
 // method other than chatgpt, a base URL override, a selected provider
 // defined here that fails the first-party test, and any speed-shaped key are
-// signals. A provider defined in another layer is left to the provider list
-// read.
+// signals. The selection and the definitions are kept too: Build resolves a
+// provider selected and defined in different layers.
 func codexFacts(facts *LayerFacts, layer Layer, data []byte) bool {
 	var doc codexDoc
 	var tree map[string]any
@@ -476,11 +549,18 @@ func codexFacts(facts *LayerFacts, layer Layer, data []byte) bool {
 			provider = *view.ModelProvider
 		}
 	}
+	facts.Provider = provider
+	for name, p := range doc.ModelProviders {
+		if facts.Providers == nil {
+			facts.Providers = map[string]ProviderFacts{}
+		}
+		facts.Providers[name] = ProviderFacts{FirstParty: p.firstPartyAs(name), EnvKey: p.EnvKey}
+	}
 	if p, ok := doc.ModelProviders[provider]; ok && provider != "" {
 		if p.EnvKey != "" {
 			facts.EnvNames = append(facts.EnvNames, p.EnvKey)
 		}
-		if !p.firstParty() {
+		if !p.firstPartyAs(provider) {
 			signal("model_provider")
 		}
 	}

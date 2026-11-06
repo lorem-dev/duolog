@@ -33,14 +33,14 @@ const (
 // An assessment of the lead is reporting data: duolog never launches,
 // changes or refuses the lead because of it.
 type Assessment struct {
-	Agent          string
-	Shape          workerenv.Shape
-	Variant        workerenv.Variant
-	Verdict        Verdict
-	Account        string
-	UsableShare    float64
-	Signals        []workerenv.Signal
-	AccountReasons []string
+	Agent          string             `json:"agent"`
+	Shape          workerenv.Shape    `json:"shape"`
+	Variant        workerenv.Variant  `json:"variant"`
+	Verdict        Verdict            `json:"verdict"`
+	Account        string             `json:"account"`
+	UsableShare    float64            `json:"usable_share"`
+	Signals        []workerenv.Signal `json:"signals"`
+	AccountReasons []string           `json:"account_reasons"`
 }
 
 // defaultUsableShare applies when the config has no valid share. The oldest
