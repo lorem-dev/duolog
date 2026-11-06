@@ -13,16 +13,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
-// NextStep names the duolog calibrate command after each step.
-var NextStep = map[string]string{
-	"survey":  "classes",
-	"classes": "mine",
-	"mine":    "plan",
-	"plan":    "run",
-	"run":     "judge",
-	"judge":   "propose",
-}
-
 // commitSource prefixes a task source that names one of its commits.
 const commitSource = "commit "
 

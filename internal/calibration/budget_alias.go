@@ -71,6 +71,7 @@ var (
 	JudgeTargets  = budget.JudgeTargets
 	LimitPaidPlan = budget.LimitPaidPlan
 	RenderPlan    = budget.RenderPlan
+	NextStep      = budget.NextStep
 )
 
 // Names that were private to this package before the move; the code here

@@ -17,6 +17,7 @@ import (
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/calibration"
+	"github.com/lorem-dev/duolog/internal/core/budget"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/delegate"
@@ -55,7 +56,7 @@ func runGH(ctx context.Context, args ...string) ([]byte, error) {
 const calibrationDone = "done"
 
 // calibrationNext names the command after each step.
-var calibrationNext = calibration.NextStep
+var calibrationNext = budget.NextStep
 
 func newCalibrateCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "calibrate", Short: "Build a starting model order for this project, on the person's request", Args: cobra.NoArgs,
@@ -414,75 +415,52 @@ func newCalibratePlanCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if !ok || run.Step == "survey" || run.Step == "classes" {
-			return fmt.Errorf("run duolog calibrate mine first")
+		var runID, step string
+		if ok {
+			runID, step = run.ID, run.Step
 		}
-		// A run or judge step plans again too: judges or rubrics changed after
-		// the cells ran need a new approval before judging goes on.
-		if !slices.Contains([]string{"mine", "plan", "run", "judge"}, run.Step) {
-			next := calibrationNext[run.Step]
-			if next == "" {
-				next = "survey --new"
-			}
-			return fmt.Errorf("calibration run %s is at step %s; next: duolog calibrate %s", run.ID, run.Step, next)
+		if err := budget.PlanStep(runID, step, calibrationNext); err != nil {
+			return err
 		}
 		runDir := run.Dir(s.Dir)
 		out := cmd.OutOrStdout()
 		if approve != "" {
-			if run.Approved != nil && run.Approved.Hash == approve {
-				return fmt.Errorf("plan %s is already approved; see duolog calibrate status", approve)
+			approvedHash := ""
+			if run.Approved != nil {
+				approvedHash = run.Approved.Hash
 			}
-			// A plan shown after an approval waits in plan-next.json.
-			p, err := calibration.LoadPlanToApprove(runDir)
-			if os.IsNotExist(err) {
+			// A plan shown after an approval waits in plan-next.json. The plan
+			// approved already is refused before a missing plan is.
+			p, loadErr := calibration.LoadPlanToApprove(runDir)
+			if loadErr == nil || approvedHash == approve {
+				if err := budget.CheckApproval(approve, approvedHash, p); err != nil {
+					return err
+				}
+			}
+			if os.IsNotExist(loadErr) {
 				return fmt.Errorf("no saved plan; run duolog calibrate plan first")
 			}
-			if err != nil {
-				return err
-			}
-			// A plan.json edited after it was shown no longer has its hash.
-			if p.Hash == "" || approve != p.Hash || p.ComputeHash() != p.Hash {
-				return fmt.Errorf("plan hash does not match; run duolog calibrate plan again")
-			}
-			// Only a run past its run part can skip calibrate run; a first
-			// approval goes through it even with no cell to run.
-			ranPart := run.Step == "run" || run.Step == "judge"
-			kept := 0
-			for _, c := range run.Cells {
-				if c.Ran() {
-					kept++
-				}
+			if loadErr != nil {
+				return loadErr
 			}
 			if err := calibration.Approve(run, p, time.Now()); err != nil {
 				return err
 			}
+			approval := budget.Approve(run.Step, run.Cells)
 			if err := calibration.SavePlan(runDir, p); err != nil {
 				return err
 			}
 			if err := os.Remove(filepath.Join(runDir, calibration.NextPlanFile)); err != nil && !os.IsNotExist(err) {
 				return err
 			}
-			// Planned again after the run part with no cell left to run, the
-			// run goes back to judging, which keeps the verdicts given.
-			done := ranPart && !slices.ContainsFunc(run.Cells, func(c calibration.Cell) bool {
-				return c.State == calibration.CellPending || c.State == calibration.CellRunning
-			})
-			run.Step = "plan"
-			if done {
-				run.Step = "run"
-			}
+			run.Step = approval.Step
 			if err := run.Save(s.Dir); err != nil {
 				return err
 			}
-			next := "run"
-			if kept > 0 {
-				next = "resume"
-				fmt.Fprintf(out, "kept %d cells that ran\n", kept)
+			if approval.Kept > 0 {
+				fmt.Fprintf(out, "kept %d cells that ran\n", approval.Kept)
 			}
-			if done {
-				next = "judge"
-			}
-			_, err = fmt.Fprintf(out, "approved plan %s: %d cells\nnext: duolog calibrate %s\n", p.Hash, len(run.Cells), next)
+			_, err = fmt.Fprintf(out, "approved plan %s: %d cells\nnext: duolog calibrate %s\n", p.Hash, len(run.Cells), approval.Next)
 			return err
 		}
 
@@ -530,12 +508,16 @@ func newCalibratePlanCommand() *cobra.Command {
 		}
 		// The approved plan stays in force until the person approves a new
 		// one, which keeps the cells that ran.
-		switch {
-		case run.Approved == nil:
+		approvedHash := ""
+		if run.Approved != nil {
+			approvedHash = run.Approved.Hash
+		}
+		switch budget.ChoosePlanSave(approvedHash, run.Approved != nil, p.Hash) {
+		case budget.SavePlan:
 			err = calibration.SavePlan(runDir, p)
-		case run.Approved.Hash != p.Hash:
+		case budget.SaveNextPlan:
 			err = calibration.SaveNextPlan(runDir, p)
-		default:
+		case budget.RemoveNextPlan:
 			err = os.Remove(filepath.Join(runDir, calibration.NextPlanFile))
 			if os.IsNotExist(err) {
 				err = nil
