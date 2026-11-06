@@ -525,19 +525,30 @@ func judgeOnce(ctx context.Context, env JudgeEnv, c config.Class, dir string, n 
 	if err != nil {
 		return Call{}, 0, err
 	}
-	cleanup, err := NewJudgeSlot(ctx, env.Root, slot, files)
+	claudeEnv, err := WorkerEnviron(env.Cfg, "claude")
+	if err != nil {
+		return Call{}, 0, err
+	}
+	workerEnv, err := WorkerEnviron(env.Cfg, target.Agent)
+	if err != nil {
+		return Call{}, 0, err
+	}
+	cleanup, err := NewJudgeSlot(ctx, env.Root, slot, files, claudeEnv)
 	if err != nil {
 		return Call{}, 0, err
 	}
 	defer func() { err = errors.Join(err, cleanup()) }()
-	if err := CheckTreeTrust(target.Agent, slot); err != nil {
+	if err := CheckTreeTrust(target.Agent, slot, workerEnv); err != nil {
 		return Call{}, 0, fmt.Errorf("judge: %w", err)
 	}
 	// Calibration keeps the task copy in the slot's own state, the only
 	// place task.Inline reads it from outside the work root.
-	ctxRun := delegate.WithOptions(ctx, delegate.Options{Judge: true, Calibration: true, Entry: &target, WorkRoot: slot, Lead: env.Lead, ProtectedRoots: env.ProtectedRoots})
 	var out delegate.Outcome
 	admitted, err := env.paid(ctx, target, func() (int64, error) {
+		// Built once the call is admitted, with what the plan still allows it.
+		budget, waiting := StepOptions(ctx)
+		ctxRun := delegate.WithOptions(ctx, delegate.Options{Judge: true, Calibration: true, Entry: &target, WorkRoot: slot, Lead: env.Lead,
+			ProtectedRoots: env.ProtectedRoots, Budget: budget, Waiting: waiting})
 		var runErr error
 		out, runErr = env.Delegate(ctxRun, env.Cfg, env.Store, "review_final", taskPath, "")
 		return out.Result.Usage.Input + out.Result.Usage.Output, runErr
@@ -590,10 +601,11 @@ func JudgeSlot(root string) (string, error) {
 // readies a tree slot: it empties dir but for the project's
 // .codex/hooks.json, written afresh, and starts a fresh repository there,
 // so the task copy stays in it and nothing a worker wrote into .git reaches
-// the next call. It then gives Claude the duolog gate as NewTreeAt does and
-// writes files. dir must neither be inside repo nor hold it. The cleanup
-// empties dir again but for the hooks.
-func NewJudgeSlot(ctx context.Context, repo, dir string, files map[string][]byte) (cleanup func() error, err error) {
+// the next call. It then gives Claude the duolog gate as NewTreeAt does,
+// judged from environ, the environment a Claude worker gets, and writes
+// files. dir must neither be inside repo nor hold it. The cleanup empties dir
+// again but for the hooks.
+func NewJudgeSlot(ctx context.Context, repo, dir string, files map[string][]byte, environ []string) (cleanup func() error, err error) {
 	if inside(repo, dir) || inside(dir, repo) {
 		return nil, fmt.Errorf("judge slot %s must be outside the project %s", dir, repo)
 	}
@@ -628,7 +640,7 @@ func NewJudgeSlot(ctx context.Context, repo, dir string, files map[string][]byte
 	if err != nil {
 		return nil, err
 	}
-	if err := addClaudeGate(dir); err != nil {
+	if err := addClaudeGate(dir, environ); err != nil {
 		return nil, errors.Join(err, cleanup())
 	}
 	for name, data := range files {
@@ -699,6 +711,8 @@ func (r *Runner) Judge(ctx context.Context, env JudgeEnv, pairs []Pair, judged m
 	var quotaAgent string
 	var quotaErr error
 	var cellTokens int64 // of the pair's class
+	// Each call's budget and wait notice reach its delegation through ctx.
+	ctx, step := withStep(ctx)
 	env.Paid = func(ctx context.Context, target config.Target, call func() (int64, error)) (bool, error) {
 		if quotaErr != nil {
 			o, err := r.quotaStop(quotaAgent, quotaErr)
@@ -712,20 +726,29 @@ func (r *Runner) Judge(ctx context.Context, env JudgeEnv, pairs []Pair, judged m
 			held = o
 			return false, err
 		}
+		step.budget = r.stepBudget(agent, r.newReceipt("judge"), true)
+		step.waiting = r.waiting(agent)
 		r.Run.Spend.Raise(agent, before, cost)
 		r.Run.Spend.addJudge(agent, cost.WeeklyPct)
+		// The high USD is held in the same save, so an interrupted call
+		// keeps it counted against the approved USD.
+		heldUSD := r.holdUSD(agent, cellUSD(r.Cfg, agent, target.Model, judgeTokensHigh), true)
 		if err := r.Run.Save(r.StateDir); err != nil {
 			return true, err
 		}
 		tokens, callErr := call()
 		if notStarted(callErr) {
 			// Refused before its worker started: nothing ran to measure.
+			r.chargeUSD(agent, -heldUSD, true)
 			return true, errors.Join(callErr, r.release(agent, before, cost, true))
 		}
 		weekly, window, err := r.settle(ctx, agent, family, before, cost, true)
+		r.settleUSD(agent, heldUSD, cellUSD(r.Cfg, agent, target.Model, tokens), true, callErr == nil)
 		if err != nil {
 			quotaAgent, quotaErr = agent, err
 		} else if err := r.learnRate(agent, tokens, weekly, window); err != nil {
+			callErr = errors.Join(callErr, err)
+		} else if err := r.observe(ctx, agent, family, tokens, 0, 0); err != nil {
 			callErr = errors.Join(callErr, err)
 		}
 		return true, errors.Join(callErr, r.Run.Save(r.StateDir))

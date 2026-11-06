@@ -62,6 +62,29 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "Balance": {
+      "properties": {
+        "max_age_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Oldest quota read, in seconds, that a verdict or an admission trusts; an older one is read again or counts as paid. Defaults to 120."
+        },
+        "min_interval_share": {
+          "type": "number",
+          "maximum": 1,
+          "exclusiveMinimum": 0,
+          "description": "Share of a window an interval must move before it measures a rate, above 0 and at most 1; a tier needs 3 such intervals. Defaults to 0.05."
+        },
+        "margin": {
+          "type": "number",
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "description": "How far past a tier cut a rate must be before the tier steps up, and how far a new rate may drift before older rates are dropped, 0 or more and below 1; a step down applies at once. Defaults to 0.2."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "Calibration": {
       "properties": {
         "max_weekly_share": {
@@ -282,14 +305,14 @@
         },
         "limits": {
           "$ref": "#/$defs/Limits",
-          "description": "Worker delegation limits; defaults permit one worker per agent."
+          "description": "Worker and session limits: resumable sessions per lead, live sessions per account by measured tier and in all, and the slot wait."
         },
         "models": {
           "additionalProperties": {
             "$ref": "#/$defs/Model"
           },
           "type": "object",
-          "description": "Model aliases and price metadata; defaults include the eight vendor families."
+          "description": "Model aliases and their prices, which drive estimates and admission of paid runs; defaults include the eight vendor families."
         },
         "roles": {
           "additionalProperties": {
@@ -319,7 +342,7 @@
             "type": "string"
           },
           "type": "array",
-          "description": "Environment variables passed to workers; defaults include native OS login and agent config directories, not API keys."
+          "description": "Environment variables passed to workers; defaults include native OS login and agent config directories, not API keys. A free run drops names that bill per token even when listed; only paid_runs.\u003cagent\u003e.allow lets them through."
         },
         "rex": {
           "$ref": "#/$defs/Rex",
@@ -340,6 +363,18 @@
         "worker_modes": {
           "$ref": "#/$defs/WorkerModes",
           "description": "Native permission mode a delegate worker starts in, per role and model family; never above the lead's mode. User level, project layers may only lower. Absent means duolog's default flags."
+        },
+        "paid_runs": {
+          "$ref": "#/$defs/PaidRuns",
+          "description": "Paid runs per agent with a daily USD cap, and the share of each window used on workspace accounts; paid runs are off by default."
+        },
+        "balance": {
+          "$ref": "#/$defs/Balance",
+          "description": "How quota reads and learned window rates are trusted: read age, interval size and the margin of a tier step up. The shared project config may only make these stricter."
+        },
+        "routing": {
+          "$ref": "#/$defs/Routing",
+          "description": "How a new task picks between a role's agents beyond the ladder: balance subscriptions by pace, and the margin. The shared project config may only tighten these."
         }
       },
       "additionalProperties": false,
@@ -441,7 +476,7 @@
         },
         "max_live_sessions": {
           "type": "integer",
-          "description": "Maximum live resumable sessions per agent; defaults to 1 and excludes fresh runs."
+          "description": "Maximum live resumable sessions per lead and agent; defaults to 1 and excludes fresh runs. The account session limits apply too, and the lower one wins."
         },
         "self_max_read_files": {
           "type": "integer",
@@ -450,6 +485,20 @@
         "self_max_read_lines": {
           "type": "integer",
           "description": "Maximum lines for work handled by the lead on a provider limit; defaults to 200."
+        },
+        "max_total_sessions": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Most live sessions of all agents together: running workers and open peer panes of every lead and project; defaults to 10. The shared project config may only lower it."
+        },
+        "sessions_by_tier": {
+          "$ref": "#/$defs/SessionTiers",
+          "description": "Most live sessions per agent by its measured subscription tier; defaults to 3, 5 and 10. A value above its default is capped at the default."
+        },
+        "session_wait_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Seconds a delegation waits for a free session slot, first come first served; defaults to 60. The shared project config may only lower it."
         }
       },
       "additionalProperties": false,
@@ -495,7 +544,7 @@
         },
         "priced_for": {
           "type": "string",
-          "description": "Version whose prices are recorded; used for estimates, never for routing."
+          "description": "Version whose prices are recorded; the prices drive estimates and admission of paid runs against the daily cap."
         },
         "input": {
           "type": "number",
@@ -512,6 +561,147 @@
         "note": {
           "type": "string",
           "description": "Optional price caveat shown with estimates; empty unless the vendor has a special rate."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PaidAgent": {
+      "if": {
+        "properties": {
+          "allow": {
+            "const": true,
+            "description": "Paid runs are allowed."
+          }
+        },
+        "required": [
+          "allow"
+        ]
+      },
+      "then": {
+        "properties": {
+          "daily_cap_usd": {
+            "exclusiveMinimum": 0,
+            "description": "Allowed paid runs need a daily cap above 0."
+          }
+        },
+        "required": [
+          "daily_cap_usd"
+        ]
+      },
+      "properties": {
+        "allow": {
+          "type": "boolean",
+          "description": "Allow paid runs for this agent's workers and peers once the subscription cannot serve them; defaults to false. Needs daily_cap_usd above 0."
+        },
+        "daily_cap_usd": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Most USD paid runs of this agent may spend in the last 24 hours; defaults to 0 and must be above 0 with allow."
+        },
+        "calibrate": {
+          "type": "boolean",
+          "description": "Allow calibration on a paid route; defaults to false and needs allow."
+        },
+        "env": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Variables passed to this agent's processes only when paid runs are allowed; defaults to the agent's API key."
+        },
+        "account": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "personal",
+            "workspace"
+          ],
+          "description": "Account kind: workspace uses usable_share of each window; auto and personal use whole windows only while the quota read and the runs show no workspace evidence, which always wins; defaults to auto."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PaidClaude": {
+      "if": {
+        "properties": {
+          "allow": {
+            "const": true,
+            "description": "Paid runs are allowed."
+          }
+        },
+        "required": [
+          "allow"
+        ]
+      },
+      "then": {
+        "properties": {
+          "daily_cap_usd": {
+            "exclusiveMinimum": 0,
+            "description": "Allowed paid runs need a daily cap above 0."
+          }
+        },
+        "required": [
+          "daily_cap_usd"
+        ]
+      },
+      "properties": {
+        "allow": {
+          "type": "boolean",
+          "description": "Allow paid runs for this agent's workers and peers once the subscription cannot serve them; defaults to false. Needs daily_cap_usd above 0."
+        },
+        "daily_cap_usd": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Most USD paid runs of this agent may spend in the last 24 hours; defaults to 0 and must be above 0 with allow."
+        },
+        "calibrate": {
+          "type": "boolean",
+          "description": "Allow calibration on a paid route; defaults to false and needs allow."
+        },
+        "env": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Variables passed to this agent's processes only when paid runs are allowed; defaults to the agent's API key."
+        },
+        "account": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "personal",
+            "workspace"
+          ],
+          "description": "Account kind: workspace uses usable_share of each window; auto and personal use whole windows only while the quota read and the runs show no workspace evidence, which always wins; defaults to auto."
+        },
+        "subscription_endpoints": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "Named base URLs that count as the subscription, such as a gateway in front of the claude.ai login; defaults to an empty map."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PaidRuns": {
+      "properties": {
+        "usable_share": {
+          "type": "number",
+          "maximum": 1,
+          "exclusiveMinimum": 0,
+          "description": "Share of each window duolog uses on a workspace account, above 0 and at most 1; defaults to 0.5."
+        },
+        "claude": {
+          "$ref": "#/$defs/PaidClaude",
+          "description": "Paid runs of Claude workers and peers; off by default."
+        },
+        "codex": {
+          "$ref": "#/$defs/PaidAgent",
+          "description": "Paid runs of Codex workers and peers; off by default."
         }
       },
       "additionalProperties": false,
@@ -607,6 +797,26 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "Routing": {
+      "properties": {
+        "balance": {
+          "type": "string",
+          "enum": [
+            "pace",
+            "off"
+          ],
+          "description": "Balance subscriptions by pace: pace starts a new task on the role's fallback while its use agent runs ahead of its weekly window, off keeps the ladder as written; defaults to pace. The shared project config may not turn it off."
+        },
+        "margin": {
+          "type": "number",
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "description": "How far the used share of the weekly window may exceed the elapsed share before an agent counts as ahead of pace, and how far below pace it must fall to count as back, 0 or more and below 1; defaults to 0.10. The shared project config may only lower it."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "Rule": {
       "properties": {
         "action": {
@@ -632,6 +842,27 @@
           },
           "type": "array",
           "description": "Roles to which the rule applies; an omitted list applies to every role."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "SessionTiers": {
+      "properties": {
+        "small": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Live sessions of an agent at the small tier: unmeasured, paid, workspace or a window like a personal plan of about 20 USD a month; defaults to 3."
+        },
+        "medium": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Live sessions of an agent whose measured window is about 5 times the small one; defaults to 5."
+        },
+        "large": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Live sessions of an agent whose measured window is about 20 times the small one; defaults to 10."
         }
       },
       "additionalProperties": false,

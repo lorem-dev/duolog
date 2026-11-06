@@ -87,6 +87,11 @@ type ClassPlan struct {
 	// Done counts the cells of an earlier approval that ran; their actual
 	// tokens and USD are in the totals, and their spend is in Plan.Spent.
 	Done int
+	// AgentUSD is the high USD of each agent's cells still to run, and
+	// JudgeUSD that of its judge calls and rewrites: what a paid route of the
+	// agent would spend. Empty in plans made before paid budgets.
+	AgentUSD map[string]float64 `json:",omitempty"`
+	JudgeUSD map[string]float64 `json:",omitempty"`
 }
 
 // judgeTokensLow and judgeTokensHigh estimate one judge call or statement
@@ -129,7 +134,11 @@ type Plan struct {
 	JudgeShare   map[string]float64
 	JudgeTargets []string
 	RubricHash   string
-	Hash         string
+	// Billing is how each agent the plan uses is billed, with the USD a paid
+	// route is approved to spend; LimitPaidPlan records it. An old plan has
+	// none, and keeps its hash.
+	Billing map[string]BillingBudget `json:",omitempty"`
+	Hash    string
 }
 
 type PlanInput struct {
@@ -137,7 +146,10 @@ type PlanInput struct {
 	Manifest Manifest
 	Rates    map[string]Rate
 	Quota    map[string][]Window
-	RunID    string
+	// Billing is each agent's budget from the account gate; an agent without
+	// one plans as a personal subscription.
+	Billing map[string]BillingBudget
+	RunID   string
 	// Ages are the days since each task's commit; a task without one counts
 	// as recent.
 	Ages map[string]int
@@ -227,8 +239,12 @@ func BuildPlan(in PlanInput) (Plan, error) {
 	// Without a rate a cell, judge call or rewrite counts at the conservative
 	// bound admission uses, so the run does not stop at the cap with steps
 	// left.
+	// An agent is over when its steps pass what its route allows: the weekly
+	// cap of its account's usable share, and on paid overage also the room
+	// below the lead reserve; on a paid route, which takes no window, the USD
+	// its cap leaves, judge calls and rewrites included.
 	over := func() (map[string]bool, bool) {
-		weekly := map[string]float64{}
+		weekly, usd := map[string]float64{}, map[string]float64{}
 		for _, c := range classes {
 			for agent, s := range c.Share {
 				if s.Unknown {
@@ -237,10 +253,29 @@ func BuildPlan(in PlanInput) (Plan, error) {
 					weekly[agent] += s.WeeklyHigh
 				}
 			}
+			for agent, v := range c.AgentUSD {
+				usd[agent] += v
+			}
+			for agent, v := range c.JudgeUSD {
+				usd[agent] += v
+			}
 		}
 		agents := map[string]bool{}
 		for agent, high := range weekly {
-			if high+p.Spent[agent] > p.CapWeekly {
+			b := in.Billing[agent]
+			if b.paid() {
+				continue
+			}
+			u := b.usable()
+			if high+p.Spent[agent] > p.CapWeekly*u {
+				agents[agent] = true
+			}
+			if room, ok := overageRoom(in.Quota, agent, u); ok && b.Verdict == VerdictOverage && high > room+usdSlack {
+				agents[agent] = true
+			}
+		}
+		for agent, v := range usd {
+			if b := in.Billing[agent]; b.paid() && b.opted() && v > b.remaining()+usdSlack {
 				agents[agent] = true
 			}
 		}
@@ -354,7 +389,10 @@ func BuildPlan(in PlanInput) (Plan, error) {
 	p.Contamination = fmt.Sprintf(contaminationNote, older, planned)
 	p.JudgeTargets, p.RubricHash = judgeSetup(cfg, names)
 	p.Hash = p.ComputeHash()
-	return p, nil
+	if len(in.Billing) == 0 {
+		return p, nil
+	}
+	return LimitPaidPlan(p, in.Billing)
 }
 
 // judgeSetup is what judging the classes depends on: each judge in order as
@@ -478,6 +516,18 @@ func measureClass(c *ClassPlan, in PlanInput, ran map[string]Cell, factor float6
 	c.Done, c.Rewrites, c.JudgeTokensLow, c.JudgeTokensHigh = 0, 0, 0, 0
 	c.Share = map[string]Share{}
 	c.JudgeCalls, c.JudgeCallsMax, c.JudgeShare = map[string]int{}, map[string]int{}, map[string]float64{}
+	c.AgentUSD, c.JudgeUSD = nil, nil
+	// addUSD adds high USD to an agent's cells or judge calls; a plan without
+	// billing keeps neither, so its JSON and hash stay as they were.
+	addUSD := func(m *map[string]float64, agent string, usd float64) {
+		if len(in.Billing) == 0 || usd <= 0 {
+			return
+		}
+		if *m == nil {
+			*m = map[string]float64{}
+		}
+		(*m)[agent] += usd
+	}
 	cellTokens := classTokens(in.Manifest, c.Class)
 	// share adds n steps of tokens low to high, each bound weekly points at
 	// the conservative bound, to the agent's share.
@@ -514,6 +564,7 @@ func measureClass(c *ClassPlan, in PlanInput, ran map[string]Cell, factor float6
 			c.TokensHigh += high
 			c.USDLow += cellUSD(in.Cfg, agent, model, low)
 			c.USDHigh += cellUSD(in.Cfg, agent, model, high)
+			addUSD(&c.AgentUSD, agent, cellUSD(in.Cfg, agent, model, high))
 			c.Minutes += est.Minutes + est.CheckSeconds/60
 			share(agent, 1, low, high, BoundWeekly)
 		}
@@ -523,6 +574,7 @@ func measureClass(c *ClassPlan, in PlanInput, ran map[string]Cell, factor float6
 		c.JudgeTokensHigh += int64(n) * judgeTokensHigh
 		c.USDLow += float64(n) * cellUSD(in.Cfg, target.Agent, target.Model, judgeTokensLow)
 		c.USDHigh += float64(n) * cellUSD(in.Cfg, target.Agent, target.Model, judgeTokensHigh)
+		addUSD(&c.JudgeUSD, target.Agent, float64(n)*cellUSD(in.Cfg, target.Agent, target.Model, judgeTokensHigh))
 		var rate *Rate
 		if r, ok := in.Rates[target.Agent]; ok {
 			rate = &r
@@ -819,6 +871,9 @@ func RenderPlan(w io.Writer, p Plan) error {
 	}
 	for _, agent := range slices.Sorted(maps.Keys(p.JudgeShare)) {
 		fmt.Fprintf(&b, "judge share %s: %s%% weekly, kept for judge calls and rewrites\n", agent, number(math.Round(p.JudgeShare[agent]*10)/10))
+	}
+	for _, line := range billingLines(p) {
+		fmt.Fprintln(&b, line)
 	}
 	for _, agent := range slices.Sorted(maps.Keys(p.Spent)) {
 		fmt.Fprintf(&b, "spent so far: %s %s%% weekly, counted toward the cap\n", agent, number(math.Round(p.Spent[agent]*10)/10))

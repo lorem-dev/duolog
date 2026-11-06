@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/session"
 	"path/filepath"
 	"time"
@@ -63,6 +64,7 @@ func newRouteCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			opts.Balance = paidruns.DefaultPaceBalance(cmd.Context(), cfg)
 			route, err := router.Resolve(cfg, args[0], unavailable, opts)
 			if err != nil {
 				return err
@@ -81,6 +83,7 @@ func newRouteCommand() *cobra.Command {
 					"permission": permission, "agent": route.Agent, "model": route.Model, "effort": route.Effort,
 					"sandbox": route.Sandbox, "context": route.Context, "session": route.Session,
 					"is_fallback": route.IsFallback, "self": route.Self, "in_lead": route.InLead, "effort_capped": route.EffortCapped,
+					"reason": route.Reason,
 				})
 			}
 			line := fmt.Sprintf("%s %s %s", route.Agent, route.Model, route.Effort)
@@ -95,7 +98,12 @@ func newRouteCommand() *cobra.Command {
 				}
 				line += " ceiling: no lead"
 			}
-			_, err = fmt.Fprintln(cmd.OutOrStdout(), line)
+			if _, err = fmt.Fprintln(cmd.OutOrStdout(), line); err != nil {
+				return err
+			}
+			if route.Reason != "" {
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "reason: %s\n", route.Reason)
+			}
 			return err
 		},
 	}

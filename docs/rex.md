@@ -51,6 +51,11 @@ register a lead.
 | 8 | `duolog peer show <id> [--lines N]` | Prints the last lines of the peer's screen (40 by default, 1 to 200). It refuses inside an agent |
 | 9 | `duolog peer view <id> [--client C]` | Switches your Rex client to the peer's tab and prints one line |
 
+When `peer open` stops after the pane started but before it recorded the
+pane, the pane's account hold stays. `duolog quota` and `duolog doctor` show
+it as a `held:` line. Close the pane in Rex, then run
+`duolog peer release <id>`.
+
 A peer belongs to its role and work root. Opening that role again in the same
 worktree reuses the peer. Opening it in another worktree starts a new peer.
 For peers, `max_live_sessions` applies per lead, agent and work root.

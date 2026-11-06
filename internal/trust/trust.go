@@ -37,17 +37,15 @@ type settings struct {
 	} `toml:"hooks"`
 }
 
-func read() (settings, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return settings{}, err
-	}
-	return readIn(home)
+func readIn(home string) (settings, error) {
+	return readEnv(home, os.Environ())
 }
 
-func readIn(home string) (settings, error) {
+// readEnv reads config.toml in the Codex home of a process whose environment
+// is environ.
+func readEnv(home string, environ []string) (settings, error) {
 	var s settings
-	data, err := os.ReadFile(filepath.Join(CodexHome(home), "config.toml"))
+	data, err := os.ReadFile(filepath.Join(trusthome.CodexIn(home, environ), "config.toml"))
 	if os.IsNotExist(err) {
 		return s, nil
 	}
@@ -58,20 +56,37 @@ func readIn(home string) (settings, error) {
 	return s, err
 }
 func Folder(agent, root string) (bool, error) {
+	return FolderEnv(agent, root, os.Environ())
+}
+
+// FolderEnv is Folder for an agent process whose environment is environ: the
+// home folder and the Codex home it reads are the ones that environment
+// selects. An environment without a home folder is trusthome.ErrNoHome.
+func FolderEnv(agent, root string, environ []string) (bool, error) {
 	if agent == "claude" {
 		return true, nil
 	}
-	home, err := os.UserHomeDir()
+	home, err := trusthome.HomeIn(environ)
 	if err != nil {
 		return false, err
 	}
-	return FolderIn(home, root)
+	return folderIn(home, root, environ)
+}
+
+// FolderInEnv is FolderIn for a process whose environment is environ: its
+// CODEX_HOME, else .codex under home.
+func FolderInEnv(home, root string, environ []string) (bool, error) {
+	return folderIn(home, root, environ)
 }
 
 // FolderIn reports whether Codex trusts the folder root, reading the Codex
 // config under home. Codex loads a project's .codex/ layer only then.
 func FolderIn(home, root string) (bool, error) {
-	s, err := readIn(home)
+	return folderIn(home, root, os.Environ())
+}
+
+func folderIn(home, root string, environ []string) (bool, error) {
+	s, err := readEnv(home, environ)
 	if err != nil {
 		return false, err
 	}
@@ -87,27 +102,36 @@ func FolderIn(home, root string) (bool, error) {
 	return false, nil
 }
 func Hooks(agent, root string) (State, error) {
+	return HooksEnv(agent, root, os.Environ())
+}
+
+// HooksEnv is Hooks for an agent process whose environment is environ: the
+// home folder, the Claude config directory and the Codex home, with their
+// settings, plugins and approvals, are the ones that environment selects, not
+// duolog's own. An environment without a home folder is
+// trusthome.ErrNoHome.
+func HooksEnv(agent, root string, environ []string) (State, error) {
+	home, err := trusthome.HomeIn(environ)
+	if err != nil {
+		return State{}, err
+	}
 	if agent == "claude" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return State{}, err
-		}
-		plugin := install.PluginEnabled(root, home)
+		plugin := install.PluginEnabledIn(root, home, environ)
 		state := State{Trusted: true, Installed: plugin}
 		settingsGate := false
-		for _, path := range install.ClaudeSettingsFiles(root, home) {
+		for _, path := range install.ClaudeSettingsFilesIn(root, home, environ) {
 			settingsGate = settingsGate || install.HasGate(path)
 			if state.HooksOff == "" && hooksOff(path) {
 				state.HooksOff = path
 			}
 		}
 		state.Installed = state.Installed || settingsGate
-		if plugin && !settingsGate && !install.PluginInstalled(root, home) {
+		if plugin && !settingsGate && !install.PluginInstalledIn(root, home, environ) {
 			state.Unproven = "the duolog Claude plugin is enabled but not installed; run duolog install"
 		}
 		return state, nil
 	}
-	s, err := read()
+	s, err := readEnv(home, environ)
 	if err != nil {
 		return State{}, err
 	}
@@ -115,13 +139,9 @@ func Hooks(agent, root string) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return State{}, err
-	}
 	var unproven State
-	stale := install.StaleApprovals(home)
-	for _, path := range []string{filepath.Join(root, ".codex", "hooks.json"), filepath.Join(CodexHome(home), "hooks.json")} {
+	stale := install.StaleApprovalsIn(home, environ)
+	for _, path := range []string{filepath.Join(root, ".codex", "hooks.json"), filepath.Join(trusthome.CodexIn(home, environ), "hooks.json")} {
 		state, err := hooksAt(path, s, stale)
 		if err != nil {
 			return State{}, err

@@ -56,7 +56,12 @@ type CellResult struct {
 	Tokens              int64           `json:"tokens"`
 	USD                 float64         `json:"usd"`
 	Seconds             float64         `json:"seconds"`
-	Reason              string          `json:"reason,omitempty"`
+	// Input, Cached and Output are the worker's tokens as it reported them,
+	// Cached a subset of Input, for the shared rate learner.
+	Input  int64  `json:"input,omitempty"`
+	Cached int64  `json:"cached,omitempty"`
+	Output int64  `json:"output,omitempty"`
+	Reason string `json:"reason,omitempty"`
 	// Restored are the tests the candidate deleted that were put back as the
 	// parent has them before the checks.
 	Restored []string `json:"restored,omitempty"`
@@ -119,7 +124,17 @@ func RunCell(ctx context.Context, env CellEnv, c Cell, t TaskRecord, start Start
 	if err != nil {
 		return r, err
 	}
-	cleanup, err := NewTreeAt(ctx, env.Root, t.Parent, tree)
+	// The settings the worker's agent loads are those its own environment
+	// selects; Claude's decide whether the tree needs a local gate.
+	claudeEnv, err := WorkerEnviron(env.Cfg, "claude")
+	if err != nil {
+		return r, err
+	}
+	workerEnv, err := WorkerEnviron(env.Cfg, entry.Agent)
+	if err != nil {
+		return r, err
+	}
+	cleanup, err := NewTreeAt(ctx, env.Root, t.Parent, tree, claudeEnv)
 	if err != nil {
 		return r, err
 	}
@@ -128,7 +143,7 @@ func RunCell(ctx context.Context, env CellEnv, c Cell, t TaskRecord, start Start
 		r.State, r.Reason = CellLeakage, err.Error()
 		return r, saveCell(dir, r, false)
 	}
-	if err := CheckTreeTrust(entry.Agent, tree); err != nil {
+	if err := CheckTreeTrust(entry.Agent, tree, workerEnv); err != nil {
 		return r, fmt.Errorf("calibration cell %s: %w", c.ID, err)
 	}
 	taskPath := filepath.Join(dir, "task.md")
@@ -148,14 +163,22 @@ func RunCell(ctx context.Context, env CellEnv, c Cell, t TaskRecord, start Start
 	target := entry.Target()
 	// The turn cap binds a Claude worker; Codex has no flag for it, so there
 	// it is the brief's advice and the time cap is the hard stop.
+	// The step's budget and wait notice, which its start set: the account
+	// gate admits each of the cell's worker runs within them.
+	budget, waiting := StepOptions(ctx)
 	cellCtx = delegate.WithOptions(cellCtx, delegate.Options{Lead: env.Lead, Entry: &target, WorkRoot: tree, Calibration: true,
-		MaxTurns: env.Cfg.Calibration.CellMaxTurns, ProtectedRoots: env.ProtectedRoots})
+		MaxTurns: env.Cfg.Calibration.CellMaxTurns, ProtectedRoots: env.ProtectedRoots, Budget: budget, Waiting: waiting})
 	started := time.Now()
 	out, runErr := env.Delegate(cellCtx, env.Cfg, env.Store, cellRole(env.Cfg, t), taskPath, "calibration-"+c.ID)
 	r.Seconds = time.Since(started).Seconds()
 	u := out.Result.Usage
 	r.Tokens = u.Input + u.Output
+	r.Input, r.Cached, r.Output = u.Input, u.Cached, u.Output
+	// Spend is the larger of the token price and the CLI's reported cost.
 	r.USD, _ = usage.Cost(env.Cfg, entry.Agent, entry.Model, u)
+	if reported := out.Result.ReportedUSD; reported != nil && *reported > r.USD {
+		r.USD = *reported
+	}
 	switch {
 	case ctx.Err() != nil:
 		return r, ctx.Err()

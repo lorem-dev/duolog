@@ -8,12 +8,19 @@ import (
 	"github.com/lorem-dev/duolog/internal/mode"
 )
 
+// launched is the argv of s with its process built for s's launch words, as
+// a caller builds the process it has admitted.
+func launched(t *testing.T, s Spec) []string {
+	t.Helper()
+	return Argv(rebuilt(t, s))
+}
+
 func TestArgvUsesNativeMode(t *testing.T) {
 	s := spec(t, "claude")
 	s.Route.Sandbox, s.Mode, s.Native = "workspace-write", mode.Edits, "auto"
-	containsArgs(t, Argv(s), "--permission-mode", "auto")
+	containsArgs(t, launched(t, s), "--permission-mode", "auto")
 	s.Native = ""
-	containsArgs(t, Argv(s), "--permission-mode", "acceptEdits")
+	containsArgs(t, launched(t, s), "--permission-mode", "acceptEdits")
 }
 
 func TestArgvRefusesNativeAboveMode(t *testing.T) {
@@ -30,7 +37,7 @@ func TestArgvRefusesNativeAboveMode(t *testing.T) {
 	} {
 		s := spec(t, tc.agent)
 		s.Route.Sandbox, s.Mode, s.Native = tc.sandbox, tc.m, tc.native
-		line := strings.Join(Argv(s), " ")
+		line := strings.Join(launched(t, s), " ")
 		if !strings.Contains(line, " "+tc.want+" ") || strings.Contains(line, "danger-full-access") || strings.Contains(line, "bypassPermissions") && tc.want != "bypassPermissions" {
 			t.Errorf("%+v: %s", tc, line)
 		}
@@ -41,19 +48,19 @@ func TestCodexExtrasArgv(t *testing.T) {
 	s := spec(t, "codex")
 	s.Route.Sandbox, s.Mode, s.Native = "workspace-write", mode.Edits, "workspace-write"
 	s.Network, s.WritableRoots = true, []string{"/tmp/a", "/tmp/b"}
-	a := Argv(s)
+	a := launched(t, s)
 	containsArgs(t, a, "sandbox_workspace_write.network_access=true", `sandbox_workspace_write.writable_roots=["/tmp/a","/tmp/b"]`)
 	s.Mode = mode.Plan
-	if line := strings.Join(Argv(s), " "); strings.Contains(line, "sandbox_workspace_write") {
+	if line := strings.Join(launched(t, s), " "); strings.Contains(line, "sandbox_workspace_write") {
 		t.Errorf("extras at plan: %s", line)
 	}
 	s.Mode, s.Native = mode.Edits, "read-only"
-	if line := strings.Join(Argv(s), " "); strings.Contains(line, "sandbox_workspace_write") {
+	if line := strings.Join(launched(t, s), " "); strings.Contains(line, "sandbox_workspace_write") {
 		t.Errorf("extras on read-only: %s", line)
 	}
 	c := spec(t, "claude")
 	c.Route.Sandbox, c.Mode, c.Native, c.Network, c.WritableRoots = "workspace-write", mode.Edits, "acceptEdits", true, []string{"/tmp/a"}
-	if line := strings.Join(Argv(c), " "); strings.Contains(line, "sandbox_workspace_write") || strings.Contains(line, "/tmp/a") {
+	if line := strings.Join(launched(t, c), " "); strings.Contains(line, "sandbox_workspace_write") || strings.Contains(line, "/tmp/a") {
 		t.Errorf("claude got codex extras: %s", line)
 	}
 }
@@ -79,8 +86,8 @@ func TestCodexWorkspaceWritePinsExtras(t *testing.T) {
 		if tc.extras {
 			s.Network, s.WritableRoots = true, []string{"/tmp/a"}
 		}
-		containsArgs(t, Argv(s), "-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=false", "-c", "sandbox_workspace_write.writable_roots=[]")
-		if line := strings.Join(Argv(s), " "); strings.Contains(line, "network_access=true") || strings.Contains(line, "/tmp/a") {
+		containsArgs(t, launched(t, s), "-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=false", "-c", "sandbox_workspace_write.writable_roots=[]")
+		if line := strings.Join(launched(t, s), " "); strings.Contains(line, "network_access=true") || strings.Contains(line, "/tmp/a") {
 			t.Errorf("%s: %s", tc.name, line)
 		}
 	}
@@ -91,7 +98,7 @@ func TestCodexExtrasBeforeResume(t *testing.T) {
 	s := spec(t, "codex")
 	s.Route.Sandbox, s.Mode, s.Native = "workspace-write", mode.Edits, "workspace-write"
 	s.Network, s.WritableRoots, s.ThreadID = true, []string{"/tmp/a"}, "thread-123"
-	a := Argv(s)
+	a := launched(t, s)
 	resume := slices.Index(a, "resume")
 	if resume < 0 {
 		t.Fatal(a)
@@ -104,11 +111,52 @@ func TestCodexExtrasBeforeResume(t *testing.T) {
 	containsArgs(t, a, "-s", "workspace-write", "sandbox_workspace_write.network_access=true", `sandbox_workspace_write.writable_roots=["/tmp/a"]`)
 }
 
+// Integration review, Important: the permission words are the admitted
+// process's own. The run's argv starts with the process's launch argv and
+// adds none after it; a spec whose words differ from the admitted ones is
+// refused, and its argv still holds only what was admitted.
+func TestArgvTakesLaunchWordsFromTheProcess(t *testing.T) {
+	s := spec(t, "codex")
+	s.Route.Sandbox, s.Mode, s.Native = "workspace-write", mode.Edits, "workspace-write"
+	s.Network, s.WritableRoots, s.ThreadID = true, []string{"/tmp/a"}, "thread-123"
+	s = rebuilt(t, s)
+	c := spec(t, "claude")
+	c.Route.Sandbox, c.Mode, c.Native = "workspace-write", mode.Full, "bypassPermissions"
+	c = rebuilt(t, c)
+	for _, tc := range []struct {
+		s    Spec
+		flag string
+	}{{s, "-s"}, {c, "--permission-mode"}} {
+		a, admitted := Argv(tc.s), tc.s.Process.LaunchArgv()
+		if len(tc.s.Process.Launch) == 0 || len(a) < len(admitted) || !slices.Equal(a[:len(admitted)], admitted) {
+			t.Fatalf("%s: argv %v does not start with the admitted %v", tc.s.Route.Agent, a, admitted)
+		}
+		if n := strings.Count(" "+strings.Join(a, " ")+" ", " "+tc.flag+" "); n != 1 {
+			t.Errorf("%s: %d permission flags in %v", tc.s.Route.Agent, n, a)
+		}
+		if err := checkProcess(tc.s); err != nil {
+			t.Errorf("%s: %v", tc.s.Route.Agent, err)
+		}
+	}
+	if s.Process.Launch[0] != "exec" || slices.Index(Argv(s), "resume") < len(s.Process.LaunchArgv()) {
+		t.Errorf("codex order: %v", Argv(s))
+	}
+	moved := s
+	moved.Network = false
+	if checkProcess(moved) == nil {
+		t.Error("a spec whose permission words differ from the admitted ones was not refused")
+	}
+	containsArgs(t, Argv(moved), "sandbox_workspace_write.network_access=true")
+	if slices.Contains(Argv(moved), "sandbox_workspace_write.network_access=false") {
+		t.Errorf("the runner added words after admission: %v", Argv(moved))
+	}
+}
+
 // A looser mode keeps every setting the gate depends on.
 func TestLooserArgvKeepsGateSettings(t *testing.T) {
 	s := spec(t, "claude")
 	s.Route.Sandbox, s.Mode, s.Native = "workspace-write", mode.Full, "bypassPermissions"
-	a := Argv(s)
+	a := launched(t, s)
 	line := strings.Join(a, " ")
 	if strings.Contains(line, "--setting-sources") || strings.Contains(line, "disableAllHooks") || !slices.Contains(a, "--settings") {
 		t.Fatal(line)

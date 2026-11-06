@@ -46,11 +46,33 @@
 
 - `worker_modes` sets a delegate worker's native mode per role and family,
   never above the lead's; a looser mode needs a gate preflight.
+- `paid_runs.<agent>.allow` lets workers and peers run paid when out of quota,
+  up to `daily_cap_usd` in 24 hours; `calibrate` does so within the plan's USD.
+- `limits.max_total_sessions` (10) and `limits.sessions_by_tier` (3, 5, 10 by
+  measured window) limit live sessions per account, across all projects.
+- A delegation waits up to `limits.session_wait_seconds` (60) for a session
+  slot; `peer open` is refused at once, and calibration cells wait.
+- `paid_runs.usable_share` (0.5) keeps a workspace account to that share of
+  each window; paid and workspace agents run one task at a time.
+- `paid_runs.claude.subscription_endpoints` names gateway URLs that count as
+  the subscription.
+- `duolog quota` and `duolog doctor` show billing by agent and signal, spend,
+  sessions and `held:` panes; `duolog peer release <id>` frees a closed one.
+- `routing.balance: pace` starts a new task on the role's `fallback` while its
+  `use` agent runs ahead of its window, never onto a paid route.
+- `duolog peer list --long`, `peer show` and `peer view` let you see peers; a
+  new `duolog-peers` skill runs the list and view. See docs/rex.md.
 
 ### Changed
 
 - Codex workers get no network and no extra writable roots, even without
   `worker_modes`; give a role `network: true` in `worker_modes` to restore it.
+- Free workers, peers and calibration drop per-token API keys even if listed in
+  `env_passthrough`, so calibration starts; `duolog doctor` shows the fix.
+- The prices in `models` now drive admission of paid runs. They leave out fast
+  mode and cloud surcharges, so spend is a lower bound.
+- `.duolog/config.yaml` may only tighten, as raising `models` prices; so may a
+  `.duolog/config.local.yaml` Git tracks or outside Git. Opt in at user level.
 
 ### Security
 
@@ -71,8 +93,6 @@
   Claude ignores the project's `permissions.allow`.
 - Each peer may write its report to `.duolog/tasks/<peer-id>/report.md`;
   `peer status` and `wait` show the path.
-- `duolog peer list --long`, `peer show` and `peer view` let you see peers; a
-  new `duolog-peers` skill runs the list and view. See docs/rex.md.
 
 ### Fixed
 

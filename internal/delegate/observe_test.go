@@ -13,10 +13,12 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/auth"
+	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/testbin"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // An ask the lead or the person settled is logged with rule "ask lead" and
@@ -56,7 +58,7 @@ func TestTelemetryRunIDPassedToWorker(t *testing.T) {
 	}
 	h.requireCalls(2)
 	env := func(i int) string {
-		for _, pair := range h.calls[i].Env {
+		for _, pair := range h.calls[i].Process.Env {
 			if v, ok := strings.CutPrefix(pair, "DUOLOG_RUN="); ok {
 				return v
 			}
@@ -226,7 +228,11 @@ func TestAttemptRunnerCodes(t *testing.T) {
 				s.Route.Model = "luna"
 			}
 			testbin.Install(t, c.agent, c.scenario)
-			s.Env = []string{"PATH=" + os.Getenv("PATH")}
+			p, buildErr := workerEnv(workerenv.ProcessInput{Agent: c.agent, Variant: workerenv.Free, Config: &config.Config{}, Environ: os.Environ(), Launch: runner.Launch(s)})
+			if buildErr != nil {
+				t.Fatal(buildErr)
+			}
+			s.Process = &p
 			r, err := runner.Run(context.Background(), s)
 			if r.ErrorCode != c.code || r.UsageKnown != c.usageKnown || (c.code == runner.CodeNone) != (err == nil) {
 				t.Fatalf("%+v %v", r, err)

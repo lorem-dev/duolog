@@ -13,6 +13,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/pathutil"
+	"github.com/lorem-dev/duolog/internal/trusthome"
 )
 
 // WorkerModes is the native permission mode a delegate worker starts in, per
@@ -506,7 +507,7 @@ func expandRoots(role string, roots []string) ([]string, error) {
 	for i, raw := range roots {
 		root, reason := expandRoot(raw, home)
 		if reason == "" {
-			reason = refuseRoot(root, home)
+			reason = refuseRoot(root, home, os.Getenv)
 		}
 		if reason != "" {
 			return nil, fmt.Errorf("worker_modes.roles.%s.writable_roots[%d] %s: %s", role, i, raw, reason)
@@ -533,16 +534,33 @@ func expandRoot(raw, home string) (string, string) {
 // RefuseRoot says why a writable root is refused, or returns "" when it is
 // not. delegate asks again at launch, when symlinks may point elsewhere.
 func RefuseRoot(root string) string {
+	return RefuseRootEnv(root, nil)
+}
+
+// RefuseRootEnv is RefuseRoot for a worker whose environment is environ: the
+// home folder and the agent and credential folders that environment selects,
+// such as its HOME, CLAUDE_CONFIG_DIR or CODEX_HOME, are protected as well as
+// duolog's own. An environ without a home folder protects duolog's home only;
+// a worker that relies on the gate is refused before then (delegate's gate
+// preflight), as its agent's home cannot be read from environ.
+func RefuseRootEnv(root string, environ []string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "home folder: " + err.Error()
 	}
-	return refuseRoot(filepath.Clean(root), filepath.Clean(home))
+	if reason := refuseRoot(filepath.Clean(root), filepath.Clean(home), os.Getenv); reason != "" || environ == nil {
+		return reason
+	}
+	getenv := func(name string) string { return trusthome.Getenv(environ, name) }
+	if worker, err := trusthome.HomeIn(environ); err == nil && filepath.IsAbs(worker) {
+		home = worker
+	}
+	return refuseRoot(filepath.Clean(root), filepath.Clean(home), getenv)
 }
 
 // refuseRoot compares canonical paths (pathutil.Canonical): symlinks in the
 // existing prefix resolved, case folded where the volume ignores it.
-func refuseRoot(root, home string) string {
+func refuseRoot(root, home string, getenv func(string) string) string {
 	canonical := pathutil.Canonical(root)
 	if canonical == filepath.VolumeName(canonical)+string(filepath.Separator) {
 		return "a volume root is too wide"
@@ -553,7 +571,7 @@ func refuseRoot(root, home string) string {
 	if info, err := os.Stat(root); err == nil && !info.IsDir() {
 		return "a writable root must be a folder, not a file"
 	}
-	for _, p := range protectedFolders(runtime.GOOS, home, os.Getenv) {
+	for _, p := range protectedFolders(runtime.GOOS, home, getenv) {
 		if pathutil.Overlap(p, root) {
 			return "protected: it holds credentials or duolog's own settings"
 		}

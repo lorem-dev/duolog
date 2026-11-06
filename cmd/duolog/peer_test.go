@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/peer"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/testbin"
@@ -308,6 +311,98 @@ func TestPeerLaunchSetsEnvWithoutRex(t *testing.T) {
 	}
 	if _, err := executeBusCommand(t, "peer", "launch", "--env-file", file); err == nil {
 		t.Fatal("launch without a program")
+	}
+}
+
+// Integration review, Important: the launcher starts the program its pane's
+// admitted environment finds, on the env file's PATH, never the one its own
+// PATH would pick.
+func TestPeerLaunchFindsTheProgramOnTheAdmittedPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("peer launcher is unused on Windows")
+	}
+	checked := testbin.Install(t, "codex", testbin.Scenario{})
+	pane := testbin.Install(t, "codex", testbin.Scenario{}) // first on the launcher's PATH
+	if filepath.Dir(checked) == filepath.Dir(pane) {
+		t.Fatal("one folder for both programs")
+	}
+	set, err := json.Marshal([]string{"PATH=" + filepath.Dir(checked), "DUOLOG_DEPTH=1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "env.json")
+	if err := os.WriteFile(file, set, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executeBusCommand(t, "peer", "launch", "--env-file", file, "--", "codex", "-m", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(checked + ".env.json"); err != nil {
+		t.Errorf("the admitted PATH's codex did not run: %v", err)
+	}
+	if _, err := os.Stat(pane + ".env.json"); err == nil {
+		t.Error("the launcher's own PATH picked the program")
+	}
+	// A program the admitted PATH lacks starts nothing, and the file stays.
+	if err := os.WriteFile(file, []byte(`["PATH=`+t.TempDir()+`"]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executeBusCommand(t, "peer", "launch", "--env-file", file, "--", "codex"); err == nil {
+		t.Error("a program missing from the admitted PATH started")
+	}
+	if _, err := os.Stat(file); err != nil {
+		t.Errorf("the env file was taken: %v", err)
+	}
+}
+
+// TestPeerLaunchRecordsItselfOnTheHold is re-review finding N2: the launcher
+// records itself on its pane's account hold, by the DUOLOG_PEER of the
+// pane's variables, before it takes the env file. A peer open that dies
+// after the take then leaves the pane's presence for reconciliation. A
+// launcher that cannot record starts nothing and leaves the file to take.
+func TestPeerLaunchRecordsItselfOnTheHold(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("peer launcher is unused on Windows")
+	}
+	program := testbin.Install(t, "agent", testbin.Scenario{})
+	st, err := paidruns.OpenUserState(filepath.Join(t.TempDir(), "accounts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := openLaunchState
+	t.Cleanup(func() { openLaunchState = old })
+	openLaunchState = func() (*paidruns.Store, error) { return st, nil }
+	ctx := context.Background()
+	if err := st.Update(ctx, func(s *paidruns.State) error {
+		s.Reservations["pane"] = paidruns.Reservation{ID: "pane", Agent: "claude", Peer: "p1", Session: true, Task: true, Launching: true}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "env.json")
+	if err := os.WriteFile(file, []byte(`["DUOLOG_DEPTH=1","DUOLOG_PEER=p1"]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executeBusCommand(t, "peer", "launch", "--env-file", file, "--", program); err != nil {
+		t.Fatal(err)
+	}
+	var held paidruns.Reservation
+	if err := st.View(ctx, func(s paidruns.State) error { held = s.Reservations["pane"]; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if held.Launcher.PID != os.Getpid() {
+		t.Fatalf("launcher not recorded: %+v", held)
+	}
+
+	openLaunchState = func() (*paidruns.Store, error) { return nil, errors.New("no account state") }
+	if err := os.WriteFile(file, []byte(`["DUOLOG_PEER=p1"]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executeBusCommand(t, "peer", "launch", "--env-file", file, "--", program); err == nil {
+		t.Fatal("a launcher that could not record started")
+	}
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("the env file was taken: %v", err)
 	}
 }
 

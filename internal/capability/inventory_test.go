@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -327,6 +328,52 @@ func TestCodexPluginFailureKeepsOtherKindsKnown(t *testing.T) {
 		t.Fatal(inv, err)
 	}
 	requireItems(t, inv, "mcp:codegraph")
+}
+
+// Re-review, Minor 2: the worker's inventory reads the settings folders its
+// own environment selects. A server defined only in the caller's
+// CLAUDE_CONFIG_DIR or CODEX_HOME, which env_passthrough does not pass, is
+// missing for the worker, so Resolve bridges it or asks the lead.
+func TestScanEnvReadsTheWorkersSettings(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		t.Run(agent, func(t *testing.T) {
+			_, root := env(t)
+			Home = ""
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("USERPROFILE", home)
+			caller := t.TempDir()
+			scenario := testbin.Scenario{Stdout: "[]"}
+			if agent == "claude" {
+				put(t, filepath.Join(caller, ".claude.json"), `{"mcpServers":{"tracker":{"command":"tracker"}}}`)
+				t.Setenv("CLAUDE_CONFIG_DIR", caller)
+			} else {
+				scenario = testbin.Scenario{Responses: map[string]testbin.Scenario{"plugin list --json": {Stdout: `{"installed":[]}`}}}
+				put(t, filepath.Join(caller, "config.toml"), "[mcp_servers.tracker]\ncommand = \"tracker\"\n")
+				t.Setenv("CODEX_HOME", caller)
+			}
+			onlyPath(t, testbin.Install(t, agent, scenario))
+			own, err := Scan(context.Background(), agent, root)
+			if err != nil || !strings.Contains(strings.Join(names(own), " "), "mcp:tracker") {
+				t.Fatalf("duolog's own scan %v, %v; want mcp:tracker", names(own), err)
+			}
+			worker := []string{"HOME=" + home, "USERPROFILE=" + home, "PATH=" + os.Getenv("PATH")}
+			inv, err := ScanEnv(context.Background(), agent, root, worker)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(strings.Join(names(inv), " "), "mcp:tracker") {
+				t.Errorf("the worker's scan lists mcp:tracker from the caller-only folder: %v", names(inv))
+			}
+			if _, ok := ServersEnv(agent, root, worker)["tracker"]; ok {
+				t.Error("ServersEnv lists the caller-only tracker for the worker")
+			}
+			passed := append(slices.Clone(worker), "CLAUDE_CONFIG_DIR="+caller, "CODEX_HOME="+caller)
+			if inv, _ := ScanEnv(context.Background(), agent, root, passed); !strings.Contains(strings.Join(names(inv), " "), "mcp:tracker") {
+				t.Errorf("with the folder passed on, the worker's scan lacks mcp:tracker: %v", names(inv))
+			}
+		})
+	}
 }
 
 func TestClaudeCapabilityConfigOverride(t *testing.T) {

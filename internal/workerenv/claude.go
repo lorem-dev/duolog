@@ -7,11 +7,12 @@ import (
 	"github.com/lorem-dev/duolog/internal/pathutil"
 )
 
-// ClaudeSettings disables worker memory and lists state paths for an existing
-// sandbox. It never enables the sandbox or changes the caller's extra settings.
-// Fast mode is pinned off after the extra settings: it draws on usage credits
-// even inside a subscription window, and --settings is the session-start layer
-// that -p honours.
+// ClaudeSettings is the --settings JSON of the free variant: it disables
+// worker memory and lists state paths for an existing sandbox. It never
+// enables the sandbox or changes the caller's extra settings. Fast mode is
+// pinned off after the extra settings: it draws on usage credits even inside
+// a subscription window, and --settings is the session-start layer that -p
+// honours.
 func ClaudeSettings(stateDir string, minimal bool, extra map[string]any) string {
 	return ClaudeSettingsWithRoots(stateDir, minimal, extra, nil)
 }
@@ -21,13 +22,24 @@ func ClaudeSettings(stateDir string, minimal bool, extra map[string]any) string 
 // caller's other sandbox keys, enabled among them, stay as given, so a sandbox
 // that is off stays off and the denies protect only one already on.
 func ClaudeSettingsWithRoots(stateDir string, minimal bool, extra map[string]any, roots []string) string {
+	return renderClaudeSettings(stateDir, minimal, extra, roots, true)
+}
+
+// renderClaudeSettings makes the --settings JSON of either variant. Fast
+// mode belongs to the variant, never to the caller's extras: pinned off in
+// the free one, and left out of the paid one, so the person's own settings
+// decide. A key is set or left out, never blanked. Roots join the sandbox
+// denies in both variants.
+func renderClaudeSettings(stateDir string, minimal bool, extra map[string]any, roots []string, pinFast bool) string {
 	settings := map[string]any{}
 	for key, value := range extra {
-		if key != "sandbox" {
+		if key != "sandbox" && key != "fastMode" {
 			settings[key] = value
 		}
 	}
-	settings["fastMode"] = false
+	if pinFast {
+		settings["fastMode"] = false
+	}
 	settings["autoMemoryEnabled"] = false
 	if minimal {
 		settings["claudeMdExcludes"] = []string{"**/CLAUDE.md", "**/CLAUDE.local.md", "**/.claude/rules/**"}

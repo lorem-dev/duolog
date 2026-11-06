@@ -1,10 +1,14 @@
 package trust
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
+
+	"github.com/lorem-dev/duolog/internal/trusthome"
 )
 
 func fixture(t *testing.T, body string) {
@@ -286,5 +290,50 @@ func TestClaudeFolderTrustHonorsConfigDir(t *testing.T) {
 	}
 	if trusted, known := ClaudeFolder(t.TempDir(), root); !trusted || !known {
 		t.Fatal(trusted, known)
+	}
+}
+
+// Re-review, Important 1: HooksEnv and FolderEnv take the home folder from
+// the environment they are given, not from duolog's own, and an environment
+// without one is an error, since the agent would fall back to a home that
+// environment does not name.
+func TestEnvReadsTheEnvironmentsHome(t *testing.T) {
+	root := t.TempDir()
+	key := filepath.Join(root, ".codex", "hooks.json") + ":PreToolUse:0:0"
+	// duolog's own home trusts and approves everything.
+	fixture(t, fmt.Sprintf("[projects.%q]\ntrust_level = \"trusted\"\n[hooks.state.%q]\ntrusted_hash = \"invented-hash\"\n", root, key))
+	writeHook(t, root, `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"duolog gate"}]}]}}`)
+	gate := `{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"duolog gate --agent claude --event PreToolUse"}]}]}}`
+	if err := os.MkdirAll(filepath.Join(os.Getenv("HOME"), ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(os.Getenv("HOME"), ".claude", "settings.json"), []byte(gate), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := Hooks("claude", root); !s.Installed {
+		t.Fatal("the fixture's own Claude gate is not seen")
+	}
+	// The worker's home has none of it.
+	other := []string{"HOME=" + t.TempDir(), "USERPROFILE=" + t.TempDir()}
+	if runtime.GOOS == "windows" {
+		other = []string{"USERPROFILE=" + t.TempDir()}
+	}
+	if s, err := HooksEnv("claude", root, other); err != nil || s.Installed {
+		t.Errorf("claude: %+v, %v; want no gate from the worker's home", s, err)
+	}
+	if s, err := HooksEnv("codex", root, other); err != nil || s.Trusted {
+		t.Errorf("codex: %+v, %v; want no approval from the worker's home", s, err)
+	}
+	if ok, err := FolderEnv("codex", root, other); err != nil || ok {
+		t.Errorf("codex folder: %t, %v; want untrusted in the worker's home", ok, err)
+	}
+	none := []string{"PATH=" + os.Getenv("PATH")}
+	for _, agent := range []string{"claude", "codex"} {
+		if _, err := HooksEnv(agent, root, none); !errors.Is(err, trusthome.ErrNoHome) {
+			t.Errorf("%s hooks without a home: %v, want ErrNoHome", agent, err)
+		}
+	}
+	if _, err := FolderEnv("codex", root, none); !errors.Is(err, trusthome.ErrNoHome) {
+		t.Errorf("codex folder without a home: %v, want ErrNoHome", err)
 	}
 }

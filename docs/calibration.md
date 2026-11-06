@@ -225,16 +225,27 @@ checks quota before each call. It stops admitting calls when its estimated
 spend reaches the approved cap. A call can cost more than its estimate. A
 running call can also reach a provider limit before the next check.
 
-Calibration runs on your subscription only. While `env_passthrough` lists
-`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, `duolog calibrate run`, `resume` and
-`judge` refuse to start, before they read quota or admit any cost. A worker
-with a key is billed per token, outside the quota that the caps read. Remove
-the key from `env_passthrough` and keep the other names; see
-[Configuration](configuration.md#if-you-use-an-api-key-on-purpose).
+Calibration runs on your subscription unless you allow more. Every cell,
+judge call and rewrite starts as a free run, which never gets an API key or
+another name that bills per token, even when `env_passthrough` lists it. An
+agent whose route is paid, or whose billing duolog cannot read, needs
+`paid_runs.<agent>.allow` with a `daily_cap_usd` and
+`paid_runs.<agent>.calibrate: true`. Without them `duolog calibrate plan`
+refuses a plan that uses the agent, and the run stops with
+`paid calibration not allowed`. See
+[Configuration](configuration.md#how-paid-runs-are-allowed-and-capped).
 
-duolog does not turn off provider credits or extra usage. It stops when a
-quota reading is rejected or reports a reached spend control. Check your
-billing settings before a run.
+For a paid agent, the plan shows the high USD estimate of its cells, judge
+calls and rewrites, the spend of the last 24 hours and the cap. It is cut to
+fit what the cap leaves, and your approval covers that USD figure. The prices
+leave out fast mode and cloud surcharges, so the figure is a lower bound.
+The run stops with `approved cap` once the paid agent spent the approved USD.
+While the agent's daily cap, shared with every other paid run, has nothing
+left, the run pauses for an hour; resume it later.
+
+duolog does not turn off provider credits or extra usage, and never spends
+them on purpose. It stops when a quota reading is rejected or reports a
+reached spend control. Check your billing settings before a run.
 
 The plan shows, per class, the tasks, entries, cells, a token and USD
 equivalent range, the share of each quota window from `duolog quota`, wall
@@ -260,11 +271,23 @@ These limits apply to each agent:
 You can set either cap lower in `.duolog/config.yaml`, which you share in Git.
 A higher cap there is ignored, and `duolog calibrate status` says so: a
 teammate cannot raise what calibration spends for you. Only your own
-`.duolog/config.local.yaml` or user config can raise the weekly cap, up to
-`1`. The five-hour cap is at most `0.5`; a higher value is an error. The lead
-never raises the caps. The run and its judge calls keep to the caps and cell
-limits of the plan you approved. A stricter value in the config applies
+`.duolog/config.local.yaml`, while Git does not track it, or your user
+config can raise the weekly cap, up to `1`. The five-hour cap is at most
+`0.5`; a higher value is an error. The lead never raises the caps. The run
+and its judge calls keep to the caps and cell limits of the plan you
+approved. A stricter value in the config applies
 without a new approval, a looser one only after you plan and approve again.
+
+On a workspace account the caps and the lead reserve apply to the usable
+part of each window, `paid_runs.usable_share`, `0.5` by default. The default
+caps are then 5% of the real weekly window and 25% of a five-hour window.
+
+Each step takes an account slot when its worker starts, like a delegation;
+see [Configuration](configuration.md#how-many-sessions-run-at-once). It
+counts against the same daily cap and session limits as every other run of
+the account, from any project. When the agent or the account has no free
+slot, the step waits without a time limit, and `duolog calibrate status`
+shows `waiting: waiting for a session of <agent>`.
 
 ### How the run counts spend
 
@@ -306,8 +329,9 @@ a step, so it never runs blind.
 ## How to stop and resume a run
 
 The run stops by itself and prints `stopped: <reason>`. The reasons are
-`lead reserve`, `provider limit`, `approved cap`, `quota unavailable` and
-`re-approve`. At a five-hour cap it prints
+`lead reserve`, `provider limit`, `approved cap`, `quota unavailable`,
+`re-approve`, `paid calibration not allowed` and `step still held`. At a
+five-hour cap it prints
 `paused until <time>; resume with duolog calibrate resume`. You can also stop
 it with Ctrl-C. Ctrl-C during a cell, while the worker or the checks run,
 records no result for that cell: the checks stop, and resume runs the cell
@@ -316,8 +340,13 @@ again.
 Ask the lead to resume later. It runs `duolog calibrate resume`, which skips
 done cells, runs again the cells left `running`, and reads quota again. An
 interrupted cell stays counted, and its rerun counts as a new attempt. Run and
-resume both check that the commits, class checks, judges and rubrics still
-match the approved plan.
+resume both check that the commits, class checks, judges, rubrics and paid
+budgets still match the approved plan.
+
+A resume first releases the account slots of workers that are proven gone.
+When an earlier attempt of a cell still holds its slot, its worker may still
+run, so the run stops with `step still held` rather than start the cell
+twice. Resume again once that worker ends.
 
 After `re-approve`, run `duolog calibrate plan` again and approve the new
 plan. The new plan keeps the cells that ran, with their results and spend, and

@@ -85,6 +85,13 @@ type Runner struct {
 	// interrupt or a resume after a crash removes what the cell left; ""
 	// records none.
 	Tree string
+	// Billing is each agent's budget for this run, Plan.LimitBilling of the
+	// account gate's report now; nil means the approved plan's.
+	Billing map[string]BillingBudget
+	// Accounts is the user's shared account state: reconciled before a
+	// resume, asked whether a step's earlier attempt is still held, and fed
+	// each finished step's tokens; nil keeps a run to its own rates.json.
+	Accounts StepAccounts
 
 	rates map[string]Rate
 	// judging says Judge admits the calls, so a pause names the judge step.
@@ -126,13 +133,25 @@ func (r *Runner) Execute(ctx context.Context) (Outcome, error) {
 	if err := Recheck(ctx, r.Root, r.Cfg, r.Run, r.Manifest, r.Plan); err != nil {
 		return Outcome{}, err
 	}
+	// Every step's budget and receipt name the approved plan: no other plan
+	// starts a step.
+	if r.Plan.Hash != "" && r.Plan.Hash != r.Run.Approved.Hash {
+		return Outcome{}, fmt.Errorf("%w: the plan to run is not the approved one", ErrNotApproved)
+	}
 	r.Cfg = r.Plan.Limit(r.Cfg)
 	rates, err := ReadRates(r.StateDir)
 	if err != nil {
 		return Outcome{}, err
 	}
 	r.rates, r.capped = rates, false
-	r.Run.Stopped, r.Run.Pause = "", time.Time{}
+	r.Run.Stopped, r.Run.Pause, r.Run.WaitReason = "", time.Time{}, ""
+	// Before a resume runs anything again, the account holds whose owners are
+	// proven gone end; a step whose worker may still run stays held.
+	if r.Accounts != nil {
+		if err := r.Accounts.Reconcile(ctx); err != nil {
+			return Outcome{}, err
+		}
+	}
 
 	if o, stop, err := r.rewriteAll(ctx); err != nil || stop {
 		return o, err
@@ -144,6 +163,15 @@ func (r *Runner) Execute(ctx context.Context) (Outcome, error) {
 		c := r.Run.Cells[i]
 		if c.State != CellPending && c.State != CellRunning {
 			continue
+		}
+		if held, err := r.stillHeld(ctx, i); err != nil {
+			return Outcome{}, err
+		} else if held {
+			if _, err := fmt.Fprintf(r.Out, "cell %s: an earlier attempt still holds its account reservation; its worker may still run, so resume once it ends\n", c.ID); err != nil {
+				return Outcome{}, err
+			}
+			o, err := r.stop(stopHeld)
+			return o, err
 		}
 		o, stop, err := r.runCell(ctx, i)
 		if err != nil || stop {
@@ -180,21 +208,30 @@ func (r *Runner) runCell(ctx context.Context, i int) (Outcome, bool, error) {
 	cost := CostOf(r.rate(agent), r.Manifest.Estimates[c.Task].TokensHigh, r.measured(agent))
 	var before []Window
 	var refused *Outcome
+	var heldUSD float64
+	stepCtx, step := withStep(ctx)
 	start := func() (bool, error) {
 		ws, o, stop, err := r.admit(ctx, agent, family, cost, r.held(agent))
 		if err != nil || stop {
 			refused = &o
 			return false, err
 		}
-		// The attempt is charged before the worker starts, in the same save
-		// that marks the cell running, so an interrupt or a crash keeps it
-		// counted once; a rerun is a new attempt.
+		// Each start is a new attempt with its own receipt and what the plan
+		// still allows it, before its own charge; the account gate admits the
+		// cell's worker within that.
+		step.budget = r.stepBudget(agent, r.newReceipt(c.ID), false)
+		step.waiting = r.waiting(agent)
+		// The attempt is charged before the worker starts, its window share
+		// and on a paid route its high USD, in the same save that marks the
+		// cell running, so an interrupt or a crash keeps it counted once; a
+		// rerun is a new attempt.
 		before = ws
 		r.Run.Spend.Raise(agent, before, cost)
+		heldUSD = r.holdUSD(agent, cellUSD(r.Cfg, agent, entryModel(c.Entry), r.Manifest.Estimates[c.Task].TokensHigh), false)
 		r.Run.Cells[i].State, r.Run.Cells[i].Tree = CellRunning, r.Tree
 		return true, r.Run.Save(r.StateDir)
 	}
-	res, err := r.Cell(ctx, c, task, start)
+	res, err := r.Cell(stepCtx, c, task, start)
 	switch {
 	case refused != nil && (err == nil || errors.Is(err, ErrNotAdmitted)):
 		if refused.Stopped == stopCap {
@@ -208,21 +245,31 @@ func (r *Runner) runCell(ctx context.Context, i int) (Outcome, bool, error) {
 		// The delegation refused it after admission, before its worker: the
 		// charge is taken back and the cell waits again.
 		r.Run.Cells[i].State = CellPending
+		r.chargeUSD(agent, -heldUSD, false)
 		return Outcome{}, true, errors.Join(err, r.removeTree(i), r.release(agent, before, cost, false))
 	case err != nil:
 		// The cell stays running for a resume to run again, without its tree.
+		// Its USD stays held, raised to what it measured if that is more.
+		r.settleUSD(agent, heldUSD, res.USD, false, false)
 		return Outcome{}, true, errors.Join(err, r.removeTree(i), r.Run.Save(r.StateDir))
 	}
 	c = r.Run.Cells[i]
 	c.State, c.Passed, c.Reason, c.Tree, c.SetupChanged = res.State, res.Passed, res.Reason, "", res.SetupChanged
 	c.Tokens, c.USD, c.Seconds = res.Tokens, res.USD, res.Seconds
-	var quotaErr error
+	var quotaErr, observeErr error
 	if before != nil {
 		c.Weekly, c.Window, quotaErr = r.settle(ctx, agent, family, before, cost, false)
+		r.settleUSD(agent, heldUSD, res.USD, false, true)
+		if quotaErr == nil {
+			observeErr = r.observe(ctx, agent, family, res.Input, res.Cached, res.Output)
+		}
 	}
 	r.Run.Cells[i] = c
 	if err := r.Run.Save(r.StateDir); err != nil {
-		return Outcome{}, true, err
+		return Outcome{}, true, errors.Join(err, observeErr)
+	}
+	if observeErr != nil {
+		return Outcome{}, true, fmt.Errorf("calibration cell %s: shared rates: %w", c.ID, observeErr)
 	}
 	if _, err := fmt.Fprintf(r.Out, "cell %s %s %s %s: %s, %dk tokens, %dm\n", r.position(i), c.Class, c.Entry, c.Task,
 		cellText(c), int64(math.Round(float64(c.Tokens)/1000)), int64(math.Round(c.Seconds/60))); err != nil {
@@ -311,6 +358,8 @@ func (r *Runner) rewriteAll(ctx context.Context) (Outcome, bool, error) {
 		planned := r.planned(id)
 		var before []Window
 		var refused *Outcome
+		var heldUSD float64
+		stepCtx, step := withStep(ctx)
 		// The rewrite readies and checks the judge folder before it calls
 		// start; then it is charged before it starts, like a cell, so a
 		// failed rewrite counts and a refused one does not.
@@ -320,14 +369,17 @@ func (r *Runner) rewriteAll(ctx context.Context) (Outcome, bool, error) {
 				refused = &o
 				return false, err
 			}
+			step.budget = r.stepBudget(agent, r.newReceipt("rewrite-"+id), true)
+			step.waiting = r.waiting(agent)
 			before = ws
 			r.Run.Spend.Raise(agent, before, cost)
 			if planned {
 				r.Run.Spend.addJudge(agent, cost.WeeklyPct)
 			}
+			heldUSD = r.holdUSD(agent, cellUSD(r.Cfg, agent, judge.Model, judgeTokensHigh), planned)
 			return true, r.Run.Save(r.StateDir)
 		}
-		statement, tokens, err := r.Rewrite(ctx, task, start)
+		statement, tokens, err := r.Rewrite(stepCtx, task, start)
 		if refused != nil && (err == nil || errors.Is(err, ErrNotAdmitted)) {
 			if refused.Stopped != stopCap {
 				return *refused, true, nil
@@ -345,14 +397,27 @@ func (r *Runner) rewriteAll(ctx context.Context) (Outcome, bool, error) {
 		}
 		if err != nil {
 			err = fmt.Errorf("calibration task %s: rewrite: %w", id, err)
-			if before != nil && notStarted(err) {
+			switch {
+			case before != nil && notStarted(err):
+				r.chargeUSD(agent, -heldUSD, planned)
 				err = errors.Join(err, r.release(agent, before, cost, planned))
+			case before != nil:
+				// A rewrite that broke off keeps its held USD.
+				r.settleUSD(agent, heldUSD, cellUSD(r.Cfg, agent, judge.Model, tokens), planned, false)
+				err = errors.Join(err, r.Run.Save(r.StateDir))
 			}
 			return Outcome{}, true, err
 		}
 		if before != nil {
 			// A failed reading stops the run once this statement is kept.
 			_, _, quotaErr = r.settle(ctx, agent, family, before, cost, false)
+			r.settleUSD(agent, heldUSD, cellUSD(r.Cfg, agent, judge.Model, tokens), planned, true)
+			if quotaErr == nil {
+				// A rewrite reports its tokens only: they count as input.
+				if err := r.observe(ctx, agent, family, tokens, 0, 0); err != nil {
+					return Outcome{}, true, fmt.Errorf("calibration task %s: rewrite: shared rates: %w", id, err)
+				}
+			}
 		}
 		statement = strings.TrimSpace(statement)
 		if verr := ValidStatement(statement, task, names); verr != nil {
@@ -489,7 +554,11 @@ func (r *Runner) admit(ctx context.Context, agent, family string, cost CellCost,
 	r.Run.Spend.Track(agent, ws)
 	// Steps run one at a time: one still open now ended without a settle.
 	r.Run.Spend.End(agent, ws)
-	d := Admit(agent, ws, cost, r.Run.Spend, r.Cfg.Calibration, held, r.Now())
+	billing := r.Billing
+	if billing == nil {
+		billing = r.Plan.Billing
+	}
+	d := AdmitBilled(agent, billing[agent], ws, cost, r.Run.Spend, r.Cfg.Calibration, held, r.Now())
 	switch {
 	case d.Admit:
 		return ws, Outcome{}, false, nil

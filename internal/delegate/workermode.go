@@ -1,6 +1,7 @@
 package delegate
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/trust"
+	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -87,18 +89,44 @@ func (w workerMode) needsGate() bool {
 	return w.Looser || w.Network || len(w.WritableRoots) > 0
 }
 
+// gateState reads the hook state and folder trust of an agent process whose
+// environment is env: the settings, plugins, approvals and trusted folders
+// that environment's CLAUDE_CONFIG_DIR or CODEX_HOME select.
+func gateState(agent, root string, env []string) (trust.State, bool, error) {
+	state, err := trust.HooksEnv(agent, root, env)
+	if err != nil {
+		return trust.State{}, false, err
+	}
+	folder, err := trust.FolderEnv(agent, root, env)
+	return state, folder, err
+}
+
 // gatePreflight refuses a looser worker when the gate cannot be shown to run
-// for it, or when a writable root overlaps a protected folder.
-func (w workerMode) gatePreflight(agent string, state trust.State, folder bool, protected []string) error {
-	problem := trust.GateProblem(agent, state, folder)
-	pathEnv := workerenv.Path()
+// for the process whose environment is env, or when a writable root overlaps
+// a protected folder. Hooks, folder trust, the gate binary on PATH and the
+// protected agent folders all come from env, the environment that process
+// runs with, never from duolog's own.
+func (w workerMode) gatePreflight(agent, root string, env, protected []string) error {
+	state, folder, err := gateState(agent, root, env)
+	problem := ""
+	switch {
+	case errors.Is(err, trusthome.ErrNoHome):
+		// The agent falls back to a home env does not name, so its settings
+		// cannot be read and its gate cannot be shown.
+		problem = noHomeProblem()
+	case err != nil:
+		return err
+	default:
+		problem = trust.GateProblem(agent, state, folder)
+	}
+	pathEnv := "PATH=" + trusthome.Getenv(env, "PATH")
 	gate, err := gateBinary(pathEnv)
 	if problem == "" && err != nil {
 		problem = err.Error()
 	}
 	if problem == "" && len(w.WritableRoots) > 0 {
 		protected = append(slices.Clone(protected), programFolders(pathEnv, gate)...)
-		problem = protectedRoot(w.WritableRoots, protected)
+		problem = protectedRoot(w.WritableRoots, protected, env)
 	}
 	if problem == "" {
 		return nil
@@ -106,12 +134,43 @@ func (w workerMode) gatePreflight(agent string, state trust.State, folder bool, 
 	return fmt.Errorf("gate preflight failed for %s %s (%s): %s; nothing ran", agent, w.Native, w.Source, problem)
 }
 
+// noHomeProblem says why nothing a worker's agent loads can be read from an
+// environment without a home folder.
+func noHomeProblem() string {
+	name := "HOME"
+	if runtime.GOOS == "windows" {
+		name = "USERPROFILE"
+	}
+	return "the worker's environment has no home folder (" + name + "), so the settings its agent loads cannot be read; add " + name + " to env_passthrough"
+}
+
+// calibrationGate refuses a calibration cell or rewrite whose gate cannot be
+// shown to run for the process whose environment is env, whatever its worker
+// mode: calibration promises that no cell runs without the gate.
+func calibrationGate(agent, root string, env []string) error {
+	state, folder, err := gateState(agent, root, env)
+	problem := ""
+	switch {
+	case errors.Is(err, trusthome.ErrNoHome):
+		problem = noHomeProblem()
+	case err != nil:
+		return err
+	default:
+		problem = trust.GateProblem(agent, state, folder)
+	}
+	if problem == "" {
+		return nil
+	}
+	return fmt.Errorf("calibration gate check failed for %s in %s: %s; no cell runs without the duolog gate, and nothing ran", agent, root, problem)
+}
+
 // protectedRoot names the first writable root that config refuses now, at
 // launch, or that equals, lies inside or holds a protected folder; empty when
-// none does. Paths compare canonically (pathutil.Canonical).
-func protectedRoot(roots, protected []string) string {
+// none does. Paths compare canonically (pathutil.Canonical). env is the
+// worker's environment, whose agent folders are protected too.
+func protectedRoot(roots, protected, env []string) string {
 	for _, root := range roots {
-		if reason := config.RefuseRoot(root); reason != "" {
+		if reason := config.RefuseRootEnv(root, env); reason != "" {
 			return "writable root " + root + ": " + reason
 		}
 		for _, p := range protected {

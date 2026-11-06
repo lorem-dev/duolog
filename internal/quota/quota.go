@@ -11,11 +11,15 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 type Window struct {
@@ -41,7 +45,8 @@ type Credits struct {
 	Balance    *string `json:"balance,omitempty"`
 }
 
-// Snapshot contains quota fields only; identity and auth fields are discarded.
+// Snapshot contains quota fields and billing evidence only; identity and
+// credentials are discarded.
 type Snapshot struct {
 	Plan                string              `json:"plan,omitempty"`
 	Windows             []Window            `json:"windows"`
@@ -50,6 +55,7 @@ type Snapshot struct {
 	Credits             *Credits            `json:"credits,omitempty"`
 	Rejected            bool                `json:"rejected"`
 	SpendControlReached bool                `json:"spend_control_reached,omitempty"`
+	Billing             BillingFacts        `json:"billing"`
 	ReadAt              time.Time           `json:"read_at"`
 }
 
@@ -81,16 +87,51 @@ type Reader struct {
 	Version string
 	// Timeout bounds each agent, including startup, auth status and shutdown.
 	Timeout time.Duration
+	// IdentitySink receives the transient identity fields of a free reply,
+	// one call per kind, straight from the decoder: raw is nil when the reply
+	// has none. Nothing else keeps them. A read whose reply never arrived
+	// calls no sink, and a sink error fails the read. Nil skips identity.
+	IdentitySink func(agent, kind string, raw []byte) error
 }
 
+// Identity kinds handed to Reader.IdentitySink: the login's account, and the
+// organization or workspace it belongs to.
+const (
+	IdentityAccount = "account"
+	IdentityOrg     = "org"
+)
+
+// errIdentity hides the sink's error, which may quote the identity.
+var errIdentity = errors.New("account identity not recorded")
+
+// Read returns the agent's quota as a free worker sees it: the process that
+// workerenv.Build makes from duolog's environment and the default
+// env_passthrough. Callers that know the launch read with ReadProcess.
 func (r Reader) Read(ctx context.Context, agent string) (Snapshot, error) {
+	cfg := &config.Config{EnvPassthrough: config.DefaultEnvPassthrough(runtime.GOOS)}
+	p, err := workerenv.Build(workerenv.ProcessInput{Agent: agent, Shape: workerenv.Worker, Variant: workerenv.Free,
+		Config: cfg, Environ: os.Environ()})
+	if err != nil {
+		return Snapshot{}, errors.New("unknown agent")
+	}
+	return r.ReadProcess(ctx, p)
+}
+
+// ReadProcess returns the quota that process p sees. Every read runs p's
+// argv, its prefix and settings included, with exactly p's environment, and
+// finds the CLI in that environment's PATH. On an error the snapshot holds
+// only the billing evidence the read saw, such as a reply without windows.
+func (r Reader) ReadProcess(ctx context.Context, p workerenv.Process) (Snapshot, error) {
 	timeout := r.Timeout
 	if timeout <= 0 {
 		timeout = 15 * time.Second
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	bin, err := exec.LookPath(agent)
+	if len(p.Prefix) == 0 {
+		return Snapshot{}, errors.New("not installed")
+	}
+	bin, err := lookPath(p.Prefix[0], p.Env)
 	if err != nil {
 		return Snapshot{}, errors.New("not installed")
 	}
@@ -99,12 +140,16 @@ func (r Reader) Read(ctx context.Context, agent string) (Snapshot, error) {
 		return Snapshot{}, errors.New("cannot create temporary folder")
 	}
 	defer os.RemoveAll(dir)
+	run := runner{p: p, bin: bin, dir: dir}
+	if sink := r.IdentitySink; sink != nil {
+		run.identity = func(kind string, raw []byte) error { return sink(p.Agent, kind, raw) }
+	}
 	var s Snapshot
-	switch agent {
+	switch p.Agent {
 	case "claude":
-		s, err = readClaude(ctx, bin, dir)
+		s, err = readClaude(ctx, run)
 	case "codex":
-		s, err = r.readCodex(ctx, bin, dir)
+		s, err = r.readCodex(ctx, run)
 	default:
 		err = errors.New("unknown agent")
 	}
@@ -112,22 +157,63 @@ func (r Reader) Read(ctx context.Context, agent string) (Snapshot, error) {
 		return Snapshot{}, errors.New("read timed out or canceled")
 	}
 	if err != nil {
-		return Snapshot{}, err
+		return Snapshot{Billing: s.Billing}, err
 	}
 	s.ReadAt = time.Now().UTC()
 	return s, nil
 }
 
-func command(ctx context.Context, bin, dir string, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Dir = dir
-	cmd.WaitDelay = 200 * time.Millisecond
-	for _, value := range os.Environ() {
-		if !strings.HasPrefix(value, "DUOLOG_DEPTH=") && !strings.HasPrefix(value, "DUOLOG_LEAD=") {
-			cmd.Env = append(cmd.Env, value)
+// lookPath finds name in the PATH of env, never in duolog's own. A name with
+// a separator is used as it is.
+func lookPath(name string, env []string) (string, error) {
+	if strings.ContainsAny(name, `/\`) {
+		return exec.LookPath(name)
+	}
+	path := ""
+	for _, pair := range env {
+		key, value, _ := strings.Cut(pair, "=")
+		if key == "PATH" || runtime.GOOS == "windows" && strings.EqualFold(key, "PATH") {
+			path = value
 		}
 	}
-	cmd.Env = append(cmd.Env, "DUOLOG_DEPTH=1", "DUOLOG_LEAD=")
+	for _, dir := range filepath.SplitList(path) {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+		if bin, err := exec.LookPath(filepath.Join(dir, name)); err == nil {
+			return bin, nil
+		}
+	}
+	return "", errors.New("not installed")
+}
+
+// runner starts the read subprocesses of one process from its executable, in
+// a temporary folder.
+type runner struct {
+	p        workerenv.Process
+	bin, dir string
+	identity func(kind string, raw []byte) error
+}
+
+// identify hands one reply's identity fields to the sink, account first.
+func (r runner) identify(account, org []byte) error {
+	if r.identity == nil {
+		return nil
+	}
+	if r.identity(IdentityAccount, account) != nil || r.identity(IdentityOrg, org) != nil {
+		return errIdentity
+	}
+	return nil
+}
+
+// command runs the process's argv with args, and exactly its environment.
+func (r runner) command(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, r.bin, r.p.Argv(args...)[1:]...)
+	cmd.Dir = r.dir
+	cmd.WaitDelay = 200 * time.Millisecond
+	configureProcess(cmd)
+	// Non-nil, so that an empty environment never means duolog's own.
+	cmd.Env = append([]string{}, r.p.Env...)
 	// Never surface stderr: it can contain account details or credentials.
 	cmd.Stderr = io.Discard
 	return cmd
@@ -146,6 +232,10 @@ func plan(value string) string {
 	}
 	return ""
 }
+
+// Rejected reports whether the account refuses runs in this window whatever
+// its used percent says.
+func (w Window) Rejected() bool { return rejected(w.Severity) }
 
 func rejected(value string) bool {
 	switch value {
@@ -189,10 +279,13 @@ func rpcReply(scanner *bufio.Scanner, id int) (json.RawMessage, error) {
 	for scanner.Scan() {
 		var reply struct {
 			ID     int             `json:"id"`
+			Method string          `json:"method"`
 			Result json.RawMessage `json:"result"`
 			Error  json.RawMessage `json:"error"`
 		}
-		if json.Unmarshal(scanner.Bytes(), &reply) != nil || reply.ID != id {
+		// Notifications and server requests carry a method; only a reply
+		// answers the id.
+		if json.Unmarshal(scanner.Bytes(), &reply) != nil || reply.Method != "" || reply.ID != id {
 			continue
 		}
 		if len(reply.Error) > 0 && string(reply.Error) != "null" {
@@ -206,8 +299,8 @@ func rpcReply(scanner *bufio.Scanner, id int) (json.RawMessage, error) {
 	return nil, errors.New("app-server ended without a quota reply")
 }
 
-func (r Reader) readCodex(ctx context.Context, bin, dir string) (Snapshot, error) {
-	cmd := command(ctx, bin, dir, "app-server")
+func (r Reader) readCodex(ctx context.Context, run runner) (Snapshot, error) {
+	cmd := run.command(ctx, "app-server")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return Snapshot{}, errors.New("cannot open app-server input")
@@ -234,25 +327,72 @@ func (r Reader) readCodex(ctx context.Context, bin, dir string) (Snapshot, error
 	if err = rpcWrite(stdin, map[string]any{"jsonrpc": "2.0", "method": "initialized"}); err != nil {
 		return Snapshot{}, err
 	}
-	if err = rpcWrite(stdin, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "account/rateLimits/read"}); err != nil {
-		return Snapshot{}, err
+	call := func(id int, method string, params any) (json.RawMessage, error) {
+		request := map[string]any{"jsonrpc": "2.0", "id": id, "method": method}
+		if params != nil {
+			request["params"] = params
+		}
+		if err := rpcWrite(stdin, request); err != nil {
+			return nil, err
+		}
+		return rpcReply(scanner, id)
 	}
-	data, err := rpcReply(scanner, 2)
-	if err != nil {
-		return Snapshot{}, err
+	// Free reads only: no model turn, no reset credit, no token and no
+	// opt-in capability. A failed account, config or auth read is missing
+	// route evidence; only the rate limit read decides whether the read
+	// failed.
+	account := unreadFacts("account:unread", codexAccountLayer)
+	config := unreadFacts("provider:unread", codexConfigLayer)
+	auth := unreadFacts("auth:unread", codexAuthLayer)
+	if data, err := call(codexAccountID, "account/read", map[string]any{"refreshToken": false}); err == nil {
+		account, _ = parseCodexAccount(data)
+		if err := run.identify(codexIdentity(data)); err != nil {
+			return Snapshot{Billing: codexBilling(BillingFacts{}, account, config, auth)}, err
+		}
 	}
-	return parseCodex(data)
+	data, limitsErr := call(codexRateLimitsID, "account/rateLimits/read", nil)
+	if reply, err := call(codexConfigID, "config/read", map[string]any{"includeLayers": false}); err == nil {
+		config, _ = parseCodexConfig(reply)
+	}
+	if reply, err := call(codexAuthID, "getAuthStatus", map[string]any{"includeToken": false, "refreshToken": false}); err == nil {
+		auth, _ = parseCodexAuth(reply)
+	}
+	if limitsErr != nil {
+		return Snapshot{Billing: codexBilling(BillingFacts{}, account, config, auth)}, limitsErr
+	}
+	s, err := parseCodex(data)
+	s.Billing = codexBilling(s.Billing, account, config, auth)
+	return s, err
 }
 
+const (
+	codexRateLimitsID = 2
+	codexAccountID    = 3
+	codexConfigID     = 4
+	codexAuthID       = 5
+)
+
 type codexLimit struct {
-	PlanType             string          `json:"planType"`
-	Primary              *codexWindow    `json:"primary"`
-	Secondary            *codexWindow    `json:"secondary"`
-	Credits              *Credits        `json:"credits"`
-	SpendControlReached  bool            `json:"spendControlReached"`
-	OrdinaryUsageAllowed *bool           `json:"ordinaryUsageAllowed"`
-	RateLimitReachedType json.RawMessage `json:"rateLimitReachedType"`
+	PlanType  string       `json:"planType"`
+	Primary   *codexWindow `json:"primary"`
+	Secondary *codexWindow `json:"secondary"`
+	Credits   *Credits     `json:"credits"`
+	facts     codexLimitFacts
 }
+
+func (l *codexLimit) UnmarshalJSON(data []byte) error {
+	type plain codexLimit
+	if err := json.Unmarshal(data, (*plain)(l)); err != nil {
+		return err
+	}
+	var f fields
+	if err := json.Unmarshal(data, &f); err != nil {
+		return err
+	}
+	l.facts = readCodexLimitFacts(f)
+	return nil
+}
+
 type codexWindow struct {
 	UsedPercent        *float64 `json:"usedPercent"`
 	WindowDurationMins int      `json:"windowDurationMins"`
@@ -260,8 +400,9 @@ type codexWindow struct {
 }
 
 func (l codexLimit) blocked() bool {
-	v := string(l.RateLimitReachedType)
-	return l.SpendControlReached || (l.OrdinaryUsageAllowed != nil && !*l.OrdinaryUsageAllowed) || (v != "" && v != "null" && v != `"none"` && v != `""`)
+	v := string(l.facts.reachedType)
+	o := l.facts.ordinary.value
+	return l.facts.spendReached || (o != nil && !*o) || (v != "" && v != "null" && v != `"none"` && v != `""`)
 }
 
 func (l codexLimit) windows() ([]Window, error) {
@@ -293,7 +434,8 @@ func parseCodex(data []byte) (Snapshot, error) {
 		RateLimits *codexLimit           `json:"rateLimits"`
 		ByID       map[string]codexLimit `json:"rateLimitsByLimitId"`
 	}
-	if json.Unmarshal(data, &reply) != nil || reply.RateLimits == nil {
+	var top fields
+	if json.Unmarshal(data, &reply) != nil || json.Unmarshal(data, &top) != nil || reply.RateLimits == nil {
 		return Snapshot{}, errors.New("no quota data; check login")
 	}
 	l := reply.RateLimits
@@ -301,10 +443,19 @@ func parseCodex(data []byte) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
+	// Permission is the reply's own value, which Codex 0.165 sends beside
+	// the limits, joined with the account limit's: the stricter one wins. A
+	// duplicate limit can only take it away: a sparse null never clears a
+	// block, and a later read is the only way back. rateLimitResetCredits
+	// is never read: duolog neither counts nor spends a reset.
+	ordinary := joinPermissions(readCodexPermission(top), l.facts.ordinary)
+	billing := BillingFacts{OrdinaryUsageAllowed: ordinary, ResetCredits: l.facts.resetCredits}
+	billing.addCodexLimit(l.facts)
 	if len(windows) == 0 {
-		return Snapshot{}, errors.New("no quota windows")
+		return Snapshot{Billing: billing}, errors.New("no quota windows")
 	}
-	s := Snapshot{Plan: plan(l.PlanType), Windows: windows, Credits: l.Credits, Rejected: l.blocked(), SpendControlReached: l.SpendControlReached, ModelLimits: make(map[string][]Window)}
+	refused := ordinary != nil && !*ordinary
+	s := Snapshot{Plan: plan(l.PlanType), Windows: windows, Credits: l.Credits, Rejected: l.blocked() || refused, SpendControlReached: l.facts.spendReached, Billing: billing, ModelLimits: make(map[string][]Window)}
 	if s.Credits != nil && s.Credits.Balance != nil {
 		var number json.Number
 		if json.Unmarshal([]byte(*s.Credits.Balance), &number) != nil {
@@ -322,9 +473,21 @@ func parseCodex(data []byte) (Snapshot, error) {
 		if err != nil {
 			return Snapshot{}, err
 		}
-		s.Rejected = s.Rejected || limit.blocked()
-		if slices.Equal(ws, windows) {
+		s.Billing.addCodexLimit(limit.facts)
+		// A limit without windows of its own, or with the account's, is the
+		// account's limit. A scoped block stays with its family's windows,
+		// so the account and the other families keep their state.
+		if len(ws) == 0 || slices.Equal(ws, windows) {
+			s.Rejected = s.Rejected || limit.blocked()
+			if o := limit.facts.ordinary.value; o != nil && !*o {
+				s.Billing.OrdinaryUsageAllowed = o
+			}
 			continue
+		}
+		if limit.blocked() {
+			for i := range ws {
+				ws[i].Severity = "rejected"
+			}
 		}
 		family := models.Normalize("codex", id)
 		switch family {

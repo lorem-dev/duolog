@@ -13,14 +13,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 	_ "time/tzdata"
 
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/usage"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 const taskInstruction = "Do the task in the stdin block."
@@ -32,11 +35,19 @@ var ErrTurnCap = errors.New("worker reached its turn cap")
 
 const answerSchema = `{"type":"object","properties":{"done":{"type":"boolean"},"summary":{"type":"string"},"files":{"type":"array","items":{"type":"string"}},"needs":{"type":"array","items":{"type":"string"}},"decisions":{"type":"array","items":{"type":"string"}}},"required":["done","summary","files","needs","decisions"],"additionalProperties":false}`
 
+// Spec is one worker launch. Process is the built worker process of the
+// route's agent: its environment, its argv prefix and its settings, the same
+// process its login check and quota read used. There is no other environment
+// and no fallback to duolog's: a launch without a Process is refused, and
+// bridged MCP env must already be in it. Started, when set, receives the
+// child's process ID once it started and before Run waits for it; an error
+// stops the child.
 type Spec struct {
 	Route                          router.Route
 	Mode                           mode.Mode
 	Prompt, TaskDir, Cwd, ThreadID string
-	Env                            []string
+	Process                        *workerenv.Process
+	Started                        func(pid int) error
 	Stdin                          []byte
 	Persistent                     bool
 	// KeepMCP keeps the agent's MCP servers for a task that needs one.
@@ -51,8 +62,8 @@ type Spec struct {
 	SkillTest bool
 	// MCP holds servers bridged from the lead's agent for this run, or nil.
 	MCP *MCP
-	// ProtectedRoots are the telemetry and balance roots. A Claude worker's
-	// settings add them to the denyRead list of an already enabled sandbox.
+	// ProtectedRoots are the telemetry and balance roots. The caller builds
+	// them into Process, whose Claude settings deny them to an enabled sandbox.
 	ProtectedRoots []string
 	// Native is the resolved native permission name; empty means mode.Args.
 	// It is used only when it is known, not above Mode, and fits the sandbox.
@@ -61,6 +72,26 @@ type Spec struct {
 	// worker at level edits or full. Claude ignores them.
 	Network       bool
 	WritableRoots []string
+}
+
+// Launch is what a worker's process carries after its prefix, in
+// workerenv.ProcessInput.Launch: the operation, then the permission words.
+// For Codex, exec and its sandbox flag with both pins, as the run puts them
+// before resume; for Claude, -p and its permission flags. A skill test's
+// Codex run is exec with a read-only sandbox, its Claude run -p alone. The
+// caller builds them into the process the gate admits; Run refuses a process
+// whose launch words differ.
+func Launch(s Spec) []string {
+	operation := map[string]string{"codex": "exec", "claude": "-p"}[s.Route.Agent]
+	switch {
+	case operation == "":
+		return nil
+	case s.SkillTest && s.Route.Agent == "codex":
+		return []string{operation, "--sandbox", "read-only"}
+	case s.SkillTest:
+		return []string{operation}
+	}
+	return append([]string{operation}, permissionArgs(s.Route.Agent, s)...)
 }
 
 // permissionArgs returns the native permission flags for a worker. It falls
@@ -87,7 +118,7 @@ func permissionArgs(agent string, s Spec) []string {
 
 // MCP is what a worker needs to start servers bridged from the lead's agent.
 // The config parts refer to values by variable name only; the values are in
-// Env, which reaches the worker process and nothing else.
+// Env, which the caller builds into the worker's Process and nothing else.
 type MCP struct {
 	// Names are the bridged servers.
 	Names []string
@@ -142,9 +173,20 @@ type Result struct {
 	// its credentials. AuthServer names the server, when the error did.
 	AuthFailed bool
 	AuthServer string
+	// Billing is the run's own billing evidence, from the rate limit events of
+	// Claude's stream. Codex sends none, so it stays empty.
+	Billing quota.RunEvidence
+	// ReportedUSD is the cost the CLI reported for the run, or nil when it
+	// reported none or a value that is not a finite cost of zero or more.
+	ReportedUSD *float64
 	// UsageKnown means the vendor reported the usage; zero usage is then a
 	// count, not a gap.
 	UsageKnown bool
+	// UsageComplete means the usage is the whole run's: Claude's result event
+	// carried it, or Codex's turn completed. A run cancelled or timed out
+	// mid-request has known usage of its finished messages only, and the
+	// request in flight is billed too.
+	UsageComplete bool
 	// ErrorCode is one of the Code constants; CodeNone after a run that did
 	// not fail.
 	ErrorCode string
@@ -157,9 +199,14 @@ func setCode(r *Result, code string) {
 	}
 }
 
-// Argv includes the executable. Route.Model is already resolved by the caller;
-// version discovery and policy hook installation are outside this package.
+// Argv includes the executable: the Process prefix once, with its global
+// overrides and settings, then the run's own flags. Route.Model is already
+// resolved by the caller; version discovery and policy hook installation are
+// outside this package. Without a Process there is no argv.
 func Argv(s Spec) []string {
+	if s.Process == nil {
+		return nil
+	}
 	if s.SkillTest {
 		return skillArgv(s)
 	}
@@ -185,6 +232,9 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	}()
 	if s.TaskDir == "" {
 		return result, fmt.Errorf("missing task directory")
+	}
+	if err = checkProcess(s); err != nil {
+		return result, err
 	}
 	s.TaskDir, err = filepath.Abs(s.TaskDir)
 	if err != nil {
@@ -224,7 +274,14 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	// The program is the one on the process's own PATH.
+	bin, lookErr := workerenv.LookPath(argv[0], s.Process.Env)
+	if lookErr != nil {
+		log.Close()
+		return result, lookErr
+	}
+	cmd := exec.CommandContext(ctx, bin, argv[1:]...)
+	cmd.Args[0] = argv[0]
 	configureProcess(cmd)
 	cmd.WaitDelay = 2 * time.Second
 	cmd.Dir = s.Cwd
@@ -250,26 +307,32 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 		defer capture.Close()
 		*stream.dest = io.MultiWriter(log, capture)
 	}
-	cmd.Env = append([]string{}, s.Env...)
-	if s.MCP != nil {
-		// Added after env_passthrough, which never filters them.
-		cmd.Env = append(cmd.Env, s.MCP.Env...)
-	}
-	if s.Route.Agent == "claude" {
-		env := cmd.Env[:0]
-		for _, v := range cmd.Env {
-			if !strings.HasPrefix(v, "DISABLE_AUTOUPDATER=") && !strings.HasPrefix(v, "CLAUDE_CODE_DISABLE_AUTO_MEMORY=") {
-				env = append(env, v)
-			}
+	// The built environment, bridged MCP env included, and nothing else; Build
+	// sets Claude's updater and auto memory switches itself.
+	cmd.Env = slices.Clone(s.Process.Env)
+	runErr := cmd.Start()
+	if runErr == nil && s.Started != nil {
+		if attachErr := s.Started(cmd.Process.Pid); attachErr != nil {
+			// A child that cannot be recorded does not run on unseen.
+			cancel()
+			_ = cmd.Wait()
+			log.Close()
+			return result, fmt.Errorf("record the worker process: %w", attachErr)
 		}
-		// Auto memory is kept per project path, so a worker's notes would reach the
-		// lead and every later session of the project.
-		cmd.Env = append(env, "DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
 	}
-	runErr := cmd.Run()
+	if runErr == nil {
+		runErr = cmd.Wait()
+	}
 	closeErr := log.Close()
 	if cmd.ProcessState != nil {
 		result.ExitCode = cmd.ProcessState.ExitCode()
+	}
+	// Claude's stream holds the usage, cost and billing evidence of the run so
+	// far, so it is read on every exit, a cancelled one too.
+	var claudeAnswer json.RawMessage
+	var claudeErr error
+	if s.Route.Agent == "claude" && !s.SkillTest {
+		claudeAnswer, claudeErr = readClaudeStream(stdoutPath, &result)
 	}
 	if ctx.Err() != nil || result.ExitCode < 0 {
 		result.Interrupted = true
@@ -308,7 +371,7 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 		return result, errors.Join(runErr, closeErr, err)
 	}
 	// A worker at its turn cap has no answer, but its usage counts.
-	if s.Route.Agent == "claude" && s.MaxTurns > 0 && claudeTurnCap(stdoutPath, &result) {
+	if result.TurnsEnded {
 		return result, ErrTurnCap
 	}
 	// A worker that exits 0 and leaves a background child holding its output
@@ -320,13 +383,11 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 		return result, closeErr
 	}
 	if s.Route.Agent == "claude" {
-		var answer json.RawMessage
-		answer, err = claudeResult(stdoutPath, &result)
-		if err != nil {
+		if claudeErr != nil {
 			setCode(&result, CodeParse)
-			return result, err
+			return result, claudeErr
 		}
-		if err = os.WriteFile(answerPath, answer, 0600); err != nil {
+		if err = os.WriteFile(answerPath, claudeAnswer, 0600); err != nil {
 			return result, err
 		}
 	}
@@ -367,6 +428,34 @@ func Run(ctx context.Context, s Spec) (result Result, err error) {
 	result.Needs = parsed.Needs
 	result.Decisions = parsed.Decisions
 	return result, nil
+}
+
+// checkProcess refuses a launch whose environment would not be the built
+// worker process of its route: no process, another agent's or shape's, or
+// bridged MCP env that the build never saw, which would bypass its route
+// detection. The refusal names no value.
+func checkProcess(s Spec) error {
+	p := s.Process
+	switch {
+	case p == nil:
+		return errors.New("no built worker process; build one with workerenv.Build")
+	case p.Agent != s.Route.Agent || p.Shape != workerenv.Worker:
+		return fmt.Errorf("the process is a %s %s, not a %s worker", p.Agent, p.Shape, s.Route.Agent)
+	case !slices.Equal(p.Launch, Launch(s)):
+		// The runner adds no permission word after admission: what starts
+		// is what the gate admitted, or nothing does.
+		return fmt.Errorf("the admitted process launches with %q, not this run's %q; build it with runner.Launch",
+			strings.Join(p.Launch, " "), strings.Join(Launch(s), " "))
+	}
+	if s.MCP != nil {
+		for _, pair := range s.MCP.Env {
+			// A route name the build withheld stays withheld.
+			if name, _, _ := strings.Cut(pair, "="); !slices.Contains(p.Env, pair) && !slices.Contains(p.Dropped, name) {
+				return fmt.Errorf("bridged MCP variable %s is not in the built worker process", name)
+			}
+		}
+	}
+	return nil
 }
 
 // writeMCPConfig writes the bridged servers for --mcp-config. CreateTemp makes

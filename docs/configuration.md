@@ -17,6 +17,16 @@ one. The default deny rules stay in every case.
 | 3 | `.duolog/config.yaml` | The project rules. Commit this file |
 | 4 | `.duolog/config.local.yaml` | Your private changes. Git ignores it |
 
+A local file that Git tracks, for example one added with `git add -f`,
+reaches everyone who clones the repository. duolog then reads it with the
+rules of `.duolog/config.yaml`: it may only make paid runs, prices and the
+account limits stricter, and duolog names each value it ignores. When Git
+cannot say whether it tracks the file, duolog treats it as tracked. Outside
+a Git checkout, such as a project downloaded as an archive, nothing shows
+that the file is yours, so duolog reads it with the same rules, and
+`duolog doctor` says why its opt-ins were ignored. Put your own opt-ins in
+your user config there.
+
 The user config folder is the one that Go's `os.UserConfigDir` returns. On
 macOS it is `~/Library/Application Support`. On Linux it is `~/.config`.
 
@@ -58,6 +68,52 @@ duolog route review_final --json
 
 To see every role and its model, run `duolog roster`. Add `--versions` to see
 which Codex version each alias resolves to.
+
+## How duolog balances subscriptions by pace
+
+A new task starts on the role's `fallback` agent when the `use` agent runs
+ahead of pace. This spreads work over both subscriptions, so neither runs out
+before its window resets. The ladder `use`, then `fallback` still decides the
+agent. Roles keep their names by kind of work.
+
+An agent is ahead of pace in either of two cases:
+
+- Its used share of the weekly window is more than `routing.margin` above the
+  share of that window that has passed.
+- Its five-hour window is more than `0.80` used.
+
+The task moves only when all of these hold:
+
+- The `use` agent is ahead of pace.
+- The `fallback` is another agent, and it is not ahead of pace.
+- The `fallback` runs on a subscription. A paid run or a run that can spill
+  into overage is never a target.
+- Both quota reads are fresh. Unknown or stale quota means no balancing, and
+  the task stays on `use`.
+
+Once a task has moved away, later tasks stay away until the `use` agent falls
+below pace minus the margin. This keeps work from flipping back and forth at
+the edge. duolog keeps this one flag per agent in its account state folder.
+
+`duolog route`, `duolog delegate` and `duolog peer open` print the reason:
+
+```text
+$ duolog route implement
+claude sonnet high
+reason: implement -> claude sonnet: codex 61% of the week at 44% elapsed
+```
+
+On a workspace account the used share is the share of the usable part of the
+window. A task you pin with `--use` or a profile is never moved.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `routing.balance` | `pace` | `pace` balances; `off` keeps the ladder as written |
+| `routing.margin` | `0.10` | How far the used share may pass the elapsed share |
+
+The shared `.duolog/config.yaml` may only tighten these keys. It cannot turn
+`balance` off, and it cannot raise `margin`. duolog ignores such a value and
+names it. Your user and local files may set either key freely.
 
 ## Which models the default roles use
 
@@ -139,13 +195,16 @@ The lead's own settings are the ceiling:
 |---|---|
 | `wire` | The bus line limits and the inline size |
 | `skill_tests` | `ask` (default), `always` or `never` for cross-model skill tests. Save a local preference with `duolog skill test --remember`. See [Skill tests](skills.md) |
-| `limits` | Live sessions and the size of a task the lead may do itself |
-| `models` | The agent and the price estimates for each alias, for `duolog stats` and telemetry. Claude cache writes cost 1.25 times `input` for the five-minute cache and 2 times for the one-hour cache |
+| `limits` | Live sessions and the size of a task the lead may do itself. See [below](#how-many-sessions-run-at-once) |
+| `routing` | Pace balancing of subscriptions. See [above](#how-duolog-balances-subscriptions-by-pace) |
+| `models` | The agent and the prices for each alias. They drive admission of paid runs and the estimates of `duolog stats` and telemetry. Claude cache writes cost 1.25 times `input` for the five-minute cache and 2 times for the one-hour cache |
+| `paid_runs` | Paid runs per agent with a daily USD cap, and the usable share of a workspace account. See [below](#how-paid-runs-are-allowed-and-capped) |
+| `balance` | How old a quota read may be, and how learned window rates set the session tiers |
 | `sessions` | When a resumed thread closes |
 | `policy` | The rules for worker actions. See [Permissions](permissions.md) |
 | `capabilities` | What to do when the other agent lacks a skill, plugin or server |
 | `sync` | How agents and skills are generated. See [Sync](sync.md) |
-| `env_passthrough` | The only variables a worker inherits |
+| `env_passthrough` | The only variables a worker inherits. A free run still drops names that bill per token |
 | `rex` | Timeouts and capture settings for live sessions. See [Rex](rex.md) |
 | `rex.stuck_notify_minutes` | Minutes before `peer wait` sends one reminder for an unanswered question. Default: `5`; `0` disables reminders |
 | `rex.auto_answers` | Ordered `{match, answer}` rules for safe peer questions. Defaults to answering `Hooks need review` with `Continue without trusting`. A project list replaces the defaults; `[]` disables it. Trust and persistent approval grants are refused |
@@ -183,22 +242,47 @@ too: Claude loads that file as project instructions when the project is inside
 the home folder. A `minimal` worker of either agent keeps its skills only when
 the task names a `skill:` or `plugin:` need.
 
-Claude workers and peers always start with fast mode off. Their `--settings`
-JSON holds `"fastMode": false`, and no duolog setting changes that. duolog
-turns it off because fast mode can draw on usage credits even inside a
-subscription window.
+A free run never gets a name that can bill per token, even when
+`env_passthrough` lists it. A free run is one that must stay on your
+subscription. The names are matched by their shape, so a new key or provider
+switch is caught too:
+
+| Agent | Names a free run drops |
+|---|---|
+| Claude | `ANTHROPIC_` names that end with `_KEY`, `_TOKEN` or `_BASE_URL`; names that start with `CLAUDE_CODE_USE_` or `AWS_BEARER_TOKEN_`; `ANTHROPIC_PROFILE` and `ANTHROPIC_FEDERATION_RULE_ID` |
+| Codex | `CODEX_API_KEY`; `OPENAI_` names that end with `_KEY`, `_TOKEN` or `_BASE_URL`; `OPENAI_FEDERATION_RULE_ID`; the key that the default provider names |
+
+`CLAUDE_CODE_OAUTH_TOKEN` is a subscription login, so a free run gets it when
+`env_passthrough` lists it. A Claude base URL passes too when it matches an
+entry of `paid_runs.claude.subscription_endpoints`. Only a paid run of an
+agent with `paid_runs.<agent>.allow` gets the other names; see
+[below](#how-paid-runs-are-allowed-and-capped). duolog compares names only
+and never prints a value.
+
+Free Claude workers and peers always start with fast mode off. Their
+`--settings` JSON holds `"fastMode": false`, and no duolog setting changes
+that. duolog turns it off because fast mode can draw on usage credits even
+inside a subscription window. A paid run keeps the fast mode your settings
+choose, since it is paid anyway. duolog never changes the lead's settings or
+environment: it only reports how the lead is billed, in `duolog quota` and
+`duolog doctor`.
 
 ### If you use an API key on purpose
 
-While `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` is set in duolog's environment
-and not listed in `env_passthrough`, the first `delegate` or `peer open` of
-each lead adds one line per key, and `duolog doctor` warns every time.
-Without a registered lead, every launch adds the line. It ends with the whole
-list to write: the list in force, which is the defaults unless you set one,
-plus the key. With the defaults on macOS or Linux it reads:
+While a name that a free run drops is set in duolog's environment or listed
+in `env_passthrough`, and paid runs are not allowed for that agent, the first
+`delegate` or `peer open` of each lead adds one line per name. `duolog doctor`
+warns every time. Without a registered lead, every launch adds the line. For
+`ANTHROPIC_API_KEY` it reads:
 
 ```text
-claude workers no longer get ANTHROPIC_API_KEY by default. To let them use it, keep the default names and add the key, since an explicit list replaces the defaults: env_passthrough: [PATH, HOME, USER, CODEX_HOME, CLAUDE_CONFIG_DIR, ANTHROPIC_API_KEY]
+claude workers no longer get ANTHROPIC_API_KEY. To let them use it, set paid_runs.claude.allow: true with a daily_cap_usd above 0 and list the key in paid_runs.claude.env.
+```
+
+The warning of `duolog doctor` ends with an example to copy:
+
+```text
+Example config: paid_runs: {claude: {allow: true, daily_cap_usd: 5, env: [ANTHROPIC_API_KEY]}}
 ```
 
 When the key was the agent's only login, the login check fails. duolog does not
@@ -206,19 +290,168 @@ start a browser login, which would switch your billing, whatever
 `capabilities.on_auth_failure` says. The task goes to the lead with the same
 line, or with `fail` the delegation fails with it.
 
-To let workers use the key, list it in an explicit `env_passthrough`. The list
-replaces the defaults, so keep them all:
+To let workers use the key, allow paid runs for that agent with a daily cap,
+in `.duolog/config.local.yaml` or your user config:
 
 ```yaml
-env_passthrough: [PATH, HOME, USER, CODEX_HOME, CLAUDE_CONFIG_DIR, ANTHROPIC_API_KEY]
+paid_runs:
+  claude: {allow: true, daily_cap_usd: 5}
 ```
 
-On Windows, also keep the Windows names above. The line shows them too.
-Then every worker and peer of that agent is billed per token for each run,
-and duolog does not cap that spend. The line and the warning stop once the
-key is listed. While either key is listed, `duolog calibrate run`, `resume`
-and `judge` refuse to start. See
+`paid_runs.claude.env` already lists `ANTHROPIC_API_KEY`, and the Codex one
+lists `OPENAI_API_KEY`. Add a name there only when a paid run needs another
+variable. The line and the warning stop once the name passes. duolog still
+tries the subscription first, and spends at most the cap in any 24 hours.
+Calibration on a paid route also needs `paid_runs.<agent>.calibrate: true`.
+See
 [Calibration](calibration.md#what-calibration-costs-and-how-it-limits-spend).
+
+## How paid runs are allowed and capped
+
+duolog spends no money on a worker or peer unless you allow it for that
+agent, and then at most a daily cap in USD. Paid runs are off by default.
+
+Before each run, duolog decides how the run would be billed. It reads the
+run's environment, every settings layer, its arguments and the free quota
+reads, never a plan or provider name:
+
+| Verdict | Meaning |
+|---|---|
+| `subscription` | The run uses a subscription window, and paid overage is off |
+| `subscription_overage` | As above, but a run past the window would cost money |
+| `paid` | Billed per token or credit, or duolog cannot tell |
+
+An unknown value, a settings file it cannot read and a failed or stale quota
+read all count as `paid`, so a doubt never spends money. A delegation tries
+every free candidate of the role, `use` then `fallback`, before a paid run. A
+target you pin with `--use` or a profile keeps its agent. When no candidate
+may run, the task goes to the lead with one line that names the signal and
+its layer, never its value.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `paid_runs.<agent>.allow` | `false` | Lets that agent's workers and peers run on a paid route |
+| `paid_runs.<agent>.daily_cap_usd` | `0` | The most its paid runs may spend in the last 24 hours. Must be above 0 with `allow`; a config without it is an error that names the key |
+| `paid_runs.<agent>.env` | the agent's API key | Optional. Variables that only a paid run of the agent gets |
+| `paid_runs.<agent>.calibrate` | `false` | Lets calibration use a paid route. Needs `allow` too |
+| `paid_runs.<agent>.account` | `auto` | `workspace` uses only `usable_share` of each window. Workspace evidence in the quota read always wins |
+| `paid_runs.usable_share` | `0.5` | The share of each window duolog uses on a workspace account, above 0 and at most 1 |
+| `paid_runs.claude.subscription_endpoints` | none | Named base URLs that count as your subscription, such as a company gateway in front of the claude.ai login |
+
+The cap covers the last 24 hours, not a calendar day, so it cannot be spent
+twice around midnight. A paid run starts only when the spend of the last 24
+hours, the runs in flight at their estimates and this run's estimate stay
+within the cap. The estimate comes from the tokens of earlier runs of the
+same kind and target, or a high starting bound without them, times the
+prices in `models`. A run in progress is not
+stopped at the cap; the next admission sees what it spent. Each agent runs
+one paid task at a time.
+
+A peer pane keeps the route and the billing it opened with: its environment,
+its home folder and the settings layers of its project. Each task sent to it
+is admitted again, against the cap and the windows as they are then, and
+counts as paid when the pane opened paid. A send from a command that would
+put the pane on another route, such as a shell without the pane's API key,
+is refused; close the pane with `duolog peer close` and open it again.
+
+A finished run counts the larger of two costs: its tokens times the prices,
+and the cost the agent's CLI reports. The prices leave out fast mode and
+cloud surcharges, so the spend is a lower bound of the bill. A paid target
+without a price is refused. The prices now drive admission of paid runs, not
+only the estimates of `duolog stats`.
+
+duolog never spends paid overage, workspace credits or reset credits on
+purpose, and `allow` does not change that. On `subscription_overage` it
+stops before the window runs out and refuses a run whose estimate does not
+fit in what is left. A run that still crossed into overage counts as paid,
+and the next admission treats that agent as `subscription_overage`.
+
+The spend and the in-flight runs live in duolog's user state, next to the
+account state, because the money belongs to the account and not to one
+project. `duolog quota` and `duolog doctor` show the verdict of each agent's
+worker, peer and lead, with the signals, the account kind and a line such as
+`paid allowed: 1.20 of 5 USD in 24 h, 0.40 in flight`.
+
+duolog frees a slot and its estimate only when it can prove that the run or
+the pane ended. A hold it cannot settle, such as a pane whose `peer open`
+was stopped after the pane started, stays and shows in `duolog quota` and
+`duolog doctor` as a `held:` line with the reason. Close the pane if it
+still runs, then end the hold with `duolog peer release <id>`. The command
+refuses while the pane or the command that holds it still runs.
+
+You share `.duolog/config.yaml` in Git, so a cloned repository must not turn
+on spending. That file may only make these stricter: `allow: false`,
+`calibrate: false`, a lower cap, a lower `usable_share` or
+`account: workspace`. Its `models` may raise a price but not lower one, may
+not move an alias to another agent or family, and may not price a new alias,
+which paid runs then refuse. duolog ignores a looser value there, and
+`duolog quota` and `duolog doctor` name it. Turn paid runs on in an untracked
+`.duolog/config.local.yaml` of a Git checkout or in your user config.
+
+duolog reads managed settings files, but managed policy outside files is not
+checked. A device management profile on macOS or a Windows registry policy
+can still turn on a paid route or fast mode for Claude, and `duolog doctor`
+says so.
+
+## How many sessions run at once
+
+duolog limits live sessions per agent, by the size of its subscription, and
+for all agents together. A larger window holds more parallel work, and a
+window duolog has not measured gets the cautious value.
+
+A live session is a running worker process, such as a delegation, fresh or
+resumed, or a calibration cell. An open peer pane counts, idle or busy. An
+idle resumable thread runs no process and does not count. The count belongs
+to the account, across every lead and project.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `limits.max_total_sessions` | `10` | Live sessions of all agents together |
+| `limits.sessions_by_tier.small` | `3` | Live sessions of an agent at the small tier |
+| `limits.sessions_by_tier.medium` | `5` | The same at the medium tier |
+| `limits.sessions_by_tier.large` | `10` | The same at the large tier |
+| `limits.session_wait_seconds` | `60` | How long a delegation waits for a free slot |
+
+The tier comes from a measure, never from a price or a plan name: the share
+of a quota window that one million weighted tokens uses, learned from earlier
+runs. A small tier is about a personal plan of 20 USD a month, medium a window
+about 5 times larger and large about 20 times larger. An agent with no
+measured rate yet is `small`, and so is one with a `paid` verdict or a
+workspace account. A paid run or a workspace account runs one task at a time
+per agent, even when the tier allows more sessions. An idle peer pane runs no
+task, so it keeps no delegation waiting; its next send waits its turn
+instead. A tier steps down at once
+and steps up only past its cut by `balance.margin`.
+
+`limits.max_live_sessions` still applies: it limits the resumable threads and
+panes per lead and agent. When both limits apply, the lower limit wins.
+
+When a slot is full:
+
+- `duolog delegate` waits up to `limits.session_wait_seconds`, first come first
+  served. When a slot frees, it checks the quota and the cap again. After the
+  wait it tries the role's next candidate. When none has a slot, the task goes
+  to the lead with a line such as
+  `claude sessions 3 of 3 (tier small); waited 60 s`.
+- `duolog peer open` is refused at once, since a pane stays open for long. The
+  line names the open sessions. `duolog peer send` opens no session.
+- Calibration cells wait for a slot without a time limit, and
+  `duolog calibrate status` says the run is waiting for a session.
+
+You can lower or raise `max_total_sessions` in your own files. A tier value
+may only be lowered. A value above its default is capped at the default, and
+`duolog doctor` says so. The shared `.duolog/config.yaml` may only lower these
+keys. This example runs at most 4 sessions, and each agent at most 3:
+
+```yaml
+limits:
+  max_total_sessions: 4
+  sessions_by_tier: {medium: 3, large: 3}
+```
+
+`duolog quota` and `duolog doctor` show each agent's live sessions, its tier
+and the window that decided it, and the total, such as
+`sessions 3 of 10 in all`.
 
 ## How a worker borrows the lead's MCP server
 

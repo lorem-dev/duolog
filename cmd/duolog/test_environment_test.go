@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/pathutil"
 )
 
@@ -58,10 +60,19 @@ func TestMain(m *testing.M) {
 	// No test runs this machine's rex: doctor tests put a fake rex first on
 	// PATH, and doctor finding any other rex stops the run before it starts.
 	locateRex = testRex(locateRex)
+	// Delegations admit their runs through a gate whose quota reads start no
+	// binary and whose account state is temporary, never the user's.
+	accounts, err := os.MkdirTemp("", "duolog-accounts-")
+	if err != nil {
+		panic(err)
+	}
+	// One state per test folder: a peer's open, send and close share it.
+	delegate.NewGate = paidrunstest.ByWorkingDir(accounts)
 	// A gate ask reads its reply every 10 ms instead of every half second; the
 	// answers in these tests come at once.
 	gate.AskPoll = 10 * time.Millisecond
 	code := m.Run()
+	_ = os.RemoveAll(accounts)
 	if duologBuild.dir != "" {
 		_ = os.RemoveAll(duologBuild.dir)
 	}

@@ -69,6 +69,13 @@ type Entry struct {
 	QuestionNotified bool
 	UpdatedAt        time.Time
 	Closed           bool
+	// AccountSessionID is the account reservation of a peer's pane slot, in
+	// the user's account state; AdmissionID is the reservation of its latest
+	// admitted task, the open's own until a send takes it over; and
+	// TaskGeneration is the reservation of the sent task not yet settled, ""
+	// when none is. Clearing TaskGeneration claims the settlement, so a task
+	// settles once however many commands see it end.
+	AccountSessionID, AdmissionID, TaskGeneration string
 }
 type Registry struct {
 	Dir string

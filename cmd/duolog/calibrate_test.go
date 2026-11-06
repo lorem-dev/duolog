@@ -534,65 +534,31 @@ func TestCalibrateRunKeepsApprovedLimits(t *testing.T) {
 	}
 }
 
-// Calibration runs on the subscription only. While env_passthrough hands a
-// billing key to workers, run, resume and judge refuse before they read
-// quota, admit or charge anything, and say how to remove the key. A list
-// without keys still runs.
-func TestCalibrateRefusesAPIKeyPassthrough(t *testing.T) {
+// A key that env_passthrough lists no longer reaches a free worker: every
+// cell, judge call and rewrite launches through workerenv.Build, whose free
+// variant drops it unless paid_runs.<agent>.allow is true, and a paid route
+// needs paid_runs.<agent>.calibrate under the approved plan's budget. So a
+// listed key no longer stops calibration before it starts; the billing gate
+// decides each step.
+func TestCalibrateListedKeyLeavesBillingToTheGate(t *testing.T) {
 	root := learningRepo(t, true)
 	fakeQuota(t)
 	stateDir := filepath.Join(root, ".duolog")
 	if run := approvedRun(t, stateDir); len(run.Cells) == 0 {
-		t.Fatal("the approved plan has no cells; nothing would show that none ran")
+		t.Fatal("the approved plan has no cells")
 	}
 	local := filepath.Join(stateDir, "config.local.yaml")
 	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY"} {
 		if err := os.WriteFile(local, []byte("env_passthrough: [PATH, HOME, USER, CODEX_HOME, CLAUDE_CONFIG_DIR, "+key+"]\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
-		for _, args := range [][]string{{"calibrate", "run"}, {"calibrate", "resume"}, {"calibrate", "judge"}} {
-			out, err := executeBusCommand(t, args...)
-			if err == nil {
-				t.Fatalf("%v with %s listed ran:\n%s", args, key, out)
-			}
-			for _, want := range []string{"subscription", key, "remove it from env_passthrough", "keep the other names"} {
-				if !strings.Contains(err.Error(), want) {
-					t.Fatalf("%v: error lacks %q: %v", args, want, err)
-				}
-			}
-		}
 		called := false
-		err := withCalibrationRunner(newCalibrateRunCommand(), "", func(*calibration.Runner) error {
+		if err := withCalibrationRunner(newCalibrateRunCommand(), "", func(*calibration.Runner) error {
 			called = true
 			return nil
-		})
-		if err == nil || called {
+		}); err != nil || !called {
 			t.Fatalf("%s listed: runner called %t, err %v", key, called, err)
 		}
-	}
-	latest, _, err := calibration.LatestRun(stateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, c := range latest.Cells {
-		if c.State != calibration.CellPending {
-			t.Fatalf("cell %+v ran while a key was listed", c)
-		}
-	}
-	if len(latest.Spend.WeeklyPct) != 0 {
-		t.Fatalf("spend admitted while a key was listed: %+v", latest.Spend)
-	}
-
-	// A list of its own without keys runs.
-	if err := os.WriteFile(local, []byte("env_passthrough: [PATH, HOME, USER, CODEX_HOME, CLAUDE_CONFIG_DIR, EXTRA_TOOL_HOME]\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	called := false
-	if err := withCalibrationRunner(newCalibrateRunCommand(), "", func(*calibration.Runner) error {
-		called = true
-		return nil
-	}); err != nil || !called {
-		t.Fatalf("a list without keys: runner called %t, err %v", called, err)
 	}
 }
 
@@ -627,6 +593,25 @@ func TestQuotaWindowsKeepModelLimits(t *testing.T) {
 		{Kind: calibration.KindFiveHour, UsedPercent: 10, ResetsAt: reset},
 		{Kind: calibration.KindWeekly, UsedPercent: 20, ResetsAt: reset.Add(72 * time.Hour)},
 		{Kind: calibration.KindWeekly, Model: "sol", UsedPercent: 84, ResetsAt: reset.Add(48 * time.Hour)},
+	}
+	if got := quotaWindows(s); !reflect.DeepEqual(got, want) {
+		t.Fatalf("quotaWindows = %+v, want %+v", got, want)
+	}
+}
+
+// A family the account refuses keeps its windows below 100 percent, so the
+// calibration window counts as used up and admits no cell of that family.
+func TestQuotaWindowsTreatRejectedFamilyAsFull(t *testing.T) {
+	reset := time.Date(2026, 11, 6, 0, 0, 0, 0, time.UTC)
+	s := quota.Snapshot{
+		Windows: []quota.Window{{Kind: "weekly_all", DurationMinutes: 10080, UsedPercent: 20, ResetsAt: reset}},
+		ModelLimits: map[string][]quota.Window{"sol": {
+			{Kind: "weekly_all", DurationMinutes: 10080, UsedPercent: 30, ResetsAt: reset, Severity: "rejected"},
+		}},
+	}
+	want := []calibration.Window{
+		{Kind: calibration.KindWeekly, UsedPercent: 20, ResetsAt: reset},
+		{Kind: calibration.KindWeekly, Model: "sol", UsedPercent: 100, ResetsAt: reset},
 	}
 	if got := quotaWindows(s); !reflect.DeepEqual(got, want) {
 		t.Fatalf("quotaWindows = %+v, want %+v", got, want)

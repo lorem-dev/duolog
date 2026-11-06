@@ -25,7 +25,13 @@ const staleApprovalsFile = "duolog-stale-approvals.json"
 // whose hash Codex has since changed is approved again. A missing or broken
 // file has none.
 func StaleApprovals(home string) map[string]string {
-	data, err := os.ReadFile(filepath.Join(trusthome.Codex(home), staleApprovalsFile))
+	return StaleApprovalsIn(home, os.Environ())
+}
+
+// StaleApprovalsIn is StaleApprovals in the Codex home that a process whose
+// environment is environ uses.
+func StaleApprovalsIn(home string, environ []string) map[string]string {
+	data, err := os.ReadFile(filepath.Join(trusthome.CodexIn(home, environ), staleApprovalsFile))
 	if err != nil {
 		return nil
 	}

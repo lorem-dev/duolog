@@ -19,14 +19,39 @@ wire:
 
 limits:
   manual_only_models: [fable, astra]  # refused unless --allow-manual-model is passed
-  max_live_sessions: 1     # per agent; one-shot `fresh` runs do not count
+  max_live_sessions: 1     # per lead and agent; one-shot `fresh` runs do not count
   self_max_read_files: 3   # on a provider limit, the lead does a task this small itself
   self_max_read_lines: 200 # otherwise its own subagent does it
+  # Live sessions per account, across every lead and project: running workers
+  # and open peer panes. The shared .duolog/config.yaml may only lower these.
+  max_total_sessions: 10   # all agents together
+  sessions_by_tier:        # per agent, by its measured window; capped at these
+    small: 3               # unmeasured, paid, workspace, or a small plan
+    medium: 5              # a window about 5 times larger
+    large: 10              # a window about 20 times larger
+  session_wait_seconds: 60 # a delegation waits this long for a free slot
+
+# How far quota reads and learned window rates are trusted. The shared
+# .duolog/config.yaml may only make these stricter.
+balance:
+  max_age_seconds: 120     # an older quota read is read again or counts as paid
+  min_interval_share: 0.05 # window movement of one measured interval
+  margin: 0.2              # a tier steps up only this far past its cut
+
+# Balance subscriptions by pace: a new task of a role whose `use` agent runs
+# ahead of its weekly window starts on the role's `fallback` agent while that
+# agent is on pace and billed by subscription. The shared .duolog/config.yaml
+# may not turn it off or raise the margin.
+routing:
+  balance: pace            # pace, or off for the ladder as written
+  margin: 0.10             # used share may pass elapsed share by this much
 
 # Aliases only. Claude Code resolves its own. For Codex, duolog picks the newest visible
 # gpt-<version>-<family> in `codex debug models`. A full name in a role is a deliberate pin.
 # Prices are USD per 1M tokens, read from vendor pages on 2026-10-30, for the version in
-# priced_for. They drive `duolog stats` and `duolog doctor`, never routing.
+# priced_for. They drive admission of paid runs against paid_runs.<agent>.daily_cap_usd,
+# and the estimates of `duolog stats` and `duolog doctor`. They leave out fast mode and
+# cloud surcharges, so a paid run's cost is a lower bound.
 models:
   fable:  {agent: claude, priced_for: claude-fable-5-1,  input: 10.00, cached: 0.25, output: 50.00}
   opus:   {agent: claude, priced_for: claude-opus-5-5,   input: 4.00,  cached: 0.20, output: 20.00}
@@ -216,6 +241,8 @@ sync:
 
 # Variables spawned sessions inherit. Everything else is not passed on purpose.
 # Defaults come from the OS and include native login and CLI config variables.
+# A free run drops names that bill per token, such as API keys, even when this
+# list names them; see paid_runs below.
 
 rex:
   stuck_notify_minutes: 5
@@ -345,3 +372,22 @@ calibration:
     max_lines: 400
     large_max_files: 40   # a larger stratum, only when the project's work is large
     large_max_lines: 1500
+
+# Paid runs are off. With allow, an agent's workers and peers may run on a paid
+# route, up to daily_cap_usd in the last 24 hours. The shared .duolog/config.yaml
+# may only make these stricter; your user and local config may opt in.
+paid_runs:
+  usable_share: 0.5          # share of each window used on workspace accounts
+  claude:
+    allow: false             # paid runs for claude workers and peers
+    daily_cap_usd: 0         # USD per 24 hours; required above 0 with allow
+    calibrate: false         # calibration on a paid route, needs allow too
+    env: [ANTHROPIC_API_KEY] # passed to claude processes only with allow
+    account: auto            # auto, personal or workspace
+    subscription_endpoints: {} # name: base URL that counts as subscription
+  codex:
+    allow: false
+    daily_cap_usd: 0
+    calibrate: false
+    env: [OPENAI_API_KEY]
+    account: auto

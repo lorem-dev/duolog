@@ -391,13 +391,15 @@ func TestTelemetryEndToEnd(t *testing.T) {
 	// per agent; each route the router resolves is one event, and its answer
 	// is the same each time.
 	chdir(t, checkout)
-	installQuotaFakes(t, `{"loggedIn":true,"subscriptionType":"max","email":"`+e2eSentinel+`@example.com"}`, codexQuota)
+	restoreGate := installQuotaFakes(t, `{"loggedIn":true,"subscriptionType":"max","email":"`+e2eSentinel+`@example.com"}`, codexQuota)
 	t.Setenv("PATH", os.Getenv("PATH")+string(os.PathListSeparator)+gitDir)
 	for range 2 {
 		if out, err := executeBusCommand(t, "quota"); err != nil {
 			t.Fatal(out, err)
 		}
 	}
+	// The delegations below admit through TestMain's gate again.
+	restoreGate()
 	routeAnswer := func() string {
 		t.Helper()
 		out, err := executeBusCommand(t, "route", "review_intermediate", "--json", "--lead", e2eLead)

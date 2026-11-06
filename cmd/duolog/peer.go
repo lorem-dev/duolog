@@ -14,8 +14,10 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/peer"
 	"github.com/lorem-dev/duolog/internal/session"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/spf13/cobra"
 )
 
@@ -195,7 +197,10 @@ func newPeerCommand() *cobra.Command {
 	}}
 	list.Flags().BoolVar(&listJSON, "json", false, "Print peers as JSON; id and state keep their old values")
 	list.Flags().BoolVar(&listLong, "long", false, "Print a table with role, agent, task, last event and tab")
-	root.AddCommand(open, wait, send, status, answer, closeCmd, list, newPeerShowCommand(&lead), newPeerViewCommand(&lead), newPeerLaunchCommand())
+	release := run("release <id>", "End the account hold of a pane that no session records, as quota and doctor show it", cobra.ExactArgs(1), func(ctx context.Context, _ *cobra.Command, args []string) (string, error) {
+		return peer.Release(ctx, args[0])
+	})
+	root.AddCommand(open, wait, send, status, answer, closeCmd, list, release, newPeerShowCommand(&lead), newPeerViewCommand(&lead), newPeerLaunchCommand())
 	return root
 }
 
@@ -239,8 +244,35 @@ func newPeerShowCommand(lead *string) *cobra.Command {
 	return cmd
 }
 
+// openLaunchState opens the account state a launcher records itself in;
+// tests replace it.
+var openLaunchState = func() (*paidruns.Store, error) { return paidruns.OpenUserState("") }
+
+// recordLauncher records this process on the account hold of its pane, which
+// the DUOLOG_PEER of the pane's variables names, so that a peer open that dies
+// before it records the pane leaves the pane's presence behind. A pane
+// without a peer id holds nothing.
+func recordLauncher(ctx context.Context, set []string) error {
+	id := ""
+	for _, pair := range set {
+		if v, ok := strings.CutPrefix(pair, "DUOLOG_PEER="); ok {
+			id = v
+		}
+	}
+	if id == "" {
+		return nil
+	}
+	st, err := openLaunchState()
+	if err != nil {
+		return err
+	}
+	return st.RecordLauncher(ctx, id, paidruns.ProcessOwner(os.Getpid()))
+}
+
 // newPeerLaunchCommand starts a peer's program with exactly the variables in its
-// file, plus what a terminal program needs from the pane. It deletes the file first.
+// file, plus what a terminal program needs from the pane. It records itself on
+// the pane's account hold, then deletes the file, then starts the program: a
+// file still there proves that nothing started.
 func newPeerLaunchCommand() *cobra.Command {
 	var envFile string
 	cmd := &cobra.Command{Use: "launch --env-file FILE -- program [args...]", Short: "Start a program for a peer pane", Hidden: true, Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
@@ -248,14 +280,25 @@ func newPeerLaunchCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if err := os.Remove(envFile); err != nil {
-			return err
-		}
 		var set []string
 		if err := json.Unmarshal(data, &set); err != nil {
 			return fmt.Errorf("%s: %w", envFile, err)
 		}
-		child := exec.CommandContext(cmd.Context(), args[0], args[1:]...)
+		// The program is the one the admitted environment finds on its own
+		// PATH, as a worker's is, never the one this launcher's PATH picks.
+		// Not found starts nothing and leaves the file to take.
+		bin, err := workerenv.LookPath(args[0], set)
+		if err != nil {
+			return fmt.Errorf("peer launch: %w", err)
+		}
+		if err := recordLauncher(cmd.Context(), set); err != nil {
+			return fmt.Errorf("peer launch: %w", err)
+		}
+		if err := os.Remove(envFile); err != nil {
+			return err
+		}
+		child := exec.CommandContext(cmd.Context(), bin, args[1:]...)
+		child.Args[0] = args[0]
 		child.Env = launchEnv(os.Environ(), set)
 		child.Stdin, child.Stdout, child.Stderr = os.Stdin, os.Stdout, os.Stderr
 		err = child.Run()

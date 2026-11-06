@@ -95,8 +95,10 @@ func lastEvent(entry session.Entry, state State, sent time.Time) *LastEvent {
 
 // List observes states without sending keys, answering questions or changing
 // session records. Rebuild uses this to leave busy and asking peers alone.
+// It resolves the lead but opens no bus: it creates no bus state, and reads
+// the task times from a bus the caller may only read. e.bus is nil.
 func List(ctx context.Context) ([]ListedPeer, error) {
-	e, err := setup(ctx)
+	e, err := setupRecords(ctx, true)
 	if err != nil {
 		return nil, err
 	}

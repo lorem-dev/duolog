@@ -30,6 +30,7 @@ func TestClaudeWorkerGetsBridgedServers(t *testing.T) {
 	s := spec(t, "claude")
 	p := install(t, &s, testbin.Scenario{Stdout: `{"structured_output":` + goodAnswer + `}`})
 	s.MCP = bridged()
+	s = rebuilt(t, s)
 	if _, err := Run(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
@@ -70,10 +71,14 @@ func TestClaudeWorkerGetsBridgedServers(t *testing.T) {
 // A failed run removes the file as well.
 func TestClaudeBridgedConfigRemovedOnFailure(t *testing.T) {
 	s := spec(t, "claude")
-	install(t, &s, testbin.Scenario{Exit: 1, Stderr: "boom"})
+	fake := install(t, &s, testbin.Scenario{Exit: 1, Stderr: "boom"})
 	s.MCP = bridged()
+	s = rebuilt(t, s)
 	if _, err := Run(context.Background(), s); err == nil {
 		t.Fatal("want failure")
+	}
+	if _, err := os.Stat(fake + ".calls.ndjson"); err != nil {
+		t.Fatal("the worker never ran", err)
 	}
 	matches, _ := filepath.Glob(filepath.Join(s.TaskDir, "mcp-*.json"))
 	if len(matches) != 0 {
@@ -100,10 +105,9 @@ func TestClaudeBridgedWithOwnServers(t *testing.T) {
 
 func TestCodexWorkerGetsBridgedServers(t *testing.T) {
 	s := spec(t, "codex")
-	s.Env = []string{"PATH=" + os.Getenv("PATH")}
 	p := install(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): goodAnswer}})
-	s.Env = []string{"PATH=" + os.Getenv("PATH")} // as env_passthrough leaves it
 	s.MCP = bridged()
+	s = rebuilt(t, s)
 	if _, err := Run(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}

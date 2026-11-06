@@ -13,14 +13,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/pathutil"
 )
 
-func userConfigPath(t *testing.T) string {
-	t.Helper()
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return filepath.Join(dir, "duolog", "config.yaml")
-}
+// userConfigPath is in paid_runs_test.go, which both features' tests share.
 
 func TestWorkerModesAbsentByDefault(t *testing.T) {
 	cfg, err := Load(isolatedRoot(t))
@@ -153,6 +146,31 @@ func TestWorkerModesRefusedRootAliases(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	if RefuseRoot(cache) != "" || RefuseRoot(filepath.Join(home, ".aws")) == "" {
 		t.Fatal(RefuseRoot(cache), RefuseRoot(filepath.Join(home, ".aws")))
+	}
+}
+
+// Re-review, Important 1: the worker's own home folder is protected, not
+// only duolog's: a writable root inside the worker's .codex is refused when
+// duolog's HOME is another folder.
+func TestRefuseRootEnvProtectsTheWorkersHome(t *testing.T) {
+	isolatedRoot(t)
+	worker := t.TempDir()
+	name := "HOME"
+	if runtime.GOOS == "windows" {
+		name = "USERPROFILE"
+	}
+	env := []string{name + "=" + worker}
+	for _, sub := range []string{".codex", ".claude", ".ssh"} {
+		root := filepath.Join(worker, sub, "inner")
+		if RefuseRoot(root) != "" {
+			t.Fatalf("%s is refused for duolog's own home too; the test needs another home", root)
+		}
+		if RefuseRootEnv(root, env) == "" {
+			t.Errorf("%s inside the worker's home is not refused", root)
+		}
+	}
+	if RefuseRootEnv(worker, env) == "" {
+		t.Error("the worker's home folder itself is not refused")
 	}
 }
 

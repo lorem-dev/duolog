@@ -20,7 +20,7 @@ func TestSkillRunUsesRawAnswersAndUsage(t *testing.T) {
 				scenario.Stdout = `{"type":"result","result":"{\"s1\":\"YES\"}","usage":{"input_tokens":80,"cache_read_input_tokens":20,"output_tokens":10}}`
 			}
 			fake := testbin.Install(t, agent, scenario)
-			s := Spec{Route: router.Route{Target: config.Target{Agent: agent, Model: "test", Effort: "high"}}, TaskDir: t.TempDir(), Cwd: t.TempDir(), Env: os.Environ(), Stdin: []byte("the skill prompt"), SkillTest: true}
+			s := rebuilt(t, Spec{Route: router.Route{Target: config.Target{Agent: agent, Model: "test", Effort: "high"}}, TaskDir: t.TempDir(), Cwd: t.TempDir(), Stdin: []byte("the skill prompt"), SkillTest: true})
 			result, err := Run(context.Background(), s)
 			if err != nil || result.RawAnswer != `{"s1":"YES"}` || result.Usage.Input != 100 || result.Usage.Cached != 20 || result.Usage.Output != 10 {
 				t.Fatalf("%+v %v", result, err)
@@ -51,7 +51,7 @@ func TestSkillRunKeepsFailedAnswerAndUsage(t *testing.T) {
 				scenario.Stdout = `{"result":"{\"s1\":\"yes\"}","usage":{"input_tokens":100,"output_tokens":10}}`
 			}
 			testbin.Install(t, agent, scenario)
-			result, err := Run(context.Background(), Spec{Route: router.Route{Target: config.Target{Agent: agent, Model: "test", Effort: "low"}}, TaskDir: t.TempDir(), Cwd: t.TempDir(), Env: os.Environ(), SkillTest: true})
+			result, err := Run(context.Background(), rebuilt(t, Spec{Route: router.Route{Target: config.Target{Agent: agent, Model: "test", Effort: "low"}}, TaskDir: t.TempDir(), Cwd: t.TempDir(), SkillTest: true}))
 			if err == nil || result.RawAnswer != `{"s1":"yes"}` || result.Usage.Input != 100 {
 				t.Fatalf("%+v %v", result, err)
 			}

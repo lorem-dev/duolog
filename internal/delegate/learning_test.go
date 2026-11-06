@@ -616,7 +616,9 @@ func TestCalibrationTaskCopyInExportedTree(t *testing.T) {
 	h := newHarness(t)
 	tree := filepath.Join(t.TempDir(), "tree-0")
 	put(t, filepath.Join(tree, "a.go"), "package a\n")
-	put(t, filepath.Join(tree, ".codex", "hooks.json"), `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"duolog gate"}]}]}}`)
+	// duolog's own gate command: a calibration cell runs only when the gate
+	// is shown to run, and Codex skips a hook that is not the approved one.
+	put(t, filepath.Join(tree, ".codex", "hooks.json"), codexHooks(t))
 	gitIn(t, tree, "init", "-q")
 	gitIn(t, tree, "add", "-A")
 	gitIn(t, tree, "commit", "-q", "-m", "calibration base")
@@ -632,6 +634,50 @@ func TestCalibrationTaskCopyInExportedTree(t *testing.T) {
 	}
 	if rel, err := filepath.Rel(filepath.Join(tree, ".duolog", "tasks"), h.calls[0].TaskDir); err != nil || !filepath.IsLocal(rel) {
 		t.Fatalf("task copy in %s, want it under the tree's .duolog/tasks", h.calls[0].TaskDir)
+	}
+}
+
+// Re-review, Important 2: a calibration cell runs only when the gate shows
+// in the worker's own environment. The review's inputs: the gate, or the
+// Codex folder trust, only in the caller's CLAUDE_CONFIG_DIR or CODEX_HOME,
+// env_passthrough without them, and a worker mode that is not looser.
+func TestCalibrationNeedsTheGateInTheWorkersEnvironment(t *testing.T) {
+	gate := `{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"duolog gate --agent claude --event PreToolUse"}]}]}}`
+	for _, tc := range []struct {
+		name, entry string
+		setup       func(h *harness, alternate string)
+	}{
+		{"claude gate only in the caller's CLAUDE_CONFIG_DIR", "claude/sonnet/high", func(h *harness, alternate string) {
+			put(h.t, filepath.Join(alternate, "settings.json"), gate)
+			h.t.Setenv("CLAUDE_CONFIG_DIR", alternate)
+		}},
+		{"codex folder trust only in the caller's CODEX_HOME", "codex/sol/high", func(h *harness, alternate string) {
+			put(h.t, filepath.Join(alternate, "config.toml"), read(h.t, filepath.Join(os.Getenv("HOME"), ".codex", "config.toml")))
+			h.codexHooksOnly()
+			h.t.Setenv("CODEX_HOME", alternate)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			userDir, _ := os.UserConfigDir()
+			put(t, filepath.Join(userDir, "duolog", "config.yaml"), "env_passthrough: [PATH, HOME, USER]\n")
+			var err error
+			if h.cfg, err = config.Load(h.root); err != nil {
+				t.Fatal(err)
+			}
+			tc.setup(h, t.TempDir())
+			h.lead("claude", mode.Edits, "high")
+			e := *target(tc.entry)
+			out, err := h.runWith("implement", Options{Calibration: true, Entry: &e})
+			if err == nil || !strings.Contains(err.Error(), "gate") {
+				t.Fatalf("err %v, line %q; want a refusal that names the gate", err, out.Line)
+			}
+			h.requireCalls(0)
+			var notStarted *NotStartedError
+			if !errors.As(err, &notStarted) {
+				t.Fatalf("refusal %v is not a NotStartedError", err)
+			}
+		})
 	}
 }
 

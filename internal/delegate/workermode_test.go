@@ -1,11 +1,13 @@
 package delegate
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +15,9 @@ import (
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // workerModes writes a user-level worker_modes section and reloads the config.
@@ -102,7 +106,8 @@ func TestNoWorkerModesKeepsToday(t *testing.T) {
 	if err != nil || h.calls[0].Native != "workspace-write" || h.calls[0].Network || strings.Contains(out.Line, "native=") {
 		t.Fatal(out, err, h.calls[0].Native)
 	}
-	env := strings.Join(h.calls[0].Env, "\n")
+	// The admitted process: the account gate built it with these variables.
+	env := strings.Join(h.calls[0].Process.Env, "\n")
 	if strings.Contains(env, "DUOLOG_MODE=") || !strings.Contains(env, "DUOLOG_NATIVE=") {
 		t.Fatal(env)
 	}
@@ -149,7 +154,7 @@ func TestFamilyEntryLowersToPlan(t *testing.T) {
 	if _, err := h.run("mechanical"); err != nil { // mechanical uses codex luna
 		t.Fatal(err)
 	}
-	if c := h.calls[0]; c.Native != "read-only" || c.Mode != mode.Plan || !strings.Contains(strings.Join(c.Env, "\n"), "DUOLOG_MODE=plan") {
+	if c := h.calls[0]; c.Native != "read-only" || c.Mode != mode.Plan || !strings.Contains(strings.Join(c.Process.Env, "\n"), "DUOLOG_MODE=plan") {
 		t.Fatal(c.Native, c.Mode)
 	}
 }
@@ -266,14 +271,14 @@ func TestDuologModeOnlyWithAnEntry(t *testing.T) {
 		if _, err := h.run(role); err != nil {
 			t.Fatal(role, err)
 		}
-		if env := strings.Join(h.calls[0].Env, "\n"); strings.Contains(env, "DUOLOG_MODE=") || !strings.Contains(env, "DUOLOG_NATIVE=") {
+		if env := strings.Join(h.calls[0].Process.Env, "\n"); strings.Contains(env, "DUOLOG_MODE=") || !strings.Contains(env, "DUOLOG_NATIVE=") {
 			t.Errorf("%s: %s", role, env)
 		}
 	}
 	h.workerModes("  roles:\n    review_final: {claude: plan, codex: read-only}\n")
 	h.calls = nil
-	if _, err := h.run("review_final"); err != nil || !strings.Contains(strings.Join(h.calls[0].Env, "\n"), "DUOLOG_MODE=plan") {
-		t.Fatal(err, h.calls[0].Env)
+	if _, err := h.run("review_final"); err != nil || !strings.Contains(strings.Join(h.calls[0].Process.Env, "\n"), "DUOLOG_MODE=plan") {
+		t.Fatal(err, h.calls[0].Process.Env)
 	}
 }
 
@@ -297,7 +302,7 @@ func TestFamilyEntryKeepsTheDefaultsLevel(t *testing.T) {
 			t.Fatal(tc, err)
 		}
 		c := h.calls[0]
-		if env := strings.Join(c.Env, "\n"); strings.Contains(env, "DUOLOG_MODE=") || strings.Contains(out.Line, "native=") {
+		if env := strings.Join(c.Process.Env, "\n"); strings.Contains(env, "DUOLOG_MODE=") || strings.Contains(out.Line, "native=") {
 			t.Errorf("%v: mode %s native %s: %s; %s", tc, c.Mode, c.Native, env, out.Line)
 		}
 	}
@@ -393,6 +398,144 @@ func TestRouteChangeCannotEscapeFamilyLowering(t *testing.T) {
 		if c := h.calls[0]; c.Native != "plan" {
 			t.Errorf("%s: %s on %s, want plan (%s)", tc.name, c.Native, c.Route.Model, out.Line)
 		}
+	}
+}
+
+// Integration review, Critical: the gate preflight reads the settings the
+// worker's own environment selects. A CLAUDE_CONFIG_DIR or CODEX_HOME that
+// only duolog's caller has, because env_passthrough does not pass it, holds
+// a gate the worker never loads, so the looser mode is refused.
+func TestGatePreflightReadsTheWorkersSettings(t *testing.T) {
+	for _, tc := range []struct {
+		name, agent, model, entry, lead string
+		setup                           func(h *harness, alternate string)
+		passthrough                     string
+	}{
+		{name: "claude gate only in the caller's CLAUDE_CONFIG_DIR", agent: "claude", model: "sonnet", entry: "claude: bypassPermissions", lead: "bypassPermissions",
+			setup: func(h *harness, alternate string) {
+				h.claudeGate(false)
+				put(h.t, filepath.Join(os.Getenv("HOME"), ".claude", "settings.json"), `{}`)
+				put(h.t, filepath.Join(alternate, "settings.json"), `{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"duolog gate --agent claude --event PreToolUse"}]}]}}`)
+				h.t.Setenv("CLAUDE_CONFIG_DIR", alternate)
+			}},
+		// The hooks are approved in both homes, so only the folder trust the
+		// worker's own home lacks is left to the preflight.
+		{name: "codex folder trust only in the caller's CODEX_HOME", agent: "codex", model: "sol", entry: "codex: workspace-write, network: true", lead: "bypassPermissions",
+			setup: func(h *harness, alternate string) {
+				put(h.t, filepath.Join(alternate, "config.toml"), read(h.t, filepath.Join(os.Getenv("HOME"), ".codex", "config.toml")))
+				h.codexHooksOnly()
+				h.t.Setenv("CODEX_HOME", alternate)
+			}},
+		// Re-review, Important 1: duolog's HOME is not the account's home and
+		// is not passed on, so the worker's agent falls back to a home the
+		// environment does not name. Its settings cannot be read, whatever
+		// duolog's own HOME holds.
+		{name: "claude gate only under the caller's HOME, HOME not passed", agent: "claude", model: "sonnet", entry: "claude: bypassPermissions", lead: "bypassPermissions",
+			passthrough: "[PATH, USER]",
+			setup: func(h *harness, _ string) {
+				h.claudeGate(false)
+				put(h.t, filepath.Join(os.Getenv("HOME"), ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"duolog gate --agent claude --event PreToolUse"}]}]}}`)
+			}},
+		{name: "codex trust only under the caller's HOME, HOME not passed", agent: "codex", model: "sol", entry: "codex: workspace-write, network: true", lead: "bypassPermissions",
+			passthrough: "[PATH, USER]",
+			setup:       func(h *harness, _ string) {}},
+	} {
+		h := newHarness(t)
+		h.gateOnPath(true)
+		tc.setup(h, t.TempDir())
+		userDir, _ := os.UserConfigDir()
+		passthrough := cmp.Or(tc.passthrough, "[HOME, USER]")
+		put(t, filepath.Join(userDir, "duolog", "config.yaml"), "env_passthrough: "+passthrough+"\nworker_modes:\n  roles:\n    implement: {"+tc.entry+"}\n")
+		var err error
+		if h.cfg, err = config.Load(h.root); err != nil {
+			t.Fatal(err)
+		}
+		h.leadNative("claude", mode.Full, tc.lead)
+		out, err := h.runOn("implement", tc.agent, tc.model)
+		if len(h.calls) != 0 || err == nil || !strings.Contains(out.Line, "gate preflight failed") {
+			t.Errorf("%s: calls %d, %v %q", tc.name, len(h.calls), err, out.Line)
+		}
+	}
+	// Passed on, the same directory is the worker's, and its gate counts.
+	h := newHarness(t)
+	h.gateOnPath(true)
+	h.claudeGate(false)
+	alternate := t.TempDir()
+	put(t, filepath.Join(alternate, "settings.json"), `{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"duolog gate --agent claude --event PreToolUse"}]}]}}`)
+	t.Setenv("CLAUDE_CONFIG_DIR", alternate)
+	userDir, _ := os.UserConfigDir()
+	put(t, filepath.Join(userDir, "duolog", "config.yaml"), "env_passthrough: [HOME, USER, CLAUDE_CONFIG_DIR]\nworker_modes:\n  roles:\n    implement: {claude: bypassPermissions}\n")
+	var err error
+	if h.cfg, err = config.Load(h.root); err != nil {
+		t.Fatal(err)
+	}
+	h.leadNative("claude", mode.Full, "bypassPermissions")
+	if out, err := h.runOn("implement", "claude", "sonnet"); err != nil || len(h.calls) != 1 {
+		t.Fatal(out.Line, err)
+	}
+	// A worker that does not rely on the gate still runs without a home
+	// folder, and the lead learns that its settings could not be read.
+	h = newHarness(t)
+	h.claudeGate(true)
+	userDir, _ = os.UserConfigDir()
+	put(t, filepath.Join(userDir, "duolog", "config.yaml"), "env_passthrough: [PATH, USER]\n")
+	if h.cfg, err = config.Load(h.root); err != nil {
+		t.Fatal(err)
+	}
+	h.lead("claude", mode.Edits, "high")
+	if out, err := h.runOn("implement", "claude", "sonnet"); err != nil || len(h.calls) != 1 || !strings.Contains(out.Line, "no home folder") {
+		t.Fatal(out.Line, err)
+	}
+}
+
+// Integration review, Important: the process the gate admits carries the
+// whole launch, Codex's exec, its sandbox flag and both pins with the role's
+// extras, and the runner launches exactly that, in the free and the paid
+// variant; Claude's permission flag likewise.
+func TestAdmittedArgvIsLaunchedArgv(t *testing.T) {
+	for _, paid := range []bool{false, true} {
+		h := newHarness(t)
+		h.gateOnPath(true)
+		safe := filepath.ToSlash(t.TempDir())
+		h.workerModes("  roles:\n    implement: {codex: workspace-write, network: true, writable_roots: [\"" + safe + "\"]}\n")
+		if paid {
+			h.paidReads("codex", "claude")
+			h.cfg.PaidRuns.Codex.Allow, h.cfg.PaidRuns.Codex.DailyCapUSD = true, 1000
+			h.gate.Config = h.cfg // workerModes loaded a new config
+		}
+		h.lead("codex", mode.Edits, "high")
+		if out, err := h.run("implement"); err != nil {
+			t.Fatal(paid, out.Line, err)
+		}
+		h.requireCalls(1)
+		c := h.calls[0]
+		if paid != (c.Process.Variant == workerenv.Paid) {
+			t.Fatalf("paid %t: variant %s", paid, c.Process.Variant)
+		}
+		want := []string{"exec", "-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=true",
+			"-c", `sandbox_workspace_write.writable_roots=["` + filepath.Clean(safe) + `"]`}
+		if !slices.Equal(c.Process.Launch, want) {
+			t.Errorf("paid %t: admitted launch %v, want %v", paid, c.Process.Launch, want)
+		}
+		argv, admitted := runner.Argv(c), c.Process.LaunchArgv()
+		if len(argv) < len(admitted) || !slices.Equal(argv[:len(admitted)], admitted) || slices.Index(argv[len(admitted):], "-s") >= 0 {
+			t.Errorf("paid %t: launched %v, admitted %v", paid, argv, admitted)
+		}
+	}
+	h := newHarness(t)
+	h.claudeGate(true)
+	h.gateOnPath(true)
+	h.workerModes("  roles:\n    implement: {claude: bypassPermissions}\n")
+	h.leadNative("claude", mode.Full, "bypassPermissions")
+	if _, err := h.runOn("implement", "claude", "sonnet"); err != nil {
+		t.Fatal(err)
+	}
+	c := h.calls[0]
+	if want := []string{"-p", "--permission-mode", "bypassPermissions"}; !slices.Equal(c.Process.Launch, want) {
+		t.Errorf("claude: admitted launch %v", c.Process.Launch)
+	}
+	if argv, admitted := runner.Argv(c), c.Process.LaunchArgv(); !slices.Equal(argv[:len(admitted)], admitted) || slices.Contains(argv[len(admitted):], "--permission-mode") {
+		t.Errorf("claude: launched %v, admitted %v", argv, admitted)
 	}
 }
 

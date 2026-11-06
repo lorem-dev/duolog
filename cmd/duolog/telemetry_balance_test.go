@@ -73,18 +73,25 @@ func accountLines(t *testing.T, telemetryRoot string) []string {
 }
 
 // installQuotaFakes puts fake claude and codex agents that answer a quota
-// read first on PATH, and nothing else.
-func installQuotaFakes(t *testing.T, claudeStatus, codexResult string) {
+// read first on PATH, and nothing else. Claude's reads start with the free
+// worker's --settings, and Codex also answers the account and provider reads.
+func installQuotaFakes(t *testing.T, claudeStatus, codexResult string) func() {
 	t.Helper()
+	// quota reads through the fakes, not TestMain's gate.
+	restore := realQuotaGate(t)
 	claude := testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{
-		"-p":                 {Stdout: `{"usage_report":{"rate_limits":{"limits":[{"kind":"session","percent":15,"resets_at":"2099-01-01T00:00:00Z"},{"kind":"weekly_opus","percent":40,"resets_at":"2099-01-05T00:00:00Z"}],"extra_usage":{"is_enabled":true,"used_credits":3}}}}`},
-		"auth status --json": {Stdout: claudeStatus},
+		freeClaudeRead("-p"):                 {Stdout: `{"usage_report":{"rate_limits":{"limits":[{"kind":"session","percent":15,"resets_at":"2099-01-01T00:00:00Z"},{"kind":"weekly_opus","percent":40,"resets_at":"2099-01-05T00:00:00Z"}],"extra_usage":{"is_enabled":true,"used_credits":3}}}}`},
+		freeClaudeRead("auth status --json"): {Stdout: claudeStatus},
 	}})
 	codex := testbin.Install(t, "codex", testbin.Scenario{RPCResponses: map[string]string{
 		"initialize":              `{"id":1,"result":{}}`,
 		"account/rateLimits/read": `{"id":2,"result":` + codexResult + `}`,
+		"account/read":            `{"id":3,"error":{"code":-32601}}`,
+		"config/read":             `{"id":4,"error":{"code":-32601}}`,
+		"getAuthStatus":           `{"id":5,"error":{"code":-32601}}`,
 	}})
 	t.Setenv("PATH", filepath.Dir(claude)+string(os.PathListSeparator)+filepath.Dir(codex))
+	return restore
 }
 
 const codexQuota = `{"rateLimits":{"planType":"plus","primary":{"usedPercent":13,"windowDurationMins":300,"resetsAt":4070908800},"secondary":{"usedPercent":20,"windowDurationMins":10080,"resetsAt":4071513600}}}`
