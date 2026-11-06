@@ -145,8 +145,12 @@ func TestShellDenyBypasses(t *testing.T) {
 				{`/usr/bin/g*t push`, Ask}, {`gi? push`, Ask}, {`[g]it push`, Ask},
 				{`go test -run "Test.*" ./...`, Ask},
 			} {
+				want := tc.want
+				if m == mode.Plan {
+					want = Deny // no command here is a proven read, so plan denies before it asks
+				}
 				t.Run(string(m)+"/"+tc.command+"/inherited="+strconv.FormatBool(inherited), func(t *testing.T) {
-					check(t, shellPolicy, lead, m, Action{Kind: "exec", Target: tc.command, Role: "implement"}, tc.want)
+					check(t, shellPolicy, lead, m, Action{Kind: "exec", Target: tc.command, Role: "implement"}, want)
 				})
 			}
 			for _, wrapper := range []string{"command", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "cmd"} {
@@ -156,7 +160,11 @@ func TestShellDenyBypasses(t *testing.T) {
 					check(t, shellPolicy, lead, m, Action{Kind: "exec", Target: command, Role: "implement"}, Deny)
 					// The wrapper runs the command after it, so the deny stands.
 					check(t, shellPolicy, lead, m, Action{Kind: "exec", Target: prefix + wrapper + " git push", Role: "implement"}, Deny)
-					check(t, shellPolicy, lead, m, Action{Kind: "exec", Target: prefix + wrapper + " make x", Role: "implement"}, Ask)
+					wrapped := Ask
+					if m == mode.Plan {
+						wrapped = Deny
+					}
+					check(t, shellPolicy, lead, m, Action{Kind: "exec", Target: prefix + wrapper + " make x", Role: "implement"}, wrapped)
 				}
 			}
 		}

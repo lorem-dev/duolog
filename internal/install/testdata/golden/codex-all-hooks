@@ -57,6 +57,17 @@
         ]
       }
     ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v duolog >/dev/null 2>&1; then exec duolog hook Stop --agent codex; fi",
+            "commandWindows": "powershell -NoProfile -NonInteractive -Command \"& ([Environment]::SystemDirectory + '\\where.exe') /Q ([char]36 + 'PATH:duolog'); if ([int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] -eq 0) { duolog hook Stop --agent codex; exit [int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] }; exit 0\""
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [

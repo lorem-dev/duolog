@@ -21,7 +21,7 @@ of them widens it. The gate checks what the worker asks for; see
 
 | Mode | Meaning |
 |---|---|
-| `plan` | The worker may only read. A write role is refused |
+| `plan` | The worker may only read. A write role is refused. A write, or a command not proven to be a read, is denied and never asked, so `duolog allow` cannot run it |
 | `ask` | The default. Ordinary reads are allowed; the policy decides the rest |
 | `edits` | The worker may edit files in the project |
 | `full` | Same flags as `edits`. The policy rules still apply |
@@ -60,7 +60,13 @@ In `default`, duolog's gate is all that does, so for such a Claude worker or
 peer:
 
 - The gate denies every write and every command that is not a named
-  read-only command. It allows only a peer's own report.
+  read-only command. It allows only a peer's own report. At level `plan`
+  it denies before it asks: a write outside the project and a command it
+  cannot parse, such as `env X=1 touch f`, are denied, not asked. A line it
+  cannot parse whose every command is a known read, such as
+  `rg -n "a\b" internal`, is asked, unless it holds a `>`, a backtick or a
+  `(` anywhere: a substitution, a subshell, an extended glob or a zsh glob
+  qualifier such as `*(e:'cmd':)`, which runs `cmd` as the shell expands it.
 - The gate denies an MCP tool unless an allow rule marks it `read_only` or
   it is one of the default CodeGraph read tools. It denies every tool it
   cannot judge as a read or a write, such as `EnterPlanMode`, `CronCreate`
@@ -73,9 +79,10 @@ peer:
   checks below, under "Why a looser mode needs proof that the gate runs",
   pass in its own environment. Otherwise nothing starts.
 
-A peer opened under a lead in `plan` gets `DUOLOG_MODE=plan`, so its level
-stays `plan` when the lead later moves to a looser mode. A peer in a
-read-only role needs none: its role keeps it read-only.
+A peer opened, or a worker started, under a lead in `plan` gets
+`DUOLOG_MODE=plan`, so its level stays `plan` when the lead later moves to a
+looser mode: it still cannot read the web or write. A peer or worker in a
+read-only role under a looser lead needs none: its role keeps it read-only.
 
 An entry names a native value, such as `acceptEdits` or `read-only`. duolog
 resolves it for each worker:
@@ -100,7 +107,7 @@ the level, never raise it. So an entry that lowers a family, such as
 for a read-only role sets the gate to `plan`, which denies web reads; a
 family entry does not. Without an
 entry delegate sets no `DUOLOG_MODE`, and the gate keeps the lead's mode as
-before.
+before, except under a lead in `plan`, which pins `plan` as above.
 
 Project files `.duolog/config.yaml` and `.duolog/config.local.yaml` may only
 lower an entry, and a project layer that changes a role drops what its entry
@@ -126,7 +133,21 @@ Claude peer:
 
 - Claude: the duolog gate hooks are in a settings file, or the duolog plugin
   is enabled and installed for the user or for this project, and
-  `disableAllHooks` is off.
+  `disableAllHooks` is off. For a worker or peer at level `plan` or in a
+  read-only role, each `PreToolUse` hook that names the gate must also be
+  exactly the command `duolog install` writes,
+  `duolog gate --agent claude --event PreToolUse`, with no comment or other
+  shell text, and its program must be the `duolog` on the worker's PATH or
+  an absolute path to that same file. In duolog's own checkout the dev hook
+  `exec "$CLAUDE_PROJECT_DIR"/scripts/dev/bin/duolog gate --agent claude
+  --event PreToolUse` counts too, exactly so, when that file is the dev
+  launcher. The hook must not be `async` or `asyncRewake`, and must have no
+  `timeout` below the 150 seconds that install writes: Claude does not wait
+  for an async hook, and runs the tool when a hook times out. Claude's
+  managed settings count too: when they set `allowManagedHooksOnly` or
+  `disableAllHooks`, only a gate in the managed settings themselves counts.
+  Otherwise the message names the hook and its file and says to run
+  `duolog install`.
 - Codex: the folder is trusted, and an approved gate hook runs duolog's own
   gate command. Codex skips a hook whose command changed after approval, so
   an approval of another command does not count. When `duolog install`
@@ -358,11 +379,45 @@ When you run the Claude lead in `bypassPermissions` or `auto`, you let the
 lead model decide, and none of the lead's guards asks you: not for
 `duolog allow N` on a person-only ask, not for `duolog remember` with an
 outside rule, not for `duolog peer show`, and not for telemetry or balance
-data. The lead may then allow a person-only ask itself, but only its own:
-a command that may allow an ask sent to another lead asks you, with
-`--lead` or without, since `--lead` names a lead and does not prove who runs
-the command. In `default`, `acceptEdits`, `plan` or any other mode, every
-guard asks you as above.
+data. `duolog allow` itself still refuses a person-only ask from the lead,
+as below, so that ask waits for you. A command that may allow an ask sent
+to another lead asks you, with `--lead` or without, since `--lead` names a
+lead and does not prove who runs the command. In `default`, `acceptEdits`,
+`plan` or any other mode, every guard asks you as above.
+
+`duolog allow` and `duolog deny` also check who runs them, whatever the
+hook saw. They look for the lead among their own parent processes: a lead
+of this project found there may answer only its own asks, and `--lead`
+must then agree with it. A command that runs in a Claude or Codex session
+but finds no lead of this project above it, such as another project's lead
+that changed folder, is refused, also from a script or under a name the
+hook cannot read. So is a command with another Claude or Codex process
+between it and the lead, such as a worker's. The person's own terminal has
+no agent above it and answers with `--lead` as before. A lead whose process
+duolog has not recorded runs `duolog lead register` in its own session.
+A person-only ask is answered only there: with any Claude or Codex process
+or a lead above them, `duolog allow` and `duolog deny` refuse it, since a
+Claude subagent runs in its lead's process and no walk tells the two apart.
+
+This check is best effort, like the guards above. It follows the live
+parent processes and Claude's `CLAUDECODE` mark, and the lead, its workers
+and your terminal all run as the same user. A process that detaches from
+its parent, with `nohup`, `setsid`, `tmux new -d` or a Rex pane, and drops
+`CLAUDECODE`, looks like your own terminal and is not stopped. No check
+within one user can tell the two apart.
+
+The lead decides by itself only a plain call that stays in the hook's own
+project, whose bus the guard reads. A guarded call asks you when it may run
+duolog in another project: a `cd`, `pushd` or other change of folder or
+environment, also after `builtin`, `noglob` or `nocorrect`, a wrapper such
+as `env` or `sh -c` around duolog, a subshell, a
+`-C`, `--project` or state-folder flag, or anything duolog cannot read for
+sure, such as `duolog allow "$N"`, a backslash or an open quote. A word in
+single quotes, or in double quotes without `$`, a backtick or a backslash,
+is read as the literal word the shell passes on: the rule in
+`duolog remember 'Bash(go test *)'` goes ahead, and a quoted `'cd'` or
+`'--project'` still counts as a `cd` or a flag. An allow or deny then names
+only ask numbers and `--lead`.
 
 duolog reads the mode from the lead's own hook input, which Claude Code
 writes, and from the mode it recorded for that registered lead from earlier
@@ -387,9 +442,11 @@ holds for duolog state, secrets and the telemetry folder alike.
 Claude's deny list adds protection only where the sandbox is already on.
 
 duolog does not sandbox the lead itself. A lead that edits the bus or other
-state files directly can bypass the hook's approval guard. The guard also
-cannot see `duolog allow N` inside a script file, a Makefile target or a
-renamed binary. It is a best-effort check on the lead model, not a sandbox.
+state files directly can bypass the hook's approval guard: a line written
+straight into `.duolog/bus.ndjson` is not checked. The hook's guard cannot
+see `duolog allow N` inside a script file, a Makefile target or a renamed
+binary; `duolog allow` itself then refuses an ask that the lead running it
+does not own. It is a best-effort check on the lead model, not a sandbox.
 
 ## How a worker's MCP tool calls are checked
 
