@@ -147,7 +147,7 @@ func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
 	// The Claude gate runs, as where duolog is installed: a Claude peer at
 	// level plan or in a read-only role opens only then.
 	r.claudeGate(true)
-	testbin.Install(t, "duolog", testbin.Scenario{})
+	duolog := testbin.Install(t, "duolog", testbin.Scenario{})
 	// One account state for the whole test, as for one user: open, send and
 	// close are separate commands. Its quota reads start no binary.
 	if r.gate, err = paidrunstest.Gate(filepath.Join(home, "accounts"), r.cfg); err != nil {
@@ -169,6 +169,12 @@ func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
 		// The held-gate check is the real one, on the real gate binary lookup.
 		HeldGate: func(agent, root string, env []string) error {
 			return delegate.HeldGate(delegate.Deps{GateBinary: workerenv.GateBinary}, agent, root, env)
+		},
+		// A queue run is the fake duolog, and no test starts one detached
+		// unless it says so.
+		Executable: func() (string, error) { return duolog, nil },
+		StartDetached: func([]string, string, string) error {
+			return errors.New("this test starts no detached run")
 		},
 	}
 	r.useDeps(func(*Deps) {})

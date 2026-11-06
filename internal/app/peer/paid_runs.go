@@ -139,8 +139,21 @@ func (e *env) admitPane(ctx context.Context, route coreroute.Route, lead leadInf
 		}
 		return h, nil
 	}
-	return nil, fmt.Errorf("%s -> lead: %s", role, strings.Join(refusals, "; "))
+	return nil, refused(fmt.Sprintf("%s -> lead: %s", role, strings.Join(refusals, "; ")))
 }
+
+// ErrRefused marks an open that admission refused: a session limit, the
+// window's headroom or the paid-run rules. Nothing was opened, and the same
+// open may pass later, once a session is free.
+var ErrRefused = errors.New("admission refused")
+
+// refusedError is an admission refusal worded as the refusal itself.
+type refusedError string
+
+func (r refusedError) Error() string        { return string(r) }
+func (r refusedError) Is(target error) bool { return target == ErrRefused }
+
+func refused(line string) error { return refusedError(line) }
 
 // paneInput describes the pane of route in variant that runs in root, with
 // the places its settings layers come from: the home folder, the project
