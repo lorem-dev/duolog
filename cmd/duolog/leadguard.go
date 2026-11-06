@@ -1,9 +1,11 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,33 +18,89 @@ import (
 	"github.com/lorem-dev/duolog/internal/session"
 )
 
-func leadGuard(stateDir, agent string, input []byte) (gate.Decision, bool) {
-	actions, err := gate.NormalizeAll(agent, input)
-	if err != nil {
+// guardLeadCall is what the lead hook runs for one tool call: the
+// person-only guards of leadGuard, unless the lead decides by itself and
+// every person-only ask the command can allow is its own. A command that
+// may allow another lead's ask, with --lead or without, still asks the
+// person: --lead names a lead and proves nothing about who runs the command.
+func guardLeadCall(stateDir, agent string, input []byte) (gate.Decision, bool) {
+	d, ok := leadGuard(stateDir, agent, input)
+	if !ok {
+		return d, false
+	}
+	if lead, decides := leadDecides(stateDir, agent, input); decides && ownsAll(lead, leadAllowAsks(stateDir, agent, input)) {
 		return gate.Decision{}, false
 	}
-	var envelope struct {
-		Cwd   string `json:"cwd"`
-		Input struct {
-			Command json.RawMessage `json:"command"`
-		} `json:"tool_input"`
-	}
-	if json.Unmarshal(input, &envelope) == nil {
-		var command string
-		if json.Unmarshal(envelope.Input.Command, &command) == nil && command != "" {
-			hasExec := false
-			for _, action := range actions {
-				hasExec = hasExec || action.Kind == "exec"
-			}
-			if !hasExec {
-				actions = append(actions, gate.Action{Kind: "exec", Target: command})
-			}
+	return d, true
+}
+
+// ownsAll reports whether every ask is addressed to the lead. An ask that
+// could not be read is a zero message, which no lead owns.
+func ownsAll(lead session.Lead, asks []bus.Message) bool {
+	address := session.Address(lead)
+	for _, ask := range asks {
+		if ask.To == "" || ask.To != address {
+			return false
 		}
+	}
+	return true
+}
+
+// selfDeciding names the Claude modes in which the person lets the lead model
+// decide without asking: bypass and auto.
+func selfDeciding(native string) bool { return native == "bypassPermissions" || native == "auto" }
+
+// leadDecides reports whether a Claude lead runs in bypassPermissions or auto,
+// so that the person-only guards leave the call to the lead model, and
+// returns that lead. Two records must say so: this call's hook payload, which
+// Claude Code writes to the hook's stdin, and the native mode duolog recorded
+// for the same registered lead from its earlier main-thread payloads. A
+// session that is not a registered lead (a worker's or a peer's), a worker or
+// peer process, a subagent of the lead (its payload carries its agent_id), a
+// state folder that does not exist yet, and a Codex lead, whose mode comes
+// from a transcript file, never qualify. No environment variable or file
+// can raise the answer: they only take it away.
+func leadDecides(stateDir, agent string, input []byte) (session.Lead, bool) {
+	if agent != "claude" || isWorker() || os.Getenv("DUOLOG_PEER") != "" {
+		return session.Lead{}, false
+	}
+	var h struct {
+		ID      string `json:"session_id"`
+		Mode    string `json:"permission_mode"`
+		AgentID string `json:"agent_id"`
+	}
+	if json.Unmarshal(input, &h) != nil || h.ID == "" || h.AgentID != "" || !selfDeciding(h.Mode) {
+		return session.Lead{}, false
+	}
+	// session.Open would create the folder; a project without state has no lead.
+	if info, err := os.Stat(stateDir); err != nil || !info.IsDir() {
+		return session.Lead{}, false
+	}
+	reg, err := session.Open(stateDir)
+	if err != nil {
+		return session.Lead{}, false
+	}
+	lead, ok, err := reg.Lead(h.ID)
+	if err != nil || !ok || lead.Agent != "claude" || !selfDeciding(lead.Native) {
+		return session.Lead{}, false
+	}
+	return lead, true
+}
+
+// leadGuard keeps for the person what only the person may do: allowing an
+// ask that reads or writes outside the project, approving a rule outside it,
+// duolog peer show, and telemetry and balance data. A Claude lead's call is
+// asked; a Codex lead's call is denied with a pointer to the person's
+// terminal. The hook runs it through guardLeadCall.
+func leadGuard(stateDir, agent string, input []byte) (gate.Decision, bool) {
+	actions, hookCwd, err := leadActions(agent, input)
+	if err != nil {
+		return gate.Decision{}, false
 	}
 	// Telemetry and balance are the person's: the paths are placed as the
 	// worker gate places them, against the work root and the hook's cwd.
 	root := filepath.Dir(stateDir)
-	cwd := envelope.Cwd
+	cwd := hookCwd
 	if cwd == "" {
 		cwd = root
 	}
@@ -51,7 +109,7 @@ func leadGuard(stateDir, agent string, input []byte) (gate.Decision, bool) {
 	for i, action := range actions {
 		action.Work, action.Cwd = work, cwd
 		if (action.Kind == "read" || action.Kind == "write") && action.Target != "" {
-			action.Target = gate.RelativeTarget(work, envelope.Cwd, action.Target)
+			action.Target = gate.RelativeTarget(work, hookCwd, action.Target)
 		}
 		placed[i] = action
 	}
@@ -99,12 +157,6 @@ func leadGuard(stateDir, agent string, input []byte) (gate.Decision, bool) {
 		unknownNumber := false
 		for _, part := range parts {
 			if args, ok := leadCommandArgs(part, "remember"); ok {
-				root := filepath.Dir(stateDir)
-				cwd := envelope.Cwd
-				if cwd == "" {
-					cwd = root
-				}
-				work := project.WorkRoot(cwd, root)
 				if gate.ExecOutside(gate.Action{Kind: "exec", Target: strings.Join(args, " "), Work: work, Cwd: cwd, Shell: action.Shell}) {
 					d := gate.Decision{Kind: gate.Ask, Rule: "person-only ask", Reason: "this command may approve a rule outside the project; only the person may allow it"}
 					if agent == "codex" {
@@ -125,8 +177,7 @@ func leadGuard(stateDir, agent string, input []byte) (gate.Decision, bool) {
 				}
 			}
 		}
-		raw := strings.ToLower(action.Target)
-		if unknownNumber || uncertain && strings.Contains(raw, "duolog") && strings.Contains(raw, "allow") {
+		if allowMayHide(action.Target, unknownNumber, uncertain) {
 			if request, pending, err := pendingPersonAsk(stateDir); err != nil || pending {
 				return decision("", request), true
 			}
@@ -135,11 +186,93 @@ func leadGuard(stateDir, agent string, input []byte) (gate.Decision, bool) {
 	return gate.Decision{}, false
 }
 
+// leadActions is the lead call's actions, with the Bash command as one
+// exec action when the tool input names one and no action is an exec, and
+// the hook's cwd.
+func leadActions(agent string, input []byte) ([]gate.Action, string, error) {
+	actions, err := gate.NormalizeAll(agent, input)
+	if err != nil {
+		return nil, "", err
+	}
+	var envelope struct {
+		Cwd   string `json:"cwd"`
+		Input struct {
+			Command json.RawMessage `json:"command"`
+		} `json:"tool_input"`
+	}
+	var command string
+	if json.Unmarshal(input, &envelope) == nil && json.Unmarshal(envelope.Input.Command, &command) == nil && command != "" &&
+		!slices.ContainsFunc(actions, func(a gate.Action) bool { return a.Kind == "exec" }) {
+		actions = append(actions, gate.Action{Kind: "exec", Target: command})
+	}
+	return actions, envelope.Cwd, nil
+}
+
+// allowMayHide reports whether a command may allow an ask whose number it
+// does not name: an allow with no literal number, or an uncertain command
+// that names duolog and allow anywhere.
+func allowMayHide(command string, unknownNumber, uncertain bool) bool {
+	raw := strings.ToLower(command)
+	return unknownNumber || uncertain && strings.Contains(raw, "duolog") && strings.Contains(raw, "allow")
+}
+
+// leadAllowAsks returns every person-only ask the lead's call can allow,
+// by the rule of leadGuard: the ask of each literal number, and every
+// pending person-only ask when an allow names no number or the command is
+// uncertain. An ask that cannot be read is a zero message.
+func leadAllowAsks(stateDir, agent string, input []byte) []bus.Message {
+	actions, _, err := leadActions(agent, input)
+	if err != nil {
+		return []bus.Message{{}}
+	}
+	var asks []bus.Message
+	for _, action := range actions {
+		if action.Kind != "exec" {
+			continue
+		}
+		parts, uncertain := gate.ShellParts(action.Target, action.Shell)
+		if uncertain {
+			parts = append(parts, action.Target)
+		}
+		unknownNumber := false
+		for _, part := range parts {
+			n, ok := leadAllowRequest(part)
+			if ok && n == 0 {
+				unknownNumber = true
+			} else if ok {
+				asks = append(asks, personAsk(stateDir, n)...)
+			}
+		}
+		if allowMayHide(action.Target, unknownNumber, uncertain) {
+			pending, err := pendingPersonAsks(stateDir)
+			if err != nil {
+				pending = []bus.Message{{}}
+			}
+			asks = append(asks, pending...)
+		}
+	}
+	return asks
+}
+
+// personAsk returns ask n when it is person-only, a zero message when it
+// cannot be read, and nothing otherwise.
+func personAsk(stateDir string, n int64) []bus.Message {
+	request, err := permissionRequest(stateDir, n)
+	if err != nil {
+		return []bus.Message{{}}
+	}
+	if request.P {
+		return []bus.Message{request}
+	}
+	return nil
+}
+
 // peerShowLeadGuard stops a lead's tool call that names duolog peer show
 // anywhere in its command: behind env, script, rex, tmux, sh -c or any other
 // wrapper, since a model that starts it under a pty with a cleaned
 // environment passes peer show's own checks. A Claude lead's call asks the
-// person; a Codex lead's call is denied. It guards against accidents: no
+// person, unless the lead runs in bypass or auto (guardLeadCall); a Codex
+// lead's call is denied. It guards against accidents: no
 // check can prove that a terminal is the person's.
 func peerShowLeadGuard(agent string, actions []gate.Action) (gate.Decision, bool) {
 	for _, a := range actions {
@@ -236,10 +369,21 @@ func leadCommandArgs(part, verb string) ([]string, bool) {
 	return nil, false
 }
 
+// pendingPersonAsk returns the oldest pending person-only ask, if any.
 func pendingPersonAsk(stateDir string) (bus.Message, bool, error) {
+	asks, err := pendingPersonAsks(stateDir)
+	if err != nil || len(asks) == 0 {
+		return bus.Message{}, false, err
+	}
+	return asks[0], true, nil
+}
+
+// pendingPersonAsks returns every person-only ask that is still unanswered
+// and unexpired, oldest first.
+func pendingPersonAsks(stateDir string) ([]bus.Message, error) {
 	f, err := os.Open(filepath.Join(stateDir, "bus.ndjson"))
 	if err != nil {
-		return bus.Message{}, false, err
+		return nil, err
 	}
 	defer f.Close()
 	pending := map[string]bus.Message{}
@@ -249,7 +393,7 @@ func pendingPersonAsk(stateDir string) (bus.Message, bool, error) {
 		if err := decoder.Decode(&m); err == io.EOF {
 			break
 		} else if err != nil {
-			return bus.Message{}, false, err
+			return nil, err
 		}
 		if m.K == gate.Ask && m.P && !gate.AskExpired(m) {
 			pending[strconv.FormatInt(m.N, 10)] = m
@@ -258,11 +402,7 @@ func pendingPersonAsk(stateDir string) (bus.Message, bool, error) {
 			delete(pending, m.Ref)
 		}
 	}
-	var request bus.Message
-	for _, m := range pending {
-		if request.N == 0 || m.N < request.N {
-			request = m
-		}
-	}
-	return request, len(pending) > 0, nil
+	asks := slices.Collect(maps.Values(pending))
+	slices.SortFunc(asks, func(a, b bus.Message) int { return cmp.Compare(a.N, b.N) })
+	return asks, nil
 }
