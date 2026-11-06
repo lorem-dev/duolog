@@ -113,10 +113,10 @@ func TestVerdictRouteWinsAcrossShapes(t *testing.T) {
 			}, want: "account:apiKey"},
 			{name: "unknown provider", billing: func(b *quota.BillingFacts) {
 				b.RouteKnown = false
-				b.RouteSignals = []workerenv.Signal{{Name: "provider:unknown", Layer: "modelProvider/list"}}
+				b.RouteSignals = []workerenv.Signal{{Name: "provider:unknown", Layer: "config/read"}}
 			}, want: "provider:unknown"},
 			{name: "provider base url", billing: func(b *quota.BillingFacts) {
-				b.RouteSignals = []workerenv.Signal{{Name: "provider:base_url", Layer: "modelProvider/list"}}
+				b.RouteSignals = []workerenv.Signal{{Name: "provider:base_url", Layer: "config/read"}}
 			}, want: "provider:base_url"},
 		},
 	}
@@ -363,7 +363,7 @@ func TestAccountEvidenceAndUsableShare(t *testing.T) {
 	}
 	reasons := map[string][]string{
 		"claude": {"org", "seat_tier", "group", "member"},
-		"codex": {"workspace_name", "spend_control", "workspace_owner_credits_depleted", "workspace_member_credits_depleted",
+		"codex": {"workspace_name", "workspace_plan", "forced_workspace", "spend_control", "workspace_owner_credits_depleted", "workspace_member_credits_depleted",
 			"workspace_owner_usage_limit_reached", "workspace_member_usage_limit_reached"},
 	}
 	for _, agent := range []string{"claude", "codex"} {

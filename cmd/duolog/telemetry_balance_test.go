@@ -87,7 +87,8 @@ func installQuotaFakes(t *testing.T, claudeStatus, codexResult string) func() {
 		"initialize":              `{"id":1,"result":{}}`,
 		"account/rateLimits/read": `{"id":2,"result":` + codexResult + `}`,
 		"account/read":            `{"id":3,"error":{"code":-32601}}`,
-		"modelProvider/list":      `{"id":4,"error":{"code":-32601}}`,
+		"config/read":             `{"id":4,"error":{"code":-32601}}`,
+		"getAuthStatus":           `{"id":5,"error":{"code":-32601}}`,
 	}})
 	t.Setenv("PATH", filepath.Dir(claude)+string(os.PathListSeparator)+filepath.Dir(codex))
 	return restore

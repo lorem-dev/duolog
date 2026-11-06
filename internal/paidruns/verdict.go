@@ -133,7 +133,7 @@ func Evaluate(p workerenv.Process, s quota.Snapshot, readErr error,
 
 // firstParty reports whether the read named a first-party subscription
 // login: claude.ai or an OAuth token on the first-party API for Claude, a
-// chatgpt account and auth mode for Codex.
+// chatgpt account, auth mode and stored login for Codex.
 func firstParty(agent string, b quota.BillingFacts) bool {
 	if !b.RouteKnown {
 		return false
@@ -143,7 +143,8 @@ func firstParty(agent string, b quota.BillingFacts) bool {
 		return (b.AuthMethod == "claude.ai" || b.AuthMethod == "oauth_token") &&
 			(b.APIProvider == "" || b.APIProvider == "firstParty")
 	case "codex":
-		return b.AccountType == "chatgpt" && (b.AuthMode == "" || b.AuthMode == "chatgpt")
+		return b.AccountType == "chatgpt" && (b.AuthMode == "" || b.AuthMode == "chatgpt") &&
+			(b.AuthMethod == "" || b.AuthMethod == "chatgpt")
 	}
 	return false
 }
@@ -159,8 +160,9 @@ func readLayer(agent string) string {
 	return "quota read"
 }
 
-// account decides the account kind and its usable share. Plan names are not
-// evidence; only safe workspace categories and the config's workspace are.
+// account decides the account kind and its usable share. The snapshot's plan
+// name is not evidence; only safe workspace categories, among them the
+// read's own workspace_plan, and the config's workspace are.
 func account(agent string, b quota.BillingFacts, e quota.RunEvidence, cfg *config.Config) (string, float64, []string) {
 	var reasons []string
 	for _, reason := range slices.Concat(b.WorkspaceReasons, e.WorkspaceReasons) {

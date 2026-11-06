@@ -1,17 +1,31 @@
 package quota
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 const (
-	codexAccountLayer  = "account/read"
-	codexProviderLayer = "modelProvider/list"
+	codexAccountLayer = "account/read"
+	codexConfigLayer  = "config/read"
+	codexAuthLayer    = "getAuthStatus"
 )
+
+// codexWorkspacePlans are the Codex plan types that belong to a workspace.
+// A plan type is workspace evidence only; it never decides the verdict.
+var codexWorkspacePlans = []string{"team", "business", "enterprise", "edu"}
+
+// workspacePlan reports a plan type of a workspace under any spelling of f.
+func (f fields) workspacePlan() bool {
+	kind, _ := f.text("planType", "plan_type")
+	return slices.Contains(codexWorkspacePlans, strings.ToLower(kind))
+}
 
 // fields keeps a reply object's members raw, so that a property can be told
 // apart as absent, null or set under any of its spellings.
@@ -102,8 +116,9 @@ func unreadFacts(name, layer string) BillingFacts {
 // parseCodexAccount reads the route evidence of `account/read`. Only a
 // chatgpt account adds no signal, and even that proves nothing alone: the
 // stored login says nothing about where the configured provider sends runs.
-// The email, plan and workspace name are never kept; a workspace name only
-// counts as workspace evidence.
+// The email, plan and workspace name are never kept; a workspace name or a
+// workspace plan type only counts as workspace evidence. A workspaceRouting
+// object is no evidence: a personal account has one too.
 func parseCodexAccount(data []byte) (BillingFacts, error) {
 	b := BillingFacts{RouteKnown: true}
 	var reply fields
@@ -130,6 +145,9 @@ func parseCodexAccount(data []byte) (BillingFacts, error) {
 		}
 		if name, ok := account.text("workspaceName", "workspace_name"); ok && name != "" {
 			b.addWorkspaceReason("workspace_name")
+		}
+		if account.workspacePlan() {
+			b.addWorkspaceReason("workspace_plan")
 		}
 	}
 	if reply.has("requiresOpenaiAuth", "requires_openai_auth") {
@@ -170,99 +188,221 @@ func codexIdentity(data []byte) (account, org []byte) {
 
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// parseCodexProvider applies Codex's own first-party test to the default
-// provider of `modelProvider/list`: it requires OpenAI auth, has no env_key,
-// bearer token, auth command or AWS settings, and has a null baseUrl. Every
-// property must be in the reply; a version that lacks one leaves the route
-// unknown, because ids and kinds decide nothing. Of the env_key only a valid
-// variable name is kept.
-func parseCodexProvider(data []byte) (BillingFacts, error) {
+// value returns the raw value of the first spelling present.
+func (f fields) value(names ...string) (json.RawMessage, bool) {
+	for _, name := range names {
+		if raw, ok := f[name]; ok {
+			return raw, true
+		}
+	}
+	return nil, false
+}
+
+// codexBuiltinProvider is the id of Codex's built-in OpenAI provider, the
+// only one a subscription login runs on.
+const codexBuiltinProvider = "openai"
+
+// parseCodexConfig reads the provider route of `config/read`; Codex 0.165
+// has no provider list. The provider is the selected profile's
+// model_provider when the profile sets one, else the config's; null means
+// the built-in OpenAI provider. That provider stays a subscription
+// candidate only while no model_providers entry under its id sets a key, a
+// token, headers, an auth command, AWS settings, a base URL or turns OpenAI
+// auth off. Any other provider is not first party. The provider, providers
+// and profile keys must be in the reply: a version without them, or a value
+// of another type, leaves the route unknown. Of an env_key only a valid
+// variable name is kept, and a provider id is never kept. A forced ChatGPT
+// workspace id is workspace evidence.
+func parseCodexConfig(data []byte) (BillingFacts, error) {
+	b := BillingFacts{RouteKnown: true}
+	unknown := func() (BillingFacts, error) {
+		b.unknownRoute("provider:unknown", codexConfigLayer)
+		return b, errors.New("unknown config reply")
+	}
+	var reply fields
+	_ = json.Unmarshal(data, &reply)
+	config := reply.object("config")
+	providerKey := []string{"model_provider", "modelProvider"}
+	providersKey := []string{"model_providers", "modelProviders"}
+	if config == nil || !config.has(providerKey...) || !config.has(providersKey...) || !config.has("profile") {
+		return unknown()
+	}
+	if raw, ok := config.value("forced_chatgpt_workspace_id", "forcedChatgptWorkspaceId"); ok && string(raw) != "null" && string(raw) != `""` {
+		b.addWorkspaceReason("forced_workspace")
+	}
+	selected := config
+	if raw := config["profile"]; string(raw) != "null" {
+		name, ok := config.text("profile")
+		profile := config.object("profiles").object(name)
+		if !ok || profile == nil {
+			return unknown()
+		}
+		if profile.has(providerKey...) {
+			selected = profile
+		}
+	}
+	id := codexBuiltinProvider
+	if raw, _ := selected.value(providerKey...); string(raw) != "null" {
+		var ok bool
+		if id, ok = selected.text(providerKey...); !ok || id == "" {
+			return unknown()
+		}
+	}
+	providers := config.object(providersKey...)
+	if raw, _ := config.value(providersKey...); providers == nil && string(raw) != "null" {
+		return unknown()
+	}
+	if id != codexBuiltinProvider {
+		b.signal("provider:custom", codexConfigLayer)
+	}
+	entry := providers.object(id)
+	if entry == nil {
+		return b, nil
+	}
+	if requires := entry.boolean("requires_openai_auth", "requiresOpenaiAuth"); requires != nil && !*requires {
+		b.signal("provider:requires_openai_auth", codexConfigLayer)
+	}
+	envKey := []string{"env_key", "envKey"}
+	if entry.set(envKey...) {
+		b.signal("provider:env_key", codexConfigLayer)
+		if key, ok := entry.text(envKey...); ok && envName.MatchString(key) {
+			b.ProviderEnvKey = key
+		}
+	}
+	for signal, names := range map[string][]string{
+		"provider:bearer_token": {"experimental_bearer_token", "experimentalBearerToken"},
+		"provider:headers":      {"http_headers", "httpHeaders", "env_http_headers", "envHttpHeaders"},
+		"provider:auth":         {"auth"},
+		"provider:aws":          {"aws"},
+	} {
+		if entry.set(names...) {
+			b.signal(signal, codexConfigLayer)
+		}
+	}
+	if raw, ok := entry.value("base_url", "baseUrl"); ok && string(raw) != "null" {
+		b.signal("provider:base_url", codexConfigLayer)
+	}
+	slices.SortStableFunc(b.RouteSignals, func(x, y workerenv.Signal) int { return strings.Compare(x.Name, y.Name) })
+	return b, nil
+}
+
+// parseCodexAuth reads the stored login of `getAuthStatus`. Only a chatgpt
+// login stays a subscription candidate; an API key or ChatGPT auth tokens
+// are paid, no login is none, and a missing or new method leaves the route
+// unknown. duolog never asks for the token, and never keeps one.
+func parseCodexAuth(data []byte) (BillingFacts, error) {
 	b := BillingFacts{RouteKnown: true}
 	var reply fields
 	_ = json.Unmarshal(data, &reply)
-	id, _ := reply.text("defaultProviderId", "default_provider_id")
-	var provider fields
-	for _, entry := range slices.Concat(providerList(reply["data"]), providerList(reply["providers"])) {
-		if entryID, ok := entry.text("id"); ok && id != "" && entryID == id {
-			provider = entry
-			break
-		}
+	raw, ok := reply.value("authMethod", "auth_method")
+	if !ok {
+		b.unknownRoute("auth:unknown", codexAuthLayer)
+		return b, errors.New("unknown auth reply")
 	}
-	requires := provider.boolean("requiresOpenaiAuth", "requires_openai_auth")
-	envKey := []string{"envKey", "env_key"}
-	bearer := []string{"experimentalBearerToken", "experimental_bearer_token"}
-	baseURL := []string{"baseUrl", "base_url"}
-	if provider == nil || requires == nil || !provider.has(envKey...) || !provider.has(bearer...) ||
-		!provider.has("auth") || !provider.has("aws") || !provider.has(baseURL...) {
-		b.unknownRoute("provider:unknown", codexProviderLayer)
-		return b, errors.New("unknown provider reply")
+	if string(raw) == "null" {
+		b.AuthMethod = "none"
+		b.signal("auth:none", codexAuthLayer)
+		return b, nil
 	}
-	if !*requires {
-		b.signal("provider:requires_openai_auth", codexProviderLayer)
+	method, _ := reply.text("authMethod", "auth_method")
+	switch strings.ToLower(method) {
+	case "chatgpt":
+		b.AuthMethod = "chatgpt"
+	case "apikey":
+		b.AuthMethod = "apiKey"
+	case "chatgptauthtokens":
+		b.AuthMethod = "chatgptAuthTokens"
+	default:
+		b.AuthMethod = "unknown"
+		b.unknownRoute("auth:unknown", codexAuthLayer)
+		return b, nil
 	}
-	if provider.set(envKey...) {
-		b.signal("provider:env_key", codexProviderLayer)
-		for _, name := range envKey {
-			if key, ok := provider.text(name); ok && envName.MatchString(key) {
-				b.ProviderEnvKey = key
-				break
-			}
-		}
-	}
-	if provider.set(bearer...) {
-		b.signal("provider:bearer_token", codexProviderLayer)
-	}
-	if provider.set("auth") {
-		b.signal("provider:auth", codexProviderLayer)
-	}
-	if provider.set("aws") {
-		b.signal("provider:aws", codexProviderLayer)
-	}
-	if slices.ContainsFunc(baseURL, func(name string) bool { raw, ok := provider[name]; return ok && string(raw) != "null" }) {
-		b.signal("provider:base_url", codexProviderLayer)
+	if b.AuthMethod != "chatgpt" {
+		b.signal("auth:"+b.AuthMethod, codexAuthLayer)
 	}
 	return b, nil
 }
 
-func providerList(raw json.RawMessage) []fields {
-	var list []fields
-	if json.Unmarshal(raw, &list) != nil {
-		return nil
-	}
-	return list
-}
-
-// codexBilling joins the route facts of `account/read` and
-// `modelProvider/list` with the window facts of the rate limit read. The
-// route is known only when both reads named one; the window read never
-// clears a route signal.
-func codexBilling(account, provider, windows BillingFacts) BillingFacts {
+// codexBilling joins the route facts of `account/read`, `config/read` and
+// `getAuthStatus` with the window facts of the rate limit read. The route is
+// known only when every route read named one; the window read never clears
+// a route signal.
+func codexBilling(windows BillingFacts, routes ...BillingFacts) BillingFacts {
 	b := windows
-	b.AccountType, b.AuthMode, b.ProviderEnvKey = account.AccountType, account.AuthMode, provider.ProviderEnvKey
-	b.RouteKnown = account.RouteKnown && provider.RouteKnown
-	b.RouteSignals = slices.Concat(account.RouteSignals, provider.RouteSignals, windows.RouteSignals)
-	b.WorkspaceReasons = nil
-	for _, category := range slices.Concat(account.WorkspaceReasons, windows.WorkspaceReasons) {
+	b.RouteKnown = len(routes) > 0
+	b.RouteSignals, b.WorkspaceReasons = nil, nil
+	for _, r := range routes {
+		b.RouteKnown = b.RouteKnown && r.RouteKnown
+		b.AccountType = cmp.Or(b.AccountType, r.AccountType)
+		b.AuthMode = cmp.Or(b.AuthMode, r.AuthMode)
+		b.AuthMethod = cmp.Or(b.AuthMethod, r.AuthMethod)
+		b.ProviderEnvKey = cmp.Or(b.ProviderEnvKey, r.ProviderEnvKey)
+		b.RouteSignals = append(b.RouteSignals, r.RouteSignals...)
+		for _, category := range r.WorkspaceReasons {
+			b.addWorkspaceReason(category)
+		}
+	}
+	b.RouteSignals = append(b.RouteSignals, windows.RouteSignals...)
+	for _, category := range windows.WorkspaceReasons {
 		b.addWorkspaceReason(category)
 	}
 	return b
+}
+
+var codexOrdinaryUsage = []string{"ordinaryUsageAllowed", "ordinary_usage_allowed"}
+
+// codexPermission is one ordinary usage flag of a reply: seen says the reply
+// had the key, value is nil for null or a wrong type.
+type codexPermission struct {
+	value *bool
+	seen  bool
+}
+
+func readCodexPermission(f fields) codexPermission {
+	return codexPermission{value: f.boolean(codexOrdinaryUsage...), seen: f.has(codexOrdinaryUsage...)}
+}
+
+// joinPermissions keeps the strictest flag sent: false wins, then null or a
+// wrong type, which give nil; true needs a flag and no other value. No flag
+// at all is nil.
+func joinPermissions(flags ...codexPermission) *bool {
+	allowed, null := false, false
+	for _, p := range flags {
+		switch {
+		case !p.seen:
+		case p.value == nil:
+			null = true
+		case !*p.value:
+			v := false
+			return &v
+		default:
+			allowed = true
+		}
+	}
+	if null || !allowed {
+		return nil
+	}
+	v := true
+	return &v
 }
 
 // codexLimitFacts are the permission and spend properties of one rate limit
 // as the reply sent them, under either spelling. Absent, null and a wrong
 // type stay apart from an explicit true.
 type codexLimitFacts struct {
-	ordinary     *bool
-	spendPresent bool
-	spendReached bool
-	reachedType  json.RawMessage
-	credits      bool
-	resetCredits *int
+	ordinary      codexPermission
+	spendPresent  bool
+	spendReached  bool
+	workspacePlan bool
+	reachedType   json.RawMessage
+	credits       bool
+	resetCredits  *int
 }
 
 func readCodexLimitFacts(f fields) codexLimitFacts {
-	l := codexLimitFacts{ordinary: f.boolean("ordinaryUsageAllowed", "ordinary_usage_allowed")}
-	// A spend control that is present at all, even false or zero, is one.
+	l := codexLimitFacts{ordinary: readCodexPermission(f), workspacePlan: f.workspacePlan()}
+	// A spend control key that is there, even false, is only a fact: a
+	// personal account sends spendControlReached false too.
 	l.spendPresent = slices.ContainsFunc([]string{"spendControlReached", "spend_control_reached", "spendControl", "spend_control"}, func(name string) bool {
 		raw, ok := f[name]
 		return ok && string(raw) != "null"
@@ -289,13 +429,17 @@ func readCodexLimitFacts(f fields) codexLimitFacts {
 }
 
 // addCodexLimit keeps the account-wide evidence of one limit: credits or a
-// spend control turn overage on, and a spend control or a workspace reached
-// type is workspace evidence.
+// reached spend control turn overage on, and a reached spend control, a
+// workspace plan type or a workspace reached type is workspace evidence. A
+// spend control that is there but not reached is neither.
 func (b *BillingFacts) addCodexLimit(l codexLimitFacts) {
 	b.SpendControlPresent = b.SpendControlPresent || l.spendPresent
-	b.OverageEnabled = b.OverageEnabled || l.credits || l.spendPresent
-	if l.spendPresent {
+	b.OverageEnabled = b.OverageEnabled || l.credits || l.spendReached
+	if l.spendReached {
 		b.addWorkspaceReason("spend_control")
+	}
+	if l.workspacePlan {
+		b.addWorkspaceReason("workspace_plan")
 	}
 	var reached string
 	if json.Unmarshal(l.reachedType, &reached) == nil {

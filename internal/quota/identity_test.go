@@ -49,10 +49,10 @@ func installIdentityAgent(t *testing.T, agent, identity string) {
 		}})
 		return
 	}
-	testbin.Install(t, "codex", testbin.Scenario{RPCResponses: map[string]string{
+	testbin.Install(t, "codex", testbin.Scenario{RPCResponses: codexRoute(map[string]string{
 		"initialize": `{"id":1,"result":{}}`, "account/rateLimits/read": codexReply,
-		"account/read": identity, "modelProvider/list": codexProviderReply,
-	}})
+		"account/read": identity,
+	})})
 }
 
 // The identity fields of a free reply go from the decoder to the sink and

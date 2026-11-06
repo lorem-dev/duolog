@@ -38,10 +38,11 @@ func (e RunEvidence) Charged() bool {
 
 // workspaceReasons are the categories of workspace evidence the reads keep:
 // the level of a Claude overage disabled reason, and the Codex workspace
-// name, spend control and workspace reached types.
+// name, workspace plan type, forced workspace id, reached spend control and
+// workspace reached types.
 var workspaceReasons = []string{
 	"org", "seat_tier", "group", "member",
-	"workspace_name", "spend_control",
+	"workspace_name", "workspace_plan", "forced_workspace", "spend_control",
 	"workspace_owner_credits_depleted", "workspace_member_credits_depleted",
 	"workspace_owner_usage_limit_reached", "workspace_member_usage_limit_reached",
 }

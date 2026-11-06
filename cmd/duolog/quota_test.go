@@ -87,7 +87,8 @@ func TestQuotaCommand(t *testing.T) {
 					"initialize":              `{"id":1,"result":{}}`,
 					"account/rateLimits/read": `{"id":2,"result":{"rateLimits":{"planType":"plus","primary":{"usedPercent":` + used + `,"windowDurationMins":300,"resetsAt":4070908800}` + flags + `}}}`,
 					"account/read":            `{"id":3,"error":{"code":-32601}}`,
-					"modelProvider/list":      `{"id":4,"error":{"code":-32601}}`,
+					"config/read":             `{"id":4,"error":{"code":-32601}}`,
+					"getAuthStatus":           `{"id":5,"error":{"code":-32601}}`,
 				}})
 				dirs = append(dirs, filepath.Dir(bin))
 			}
@@ -156,7 +157,8 @@ func TestQuotaDuplicateOutput(t *testing.T) {
 		"initialize":              `{"id":1,"result":{}}`,
 		"account/rateLimits/read": `{"id":2,"result":` + compact.String() + `}`,
 		"account/read":            `{"id":3,"error":{"code":-32601}}`,
-		"modelProvider/list":      `{"id":4,"error":{"code":-32601}}`,
+		"config/read":             `{"id":4,"error":{"code":-32601}}`,
+		"getAuthStatus":           `{"id":5,"error":{"code":-32601}}`,
 	}})
 	t.Setenv("PATH", filepath.Dir(bin))
 	t.Chdir(t.TempDir())

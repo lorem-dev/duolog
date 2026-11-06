@@ -66,8 +66,8 @@ func installIdentityAgents(t *testing.T, account, org string) {
 			`","workspaceName":"` + org + `"},"requiresOpenaiAuth":true}}`,
 		"account/rateLimits/read": `{"id":2,"result":{"rateLimits":{"primary":{"usedPercent":13,"windowDurationMins":300,"resetsAt":4070908800},` +
 			`"secondary":{"usedPercent":20,"windowDurationMins":10080,"resetsAt":4071513600},"ordinaryUsageAllowed":true}}}`,
-		"modelProvider/list": `{"id":4,"result":{"defaultProviderId":"openai","data":[{"id":"openai","baseUrl":null,` +
-			`"requiresOpenaiAuth":true,"envKey":null,"experimentalBearerToken":null,"auth":null,"aws":null}]}}`,
+		"config/read":   `{"id":4,"result":{"config":{"model_provider":null,"model_providers":{},"profile":null}}}`,
+		"getAuthStatus": `{"id":5,"result":{"authMethod":"chatgpt","authToken":null,"requiresOpenaiAuth":true}}`,
 	}})
 }
 

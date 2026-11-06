@@ -107,7 +107,7 @@ func (w *cacheWorld) read(_ context.Context, p workerenv.Process) (quota.Snapsho
 		s.Billing = quota.BillingFacts{AccountType: "chatgpt", RouteKnown: true, OrdinaryUsageAllowed: &allowed,
 			ProviderEnvKey: w.discover}
 		if w.discover != "" {
-			s.Billing.RouteSignals = []workerenv.Signal{{Name: "provider:env_key", Layer: "modelProvider/list"}}
+			s.Billing.RouteSignals = []workerenv.Signal{{Name: "provider:env_key", Layer: "config/read"}}
 		}
 	}
 	if w.readErr != nil {
@@ -195,7 +195,7 @@ func TestCacheRebuildsSameNameEndpointBeforeReuse(t *testing.T) {
 	if err != nil || w.builds != 2 || w.reads != 2 || p.ProviderEnvKey != "CORP_LLM_KEY" || !slices.Contains(p.Dropped, "CORP_LLM_KEY") {
 		t.Fatalf("discovered env_key: builds=%d reads=%d %+v %v", w.builds, w.reads, p, err)
 	}
-	if a.Verdict != Paid || !slices.Contains(a.Signals, workerenv.Signal{Name: "provider:env_key", Layer: "modelProvider/list"}) {
+	if a.Verdict != Paid || !slices.Contains(a.Signals, workerenv.Signal{Name: "provider:env_key", Layer: "config/read"}) {
 		t.Fatalf("discovered env_key verdict: %+v", a)
 	}
 	for _, pair := range p.Env {

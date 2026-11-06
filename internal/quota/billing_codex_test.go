@@ -17,7 +17,8 @@ import (
 // plain maps, so that each case can change one property.
 type codexBillingFixture struct {
 	Account    map[string]any `json:"account"`
-	Providers  map[string]any `json:"providers"`
+	Config     map[string]any `json:"config"`
+	Auth       map[string]any `json:"auth"`
 	RateLimits map[string]any `json:"rateLimits"`
 }
 
@@ -46,13 +47,18 @@ func (f codexBillingFixture) byID(id string) map[string]any {
 	return f.RateLimits["rateLimitsByLimitId"].(map[string]any)[id].(map[string]any)
 }
 
-func (f codexBillingFixture) defaultProvider() map[string]any {
-	for _, entry := range f.Providers["data"].([]any) {
-		if p := entry.(map[string]any); p["id"] == f.Providers["defaultProviderId"] {
-			return p
-		}
+func (f codexBillingFixture) config() map[string]any {
+	return f.Config["config"].(map[string]any)
+}
+
+// provider returns the model_providers entry of id, made empty when the
+// config has none.
+func (f codexBillingFixture) provider(id string) map[string]any {
+	providers := f.config()["model_providers"].(map[string]any)
+	if providers[id] == nil {
+		providers[id] = map[string]any{}
 	}
-	return nil
+	return providers[id].(map[string]any)
 }
 
 func codexJSON(t *testing.T, value any) []byte {
@@ -64,22 +70,27 @@ func codexJSON(t *testing.T, value any) []byte {
 	return data
 }
 
-// codexMatrixFacts joins the three reads as readCodex does; unread names a
+// codexMatrixFacts joins the four reads as readCodex does; unread names a
 // read that failed.
 func codexMatrixFacts(t *testing.T, f codexBillingFixture, unread string) BillingFacts {
 	t.Helper()
-	account, provider := unreadFacts("account:unread", codexAccountLayer), unreadFacts("provider:unread", codexProviderLayer)
+	account := unreadFacts("account:unread", codexAccountLayer)
+	config := unreadFacts("provider:unread", codexConfigLayer)
+	auth := unreadFacts("auth:unread", codexAuthLayer)
 	if unread != "account" {
 		account, _ = parseCodexAccount(codexJSON(t, f.Account))
 	}
-	if unread != "provider" {
-		provider, _ = parseCodexProvider(codexJSON(t, f.Providers))
+	if unread != "config" {
+		config, _ = parseCodexConfig(codexJSON(t, f.Config))
+	}
+	if unread != "auth" {
+		auth, _ = parseCodexAuth(codexJSON(t, f.Auth))
 	}
 	s, err := parseCodex(codexJSON(t, f.RateLimits))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return codexBilling(account, provider, s.Billing)
+	return codexBilling(s.Billing, account, config, auth)
 }
 
 func signalNames(b BillingFacts) []string {
@@ -111,7 +122,8 @@ func TestCodexBillingRPCSequence(t *testing.T) {
 			"initialize":              `{"id":1,"result":{}}`,
 			"account/read":            update + "\n" + request(3) + "\n" + reply(3, f.Account),
 			"account/rateLimits/read": `{"id":99,"result":{}}` + "\n" + update + "\n" + request(2) + "\n" + reply(2, blocked.RateLimits),
-			"modelProvider/list":      `{"jsonrpc":"2.0","method":"account/updated","params":{"authMode":"apiKey"}}` + "\n" + reply(4, f.Providers),
+			"config/read":             `{"jsonrpc":"2.0","method":"account/updated","params":{"authMode":"apiKey"}}` + "\n" + reply(4, f.Config),
+			"getAuthStatus":           request(5) + "\n" + reply(5, f.Auth),
 		}
 	}
 	read := func(t *testing.T, rpc map[string]string) (Snapshot, error, string) {
@@ -128,13 +140,18 @@ func TestCodexBillingRPCSequence(t *testing.T) {
 		ids := map[int]bool{}
 		for _, line := range strings.Split(strings.TrimSpace(input), "\n") {
 			var msg struct {
-				ID     *int   `json:"id"`
-				Method string `json:"method"`
+				ID     *int           `json:"id"`
+				Method string         `json:"method"`
+				Params map[string]any `json:"params"`
 			}
 			if err := json.Unmarshal([]byte(line), &msg); err != nil {
 				t.Fatal(err)
 			}
 			methods = append(methods, msg.Method)
+			// The auth status read never asks for the token.
+			if msg.Method == "getAuthStatus" && (msg.Params["includeToken"] != false || msg.Params["refreshToken"] != false) {
+				t.Fatal("auth status asks for a token:", line)
+			}
 			if msg.Method == "initialized" {
 				if msg.ID != nil {
 					t.Fatal("notification with id:", line)
@@ -146,7 +163,7 @@ func TestCodexBillingRPCSequence(t *testing.T) {
 			}
 			ids[*msg.ID] = true
 		}
-		want := []string{"initialize", "initialized", "account/read", "account/rateLimits/read", "modelProvider/list"}
+		want := []string{"initialize", "initialized", "account/read", "account/rateLimits/read", "config/read", "getAuthStatus"}
 		if !slices.Equal(methods, want) {
 			t.Fatalf("methods %v, want %v", methods, want)
 		}
@@ -165,7 +182,7 @@ func TestCodexBillingRPCSequence(t *testing.T) {
 		}
 		checkRequests(t, input)
 		b := s.Billing
-		if !b.RouteKnown || len(b.RouteSignals) != 0 || b.AccountType != "chatgpt" || b.AuthMode != "" {
+		if !b.RouteKnown || len(b.RouteSignals) != 0 || b.AccountType != "chatgpt" || b.AuthMode != "" || b.AuthMethod != "chatgpt" {
 			t.Fatalf("route: %+v", b)
 		}
 		if len(s.Windows) != 2 || !s.Rejected || b.OrdinaryUsageAllowed == nil || *b.OrdinaryUsageAllowed {
@@ -178,18 +195,21 @@ func TestCodexBillingRPCSequence(t *testing.T) {
 			t.Fatal(string(data))
 		}
 	})
-	t.Run("provider unavailable", func(t *testing.T) {
-		rpc := responses()
-		rpc["modelProvider/list"] = `{"id":4,"error":{"code":-32601,"message":"PRIVATE"}}`
-		s, err, input := read(t, rpc)
-		if err != nil {
-			t.Fatal(err)
-		}
-		checkRequests(t, input)
-		if s.Billing.RouteKnown || !slices.Equal(signalNames(s.Billing), []string{"provider:unread"}) || len(s.Windows) != 2 {
-			t.Fatalf("%+v", s)
-		}
-	})
+	for method, signal := range map[string]string{"config/read": "provider:unread", "getAuthStatus": "auth:unread"} {
+		t.Run(method+" unavailable", func(t *testing.T) {
+			rpc := responses()
+			id := map[string]int{"config/read": codexConfigID, "getAuthStatus": codexAuthID}[method]
+			rpc[method] = `{"id":` + string(codexJSON(t, id)) + `,"error":{"code":-32601,"message":"PRIVATE"}}`
+			s, err, input := read(t, rpc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			checkRequests(t, input)
+			if s.Billing.RouteKnown || !slices.Equal(signalNames(s.Billing), []string{signal}) || len(s.Windows) != 2 {
+				t.Fatalf("%+v", s)
+			}
+		})
+	}
 	t.Run("rate limits rejected", func(t *testing.T) {
 		rpc := responses()
 		rpc["account/rateLimits/read"] = `{"id":2,"error":{"message":"PRIVATE"}}`
@@ -213,9 +233,10 @@ func TestCodexBillingPropertyMatrix(t *testing.T) {
 		signals     []string
 		accountType string
 		envKey      string
+		// authLayer says the auth: signals come from getAuthStatus.
+		authLayer bool
 	}{
 		{name: "subscription", edit: func(codexBillingFixture) {}, known: true, accountType: "chatgpt"},
-		{name: "chatgpt without provider read", edit: func(codexBillingFixture) {}, unread: "provider", signals: []string{"provider:unread"}, accountType: "chatgpt"},
 		{name: "account unread", edit: func(codexBillingFixture) {}, unread: "account", signals: []string{"account:unread"}},
 		{name: "null account", edit: func(f codexBillingFixture) { f.Account["account"] = nil }, known: true, signals: []string{"account:none"}, accountType: "none"},
 		{name: "api key", edit: func(f codexBillingFixture) { f.Account["account"] = map[string]any{"type": "apiKey"} }, known: true, signals: []string{"account:apiKey"}, accountType: "apiKey"},
@@ -232,34 +253,66 @@ func TestCodexBillingPropertyMatrix(t *testing.T) {
 		{name: "new account type", edit: func(f codexBillingFixture) { f.account()["type"] = "seat" }, signals: []string{"account:unknown"}, accountType: "unknown"},
 		{name: "new auth mode", edit: func(f codexBillingFixture) { f.Account["authMode"] = "deviceToken" }, signals: []string{"auth:unknown"}, accountType: "chatgpt"},
 		{name: "provider without openai auth", edit: func(f codexBillingFixture) {
-			f.defaultProvider()["requiresOpenaiAuth"] = false
+			f.provider("openai")["requires_openai_auth"] = false
 			f.Account["account"], f.Account["requiresOpenaiAuth"] = nil, false
 		}, known: true, signals: []string{"account:none", "account:requires_openai_auth", "provider:requires_openai_auth"}, accountType: "none"},
-		{name: "arbitrary env key", edit: func(f codexBillingFixture) { f.defaultProvider()["envKey"] = "TEAM_GATEWAY_TOKEN" }, known: true, signals: []string{"provider:env_key"}, accountType: "chatgpt", envKey: "TEAM_GATEWAY_TOKEN"},
-		{name: "env key not a name", edit: func(f codexBillingFixture) { f.defaultProvider()["env_key"] = "sk-PRIVATE value" }, known: true, signals: []string{"provider:env_key"}, accountType: "chatgpt"},
-		{name: "bearer token", edit: func(f codexBillingFixture) { f.defaultProvider()["experimentalBearerToken"] = true }, known: true, signals: []string{"provider:bearer_token"}, accountType: "chatgpt"},
-		{name: "auth command", edit: func(f codexBillingFixture) {
-			f.defaultProvider()["auth"] = map[string]any{"command": "PRIVATE"}
-		}, known: true, signals: []string{"provider:auth"}, accountType: "chatgpt"},
-		{name: "aws", edit: func(f codexBillingFixture) { f.defaultProvider()["aws"] = map[string]any{} }, known: true, signals: []string{"provider:aws"}, accountType: "chatgpt"},
-		{name: "base url", edit: func(f codexBillingFixture) { f.defaultProvider()["baseUrl"] = "https://proxy.example.com/v1" }, known: true, signals: []string{"provider:base_url"}, accountType: "chatgpt"},
-		{name: "new provider kind", edit: func(f codexBillingFixture) {
-			f.Providers["data"] = []any{map[string]any{"id": "openai", "name": "OpenAI", "baseUrl": nil, "settings": map[string]any{"type": "openai"}}}
-		}, signals: []string{"provider:unknown"}, accountType: "chatgpt"},
-		{name: "property missing", edit: func(f codexBillingFixture) { delete(f.defaultProvider(), "aws") }, signals: []string{"provider:unknown"}, accountType: "chatgpt"},
-		{name: "null openai auth", edit: func(f codexBillingFixture) { f.defaultProvider()["requiresOpenaiAuth"] = nil }, signals: []string{"provider:unknown"}, accountType: "chatgpt"},
-		{name: "default not listed", edit: func(f codexBillingFixture) { f.Providers["defaultProviderId"] = "elsewhere" }, signals: []string{"provider:unknown"}, accountType: "chatgpt"},
-		{name: "snake case", edit: func(f codexBillingFixture) {
-			p := f.defaultProvider()
-			for camel, snake := range map[string]string{"baseUrl": "base_url", "requiresOpenaiAuth": "requires_openai_auth", "envKey": "env_key", "experimentalBearerToken": "experimental_bearer_token"} {
-				p[snake] = p[camel]
-				delete(p, camel)
-			}
-			f.Providers["default_provider_id"] = f.Providers["defaultProviderId"]
-			delete(f.Providers, "defaultProviderId")
-			f.Providers["providers"] = f.Providers["data"]
-			delete(f.Providers, "data")
+		{name: "explicit openai", edit: func(f codexBillingFixture) { f.config()["model_provider"] = "openai" }, known: true, accountType: "chatgpt"},
+		{name: "openai entry without route keys", edit: func(f codexBillingFixture) {
+			f.provider("openai")["name"] = "OpenAI"
+			f.provider("openai")["requires_openai_auth"] = true
 		}, known: true, accountType: "chatgpt"},
+		{name: "arbitrary env key", edit: func(f codexBillingFixture) { f.provider("openai")["env_key"] = "TEAM_GATEWAY_TOKEN" }, known: true, signals: []string{"provider:env_key"}, accountType: "chatgpt", envKey: "TEAM_GATEWAY_TOKEN"},
+		{name: "env key not a name", edit: func(f codexBillingFixture) { f.provider("openai")["env_key"] = "sk-PRIVATE value" }, known: true, signals: []string{"provider:env_key"}, accountType: "chatgpt"},
+		{name: "bearer token", edit: func(f codexBillingFixture) { f.provider("openai")["experimental_bearer_token"] = "PRIVATE" }, known: true, signals: []string{"provider:bearer_token"}, accountType: "chatgpt"},
+		{name: "provider headers", edit: func(f codexBillingFixture) {
+			f.provider("openai")["env_http_headers"] = map[string]any{"X-Key": "PRIVATE_VAR"}
+		}, known: true, signals: []string{"provider:headers"}, accountType: "chatgpt"},
+		{name: "auth command", edit: func(f codexBillingFixture) {
+			f.provider("openai")["auth"] = map[string]any{"command": "PRIVATE"}
+		}, known: true, signals: []string{"provider:auth"}, accountType: "chatgpt"},
+		{name: "aws", edit: func(f codexBillingFixture) { f.provider("openai")["aws"] = map[string]any{} }, known: true, signals: []string{"provider:aws"}, accountType: "chatgpt"},
+		{name: "base url", edit: func(f codexBillingFixture) { f.provider("openai")["base_url"] = "https://proxy.example.com/v1" }, known: true, signals: []string{"provider:base_url"}, accountType: "chatgpt"},
+		{name: "custom provider with env key", edit: func(f codexBillingFixture) {
+			f.config()["model_provider"] = "gateway"
+			f.provider("gateway")["env_key"] = "GATEWAY_KEY"
+			f.provider("gateway")["base_url"] = "https://gateway.example.com/v1"
+		}, known: true, signals: []string{"provider:base_url", "provider:custom", "provider:env_key"}, accountType: "chatgpt", envKey: "GATEWAY_KEY"},
+		{name: "configured local provider", edit: func(f codexBillingFixture) { f.config()["model_provider"] = "local" },
+			known: true, signals: []string{"provider:base_url", "provider:custom", "provider:requires_openai_auth"}, accountType: "chatgpt"},
+		{name: "built-in other provider", edit: func(f codexBillingFixture) { f.config()["model_provider"] = "oss" }, known: true, signals: []string{"provider:custom"}, accountType: "chatgpt"},
+		{name: "profile selects provider", edit: func(f codexBillingFixture) {
+			f.config()["profile"] = "work"
+			f.config()["profiles"] = map[string]any{"work": map[string]any{"model_provider": "local"}}
+		}, known: true, signals: []string{"provider:base_url", "provider:custom", "provider:requires_openai_auth"}, accountType: "chatgpt"},
+		{name: "profile keeps provider", edit: func(f codexBillingFixture) {
+			f.config()["profile"] = "fast"
+			f.config()["profiles"] = map[string]any{"fast": map[string]any{"model": "luna"}}
+		}, known: true, accountType: "chatgpt"},
+		{name: "profile not listed", edit: func(f codexBillingFixture) { f.config()["profile"] = "elsewhere" }, signals: []string{"provider:unknown"}, accountType: "chatgpt"},
+		{name: "provider key missing", edit: func(f codexBillingFixture) { delete(f.config(), "model_provider") }, signals: []string{"provider:unknown"}, accountType: "chatgpt"},
+		{name: "providers key missing", edit: func(f codexBillingFixture) { delete(f.config(), "model_providers") }, signals: []string{"provider:unknown"}, accountType: "chatgpt"},
+		{name: "profile key missing", edit: func(f codexBillingFixture) { delete(f.config(), "profile") }, signals: []string{"provider:unknown"}, accountType: "chatgpt"},
+		{name: "provider of another type", edit: func(f codexBillingFixture) { f.config()["model_provider"] = 7 }, signals: []string{"provider:unknown"}, accountType: "chatgpt"},
+		{name: "providers of another type", edit: func(f codexBillingFixture) { f.config()["model_providers"] = []any{} }, signals: []string{"provider:unknown"}, accountType: "chatgpt"},
+		{name: "no config", edit: func(f codexBillingFixture) { f.Config["config"] = nil }, signals: []string{"provider:unknown"}, accountType: "chatgpt"},
+		{name: "camel case", edit: func(f codexBillingFixture) {
+			c := f.config()
+			c["modelProvider"], c["modelProviders"] = nil, map[string]any{"openai": map[string]any{"baseUrl": "https://proxy.example.com/v1"}}
+			delete(c, "model_provider")
+			delete(c, "model_providers")
+		}, known: true, signals: []string{"provider:base_url"}, accountType: "chatgpt"},
+		{name: "config unread", edit: func(codexBillingFixture) {}, unread: "config", signals: []string{"provider:unread"}, accountType: "chatgpt"},
+		{name: "auth unread", edit: func(codexBillingFixture) {}, unread: "auth", signals: []string{"auth:unread"}, accountType: "chatgpt", authLayer: true},
+		{name: "api key login", edit: func(f codexBillingFixture) { f.Auth["authMethod"] = "apikey" }, known: true, signals: []string{"auth:apiKey"}, accountType: "chatgpt", authLayer: true},
+		{name: "api key login camel", edit: func(f codexBillingFixture) { f.Auth["authMethod"] = "apiKey" }, known: true, signals: []string{"auth:apiKey"}, accountType: "chatgpt", authLayer: true},
+		{name: "auth tokens login", edit: func(f codexBillingFixture) { f.Auth["authMethod"] = "chatgptAuthTokens" }, known: true, signals: []string{"auth:chatgptAuthTokens"}, accountType: "chatgpt", authLayer: true},
+		{name: "no login", edit: func(f codexBillingFixture) { f.Auth["authMethod"] = nil }, known: true, signals: []string{"auth:none"}, accountType: "chatgpt", authLayer: true},
+		{name: "new login method", edit: func(f codexBillingFixture) { f.Auth["authMethod"] = "passkey" }, signals: []string{"auth:unknown"}, accountType: "chatgpt", authLayer: true},
+		{name: "login method missing", edit: func(f codexBillingFixture) { delete(f.Auth, "authMethod") }, signals: []string{"auth:unknown"}, accountType: "chatgpt", authLayer: true},
+		{name: "snake case login", edit: func(f codexBillingFixture) {
+			delete(f.Auth, "authMethod")
+			f.Auth["auth_method"] = "apikey"
+		}, known: true, signals: []string{"auth:apiKey"}, accountType: "chatgpt", authLayer: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := loadCodexBilling(t)
@@ -270,8 +323,11 @@ func TestCodexBillingPropertyMatrix(t *testing.T) {
 			}
 			for _, s := range b.RouteSignals {
 				want := codexAccountLayer
-				if strings.HasPrefix(s.Name, "provider:") {
-					want = codexProviderLayer
+				switch {
+				case strings.HasPrefix(s.Name, "provider:"):
+					want = codexConfigLayer
+				case strings.HasPrefix(s.Name, "auth:") && tc.authLayer:
+					want = codexAuthLayer
 				}
 				if s.Layer != want {
 					t.Fatalf("signal %+v, want layer %q", s, want)
@@ -285,9 +341,7 @@ func TestCodexBillingPropertyMatrix(t *testing.T) {
 	t.Run("renames", func(t *testing.T) {
 		base := codexMatrixFacts(t, loadCodexBilling(t), "")
 		f := loadCodexBilling(t)
-		p := f.defaultProvider()
-		p["id"], p["name"] = "renamed-route", "Renamed"
-		f.Providers["defaultProviderId"] = "renamed-route"
+		f.provider("local")["name"] = "Renamed"
 		f.account()["planType"] = "newplan"
 		f.limit()["planType"] = "newplan"
 		if got := codexMatrixFacts(t, f, ""); !reflect.DeepEqual(got, base) {
@@ -295,12 +349,18 @@ func TestCodexBillingPropertyMatrix(t *testing.T) {
 		}
 		// A paid provider renamed to the first-party id stays paid.
 		f = loadCodexBilling(t)
-		local := f.Providers["data"].([]any)[1].(map[string]any)
-		local["id"] = "openai"
-		f.Providers["data"] = []any{local}
+		providers := f.config()["model_providers"].(map[string]any)
+		providers["openai"] = providers["local"]
+		delete(providers, "local")
 		got := codexMatrixFacts(t, f, "")
-		if !got.RouteKnown || !slices.Equal(signalNames(got), []string{"provider:requires_openai_auth", "provider:base_url"}) {
+		if !got.RouteKnown || !slices.Equal(signalNames(got), []string{"provider:base_url", "provider:requires_openai_auth"}) {
 			t.Fatalf("renamed provider: %+v", got)
+		}
+		// A provider id is never kept.
+		f = loadCodexBilling(t)
+		f.config()["model_provider"] = "PRIVATE-gateway"
+		if data := codexJSON(t, codexMatrixFacts(t, f, "")); strings.Contains(string(data), "PRIVATE") {
+			t.Fatal(string(data))
 		}
 	})
 }
@@ -349,6 +409,41 @@ func TestCodexNullablePermissionAndSpend(t *testing.T) {
 		if got := parse(t, f).Billing.OrdinaryUsageAllowed; got != nil {
 			t.Fatalf("null spelling lost: %v", *got)
 		}
+		// Codex 0.165 sends the flag beside the limits; the stricter of
+		// the reply's and the limit's value wins.
+		for _, tc := range []struct {
+			name       string
+			top, limit any
+			topSet     bool
+			limitSet   bool
+			want       *bool
+			rejected   bool
+		}{
+			{"reply true only", true, nil, true, false, flag(true), false},
+			{"reply false only", false, nil, true, false, flag(false), true},
+			{"reply null only", nil, nil, true, false, nil, false},
+			{"reply false, limit true", false, true, true, true, flag(false), true},
+			{"reply true, limit false", true, false, true, true, flag(false), true},
+			{"reply null, limit true", nil, true, true, true, nil, false},
+			{"reply true, limit null", true, nil, true, true, nil, false},
+			{"both true", true, true, true, true, flag(true), false},
+		} {
+			t.Run("reply/"+tc.name, func(t *testing.T) {
+				f := loadCodexBilling(t)
+				delete(f.limit(), "ordinaryUsageAllowed")
+				if tc.topSet {
+					f.RateLimits["ordinaryUsageAllowed"] = tc.top
+				}
+				if tc.limitSet {
+					f.limit()["ordinaryUsageAllowed"] = tc.limit
+				}
+				s := parse(t, f)
+				got := s.Billing.OrdinaryUsageAllowed
+				if (got == nil) != (tc.want == nil) || (got != nil && *got != *tc.want) || s.Rejected != tc.rejected {
+					t.Fatalf("got %v rejected=%v", got, s.Rejected)
+				}
+			})
+		}
 	})
 	t.Run("spend control", func(t *testing.T) {
 		for _, tc := range []struct {
@@ -374,7 +469,9 @@ func TestCodexNullablePermissionAndSpend(t *testing.T) {
 				}
 				s := parse(t, f)
 				b := s.Billing
-				if b.SpendControlPresent != tc.present || b.OverageEnabled != tc.present || slices.Contains(b.WorkspaceReasons, "spend_control") != tc.present {
+				// Only a reached spend control is evidence: a personal
+				// account sends spendControlReached false too.
+				if b.SpendControlPresent != tc.present || b.OverageEnabled != tc.reached || slices.Contains(b.WorkspaceReasons, "spend_control") != tc.reached {
 					t.Fatalf("present: %+v", b)
 				}
 				if s.SpendControlReached != tc.reached || s.Rejected != tc.reached {
@@ -434,9 +531,54 @@ func TestCodexNullablePermissionAndSpend(t *testing.T) {
 			if data := codexJSON(t, b); strings.Contains(string(data), "PRIVATE") {
 				t.Fatal(string(data))
 			}
-			if got := codexBilling(b, BillingFacts{}, BillingFacts{}).WorkspaceReasons; !slices.Equal(got, b.WorkspaceReasons) {
+			if got := codexBilling(BillingFacts{}, b, BillingFacts{}).WorkspaceReasons; !slices.Equal(got, b.WorkspaceReasons) {
 				t.Fatalf("join lost workspace evidence: %v", got)
 			}
+		}
+	})
+	t.Run("workspace plan", func(t *testing.T) {
+		for _, plan := range []string{"team", "business", "enterprise", "edu", "Enterprise"} {
+			f := loadCodexBilling(t)
+			f.account()["planType"] = plan
+			if b := codexMatrixFacts(t, f, ""); !slices.Equal(b.WorkspaceReasons, []string{"workspace_plan"}) || !b.RouteKnown {
+				t.Fatalf("account plan %q: %+v", plan, b)
+			}
+			f = loadCodexBilling(t)
+			f.byID("sol")["planType"] = plan
+			if b := parse(t, f).Billing; !slices.Equal(b.WorkspaceReasons, []string{"workspace_plan"}) {
+				t.Fatalf("limit plan %q: %+v", plan, b)
+			}
+		}
+		for _, plan := range []string{"free", "plus", "pro", "go", ""} {
+			f := loadCodexBilling(t)
+			f.account()["planType"], f.limit()["planType"] = plan, plan
+			if b := codexMatrixFacts(t, f, ""); len(b.WorkspaceReasons) != 0 {
+				t.Fatalf("personal plan %q: %+v", plan, b)
+			}
+		}
+	})
+	t.Run("forced workspace", func(t *testing.T) {
+		for _, tc := range []struct {
+			value     any
+			workspace bool
+		}{{"00000000-PRIVATE", true}, {nil, false}, {"", false}} {
+			f := loadCodexBilling(t)
+			f.config()["forced_chatgpt_workspace_id"] = tc.value
+			b := codexMatrixFacts(t, f, "")
+			if slices.Contains(b.WorkspaceReasons, "forced_workspace") != tc.workspace || !b.RouteKnown || len(b.RouteSignals) != 0 {
+				t.Fatalf("%v: %+v", tc.value, b)
+			}
+			if data := codexJSON(t, b); strings.Contains(string(data), "PRIVATE") {
+				t.Fatal(string(data))
+			}
+		}
+	})
+	t.Run("workspace routing", func(t *testing.T) {
+		// A personal account has workspaceRouting too: it is no evidence.
+		f := loadCodexBilling(t)
+		f.Account["workspaceRouting"] = map[string]any{"chatgptAccountId": "PRIVATE", "accountRoutingOverride": "NO_CONSTRAINT"}
+		if b := codexMatrixFacts(t, f, ""); len(b.WorkspaceReasons) != 0 || !b.RouteKnown || len(b.RouteSignals) != 0 {
+			t.Fatalf("%+v", b)
 		}
 	})
 	t.Run("reached types", func(t *testing.T) {

@@ -8,30 +8,26 @@
     },
     "requiresOpenaiAuth": true
   },
-  "providers": {
-    "defaultProviderId": "openai",
-    "data": [
-      {
-        "id": "openai",
-        "name": "OpenAI",
-        "baseUrl": null,
-        "requiresOpenaiAuth": true,
-        "envKey": null,
-        "experimentalBearerToken": null,
-        "auth": null,
-        "aws": null
+  "config": {
+    "config": {
+      "model": "sol",
+      "model_provider": null,
+      "model_providers": {
+        "local": {
+          "name": "Local",
+          "base_url": "http://127.0.0.1:11434/v1",
+          "requires_openai_auth": false
+        }
       },
-      {
-        "id": "local",
-        "name": "Local",
-        "baseUrl": "http://127.0.0.1:11434/v1",
-        "requiresOpenaiAuth": false,
-        "envKey": null,
-        "experimentalBearerToken": null,
-        "auth": null,
-        "aws": null
-      }
-    ]
+      "profile": null,
+      "forced_login_method": null,
+      "forced_chatgpt_workspace_id": null
+    }
+  },
+  "auth": {
+    "authMethod": "chatgpt",
+    "authToken": null,
+    "requiresOpenaiAuth": true
   },
   "rateLimits": {
     "rateLimits": {

@@ -156,12 +156,11 @@ func TestQuotaReadUsesBuiltProcess(t *testing.T) {
 	// reply to another id never answer a request, and nothing spends a
 	// reset credit.
 	notify := `{"jsonrpc":"2.0","method":"account/rateLimits/updated","params":{"rateLimits":{"primary":{"usedPercent":99,"windowDurationMins":300,"resetsAt":4070908800}}}}`
-	codex := testbin.Install(t, "codex", testbin.Scenario{RPCResponses: map[string]string{
+	codex := testbin.Install(t, "codex", testbin.Scenario{RPCResponses: codexRoute(map[string]string{
 		"initialize":              `{"id":1,"result":{}}`,
 		"account/read":            notify + "\n" + `{"id":2,"result":{"rateLimits":null}}` + "\n" + codexAccountReply,
 		"account/rateLimits/read": notify + "\n" + codexReply,
-		"modelProvider/list":      codexProviderReply,
-	}})
+	})})
 	hide()
 	pc := build("codex", filepath.Dir(codex))
 	s, err = r.ReadProcess(context.Background(), pc)
@@ -186,7 +185,7 @@ func TestQuotaReadUsesBuiltProcess(t *testing.T) {
 		}
 		methods = append(methods, msg.Method)
 	}
-	if strings.Join(methods, ",") != "initialize,initialized,account/read,account/rateLimits/read,modelProvider/list" {
+	if strings.Join(methods, ",") != codexReadMethods {
 		t.Fatalf("methods = %v", methods)
 	}
 	for _, method := range methods {

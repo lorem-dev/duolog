@@ -20,11 +20,13 @@ type BillingFacts struct {
 	RouteKnown   bool               `json:"route_known"`
 	RouteSignals []workerenv.Signal `json:"route_signals,omitempty"`
 	// WindowsAvailable is the reply's own flag, nil when the reply has none.
-	WindowsAvailable     *bool    `json:"windows_available,omitempty"`
-	OrdinaryUsageAllowed *bool    `json:"ordinary_usage_allowed,omitempty"`
-	SpendControlPresent  bool     `json:"spend_control_present,omitempty"`
-	WorkspaceReasons     []string `json:"workspace_reasons,omitempty"`
-	OverageEnabled       bool     `json:"overage_enabled,omitempty"`
+	WindowsAvailable     *bool `json:"windows_available,omitempty"`
+	OrdinaryUsageAllowed *bool `json:"ordinary_usage_allowed,omitempty"`
+	// SpendControlPresent says the reply had a spend control key that is not
+	// null, even false. It is no evidence: a personal account sends one too.
+	SpendControlPresent bool     `json:"spend_control_present,omitempty"`
+	WorkspaceReasons    []string `json:"workspace_reasons,omitempty"`
+	OverageEnabled      bool     `json:"overage_enabled,omitempty"`
 	// ProviderEnvKey is the name of the variable the default Codex provider
 	// reads its key from, never its value.
 	ProviderEnvKey string `json:"provider_env_key,omitempty"`

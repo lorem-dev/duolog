@@ -337,33 +337,39 @@ func (r Reader) readCodex(ctx context.Context, run runner) (Snapshot, error) {
 		}
 		return rpcReply(scanner, id)
 	}
-	// Free reads only: no model turn, no reset credit and no opt-in
-	// capability. A failed account or provider read is missing route
-	// evidence; only the rate limit read decides whether the read failed.
+	// Free reads only: no model turn, no reset credit, no token and no
+	// opt-in capability. A failed account, config or auth read is missing
+	// route evidence; only the rate limit read decides whether the read
+	// failed.
 	account := unreadFacts("account:unread", codexAccountLayer)
+	config := unreadFacts("provider:unread", codexConfigLayer)
+	auth := unreadFacts("auth:unread", codexAuthLayer)
 	if data, err := call(codexAccountID, "account/read", map[string]any{"refreshToken": false}); err == nil {
 		account, _ = parseCodexAccount(data)
 		if err := run.identify(codexIdentity(data)); err != nil {
-			return Snapshot{Billing: codexBilling(account, unreadFacts("provider:unread", codexProviderLayer), BillingFacts{})}, err
+			return Snapshot{Billing: codexBilling(BillingFacts{}, account, config, auth)}, err
 		}
 	}
 	data, limitsErr := call(codexRateLimitsID, "account/rateLimits/read", nil)
-	provider := unreadFacts("provider:unread", codexProviderLayer)
-	if data, err := call(codexProvidersID, "modelProvider/list", map[string]any{}); err == nil {
-		provider, _ = parseCodexProvider(data)
+	if reply, err := call(codexConfigID, "config/read", map[string]any{"includeLayers": false}); err == nil {
+		config, _ = parseCodexConfig(reply)
+	}
+	if reply, err := call(codexAuthID, "getAuthStatus", map[string]any{"includeToken": false, "refreshToken": false}); err == nil {
+		auth, _ = parseCodexAuth(reply)
 	}
 	if limitsErr != nil {
-		return Snapshot{Billing: codexBilling(account, provider, BillingFacts{})}, limitsErr
+		return Snapshot{Billing: codexBilling(BillingFacts{}, account, config, auth)}, limitsErr
 	}
 	s, err := parseCodex(data)
-	s.Billing = codexBilling(account, provider, s.Billing)
+	s.Billing = codexBilling(s.Billing, account, config, auth)
 	return s, err
 }
 
 const (
 	codexRateLimitsID = 2
 	codexAccountID    = 3
-	codexProvidersID  = 4
+	codexConfigID     = 4
+	codexAuthID       = 5
 )
 
 type codexLimit struct {
@@ -395,7 +401,8 @@ type codexWindow struct {
 
 func (l codexLimit) blocked() bool {
 	v := string(l.facts.reachedType)
-	return l.facts.spendReached || (l.facts.ordinary != nil && !*l.facts.ordinary) || (v != "" && v != "null" && v != `"none"` && v != `""`)
+	o := l.facts.ordinary.value
+	return l.facts.spendReached || (o != nil && !*o) || (v != "" && v != "null" && v != `"none"` && v != `""`)
 }
 
 func (l codexLimit) windows() ([]Window, error) {
@@ -427,7 +434,8 @@ func parseCodex(data []byte) (Snapshot, error) {
 		RateLimits *codexLimit           `json:"rateLimits"`
 		ByID       map[string]codexLimit `json:"rateLimitsByLimitId"`
 	}
-	if json.Unmarshal(data, &reply) != nil || reply.RateLimits == nil {
+	var top fields
+	if json.Unmarshal(data, &reply) != nil || json.Unmarshal(data, &top) != nil || reply.RateLimits == nil {
 		return Snapshot{}, errors.New("no quota data; check login")
 	}
 	l := reply.RateLimits
@@ -435,15 +443,19 @@ func parseCodex(data []byte) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	// Permission is the account limit's own value. A duplicate limit can
-	// only take it away: a sparse null never clears a block, and a later
-	// read is the only way back.
-	billing := BillingFacts{OrdinaryUsageAllowed: l.facts.ordinary, ResetCredits: l.facts.resetCredits}
+	// Permission is the reply's own value, which Codex 0.165 sends beside
+	// the limits, joined with the account limit's: the stricter one wins. A
+	// duplicate limit can only take it away: a sparse null never clears a
+	// block, and a later read is the only way back. rateLimitResetCredits
+	// is never read: duolog neither counts nor spends a reset.
+	ordinary := joinPermissions(readCodexPermission(top), l.facts.ordinary)
+	billing := BillingFacts{OrdinaryUsageAllowed: ordinary, ResetCredits: l.facts.resetCredits}
 	billing.addCodexLimit(l.facts)
 	if len(windows) == 0 {
 		return Snapshot{Billing: billing}, errors.New("no quota windows")
 	}
-	s := Snapshot{Plan: plan(l.PlanType), Windows: windows, Credits: l.Credits, Rejected: l.blocked(), SpendControlReached: l.facts.spendReached, Billing: billing, ModelLimits: make(map[string][]Window)}
+	refused := ordinary != nil && !*ordinary
+	s := Snapshot{Plan: plan(l.PlanType), Windows: windows, Credits: l.Credits, Rejected: l.blocked() || refused, SpendControlReached: l.facts.spendReached, Billing: billing, ModelLimits: make(map[string][]Window)}
 	if s.Credits != nil && s.Credits.Balance != nil {
 		var number json.Number
 		if json.Unmarshal([]byte(*s.Credits.Balance), &number) != nil {
@@ -467,7 +479,7 @@ func parseCodex(data []byte) (Snapshot, error) {
 		// so the account and the other families keep their state.
 		if len(ws) == 0 || slices.Equal(ws, windows) {
 			s.Rejected = s.Rejected || limit.blocked()
-			if o := limit.facts.ordinary; o != nil && !*o {
+			if o := limit.facts.ordinary.value; o != nil && !*o {
 				s.Billing.OrdinaryUsageAllowed = o
 			}
 			continue
