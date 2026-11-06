@@ -44,6 +44,17 @@
         ]
       }
     ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "r=$(git rev-parse --show-toplevel 2>/dev/null); if [ -x \"$r/scripts/dev/bin/duolog\" ]; then exec \"$r\"/scripts/dev/bin/duolog hook Stop --agent codex; fi",
+            "commandWindows": "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/dev/bin/duolog.ps1 hook Stop --agent codex"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "hooks": [

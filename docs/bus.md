@@ -24,7 +24,8 @@ Each message is one JSON line in `.duolog/bus.ndjson`:
 | `p` | For a gate ask, `true` means only the person may allow it |
 
 A gate ask expires after `w` seconds. An older ask without `w` uses the
-150-second hook budget.
+150-second hook budget. When an ask expires, its asker is denied and the lead
+gets a `status` message whose `ref` is the request number.
 
 A line has at most 512 bytes. The summary has at most 200 bytes. A longer
 summary is refused, and the error tells you to use `duolog put`.

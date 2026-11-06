@@ -390,7 +390,11 @@ rules still apply. When the lead is free, normal numbered asks work as below.
 `peer wait` returns at once for a pending gate ask of its own peer. An ask
 names its peer, and an ask from a worker outside a peer pane stops no
 `peer wait`. An ask expires when its asker's wait has passed, so a request
-that timed out no longer counts as pending. A worker that tries to ask
+that timed out no longer counts as pending. The worker gets a deny, so it
+never waits forever. The lead gets one message on the bus, such as
+`ask 11960 from peer-x expired and was denied: exec make lint`. It names the
+request, the peer or `worker <role>`, and the action. An ask that the worker
+cancelled sends no such message. A worker that tries to ask
 the user, with Codex `request_user_input` or Claude `AskUserQuestion`, is
 denied, because only the lead talks to the user.
 

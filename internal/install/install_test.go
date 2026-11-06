@@ -426,6 +426,17 @@ func TestGuards(t *testing.T) {
 	}
 }
 
+// A peer's turn end reaches duolog through a Stop hook, for both agents.
+func TestStopHookInstalled(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		cmds := hookCommands(t, agent, "Stop")
+		want := "hook Stop --agent " + agent
+		if len(cmds) != 1 || !strings.Contains(cmds[0].Command+" "+strings.Join(cmds[0].Args, " "), want) {
+			t.Errorf("%s Stop hooks %+v, want one that runs %q", agent, cmds, want)
+		}
+	}
+}
+
 // hookCommands returns the command of every hook for one event.
 func hookCommands(t *testing.T, agent, event string) []testbin.HookCommand {
 	t.Helper()
@@ -507,7 +518,7 @@ func TestGuardsRunFailClosed(t *testing.T) {
 				}
 			}
 		}
-		for _, event := range []string{"SessionStart", "SessionEnd", "UserPromptSubmit", "PostToolUse"} {
+		for _, event := range []string{"SessionStart", "SessionEnd", "UserPromptSubmit", "PostToolUse", "Stop"} {
 			for _, c := range hookCommands(t, agent, event) {
 				if got := exitCode(t, c, "DUOLOG_DEPTH=1"); got != 0 {
 					t.Errorf("%s %s with a worker depth: exit %d, want 0", agent, event, got)

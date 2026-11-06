@@ -751,7 +751,7 @@ func Wait(ctx context.Context, id string) (Entry, error) {
 		return Entry{ID: entry.ID, State: Closed, Note: line}, err
 	}
 	e.watchQuestions = true
-	got, err := e.watch(ctx, entry, false)
+	got, err := e.watchMarked(ctx, entry)
 	if got.ID != "" {
 		got.Report = e.reportLine(entry)
 	}
@@ -1229,7 +1229,7 @@ func Status(ctx context.Context, id string) (Report, error) {
 		if state == Question {
 			st.Line += ": " + screen.Question
 		}
-		if entry.Task != "" {
+		if entry.Unfinished() {
 			st.Line += ", task " + entry.Task + " is unfinished"
 			if known {
 				st.Line += fmt.Sprintf(", %d files changed", changed)

@@ -134,6 +134,30 @@ The peer's answer stays in its pane, and in any files it
 wrote. duolog reads the pane only to learn its state. When the lead needs the
 answer as data, use `duolog delegate`, which returns it and records its spend.
 
+## What the lead is told when a peer stops
+
+A peer's task stays unfinished until a `peer wait` sees the peer go idle
+after it. With no wait running, the peer can sit `ready` while
+`peer status` says `task <path> is unfinished`. So duolog tells the lead:
+
+| Event | Message to the lead on the bus |
+|---|---|
+| The peer ends a turn, its task is unfinished and no `peer wait` watches it | `<peer-id> stopped; task <path> is unfinished` |
+| A gate ask of the peer gets no answer in time | `ask <n> from <peer-id> expired and was denied: <action>` |
+| The pane closes or its program ends | `<peer-id> closed` or `<peer-id> exited`, with the unfinished task |
+
+The first message comes from the peer's `Stop` hook, once per turn. A peer
+whose task is finished, or that a `peer wait` watches, sends none: the wait
+reports the turn itself. Each message is one line, and the lead's hooks
+deliver it with the next prompt or tool call. Answer with `peer status`,
+`peer send` or `peer close`.
+
+The `Stop` hook runs only where duolog's hooks run in the peer. An older
+install gets it when you update the plugin or run `duolog install` again.
+A Codex peer runs it
+only after you approve the hooks in `/hooks`; the auto-answer
+`Continue without trusting` leaves them off.
+
 ## How to run several peers at once
 
 Run independent tasks in parallel. Give each task its own linked worktree

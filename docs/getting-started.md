@@ -243,6 +243,9 @@ Claude ignores the project's `permissions.allow` entries; run Claude Code in
 the folder once and accept the trust dialog. If the state cannot be read, the
 line says `unknown` and is not a failure. It makes no model call unless you
 add `--probe`.
+A config file that does not load comes first, as an `error:` line with the
+file and the line. Doctor stops there, because every other check needs the
+config.
 Follow the steps it names. For a project that already uses duolog, install
 the binary, use the project's skill, and run doctor.
 

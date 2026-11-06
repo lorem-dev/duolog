@@ -106,14 +106,7 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout ti
 	peer := os.Getenv("DUOLOG_PEER")
 	// The wait, rounded up, tells readers when this hook has given up.
 	wait := int((timeout + time.Second - 1) / time.Second)
-	var n int64
-	for budget := 200; ; budget-- {
-		summary := askSummary(fullSummary, budget)
-		n, err = b.Send(bus.Message{From: from, To: address, K: Ask, Ref: peer, S: summary, P: person, W: wait})
-		if !errors.Is(err, bus.ErrTooLong) || budget == 0 {
-			break
-		}
-	}
+	n, err := sendCut(b, bus.Message{From: from, To: address, K: Ask, Ref: peer, P: person, W: wait}, "", fullSummary)
 	if err != nil {
 		return deny("cannot send ask: " + err.Error())
 	}
@@ -123,11 +116,11 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout ti
 	for {
 		select {
 		case <-waitCtx.Done():
-			return timedOut()
+			return expire(ctx, b, bus.Message{From: from, To: address, Ref: peer}, n, fullSummary, timedOut())
 		case <-ticker.C:
 		}
 		if waitCtx.Err() != nil {
-			return timedOut()
+			return expire(ctx, b, bus.Message{From: from, To: address, Ref: peer}, n, fullSummary, timedOut())
 		}
 		if _, alive, err := reg.Lead(lead); err != nil || !alive {
 			return deny("ask lead is unavailable or has ended")
@@ -146,6 +139,42 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout ti
 			}
 		}
 	}
+}
+
+// sendCut sends m with prefix and as much of text as the wire takes, cut by
+// askSummary.
+func sendCut(b *bus.Bus, m bus.Message, prefix, text string) (int64, error) {
+	for budget := 200 - len(prefix); ; budget-- {
+		m.S = prefix + askSummary(text, budget)
+		n, err := b.Send(m)
+		if !errors.Is(err, bus.ErrTooLong) || budget <= 0 {
+			return n, err
+		}
+	}
+}
+
+// expire tells the lead in one line that ask n ran out of time and that its
+// asker was denied, and returns that deny. The deny stands even when the line
+// cannot be sent. A wait that ctx cancelled did not expire, so it sends none.
+func expire(ctx context.Context, b *bus.Bus, ask bus.Message, n int64, action string, d Decision) Decision {
+	if ctx.Err() != nil {
+		return d
+	}
+	ref := strconv.FormatInt(n, 10)
+	prefix := "ask " + ref + " from " + asker(ask.Ref) + " expired and was denied: "
+	_, _ = sendCut(b, bus.Message{From: ask.From, To: ask.To, K: "status", Ref: ref}, prefix, action)
+	return d
+}
+
+// asker names who sent an ask: its peer pane, or else the worker's role.
+func asker(peer string) string {
+	if peer != "" {
+		return peer
+	}
+	if role := os.Getenv("DUOLOG_ROLE"); role != "" {
+		return "worker " + role
+	}
+	return "a worker"
 }
 
 // askSummary visibly preserves both ends and points to the complete action.
