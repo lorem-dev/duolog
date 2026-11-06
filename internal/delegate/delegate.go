@@ -467,7 +467,10 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					path = rel
 				}
 			}
-			return gate.Evaluate(cfg.Policy, readRules, leadMode, gate.Action{Kind: "read", Target: pathutil.Clean(path), Role: role}).Kind == gate.Allow
+			// The same work root and store roots the worker's gate hook gets, so a
+			// Read reference cannot hand a private store over before that hook runs.
+			read := gate.Action{Kind: "read", Target: pathutil.Clean(path), Role: role, Work: root, ProtectedRoots: opts.ProtectedRoots}
+			return gate.Evaluate(cfg.Policy, readRules, leadMode, read).Kind == gate.Allow
 		})
 		if inlineErr != nil {
 			return out, inlineErr
