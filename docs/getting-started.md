@@ -17,17 +17,25 @@ duolog install --scope project
 ```
 
 The Linux binaries are static, so they need no libc of a given version. CI
-runs them on Alpine 3.10 and 3.20, Ubuntu 14.04 and 16.04, Debian 9 and
-CentOS 7. Claude Code and Codex have their own system requirements.
+runs the amd64 binary on Alpine 3.10 and 3.20, Ubuntu 14.04 and 16.04,
+Debian 9 and CentOS 7, and the arm64 binary on Alpine 3.20 and Ubuntu 16.04.
+The installer also works with busybox `sh` and `wget`, so Alpine needs no curl
+or bash; CI runs it on Alpine 3.20 and Ubuntu 14.04. Claude Code and Codex
+have their own system requirements.
 
 Pin a release or choose another directory:
 
 ```sh
-curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.4.0
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.4.1
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | DUOLOG_INSTALL_DIR="$HOME/bin" sh
 ```
 
-`DUOLOG_VERSION` also pins a POSIX release; `--dir` also sets its directory.
+From the release after 1.4.0 on, an installer downloaded from a release page,
+such as `releases/download/v<version>/install.sh` or `install.ps1`, installs
+that release by default; the `releases/latest/download` links install the
+newest one.
+`DUOLOG_VERSION` and `--version` always win. `DUOLOG_VERSION` also pins a
+POSIX release; `--dir` also sets its directory.
 Use `--via-go` to print the source install command. The POSIX script supports
 macOS and Linux; use the PowerShell installer on Windows.
 
@@ -37,16 +45,18 @@ On Windows, use Windows PowerShell 5.1 or PowerShell 7 (`pwsh`):
 irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
 ```
 
-Add the printed directory to PATH in Windows Environment Variables, then open
-another terminal and run `duolog install --scope project`. The default folder
-is `$env:LOCALAPPDATA\Programs\duolog`. The installer does not edit PATH.
-Both installers select amd64 or arm64 and verify SHA-256 before installing.
-An invalid download leaves an existing binary unchanged.
+The installer adds its folder to your user PATH (in `HKCU`, never the machine
+PATH) when it is missing, and says so. Set `DUOLOG_NO_PATH=1` before running it
+to skip that and add the folder yourself. Then open another terminal and run
+`duolog install --scope project`. The default folder is
+`$env:LOCALAPPDATA\Programs\duolog`. Both installers select amd64 or arm64
+and verify SHA-256 before installing. An invalid download leaves an existing
+binary unchanged.
 
 To pin a Windows release or choose a directory:
 
 ```powershell
-$env:DUOLOG_VERSION = 'v1.4.0'
+$env:DUOLOG_VERSION = 'v1.4.1'
 $env:DUOLOG_INSTALL_DIR = "$env:LOCALAPPDATA\Programs\duolog"
 irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
 ```
@@ -225,8 +235,13 @@ duolog doctor
 ```
 
 The command prints one line for each finding. It checks the agent binaries and
-versions, whether hooks are installed, Codex trust, Rex, and the install offer
-(for information only). It makes no model call unless you add `--probe`.
+versions, whether hooks are installed, Codex trust, Claude trust, Rex, and the
+install offer (for information only). The Claude line reads only the trust flag
+of the project folder from Claude's user state. If the folder is not trusted,
+Claude ignores the project's `permissions.allow` entries; run Claude Code in
+the folder once and accept the trust dialog. If the state cannot be read, the
+line says `unknown` and is not a failure. It makes no model call unless you
+add `--probe`.
 Follow the steps it names. For a project that already uses duolog, install
 the binary, use the project's skill, and run doctor.
 
@@ -296,6 +311,12 @@ The line can also carry two fields:
 
 `outside` needs Git, a role that can write and a Write section that lists
 paths.
+
+The line aims at 512 bytes. When it is longer, duolog cuts the summary first
+and then the `files` list, which then ends in `...`. It never cuts `needs`,
+`decisions` or a warning such as `outside=` or `rules are off`, so a long
+warning can make the line longer than 512 bytes. `answer.json` keeps the
+whole summary and list.
 
 A line that starts with `run here:` means duolog did not start a worker. The
 role points to the lead's own agent and model, or it needs little context and

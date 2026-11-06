@@ -78,7 +78,7 @@ func TestLeadGuardReasonsAndFlags(t *testing.T) {
 			want += ": they run duolog allow 1 --lead claude/lead.test in their own terminal in " + filepath.Base(filepath.Dir(dir))
 		}
 		// The Windows launchers are named as the worker denies name them (gate.ProgramName).
-		for _, command := range []string{"duolog --lead=L allow 1", "duolog allow --lead L 1", "duolog.exe allow 1", "duolog.cmd allow 1", "DUOLOG.EXE allow 1", `C:\bin\duolog.ps1 allow 1`, "true && duolog allow 1; echo done", `"duolog" allow 1`} {
+		for _, command := range []string{"duolog --lead=L allow 1", "duolog allow --lead L 1", "duolog.exe allow 1", "duolog.cmd allow 1", "DUOLOG.EXE allow 1", "DUOLOG.BAT allow 1", "duolog.ps1 allow 1", `C:\bin\duolog.ps1 allow 1`, `C:\tools\duolog.cmd allow 1`, "true && duolog allow 1; echo done", `"duolog" allow 1`} {
 			if d, ok := leadGuard(dir, agent, bashInput(agent, command)); !ok || d.Reason != want {
 				t.Fatal(agent, command, d, ok)
 			}

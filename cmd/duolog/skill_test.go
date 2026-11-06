@@ -36,10 +36,14 @@ func TestSkillTestCodexAndOverwrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(argv, "|")
-	for _, want := range []string{`mcp_servers."private".enabled=false`, "features.shell_tool=false", "features.apply_patch_freeform=false", "--skip-git-repo-check"} {
+	for _, want := range []string{"mcp_servers.private.enabled=false", "features.shell_tool=false", "features.apply_patch_freeform=false", "--skip-git-repo-check"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("%s lacks %s", joined, want)
 		}
+	}
+	// A quoted name is a new server to Codex, one with no transport.
+	if strings.Contains(joined, `mcp_servers."`) {
+		t.Errorf("%s quotes a server name", joined)
 	}
 	out, err = executeBusCommand(t, args...)
 	if err == nil || !strings.Contains(out, "0/1") || !strings.Contains(out, "--") {

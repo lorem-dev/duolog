@@ -34,4 +34,4 @@ third-party-check:
 
 .PHONY: install-script
 install-script:
-	go run ./scripts/render-install
+	go run ./scripts/render-install -version $(or $(RELEASE_TAG),latest)

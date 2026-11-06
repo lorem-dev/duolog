@@ -31,6 +31,7 @@ func TestClassifyFixtures(t *testing.T) {
 		{"claude-model-switch-question.txt", "claude", Question, []string{"Switch model?", "Yes, switch to Sonnet 5.5", "No, go back"}},
 		{"claude-approval-prompt.txt", "claude", Question, []string{"Do you want to proceed?", "Yes"}},
 		{"claude-usage-limit-line.txt", "claude", Starting, nil},
+		{"claude-interrupted.txt", "claude", Interrupted, nil},
 		{"codex-ready.txt", "codex", Ready, nil},
 		{"codex-trust-folder.txt", "codex", Question, []string{"Trust this folder?", "Trust and continue", "Quit"}},
 		{"codex-trust-live.txt", "codex", Question, []string{"/Users/user/lorem/duolog", "Trust this folder?", "Trust and continue"}},
@@ -267,6 +268,102 @@ func TestWorkingMarkersAreNotIdle(t *testing.T) {
 		if s := Parse("codex", []byte(line+"\n"+codexIdle(""))); s.State != Ready || s.Working {
 			t.Errorf("%q: %+v", line, s)
 		}
+	}
+}
+
+// claudeInterrupted is the recorded pane after the lead denied a permission
+// prompt: the notice is the last line above the input box.
+func claudeInterrupted() string { return fixtureText("claude-interrupted.txt") }
+
+func TestInterruptedNeedsTheNoticeLast(t *testing.T) {
+	s := Parse("claude", []byte(claudeInterrupted()))
+	if s.State != Interrupted || !s.Composer || !s.Empty || s.Working {
+		t.Fatalf("%+v", s)
+	}
+	notice := "  ⎿  Interrupted · What should Claude do instead?\n"
+	cases := []struct {
+		name, agent, screen string
+		want                State
+	}{
+		{"esc by the person", "claude", "⏺ Reading files\n  ⎿  Interrupted by user\n" + claudeIdle(""), Interrupted},
+		// A follow-up that the agent answered: the old notice is above its reply.
+		{"answered follow-up", "claude", notice + "\n❯ use the helper instead\n\n⏺ Done.\n" + claudeIdle(""), Ready},
+		// The follow-up is being worked on.
+		{"working again", "claude", notice + "✻ Channelling… (3s · esc to interrupt)\n" + claudeIdle(""), Starting},
+		{"text in the input", "claude", notice + claudeIdle("use the helper"), Interrupted},
+		{"codex", "codex", "■ Conversation interrupted - tell the model what to do differently.\n" + codexIdle(""), Interrupted},
+		{"codex answered", "codex", "■ Conversation interrupted - tell the model what to do differently.\n\n› go on\n\n• Done.\n" + codexIdle(""), Ready},
+		// The other agent's notice is not this agent's.
+		{"codex notice in claude", "claude", "■ Conversation interrupted - tell the model what to do differently.\n" + claudeIdle(""), Ready},
+		{"quoted notice", "claude", "⏺ The pane said Interrupted · What should Claude do instead?\n" + claudeIdle(""), Ready},
+	}
+	for _, tc := range cases {
+		if s := Parse(tc.agent, []byte(tc.screen)); s.State != tc.want {
+			t.Errorf("%s: %s, want %s (%+v)", tc.name, s.State, tc.want, s)
+		}
+	}
+}
+
+// styledIdle is the recorded ready pane with its input row as a styled
+// capture gives it. The recorded row has a no-break space after the marker.
+func styledIdle(row string) string {
+	ready := fixtureText("claude-ready.txt")
+	placeholder := `Try "how does <filepath> work?"`
+	if !strings.Contains(ready, "❯ "+placeholder) {
+		panic("claude-ready.txt has no placeholder row")
+	}
+	return strings.Replace(ready, placeholder, row, 1)
+}
+
+const (
+	dim    = "\x1b[2m"
+	grey   = "\x1b[38;2;153;153;153m"
+	reset  = "\x1b[0m"
+	cursor = "\x1b[7m \x1b[27m"
+)
+
+// A suggestion is drawn dim or grey; typed text is not. The cursor sits on a
+// suggestion's first cell in inverse video.
+func TestSuggestionIsNoInput(t *testing.T) {
+	cases := []struct {
+		name, screen, input string
+	}{
+		{"dim suggestion", styledIdle("\x1b[7mc\x1b[27m" + dim + "ommit the changes" + reset), ""},
+		{"grey suggestion", styledIdle("\x1b[7mf\x1b[27m" + grey + "ix typecheck errors\x1b[39m"), ""},
+		{"256-colour grey", styledIdle("\x1b[38;5;245mrun the tests" + reset), ""},
+		{"dim try", styledIdle("\x1b[7mT\x1b[27m" + dim + `ry "fix typecheck errors"` + reset), ""},
+		{"typed", styledIdle("fix the build" + cursor), "fix the build"},
+		{"typed in colour", styledIdle("\x1b[38;2;255;255;255mfix the build" + reset + cursor), "fix the build"},
+		{"typed with a ghost completion", styledIdle("fix the" + cursor + dim + " build" + reset), "fix the"},
+		// A dim style on one line ends with it.
+		{"style from the line above", strings.Replace(styledIdle("fix the build"), "Claude Code v2.1.312", dim+"Claude Code v2.1.312", 1), "fix the build"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := Parse("claude", []byte(tc.screen))
+			if s.State != Ready || s.Input != tc.input || s.Empty != (tc.input == "") || strings.Contains(s.Text, "\x1b") {
+				t.Fatalf("%+v", s)
+			}
+		})
+	}
+}
+
+// Without styles, Claude's placeholder is told by its shape, also when it
+// wraps over rows or is cut at the pane's edge.
+func TestClaudePlaceholderShapes(t *testing.T) {
+	for _, screen := range []string{
+		claudeIdle(`Try "fix typecheck errors"`),
+		claudeIdle(`Try "fix typecheck errors in internal/peer/screen.go and…`),
+		claudeWrapped(40, `Try "fix typecheck errors in internal/peer/screen.go and the rex client"`),
+		claudeIdle("Try “fix typecheck errors”"),
+	} {
+		s := Parse("claude", []byte(screen))
+		if s.State != Ready || !s.Empty || s.Input != "" || len(s.Rows) != 1 {
+			t.Errorf("%q: %+v", screen, s)
+		}
+	}
+	if s := Parse("claude", []byte(claudeIdle("Trying to fix it"))); s.Empty {
+		t.Fatalf("typed text read as a placeholder: %+v", s)
 	}
 }
 

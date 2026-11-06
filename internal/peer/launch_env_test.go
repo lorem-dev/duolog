@@ -91,7 +91,7 @@ func TestAgentEnvPinsExecutableDirectory(t *testing.T) {
 	for _, parent := range []string{"", t.TempDir()} {
 		t.Setenv("PATH", parent)
 		for _, agent := range []string{"claude", "codex"} {
-			pairs := agentEnv(&config.Config{EnvPassthrough: []string{"PATH", "Path"}}, agent, "lead", "docs", "peer-test")
+			pairs := agentEnv(&config.Config{EnvPassthrough: []string{"PATH", "Path"}}, agent, "lead", "docs", "peer-test", "0123456789abcdef0123456789abcdef")
 			count := 0
 			want := "PATH=" + filepath.Dir(exe)
 			if parent != "" {

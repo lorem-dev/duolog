@@ -264,6 +264,26 @@ func codexMerged(root, h string) (merged map[string]any, files map[string]string
 	return merged, files, user
 }
 
+// CodexOff returns -c overrides that turn off every enabled MCP server in the
+// Codex config for root. Codex reads a -c key as parts split at each dot, with
+// no TOML quoting, so the name goes in bare: mcp_servers."x".enabled would name
+// a new server `"x"` with no transport, and Codex would refuse its config. A
+// name that a bare key cannot hold is left out, as the bridge leaves it out.
+func CodexOff(root string) []string {
+	var names []string
+	for name := range Servers("codex", root) {
+		if codexName.MatchString(name) {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	var args []string
+	for _, name := range names {
+		args = append(args, "-c", "mcp_servers."+name+".enabled=false")
+	}
+	return args
+}
+
 // codexHas reports whether the worker's Codex config has a table for name,
 // even a disabled one: -c keys would merge into it.
 func codexHas(root, name string) bool {

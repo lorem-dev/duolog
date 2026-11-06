@@ -2,6 +2,8 @@ package telemetry
 
 import (
 	"cmp"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -10,6 +12,8 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -62,13 +66,26 @@ func (s *Store) Prune(force bool) (Maintenance, error) {
 	if s.root == nil {
 		return Maintenance{}, nil
 	}
+	every := time.Duration(s.o.PruneEveryHours) * time.Hour
+	// Common path: a fresh stamp is read without any lock.
+	if !force && !s.stampDue(every) {
+		return Maintenance{}, nil
+	}
+	// One caller per root waits on the file lock; the others wait here and
+	// then find the stamp fresh.
+	rl := rootLock(s.path)
+	rl.Lock()
+	defer rl.Unlock()
+	if !force && !s.stampDue(every) {
+		return Maintenance{}, nil
+	}
 	l, stamp, err := s.lockGlobal()
 	if err != nil {
 		return Maintenance{}, pruneCategory(err)
 	}
 	defer l.Close()
 	now := s.o.Now().UTC()
-	if !force && !due(stamp.ModTime(), now, time.Duration(s.o.PruneEveryHours)*time.Hour) {
+	if !force && !due(stamp.ModTime(), now, every) { // checked again under the lock
 		return Maintenance{}, nil
 	}
 	race("prune")
@@ -77,6 +94,7 @@ func (s *Store) Prune(force bool) (Maintenance, error) {
 		return Maintenance{}, pruneCategory(err)
 	}
 	var m Maintenance
+	s.removeStaleStamps(now, &m)
 	for _, p := range append([]string{accountPartition}, projects...) {
 		s.prunePartition(p, now, &m)
 	}
@@ -96,13 +114,64 @@ func due(last, now time.Time, every time.Duration) bool {
 	return age < 0 || age >= every
 }
 
+// rootLocks holds one mutex per root path, shared by every store of this
+// process on that root.
+var rootLocks sync.Map
+
+func rootLock(path string) *sync.Mutex {
+	m, _ := rootLocks.LoadOrStore(path, new(sync.Mutex))
+	return m.(*sync.Mutex)
+}
+
+// stampDue reads the stamp without a lock. A missing or unreadable stamp is
+// due; the check under the global lock decides for good.
+func (s *Store) stampDue(every time.Duration) bool {
+	info, err := s.root.Lstat(stampName)
+	if err != nil || !regular(info) {
+		return true
+	}
+	return due(info.ModTime(), s.o.Now().UTC(), every)
+}
+
+// linkStamp links the dated temporary stamp in at its name; tests replace it
+// to act as a file system without hard links.
+var linkStamp = func(r *os.Root, oldname, newname string) error { return r.Link(oldname, newname) }
+
+// stampTemp is a temporary stamp: its name holds the Unix second it was made
+// at, since its mtime is the epoch before it is linked.
+var stampTemp = regexp.MustCompile(`^` + regexp.QuoteMeta(stampName) + `\.new\.([0-9]+)\.[0-9a-f]{16}$`)
+
 // newStamp creates a missing stamp dated at the Unix epoch, so it records no
-// completed prune.
+// completed prune. The stamp appears at its name already dated: it is made
+// under a temporary name and linked in, so no one can lock it, or read it
+// as due, between its creation and its date. A file system without hard
+// links, such as exFAT, FAT32 or some SMB shares, refuses the link; there the
+// stamp is created in place and then dated, and the checks under the lock
+// decide.
 func (s *Store) newStamp() error {
 	if _, err := s.root.Lstat(stampName); !errors.Is(err, fs.ErrNotExist) {
 		return nil // lockFile checks what is there
 	}
-	f, err := openRegular(s.root, stampName, os.O_CREATE|os.O_EXCL|os.O_WRONLY)
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return scrub(err)
+	}
+	tmp := fmt.Sprintf("%s.new.%d.%s", stampName, s.o.Now().Unix(), hex.EncodeToString(b[:]))
+	f, err := s.root.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return scrub(err)
+	}
+	f.Close()
+	defer s.root.Remove(tmp)
+	epoch := time.Unix(0, 0)
+	if err := s.root.Chtimes(tmp, epoch, epoch); err != nil {
+		return scrub(err)
+	}
+	err = linkStamp(s.root, tmp, stampName)
+	if err == nil || errors.Is(err, fs.ErrExist) {
+		return nil
+	}
+	f, err = openRegular(s.root, stampName, os.O_CREATE|os.O_EXCL|os.O_WRONLY)
 	if errors.Is(err, fs.ErrExist) {
 		return nil
 	}
@@ -110,8 +179,31 @@ func (s *Store) newStamp() error {
 		return err
 	}
 	defer f.Close()
-	epoch := time.Unix(0, 0)
 	return scrub(s.root.Chtimes(stampName, epoch, epoch))
+}
+
+// removeStaleStamps removes the temporary stamps that a process killed inside
+// newStamp left, once they are more than a minute old or ahead of the clock.
+// A newer one may belong to a process about to link it.
+func (s *Store) removeStaleStamps(now time.Time, m *Maintenance) {
+	entries, err := listDir(s.root, ".")
+	if err != nil {
+		m.Skipped++
+		return
+	}
+	for _, e := range entries {
+		match := stampTemp.FindStringSubmatch(e.Name())
+		if match == nil {
+			continue
+		}
+		made, err := strconv.ParseInt(match[1], 10, 64)
+		if err != nil {
+			continue
+		}
+		if age := now.Sub(time.Unix(made, 0)); age > time.Minute || age < -time.Minute {
+			s.removeFile(e.Name(), m)
+		}
+	}
 }
 
 // setStamp dates the stamp at now once it is confirmed to be the locked file.

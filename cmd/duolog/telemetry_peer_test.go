@@ -163,6 +163,12 @@ func TestTelemetryPeerOperations(t *testing.T) {
 		if len(runs) != 1 {
 			t.Fatalf("runs: %+v", runs)
 		}
+		// Every peer event and the peer's run carry the id the launch drew.
+		for _, p := range peers {
+			if p.Run == (telemetry.ID{}) || p.Run != runs[0].Run {
+				t.Fatalf("peer event run %v, run event %v", p.Run, runs[0].Run)
+			}
+		}
 		r := runs[0]
 		if r.Placement != "peer" || r.Agent != agent || r.Role != "plan" || r.Outcome != "done" || r.Err != "none" || r.Attempt != 1 || r.Run == (telemetry.ID{}) || r.UsageKnown || r.Secs > 60 {
 			t.Fatalf("run %+v", r)

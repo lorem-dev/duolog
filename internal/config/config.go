@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/lorem-dev/duolog/internal/store"
 )
 
 type Config struct {
@@ -284,7 +286,9 @@ type learnedRules struct {
 // the gate checks every deny before any allow.
 func LearnedRules(root string) ([]Rule, error) {
 	path := filepath.Join(root, ".duolog", LearnedFile)
-	data, err := os.ReadFile(path)
+	// duolog remember replaces the file with a rename, which a reader on
+	// Windows can meet halfway.
+	data, err := store.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}

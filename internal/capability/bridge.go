@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/runner"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // ActionBridge hands a server of the lead's agent to the worker for one run.
@@ -257,8 +258,8 @@ func (b *builder) set(name, value string) {
 // keep passes a stdio variable under its own name, which the server reads. A
 // name the worker already has with another value, or one of duolog's, fails.
 func (b *builder) keep(name, value string) error {
-	if upper := strings.ToUpper(name); strings.HasPrefix(upper, "DUOLOG_") || strings.HasPrefix(upper, "REX_") {
-		return fmt.Errorf("it sets $%s, a name duolog keeps for itself", name)
+	if err := reservedName(name); err != nil {
+		return err
 	}
 	if agentVariable(name) {
 		// The variable would reach the worker's agent too: OPENAI_BASE_URL
@@ -274,6 +275,16 @@ func (b *builder) keep(name, value string) error {
 	}
 	if _, ok := envGet(b.env, name); !ok {
 		b.set(name, value)
+	}
+	return nil
+}
+
+// reservedName refuses a server variable that duolog keeps for itself, in
+// either direction: the server would get the lead's Rex session or a depth
+// that says it is not a worker.
+func reservedName(name string) error {
+	if workerenv.Reserved(name) {
+		return fmt.Errorf("it sets $%s, a name duolog keeps for itself", name)
 	}
 	return nil
 }
@@ -353,11 +364,17 @@ func (b *builder) claude() (map[string]any, error) {
 		def := map[string]any{"type": "stdio", "command": s.Command, "args": nonNil(s.Args)}
 		env := map[string]string{}
 		for _, p := range s.Env {
+			if err := reservedName(p.Key); err != nil {
+				return nil, err
+			}
 			env[p.Key] = "${" + b.secret(p.Value) + "}"
 		}
 		// env_vars name variables of the lead; one that is not set is skipped,
-		// as Codex skips it.
+		// as Codex skips it. A reserved name fails even when it is not set.
 		for _, name := range s.EnvVars {
+			if err := reservedName(name); err != nil {
+				return nil, err
+			}
 			if v, ok := lookupEnv(name); ok {
 				env[name] = "${" + b.secret(v) + "}"
 			}

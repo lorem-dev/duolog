@@ -339,9 +339,7 @@ func askSkill(cmd *cobra.Command, cfg *config.Config, root, work, prompt string,
 	// MCP server inherited from the user's Codex configuration.
 	bridge := &runner.MCP{}
 	if target.Agent == "codex" {
-		for name := range capability.Servers("codex", work) {
-			bridge.CodexArgs = append(bridge.CodexArgs, "-c", fmt.Sprintf("mcp_servers.%q.enabled=false", name))
-		}
+		bridge.CodexArgs = capability.CodexOff(work)
 	}
 	result, err := runner.Run(cmd.Context(), runner.Spec{Route: route, SkillTest: true, TaskDir: work, Cwd: work, Stdin: []byte(prompt), Env: env, MCP: bridge, Timeout: 10 * time.Minute})
 	return result, route, err

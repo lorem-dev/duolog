@@ -212,3 +212,44 @@ func hooksAt(path string, s settings, stale map[string]string) (State, error) {
 func CodexHome(home string) string {
 	return trusthome.Codex(home)
 }
+
+// ClaudeFolder reports whether Claude Code trusts the folder root, from the
+// hasTrustDialogAccepted flag of root or one of its parents in Claude's user
+// state under home. Only that flag is decoded; nothing else of the file is
+// kept. known is false when the state is missing, unreadable or not JSON,
+// and then trusted is false too.
+func ClaudeFolder(home, root string) (trusted, known bool) {
+	data, err := os.ReadFile(trusthome.ClaudeState(home))
+	if err != nil {
+		return false, false
+	}
+	var s struct {
+		Projects map[string]struct {
+			Accepted bool `json:"hasTrustDialogAccepted"`
+		} `json:"projects"`
+	}
+	if json.Unmarshal(data, &s) != nil {
+		return false, false
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		return false, false
+	}
+	accepted := map[string]bool{}
+	for path, p := range s.Projects {
+		if p.Accepted {
+			accepted[pathutil.Clean(pathutil.Resolved(path))] = true
+		}
+	}
+	dir := pathutil.Clean(pathutil.Resolved(root))
+	for {
+		if accepted[dir] {
+			return true, true
+		}
+		parent := pathutil.Clean(filepath.Dir(dir))
+		if parent == dir {
+			return false, true
+		}
+		dir = parent
+	}
+}

@@ -154,7 +154,9 @@ func TestShellDenyBypasses(t *testing.T) {
 					command := prefix + wrapper + ` -c "git push"`
 					// The quoted form is one word to the shell, but the gate still sees the deny.
 					check(t, shellPolicy, lead, m, Action{Kind: "exec", Target: command, Role: "implement"}, Deny)
-					check(t, shellPolicy, lead, m, Action{Kind: "exec", Target: prefix + wrapper + " git push", Role: "implement"}, Ask)
+					// The wrapper runs the command after it, so the deny stands.
+					check(t, shellPolicy, lead, m, Action{Kind: "exec", Target: prefix + wrapper + " git push", Role: "implement"}, Deny)
+					check(t, shellPolicy, lead, m, Action{Kind: "exec", Target: prefix + wrapper + " make x", Role: "implement"}, Ask)
 				}
 			}
 		}

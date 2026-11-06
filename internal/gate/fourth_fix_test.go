@@ -35,6 +35,51 @@ func TestDirectoryOverrideGlobsKeepLastSegment(t *testing.T) {
 	}
 }
 
+// An option that takes a pattern hides its value only for the program it
+// belongs to, and only before --: past --, or for another program, the word
+// after it is an operand that can name an outside path.
+func TestExecOutsideOptionValuesBelongToTheirProgram(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	for _, tc := range []struct {
+		command string
+		person  bool
+	}{
+		{"cp -- local --glob ../dest", true},
+		{"cp local --glob ../dest", true},
+		{"cp local --format ../dest", true},
+		{"tar czf x.tgz --grep ~/notes", true},
+		{"rg x -- --glob ../dest", true},
+		{"git log -- --grep ../dest", true},
+		{"env sudo cp -- local --glob ../dest", true},
+		{"rg --glob >../dest local pattern .", true},
+		{"rg --glob > ../dest local pattern .", true},
+		{"rg --glob 2>>../dest local pattern .", true},
+		{"git log --format <../src -5", true},
+		{"cp -- local -d/../../dest", true},
+		{"tee -- -d/../../dest", true},
+		{"rg x -- -d/../../dest", true},
+		{"rg --glob >out local pattern .", false},
+		{"rg --glob ../x pattern . 2>&1", false},
+		{"rg --glob ../x pattern .", false},
+		{"rg --regexp ../x .", false},
+		{"grep --regexp ../x file", false},
+		{"git log --grep /x", false},
+		{"git log --format ../x -5", false},
+		{"/usr/bin/git log --pretty ../x", false},
+	} {
+		a := Action{Kind: "exec", Target: tc.command, Role: "implement", Work: root, Cwd: root}
+		if got := ExecOutside(a); got != tc.person {
+			t.Errorf("%q: outside=%v, want %v", tc.command, got, tc.person)
+		}
+		if tc.person {
+			if d := Evaluate(p, LeadRules{}, mode.Ask, a); !PersonOnly(d) {
+				t.Errorf("%q: %+v", tc.command, d)
+			}
+		}
+	}
+}
+
 func TestExecOutsideSkipsEachProgramAndWrappers(t *testing.T) {
 	p := policy(t)
 	root := t.TempDir()

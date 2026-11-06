@@ -6,7 +6,9 @@ REPO="{{.Repo}}"
 BINARY="{{.BinaryName}}"
 GO_MODULE="{{.GoModulePath}}"
 SUPPORTED_PLATFORMS="{{.SupportedPlatforms}}"
-VERSION="${DUOLOG_VERSION:-latest}"
+# A release copy of this script names its own release here; the copy in the
+# repository says latest. DUOLOG_VERSION and --version win.
+VERSION="${DUOLOG_VERSION:-{{.Version}}}"
 INSTALL_DIR="${DUOLOG_INSTALL_DIR:-$HOME/.local/bin}"
 VIA_GO=0
 err() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -30,7 +32,7 @@ while [ "$#" -gt 0 ]; do
         -h|--help)
             cat <<HELP
 Usage: install.sh [--version VERSION] [--dir DIR] [--via-go] [-h]
-DUOLOG_VERSION defaults to latest; DUOLOG_INSTALL_DIR to ~/.local/bin.
+DUOLOG_VERSION defaults to {{.Version}}; DUOLOG_INSTALL_DIR to ~/.local/bin.
 --via-go prints the go install command and exits non-zero.
 HELP
             exit 0 ;;
@@ -55,9 +57,25 @@ case " $SUPPORTED_PLATFORMS " in
     *" $OS-$ARCH "*) ;;
     *) fallback "No prebuilt binary for $OS-$ARCH" ;;
 esac
-for tool in curl tar mktemp awk chmod mv; do
+for tool in tar mktemp awk chmod mv; do
     command -v "$tool" >/dev/null 2>&1 || err "missing required tool: $tool"
 done
+# Alpine has busybox wget and often no curl. busybox wget has only -q and -O.
+if command -v curl >/dev/null 2>&1; then
+    FETCH=curl
+elif command -v wget >/dev/null 2>&1; then
+    FETCH=wget
+else
+    err 'missing required tool: curl or wget'
+fi
+# fetch URL FILE saves the URL to FILE; FILE - writes to standard output.
+fetch() {
+    if [ "$FETCH" = curl ]; then
+        curl -fsSL -o "$2" "$1"
+    else
+        wget -q -O "$2" "$1"
+    fi
+}
 if command -v sha256sum >/dev/null 2>&1; then
     SHA256_CMD=sha256sum
 elif command -v shasum >/dev/null 2>&1; then
@@ -74,12 +92,30 @@ case "$VERSION" in
     *[!0-9A-Za-z.+-]*) err "not a release version: $VERSION" ;;
 esac
 if [ "$VERSION" = latest ]; then
-    RESOLVED=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
-        "https://github.com/$OWNER/$REPO/releases/latest") || err 'cannot resolve latest release'
-    VERSION=${RESOLVED##*/}
+    if [ "$FETCH" = curl ]; then
+        RESOLVED=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+            "https://github.com/$OWNER/$REPO/releases/latest") || err 'cannot resolve latest release'
+        VERSION=${RESOLVED##*/}
+    else
+        # busybox wget cannot report the final URL, so read the tag from the API.
+        for tool in sed head; do
+            command -v "$tool" >/dev/null 2>&1 || err "missing required tool: $tool"
+        done
+        RESOLVED=$(fetch "https://api.github.com/repos/$OWNER/$REPO/releases/latest" -) || err 'cannot resolve latest release'
+        VERSION=$(printf '%s\n' "$RESOLVED" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+    fi
     [ -n "$VERSION" ] && [ "$VERSION" != latest ] || err 'cannot resolve latest tag'
+    case "$VERSION" in
+        v[0-9]*) ;;
+        *) err "not a release version: $VERSION" ;;
+    esac
+    case "$VERSION" in
+        *[!0-9A-Za-z.+-]*) err "not a release version: $VERSION" ;;
+    esac
 fi
-PREFIX="https://github.com/$OWNER/$REPO/releases/download/$VERSION"
+# DUOLOG_DOWNLOAD_BASE points at a folder or server holding the archive and
+# checksums.txt. CI uses it to test this script without GitHub.
+PREFIX="${DUOLOG_DOWNLOAD_BASE:-https://github.com/$OWNER/$REPO/releases/download/$VERSION}"
 ARCHIVE="${BINARY}_${VERSION#v}_${OS}_${ARCH}.tar.gz"
 WORK_DIR=$(mktemp -d)
 STAGED=''
@@ -89,8 +125,8 @@ cleanup() {
 }
 trap cleanup 0
 trap 'exit 1' HUP INT TERM
-curl -fsSL -o "$WORK_DIR/$ARCHIVE" "$PREFIX/$ARCHIVE" || fallback "No prebuilt binary downloaded for $OS-$ARCH"
-curl -fsSL -o "$WORK_DIR/checksums.txt" "$PREFIX/checksums.txt" || err 'checksums download failed'
+fetch "$PREFIX/$ARCHIVE" "$WORK_DIR/$ARCHIVE" || fallback "No prebuilt binary downloaded for $OS-$ARCH"
+fetch "$PREFIX/checksums.txt" "$WORK_DIR/checksums.txt" || err 'checksums download failed'
 EXPECTED=$(awk -v name="$ARCHIVE" '$2==name || $2=="*"name {print $1; exit}' "$WORK_DIR/checksums.txt")
 [ -n "$EXPECTED" ] || err "missing checksum for $ARCHIVE"
 ACTUAL=$($SHA256_CMD "$WORK_DIR/$ARCHIVE" | awk '{print $1}')

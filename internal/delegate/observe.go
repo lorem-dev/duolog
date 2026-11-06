@@ -48,15 +48,16 @@ type attempts struct {
 }
 
 func newAttempts(opts Options, stateDir, role string, lr *learnRun) *attempts {
-	a := &attempts{observe: opts.Observe, stateDir: stateDir, role: role, class: opts.Class, escalated: opts.EscalateFrom != "", run: newRunID()}
+	a := &attempts{observe: opts.Observe, stateDir: stateDir, role: role, class: opts.Class, escalated: opts.EscalateFrom != "", run: NewRunID()}
 	if lr != nil {
 		a.class = lr.rec.Class
 	}
 	return a
 }
 
-// newRunID draws a delegation's run id in the form telemetry keeps.
-func newRunID() string {
+// NewRunID draws a run id in the form telemetry keeps: a delegation's, or a
+// peer launch's.
+func NewRunID() string {
 	b := make([]byte, 16)
 	rand.Read(b) // never fails
 	return hex.EncodeToString(b)

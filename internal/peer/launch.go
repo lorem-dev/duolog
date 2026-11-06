@@ -46,13 +46,15 @@ func agentArgv(route router.Route, m mode.Mode, stateDir string, roots ...string
 // agentEnv lists NAME=VALUE pairs for the pane. REX_ names never pass on: a
 // worker that learns the session could rename or rearrange the lead's terminal.
 // DUOLOG_PEER names the pane's entry, which the gate puts on the worker's asks.
-func agentEnv(cfg *config.Config, agent, leadID, role, peerID string) []string {
+// DUOLOG_RUN is the run id duolog drew for this launch, never a vendor id; the
+// gate's telemetry events and the peer's own carry it.
+func agentEnv(cfg *config.Config, agent, leadID, role, peerID, run string) []string {
 	pairs := workerenv.Passthrough(cfg.EnvPassthrough)
 	if agent == "claude" {
 		// A worker's auto memory would land in the project's memory, read by the lead.
 		pairs = append(pairs, "DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
 	}
-	return append(pairs, workerenv.Path(), "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+leadID, "DUOLOG_ROLE="+role, "DUOLOG_PEER="+peerID)
+	return append(pairs, workerenv.Path(), "DUOLOG_DEPTH=1", "DUOLOG_LEAD="+leadID, "DUOLOG_ROLE="+role, "DUOLOG_PEER="+peerID, "DUOLOG_RUN="+run)
 }
 
 // writeEnvFile stores the pane's variables for duolog peer launch, which deletes

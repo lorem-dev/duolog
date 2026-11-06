@@ -2,16 +2,22 @@
 package task
 
 import (
+	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
-	"github.com/lorem-dev/duolog/internal/pathutil"
-	"github.com/lorem-dev/duolog/internal/project"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
+
+	"github.com/lorem-dev/duolog/internal/pathutil"
+	"github.com/lorem-dev/duolog/internal/project"
 )
 
 var sections = []string{"Goal", "Read", "Write", "Limits", "Check"}
@@ -67,7 +73,10 @@ type Reference struct {
 var rangeSuffix = regexp.MustCompile(`^(.*):([0-9]+)(?:-([0-9]+))?$`)
 
 // References returns the file paths in Read, preserving inclusive line ranges.
-func References(path string) ([]Reference, error) {
+// An item names a file when it is quoted with backticks, when its first word
+// looks like a path, or when that word is a file in the work root, as
+// Makefile is. Any other item is prose and names nothing.
+func References(path, root string) ([]Reference, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -84,6 +93,7 @@ func References(path string) ([]Reference, error) {
 		}
 		line = strings.TrimSpace(line[2:])
 		var name string
+		named := true
 		if strings.HasPrefix(line, "`") {
 			end := strings.Index(line[1:], "`")
 			if end < 0 {
@@ -95,15 +105,23 @@ func References(path string) ([]Reference, error) {
 				name += strings.Fields(tail)[0]
 			}
 		} else if fields := strings.Fields(line); len(fields) > 0 {
-			name = fields[0]
+			name, named = fields[0], looksLikePath(fields[0])
 		}
-		name = strings.TrimSuffix(name, ":")
+		// A list such as "- a.md, b.md" or a heading such as "- a.md:" ends
+		// the path with punctuation that is not part of it.
+		name = strings.TrimRight(name, ",:")
 		if name == "" {
 			continue
 		}
 		r := Reference{Path: name}
-		if match := rangeSuffix.FindStringSubmatch(name); match != nil {
+		match := rangeSuffix.FindStringSubmatch(name)
+		if match != nil {
 			r.Path = match[1]
+		}
+		if !named && !rootFile(root, r.Path) {
+			continue // Prose, such as "- the notes from last week".
+		}
+		if match != nil {
 			r.First, _ = strconv.Atoi(match[2])
 			r.Last = r.First
 			if match[3] != "" {
@@ -145,7 +163,7 @@ func WritePaths(path string) ([]string, error) {
 				continue
 			}
 			name = line[1 : end+1]
-		} else if fields := strings.Fields(line); len(fields) > 0 && strings.ContainsAny(fields[0], "/.*") {
+		} else if fields := strings.Fields(line); len(fields) > 0 && looksLikePath(fields[0]) {
 			name = fields[0]
 		}
 		name = strings.TrimSuffix(name, ":")
@@ -157,6 +175,20 @@ func WritePaths(path string) ([]string, error) {
 		}
 	}
 	return paths, nil
+}
+
+// looksLikePath reports whether the first word of an unquoted list item names
+// a file, folder or glob rather than starting prose such as "the changelog".
+func looksLikePath(word string) bool {
+	return strings.ContainsAny(word, `/\.*`)
+}
+
+// rootFile reports whether a bare word, such as Makefile, names something in
+// the work root other than a folder. A link counts, so Inline still refuses
+// it as before rather than skipping it as prose.
+func rootFile(root, name string) bool {
+	info, err := os.Lstat(filepath.Join(root, pathutil.Native(name)))
+	return err == nil && !info.IsDir()
 }
 
 // Resolve refuses traversal and symlinks before opening any task input.
@@ -195,25 +227,119 @@ func Resolve(root, path string) (string, error) {
 }
 
 func (r Reference) Text(root string) ([]byte, error) {
+	data, _, err := r.read(root, -1)
+	return data, err
+}
+
+// errDirectory is the cause for a reference that names a folder. Windows
+// reports reading one as "Incorrect function", so the folder is found first.
+var errDirectory = errors.New("a directory")
+
+// read returns the reference's content when it holds at most limit bytes; a
+// negative limit has none. Content over the limit is not read into memory, or
+// not kept: fits is false, and the range is still checked against the file.
+func (r Reference) read(root string, limit int) (content []byte, fits bool, err error) {
 	path, err := Resolve(root, r.Path)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, false, err
+	}
+	if info.IsDir() {
+		return nil, false, &fs.PathError{Op: "read", Path: path, Err: errDirectory}
 	}
 	if r.First == 0 {
-		return data, nil
+		if limit < 0 {
+			data, err := io.ReadAll(f)
+			return data, err == nil, err
+		}
+		if info.Size() > int64(limit) {
+			return nil, false, nil
+		}
+		// The file can grow after Stat, so the read stops past the limit.
+		data, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
+		if err != nil {
+			return nil, false, err
+		}
+		if len(data) > limit {
+			return nil, false, nil
+		}
+		return data, true, nil
 	}
-	lines := bytes.SplitAfter(data, []byte("\n"))
-	if len(lines) > 0 && len(lines[len(lines)-1]) == 0 {
-		lines = lines[:len(lines)-1]
+	// Lines end after "\n"; the last one may have none.
+	reader := bufio.NewReader(f)
+	var kept bytes.Buffer // It doubles as it grows, so a range costs little more than it keeps.
+	fits = true
+	lines, open := 0, false
+	for lines < r.Last {
+		chunk, err := reader.ReadSlice('\n')
+		if len(chunk) > 0 && lines+1 >= r.First && fits {
+			if limit >= 0 && kept.Len()+len(chunk) > limit {
+				fits = false
+				kept = bytes.Buffer{}
+			} else {
+				kept.Write(chunk)
+			}
+		}
+		switch {
+		case err == nil:
+			lines, open = lines+1, false
+			continue
+		case errors.Is(err, bufio.ErrBufferFull):
+			open = true // The line goes on in the next chunk.
+			continue
+		case !errors.Is(err, io.EOF):
+			return nil, false, err
+		}
+		if open || len(chunk) > 0 {
+			lines++
+		}
+		break
 	}
-	if r.Last > len(lines) {
-		return nil, fmt.Errorf("Read range exceeds %s", r.Path)
+	if lines < r.Last {
+		return nil, false, &rangeError{path: r.Path, lines: lines}
 	}
-	return bytes.Join(lines[r.First-1:r.Last], nil), nil
+	if !fits {
+		return nil, false, nil
+	}
+	// A range holds at least one line, so this is never empty.
+	return kept.Bytes(), true, nil
+}
+
+// rangeError is a Read range that ends past the file's last line.
+type rangeError struct {
+	path  string
+	lines int
+}
+
+func (e *rangeError) Error() string {
+	return fmt.Sprintf("Read range exceeds %s, which has %d lines", e.path, e.lines)
+}
+
+// readCause says why a reference could not be read, without its absolute path.
+func readCause(err error) string {
+	var short *rangeError
+	if errors.As(err, &short) {
+		return fmt.Sprintf("the range ends past line %d", short.lines)
+	}
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		if errors.Is(pathErr.Err, fs.ErrNotExist) {
+			return "no such file"
+		}
+		if errors.Is(pathErr.Err, errDirectory) || errors.Is(pathErr.Err, syscall.EISDIR) {
+			return "a directory"
+		}
+		return pathErr.Err.Error()
+	}
+	return err.Error()
 }
 
 func Inline(path, root string, maxBytes int, allowRead ...func(string) bool) ([]byte, error) {
@@ -238,41 +364,65 @@ func Inline(path, root string, maxBytes int, allowRead ...func(string) bool) ([]
 	if err != nil {
 		return nil, err
 	}
-	refs, err := References(path)
+	prefix, suffix := []byte("<stdin>\n"), []byte("\n</stdin>\n")
+	// The notes below only add to the task, so a task that alone exceeds the
+	// limit fails before any reference is judged or opened.
+	budget := maxBytes - len(prefix) - len(data) - len(suffix)
+	if budget < 0 {
+		return nil, fmt.Errorf("task exceeds inline_max_bytes (%d)", maxBytes)
+	}
+	refs, err := References(path, root)
 	if err != nil {
 		return nil, err
 	}
-	var refused []string
+	// The notes say what each reference lacks; reads keeps only content that
+	// fits what the task and the reads before it leave, so a reference over
+	// the limit is never held whole.
+	var refused, unreadable []string
+	var reads [][]byte
 	for _, ref := range refs {
+		label := ref.Path
+		if ref.First > 0 {
+			label += fmt.Sprintf(":%d-%d", ref.First, ref.Last)
+		}
 		if len(allowRead) > 0 && !allowRead[0](ref.Path) {
 			refused = append(refused, ref.Path)
-		}
-	}
-	if len(refused) > 0 {
-		data = []byte(Annotate(string(data), "Not inlined by read policy: "+strings.Join(refused, ", ")+". Keep these as references.\n"))
-	}
-	block := append([]byte("<stdin>\n"), data...)
-	suffix := []byte("\n</stdin>\n")
-	if len(block)+len(suffix) > maxBytes {
-		return nil, fmt.Errorf("task exceeds inline_max_bytes (%d)", maxBytes)
-	}
-	for _, ref := range refs {
-		if len(allowRead) > 0 && !allowRead[0](ref.Path) {
 			continue
 		}
 		if _, err := Resolve(root, ref.Path); err != nil {
 			return nil, err
 		}
-		content, err := ref.Text(root)
+		head, tail := "\n<read path="+strconv.Quote(label)+">\n", "\n</read>\n"
+		content, fits, err := ref.read(root, max(budget-len(head)-len(tail), 0))
 		if err != nil {
+			// The worker is told what is missing and why, without the work root.
+			unreadable = append(unreadable, label+" ("+readCause(err)+")")
 			continue
 		}
-		label := ref.Path
-		if ref.First > 0 {
-			label += fmt.Sprintf(":%d-%d", ref.First, ref.Last)
+		if !fits || len(head)+len(content)+len(tail) > budget {
+			continue // It stays a reference in the task.
 		}
-		addition := append([]byte("\n<read path="+strconv.Quote(label)+">\n"), content...)
-		addition = append(addition, []byte("\n</read>\n")...)
+		addition := append(append([]byte(head), content...), tail...)
+		reads = append(reads, addition)
+		budget -= len(addition)
+	}
+	var notes string
+	if len(refused) > 0 {
+		notes += "Not inlined by read policy: " + strings.Join(refused, ", ") + ". Keep these as references.\n"
+	}
+	if len(unreadable) > 0 {
+		notes += "Not inlined, could not be read: " + strings.Join(unreadable, ", ") + ". Check these before relying on them.\n"
+	}
+	if notes != "" {
+		data = []byte(Annotate(string(data), notes))
+	}
+	block := append(slices.Clip(prefix), data...)
+	if len(block)+len(suffix) > maxBytes {
+		return nil, fmt.Errorf("task exceeds inline_max_bytes (%d)", maxBytes)
+	}
+	// The notes take room the reads were measured against; a read that no
+	// longer fits stays a reference.
+	for _, addition := range reads {
 		if len(block)+len(addition)+len(suffix) <= maxBytes {
 			block = append(block, addition...)
 		}

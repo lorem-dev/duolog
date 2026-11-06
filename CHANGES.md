@@ -59,10 +59,43 @@
 - Workers cannot start `claude` or `codex` through any path, `.cmd` or `.ps1`
   launcher, `npx`-style runner or `env` prefix.
 
+## 1.4.1
+
+### Added
+
+- `duolog lead register` makes the current session the lead when the
+  project's hooks never ran, such as after a restart outside the folder.
+- `duolog peer answer --reason` types one line into a peer that the answer
+  left interrupted, such as why a permission was denied.
+- `duolog doctor` says whether Claude trusts the project folder; until it does,
+  Claude ignores the project's `permissions.allow`.
+- Each peer may write its report to `.duolog/tasks/<peer-id>/report.md`;
+  `peer status` and `wait` show the path.
+
 ### Fixed
 
 - `duolog stats`, telemetry and learning costs price Claude cache writes at
   1.25x or 2x input; `stats` shows a `CACHE WRITE` column.
+- `duolog peer status` reports a Claude peer stopped by a denied prompt as
+  `interrupted`; `peer send` types over Claude's dim input suggestion.
+- Workers may stop and read their own background tasks and read their own
+  saved tool results without asking; `DUOLOG_` and `REX_` stay out in any case.
+- `duolog skill test` turns off only Codex's MCP servers, by bare name, and a
+  calibration cell over `cell_max_tokens` ends as over the limit.
+- Live peers get a duolog run id, and two projects with the same folder name
+  no longer share Rex session numbers.
+- A release's `install.ps1` and `install.sh` install that release, not the
+  latest; `install.ps1` adds duolog to the user PATH and keeps other variables.
+- The gate sees the command behind a keyword or wrapper, judges every
+  redirect, and finds an outside path after `--glob`-style options.
+- A worker can no longer approve its own ask by running `duolog.cmd` or
+  `duolog.ps1` on Windows.
+- A delegated task inlines no protected store and names the Read references
+  it could not read; warnings on a long result line are no longer cut off.
+- `duolog remember` runs under a lock, and telemetry runs one prune pass when
+  many duolog processes start at once.
+- `install.sh` works with busybox `sh` and `wget`, so Alpine needs no curl or
+  bash; CI checks it and the static binaries on Alpine and old Linux.
 
 ## 1.4.0
 

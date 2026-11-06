@@ -186,11 +186,12 @@ func protectedWord(word string) string {
 	return pathWord(word)
 }
 
-// ProgramName is the program a command word starts: its base name, lower
-// case, without quotes, the PowerShell call operator or a Windows launcher
-// suffix (.exe, .cmd, .bat, .ps1). The worker denies and the lead guard both
-// name programs with it.
-func ProgramName(word string) string {
+// ProgramName is the lower-case name of the program a command word starts,
+// without its folder, quotes or a Windows launcher suffix (.exe, .cmd, .bat,
+// .ps1), so duolog.cmd and duolog are one program.
+func ProgramName(word string) string { return programName(word) }
+
+func programName(word string) string {
 	name := strings.ToLower(path.Base(pathutil.Slashes(strings.Trim(word, `"'&`))))
 	for _, suffix := range []string{".exe", ".cmd", ".bat", ".ps1"} {
 		name = strings.TrimSuffix(name, suffix)

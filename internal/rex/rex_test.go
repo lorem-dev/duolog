@@ -295,6 +295,23 @@ func TestCaptureRemovesANSIStyles(t *testing.T) {
 	}
 }
 
+// The styled capture keeps the colours and weights, which tell a dim
+// suggestion from typed text, and drops every other sequence. A line that
+// holds only styles is blank.
+func TestCaptureStyledKeepsOnlySGR(t *testing.T) {
+	raw := "\x1b]8;;https://example.com\x07link\x1b]8;;\x07 \x1b[2mdim\x1b[22m \x1b[38;2;153;153;153mgrey\x1b[39m\x1b[0K\x07\n\x1b[0m   \n\x1b(B\x1b[?25l❯ \x1b[7mT\x1b[27m\x1b[2mry \"x\"\x1b[0m"
+	c := install(t, testbin.Scenario{Stdout: raw})
+	out, err := c.CaptureStyled(context.Background(), "b", 20)
+	want := "link \x1b[2mdim\x1b[22m \x1b[38;2;153;153;153mgrey\x1b[39m\n❯ \x1b[7mT\x1b[27m\x1b[2mry \"x\"\x1b[0m"
+	if err != nil || string(out) != want {
+		t.Fatalf("%q %v", out, err)
+	}
+	plain, err := c.Capture(context.Background(), "b", 20)
+	if err != nil || string(plain) != "link dim grey\n❯ Try \"x\"" {
+		t.Fatalf("%q %v", plain, err)
+	}
+}
+
 func TestNewWindowUsesSessionAndCommand(t *testing.T) {
 	c := install(t, testbin.Scenario{Responses: map[string]testbin.Scenario{"window new": {Stdout: `{"window_id":"window:new","block_ids":["block:new"]}`}}})
 	c.Anchor, c.Dir, c.Label = "block:lead", "/work", "codex-tests"

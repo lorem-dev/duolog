@@ -32,7 +32,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       # GoReleaser includes both installers in release assets and checksums.
       - name: Render install scripts
-        run: make install-script
+        run: make install-script RELEASE_TAG="$GITHUB_REF_NAME"
       - name: Check install script
         run: shellcheck -S error .release/install.sh
       - name: Write the release body from CHANGES.md

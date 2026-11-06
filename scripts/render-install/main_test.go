@@ -18,11 +18,19 @@ func TestInstaller(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX installer")
 	}
-	for _, scenario := range []string{"good", "tampered", "missing", "checksum-download", "pinned", "pinned-bare", "bad-version", "unsupported", "windows", "via-go", "update", "env", "dir", "tampered-existing"} {
+	for _, scenario := range []string{"good", "tampered", "missing", "checksum-download", "pinned", "pinned-bare", "bad-version", "unsupported", "windows", "via-go", "update", "env", "dir", "tampered-existing", "wget", "wget-no-sed", "wget-no-head", "no-fetcher", "release", "release-flag", "release-env"} {
 		t.Run(scenario, func(t *testing.T) {
 			dir := t.TempDir()
 			script := filepath.Join(dir, "install.sh")
-			if err := renderTemplate("../install-template/install.sh.tmpl", script, defaultData()); err != nil {
+			rendered := defaultData()
+			if strings.HasPrefix(scenario, "release") {
+				// A release copy defaults to its own release, not the newest one.
+				rendered.Version = "v1.2.3"
+				if scenario != "release" {
+					rendered.Version = "v0.0.1"
+				}
+			}
+			if err := renderTemplate("../install-template/install.sh.tmpl", script, rendered); err != nil {
 				t.Fatal(err)
 			}
 			data, err := os.ReadFile(script)
@@ -64,6 +72,42 @@ case "$4" in
  *) exit 22 ;;
 esac
 `)
+			// Alpine has busybox wget and often no curl. Give the script a PATH
+			// with the tools it needs and no curl.
+			// The wget path reads the latest tag with sed and head, so a
+			// system without one of them must be told which.
+			noCurl := strings.HasPrefix(scenario, "wget") || scenario == "no-fetcher"
+			if noCurl {
+				if err := os.Remove(filepath.Join(bin, "curl")); err != nil {
+					t.Fatal(err)
+				}
+				tools := filepath.Join(dir, "tools")
+				if err := os.Mkdir(tools, 0755); err != nil {
+					t.Fatal(err)
+				}
+				for _, tool := range []string{"tr", "tar", "mktemp", "awk", "chmod", "mv", "cp", "rm", "mkdir", "sed", "head", "cat", "sha256sum", "shasum", "gzip", "dirname", "basename"} {
+					if scenario == "wget-no-"+tool {
+						continue
+					}
+					if found, err := exec.LookPath(tool); err == nil {
+						if err := os.Symlink(found, filepath.Join(tools, tool)); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+			}
+			if strings.HasPrefix(scenario, "wget") {
+				write(filepath.Join(bin, "wget"), `#!/bin/sh
+printf '%s\n' "$*" >> "$FIXTURE/urls"
+[ "$1" = -q ] && [ "$2" = -O ] || exit 9
+case "$4" in
+ https://api.github.com/repos/lorem-dev/duolog/releases/latest) printf '{\n  "tag_name": "v1.2.3",\n  "name": "v1.2.3"\n}\n' ;;
+ */checksums.txt) cp "$FIXTURE/checksums.txt" "$3" ;;
+ */duolog_1.2.3_linux_amd64.tar.gz) cp "$FIXTURE/archive.tar.gz" "$3" ;;
+ *) exit 1 ;;
+esac
+`)
+			}
 			var archive bytes.Buffer
 			gz := gzip.NewWriter(&archive)
 			tw := tar.NewWriter(gz)
@@ -120,8 +164,14 @@ esac
 			if scenario == "dir" {
 				target = filepath.Join(dir, "flag bin", "duolog")
 			}
-			if scenario == "pinned" {
+			if scenario == "pinned" || scenario == "release-flag" {
 				args = append(args, "--version", "v1.2.3")
+			}
+			if scenario == "release" {
+				envVersion = ""
+			}
+			if scenario == "release-env" {
+				envVersion = "v1.2.3"
 			}
 			if scenario == "pinned-bare" {
 				args = append(args, "--version", "1.2.3")
@@ -140,12 +190,16 @@ esac
 			}
 			run := func() (string, error) {
 				cmd := exec.Command("sh", args...)
-				cmd.Env = append(os.Environ(), "HOME="+home, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "FIXTURE="+dir, "FAKE_ARCH="+arch, "FAKE_OS="+osName, "FAIL_CHECKSUM="+failChecksum, "DUOLOG_VERSION="+envVersion, "DUOLOG_INSTALL_DIR="+installDir)
+				path := bin + string(os.PathListSeparator) + os.Getenv("PATH")
+				if noCurl {
+					path = bin + string(os.PathListSeparator) + filepath.Join(dir, "tools")
+				}
+				cmd.Env = append(os.Environ(), "HOME="+home, "PATH="+path, "FIXTURE="+dir, "FAKE_ARCH="+arch, "FAKE_OS="+osName, "FAIL_CHECKSUM="+failChecksum, "DUOLOG_VERSION="+envVersion, "DUOLOG_INSTALL_DIR="+installDir)
 				out, err := cmd.CombinedOutput()
 				return string(out), err
 			}
 			out, err := run()
-			success := scenario == "good" || strings.HasPrefix(scenario, "pinned") || scenario == "update" || scenario == "env" || scenario == "dir"
+			success := scenario == "good" || strings.HasPrefix(scenario, "pinned") || strings.HasPrefix(scenario, "release") || scenario == "update" || scenario == "env" || scenario == "dir" || scenario == "wget"
 			if success {
 				if err != nil {
 					t.Fatalf("install: %v\n%s", err, out)
@@ -182,7 +236,19 @@ esac
 					}
 				}
 			}
-			if scenario == "pinned" {
+			if scenario == "no-fetcher" && !strings.Contains(out, "curl or wget") {
+				t.Fatal(out)
+			}
+			if tool, ok := strings.CutPrefix(scenario, "wget-no-"); ok && !strings.Contains(out, "missing required tool: "+tool) {
+				t.Fatal(out)
+			}
+			if scenario == "wget" {
+				urls, err := os.ReadFile(filepath.Join(dir, "urls"))
+				if err != nil || !bytes.Contains(urls, []byte("api.github.com/repos/lorem-dev/duolog/releases/latest")) {
+					t.Fatalf("wget urls %q: %v", urls, err)
+				}
+			}
+			if scenario == "pinned" || strings.HasPrefix(scenario, "release") {
 				urls, err := os.ReadFile(filepath.Join(dir, "urls"))
 				if err != nil {
 					t.Fatal(err)
@@ -192,6 +258,131 @@ esac
 				}
 			}
 		})
+	}
+}
+
+func TestCheckVersion(t *testing.T) {
+	for _, ok := range []string{"latest", "v1.4.0", "v1.5.0-rc.1"} {
+		if err := checkVersion(ok); err != nil {
+			t.Errorf("%s: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", "1.4.0", "v1.4.0;x", "v", "$(x)", "latest "} {
+		if err := checkVersion(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+// The copy rendered without a version says latest; a release copy names its tag.
+func TestRenderedDefaults(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"install.sh", "install.ps1"} {
+		for _, version := range []string{"latest", "v1.4.0"} {
+			data := defaultData()
+			data.Version = version
+			out := filepath.Join(dir, version+"-"+name)
+			if err := renderTemplate("../install-template/"+name+".tmpl", out, data); err != nil {
+				t.Fatal(err)
+			}
+			body, err := os.ReadFile(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "DUOLOG_VERSION:-" + version + "}"
+			if name == "install.ps1" {
+				want = "$version = '" + version + "'"
+			}
+			if !strings.Contains(string(body), want) {
+				t.Errorf("%s (%s) lacks %q", name, version, want)
+			}
+		}
+	}
+}
+
+func TestPowerShellInstallerAddsUserPath(t *testing.T) {
+	data, err := os.ReadFile("../install-template/install.ps1.tmpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(data)
+	for _, want := range []string{"HKCU:\\Environment", "DUOLOG_NO_PATH", "ExpandString"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("install.ps1.tmpl lacks %q", want)
+		}
+	}
+	if strings.Contains(body, "HKLM") || strings.Contains(body, "'Machine'") {
+		t.Error("install.ps1.tmpl must not touch the machine PATH")
+	}
+	// New-Item -Force recreates an existing key and drops every other user
+	// variable; New-ItemProperty and Set-ItemProperty can change the kind.
+	for _, banned := range []string{"New-Item -Path $envKey", "New-Item -Force -Path $envKey", "New-ItemProperty", "Set-ItemProperty", "Remove-Item -LiteralPath $envKey"} {
+		if strings.Contains(body, banned) {
+			t.Errorf("install.ps1.tmpl must not use %q on the environment key", banned)
+		}
+	}
+	for _, want := range []string{"CreateSubKey", "GetValueKind('Path')", "SetValue('Path', $newPath, $kind)"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("install.ps1.tmpl lacks %q", want)
+		}
+	}
+}
+
+// With -o alone the extension picks the template, so an install.ps1 is never
+// the POSIX installer under a PowerShell name.
+func TestRenderPairsByExtension(t *testing.T) {
+	dir := t.TempDir()
+	for _, tc := range []struct {
+		out, tmpl, want string
+	}{
+		{"x/install.ps1", ps1Template, "$version = 'v1.4.1' }\r\n"},
+		{"x/Install.PS1", ps1Template, "$version = 'v1.4.1' }\r\n"},
+		{"x/install.sh", shTemplate, "#!/bin/sh\n"},
+	} {
+		pairs, err := renderPairs("", tc.out)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.out, err)
+		}
+		if len(pairs) != 1 || pairs[0] != [2]string{tc.tmpl, tc.out} {
+			t.Fatalf("%s: pairs = %v, want %s", tc.out, pairs, tc.tmpl)
+		}
+		data := defaultData()
+		data.Version = "v1.4.1"
+		out := filepath.Join(dir, filepath.Base(tc.out))
+		// The pairs name templates from the repository root.
+		if err := renderTemplate(filepath.Join("..", "..", pairs[0][0]), out, data); err != nil {
+			t.Fatal(err)
+		}
+		body, err := os.ReadFile(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(body), tc.want) {
+			t.Errorf("%s lacks %q", tc.out, tc.want)
+		}
+		if tc.tmpl == ps1Template && bytes.Contains(body, []byte("#!/bin/sh")) {
+			t.Errorf("%s is the POSIX installer", tc.out)
+		}
+	}
+	for _, out := range []string{"x/install", "x/install.txt", "x/install.ps1.bak"} {
+		if pairs, err := renderPairs("", out); err == nil {
+			t.Errorf("%s: pairs = %v, want an error asking for -template", out, pairs)
+		}
+	}
+	// -template still renders any output name, and the defaults stay.
+	if pairs, err := renderPairs("custom.tmpl", "x/install.txt"); err != nil || pairs[0] != [2]string{"custom.tmpl", "x/install.txt"} {
+		t.Errorf("custom template: %v %v", pairs, err)
+	}
+	for tmpl, want := range map[string]string{
+		ps1Template: filepath.Join(".release", "install.ps1"),
+		shTemplate:  filepath.Join(".release", "install.sh"),
+	} {
+		if pairs, err := renderPairs(tmpl, ""); err != nil || pairs[0] != [2]string{tmpl, want} {
+			t.Errorf("template %s alone: %v %v, want output %s", tmpl, pairs, err, want)
+		}
+	}
+	if pairs, err := renderPairs("", ""); err != nil || len(pairs) != 2 {
+		t.Errorf("defaults: %v %v", pairs, err)
 	}
 }
 

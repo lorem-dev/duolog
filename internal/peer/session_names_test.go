@@ -18,6 +18,17 @@ const (
 
 func projectSessionLabel(r *rig) string { return "duolog | " + filepath.Base(r.root) }
 
+// owns records sessions as created for the rig's project, as an earlier open
+// of this project would have.
+func (r *rig) owns(ids ...string) {
+	r.t.Helper()
+	for _, id := range ids {
+		if err := r.reg.SetPeerSessionRoot(id, canonicalRoot(r.root)); err != nil {
+			r.t.Fatal(err)
+		}
+	}
+}
+
 func sessionNameScript(t *testing.T, sessions ...[2]string) map[string]testbin.Scenario {
 	t.Helper()
 	items := make([]map[string]string, 0, len(sessions))
@@ -83,6 +94,7 @@ func TestProjectSessionNamesExcludeLeadSession(t *testing.T) {
 func TestProjectSessionNamesSkipUnchangedLabels(t *testing.T) {
 	r := newRig(t, baseScript())
 	label := projectSessionLabel(r)
+	r.owns(firstSession)
 	r.rex(sessionNameScript(t,
 		[2]string{firstSession, label + " (1)"},
 		[2]string{newSession, label},
@@ -94,6 +106,7 @@ func TestProjectSessionNamesSkipUnchangedLabels(t *testing.T) {
 func TestProjectSessionNamesSecondCreated(t *testing.T) {
 	r := newRig(t, baseScript())
 	label := projectSessionLabel(r)
+	r.owns(firstSession)
 	// Listing order is reversed; UUIDv7 session IDs determine creation order.
 	r.rex(sessionNameScript(t, [2]string{newSession, label}, [2]string{firstSession, label}))
 	r.ready()
@@ -105,6 +118,7 @@ func TestProjectSessionNamesAfterKill(t *testing.T) {
 		t.Run(strconv.Itoa(count), func(t *testing.T) {
 			r := newRig(t, baseScript())
 			label := projectSessionLabel(r)
+			r.owns(firstSession, lastSession)
 			r.rex(sessionNameScript(t, [2]string{newSession, label}))
 			peer := r.ready()
 			remaining := [][2]string{{firstSession, label + " (1)"}}
@@ -138,6 +152,32 @@ func TestProjectSessionNamesAfterKill(t *testing.T) {
 	}
 }
 
+// Two projects whose folders share a base name keep their own numbering: the
+// other project's session has the same visible label but another root.
+func TestProjectSessionNamesGroupByRootNotBaseName(t *testing.T) {
+	r := newRig(t, baseScript())
+	label := projectSessionLabel(r)
+	other := filepath.Join(t.TempDir(), filepath.Base(r.root))
+	if err := r.reg.SetPeerSessionRoot(firstSession, canonicalRoot(other)); err != nil {
+		t.Fatal(err)
+	}
+	r.rex(sessionNameScript(t, [2]string{firstSession, label}, [2]string{newSession, label}))
+	r.ready()
+	// This project has one session, so it stays unnumbered; the other
+	// project's session is left alone.
+	assertSessionRenames(t, r, nil, nil)
+	roots, err := r.reg.PeerSessionRoots()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if roots[newSession] != canonicalRoot(r.root) || roots[firstSession] != canonicalRoot(other) {
+		t.Fatalf("recorded roots: %v", roots)
+	}
+	if args := r.spawns()[0]; args[1] != label {
+		t.Fatalf("visible name is not the base name: %v", args)
+	}
+}
+
 func TestProjectSessionNamesIgnoreOtherSessions(t *testing.T) {
 	r := newRig(t, baseScript())
 	label := projectSessionLabel(r)
@@ -159,6 +199,7 @@ func TestProjectSessionNameFailureDoesNotFailOpenOrClose(t *testing.T) {
 		t.Run(operation, func(t *testing.T) {
 			r := newRig(t, baseScript())
 			label := projectSessionLabel(r)
+			r.owns(firstSession)
 			script := sessionNameScript(t, [2]string{newSession, label}, [2]string{firstSession, label})
 			script["session rename"] = testbin.Scenario{Exit: 4}
 			r.rex(script)
