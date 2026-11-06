@@ -237,7 +237,8 @@ func TestDocsPaidSessionLimits(t *testing.T) {
 		"`duolog peer open` is refused at once",
 		"Calibration cells wait for a slot without a time limit",
 		"may only lower",
-		"A value above its default is capped at the default",
+		"Only your user config may raise `max_total_sessions` or a tier",
+		"raising one tier does not raise the next",
 	} {
 		if !strings.Contains(limits, want) {
 			t.Errorf("How many sessions run at once lacks %q", want)

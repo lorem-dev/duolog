@@ -10,7 +10,9 @@ import (
 )
 
 // SessionTiers are the most live sessions of one agent at each measured
-// subscription tier. Load caps each at its default.
+// subscription tier. Only the user config may set one above its default; Load
+// caps the others there. The tiers are separate limits: raising one does not
+// raise the next.
 type SessionTiers struct {
 	Small  int `yaml:"small" jsonschema_description:"Live sessions of an agent at the small tier: unmeasured, paid, workspace or a window like a personal plan of about 20 USD a month; defaults to 3." jsonschema:"minimum=1"`
 	Medium int `yaml:"medium" jsonschema_description:"Live sessions of an agent whose measured window is about 5 times the small one; defaults to 5." jsonschema:"minimum=1"`
@@ -49,7 +51,7 @@ var embeddedAccountLimits = sync.OnceValue(func() (out struct {
 })
 
 // DefaultSessionTiers returns the embedded session tiers, the most any layer
-// may set.
+// but the user config may set.
 func DefaultSessionTiers() SessionTiers {
 	return embeddedAccountLimits().Limits.SessionsByTier
 }
@@ -153,28 +155,53 @@ func validateAccountLimits(cfg *Config) error {
 	return nil
 }
 
-// capSessionTiers lowers each session tier above its default to the default
-// and names it. A larger window may hold more parallel work, but never more
-// than the default tier allows.
-func capSessionTiers(cfg *Config) []ConfigNotice {
-	defaults := DefaultSessionTiers()
-	var notices []ConfigNotice
-	for _, t := range []struct {
-		name  string
-		value *int
-		max   int
-	}{
-		{"small", &cfg.Limits.SessionsByTier.Small, defaults.Small},
-		{"medium", &cfg.Limits.SessionsByTier.Medium, defaults.Medium},
-		{"large", &cfg.Limits.SessionsByTier.Large, defaults.Large},
-	} {
-		if *t.value > t.max {
-			notices = append(notices, ConfigNotice{Key: "limits.sessions_by_tier." + t.name, Reason: fmt.Sprintf(
-				"%d is above the default %d, the most a tier may hold; %d applies", *t.value, t.max, t.max)})
-			*t.value = t.max
-		}
+// capLayerSessionLimits lowers to its default each session count that a layer
+// other than the person's user config sets above it, and names it. Only the
+// user config may raise the total or a tier: a shared file, or a local one
+// that Git ignores but that may sit in any checkout or unpacked archive, does
+// not prove that the person wrote it. Raising one tier does not raise the
+// next. The node is a resolved mapping; file names the layer in notices.
+func capLayerSessionLimits(layer *yaml.Node, file string) ([]ConfigNotice, error) {
+	tiers := DefaultSessionTiers()
+	var total struct {
+		Limits struct {
+			MaxTotalSessions int `yaml:"max_total_sessions"`
+		} `yaml:"limits"`
 	}
-	return notices
+	if err := yaml.Unmarshal(defaultConfig, &total); err != nil {
+		return nil, err
+	}
+	var notices []ConfigNotice
+	for _, l := range []struct {
+		key string
+		max int
+	}{
+		{"limits.max_total_sessions", total.Limits.MaxTotalSessions},
+		{"limits.sessions_by_tier.small", tiers.Small},
+		{"limits.sessions_by_tier.medium", tiers.Medium},
+		{"limits.sessions_by_tier.large", tiers.Large},
+	} {
+		value, err := limitNode(layer, l.key)
+		if err != nil {
+			return nil, err
+		}
+		if value == nil {
+			continue
+		}
+		var number float64
+		if err := decodeOptional(value, &number); err != nil {
+			return nil, err
+		}
+		if number <= float64(l.max) {
+			continue
+		}
+		value.Kind, value.Tag, value.Value, value.Style = yaml.ScalarNode, "!!int", fmt.Sprint(l.max), 0
+		value.Content, value.Alias = nil, nil
+		notices = append(notices, ConfigNotice{Key: l.key, Reason: fmt.Sprintf(
+			"%s in %s is ignored: only the user config may raise this above its default; %s applies",
+			formatNumber(number), file, formatNumber(float64(l.max)))})
+	}
+	return notices, nil
 }
 
 // restrictProjectSessionLimits removes from the project layer each account

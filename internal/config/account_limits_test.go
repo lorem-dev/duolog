@@ -29,33 +29,53 @@ func TestSessionLimitsDefaultsRestrictiveLayers(t *testing.T) {
 		t.Errorf("default notices = %v, want none", cfg.Notices)
 	}
 
-	// The person's user and local layers may raise or lower the total; a
-	// tier above its default is capped there with a notice.
+	// Only the person's user config may raise the total or a tier above its
+	// default: the person knows the plan, and duolog cannot measure it at
+	// first, so an unmeasured agent need not stay at three sessions. Raising
+	// one tier does not raise the next.
 	root := isolatedRoot(t)
-	writeConfig(t, userConfigPath(t), "limits: {max_total_sessions: 4, sessions_by_tier: {small: 2, medium: 8}}\nbalance: {max_age_seconds: 300, margin: 0.3}\n")
-	writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), "limits: {max_total_sessions: 16, sessions_by_tier: {large: 12}, session_wait_seconds: 0}\n")
+	writeConfig(t, userConfigPath(t), "limits: {max_total_sessions: 16, sessions_by_tier: {small: 2, medium: 8, large: 12}}\nbalance: {max_age_seconds: 300, margin: 0.3}\n")
+	writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), "limits: {session_wait_seconds: 0}\n")
 	cfg, err = Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	l = cfg.Limits
-	if l.MaxTotalSessions != 16 || l.SessionsByTier != (SessionTiers{Small: 2, Medium: 5, Large: 10}) || l.SessionWaitSeconds != 0 {
-		t.Errorf("trusted layers = total %d, tiers %+v, wait %d; want 16, 2/5/10, 0", l.MaxTotalSessions, l.SessionsByTier, l.SessionWaitSeconds)
+	if l.MaxTotalSessions != 16 || l.SessionsByTier != (SessionTiers{Small: 2, Medium: 8, Large: 12}) || l.SessionWaitSeconds != 0 {
+		t.Errorf("user layer = total %d, tiers %+v, wait %d; want 16, 2/8/12, 0", l.MaxTotalSessions, l.SessionsByTier, l.SessionWaitSeconds)
 	}
 	if cfg.Balance != (Balance{MaxAgeSeconds: 300, MinIntervalShare: .05, Margin: .3}) {
 		t.Errorf("trusted balance = %+v", cfg.Balance)
 	}
-	want := []string{"limits.sessions_by_tier.medium", "limits.sessions_by_tier.large"}
-	if got := noticeKeys(cfg.Notices); !slices.Equal(got, want) {
-		t.Errorf("clamp notices = %v, want %v", got, want)
+	if got := noticeKeys(cfg.Notices); len(got) != 0 {
+		t.Errorf("user layer got notices %v", got)
 	}
-	for _, n := range cfg.Notices {
-		if !strings.Contains(n.Reason, "default") {
-			t.Errorf("clamp notice %+v does not name the default", n)
+
+	// Every other layer may only lower them: a local file that Git ignores,
+	// or that sits in no checkout at all, is capped at the default, even when
+	// the user config raised the values.
+	for _, user := range []string{"", "limits: {max_total_sessions: 16, sessions_by_tier: {large: 12}}\n"} {
+		root = isolatedRoot(t)
+		if user != "" {
+			writeConfig(t, userConfigPath(t), user)
 		}
-	}
-	if !strings.Contains(cfg.Notices[0].Reason, "8") || !strings.Contains(cfg.Notices[0].Reason, "5") {
-		t.Errorf("clamp notice %+v does not name the value and the cap", cfg.Notices[0])
+		writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), "limits: {max_total_sessions: 16, sessions_by_tier: {small: 4, large: 12}}\n")
+		if cfg, err = Load(root); err != nil {
+			t.Fatal(err)
+		}
+		l = cfg.Limits
+		if l.MaxTotalSessions != 10 || l.SessionsByTier != (SessionTiers{Small: 3, Medium: 5, Large: 10}) {
+			t.Errorf("local layer (user %q) raised: total %d, tiers %+v; want 10, 3/5/10", user, l.MaxTotalSessions, l.SessionsByTier)
+		}
+		want := []string{"limits.max_total_sessions", "limits.sessions_by_tier.small", "limits.sessions_by_tier.large"}
+		if got := noticeKeys(cfg.Notices); !slices.Equal(got, want) {
+			t.Errorf("local layer notices (user %q) = %v, want %v", user, got, want)
+		}
+		for _, n := range cfg.Notices {
+			if !strings.Contains(n.Reason, "default") {
+				t.Errorf("notice %+v does not name the default", n)
+			}
+		}
 	}
 
 	// The project may only lower the total, the tiers and the wait, and
@@ -83,7 +103,7 @@ balance: {max_age_seconds: 600, min_interval_share: 0.02, margin: 0.1}
 	if cfg.Balance != DefaultBalance() {
 		t.Errorf("project loosened balance: %+v", cfg.Balance)
 	}
-	want = []string{
+	want := []string{
 		"limits.max_total_sessions", "limits.sessions_by_tier.large", "limits.session_wait_seconds",
 		"balance.max_age_seconds", "balance.min_interval_share", "balance.margin",
 	}
@@ -110,9 +130,9 @@ balance: {max_age_seconds: 600, min_interval_share: 0.02, margin: 0.1}
 	if cfg.Balance != (Balance{MaxAgeSeconds: 60, MinIntervalShare: .1, Margin: .5}) {
 		t.Errorf("project tightening of balance = %+v", cfg.Balance)
 	}
-	writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), "limits: {max_total_sessions: 12}\n")
-	if cfg, err = Load(root); err != nil || cfg.Limits.MaxTotalSessions != 12 {
-		t.Errorf("local total = %v, %v; want 12", cfg, err)
+	writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), "limits: {max_total_sessions: 2}\n")
+	if cfg, err = Load(root); err != nil || cfg.Limits.MaxTotalSessions != 2 || len(cfg.Notices) != 0 {
+		t.Errorf("local total = %v, %v; want 2 without notices", cfg, err)
 	}
 
 	// Aliases and merge keys are expanded before the comparison.

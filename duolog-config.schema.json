@@ -493,7 +493,7 @@
         },
         "sessions_by_tier": {
           "$ref": "#/$defs/SessionTiers",
-          "description": "Most live sessions per agent by its measured subscription tier; defaults to 3, 5 and 10. A value above its default is capped at the default."
+          "description": "Most live sessions per agent by its measured subscription tier; defaults to 3, 5 and 10. Only the user config may raise a tier above its default; every other config may only lower it. Raising one tier does not raise the next."
         },
         "session_wait_seconds": {
           "type": "integer",

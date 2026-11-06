@@ -25,7 +25,7 @@ limits:
   # Live sessions per account, across every lead and project: running workers
   # and open peer panes. The shared .duolog/config.yaml may only lower these.
   max_total_sessions: 10   # all agents together
-  sessions_by_tier:        # per agent, by its measured window; capped at these
+  sessions_by_tier:        # per agent, by its measured window; only your user config may raise them
     small: 3               # unmeasured, paid, workspace, or a small plan
     medium: 5              # a window about 5 times larger
     large: 10              # a window about 20 times larger

@@ -78,7 +78,7 @@ type Limits struct {
 	// The account session limits count running workers and open peer panes
 	// of every lead and project together.
 	MaxTotalSessions   int          `yaml:"max_total_sessions" jsonschema_description:"Most live sessions of all agents together: running workers and open peer panes of every lead and project; defaults to 10. The shared project config may only lower it." jsonschema:"minimum=1"`
-	SessionsByTier     SessionTiers `yaml:"sessions_by_tier" jsonschema_description:"Most live sessions per agent by its measured subscription tier; defaults to 3, 5 and 10. A value above its default is capped at the default."`
+	SessionsByTier     SessionTiers `yaml:"sessions_by_tier" jsonschema_description:"Most live sessions per agent by its measured subscription tier; defaults to 3, 5 and 10. Only the user config may raise a tier above its default; every other config may only lower it. Raising one tier does not raise the next."`
 	SessionWaitSeconds int          `yaml:"session_wait_seconds" jsonschema_description:"Seconds a delegation waits for a free session slot, first come first served; defaults to 60. The shared project config may only lower it." jsonschema:"minimum=0"`
 }
 
@@ -161,6 +161,44 @@ type Rex struct {
 	StartTimeoutSeconds int          `yaml:"start_timeout_seconds" jsonschema_description:"Seconds to wait for terminal startup; defaults to 120."`
 }
 
+// restrictLayer applies the trust rules to layer i of the user, project and
+// local files before it is merged onto base, and returns the notices and the
+// name of the local layer when it is shared, "" when it is the person's own.
+// The project layer is committed: it may only tighten paid runs, prices and
+// the account session limits. So may a local layer that Git tracks, since it
+// reaches everyone who clones the repository, and one outside a Git checkout,
+// which nothing proves the person's. Every layer but the user config is also
+// capped at the default total and tiers, whether Git ignores it or not.
+func restrictLayer(i int, root string, base, node *yaml.Node) (notices []ConfigNotice, shared string, err error) {
+	if i == 0 {
+		return nil, "", nil
+	}
+	file := projectFile
+	if i == 2 {
+		file = localFile
+		shared = sharedLocal(root)
+	} else {
+		shared = projectFile
+	}
+	if node == nil {
+		return nil, shared, nil
+	}
+	if shared != "" {
+		for _, restrict := range projectRestrictors {
+			found, err := restrict(base, node, shared)
+			if err != nil {
+				return nil, "", err
+			}
+			notices = append(notices, found...)
+		}
+		if shared == outsideLocal && len(notices) > 0 {
+			notices = append(notices, outsideNotice)
+		}
+	}
+	found, err := capLayerSessionLimits(node, file)
+	return append(notices, found...), shared, err
+}
+
 // Load merges embedded, user, project and local settings in that order.
 func Load(root string) (*Config, error) {
 	userDir, err := os.UserConfigDir()
@@ -205,30 +243,13 @@ func Load(root string) (*Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		// The project layer is committed: it may only tighten paid runs,
-		// prices and the account session limits. So may a local layer that
-		// Git tracks, since it reaches everyone who clones the repository,
-		// and one outside a Git checkout, which nothing proves the person's.
-		var shared string
-		switch i {
-		case 1:
-			shared = projectFile
-		case 2:
-			shared = sharedLocal(root)
-			localLabel = shared
+		found, shared, err := restrictLayer(i, root, merged.Content[0], node)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
 		}
-		if shared != "" && node != nil {
-			before := len(notices)
-			for _, restrict := range projectRestrictors {
-				found, err := restrict(merged.Content[0], node, shared)
-				if err != nil {
-					return nil, fmt.Errorf("%s: %w", path, err)
-				}
-				notices = append(notices, found...)
-			}
-			if shared == outsideLocal && len(notices) > before {
-				notices = append(notices, outsideNotice)
-			}
+		notices = append(notices, found...)
+		if i == 2 {
+			localLabel = shared
 		}
 		mergeNode(&merged, node)
 		if i > 0 {
@@ -247,7 +268,6 @@ func Load(root string) (*Config, error) {
 	if err := validateAccountLimits(&cfg); err != nil {
 		return nil, err
 	}
-	notices = append(notices, capSessionTiers(&cfg)...)
 	cfg.Notices = notices
 	cfg.Telemetry = keepTelemetry(userTelemetrySection, projectTelemetryOff, telemetryEnvOff())
 	if err := validateTelemetry(cfg.Telemetry); err != nil {

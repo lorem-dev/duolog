@@ -33,8 +33,9 @@ type PaidRuns struct {
 
 // ConfigNotice names a key that Load ignored or capped, and why: a key of a
 // shared layer, .duolog/config.yaml or a .duolog/config.local.yaml that Git
-// tracks, that would widen a limit or lower a price, or a session tier above
-// its default.
+// tracks, that would widen a limit or lower a price, or a .duolog layer, shared
+// or local, that sets the total or a session tier above its default, which
+// only the user config may do.
 type ConfigNotice struct {
 	Key, Reason string
 }
