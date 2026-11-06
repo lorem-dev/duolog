@@ -19,11 +19,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/route"
-	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/paidruns/paidrunstest"
-	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -351,7 +350,7 @@ func TestLaterDelegateSkipsLimitedAgent(t *testing.T) {
 }
 func TestSmallTaskRunsInSelf(t *testing.T) {
 	h := newHarness(t)
-	p, e := Place(h.cfg, h.path, router.Route{Target: config.Target{Model: "sonnet", Effort: "medium"}})
+	p, e := Place(h.cfg, h.path, route.Route{Target: config.Target{Model: "sonnet", Effort: "medium"}})
 	if e != nil || p.Where != "self" {
 		t.Fatal(p, e)
 	}
@@ -363,7 +362,7 @@ func TestLargeTaskRunsInSubagent(t *testing.T) {
 			put(t, filepath.Join(h.root, name), strings.Repeat("x\n", 201))
 		}
 		h.task(refs)
-		p, e := Place(h.cfg, h.path, router.Route{Target: config.Target{Model: "sonnet", Effort: "medium"}})
+		p, e := Place(h.cfg, h.path, route.Route{Target: config.Target{Model: "sonnet", Effort: "medium"}})
 		if e != nil || p.Where != "subagent" || p.Model != "sonnet" || p.Effort != "medium" {
 			t.Fatal(p, e)
 		}
@@ -374,12 +373,12 @@ func TestRangeCountsOnlyItsLines(t *testing.T) {
 	put(t, filepath.Join(h.root, "a.go"), strings.Repeat("x\n", 500))
 	h.task("- a.go:12-40")
 	h.cfg.Limits.SelfMaxReadLines = 29
-	p, e := Place(h.cfg, h.path, router.Route{})
+	p, e := Place(h.cfg, h.path, route.Route{})
 	if e != nil || p.Where != "self" {
 		t.Fatal(p, e)
 	}
 	h.cfg.Limits.SelfMaxReadLines = 28
-	p, e = Place(h.cfg, h.path, router.Route{})
+	p, e = Place(h.cfg, h.path, route.Route{})
 	if e != nil || p.Where != "subagent" {
 		t.Fatal(p, e)
 	}
@@ -387,7 +386,7 @@ func TestRangeCountsOnlyItsLines(t *testing.T) {
 func TestMissingReadFileCountsAsLarge(t *testing.T) {
 	h := newHarness(t)
 	h.task("- missing.go")
-	p, e := Place(h.cfg, h.path, router.Route{})
+	p, e := Place(h.cfg, h.path, route.Route{})
 	if e != nil || p.Where != "subagent" {
 		t.Fatal(p, e)
 	}

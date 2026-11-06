@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/calibration"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/gate"
-	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 

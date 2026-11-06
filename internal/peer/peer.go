@@ -21,16 +21,16 @@ import (
 	"unicode"
 
 	"github.com/gofrs/flock"
+	"github.com/lorem-dev/duolog/internal/adapter/models"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/coauthor"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/mode"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/gate"
-	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/rex"
-	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -197,12 +197,12 @@ func (e *env) attempt(entry session.Entry, outcome, code string) {
 		a.Reason = "quota"
 	}
 	if lead, err := e.lead(time.Now()); err == nil {
-		if route, err := router.Resolve(e.cfg, entry.Role, nil, router.Options{Lead: lead.target, AllowManualModel: e.opts.AllowManualModel}); err == nil && route.Agent == entry.Agent {
-			a.Family, a.Effort = models.Normalize(route.Agent, route.Model), route.Effort
+		if route, err := coreroute.Resolve(e.cfg, entry.Role, nil, coreroute.Options{Lead: lead.target, AllowManualModel: e.opts.AllowManualModel}); err == nil && route.Agent == entry.Agent {
+			a.Family, a.Effort = coreroute.Normalize(route.Agent, route.Model), route.Effort
 		}
 	}
 	if model, err := os.ReadFile(e.modelPath(entry)); err == nil {
-		a.Family = models.Normalize(entry.Agent, string(model))
+		a.Family = coreroute.Normalize(entry.Agent, string(model))
 	}
 	if sent := e.sentAt(entry.ID); !sent.IsZero() {
 		a.Duration = time.Since(sent)
@@ -388,7 +388,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	route, err := router.Resolve(e.cfg, role, unavailable, router.Options{Lead: lead.target, AllowManualModel: e.opts.AllowManualModel,
+	route, err := coreroute.Resolve(e.cfg, role, unavailable, coreroute.Options{Lead: lead.target, AllowManualModel: e.opts.AllowManualModel,
 		Balance: paidruns.DefaultPaceBalance(ctx, e.cfg)})
 	if err != nil {
 		return Entry{}, err
@@ -938,7 +938,7 @@ func (e *env) runHere(entry session.Entry, taskPath, screenText string) (string,
 		}
 		unavailable[entry.Agent] = true
 	}
-	route, err := router.Resolve(e.cfg, entry.Role, unavailable, router.Options{Lead: lead.target, AllowManualModel: e.opts.AllowManualModel})
+	route, err := coreroute.Resolve(e.cfg, entry.Role, unavailable, coreroute.Options{Lead: lead.target, AllowManualModel: e.opts.AllowManualModel})
 	if err != nil {
 		return "", err
 	}

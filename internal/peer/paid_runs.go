@@ -12,12 +12,11 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/delegate"
-	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/rex"
-	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -109,7 +108,7 @@ func (h *hold) release(ctx context.Context) error {
 // one task's estimate in one reservation, the free variant first and the
 // paid one when the agent opted in. A pane never waits for a slot: a refusal
 // names the counts and the close command.
-func (e *env) admitPane(ctx context.Context, route router.Route, lead leadInfo, role, id, run string) (*hold, error) {
+func (e *env) admitPane(ctx context.Context, route coreroute.Route, lead leadInfo, role, id, run string) (*hold, error) {
 	g, err := e.accounts()
 	if err != nil {
 		return nil, err
@@ -148,7 +147,7 @@ func (e *env) admitPane(ctx context.Context, route router.Route, lead leadInfo, 
 // variables that move the layers, such as CLAUDE_CONFIG_DIR and CODEX_HOME,
 // are never route names, so both variants have the same. m is the lead's
 // mode, which picks the pane's native permission flags.
-func (e *env) paneInput(root string, route router.Route, m mode.Mode, variant workerenv.Variant, leadID, role, id, run string) (workerenv.ProcessInput, error) {
+func (e *env) paneInput(root string, route coreroute.Route, m mode.Mode, variant workerenv.Variant, leadID, role, id, run string) (workerenv.ProcessInput, error) {
 	in := peerInput(e.cfg, route, m, variant, leadID, role, id, run, filepath.Dir(e.dir), e.opts.ProtectedRoots, os.Environ())
 	free := in
 	free.Variant = workerenv.Free
@@ -202,7 +201,7 @@ func (e *env) admitSend(ctx context.Context, entry session.Entry) (*hold, error)
 	}
 	// The send is built as the pane was, so the gate can tell whether it is
 	// still on the pane's route; it is admitted on the pane's billing class.
-	route := router.Route{Target: config.Target{Agent: entry.Agent}, Context: e.cfg.Roles[entry.Role].Context}
+	route := coreroute.Route{Target: config.Target{Agent: entry.Agent}, Context: e.cfg.Roles[entry.Role].Context}
 	root := entry.WorkRoot
 	if root == "" {
 		root = e.root

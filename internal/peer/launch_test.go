@@ -8,14 +8,14 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/router"
+	"github.com/lorem-dev/duolog/internal/core/mode"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // A peer cannot delegate, so a Claude peer starts without the subagent tools.
 func TestClaudePeerDisallowsSubagents(t *testing.T) {
-	route := router.Route{Target: config.Target{Agent: "claude", Model: "opus"}}
+	route := coreroute.Route{Target: config.Target{Agent: "claude", Model: "opus"}}
 	if args := agentArgv(route, peerProcess(t, &config.Config{}, route, workerenv.Free, t.TempDir())); !slices.Contains(args, "--disallowedTools=Agent,Task") {
 		t.Fatal(args)
 	}
@@ -37,7 +37,7 @@ func TestCodexPeerPinsSandboxExtras(t *testing.T) {
 	for _, variant := range []workerenv.Variant{workerenv.Free, workerenv.Paid} {
 		for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
 			for _, sandbox := range []string{"read-only", "workspace-write"} {
-				route := router.Route{Target: config.Target{Agent: "codex", Model: "sol"}, Sandbox: sandbox}
+				route := coreroute.Route{Target: config.Target{Agent: "codex", Model: "sol"}, Sandbox: sandbox}
 				p := peerProcessIn(t, paid, route, m, variant, t.TempDir())
 				args := agentArgv(route, p)
 				if !slices.Equal(args[:len(p.Prefix)], p.Prefix) {
@@ -70,7 +70,7 @@ func TestPeerAdmittedArgvIsLaunchedArgv(t *testing.T) {
 			{"codex", "sol", "read-only", mode.Full, []string{"-s", "read-only"}, "-s"},
 			{"claude", "opus", "workspace-write", mode.Edits, []string{"--permission-mode", "acceptEdits"}, "--permission-mode"},
 		} {
-			route := router.Route{Target: config.Target{Agent: tc.agent, Model: tc.model}, Sandbox: tc.sandbox}
+			route := coreroute.Route{Target: config.Target{Agent: tc.agent, Model: tc.model}, Sandbox: tc.sandbox}
 			p := peerProcessIn(t, paid, route, tc.m, variant, t.TempDir())
 			if !slices.Equal(p.Launch, tc.want) {
 				t.Errorf("%s %s: admitted launch %v, want %v", variant, tc.agent, p.Launch, tc.want)
@@ -101,7 +101,7 @@ func checkCodexPeerPins(t *testing.T, args []string, m mode.Mode, sandbox string
 func TestClaudePeerSettingsDenyStateAndKeepNotifications(t *testing.T) {
 	root := t.TempDir()
 	for _, context := range []string{"minimal", "project"} {
-		route := router.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Context: context}
+		route := coreroute.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Context: context}
 		args := agentArgv(route, peerProcess(t, &config.Config{}, route, workerenv.Free, root))
 		i := slices.Index(args, "--settings")
 		if i < 0 || i+1 == len(args) {

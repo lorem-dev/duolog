@@ -14,8 +14,8 @@ import (
 	"github.com/lorem-dev/duolog/internal/agentsync"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/router"
+	"github.com/lorem-dev/duolog/internal/core/mode"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/testbin"
@@ -177,7 +177,7 @@ func TestLeadWithoutModelInfo(t *testing.T) {
 	if l.Model != "" {
 		t.Fatal(l)
 	}
-	route, err := router.Resolve(defaults(t), "review_final", nil, router.Options{Lead: &l.Target})
+	route, err := coreroute.Resolve(defaults(t), "review_final", nil, coreroute.Options{Lead: &l.Target})
 	if err != nil || route.Self {
 		t.Fatal(route, err)
 	}
@@ -329,7 +329,7 @@ func TestLeadEffortUnknownStaysEmpty(t *testing.T) {
 	if l.Effort != "" {
 		t.Fatal(l)
 	}
-	route, err := router.Resolve(defaults(t), "review_final", nil, router.Options{Lead: &l.Target})
+	route, err := coreroute.Resolve(defaults(t), "review_final", nil, coreroute.Options{Lead: &l.Target})
 	if err != nil || route.EffortCapped {
 		t.Fatal(route, err)
 	}

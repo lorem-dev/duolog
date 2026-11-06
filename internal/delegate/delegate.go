@@ -25,12 +25,12 @@ import (
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/coauthor"
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/pathutil"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/gate"
-	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/paidruns"
-	"github.com/lorem-dev/duolog/internal/pathutil"
 	"github.com/lorem-dev/duolog/internal/project"
-	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -128,14 +128,14 @@ var bridgeMCP = capability.Bridge
 // newChecker checks a worker's logins on the worker's own built process.
 var newChecker = auth.NewForProcess
 
-func Place(cfg *config.Config, taskPath string, route router.Route) (Placement, error) {
+func Place(cfg *config.Config, taskPath string, route coreroute.Route) (Placement, error) {
 	root, err := os.Getwd()
 	if err != nil {
 		return Placement{}, err
 	}
 	return place(cfg, taskPath, root, route)
 }
-func place(cfg *config.Config, taskPath, root string, route router.Route) (Placement, error) {
+func place(cfg *config.Config, taskPath, root string, route coreroute.Route) (Placement, error) {
 	p := Placement{Where: "self", Model: route.Model, Effort: route.Effort, Task: taskPath}
 	refs, err := task.References(taskPath, root)
 	if err != nil {
@@ -358,7 +358,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	var capNotes string
 	// Pace balancing reads the quota once per task; a pinned target is never
 	// balanced, and the paid pass is never balanced either.
-	var balance *router.Balance
+	var balance *coreroute.Balance
 	if opts.Entry == nil {
 		balance = paidruns.DefaultPaceBalance(ctx, cfg)
 	}
@@ -370,7 +370,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			}
 			priorAgent, attempt = "", 0
 		}
-		ro := router.Options{Lead: leadTarget, AllowManualModel: opts.AllowManualModel}
+		ro := coreroute.Options{Lead: leadTarget, AllowManualModel: opts.AllowManualModel}
 		if pass == 0 {
 			ro.Balance = balance
 		}
@@ -386,7 +386,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		} else if err := lr.route(cfg, role, unavailable, &ro); err != nil {
 			return out, err
 		}
-		route, routeErr := router.Resolve(cfg, role, unavailable, ro)
+		route, routeErr := coreroute.Resolve(cfg, role, unavailable, ro)
 		if routeErr != nil {
 			// No candidate is left in this pass.
 			if (attempt > 0 || pass > 0) && later() {
@@ -1018,7 +1018,7 @@ func observedLead(reg *session.Registry, lead session.Lead, started time.Time) (
 
 // trustWarning says what the lead must know about the worker's rules. A write role
 // with untrusted Codex hooks would run with no gate, so it does not start.
-func trustWarning(route router.Route, role string, state trust.State, folder bool) (string, error) {
+func trustWarning(route coreroute.Route, role string, state trust.State, folder bool) (string, error) {
 	warning := ""
 	if route.Agent == "claude" && !state.Installed {
 		warning = "; Claude has no duolog hooks: rules are off; sandbox only"
@@ -1098,11 +1098,11 @@ type usageRecord struct {
 }
 
 // RecordUsage appends the same locked usage record as a delegation.
-func RecordUsage(dir, role string, route router.Route, result runner.Result) error {
+func RecordUsage(dir, role string, route coreroute.Route, result runner.Result) error {
 	return appendUsage(dir, role, route, result, "")
 }
 
-func appendUsage(dir, role string, route router.Route, result runner.Result, native string) error {
+func appendUsage(dir, role string, route coreroute.Route, result runner.Result, native string) error {
 	lock := flock.New(filepath.Join(dir, "usage.lock"))
 	if err := lock.Lock(); err != nil {
 		_ = lock.Close()

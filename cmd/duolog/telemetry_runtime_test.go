@@ -13,10 +13,10 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/record"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/delegate"
-	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -382,8 +382,8 @@ func TestPlacementObservations(t *testing.T) {
 		t.Fatal("telemetry did not open")
 	}
 	observe := observeAttempt(s, cfg)
-	self := router.Route{Target: config.Target{Agent: "claude", Model: "opus", Effort: "high"}, Self: true}
-	inLead := router.Route{Target: config.Target{Agent: "claude", Model: "sonnet", Effort: "medium"}, InLead: true, IsFallback: true}
+	self := coreroute.Route{Target: config.Target{Agent: "claude", Model: "opus", Effort: "high"}, Self: true}
+	inLead := coreroute.Route{Target: config.Target{Agent: "claude", Model: "sonnet", Effort: "medium"}, InLead: true, IsFallback: true}
 	delegate.ObserveHere(observe, "implement", "", self, "done", time.Minute)
 	delegate.ObserveHere(observe, "implement", "", inLead, "failed", time.Minute)
 	observe(record.Attempt{Number: 1, Role: "implement", Agent: "codex", Family: "sol", Effort: "medium", Placement: "peer", Outcome: "done", ErrorCode: "none", Reason: "none", Duration: time.Minute})

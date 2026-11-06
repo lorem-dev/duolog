@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/router"
+	"github.com/lorem-dev/duolog/internal/core/mode"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -30,7 +30,7 @@ func spec(t *testing.T, agent string) Spec {
 	if agent == "claude" {
 		model, effort = "opus", "high"
 	}
-	return rebuilt(t, Spec{Route: router.Route{Target: config.Target{Agent: agent, Model: model, Effort: effort}, Sandbox: "read-only", Context: "minimal"}, Mode: mode.Plan, TaskDir: t.TempDir(), Cwd: t.TempDir(), Stdin: []byte("<stdin>\nImplement the task.\n</stdin>")})
+	return rebuilt(t, Spec{Route: coreroute.Route{Target: config.Target{Agent: agent, Model: model, Effort: effort}, Sandbox: "read-only", Context: "minimal"}, Mode: mode.Plan, TaskDir: t.TempDir(), Cwd: t.TempDir(), Stdin: []byte("<stdin>\nImplement the task.\n</stdin>")})
 }
 
 // rebuilt builds s's free worker process again, after a test changed what

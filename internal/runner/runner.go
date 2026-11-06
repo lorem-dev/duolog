@@ -19,9 +19,9 @@ import (
 	"time"
 	_ "time/tzdata"
 
-	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/core/mode"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/usage"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -43,7 +43,7 @@ const answerSchema = `{"type":"object","properties":{"done":{"type":"boolean"},"
 // child's process ID once it started and before Run waits for it; an error
 // stops the child.
 type Spec struct {
-	Route                          router.Route
+	Route                          coreroute.Route
 	Mode                           mode.Mode
 	Prompt, TaskDir, Cwd, ThreadID string
 	Process                        *workerenv.Process

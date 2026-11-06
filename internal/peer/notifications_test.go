@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/router"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -76,7 +76,7 @@ func TestNotificationTextIsNotExecutableSource(t *testing.T) {
 func TestAgentArgvDisablesNotifications(t *testing.T) {
 	for _, agent := range []string{"claude", "codex"} {
 		t.Run(agent, func(t *testing.T) {
-			route := router.Route{Target: config.Target{Agent: agent, Model: "sol", Effort: "high"}}
+			route := coreroute.Route{Target: config.Target{Agent: agent, Model: "sol", Effort: "high"}}
 			args := agentArgv(route, peerProcess(t, &config.Config{}, route, workerenv.Free, t.TempDir()))
 			if agent == "codex" {
 				i := slices.Index(args, "tui.notifications=false")

@@ -10,9 +10,9 @@ import (
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/pathutil"
-	"github.com/lorem-dev/duolog/internal/router"
+	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/pathutil"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/trust"
 	"github.com/lorem-dev/duolog/internal/trusthome"
@@ -35,7 +35,7 @@ var gateBinary = workerenv.GateBinary
 // alias. Codex extras come only from the role's own entry, whichever entry
 // named the native mode, when the resolved sandbox is workspace-write at
 // level edits or full.
-func resolveWorkerMode(cfg *config.Config, role string, route router.Route, lead session.Lead, effective mode.Mode) workerMode {
+func resolveWorkerMode(cfg *config.Config, role string, route coreroute.Route, lead session.Lead, effective mode.Mode) workerMode {
 	req := cfg.WorkerModes.Request(role, config.RouteFamilies(cfg, role, route.Model, route.Sandbox), route.Agent)
 	ceiling := mode.NewCeiling(lead.Agent, lead.Native, lead.Mode, effective)
 	w := workerMode{Resolved: mode.Resolve(route.Agent, req, ceiling, route.Sandbox), Request: req.Native}

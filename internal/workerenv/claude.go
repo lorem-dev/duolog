@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"path"
 
-	"github.com/lorem-dev/duolog/internal/pathutil"
+	"github.com/lorem-dev/duolog/internal/core/pathutil"
 )
 
 // ClaudeSettings is the --settings JSON of the free variant: it disables

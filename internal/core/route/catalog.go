@@ -1,5 +1,6 @@
-// Package route holds the model catalog rules: which concrete model a family
-// means, and which family a concrete model belongs to.
+// Package route selects role targets and applies the lead's effort ceiling. It
+// also holds the model catalog rules: which concrete model a family means, and
+// which family a concrete model belongs to.
 package route
 
 import (

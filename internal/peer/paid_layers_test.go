@@ -9,11 +9,11 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/core/mode"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -163,7 +163,7 @@ func TestPeerInputLocations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	route := router.Route{Target: config.Target{Agent: "claude", Model: "opus"}}
+	route := coreroute.Route{Target: config.Target{Agent: "claude", Model: "opus"}}
 	in, err := e.paneInput(r.root, route, mode.Ask, workerenv.Free, "lead-1", "plan", "peer-x", "")
 	if err != nil {
 		t.Fatal(err)

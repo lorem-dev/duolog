@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/paidruns/paidrunstest"
-	"github.com/lorem-dev/duolog/internal/pathutil"
 )
 
 func TestMainClearsWorkerEnvironment(t *testing.T) {

@@ -22,7 +22,6 @@ import (
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/paidruns"
-	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/skilltest"
@@ -238,7 +237,7 @@ func runSkillTests(cmd *cobra.Command, root, stateRoot, name string, cfg *config
 		}
 		selected := plan.ForAgent(target.Agent)
 		var result runner.Result
-		route := router.Route{Target: target}
+		route := coreroute.Route{Target: target}
 		var runErr error
 		if len(selected.Situations) > 0 {
 			result, route, runErr = askSkill(cmd, cfg, root, work, selected.Prompt(skill), target)
@@ -331,8 +330,8 @@ func keepRunLog(runErr error, tempLog, logPath string) error {
 	return errors.New(strings.ReplaceAll(runErr.Error(), tempLog, logPath))
 }
 
-func askSkill(cmd *cobra.Command, cfg *config.Config, root, work, prompt string, target config.Target) (result runner.Result, route router.Route, err error) {
-	route = router.Route{Target: target}
+func askSkill(cmd *cobra.Command, cfg *config.Config, root, work, prompt string, target config.Target) (result runner.Result, route coreroute.Route, err error) {
+	route = coreroute.Route{Target: target}
 	model, err := models.Resolve(cmd.Context(), cfg, filepath.Join(root, ".duolog", "cache"), target)
 	if err != nil {
 		return runner.Result{}, route, err

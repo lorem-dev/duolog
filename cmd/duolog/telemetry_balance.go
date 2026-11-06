@@ -13,7 +13,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/record"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/telemetry"
 )
 
@@ -296,7 +295,7 @@ func windowObservation(agent, family string, w quota.Window) record.WindowObserv
 // routeObservation maps a route the router resolved: the role's target is the
 // incumbent, the route's own target the chosen one, and the rule says why
 // they differ, if they do.
-func routeObservation(cfg *config.Config, role string, route router.Route, opts router.Options) record.RouteObservation {
+func routeObservation(cfg *config.Config, role string, route coreroute.Route, opts coreroute.Options) record.RouteObservation {
 	use := cfg.Roles[role].Use
 	rule := "pinned"
 	if opts.Use != nil {

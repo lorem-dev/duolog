@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/capability"
-	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 )
 
 const leadToken = "s3cret-lead-token"

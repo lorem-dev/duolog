@@ -14,7 +14,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 )
 
 func TestDecisionsUnderDepthRefused(t *testing.T) {

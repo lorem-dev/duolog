@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/pathutil"
+	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/pelletier/go-toml/v2"
 )
 

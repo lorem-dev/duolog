@@ -16,7 +16,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/usage"
 	"github.com/lorem-dev/duolog/internal/workerenv"
@@ -54,7 +53,7 @@ func workerEnv(in workerenv.ProcessInput) (workerenv.Process, error) {
 // environment, the route's context, the protected roots and the extra
 // variables, the run id and bridged servers' env, that pass Build's route
 // detection.
-func workerInput(cfg *config.Config, route router.Route, variant workerenv.Variant, leadID, role, root string,
+func workerInput(cfg *config.Config, route coreroute.Route, variant workerenv.Variant, leadID, role, root string,
 	roots, extra []string) workerenv.ProcessInput {
 	home, _ := os.UserHomeDir()
 	environ := os.Environ()
@@ -101,7 +100,7 @@ type permitRun struct {
 
 // admit acquires a permit for a worker of route described by in. A refusal
 // comes back as such, with no error.
-func admit(ctx context.Context, g *paidruns.Gate, cfg *config.Config, in workerenv.ProcessInput, route router.Route,
+func admit(ctx context.Context, g *paidruns.Gate, cfg *config.Config, in workerenv.ProcessInput, route coreroute.Route,
 	role, class string, records []journal.Delegation, opts Options) (*permitRun, *paidruns.Refusal, error) {
 	req := paidruns.Request{Input: in, Family: coreroute.Normalize(route.Agent, route.Model), Role: role, Class: class,
 		Records: records, Owner: paidruns.ProcessOwner(os.Getpid()), Calibration: opts.Calibration,
@@ -139,7 +138,7 @@ func (a *permitRun) launch(ctx context.Context, spec *runner.Spec) error {
 
 // release gives back a permit whose child never started, uncharged.
 func (a *permitRun) release(ctx context.Context) error {
-	return a.finish(ctx, nil, router.Route{Target: config.Target{Agent: a.permit.Reservation.Agent}}, runner.Result{})
+	return a.finish(ctx, nil, coreroute.Route{Target: config.Target{Agent: a.permit.Reservation.Agent}}, runner.Result{})
 }
 
 // sameRoute makes sure the login was checked on the admitted process. The
@@ -167,7 +166,7 @@ const settleTimeout = 10 * time.Second
 // counts at least its estimate when paid. A run whose child never started
 // releases its hold uncharged. It writes with a context that the
 // delegation's cancellation does not end.
-func (a *permitRun) finish(ctx context.Context, cfg *config.Config, route router.Route, r runner.Result) error {
+func (a *permitRun) finish(ctx context.Context, cfg *config.Config, route coreroute.Route, r runner.Result) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), settleTimeout)
 	defer cancel()
 	s := paidruns.Settlement{Input: r.Usage.Input, Cached: r.Usage.Cached, Output: r.Usage.Output,

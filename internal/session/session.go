@@ -13,7 +13,7 @@ import (
 
 	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 )
 
 type Lead struct {

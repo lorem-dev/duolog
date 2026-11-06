@@ -11,7 +11,6 @@ import (
 
 	corerecord "github.com/lorem-dev/duolog/internal/core/record"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
-	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/runner"
 )
 
@@ -70,7 +69,7 @@ func (a *attempts) begin() workerRun {
 
 // worker reports a finished runWorker call. retry marks the run again after a
 // login that worked.
-func (a *attempts) worker(w workerRun, route router.Route, retry bool, r runner.Result, err error) {
+func (a *attempts) worker(w workerRun, route coreroute.Route, retry bool, r runner.Result, err error) {
 	if a.observe == nil {
 		return
 	}
@@ -140,7 +139,7 @@ func workerOutcome(r runner.Result, err error) (outcome, code string) {
 // calls this. Placement is self when the router kept the task in the lead's
 // own model, inlead when it moved to the lead's agent. The lead's usage is
 // not known per task.
-func ObserveHere(observe Observer, role, class string, route router.Route, outcome string, d time.Duration) {
+func ObserveHere(observe Observer, role, class string, route coreroute.Route, outcome string, d time.Duration) {
 	if observe == nil {
 		return
 	}

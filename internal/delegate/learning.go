@@ -18,7 +18,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/learning"
 	"github.com/lorem-dev/duolog/internal/project"
-	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/usage"
@@ -55,7 +54,7 @@ type learnRun struct {
 
 type learnRoute struct {
 	entry, requested, ladder, why string
-	route                         router.Route
+	route                         coreroute.Route
 }
 
 // workRootOf is the directory the worker runs in: opts.WorkRoot, or the
@@ -231,7 +230,7 @@ func escalated(j *journal.Journal, leadID string, opts Options) (journal.Delegat
 // whose agent is available, the role's own routing applies; an escalation
 // with no available entry is an error instead. NoSelf is set only when the
 // entry is the lead's own model, so that it is measured.
-func (lr *learnRun) route(cfg *config.Config, role string, unavailable map[string]bool, ro *router.Options) error {
+func (lr *learnRun) route(cfg *config.Config, role string, unavailable map[string]bool, ro *coreroute.Options) error {
 	if lr == nil || lr.opts.Entry != nil {
 		return nil
 	}
@@ -250,7 +249,7 @@ func (lr *learnRun) route(cfg *config.Config, role string, unavailable map[strin
 		candidate := *ro
 		target := choice.Entry.Target()
 		candidate.Use = &target
-		route, err := router.Resolve(cfg, role, unavailable, candidate)
+		route, err := coreroute.Resolve(cfg, role, unavailable, candidate)
 		if err != nil {
 			return err
 		}
@@ -278,7 +277,7 @@ func (lr *learnRun) route(cfg *config.Config, role string, unavailable map[strin
 // resolved starts an attempt with the route Resolve gave for the choice route
 // made. The record is the final attempt's, so an earlier attempt's worker run
 // (one that hit a quota and fell back) is forgotten.
-func (lr *learnRun) resolved(route router.Route) {
+func (lr *learnRun) resolved(route coreroute.Route) {
 	if lr == nil {
 		return
 	}

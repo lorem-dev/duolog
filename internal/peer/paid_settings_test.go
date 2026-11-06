@@ -7,19 +7,19 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/router"
+	"github.com/lorem-dev/duolog/internal/core/mode"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // peerProcess builds the process of a peer pane for route.
-func peerProcess(t *testing.T, cfg *config.Config, route router.Route, variant workerenv.Variant, stateDir string, roots ...string) workerenv.Process {
+func peerProcess(t *testing.T, cfg *config.Config, route coreroute.Route, variant workerenv.Variant, stateDir string, roots ...string) workerenv.Process {
 	t.Helper()
 	return peerProcessIn(t, cfg, route, mode.Ask, variant, stateDir, roots...)
 }
 
 // peerProcessIn builds the pane of route under a lead in mode m.
-func peerProcessIn(t *testing.T, cfg *config.Config, route router.Route, m mode.Mode, variant workerenv.Variant, stateDir string, roots ...string) workerenv.Process {
+func peerProcessIn(t *testing.T, cfg *config.Config, route coreroute.Route, m mode.Mode, variant workerenv.Variant, stateDir string, roots ...string) workerenv.Process {
 	t.Helper()
 	p, err := agentEnv(peerInput(cfg, route, m, variant, "lead", "plan", "peer-test", "", stateDir, roots, os.Environ()))
 	if err != nil {
@@ -38,7 +38,7 @@ func TestPeerFastModePinned(t *testing.T) {
 	paid.PaidRuns.Claude.Allow, paid.PaidRuns.Claude.DailyCapUSD = true, 5
 	for _, variant := range []workerenv.Variant{workerenv.Free, workerenv.Paid} {
 		for _, context := range []string{"minimal", "project"} {
-			route := router.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Context: context}
+			route := coreroute.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Context: context}
 			args := agentArgv(route, peerProcess(t, paid, route, variant, root))
 			i := slices.Index(args, "--settings")
 			if i != 1 || slices.Index(args[i+1:], "--settings") >= 0 {

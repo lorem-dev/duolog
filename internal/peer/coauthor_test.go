@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/coauthor"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/delegate"
-	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/session"
 )
 

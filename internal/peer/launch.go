@@ -5,8 +5,8 @@ import (
 	"os"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/router"
+	"github.com/lorem-dev/duolog/internal/core/mode"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -17,7 +17,7 @@ import (
 // in its prefix, Claude's variable in its environment. Nothing here bypasses
 // the sandbox; Claude's protected roots are in its settings, and Codex reads
 // have only the gate.
-func agentArgv(route router.Route, p workerenv.Process) []string {
+func agentArgv(route coreroute.Route, p workerenv.Process) []string {
 	switch route.Agent {
 	case "codex":
 		args := p.LaunchArgv("-m", route.Model)
@@ -46,7 +46,7 @@ func agentArgv(route router.Route, p workerenv.Process) []string {
 // m picks. A Codex workspace-write peer gets no network and no writable root
 // beyond the project, whatever Codex's own config files say, as a worker
 // does.
-func paneLaunch(route router.Route, m mode.Mode) []string {
+func paneLaunch(route coreroute.Route, m mode.Mode) []string {
 	return mode.PinCodexSandbox(route.Agent, mode.Args(route.Agent, m, route.Sandbox), false, nil)
 }
 
@@ -67,7 +67,7 @@ func agentEnv(in workerenv.ProcessInput) (workerenv.Process, error) {
 // the pane launches with, so that the gate admits them. run, when set, is the pane's DUOLOG_RUN:
 // the run id duolog drew for this launch, never a vendor id; the gate's
 // telemetry events and the peer's own carry it.
-func peerInput(cfg *config.Config, route router.Route, m mode.Mode, variant workerenv.Variant, leadID, role, peerID, run, stateDir string,
+func peerInput(cfg *config.Config, route coreroute.Route, m mode.Mode, variant workerenv.Variant, leadID, role, peerID, run, stateDir string,
 	roots, environ []string) workerenv.ProcessInput {
 	in := workerenv.ProcessInput{Agent: route.Agent, Shape: workerenv.Peer, Variant: variant, Config: cfg,
 		Environ: environ, LeadID: leadID, Role: role, PeerID: peerID, StateDir: stateDir,

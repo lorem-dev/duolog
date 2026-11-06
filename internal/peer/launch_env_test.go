@@ -3,8 +3,8 @@ package peer
 import (
 	"encoding/json"
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/router"
+	"github.com/lorem-dev/duolog/internal/core/mode"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 	"os"
 	"path/filepath"
@@ -69,7 +69,7 @@ func TestTelemetryDenyReadSettings(t *testing.T) {
 	state := t.TempDir()
 	roots := []string{"/t/telemetry", "/t/balance", "/t/telemetry"}
 	for _, context := range []string{"minimal", "project"} {
-		route := router.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Context: context}
+		route := coreroute.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Context: context}
 		denied := peerDenied(peerSandbox(t, agentArgv(route, peerProcess(t, &config.Config{}, route, workerenv.Free, state, roots...))))
 		if len(denied) < 3 || denied[len(denied)-2] != "/t/telemetry" || denied[len(denied)-1] != "/t/balance" {
 			t.Fatal(context, denied)
@@ -78,7 +78,7 @@ func TestTelemetryDenyReadSettings(t *testing.T) {
 			t.Fatal(context, denied)
 		}
 	}
-	codexRoute := router.Route{Target: config.Target{Agent: "codex", Model: "sol"}}
+	codexRoute := coreroute.Route{Target: config.Target{Agent: "codex", Model: "sol"}}
 	codex := agentArgv(codexRoute, peerProcess(t, &config.Config{}, codexRoute, workerenv.Free, state, roots...))
 	if strings.Contains(strings.Join(codex, " "), "/t/") {
 		t.Fatal(codex)
@@ -93,7 +93,7 @@ func TestAgentEnvPinsExecutableDirectory(t *testing.T) {
 	for _, parent := range []string{"", t.TempDir()} {
 		t.Setenv("PATH", parent)
 		for _, agent := range []string{"claude", "codex"} {
-			route := router.Route{Target: config.Target{Agent: agent, Model: "sol"}}
+			route := coreroute.Route{Target: config.Target{Agent: agent, Model: "sol"}}
 			p, err := agentEnv(peerInput(&config.Config{EnvPassthrough: []string{"PATH", "Path"}}, route, mode.Ask, workerenv.Free, "lead", "docs", "peer-test",
 				"0123456789abcdef0123456789abcdef", "", nil, os.Environ()))
 			if err != nil {

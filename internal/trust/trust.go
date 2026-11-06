@@ -4,8 +4,8 @@ package trust
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/install"
-	"github.com/lorem-dev/duolog/internal/pathutil"
 	"github.com/lorem-dev/duolog/internal/trusthome"
 	"os"
 	"path/filepath"

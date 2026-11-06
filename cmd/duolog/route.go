@@ -4,15 +4,15 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/gate"
-	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/session"
 	"path/filepath"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/router"
+	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/spf13/cobra"
 )
 
@@ -36,7 +36,7 @@ func newRouteCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			opts := router.Options{AllowManualModel: allowManualModel}
+			opts := coreroute.Options{AllowManualModel: allowManualModel}
 			lead, err := reg.ResolveLead(leadFlag)
 			// Without a lead, route shows the request; the ceiling needs a lead.
 			noLead := err != nil && leadFlag == ""
@@ -65,7 +65,7 @@ func newRouteCommand() *cobra.Command {
 				return err
 			}
 			opts.Balance = paidruns.DefaultPaceBalance(cmd.Context(), cfg)
-			route, err := router.Resolve(cfg, args[0], unavailable, opts)
+			route, err := coreroute.Resolve(cfg, args[0], unavailable, opts)
 			if err != nil {
 				return err
 			}
