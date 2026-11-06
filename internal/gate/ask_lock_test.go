@@ -9,8 +9,62 @@ import (
 
 	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/bus"
+	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
 )
+
+// A reply-poll lock waits for the ask's deadline, not a shorter notice
+// budget. Contention that ends before that deadline preserves an allow.
+func TestAskPollAllowsAfterLockContention(t *testing.T) {
+	for _, name := range []string{"bus.lock", "sessions.lock"} {
+		t.Run(name, func(t *testing.T) {
+			b, r, dir := askSetup(t)
+			lead, _, err := r.Lead("first-123456")
+			if err != nil {
+				t.Fatal(err)
+			}
+			const from = "duolog/ask.test"
+			address := session.Address(lead)
+			if _, err := b.Send(bus.Message{From: from, To: address, K: Ask}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := b.Send(bus.Message{From: address, To: from, K: Allow, Ref: "1"}); err != nil {
+				t.Fatal(err)
+			}
+			lock := flock.New(filepath.Join(dir, name))
+			if err := lock.Lock(); err != nil {
+				t.Fatal(err)
+			}
+			defer lock.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			poll := askPoll{reg: r.Within(ctx), bus: b.Within(ctx), lead: lead.ID, from: from, address: address, n: 1}
+			done := make(chan struct{})
+			var answer string
+			var pollErr error
+			go func() {
+				defer close(done)
+				answer, pollErr = poll.answer()
+			}()
+			select {
+			case <-done:
+				t.Fatalf("poll ended while the lock was held: %q, %v", answer, pollErr)
+			case <-time.After(2 * store.NoticeWait):
+			}
+			if err := lock.Unlock(); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-done:
+				if pollErr != nil || answer != Allow {
+					t.Fatalf("poll = %q, %v; want allow", answer, pollErr)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("poll did not resume after the lock was released")
+			}
+		})
+	}
+}
 
 // holdLock takes the named lock of the state folder, as another process that
 // stalls with it would, until the test ends.
