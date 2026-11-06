@@ -998,7 +998,7 @@
             "auto",
             "bypassPermissions"
           ],
-          "description": "Native Claude permission mode a worker starts in; it never exceeds the lead's mode. Absent means duolog's default."
+          "description": "Native Claude permission mode a worker starts in; it never exceeds the lead's mode. plan sets the worker's level to plan: it starts in default, and the gate keeps it read-only. Absent means duolog's default."
         },
         "codex": {
           "type": "string",

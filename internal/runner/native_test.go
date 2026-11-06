@@ -30,7 +30,7 @@ func TestArgvRefusesNativeAboveMode(t *testing.T) {
 		want                   string
 	}{
 		{"claude", "bypassPermissions", "workspace-write", mode.Edits, "acceptEdits"},
-		{"claude", "auto", "read-only", mode.Full, "plan"},
+		{"claude", "auto", "read-only", mode.Full, "default"},
 		{"claude", "dontAsk", "workspace-write", mode.Full, "acceptEdits"},
 		{"codex", "danger-full-access", "workspace-write", mode.Full, "workspace-write"},
 		{"codex", "workspace-write", "workspace-write", mode.Plan, "read-only"},
@@ -42,6 +42,26 @@ func TestArgvRefusesNativeAboveMode(t *testing.T) {
 			t.Errorf("%+v: %s", tc, line)
 		}
 	}
+}
+
+// A read-only role's Claude worker starts in Claude's default mode, never in
+// plan, whatever native name or level it is given; the gate keeps it
+// read-only. A Codex worker keeps its read-only sandbox.
+func TestReadOnlyClaudeWorkerNeverLaunchesInPlan(t *testing.T) {
+	for _, native := range []string{"", "plan", "default", "acceptEdits"} {
+		for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Full} {
+			s := spec(t, "claude")
+			s.Route.Sandbox, s.Mode, s.Native = "read-only", m, native
+			args := launched(t, s)
+			containsArgs(t, args, "--permission-mode", "default")
+			if slices.Contains(args, "plan") || slices.Contains(Launch(s), "plan") {
+				t.Errorf("%q at %s: %v", native, m, args)
+			}
+		}
+	}
+	c := spec(t, "codex")
+	c.Route.Sandbox, c.Mode, c.Native = "read-only", mode.Plan, "read-only"
+	containsArgs(t, launched(t, c), "-s", "read-only")
 }
 
 func TestCodexExtrasArgv(t *testing.T) {

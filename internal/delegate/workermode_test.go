@@ -284,6 +284,39 @@ func TestDuologModeOnlyWithAnEntry(t *testing.T) {
 	}
 }
 
+// A read-only role's Claude worker, under any lead or with an entry asking
+// plan, and a write role whose entry asks plan, all start in Claude's
+// default mode, never in plan; the level stays plan, so the gate keeps the
+// worker read-only.
+func TestClaudeWorkerNeverLaunchesInPlan(t *testing.T) {
+	for _, tc := range []struct {
+		name, role, entry string
+		lead              mode.Mode
+	}{
+		{"read-only role", "review_final", "", mode.Full},
+		{"lead in plan", "review_final", "", mode.Plan},
+		{"read-only role entry asks plan", "review_final", "  roles:\n    review_final: {claude: plan}\n", mode.Full},
+		{"write role entry asks plan", "implement", "  roles:\n    implement: {claude: plan}\n", mode.Full},
+	} {
+		h := newHarness(t)
+		if tc.entry != "" {
+			h.workerModes(tc.entry)
+		}
+		h.lead("claude", tc.lead, "high")
+		if _, err := h.runOn(tc.role, "claude", "haiku"); err != nil {
+			t.Fatal(tc.name, err)
+		}
+		c := h.calls[0]
+		launch := strings.Join(c.Process.Launch, " ")
+		if c.Native != "default" || c.Mode != mode.Plan || launch != "-p --permission-mode default" || strings.Contains(c.Process.Settings, `"plan"`) {
+			t.Errorf("%s: native %s mode %s launch %q", tc.name, c.Native, c.Mode, launch)
+		}
+		if slices.Contains(c.Process.Env, "DUOLOG_NATIVE=plan") || !slices.Contains(c.Process.Env, "DUOLOG_NATIVE=default") {
+			t.Errorf("%s: the gate's log would not name native default", tc.name)
+		}
+	}
+}
+
 // Re-review m1 and m2: a family entry that asks above duolog's default does
 // not lower the level below the default's, and a family entry does not set
 // the gate of a read-only role to plan.
@@ -402,8 +435,9 @@ func TestRouteChangeCannotEscapeFamilyLowering(t *testing.T) {
 			t.Fatal(tc.name, out, err)
 		}
 		h.requireCalls(1)
-		if c := h.calls[0]; c.Native != "plan" {
-			t.Errorf("%s: %s on %s, want plan (%s)", tc.name, c.Native, c.Route.Model, out.Line)
+		// Level plan, in Claude's default mode: the gate keeps it read-only.
+		if c := h.calls[0]; c.Native != "default" || c.Mode != mode.Plan {
+			t.Errorf("%s: %s at %s on %s, want default at plan (%s)", tc.name, c.Native, c.Mode, c.Route.Model, out.Line)
 		}
 	}
 }

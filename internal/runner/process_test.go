@@ -250,10 +250,12 @@ func TestWorkerBuildGatesExplicitPassthrough(t *testing.T) {
 	})
 }
 
-// modeArgs are the sandbox flags of spec's plan mode.
+// modeArgs are the sandbox flags of spec's plan mode: Codex's read-only
+// sandbox, and Claude's default mode, as a Claude worker never starts in
+// Claude's plan.
 func modeArgs(agent string) []string {
 	if agent == "codex" {
 		return []string{"-s", "read-only"}
 	}
-	return []string{"--permission-mode", "plan"}
+	return []string{"--permission-mode", "default"}
 }

@@ -69,6 +69,7 @@ func TestPeerAdmittedArgvIsLaunchedArgv(t *testing.T) {
 			{"codex", "sol", "workspace-write", mode.Edits, []string{"-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=false", "-c", "sandbox_workspace_write.writable_roots=[]"}, "-s"},
 			{"codex", "sol", "read-only", mode.Full, []string{"-s", "read-only"}, "-s"},
 			{"claude", "opus", "workspace-write", mode.Edits, []string{"--permission-mode", "acceptEdits"}, "--permission-mode"},
+			{"claude", "opus", "read-only", mode.Full, []string{"--permission-mode", "default"}, "--permission-mode"},
 		} {
 			route := router.Route{Target: config.Target{Agent: tc.agent, Model: tc.model}, Sandbox: tc.sandbox}
 			p := peerProcessIn(t, paid, route, tc.m, variant, t.TempDir())
@@ -78,6 +79,26 @@ func TestPeerAdmittedArgvIsLaunchedArgv(t *testing.T) {
 			args, admitted := agentArgv(route, p), p.LaunchArgv()
 			if len(args) < len(admitted) || !slices.Equal(args[:len(admitted)], admitted) || slices.Contains(args[len(admitted):], tc.flag) {
 				t.Errorf("%s %s: launched %v, admitted %v", variant, tc.agent, args, admitted)
+			}
+		}
+	}
+}
+
+// A Claude peer never starts in Claude's plan mode: plan's own "Exit plan
+// mode?" prompt waits for a person the pane does not have. A read-only role
+// or a lead in plan gives the pane Claude's default mode, and the gate keeps
+// it read-only.
+func TestClaudePeerNeverLaunchesInPlan(t *testing.T) {
+	for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Full} {
+		for _, sandbox := range []string{"read-only", "workspace-write"} {
+			route := router.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Sandbox: sandbox}
+			p := peerProcessIn(t, &config.Config{}, route, m, workerenv.Free, t.TempDir())
+			args := agentArgv(route, p)
+			if slices.Contains(args, "plan") || strings.Contains(p.Settings, `"plan"`) {
+				t.Errorf("%s %s: %v", m, sandbox, args)
+			}
+			if (m == mode.Plan || sandbox == "read-only") && !slices.Equal(p.Launch, []string{"--permission-mode", "default"}) {
+				t.Errorf("%s %s: launch %v", m, sandbox, p.Launch)
 			}
 		}
 	}

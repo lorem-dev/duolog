@@ -44,8 +44,8 @@
 
 ### Added
 
-- `worker_modes` sets a delegate worker's native mode per role and family,
-  never above the lead's; a looser mode needs a gate preflight.
+- `worker_modes` sets a worker's native mode per role and family, never above
+  the lead's; looser needs a gate preflight. No Claude worker or peer uses plan.
 - `paid_runs.<agent>.allow` lets workers and peers run paid when out of quota,
   up to `daily_cap_usd` in 24 hours; `calibrate` does so within the plan's USD.
 - `limits.max_total_sessions` (10) and `limits.sessions_by_tier` (3, 5, 10 by

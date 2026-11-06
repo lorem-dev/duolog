@@ -726,7 +726,7 @@ An entry has these keys:
 
 | Key | Meaning |
 |---|---|
-| `claude` | `plan`, `default`, `acceptEdits`, `auto` or `bypassPermissions` |
+| `claude` | `plan`, `default`, `acceptEdits`, `auto` or `bypassPermissions`. `plan` gives the worker level `plan`: it starts in Claude's `default` mode, and the gate keeps it read-only |
 | `codex` | `read-only` or `workspace-write` |
 | `network` | Role entries only. Asks Codex to let the worker's commands reach the network. Default: `false` |
 | `writable_roots` | Role entries only. Absolute or `~/` folders Codex commands may write besides the project. Default: none |

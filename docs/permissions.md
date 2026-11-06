@@ -47,6 +47,16 @@ the flag that matches the lead's mode, never above `acceptEdits` for Claude or
 changes it for one role or one model family. Without the section nothing
 changes.
 
+A Claude worker or peer never starts in Claude's own plan mode. Plan mode
+asks a person before it lets the agent leave it, and a worker or peer has no
+person to answer, so it stops and waits. A worker or peer at level `plan`
+starts in Claude's `default` mode instead: a read-only role, a lead in
+`plan`, `duolog mode plan`, or an entry that asks `plan`. Its level stays
+`plan`. So the gate still denies every write and every command that is not
+a named read-only command, as it did before. It allows only a peer's own
+report. A Codex worker keeps its `read-only` sandbox, which the OS enforces.
+The lead keeps its own mode; duolog does not change it.
+
 An entry names a native value, such as `acceptEdits` or `read-only`. duolog
 resolves it for each worker:
 

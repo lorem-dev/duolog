@@ -8,7 +8,9 @@ import (
 
 // Rank orders the native names duolog offers a worker. Claude: plan 0,
 // default 1, acceptEdits 2, auto 3, bypassPermissions 4. Codex: read-only 0,
-// workspace-write 2. Every other name is not offered: (-1, false).
+// workspace-write 2. Every other name is not offered: (-1, false). Claude
+// plan stays ranked so that a config entry can lower to it; a worker asking
+// it starts in default (launchNative).
 func Rank(agent, native string) (int, bool) {
 	switch agent {
 	case "claude":
@@ -36,7 +38,9 @@ func Rank(agent, native string) (int, bool) {
 }
 
 // Default is the native value Args passes: the role sandbox narrows the
-// mode, and full uses the same value as edits.
+// mode, and full uses the same value as edits. A Claude worker or peer at
+// level plan gets Claude's default mode, never Claude's plan (see
+// launchNative).
 func Default(agent string, m Mode, sandbox string) string {
 	if sandbox == "read-only" {
 		m = Plan
@@ -49,8 +53,6 @@ func Default(agent string, m Mode, sandbox string) string {
 		return "workspace-write"
 	case "claude":
 		switch m {
-		case Plan:
-			return "plan"
 		case Edits, Full:
 			return "acceptEdits"
 		}
@@ -59,13 +61,37 @@ func Default(agent string, m Mode, sandbox string) string {
 	return ""
 }
 
-// Flags turns a native name into the agent's command-line flags.
+// launchNative is the native name a worker or peer starts with for the name
+// duolog resolved. A Claude worker or peer never starts in Claude's plan
+// mode: plan is an interactive mode, and leaving it, or a plan the agent
+// wants to write, waits on an "Exit plan mode?" prompt for a person that a
+// worker or peer does not have, so it deadlocks. It starts in Claude's
+// default mode instead, one rank above plan.
+//
+// That is safe because Claude's plan adds nothing that duolog's gate does
+// not already enforce: the level stays plan, so the gate's PreToolUse hook
+// denies every write and every command that is not a named read-only one
+// ("plan mode permits only reads"), and a read-only role sandbox denies
+// them whatever the lead's mode ("role ... cannot write"), except the peer's
+// own report. The ceilings and the gate preflight compare levels and the
+// ranks of requested names, never this launch name, so treating default as
+// at or below what plan allowed loosens nothing else. Codex's read-only is a
+// real OS sandbox, not a prompt, and stays.
+func launchNative(agent, native string) string {
+	if agent == "claude" && native == "plan" {
+		return "default"
+	}
+	return native
+}
+
+// Flags turns a native name into the agent's command-line flags. A Claude
+// plan becomes default (launchNative), whichever caller names it.
 func Flags(agent, native string) []string {
 	switch agent {
 	case "codex":
 		return []string{"-s", native}
 	case "claude":
-		return []string{"--permission-mode", native}
+		return []string{"--permission-mode", launchNative(agent, native)}
 	}
 	return nil
 }
@@ -146,7 +172,9 @@ func loosestRank(agent string, level Mode, auto bool) int {
 }
 
 // Resolve picks the level and native name for one worker. The level is never
-// above the effective lead mode and the native name never above the level.
+// above the effective lead mode and the native name never above the level,
+// except that a Claude worker at level plan starts in default, which the
+// gate holds to plan (launchNative).
 func Resolve(agent string, r Request, c Ceiling, sandbox string) Resolved {
 	level := c.Effective
 	if sandbox == "read-only" {
@@ -173,6 +201,10 @@ func Resolve(agent string, r Request, c Ceiling, sandbox string) Resolved {
 			by = "lead " + string(c.Lead)
 		}
 	}
+	// An entry may still name Claude plan to lower a worker to level plan;
+	// the worker then starts in default (launchNative), which is also
+	// Default's name for plan, so it is never looser.
+	native = launchNative(agent, native)
 	nativeRank, _ := Rank(agent, native)
 	defaultRank, _ := Rank(agent, Default(agent, level, sandbox))
 	return Resolved{Level: level, Native: native, Source: r.Source, LoweredBy: by, Looser: nativeRank > defaultRank}
