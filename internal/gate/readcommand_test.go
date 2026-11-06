@@ -22,7 +22,7 @@ func TestRecursiveReadCommandTargets(t *testing.T) {
 		{"grep --directories recurse token internal", []string{"internal"}},
 		{"rg --hidden token internal .", []string{"internal", "."}},
 		{"rg -uu token", []string{"."}},
-		{"rg --hidden --regexp=token", []string{".", "token"}},
+		{"rg --hidden --regexp=token", []string{"."}},
 		{"grep --directories=recurse token", []string{".", "recurse"}},
 	} {
 		targets, reason := readCommandTargets(tc.command)

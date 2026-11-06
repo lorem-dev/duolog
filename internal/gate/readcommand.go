@@ -307,12 +307,16 @@ func gitTargets(args []string) ([]string, string) {
 	}
 	var targets []string
 	literal := false
-	for _, word := range args[1:] {
+	for i := 1; i < len(args); i++ {
+		word := args[i]
 		switch {
 		case literal:
 			targets = append(targets, word)
 		case word == "--":
 			literal = true
+		case gitPatternOption(word):
+			// The next word is a pattern or a format, not a path.
+			i++
 		case strings.HasPrefix(word, "-"):
 		default:
 			if _, path, found := strings.Cut(word, ":"); found && !pathutil.IsAbs(word) {
@@ -322,6 +326,12 @@ func gitTargets(args []string) ([]string, string) {
 		}
 	}
 	return checkTargets(targets)
+}
+
+// gitPatternOption reports whether a Git read option takes the next word as a
+// pattern or a format: -G, -S and the options of patternOptions.
+func gitPatternOption(word string) bool {
+	return word == "-G" || word == "-S" || slices.Contains(patternOptions["git"], word)
 }
 
 func mergeTargets(targets, values []string) ([]string, string) {
@@ -409,7 +419,11 @@ func unquoteRgGlobs(command string) string {
 // or the PowerShell form -Path:x.
 func optionValue(command, word string) string {
 	if strings.HasPrefix(word, "--") {
-		_, value, _ := strings.Cut(word, "=")
+		name, value, _ := strings.Cut(word, "=")
+		// A pattern or replacement text, not a file.
+		if (command == "grep" || command == "rg") && (name == "--regexp" || name == "--replace") {
+			return ""
+		}
 		return value
 	}
 	switch command {
@@ -452,7 +466,8 @@ var (
 		"--regexp", "--file", "--encoding", "--sort", "--sortr", "--threads", "--replace", "--engine", "--color", "--colors", "--context-separator", "--dfa-size-limit",
 		"--field-context-separator", "--field-match-separator", "--max-filesize", "--path-separator", "--regex-size-limit"}
 	// grep's --context and -C take an optional value that must be attached (--context=3, -C3), so they never consume the next word.
-	grepSeparateLong = []string{"--after-context", "--before-context", "--regexp", "--file", "--max-count", "--include", "--exclude", "--exclude-dir", "--label", "--directories"}
+	grepSeparateLong = []string{"--after-context", "--before-context", "--regexp", "--file", "--max-count", "--include", "--exclude", "--exclude-dir", "--label", "--directories",
+		"--exclude-from", "--binary-files", "--devices"}
 )
 
 // separateValue reports whether word is an option whose value is the next
@@ -480,7 +495,7 @@ func separateValue(command, word string) bool {
 // fileValue reports whether an option's separate value is a file to read.
 func fileValue(command, word string) bool {
 	if strings.HasPrefix(word, "--") {
-		return word == "--file"
+		return word == "--file" || word == "--exclude-from"
 	}
 	letter, _ := valueShort(command, word)
 	return letter == 'f'

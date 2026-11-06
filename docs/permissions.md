@@ -439,6 +439,22 @@ This holds in every mode. `full` mode confirms the asks of the policy rules,
 but not an exec ask that names an outside path, such as
 `gawk -E /etc/passwd`. Only the person can allow such a command.
 
+Only a word that names a file makes a command the person's. A search
+pattern does not, even with `..` or `/` in it. That covers the first operand
+of `grep`, `egrep`, `fgrep`, `rg` and `git grep`, unless `-e` or `-f` gives
+the patterns, and each `-e` or `--regexp` value. It also covers the text of
+`rg -r` and the `-G` and `-S` values of `git log`, `git diff` and `git show`.
+The sets of `tr` count as patterns, and so does an `awk` program without
+`system`, `getline`, a redirect or a pipe. So `grep -n '\.\.' a.go` stays
+with the lead, while `grep x ../peer/f`, `grep -f ../x a.go` and
+`grep --exclude-from=/etc/x y a.go` need the person. An unknown option, or one
+whose value may or may not be the next word, makes every word count as a path.
+In these commands, and in `cat`, `head`, `tail`, `sort`, `uniq`, `wc`, `cut`,
+`ls`, `go list` and a `sed` that only substitutes or prints, a quoted argument
+is one word. A `<` or `>` inside its quotes redirects nothing. Other commands
+are read word by word, so a path inside `sh -c 'cat ../x'` still needs the
+person. A stream such as `/dev/null` is not a path outside the work root.
+
 The lead's own hook guards shell commands that may run `duolog allow N`.
 For a Claude lead, it asks Claude Code to prompt the person. For a Codex lead,
 it denies the command. The hint names the owning lead and the project folder.

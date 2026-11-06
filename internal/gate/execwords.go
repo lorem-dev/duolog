@@ -331,11 +331,16 @@ func verbatimWords(part string) ([]shellWord, []string, bool) {
 	if len(args) == 0 || slices.ContainsFunc(args, unquotedSyntax) {
 		return nil, nil, false
 	}
-	texts := make([]string, len(args))
-	for i, word := range args {
+	return args, files, verbatimCommand(wordTexts(args))
+}
+
+// wordTexts returns the text of each word.
+func wordTexts(words []shellWord) []string {
+	texts := make([]string, len(words))
+	for i, word := range words {
 		texts[i] = word.text
 	}
-	return args, files, verbatimCommand(texts)
+	return texts
 }
 
 // unquotedSyntax reports whether a word holds shell syntax outside quotes,
@@ -357,7 +362,8 @@ func verbatimOutside(a Action, part string, own []string) (handled, outside bool
 	if !ok {
 		return false, false
 	}
-	if slices.ContainsFunc(files, func(file string) bool { return outsideOperand(a, file) }) {
+	patterns, named := searchPatterns(wordTexts(words))
+	if slices.ContainsFunc(append(files, named...), func(file string) bool { return outsideOperand(a, file) }) {
 		return true, true
 	}
 	texts := make([]string, len(words))
@@ -373,6 +379,7 @@ func verbatimOutside(a Action, part string, own []string) (handled, outside bool
 		word := words[i]
 		name, _, attached := strings.Cut(word.text, "=")
 		switch {
+		case patterns[i]:
 		case options && word.text == "--":
 			options = false
 		case options && slices.Contains(valued, name):
