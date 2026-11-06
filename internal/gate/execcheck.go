@@ -404,14 +404,20 @@ func outsideOperand(a Action, target string) bool {
 		// ~name, or ~ where the home folder is not known.
 		return true
 	}
-	clean := pathutil.Clean(target)
-	if slices.Contains([]string{"/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"}, clean) || strings.HasPrefix(clean, "/dev/fd/") {
+	if streamDevice(target) {
 		return false
 	}
 	if a.Work != "" {
 		target = RelativeTarget(a.Work, a.Cwd, target)
 	}
 	return outside(target)
+}
+
+// streamDevice reports whether a path names a stream of the command itself,
+// such as /dev/null or /dev/fd/3, rather than a file.
+func streamDevice(target string) bool {
+	clean := pathutil.Clean(target)
+	return slices.Contains([]string{"/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"}, clean) || strings.HasPrefix(clean, "/dev/fd/")
 }
 
 // withoutRedirects drops the redirects of a part and the files they name, so
