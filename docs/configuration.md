@@ -18,6 +18,11 @@ one. The default deny rules stay in every case.
 | 3 | `.duolog/config.yaml` | The project rules. Commit this file |
 | 4 | `.duolog/config.local.yaml` | Your private changes. Git ignores it |
 
+In a linked worktree, duolog reads layers 3 and 4 from the main checkout's
+`.duolog/`, which every linked worktree shares. A `.duolog/config.local.yaml`
+inside the linked worktree is not read, so put your changes in the main
+checkout's file.
+
 A local file that Git tracks, for example one added with `git add -f`,
 reaches everyone who clones the repository. duolog then reads it with the
 rules of `.duolog/config.yaml`: it may only make paid runs, prices, the
