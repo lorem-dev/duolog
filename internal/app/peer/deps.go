@@ -8,7 +8,12 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/launch"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	"github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/route"
+	"github.com/lorem-dev/duolog/internal/core/screen"
 )
 
 // Clock is the time peer reads and waits on. Sleep returns ctx's error when
@@ -22,6 +27,25 @@ type Clock interface {
 // cacheDir is the folder of the agent's catalog cache, or "" for none.
 type ModelResolver interface {
 	Resolve(ctx context.Context, cfg *config.Config, cacheDir string, t config.Target) (string, error)
+}
+
+// PaneAgent is what peer needs of an agent to open and read its pane.
+type PaneAgent interface {
+	// Argv is the interactive command of a pane: the admitted process's launch
+	// argv, then the pane's own flags. m is the lead's mode the pane opened
+	// under.
+	Argv(r route.Route, m mode.Mode, p corelaunch.Process) []string
+	// Settings are the extra settings the pane's process gets, or nil.
+	Settings() map[string]any
+	// Offer reads the agent's own question whether to install a plugin.
+	Offer(s screen.Screen) (screen.Offer, bool)
+}
+
+// Pane is the pane support of one agent: its port and the texts of its
+// terminal. An agent with no pane support has a nil Agent.
+type Pane struct {
+	Agent PaneAgent
+	Facts agent.PaneFacts
 }
 
 // Pauses are the waits between pane reads and keys. Send is the 0.7 s that the
@@ -43,6 +67,9 @@ type Deps struct {
 	Pauses Pauses
 	// Models gives the concrete model of a route's target, by agent.
 	Models map[string]ModelResolver
+	// Panes gives the pane support of each agent, by agent. An agent that is
+	// not here, or has no Agent, cannot open a pane.
+	Panes map[string]Pane
 	// ResetTime parses the time a provider limit on a pane's screen says the
 	// quota returns, by the pane's agent; without one it gives a fallback.
 	ResetTime func(agent, text string, now time.Time) time.Time

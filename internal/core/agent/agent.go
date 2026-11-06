@@ -7,9 +7,45 @@ type EnvNames struct {
 	APIKey, AuthToken, BaseURL []string
 }
 
-// PaneFacts holds the texts of an agent's terminal pane. It is filled in when
-// the pane port lands.
-type PaneFacts struct{}
+// ComposerFacts describes where an agent draws its input line.
+type ComposerFacts struct {
+	// Marker starts the input line: "›" for Codex, "❯" for Claude. An agent
+	// with no marker has no composer to find.
+	Marker string
+	// Boxed means the line sits between two rules, which keeps it apart from a
+	// menu cursor, and the rows of a wrapped input end at the rule below.
+	Boxed bool
+}
+
+// AutoAnswer is the option an agent's pane picks for a gate verdict on a
+// question it asks, by the option's label.
+type AutoAnswer struct {
+	// Verdict is "allow" or "deny".
+	Verdict string
+	Label   string
+}
+
+// PaneFacts holds the texts of an agent's terminal pane, as the screen reader
+// takes them. The zero value is an agent with no pane support.
+type PaneFacts struct {
+	// Placeholder is a regular expression for the input line's placeholder
+	// text, matched against the text after the marker.
+	Placeholder string
+	// Updater holds lower-case phrases that show the agent updating itself.
+	Updater []string
+	// Interrupt holds regular expressions for the notice above the input line
+	// after a turn was interrupted.
+	Interrupt []string
+	Composer  ComposerFacts
+	// Answers are the labels the pane picks for a gate verdict.
+	Answers []AutoAnswer
+	// CommandQuestion is the fixed prompt shown above a command the agent wants
+	// to run; empty when it has none.
+	CommandQuestion string
+	// Queued is the hint of a question behind the agent's follow-up input
+	// panel; empty when it has none.
+	Queued string
+}
 
 // ConfigFacts names the keys of the config that only some agents have.
 type ConfigFacts struct {

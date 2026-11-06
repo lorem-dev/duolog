@@ -150,7 +150,11 @@ func (e *env) admitPane(ctx context.Context, route coreroute.Route, lead leadInf
 // are never route names, so both variants have the same. m is the lead's
 // mode, which picks the pane's native permission flags.
 func (e *env) paneInput(root string, route coreroute.Route, m mode.Mode, variant corelaunch.Variant, leadID, role, id, run string) (corelaunch.ProcessInput, error) {
-	in := peerInput(e.cfg, route, m, variant, leadID, role, id, run, filepath.Dir(e.dir), e.opts.ProtectedRoots, os.Environ())
+	var settings map[string]any
+	if pane := e.pane(route.Agent); pane.Agent != nil {
+		settings = pane.Agent.Settings()
+	}
+	in := peerInput(e.cfg, route, m, settings, variant, leadID, role, id, run, filepath.Dir(e.dir), e.opts.ProtectedRoots, os.Environ())
 	free := in
 	free.Variant = corelaunch.Free
 	built, err := agentEnv(e.opts.Deps.Build, free)

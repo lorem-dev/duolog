@@ -35,7 +35,14 @@ func TestFacts(t *testing.T) {
 		LoginPhrases:    []string{"not logged in", "please run /login", "invalid api key", "oauth token has expired", "authentication_error", "401 unauthorized"},
 		InstructionFile: "CLAUDE.md",
 		LeadCanAsk:      true,
-		Config:          agent.ConfigFacts{SubscriptionEndpoints: true},
+		// internal/core/screen/screen.go claudeTry, interruptedRe, updatingRe.
+		Pane: agent.PaneFacts{
+			Placeholder: `^Try[\s\x{00a0}]+["“]`,
+			Updater:     []string{"updating claude"},
+			Interrupt:   []string{`^[\s⎿│]*Interrupted(?:\s*·\s*What should Claude do instead\?|\s+by user\b)`},
+			Composer:    agent.ComposerFacts{Marker: "❯", Boxed: true},
+		},
+		Config: agent.ConfigFacts{SubscriptionEndpoints: true},
 	}
 	if !reflect.DeepEqual(Facts, want) {
 		t.Fatalf("Facts = %+v, want %+v", Facts, want)

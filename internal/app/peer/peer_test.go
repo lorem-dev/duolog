@@ -26,7 +26,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/route"
-	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/rex"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -164,6 +163,7 @@ func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
 			}
 			return route.Normalize(target.Agent, target.Model), nil
 		}),
+		Panes:       testPanes(),
 		ResetTime:   workertest.ResetTime,
 		Notify:      func(string, string) {},
 		RecordPeer:  func(reg *session.Registry, e session.Entry, limit int) error { return reg.RecordLimited(e, limit) },
@@ -453,6 +453,21 @@ func TestPeerOpenRefusedForWorker(t *testing.T) {
 	}
 	if len(r.spawns()) != 0 {
 		t.Fatal("a worker opened a pane")
+	}
+}
+
+// An agent with no PaneAgent cannot open a pane: nothing is admitted or spawned.
+func TestPeerOpenRefusedWithoutPaneSupport(t *testing.T) {
+	r := newRig(t, baseScript())
+	r.useDeps(func(d *Deps) {
+		d.Panes = map[string]Pane{"claude": d.Panes["claude"], "codex": {Facts: d.Panes["codex"].Facts}}
+	})
+	_, err := Open(r.ctx, "implement")
+	if err == nil || err.Error() != "peer open: codex has no pane support" {
+		t.Fatalf("%v", err)
+	}
+	if len(r.spawns()) != 0 {
+		t.Fatal("a pane opened for an agent with no pane support")
 	}
 }
 
@@ -1694,7 +1709,7 @@ func TestAutoAnswerRules(t *testing.T) {
 
 func TestCommandAskCannotUseTextRule(t *testing.T) {
 	r := newRig(t, withScreens(commandPrompt("unknown-command", false)))
-	r.cfg.Rex.AutoAnswers = []config.AutoAnswer{{Match: corescreen.CommandQuestion, Answer: "Yes, proceed"}}
+	r.cfg.Rex.AutoAnswers = []config.AutoAnswer{{Match: testPane("codex").Facts.CommandQuestion, Answer: "Yes, proceed"}}
 	e := r.open("implement")
 	if e.State != Question || len(r.keys()) != 0 {
 		t.Fatalf("%+v %v", e, r.keys())

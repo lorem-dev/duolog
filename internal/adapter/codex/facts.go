@@ -24,5 +24,15 @@ var Facts = agent.Descriptor{
 	HiddenPrefixes:  []string{"CODEX_", "OPENAI_"},
 	LoginPhrases:    []string{"codex login", "token_expired", "invalid_token", "refresh token"},
 	InstructionFile: "AGENTS.md",
-	Config:          agent.ConfigFacts{SandboxRoots: true},
+	Pane: agent.PaneFacts{
+		Placeholder: `^Ask Codex to do anything$`,
+		Updater:     []string{"updating codex"},
+		Interrupt:   []string{`^[\s■•]*Conversation interrupted\b`},
+		Composer:    agent.ComposerFacts{Marker: "›"},
+		// What the pane picks when the gate allows or denies a command.
+		Answers:         []agent.AutoAnswer{{Verdict: "allow", Label: "Yes, proceed"}, {Verdict: "deny", Label: "No"}},
+		CommandQuestion: "Would you like to run the following command?",
+		Queued:          "shift+left to answer",
+	},
+	Config: agent.ConfigFacts{SandboxRoots: true},
 }

@@ -34,7 +34,18 @@ func TestFacts(t *testing.T) {
 		LoginPhrases:    []string{"codex login", "token_expired", "invalid_token", "refresh token"},
 		InstructionFile: "AGENTS.md",
 		LeadCanAsk:      false,
-		Config:          agent.ConfigFacts{SandboxRoots: true},
+		// internal/core/screen/screen.go interruptedRe, updatingRe and the
+		// Codex arms of Parse; internal/app/peer/auto_answer.go.
+		Pane: agent.PaneFacts{
+			Placeholder:     `^Ask Codex to do anything$`,
+			Updater:         []string{"updating codex"},
+			Interrupt:       []string{`^[\s■•]*Conversation interrupted\b`},
+			Composer:        agent.ComposerFacts{Marker: "›"},
+			Answers:         []agent.AutoAnswer{{Verdict: "allow", Label: "Yes, proceed"}, {Verdict: "deny", Label: "No"}},
+			CommandQuestion: "Would you like to run the following command?",
+			Queued:          "shift+left to answer",
+		},
+		Config: agent.ConfigFacts{SandboxRoots: true},
 	}
 	if !reflect.DeepEqual(Facts, want) {
 		t.Fatalf("Facts = %+v, want %+v", Facts, want)

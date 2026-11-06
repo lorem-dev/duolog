@@ -8,6 +8,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/lorem-dev/duolog/internal/core/agent"
 )
 
 // State is what a peer session is doing, read from a bounded screen sample.
@@ -62,9 +64,6 @@ type Screen struct {
 	Text string
 }
 
-// CommandQuestion is the fixed prompt Codex shows above a command it wants to run.
-const CommandQuestion = "Would you like to run the following command?"
-
 const (
 	markers          = "›❯"
 	maxQuestionBytes = 200
@@ -77,35 +76,38 @@ const (
 var (
 	queuedCountRe = regexp.MustCompile(`\?\s+[1-9][0-9]*\s+questions?\b`)
 	workingRe     = regexp.MustCompile(`(?i)\besc to interrupt\b|\bctrl\+c to interrupt\b|^\s*\W?\s*Working\s*\(|^\W*running (?:\S+ )?hooks?\b|\b\d+ background terminals? running\b|^\W*waiting for background terminals?\b`)
-	updatingRe    = regexp.MustCompile(`(?i)==> (?:upgrading|installing|downloading|fetching|pouring)|updating (?:codex|claude)|brew upgrade|installing update|downloading update`)
+	updatingRe    = regexp.MustCompile(`(?i)==> (?:upgrading|installing|downloading|fetching|pouring)|brew upgrade|installing update|downloading update`)
 	limitRe       = regexp.MustCompile(`(?i)you.ve hit your [^\n]*limit`)
 	yesNoRe       = regexp.MustCompile(`(?i)\((?:y/n|yes/no)\)|\[(?:y/n|yes/no)\]`)
 	hintRe        = regexp.MustCompile(`(?i)\benter\b.*\besc(?:ape)?\b`)
 	numberedRe    = regexp.MustCompile(`^\s*(?:([` + markers + `])\s*)?(\d+)\.\s+(\S.*?)\s*$`)
 	cursorRe      = regexp.MustCompile(`^(\s*)([` + markers + `])\s+(\S.*?)\s*$`)
 	ruleRe        = regexp.MustCompile(`^\s*[─╌━]{5,}\s*$`)
-	// claudeTry is Claude's placeholder. A long one wraps or is cut at the
-	// pane's edge, so only its start is matched.
-	claudeTry = regexp.MustCompile(`^Try[\s\x{00a0}]+["“]`)
-	gapRe     = regexp.MustCompile(`\s{2,}`)
-	// The notices an agent prints above its input line when a turn was
-	// interrupted, by Esc or by a denied permission prompt.
-	interruptedRe = map[string]*regexp.Regexp{
-		"claude": regexp.MustCompile(`^[\s⎿│]*Interrupted(?:\s*·\s*What should Claude do instead\?|\s+by user\b)`),
-		"codex":  regexp.MustCompile(`^[\s■•]*Conversation interrupted\b`),
-	}
+	gapRe         = regexp.MustCompile(`\s{2,}`)
 )
 
-// Classify reads a captured screen for the named agent. The text of a question
-// is returned for a question and for nothing else.
-func Classify(agent string, screen []byte) (State, string) {
-	s := Parse(agent, screen)
+// anyMatch reports whether text matches one of the regular expressions in
+// sources. A source that does not compile matches nothing.
+func anyMatch(sources []string, text string) bool {
+	for _, src := range sources {
+		if re, err := regexp.Compile(src); err == nil && re.MatchString(text) {
+			return true
+		}
+	}
+	return false
+}
+
+// Classify reads a captured screen with the pane facts of its agent. The text
+// of a question is returned for a question and for nothing else.
+func Classify(screen []byte, f agent.PaneFacts) (State, string) {
+	s := Parse(screen, f)
 	return s.State, s.Question
 }
 
 // Parse never treats screen text as an instruction: it only recognizes fixed
-// shapes, and an unrecognized screen is Starting.
-func Parse(agent string, raw []byte) Screen {
+// shapes, and an unrecognized screen is Starting. The agent's own texts come
+// from its facts f.
+func Parse(raw []byte, f agent.PaneFacts) Screen {
 	lines, solid := screenLines(raw)
 	s := Screen{State: Starting, Text: strings.Join(lines, "\n")}
 	for _, line := range lines {
@@ -115,33 +117,33 @@ func Parse(agent string, raw []byte) Screen {
 	}
 	if options, first, ok := findQuestion(lines); ok {
 		s.State, s.Options = Question, options
-		s.Question = questionText(lines, first, options)
-		if agent == "codex" && strings.Contains(s.Text, CommandQuestion) {
-			if command := PromptCommand(s.Text); command != "" {
+		s.Question = questionText(lines, first, options, f.Queued)
+		if f.CommandQuestion != "" && strings.Contains(s.Text, f.CommandQuestion) {
+			if command := PromptCommand(s.Text, f.CommandQuestion); command != "" {
 				menu := ""
 				if i := strings.Index(s.Question, "["); i >= 0 {
 					menu = " " + s.Question[i:]
 				}
-				s.Question = CommandQuestion + " " + oneLine(command) + menu
+				s.Question = f.CommandQuestion + " " + oneLine(command) + menu
 			}
 		}
 		return s
 	}
-	if agent == "codex" && (strings.Contains(s.Text, "Queued follow-up inputs") || queuedCountRe.MatchString(s.Text)) && strings.Contains(s.Text, "shift+left to answer") {
+	if f.Queued != "" && (strings.Contains(s.Text, "Queued follow-up inputs") || queuedCountRe.MatchString(s.Text)) && strings.Contains(s.Text, f.Queued) {
 		s.Queued = true
 		s.State = Question
 		s.Question = Cut(oneLine(s.Text), maxQuestionBytes)
 		return s
 	}
-	at, input, empty, rows := findComposer(agent, lines, solid)
+	at, input, empty, rows := findComposer(f, lines, solid)
 	s.Composer, s.Input, s.Empty, s.Rows = at >= 0, input, empty, rows
 	switch {
-	case updatingRe.MatchString(s.Text):
+	case isUpdating(f, s.Text):
 		s.State = Updating
 	case s.Working || !s.Composer:
 	case limitRe.MatchString(s.Text):
 		s.State = Limited
-	case interrupted(agent, lines, at):
+	case interrupted(f, lines, at):
 		s.State = Interrupted
 	default:
 		s.State = Ready
@@ -153,20 +155,34 @@ func Parse(agent string, raw []byte) Screen {
 // input line: above Claude's box, or above Codex's marker. A follow-up that
 // the agent answered puts its own lines below the notice, so an old notice
 // does not count.
-func interrupted(agent string, lines []string, at int) bool {
-	re := interruptedRe[agent]
-	if re == nil || at < 0 {
+func interrupted(f agent.PaneFacts, lines []string, at int) bool {
+	if len(f.Interrupt) == 0 || at < 0 {
 		return false
 	}
 	above := at
-	if agent == "claude" {
+	if f.Composer.Boxed {
 		// The rule above the box; findComposer made sure it is there.
 		for above--; above >= 0 && !ruleRe.MatchString(lines[above]); above-- {
 		}
 	}
 	for j := above - 1; j >= 0; j-- {
 		if strings.TrimSpace(lines[j]) != "" {
-			return re.MatchString(lines[j])
+			return anyMatch(f.Interrupt, lines[j])
+		}
+	}
+	return false
+}
+
+// isUpdating reports an update shown on the screen: one of the shapes every
+// updater prints, or one of the agent's own phrases.
+func isUpdating(f agent.PaneFacts, text string) bool {
+	if updatingRe.MatchString(text) {
+		return true
+	}
+	text = strings.ToLower(text)
+	for _, phrase := range f.Updater {
+		if strings.Contains(text, phrase) {
+			return true
 		}
 	}
 	return false
@@ -399,11 +415,11 @@ func label(text string) string {
 	return strings.TrimSpace(gapRe.Split(text, 2)[0])
 }
 
-func questionText(lines []string, first int, options []Option) string {
+func questionText(lines []string, first int, options []Option, queued string) string {
 	var before []string
 	for _, line := range lines[:first] {
 		if t := strings.Join(strings.Fields(line), " "); t != "" && !ruleRe.MatchString(line) {
-			if t == "Queued follow-up inputs" || queuedCountRe.MatchString(t) || strings.Contains(t, "shift+left to answer") {
+			if t == "Queued follow-up inputs" || queuedCountRe.MatchString(t) || queued != "" && strings.Contains(t, queued) {
 				continue
 			}
 			before = append(before, t)
@@ -446,9 +462,13 @@ func questionText(lines []string, first int, options []Option) string {
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // PromptCommand reads the displayed command, not the bounded question summary.
-// Only the command block below the fixed prompt and before the menu counts.
-func PromptCommand(text string) string {
-	_, rest, ok := strings.Cut(text, CommandQuestion)
+// Only the command block below the agent's fixed prompt, question, and before
+// the menu counts.
+func PromptCommand(text, question string) string {
+	if question == "" {
+		return ""
+	}
+	_, rest, ok := strings.Cut(text, question)
 	if !ok {
 		return ""
 	}
@@ -491,26 +511,22 @@ func Cut(s string, n int) string {
 // from a menu. The input is read from the solid lines, so a dim suggestion
 // is no input; a placeholder of a known shape is none either, along with the
 // rows it wraps over.
-func findComposer(agent string, lines, solid []string) (at int, input string, empty bool, rows []string) {
-	var marker string
-	switch agent {
-	case "codex":
-		marker = "›"
-	case "claude":
-		marker = "❯"
-	default:
+func findComposer(f agent.PaneFacts, lines, solid []string) (at int, input string, empty bool, rows []string) {
+	marker := f.Composer.Marker
+	if marker == "" {
 		return -1, "", false, nil
 	}
+	placeholder, _ := regexp.Compile(f.Placeholder)
 	for i := len(lines) - 1; i >= 0; i-- {
 		rest, ok := strings.CutPrefix(strings.TrimLeft(lines[i], " "), marker)
 		if !ok {
 			continue
 		}
-		if agent == "claude" && !aboveIsRule(lines, i) {
+		if f.Composer.Boxed && !aboveIsRule(lines, i) {
 			continue
 		}
 		shown := strings.TrimSpace(rest)
-		if shown == "Ask Codex to do anything" || claudeTry.MatchString(shown) {
+		if f.Placeholder != "" && placeholder != nil && placeholder.MatchString(shown) {
 			return i, "", true, []string{""}
 		}
 		// The solid line has the same runes in the same places, so the input
@@ -519,7 +535,7 @@ func findComposer(agent string, lines, solid []string) (at int, input string, em
 		input = strings.TrimSpace(string([]rune(solid[i])[min(skip, utf8.RuneCountInString(solid[i])):]))
 		rows = []string{input}
 		for j := i + 1; j < len(lines); j++ {
-			if agent == "claude" && ruleRe.MatchString(lines[j]) {
+			if f.Composer.Boxed && ruleRe.MatchString(lines[j]) {
 				break
 			}
 			rows = append(rows, strings.TrimSpace(solid[j]))

@@ -12,6 +12,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/bus"
+	"github.com/lorem-dev/duolog/internal/core/agent"
 	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
 	"github.com/lorem-dev/duolog/internal/core/taskspec"
 )
@@ -193,7 +194,7 @@ func (e *env) deliver(ctx context.Context, entry session.Entry, text string) err
 		if err != nil {
 			return notDelivered(err)
 		}
-		if holds(entry.Agent, screen, text) {
+		if holds(e.pane(entry.Agent).Facts, screen, text) {
 			return e.submit(ctx, entry, text)
 		}
 		if err := e.clear(ctx, entry, screen); err != nil {
@@ -241,7 +242,7 @@ func (e *env) submit(ctx context.Context, entry session.Entry, text string) erro
 		if err != nil {
 			return err
 		}
-		if screen.Working || !holds(entry.Agent, screen, text) {
+		if screen.Working || !holds(e.pane(entry.Agent).Facts, screen, text) {
 			return nil
 		}
 	}
@@ -249,10 +250,10 @@ func (e *env) submit(ctx context.Context, entry session.Entry, text string) erro
 }
 
 // holds reports an input line that holds the text and nothing else, read across
-// the rows it wraps over. Claude's rows end with its box, so any row more is
-// input. Codex has no box: the first row that does not continue the text after
-// all of it was read is taken for its footer.
-func holds(agent string, s Screen, text string) bool {
+// the rows it wraps over. A boxed input line ends with its box, so any row more
+// is input. An unboxed one (Codex's) has no end: the first row that does not
+// continue the text after all of it was read is taken for its footer.
+func holds(f agent.PaneFacts, s Screen, text string) bool {
 	if !s.Composer {
 		return false
 	}
@@ -260,7 +261,7 @@ func holds(agent string, s Screen, text string) bool {
 	for _, row := range s.Rows {
 		next := got + corescreen.Squash(row)
 		if !strings.HasPrefix(want, next) {
-			return agent == "codex" && got == want
+			return !f.Composer.Boxed && got == want
 		}
 		got = next
 	}

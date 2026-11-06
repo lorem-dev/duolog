@@ -58,6 +58,10 @@ type Agent struct {
 	// Tree guards a calibration tree for the agent's worker. It has the
 	// methods of calibration.TreeGuard, which wiring cannot import.
 	Tree TreeGuard
+	// Pane opens the agent in a peer pane; nil means `peer open` refuses the
+	// agent with "peer open: <agent> has no pane support". The texts of its
+	// pane are Facts.Pane.
+	Pane peer.PaneAgent
 }
 
 // TreeGuard is what an agent needs of a calibration tree: see
@@ -70,8 +74,8 @@ type TreeGuard interface {
 // Agents returns the registered agents in order: claude, then codex.
 func Agents() []Agent {
 	return []Agent{
-		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}, Login: claude.Login{}, Trust: claude.Trust{}, Installer: claude.Installer{}, Sync: claude.Format{}, Allow: claude.NativeAllow{}, Probe: claude.Probe{}, Tree: claude.Tree{}},
-		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}, Login: codex.Login{}, Trust: codex.Trust{}, Installer: codex.Installer{}, Sync: codex.Format{}, Allow: codex.NativeAllow{}, Probe: codex.Probe{}, Tree: codex.Tree{}},
+		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}, Login: claude.Login{}, Trust: claude.Trust{}, Installer: claude.Installer{}, Sync: claude.Format{}, Allow: claude.NativeAllow{}, Probe: claude.Probe{}, Tree: claude.Tree{}, Pane: claude.Pane{}},
+		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}, Login: codex.Login{}, Trust: codex.Trust{}, Installer: codex.Installer{}, Sync: codex.Format{}, Allow: codex.NativeAllow{}, Probe: codex.Probe{}, Tree: codex.Tree{}, Pane: codex.Pane{}},
 	}
 }
 
@@ -156,6 +160,16 @@ func peerModels() map[string]peer.ModelResolver {
 	out := map[string]peer.ModelResolver{}
 	for _, a := range Agents() {
 		out[a.Facts.Name] = a.Models
+	}
+	return out
+}
+
+// peerPanes builds the pane support of peer.Deps from the registry. An agent
+// with no Pane keeps its texts and has a nil Agent.
+func peerPanes() map[string]peer.Pane {
+	out := map[string]peer.Pane{}
+	for _, a := range Agents() {
+		out[a.Facts.Name] = peer.Pane{Agent: a.Pane, Facts: a.Facts.Pane}
 	}
 	return out
 }

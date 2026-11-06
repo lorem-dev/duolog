@@ -22,7 +22,7 @@ func peerProcess(t *testing.T, cfg *config.Config, route coreroute.Route, varian
 // peerProcessIn builds the pane of route under a lead in mode m.
 func peerProcessIn(t *testing.T, cfg *config.Config, route coreroute.Route, m mode.Mode, variant corelaunch.Variant, stateDir string, roots ...string) corelaunch.Process {
 	t.Helper()
-	p, err := agentEnv(launchtest.Build, peerInput(cfg, route, m, variant, "lead", "plan", "peer-test", "", stateDir, roots, os.Environ()))
+	p, err := agentEnv(launchtest.Build, peerInput(cfg, route, m, settingsFor(route), variant, "lead", "plan", "peer-test", "", stateDir, roots, os.Environ()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestPeerFastModePinned(t *testing.T) {
 	for _, variant := range []corelaunch.Variant{corelaunch.Free, corelaunch.Paid} {
 		for _, context := range []string{"minimal", "project"} {
 			route := coreroute.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Context: context}
-			args := agentArgv(route, mode.Ask, peerProcess(t, paid, route, variant, root))
+			args := argvFor(route, mode.Ask, peerProcess(t, paid, route, variant, root))
 			i := slices.Index(args, "--settings")
 			if i != 1 || slices.Index(args[i+1:], "--settings") >= 0 {
 				t.Fatal(args)

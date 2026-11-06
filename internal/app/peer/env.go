@@ -296,8 +296,12 @@ func (e *env) screen(ctx context.Context, entry session.Entry) (Screen, error) {
 	if err != nil {
 		return Screen{}, err
 	}
-	return Parse(entry.Agent, raw), nil
+	return corescreen.Parse(raw, e.pane(entry.Agent).Facts), nil
 }
+
+// pane is the pane support of the named agent; an agent that has none reads
+// every screen with no texts of its own.
+func (e *env) pane(agent string) Pane { return e.opts.Deps.Panes[agent] }
 
 // watch waits on a session. At startup it stops at the first of: ready on two
 // samples in a row, a question, a limit, the end of the program, or

@@ -26,6 +26,3 @@ const (
 	Closed      = corescreen.Closed
 	Gone        = corescreen.Gone
 )
-
-// Parse reads a captured screen for the named agent.
-func Parse(agent string, raw []byte) Screen { return corescreen.Parse(agent, raw) }

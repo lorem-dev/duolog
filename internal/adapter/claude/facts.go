@@ -26,5 +26,13 @@ var Facts = agent.Descriptor{
 	LoginPhrases:    []string{"not logged in", "please run /login", "invalid api key", "oauth token has expired", "authentication_error", "401 unauthorized"},
 	InstructionFile: "CLAUDE.md",
 	LeadCanAsk:      true,
-	Config:          agent.ConfigFacts{SubscriptionEndpoints: true},
+	Pane: agent.PaneFacts{
+		// A long placeholder wraps or is cut at the pane's edge, so only its
+		// start is matched.
+		Placeholder: `^Try[\s\x{00a0}]+["“]`,
+		Updater:     []string{"updating claude"},
+		Interrupt:   []string{`^[\s⎿│]*Interrupted(?:\s*·\s*What should Claude do instead\?|\s+by user\b)`},
+		Composer:    agent.ComposerFacts{Marker: "❯", Boxed: true},
+	},
+	Config: agent.ConfigFacts{SubscriptionEndpoints: true},
 }

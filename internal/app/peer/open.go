@@ -81,6 +81,10 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	if limit := e.cfg.Limits.MaxLiveSessions; limit > 0 && len(here) >= limit {
 		return Entry{}, fmt.Errorf("max_live_sessions is %d and %s session %s is still open; close it with duolog peer close %s first", limit, route.Agent, here[0].ID, here[0].ID)
 	}
+	agentPane := e.pane(route.Agent)
+	if agentPane.Agent == nil {
+		return Entry{}, fmt.Errorf("peer open: %s has no pane support", route.Agent)
+	}
 	resolver, ok := e.opts.Deps.Models[route.Agent]
 	if !ok {
 		return Entry{}, fmt.Errorf("unknown agent %q", route.Agent)
@@ -120,7 +124,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 		_ = os.Remove(envFile)
 		return noted(Entry{}, errors.Join(err, pane.release(ctx)))
 	}
-	block, rexSession, err := e.openProjectPeer(ctx, tabLabel(route.Agent, role), launchArgv(exe, envFile, agentArgv(route, lead.mode, pane.permit.Process)))
+	block, rexSession, err := e.openProjectPeer(ctx, tabLabel(route.Agent, role), launchArgv(exe, envFile, agentPane.Agent.Argv(route, lead.mode, pane.permit.Process)))
 	e.opts.Deps.OnEnvFile(envFile)
 	if err != nil {
 		// Rex's own refusal shows that no pane holds the reservation. So does

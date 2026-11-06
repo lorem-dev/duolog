@@ -31,21 +31,21 @@ func lspOfferOnDecline() string {
 const installCommand = "claude plugin install gopls-lsp@claude-plugins-official"
 
 func TestReadPluginOffer(t *testing.T) {
-	offer, ok := readPluginOffer(Parse("claude", []byte(lspOffer)))
-	if !ok || offer.plugin != "gopls-lsp" || offer.marketplace != "claude-plugins-official" || offer.trigger != ".go files" {
+	offer, ok := readPluginOffer(parseFor("claude", []byte(lspOffer)))
+	if !ok || offer.Plugin != "gopls-lsp" || offer.Marketplace != "claude-plugins-official" || offer.Trigger != ".go files" {
 		t.Fatalf("%+v %v", offer, ok)
 	}
-	if _, ok := readPluginOffer(Parse("codex", []byte(fixtureText("codex-hooks-review.txt")))); ok {
+	if _, ok := readPluginOffer(parseFor("codex", []byte(fixtureText("codex-hooks-review.txt")))); ok {
 		t.Fatal("hooks review read as a plugin offer")
 	}
 	// A plugin name that is not a plain word is not trusted as one.
 	odd := strings.Replace(lspOffer, "Plugin: gopls-lsp", "Plugin: gopls; rm -rf", 1)
-	if _, ok := readPluginOffer(Parse("claude", []byte(odd))); ok {
+	if _, ok := readPluginOffer(parseFor("claude", []byte(odd))); ok {
 		t.Fatal("odd plugin name accepted")
 	}
 	// Earlier output with a numbered list does not hide the offer below it.
 	above := "Steps:\n  1. Read the file\n  2. Change it\nShould I install a plugin?\n" + lspOffer
-	if offer, ok := readPluginOffer(Parse("claude", []byte(above))); !ok || offer.plugin != "gopls-lsp" {
+	if offer, ok := readPluginOffer(parseFor("claude", []byte(above))); !ok || offer.Plugin != "gopls-lsp" {
 		t.Fatalf("%+v %v", offer, ok)
 	}
 }
@@ -137,10 +137,10 @@ func incompleteOffers() map[string]string {
 func TestIncompletePluginOfferIsDeclinedNotInstalled(t *testing.T) {
 	for name, offer := range incompleteOffers() {
 		t.Run(name, func(t *testing.T) {
-			if _, ok := readPluginOffer(Parse("claude", []byte(offer))); ok {
+			if _, ok := readPluginOffer(parseFor("claude", []byte(offer))); ok {
 				t.Fatal("metadata read from an incomplete offer")
 			}
-			if !installQuestion(Parse("claude", []byte(offer))) {
+			if !installQuestion(parseFor("claude", []byte(offer))) {
 				t.Fatal("install question not recognised")
 			}
 			onDecline := strings.Replace(strings.Replace(offer, "❯ 1. Yes, install", "  1. Yes, install", 1), "  2. No, not now", "❯ 2. No, not now", 1)
@@ -189,7 +189,7 @@ func TestInstallQuestionNeverReachesTextRules(t *testing.T) {
 		t.Fatalf("%+v %v", e, r.keys())
 	}
 	// Other questions still meet text rules.
-	if installQuestion(Parse("claude", []byte(strings.Replace(lspOffer, "install this LSP plugin?", "continue?", 1)))) {
+	if installQuestion(parseFor("claude", []byte(strings.Replace(lspOffer, "install this LSP plugin?", "continue?", 1)))) {
 		t.Fatal("a question without install read as an install question")
 	}
 }

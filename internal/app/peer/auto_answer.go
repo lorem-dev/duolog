@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
@@ -18,12 +19,10 @@ import (
 // offers before considering text rules. A missing command or option leaves the
 // question for the lead, and a plugin install question never reaches text rules.
 func (e *env) autoAnswer(ctx context.Context, entry session.Entry, screen Screen) (bool, error) {
-	if entry.Agent == "claude" {
-		if offer, ok := readPluginOffer(screen); ok {
+	pane := e.pane(entry.Agent)
+	if pane.Agent != nil {
+		if offer, ok := pane.Agent.Offer(screen); ok {
 			return e.declinePlugin(ctx, entry, screen, offer)
-		}
-		if installQuestion(screen) {
-			return e.declinePlugin(ctx, entry, screen, pluginOffer{})
 		}
 	}
 	// A billing choice, such as using an API key the agent found, is the
@@ -34,8 +33,8 @@ func (e *env) autoAnswer(ctx context.Context, entry session.Entry, screen Screen
 	choice := ""
 	action := gate.Action{Kind: "answer", Role: entry.Role}
 	decision := gate.Decision{Kind: gate.Allow, Reason: "configured peer answer", Rule: "rex.auto_answers"}
-	if entry.Agent == "codex" && strings.Contains(screen.Text, corescreen.CommandQuestion) {
-		command := corescreen.PromptCommand(screen.Text)
+	if ask := pane.Facts.CommandQuestion; ask != "" && strings.Contains(screen.Text, ask) {
+		command := corescreen.PromptCommand(screen.Text, ask)
 		if command == "" {
 			return false, nil
 		}
@@ -59,9 +58,9 @@ func (e *env) autoAnswer(ctx context.Context, entry session.Entry, screen Screen
 		decision = gate.Evaluate(e.cfg.Policy, rules, mode.Lower(lead.mode, entry.Mode), action)
 		switch decision.Kind {
 		case gate.Allow:
-			choice = "Yes, proceed"
+			choice = answerFor(pane.Facts, "allow")
 		case gate.Deny:
-			choice = "No"
+			choice = answerFor(pane.Facts, "deny")
 		default:
 			if entry.Asked != screen.Question {
 				if err := gate.LogRequest(&store.Store{Dir: e.dir}, action, decision); err != nil {
@@ -71,7 +70,7 @@ func (e *env) autoAnswer(ctx context.Context, entry session.Entry, screen Screen
 			return false, nil
 		}
 	} else {
-		if installQuestion(screen) {
+		if corescreen.InstallQuestion(screen) {
 			return false, nil
 		}
 		for _, rule := range e.cfg.Rex.AutoAnswers {
@@ -112,6 +111,16 @@ func (e *env) autoAnswer(ctx context.Context, entry session.Entry, screen Screen
 	}
 	_, err := e.update(entry.ID, func(x *session.Entry) { x.Asked = "" })
 	return true, err
+}
+
+// answerFor is the label the pane picks for a gate verdict, "allow" or "deny".
+func answerFor(f agent.PaneFacts, verdict string) string {
+	for _, a := range f.Answers {
+		if a.Verdict == verdict {
+			return a.Label
+		}
+	}
+	return ""
 }
 
 // Strip only literal assignments. Shell expansions stay in the command so

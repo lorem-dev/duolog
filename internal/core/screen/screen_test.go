@@ -58,7 +58,7 @@ func TestClassifyFixtures(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.agent+"/"+tc.file, func(t *testing.T) {
-			state, question := Classify(tc.agent, []byte(fixture(t, tc.file)))
+			state, question := classifyAs(tc.agent, []byte(fixture(t, tc.file)))
 			if state != tc.want {
 				t.Fatalf("state %q, want %q (question %q)", state, tc.want, question)
 			}
@@ -78,7 +78,7 @@ func TestClassifyFixtures(t *testing.T) {
 }
 
 func TestHooksReviewIsAQuestion(t *testing.T) {
-	state, question := Classify("codex", []byte(fixture(t, "codex-hooks-review.txt")))
+	state, question := classifyAs("codex", []byte(fixture(t, "codex-hooks-review.txt")))
 	if state != Question || !strings.Contains(question, "Hooks need review") {
 		t.Fatal(state, question)
 	}
@@ -94,7 +94,7 @@ func TestUnknownScreenIsNotReady(t *testing.T) {
 		"Welcome\n\n❯ Try \"x\"",
 	} {
 		for _, agent := range []string{"claude", "codex", "other"} {
-			if state, _ := Classify(agent, []byte(text)); state == Ready {
+			if state, _ := classifyAs(agent, []byte(text)); state == Ready {
 				t.Fatalf("%s read %q as ready", agent, text)
 			}
 		}
@@ -107,7 +107,7 @@ func TestClassifyUpdating(t *testing.T) {
 		"Updating Codex to the latest version...",
 		"==> Installing Cask codex",
 	} {
-		if state, _ := Classify("codex", []byte(text)); state != Updating {
+		if state, _ := classifyAs("codex", []byte(text)); state != Updating {
 			t.Fatalf("%q: %s", text, state)
 		}
 	}
@@ -115,28 +115,28 @@ func TestClassifyUpdating(t *testing.T) {
 
 func TestClassifyLimitOnlyWhenStopped(t *testing.T) {
 	stopped := "You've hit your 5-hour limit · resets 3am (Europe/London)\n" + codexIdle("")
-	if state, _ := Classify("codex", []byte(stopped)); state != Limited {
+	if state, _ := classifyAs("codex", []byte(stopped)); state != Limited {
 		t.Fatalf("stopped prompt: %s", state)
 	}
 	curly := "You’ve hit your usage limit. Try again at 8:48 AM.\n" + codexIdle("")
-	if state, _ := Classify("codex", []byte(curly)); state != Limited {
+	if state, _ := classifyAs("codex", []byte(curly)); state != Limited {
 		t.Fatalf("curly apostrophe: %s", state)
 	}
 	claude := "You've hit your 5-hour limit · resets 3am (Europe/London)\n" + claudeIdle("")
-	if state, _ := Classify("claude", []byte(claude)); state != Limited {
+	if state, _ := classifyAs("claude", []byte(claude)); state != Limited {
 		t.Fatalf("claude stopped prompt: %s", state)
 	}
 	working := "You've hit your usage limit, said the model about an unrelated file\n• Working (12s • esc to interrupt)\n" + codexIdle("")
-	if state, _ := Classify("codex", []byte(working)); state == Limited || state == Ready {
+	if state, _ := classifyAs("codex", []byte(working)); state == Limited || state == Ready {
 		t.Fatalf("working screen: %s", state)
 	}
 	// The warning the agent prints before the limit is only a warning.
 	warning := "You've used 98% of your 5-hour limit · resets 3am (Europe/L…\n" + claudeIdle("")
-	if state, _ := Classify("claude", []byte(warning)); state != Ready {
+	if state, _ := classifyAs("claude", []byte(warning)); state != Ready {
 		t.Fatalf("warning: %s", state)
 	}
 	// No prompt, no stop.
-	if state, _ := Classify("codex", []byte("You've hit your usage limit")); state == Limited {
+	if state, _ := classifyAs("codex", []byte("You've hit your usage limit")); state == Limited {
 		t.Fatal("limit text without a stopped prompt")
 	}
 }
@@ -153,7 +153,7 @@ func TestParseComposerInput(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s := Parse(tc.agent, []byte(tc.screen))
+			s := parseAs(tc.agent, []byte(tc.screen))
 			if s.State != Ready || !s.Composer || s.Input != tc.input || s.Empty != tc.empty {
 				t.Fatalf("%+v", s)
 			}
@@ -162,22 +162,22 @@ func TestParseComposerInput(t *testing.T) {
 }
 
 func TestParseOptions(t *testing.T) {
-	s := Parse("claude", []byte(fixture(t, "claude-trust-folder.txt")))
+	s := parseAs("claude", []byte(fixture(t, "claude-trust-folder.txt")))
 	if len(s.Options) != 2 || s.Options[0].Label != "No, exit" || !s.Options[0].Selected || s.Options[1].Label != "Yes, I trust this folder" || s.Options[1].Selected {
 		t.Fatalf("%+v", s.Options)
 	}
-	s = Parse("codex", []byte(fixture(t, "codex-new-worktree-dialog.txt")))
+	s = parseAs("codex", []byte(fixture(t, "codex-new-worktree-dialog.txt")))
 	if len(s.Options) != 2 || s.Options[0].Label != "Use current Git worktree" || s.Options[1].Number != 2 || !s.Options[0].Selected {
 		t.Fatalf("%+v", s.Options)
 	}
-	s = Parse("codex", []byte(fixture(t, "codex-permissions-menu.txt")))
+	s = parseAs("codex", []byte(fixture(t, "codex-permissions-menu.txt")))
 	if len(s.Options) != 4 || !s.Options[3].Selected || s.Options[3].Label != "Read Only (current)" {
 		t.Fatalf("%+v", s.Options)
 	}
 }
 
 func TestPromptWithYesNoIsAQuestion(t *testing.T) {
-	state, question := Classify("claude", []byte("Overwrite the file? (y/n)"))
+	state, question := classifyAs("claude", []byte("Overwrite the file? (y/n)"))
 	if state != Question || !strings.Contains(question, "Overwrite the file?") {
 		t.Fatal(state, question)
 	}
@@ -185,7 +185,7 @@ func TestPromptWithYesNoIsAQuestion(t *testing.T) {
 
 func TestQuestionTextIsBoundedAndPlain(t *testing.T) {
 	long := "Pick one \x1b[31m" + strings.Repeat("very long words ", 40) + "?\n› 1. First\n  2. Second\n  enter select · esc back"
-	state, question := Classify("codex", []byte(long))
+	state, question := classifyAs("codex", []byte(long))
 	if state != Question || len(question) > 200 || strings.ContainsAny(question, "\x1b\n") {
 		t.Fatal(state, question)
 	}
@@ -231,7 +231,7 @@ func TestWorkingLineIsBusyWithoutInterruptHint(t *testing.T) {
 		if tc.agent == "claude" {
 			idle = claudeIdle("")
 		}
-		s := Parse(tc.agent, []byte(tc.line+"\n"+idle))
+		s := parseAs(tc.agent, []byte(tc.line+"\n"+idle))
 		if s.State == Ready || !s.Working {
 			t.Fatalf("%s: %+v", tc.agent, s)
 		}
@@ -259,7 +259,7 @@ func idleFor(agent string) string {
 
 func TestWorkingMarkersAreNotIdle(t *testing.T) {
 	for _, tc := range workingScreens {
-		s := Parse(tc.agent, []byte(tc.line+"\n"+idleFor(tc.agent)))
+		s := parseAs(tc.agent, []byte(tc.line+"\n"+idleFor(tc.agent)))
 		if s.State == Ready || !s.Working {
 			t.Errorf("%s %q: %+v", tc.agent, tc.line, s)
 		}
@@ -270,7 +270,7 @@ func TestWorkingMarkersAreNotIdle(t *testing.T) {
 		"• I ran the hook tests and they pass.",
 		"• The background terminal from the last step was closed.",
 	} {
-		if s := Parse("codex", []byte(line+"\n"+codexIdle(""))); s.State != Ready || s.Working {
+		if s := parseAs("codex", []byte(line+"\n"+codexIdle(""))); s.State != Ready || s.Working {
 			t.Errorf("%q: %+v", line, s)
 		}
 	}
@@ -281,7 +281,7 @@ func TestWorkingMarkersAreNotIdle(t *testing.T) {
 func claudeInterrupted() string { return fixtureText("claude-interrupted.txt") }
 
 func TestInterruptedNeedsTheNoticeLast(t *testing.T) {
-	s := Parse("claude", []byte(claudeInterrupted()))
+	s := parseAs("claude", []byte(claudeInterrupted()))
 	if s.State != Interrupted || !s.Composer || !s.Empty || s.Working {
 		t.Fatalf("%+v", s)
 	}
@@ -303,7 +303,7 @@ func TestInterruptedNeedsTheNoticeLast(t *testing.T) {
 		{"quoted notice", "claude", "⏺ The pane said Interrupted · What should Claude do instead?\n" + claudeIdle(""), Ready},
 	}
 	for _, tc := range cases {
-		if s := Parse(tc.agent, []byte(tc.screen)); s.State != tc.want {
+		if s := parseAs(tc.agent, []byte(tc.screen)); s.State != tc.want {
 			t.Errorf("%s: %s, want %s (%+v)", tc.name, s.State, tc.want, s)
 		}
 	}
@@ -345,7 +345,7 @@ func TestSuggestionIsNoInput(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s := Parse("claude", []byte(tc.screen))
+			s := parseAs("claude", []byte(tc.screen))
 			if s.State != Ready || s.Input != tc.input || s.Empty != (tc.input == "") || strings.Contains(s.Text, "\x1b") {
 				t.Fatalf("%+v", s)
 			}
@@ -362,19 +362,19 @@ func TestClaudePlaceholderShapes(t *testing.T) {
 		claudeWrapped(40, `Try "fix typecheck errors in internal/peer/screen.go and the rex client"`),
 		claudeIdle("Try “fix typecheck errors”"),
 	} {
-		s := Parse("claude", []byte(screen))
+		s := parseAs("claude", []byte(screen))
 		if s.State != Ready || !s.Empty || s.Input != "" || len(s.Rows) != 1 {
 			t.Errorf("%q: %+v", screen, s)
 		}
 	}
-	if s := Parse("claude", []byte(claudeIdle("Trying to fix it"))); s.Empty {
+	if s := parseAs("claude", []byte(claudeIdle("Trying to fix it"))); s.Empty {
 		t.Fatalf("typed text read as a placeholder: %+v", s)
 	}
 }
 
 func TestQueuedPanelReportsQuestionInsteadOfCount(t *testing.T) {
 	raw := "Queued follow-up inputs\n? 1 question\nWhich environment should I use?\n› 1. Staging\n  2. Production\nshift+left to answer\n"
-	s := Parse("codex", []byte(raw))
+	s := parseAs("codex", []byte(raw))
 	if s.State != Question || s.Queued || !strings.Contains(s.Question, "Which environment should I use?") || len(s.Options) != 2 {
 		t.Fatalf("%+v", s)
 	}

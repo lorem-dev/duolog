@@ -3,7 +3,6 @@ package peer
 import (
 	"encoding/json"
 	"os"
-	"strings"
 
 	"github.com/lorem-dev/duolog/internal/app/launch"
 	"github.com/lorem-dev/duolog/internal/core/config"
@@ -11,43 +10,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 )
-
-// agentArgv is the interactive command of a peer: the admitted process's
-// launch argv once, its prefix with its settings or global overrides and its
-// permission words (paneLaunch), then the pane's own flags, none of which
-// grants a permission. Updates are off through the process: Codex's setting
-// in its prefix, Claude's variable in its environment. Nothing here bypasses
-// the sandbox; Claude's protected roots are in its settings, and Codex reads
-// have only the gate. m is the lead's mode the pane opened under.
-func agentArgv(route coreroute.Route, m mode.Mode, p corelaunch.Process) []string {
-	switch route.Agent {
-	case "codex":
-		args := p.LaunchArgv("-m", route.Model)
-		if route.Effort != "" {
-			args = append(args, "-c", `model_reasoning_effort="`+route.Effort+`"`)
-		}
-		args = append(args, "-c", "tui.notifications=false", "-c", "notify=[]")
-		if route.Context == "minimal" {
-			args = append(args, "-c", "project_doc_max_bytes=0")
-		}
-		return args
-	case "claude":
-		args := p.LaunchArgv("--model", route.Model)
-		if route.Effort != "" {
-			args = append(args, "--effort", route.Effort)
-		}
-		// A peer cannot delegate: the gate denies a spawn, and without the tools the
-		// peer does not spend turns trying. One value with =, as the option takes a list.
-		disallowed := []string{"Agent", "Task"}
-		// A peer that only the gate keeps read-only starts without the built-in
-		// tools that are not read-only either, a second wall behind the gate.
-		if mode.GateHeld(route.Agent, m, route.Sandbox) {
-			disallowed = append(disallowed, mode.HeldDisallowedTools(true)...)
-		}
-		return append(args, "--disallowedTools="+strings.Join(disallowed, ","))
-	}
-	return nil
-}
 
 // paneLaunch is what a pane's process carries after its prefix, in
 // corelaunch.ProcessInput.Launch: the native permission flags the lead's mode
@@ -71,11 +33,12 @@ func agentEnv(build launch.Build, in corelaunch.ProcessInput) (corelaunch.Proces
 
 // peerInput describes the pane of route in variant under a lead in mode m:
 // environ, the route's context, the state folder and protected roots its
-// Claude settings deny, Claude's notifications off, and the permission words
-// the pane launches with, so that the gate admits them. run, when set, is the pane's DUOLOG_RUN:
+// Claude settings deny, the settings the agent's pane adds (Claude's
+// notifications off), and the permission words the pane launches with, so
+// that the gate admits them. run, when set, is the pane's DUOLOG_RUN:
 // the run id duolog drew for this launch, never a vendor id; the gate's
 // telemetry events and the peer's own carry it.
-func peerInput(cfg *config.Config, route coreroute.Route, m mode.Mode, variant corelaunch.Variant, leadID, role, peerID, run, stateDir string,
+func peerInput(cfg *config.Config, route coreroute.Route, m mode.Mode, settings map[string]any, variant corelaunch.Variant, leadID, role, peerID, run, stateDir string,
 	roots, environ []string) corelaunch.ProcessInput {
 	in := corelaunch.ProcessInput{Agent: route.Agent, Shape: corelaunch.Peer, Variant: variant, Config: cfg,
 		Environ: environ, LeadID: leadID, Role: role, PeerID: peerID, StateDir: stateDir,
@@ -89,9 +52,7 @@ func peerInput(cfg *config.Config, route coreroute.Route, m mode.Mode, variant c
 	if m == mode.Plan {
 		in.ExtraEnv = append(in.ExtraEnv, "DUOLOG_MODE="+string(mode.Plan))
 	}
-	if route.Agent == "claude" {
-		in.ExtraSettings = map[string]any{"preferredNotifChannel": "notifications_disabled"}
-	}
+	in.ExtraSettings = settings
 	return in
 }
 

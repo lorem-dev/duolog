@@ -63,7 +63,7 @@ func TestAgentArgvDisablesNotifications(t *testing.T) {
 	for _, agent := range []string{"claude", "codex"} {
 		t.Run(agent, func(t *testing.T) {
 			route := coreroute.Route{Target: config.Target{Agent: agent, Model: "sol", Effort: "high"}}
-			args := agentArgv(route, mode.Ask, peerProcess(t, &config.Config{}, route, corelaunch.Free, t.TempDir()))
+			args := argvFor(route, mode.Ask, peerProcess(t, &config.Config{}, route, corelaunch.Free, t.TempDir()))
 			if agent == "codex" {
 				i := slices.Index(args, "tui.notifications=false")
 				if i < 1 || args[i-1] != "-c" {
