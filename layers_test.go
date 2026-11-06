@@ -68,7 +68,7 @@ var legacyTiers = map[string]legacyTier{
 
 // appOrder is the order of the app packages, lowest first. An app package may
 // import only app packages earlier in the list.
-var appOrder = []string{"launch", "lead", "quota", "learn", "paidruns", "gate", "delegate", "profile", "peer", "calibrate", "doctor", "sync", "roster", "hook", "install", "remember", "skilltest"}
+var appOrder = []string{"launch", "lead", "quota", "learn", "paidruns", "gate", "delegate", "profile", "peer", "calibrate", "doctor", "sync", "roster", "load", "hook", "install", "remember", "skilltest"}
 
 // knownViolations are the imports that break a rule today, keyed "from -> to",
 // with the PR that removes each. The list may only shrink; a move may rename a

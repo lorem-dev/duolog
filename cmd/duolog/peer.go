@@ -180,15 +180,7 @@ func newPeerCommand() *cobra.Command {
 		if listJSON {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(peers)
 		}
-		if listLong {
-			return writeLongList(cmd.OutOrStdout(), peers, time.Now())
-		}
-		for _, p := range peers {
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", p.ID, p.State); err != nil {
-				return err
-			}
-		}
-		return nil
+		return writePeerList(cmd.Context(), cmd.OutOrStdout(), peers, listLong)
 	}}
 	list.Flags().BoolVar(&listJSON, "json", false, "Print peers as JSON; id and state keep their old values")
 	list.Flags().BoolVar(&listLong, "long", false, "Print a table with role, agent, task, last event and tab")
