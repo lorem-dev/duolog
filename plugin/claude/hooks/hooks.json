@@ -99,6 +99,22 @@
         ]
       }
     ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "duolog",
+            "args": [
+              "hook",
+              "Stop",
+              "--agent",
+              "claude"
+            ]
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [

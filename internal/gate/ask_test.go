@@ -105,18 +105,20 @@ func TestAskSendsOneLine(t *testing.T) {
 		t.Run(strconv.FormatBool(person), func(t *testing.T) {
 			b, _, dir := askSetup(t)
 			d := Escalate(context.Background(), b, "first-123456", Action{Kind: "exec", Target: strings.Repeat("界\n\"", 400), Role: "implement"}, askSendWait, person)
-			ms := askMessages(t, dir)
+			ms := asksOnly(askMessages(t, dir))
 			if d.Kind != Deny || len(ms) != 1 {
 				t.Fatal(d, ms)
 			}
-			data, err := os.ReadFile(filepath.Join(dir, "bus.ndjson"))
+			raw, err := os.ReadFile(filepath.Join(dir, "bus.ndjson"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(data) > 512 || strings.Count(string(data), "\n") != 1 || len(ms[0].S) > 200 || !utf8.ValidString(ms[0].S) || strings.ContainsAny(ms[0].S, "\r\n") || ms[0].K != "ask" {
+			// The ask is the first line; the expiry line follows it.
+			data, _, _ := strings.Cut(string(raw), "\n")
+			if len(data) > 511 || len(ms[0].S) > 200 || !utf8.ValidString(ms[0].S) || strings.ContainsAny(ms[0].S, "\r\n") || ms[0].K != "ask" {
 				t.Fatalf("bad ask: %s", data)
 			}
-			if ms[0].P != person || strings.Contains(string(data), `"p":true`) != person || !person && strings.Contains(string(data), `"p":`) {
+			if ms[0].P != person || strings.Contains(data, `"p":true`) != person || !person && strings.Contains(data, `"p":`) {
 				t.Fatalf("bad person flag: %s", data)
 			}
 		})
@@ -211,7 +213,7 @@ func TestTimeoutDenies(t *testing.T) {
 func TestAskGoesToSpawningLead(t *testing.T) {
 	b, _, dir := askSetup(t)
 	Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, askSendWait, false)
-	ms := askMessages(t, dir)
+	ms := asksOnly(askMessages(t, dir))
 	if len(ms) != 1 || ms[0].To != "codex/lead.first-" {
 		t.Fatal(ms)
 	}
@@ -223,7 +225,7 @@ func TestAskNamesItsPeer(t *testing.T) {
 	b, _, dir := askSetup(t)
 	t.Setenv("DUOLOG_PEER", "peer-abc123")
 	Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, askSendWait, false)
-	ms := askMessages(t, dir)
+	ms := asksOnly(askMessages(t, dir))
 	if len(ms) != 1 || ms[0].Ref != "peer-abc123" {
 		t.Fatal(ms)
 	}
@@ -231,7 +233,7 @@ func TestAskNamesItsPeer(t *testing.T) {
 	b, _, dir = askSetup(t)
 	t.Setenv("DUOLOG_PEER", "")
 	Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, askSendWait, false)
-	if ms := askMessages(t, dir); len(ms) != 1 || ms[0].Ref != "" {
+	if ms := asksOnly(askMessages(t, dir)); len(ms) != 1 || ms[0].Ref != "" {
 		t.Fatal(ms)
 	}
 }
@@ -241,7 +243,7 @@ func TestAskNamesItsPeer(t *testing.T) {
 func TestAskCarriesItsWait(t *testing.T) {
 	b, _, dir := askSetup(t)
 	Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, 1500*time.Millisecond, false)
-	if ms := askMessages(t, dir); len(ms) != 1 || ms[0].W != 2 {
+	if ms := asksOnly(askMessages(t, dir)); len(ms) != 1 || ms[0].W != 2 {
 		t.Fatal(ms)
 	}
 }

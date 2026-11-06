@@ -34,6 +34,19 @@ macOS it is `~/Library/Application Support`. On Linux it is `~/.config`.
 An unknown key is an error. This catches typing mistakes, but it also means a
 config that works with a newer duolog may fail with an older one.
 
+A config that does not load stops every duolog command that reads it, the
+hooks and the gate included. The gate then fails closed and denies each
+worker action, as before. duolog says so in two places, with the file and
+the line:
+
+| Where | What it says |
+|---|---|
+| `duolog doctor` | `error: config error in <file>, line <n>: <message>; hooks and the gate cannot load their rules`, as its first line. Doctor then stops and fails |
+| The lead's session start and each prompt | One line of context: `duolog: config error in <file>, line <n>: <message>; the gate cannot load its rules` |
+
+The line number is left out when duolog cannot tell it. A problem found after
+the files merged, such as a role with an unknown model, names no file.
+
 ## How to check your config in the editor
 
 The config has a JSON Schema. Put this line first in `.duolog/config.yaml`:
