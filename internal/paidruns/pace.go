@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
@@ -94,7 +93,9 @@ var PaceRead = func(ctx context.Context, p workerenv.Process) (quota.Snapshot, e
 }
 
 // DefaultPaceBalance is PaceBalance for the agents as a free worker sees
-// them, in the user's account state folder.
+// them, in the user's account state folder. The worker is built from the
+// person's config, so a proxy or CA variable in env_passthrough reaches the
+// read; the free variant still withholds every route name.
 func DefaultPaceBalance(ctx context.Context, cfg *config.Config) *router.Balance {
 	if cfg == nil || cfg.Routing.Balance != "pace" {
 		return nil
@@ -105,8 +106,7 @@ func DefaultPaceBalance(ctx context.Context, cfg *config.Config) *router.Balance
 	}
 	build := func(agent string) (workerenv.Process, error) {
 		return workerenv.Build(workerenv.ProcessInput{Agent: agent, Shape: workerenv.Worker,
-			Variant: workerenv.Free, Config: &config.Config{EnvPassthrough: config.DefaultEnvPassthrough(runtime.GOOS)},
-			Environ: os.Environ()})
+			Variant: workerenv.Free, Config: cfg, Environ: os.Environ()})
 	}
 	return PaceBalance(ctx, cfg, PaceRead, build, dir, time.Now())
 }

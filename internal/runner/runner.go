@@ -133,6 +133,11 @@ type Result struct {
 	// UsageKnown means the vendor reported the usage; zero usage is then a
 	// count, not a gap.
 	UsageKnown bool
+	// UsageComplete means the usage is the whole run's: Claude's result event
+	// carried it, or Codex's turn completed. A run cancelled or timed out
+	// mid-request has known usage of its finished messages only, and the
+	// request in flight is billed too.
+	UsageComplete bool
 	// ErrorCode is one of the Code constants; CodeNone after a run that did
 	// not fail.
 	ErrorCode string

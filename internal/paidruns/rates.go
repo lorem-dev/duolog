@@ -19,9 +19,6 @@ import (
 )
 
 const (
-	// The defaults of balance.min_interval_share and balance.margin.
-	defaultMinIntervalShare = 0.05
-	defaultDriftMargin      = 0.2
 	// resetTolerance is how far apart two reads may place one window's reset.
 	resetTolerance = time.Minute
 	// maxIntervals is the most qualified intervals kept per family and window;
@@ -165,10 +162,12 @@ func Learned(samples []RateSample, agent, family, fingerprint string, window Win
 	return r
 }
 
-// balanceTerms are balance.min_interval_share and balance.margin. The config
-// has no balance settings yet, so they are the defaults.
-func balanceTerms(*config.Config) (minShare, margin float64) {
-	return defaultMinIntervalShare, defaultDriftMargin
+// balanceTerms are balance.min_interval_share and balance.margin as tier
+// selection reads them, so learning and qualification agree: a missing or
+// invalid value is its default.
+func balanceTerms(cfg *config.Config) (minShare, margin float64) {
+	_, balance := tierSettings(cfg)
+	return balance.MinIntervalShare, balance.Margin
 }
 
 // openInterval is the movement and weighted tokens of one window since its

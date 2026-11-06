@@ -14,13 +14,20 @@ import (
 // Admission is one request for a session, a task or both: the reservation
 // to hold, the verdict of its process, the agent's daily cap, 0 when paid
 // runs are not allowed, and the session limits of all agents together and
-// of this agent.
+// of this agent. ReadAt is when the quota read behind the window costs was
+// made: a task of the agent that settled after it still holds its window
+// costs, since that read could not show them. Zero counts every settled
+// task of the same windows.
 type Admission struct {
 	Reservation Reservation
 	Assessment  Assessment
 	DailyCapUSD float64
 	TotalLimit  int
 	AgentLimit  int
+	ReadAt      time.Time
+	// accountKey, when set, is the account key the estimate and tier were
+	// made for; admission refuses when the state now holds another.
+	accountKey *string
 }
 
 // Decision is the answer to an Admission. An admitted Reservation is in the
@@ -46,6 +53,9 @@ const (
 	ReasonNoSession       = "no open session"
 	ReasonAgentSessions   = "agent sessions full"
 	ReasonTotalSessions   = "all sessions full"
+	// ReasonAccountChanged refuses an admission whose estimate and tier were
+	// made for an account the state no longer holds; the gate reads again.
+	ReasonAccountChanged = "the account changed during admission"
 )
 
 // usdEpsilon absorbs float rounding, so a request that lands exactly on the
@@ -65,8 +75,11 @@ const usdEpsilon = 1e-9
 //     projects and account identities.
 //   - Any other task: in each of its windows, used, reserved and cost over
 //     the usable share, plus the reserve, stay at or below 1. Reserved is at
-//     least what the agent's tasks in flight hold there. No window means no
-//     headroom.
+//     least what the agent's tasks in flight hold there, and those that
+//     settled after the read. No window means no headroom.
+//   - The account: an admission made for one account key is refused when
+//     the state now holds another, since its estimate and tier described
+//     the old account.
 //   - One task at a time: a paid task waits for the agent's other paid task,
 //     and any task of a workspace account for the agent's other task. An
 //     idle pane's first task, held by its open until a send takes it, runs
@@ -127,6 +140,10 @@ func (st *State) decide(in Admission, r Reservation, now time.Time) (Decision, e
 	}
 	r.AccountKey = st.AccountKeys[r.Agent+"/"+quota.IdentityAccount]
 	r.Created = now
+	if in.accountKey != nil && *in.accountKey != r.AccountKey {
+		live, _ := st.sessions(r.Agent)
+		return Decision{Reservation: r, Reason: ReasonAccountChanged, Live: live, Limit: in.AgentLimit}, nil
+	}
 	return st.admit(in, r), nil
 }
 
@@ -151,7 +168,7 @@ func (st *State) admit(in Admission, r Reservation) Decision {
 			if settled+inflight+r.Estimate.USD > in.DailyCapUSD+usdEpsilon {
 				return refuse(ReasonCap)
 			}
-		} else if !st.windowsFit(r, a.UsableShare) {
+		} else if !st.windowsFit(r, a.UsableShare, in.ReadAt) {
 			return refuse(ReasonWindow)
 		}
 		for _, held := range st.Reservations {
@@ -213,19 +230,27 @@ func sessionKey(r Reservation) string {
 
 // windowsFit reports whether r's task fits each of its windows at usable
 // share u, by FitsWindows, with reserved at least what the agent's tasks in
-// flight hold there.
-func (st *State) windowsFit(r Reservation, u float64) bool {
+// flight hold there and what its tasks that settled after readAt held: the
+// read could not show their use yet.
+func (st *State) windowsFit(r Reservation, u float64, readAt time.Time) bool {
 	costs := make([]WindowCost, 0, len(r.Estimate.Windows))
 	for _, w := range r.Estimate.Windows {
 		held := 0.0
-		for _, other := range st.Reservations {
-			if other.Agent != r.Agent || !other.Task {
-				continue
-			}
-			for _, o := range other.Estimate.Windows {
+		add := func(ws []WindowCost) {
+			for _, o := range ws {
 				if sameWindowKey(o.Key, w.Key) {
 					held += o.Cost
 				}
+			}
+		}
+		for _, other := range st.Reservations {
+			if other.Agent == r.Agent && other.Task {
+				add(other.Estimate.Windows)
+			}
+		}
+		for _, s := range st.Settled {
+			if s.Agent == r.Agent && s.Ended.After(readAt) {
+				add(s.Windows)
 			}
 		}
 		w.Reserved = max(w.Reserved, held)

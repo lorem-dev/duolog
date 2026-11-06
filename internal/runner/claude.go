@@ -242,7 +242,7 @@ func readClaudeStream(path string, result *Result) (json.RawMessage, error) {
 	// The result's usage is the run's total; the messages' usage is part of it.
 	result.Usage, result.UsageKnown = stream.usage(), stream.known
 	if output.Usage != nil {
-		result.Usage, result.UsageKnown = output.Usage.tokens(), true
+		result.Usage, result.UsageKnown, result.UsageComplete = output.Usage.tokens(), true, true
 	}
 	result.ReportedUSD = reportedUSD(output.Cost)
 	if output.Subtype == "error_max_turns" {

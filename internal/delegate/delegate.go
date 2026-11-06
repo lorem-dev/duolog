@@ -280,8 +280,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	ref := filepath.ToSlash(filepath.Join("tasks", filepath.Base(dir), "task.md"))
 	worker := "duolog/worker"
 	warning := ""
-	// notices are migration lines claimed for this lead; every line that
-	// ends this run carries them, whichever way it ends.
+	// notices are migration lines claimed for this lead and the line of a
+	// free run that spent paid overage; every line that ends this run
+	// carries them, whichever way it ends.
 	var notices []string
 	var firstFailure error
 	send := func(from, to, kind, text, reference string) error {
@@ -710,6 +711,14 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				// replaces the result.
 				if settleErr := current.finish(ctx, cfg, route, out.Result); settleErr != nil {
 					return out, errors.Join(err, settleErr)
+				}
+				// A run admitted as free that spent paid overage: the ledger
+				// charged it, admission now sees subscription_overage, and
+				// every line that ends this delegation says so.
+				if current.permit.Assessment.Verdict != paidruns.Paid && out.Result.Billing.UsingOverage {
+					if n := route.Agent + " worker ran on paid overage; duolog stopped further runs"; !slices.Contains(notices, n) {
+						notices = append(notices, n)
+					}
 				}
 				var after map[string]string
 				var snapErr error

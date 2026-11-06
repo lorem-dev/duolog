@@ -162,14 +162,16 @@ func (a *permitRun) sameRoute(ctx context.Context, checked workerenv.Process, ca
 const settleTimeout = 10 * time.Second
 
 // finish settles the attempt once with what the run measured: its tokens,
-// its priced and reported cost and its billing evidence. A run whose child
-// never started releases its hold uncharged. It writes with a context that
-// the delegation's cancellation does not end.
+// its priced and reported cost and its billing evidence. Usage is complete
+// only when the vendor reported the whole run's; a run cut off mid-request
+// counts at least its estimate when paid. A run whose child never started
+// releases its hold uncharged. It writes with a context that the
+// delegation's cancellation does not end.
 func (a *permitRun) finish(ctx context.Context, cfg *config.Config, route router.Route, r runner.Result) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), settleTimeout)
 	defer cancel()
 	s := paidruns.Settlement{Input: r.Usage.Input, Cached: r.Usage.Cached, Output: r.Usage.Output,
-		ReportedUSD: r.ReportedUSD, Evidence: r.Billing, Started: a.started, CompleteUsage: a.started && r.UsageKnown}
+		ReportedUSD: r.ReportedUSD, Evidence: r.Billing, Started: a.started, CompleteUsage: a.started && r.UsageComplete}
 	if cfg != nil {
 		// The run's own usage, so Claude's cache writes cost their premium.
 		if priced, ok := usage.Cost(cfg, route.Agent, route.Model, r.Usage); ok && priced >= 0 {
@@ -183,7 +185,8 @@ func (a *permitRun) finish(ctx context.Context, cfg *config.Config, route router
 }
 
 // RefusalLine says why the gate refused a candidate, for the lead. Peer
-// commands word their refusals with it too.
+// commands word their refusals with it too, so it names the shape. The
+// advice to allow paid runs goes only to an agent that has not opted in.
 func RefusalLine(r *paidruns.Refusal) string {
 	switch r.Reason {
 	case paidruns.ReasonFreeVariantPaid, paidruns.ReasonNotAllowed:
@@ -191,9 +194,16 @@ func RefusalLine(r *paidruns.Refusal) string {
 		for _, s := range r.Signals {
 			signals = append(signals, s.Name+" in "+s.Layer)
 		}
-		line := r.Agent + " worker is paid"
+		shape := string(r.Shape)
+		if shape == "" {
+			shape = string(workerenv.Worker)
+		}
+		line := r.Agent + " " + shape + " is paid"
 		if len(signals) > 0 {
 			line += " (" + strings.Join(slices.Compact(signals), ", ") + ")"
+		}
+		if r.OptedIn {
+			return line
 		}
 		return line + "; set paid_runs." + r.Agent + " to allow"
 	case paidruns.ReasonAgentSessions, paidruns.ReasonOneTask, paidruns.ReasonQueue:

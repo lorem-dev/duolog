@@ -103,7 +103,8 @@ func (s *Store) enter(ctx context.Context, in Admission, l *line, tier TierResul
 		if dry {
 			return nil
 		}
-		if tier.Tier != "" {
+		// A tier made for an account the state no longer holds is not kept.
+		if tier.Tier != "" && d.Reason != ReasonAccountChanged {
 			tier.Live = agentLive
 			st.Tiers[r.Agent] = tier
 		}

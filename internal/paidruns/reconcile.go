@@ -147,7 +147,8 @@ func (s *Store) Reconcile(ctx context.Context, in ReconcileInput) error {
 				// is refunded, as CloseSession does.
 				unsent := r.Shape == workerenv.Peer && r.Session
 				if _, settled := st.Settled[id]; r.Task && !settled && !unsent {
-					recovered := Settlement{ID: id, Agent: r.Agent, AccountKey: r.AccountKey, Started: true, Ended: now}
+					recovered := Settlement{ID: id, Agent: r.Agent, AccountKey: r.AccountKey, Started: true, Ended: now,
+						Windows: r.Estimate.Windows}
 					recovered.ChargedUSD = charge(r, recovered)
 					st.Settled[id] = recovered
 				}

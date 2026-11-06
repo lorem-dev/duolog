@@ -24,7 +24,8 @@ const capSpan = 24 * time.Hour
 //     runs too.
 //
 // A charge past the cap is recorded like any other. It stops nothing; the
-// next admission sees it. A peer's session stays held after its task
+// next admission sees it. The settlement keeps the window costs the task
+// held, so an admission from a read made before the end still counts them. A peer's session stays held after its task
 // settles; a worker's session ends with it. Invalid amounts are errors, and
 // nothing is written.
 func (s *Store) Settle(ctx context.Context, in Settlement) error {
@@ -44,6 +45,8 @@ func (s *Store) Settle(ctx context.Context, in Settlement) error {
 		}
 		in.Agent, in.AccountKey = r.Agent, r.AccountKey
 		in.Started = in.Started || r.Started
+		// The window costs it held stay against reads older than its end.
+		in.Windows = r.Estimate.Windows
 		in.ChargedUSD = charge(r, in)
 		if in.Ended.IsZero() {
 			in.Ended = s.now()
