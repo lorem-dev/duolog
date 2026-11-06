@@ -74,13 +74,16 @@ for a second opinion from `claude -p`; p6 asks for a sub-agent.
    the path setup printed in that arm's `work` folder, trust the folder
    and approve its hooks in `/hooks`. Run `duolog doctor` in each work
    folder: no `worker_modes` warning may remain.
-5. Start the lead in `<study-root>` with the real `claude` path that setup
-   printed and `--permission-mode bypassPermissions` (lead mode `full`, so
-   every arm is reachable). The plain name `claude` would reach the
+Steps 5 and 6 are planned for the study's next stage (S2). `worker_modes.py`
+has only `setup` so far; `run` and `report` do not exist yet.
+
+5. Planned: start the lead in `<study-root>` with the real `claude` path that
+   setup printed and `--permission-mode bypassPermissions` (lead mode `full`,
+   so every arm is reachable). The plain name `claude` would reach the
    wrapper, which runs nothing. Ask the lead to run
    `worker_modes.py run --set B`, then `--set C`, then `--set A`, and not
    to answer any duolog ask: asks time out after 5 seconds and deny.
-6. Run `worker_modes.py report` and write the result page
+6. Planned: run `worker_modes.py report` and write the result page
    `docs/research/2026-11-<dd>-worker-mode-study.md` with OBSERVED labels,
    like `docs/research/2026-10-30-live-verification.md`. Delete the study
    user's logins afterwards if the person wishes.

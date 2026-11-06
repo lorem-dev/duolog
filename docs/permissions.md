@@ -50,7 +50,9 @@ changes.
 An entry names a native value, such as `acceptEdits` or `read-only`. duolog
 resolves it for each worker:
 
-1. A role entry and a family entry both count; the lower one wins.
+1. A role entry and a family entry both count; the lower one wins. Only a
+   role entry can ask for more than duolog's default; a family entry alone
+   gives at most `acceptEdits` or `workspace-write`.
 2. The result never goes above the lead's mode, including a lower mode set
    with `duolog mode`. A read-only role stays read-only.
 3. Claude `auto` needs a lead that is in `auto` at level `edits`, or at
@@ -59,14 +61,18 @@ resolves it for each worker:
 4. When the entry is above the lead, the worker gets duolog's default flag
    for the lead's mode instead.
 
-The worker's gate level follows the same result. `duolog delegate` sets
-`DUOLOG_MODE` for the worker, and the gate takes the lower of that and the
-lead's mode. A missing or forged value can only lower the level, never raise
-it. So an entry that lowers a family, such as `luna: {codex: read-only}`,
-binds the gate as well as the flag.
+When an entry applies, the worker's gate level follows the same result.
+`duolog delegate` sets `DUOLOG_MODE` for the worker, and the gate takes the
+lower of that and the lead's mode. A missing or forged value can only lower
+the level, never raise it. So an entry that lowers a family, such as
+`luna: {codex: read-only}`, binds the gate as well as the flag. An entry for a
+read-only role sets the gate to `plan`, which denies web reads. Without an
+entry delegate sets no `DUOLOG_MODE`, and the gate keeps the lead's mode as
+before.
 
 Project files `.duolog/config.yaml` and `.duolog/config.local.yaml` may only
-lower an entry. See the configuration page for what is ignored.
+lower an entry, and a project layer that changes a role drops what its entry
+asks above the default. See the configuration page for what is ignored.
 
 ### Why a looser mode needs proof that the gate runs
 
@@ -79,10 +85,13 @@ its OS sandbox, but network and extra writable roots widen it.
 So before a worker starts in a looser mode, or with Codex network or extra
 roots, `duolog delegate` checks that the gate can run for that agent here:
 
-- Claude: the duolog hooks are installed and `disableAllHooks` is off.
-- Codex: the hooks are approved and the folder is trusted.
+- Claude: the duolog gate hooks are in a settings file, or the duolog plugin
+  is enabled and installed, and `disableAllHooks` is off.
+- Codex: the folder is trusted, and an approved gate hook runs duolog's own
+  gate command. Codex skips a hook whose command changed after approval, so
+  an approval of another command does not count.
 - The `duolog` binary is on the worker's PATH.
-- No writable root overlaps a protected folder.
+- No writable root overlaps a protected folder, checked again at launch.
 
 If a check fails, delegate refuses the run. No worker starts and the other
 agent does not run in its place. The message reads
@@ -93,19 +102,29 @@ checked this way and behaves as before.
 `duolog route <role>` shows the result, such as
 `codex sol medium mode=edits native=workspace-write (role implement)`. Its
 JSON has a `permission` object with the level, the native value, the source
-and what lowered it. `duolog doctor` lists each entry, says when it applies,
-and warns when the gate cannot be shown to run for an entry that needs it.
-The delegate result line and `duolog decisions` record the native mode.
+and what lowered it. Without a lead, route shows the request and
+`ceiling: no lead`. `duolog doctor` lists each entry, says when it applies or
+that it never does, and warns when the gate cannot be shown to run for an
+entry that needs it. The delegate result line names the native mode when an
+entry applies. `duolog decisions` and the usage records name it for every
+run.
 
 ### What a Codex entry can add
 
 A role entry for Codex may set `network: true` and `writable_roots`. They
 apply only to that role's Codex route, only on `workspace-write` at level
-`edits` or `full`, and never from a family entry or a project file. duolog
-refuses a root that is a volume root, the home folder or one of its parents,
-or that holds credentials or duolog's own settings (`~/.ssh`, `~/.claude`,
-`~/.codex`, the keychain folder, the duolog config folder).
-`danger-full-access` is not offered.
+`edits` or `full`, and never from a family entry or a project file. They
+apply whether or not the entry names a `codex` value. duolog refuses a root
+that is a volume root, the home folder or one of its parents, or that holds
+or lies in credentials or agent and duolog settings. It compares the paths
+after it resolves symlinks, and without case where the volume ignores case;
+[Configuration](configuration.md#which-layers-may-change-worker-modes) lists
+the folders. `danger-full-access` is not offered.
+
+Every Codex `workspace-write` worker gets `network_access` and
+`writable_roots` on its command line, `false` and `[]` unless an entry
+allows more. Codex's own config files then cannot widen a worker. Whether
+`codex exec` honours these keys is NOT VERIFIED.
 
 Peers (`duolog peer`) do not use `worker_modes`; they keep the default flags.
 

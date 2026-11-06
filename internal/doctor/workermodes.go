@@ -36,8 +36,18 @@ func workerModeFindings(cfg *config.Config, root string) []Finding {
 				if native == "" {
 					continue
 				}
+				rank, _ := mode.Rank(agent, native)
+				when := "it applies " + applies
+				switch {
+				case kind == "role" && cfg.Roles[name].Sandbox == "read-only" && rank > 0:
+					// mode.Resolve gives a read-only role plan or read-only.
+					when, looser = "it never applies: role "+name+" is read-only, so its workers start in plan", false
+				case kind == "family" && rank > 2:
+					// WorkerModes.Request: a family entry only lowers.
+					when, looser = "a family entry only lowers: it lowers a role entry above it, and alone gives at most acceptEdits", false
+				}
 				ask := fmt.Sprintf("worker_modes: %s %s asks %s %s", kind, name, agent, native+extras)
-				out = append(out, Finding{"info", ask + "; it applies " + applies})
+				out = append(out, Finding{"info", ask + "; " + when})
 				if !looser {
 					continue
 				}

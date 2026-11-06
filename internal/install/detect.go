@@ -97,6 +97,30 @@ func ClaudeSettingsFiles(root, home string) []string {
 	return paths
 }
 
+// PluginInstalled reports whether Claude lists the duolog plugin as installed
+// under home, in a folder whose hooks.json holds the gate. An enabled plugin
+// that is not installed runs no hook.
+func PluginInstalled(home string) bool {
+	data, err := os.ReadFile(filepath.Join(trusthome.Claude(home), "plugins", "installed_plugins.json"))
+	if err != nil {
+		return false
+	}
+	var doc struct {
+		Plugins map[string][]struct {
+			InstallPath string `json:"installPath"`
+		} `json:"plugins"`
+	}
+	if json.Unmarshal(data, &doc) != nil {
+		return false
+	}
+	for _, in := range doc.Plugins[pluginKey] {
+		if in.InstallPath != "" && HasGate(filepath.Join(in.InstallPath, "hooks", "hooks.json")) {
+			return true
+		}
+	}
+	return false
+}
+
 // PluginEnabled applies project and local plugin settings after user settings. An
 // explicit project disable overrides an enabled user plugin.
 func PluginEnabled(root, home string) bool {

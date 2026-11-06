@@ -161,6 +161,7 @@ func Load(root string) (*Config, error) {
 		filepath.Join(root, ".duolog", "config.local.yaml"),
 	}
 	var userTelemetrySection Telemetry
+	var view userView
 	projectTelemetryOff := false
 	layers := make([][]byte, len(paths))
 	for i, path := range paths {
@@ -168,6 +169,10 @@ func Load(root string) (*Config, error) {
 			// Telemetry is user level: keep the section as it stands before
 			// any project layer, which may only turn its own events off.
 			if userTelemetrySection, err = userTelemetry(&merged); err != nil {
+				return nil, err
+			}
+			// worker_modes binds to the roles and models the person defined.
+			if view, err = decodeUserView(&merged); err != nil {
 				return nil, err
 			}
 		}
@@ -232,7 +237,7 @@ func Load(root string) (*Config, error) {
 	if err := lowerSharedCaps(&cfg, layers[0], layers[1], layers[2]); err != nil {
 		return nil, err
 	}
-	if err := resolveWorkerModes(&cfg, layers[0], layers[1], layers[2]); err != nil {
+	if err := resolveWorkerModes(&cfg, view, layers[0], layers[1], layers[2]); err != nil {
 		return nil, err
 	}
 	if cfg.Learning.Enabled {

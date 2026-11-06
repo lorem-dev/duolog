@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -29,23 +30,42 @@ var gateBinary = workerenv.GateBinary
 
 // resolveWorkerMode resolves the worker_modes entries for one route. It reads
 // the family from route.Model, so it runs before resolveModel replaces the
-// alias. Codex extras come only from the role's own entry, on workspace-write
-// at level edits or full.
+// alias. Codex extras come only from the role's own entry, whichever entry
+// named the native mode, when the resolved sandbox is workspace-write at
+// level edits or full.
 func resolveWorkerMode(cfg *config.Config, role string, route router.Route, lead session.Lead, effective mode.Mode) workerMode {
-	req := cfg.WorkerModes.Request(role, config.Family(cfg, route.Model), route.Agent)
+	req := cfg.WorkerModes.Request(role, config.Families(cfg, route.Model), route.Agent)
 	ceiling := mode.NewCeiling(lead.Agent, lead.Native, lead.Mode, effective)
 	w := workerMode{Resolved: mode.Resolve(route.Agent, req, ceiling, route.Sandbox), Request: req.Native}
-	if route.Agent == "codex" && w.Native == "workspace-write" && (w.Level == mode.Edits || w.Level == mode.Full) &&
-		route.Sandbox == "workspace-write" && slices.Contains(strings.Split(w.Source, ", "), "role "+role) {
+	if route.Agent == "codex" && w.Native == "workspace-write" && (w.Level == mode.Edits || w.Level == mode.Full) && route.Sandbox == "workspace-write" {
 		w.Network, w.WritableRoots = cfg.WorkerModes.Extras(role)
+		if (w.Network || len(w.WritableRoots) > 0) && w.Source == "default" {
+			w.Source = "role " + role
+		}
 	}
 	return w
+}
+
+// applies reports whether an entry decided anything for this worker.
+func (w workerMode) applies() bool {
+	return w.Source != "default" && w.Source != ""
+}
+
+// env is what the worker's gate reads: DUOLOG_MODE only when an entry
+// applies, so that without one the gate keeps the lead's mode as before, and
+// DUOLOG_NATIVE always, for the decision log.
+func (w workerMode) env() []string {
+	env := []string{"DUOLOG_NATIVE=" + w.Native}
+	if w.applies() {
+		env = append(env, "DUOLOG_MODE="+string(w.Level))
+	}
+	return env
 }
 
 // line tells the lead which native mode an entry gave the worker; empty when
 // no entry applies.
 func (w workerMode) line() string {
-	if w.Source == "default" || w.Source == "" {
+	if !w.applies() {
 		return ""
 	}
 	native := w.Native
@@ -71,12 +91,13 @@ func (w workerMode) needsGate() bool {
 // for it, or when a writable root overlaps a protected folder.
 func (w workerMode) gatePreflight(agent string, state trust.State, folder bool, protected []string) error {
 	problem := trust.GateProblem(agent, state, folder)
-	if problem == "" {
-		if _, err := gateBinary(workerenv.Path()); err != nil {
-			problem = err.Error()
-		}
+	pathEnv := workerenv.Path()
+	gate, err := gateBinary(pathEnv)
+	if problem == "" && err != nil {
+		problem = err.Error()
 	}
-	if problem == "" {
+	if problem == "" && len(w.WritableRoots) > 0 {
+		protected = append(slices.Clone(protected), programFolders(pathEnv, gate)...)
 		problem = protectedRoot(w.WritableRoots, protected)
 	}
 	if problem == "" {
@@ -85,17 +106,16 @@ func (w workerMode) gatePreflight(agent string, state trust.State, folder bool, 
 	return fmt.Errorf("gate preflight failed for %s %s (%s): %s; nothing ran", agent, w.Native, w.Source, problem)
 }
 
-// protectedRoot names the first writable root that equals, lies inside or
-// holds a protected folder; empty when none does.
+// protectedRoot names the first writable root that config refuses now, at
+// launch, or that equals, lies inside or holds a protected folder; empty when
+// none does. Paths compare canonically (pathutil.Canonical).
 func protectedRoot(roots, protected []string) string {
 	for _, root := range roots {
-		r := filepath.Clean(pathutil.Resolved(root))
+		if reason := config.RefuseRoot(root); reason != "" {
+			return "writable root " + root + ": " + reason
+		}
 		for _, p := range protected {
-			if p == "" {
-				continue
-			}
-			q := filepath.Clean(pathutil.Resolved(p))
-			if within(q, r) || within(r, q) {
+			if p != "" && pathutil.Overlap(p, root) {
 				return "writable root " + root + " overlaps protected " + p
 			}
 		}
@@ -103,10 +123,38 @@ func protectedRoot(roots, protected []string) string {
 	return ""
 }
 
-// within reports whether child is parent or lies inside it.
-func within(parent, child string) bool {
-	rel, err := filepath.Rel(parent, child)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+// programFolders lists the folders a writable root must not reach, so that a
+// worker's command cannot replace a program a later hook or the lead runs:
+// the folders on the worker PATH that hold duolog, claude or codex, and the
+// folders those resolve to.
+func programFolders(pathEnv, gate string) []string {
+	var out []string
+	add := func(file string) {
+		out = append(out, filepath.Dir(file))
+		if resolved, err := filepath.EvalSymlinks(file); err == nil {
+			out = append(out, filepath.Dir(resolved))
+		}
+	}
+	if gate != "" {
+		add(gate)
+	}
+	suffixes := []string{""}
+	if runtime.GOOS == "windows" {
+		suffixes = []string{".exe", ".cmd", ".bat", ".ps1"}
+	}
+	for _, dir := range filepath.SplitList(strings.TrimPrefix(pathEnv, "PATH=")) {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+		for _, name := range []string{"duolog", "claude", "codex"} {
+			for _, suffix := range suffixes {
+				if info, err := os.Stat(filepath.Join(dir, name+suffix)); err == nil && !info.IsDir() {
+					add(filepath.Join(dir, name+suffix))
+				}
+			}
+		}
+	}
+	return out
 }
 
 // gateLogSize is the size of the gate log, 0 when there is none.

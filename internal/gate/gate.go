@@ -4,7 +4,6 @@ package gate
 import (
 	"fmt"
 	"github.com/lorem-dev/duolog/internal/pathutil"
-	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -97,6 +96,10 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	}
 	if d, ok := protectedDecision(a, m); ok {
 		return d
+	}
+	// Before parsing, which gives up on wrappers such as env and asks instead.
+	if a.Kind == "exec" && startsAgent(a.Target, a.Shell) {
+		return decision(Deny, "workers cannot start claude or codex; such a run is outside duolog's routing and quota", RuleAgentLaunch)
 	}
 	if a.Kind == "read" && stateReadAction(a) {
 		return decision(Deny, "duolog state is not readable by workers", RuleState)
@@ -415,7 +418,7 @@ func expandBraces(pattern string) []string {
 // basenameCommand receives a verified shell part with normalized whitespace.
 func basenameCommand(command string) string {
 	word, _, _ := strings.Cut(command, " ")
-	return strings.TrimSuffix(path.Base(pathutil.Slashes(word)), ".exe") + command[len(word):]
+	return ProgramName(word) + command[len(word):]
 }
 
 // quotedLiteralUnsafe lists what a quoted run may not hold. Whitespace and

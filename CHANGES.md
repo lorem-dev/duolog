@@ -47,6 +47,16 @@
 - `worker_modes` sets a delegate worker's native mode per role and family,
   never above the lead's; a looser mode needs a gate preflight.
 
+### Changed
+
+- Codex workers get `network_access` false and no extra writable roots unless
+  `worker_modes` allows them; `.codex/config.toml` no longer widens a worker.
+
+### Security
+
+- Workers cannot start `claude` or `codex` through any path, `.cmd` or `.ps1`
+  launcher, `npx`-style runner or `env` prefix.
+
 ### Fixed
 
 - `duolog stats`, telemetry and learning costs price Claude cache writes at

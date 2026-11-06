@@ -85,7 +85,7 @@ func protectedDecision(a Action, m mode.Mode) (Decision, bool) {
 func protectedCommand(command, shell string) bool {
 	for _, words := range protectedWords(command, shell) {
 		for i, word := range words {
-			if programName(word) == "duolog" && storeSubcommand(words[i+1:]) {
+			if ProgramName(word) == "duolog" && storeSubcommand(words[i+1:]) {
 				return true
 			}
 		}
@@ -186,7 +186,11 @@ func protectedWord(word string) string {
 	return pathWord(word)
 }
 
-func programName(word string) string {
+// ProgramName is the program a command word starts: its base name, lower
+// case, without quotes, the PowerShell call operator or a Windows launcher
+// suffix (.exe, .cmd, .bat, .ps1). The worker denies and the lead guard both
+// name programs with it.
+func ProgramName(word string) string {
 	name := strings.ToLower(path.Base(pathutil.Slashes(strings.Trim(word, `"'&`))))
 	for _, suffix := range []string{".exe", ".cmd", ".bat", ".ps1"} {
 		name = strings.TrimSuffix(name, suffix)
@@ -199,7 +203,7 @@ func programName(word string) string {
 func searchRoots(words []string) []string {
 	var roots []string
 	for i, word := range words {
-		name, args := programName(word), words[i+1:]
+		name, args := ProgramName(word), words[i+1:]
 		var recursive bool
 		switch name {
 		case "find", "fd", "fdfind", "rg", "ag", "ack", "tree", "du":

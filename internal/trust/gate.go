@@ -19,5 +19,5 @@ func GateProblem(agent string, s State, folder bool) string {
 			return "Codex does not trust this folder"
 		}
 	}
-	return ""
+	return s.Unproven
 }

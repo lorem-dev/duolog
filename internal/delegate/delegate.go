@@ -364,7 +364,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		// Resolved before resolveModel replaces the alias, which names the family.
 		wm := resolveWorkerMode(cfg, role, route, lead, leadMode)
 		capNotes = ""
-		env := att.env(append(workerEnv(cfg.EnvPassthrough, leadID, role), "DUOLOG_MODE="+string(wm.Level), "DUOLOG_NATIVE="+wm.Native))
+		env := att.env(append(workerEnv(cfg.EnvPassthrough, leadID, role), wm.env()...))
 		var bridge []string
 		var bridged *runner.MCP
 		if len(opts.Needs) > 0 {

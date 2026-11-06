@@ -32,6 +32,41 @@ func TestDoctorReportsWorkerModes(t *testing.T) {
 	}
 }
 
+// Claude review M1: an entry on a read-only role never applies above plan; a
+// family entry only lowers. Claude review I3: extras alone are a
+// workspace-write request, as delegate applies them.
+func TestDoctorSaysWhenAnEntryNeverApplies(t *testing.T) {
+	cfg := &config.Config{
+		Roles: map[string]config.Role{"review_final": {Sandbox: "read-only"}, "implement": {Sandbox: "workspace-write"}},
+		WorkerModes: config.WorkerModes{
+			Roles:    map[string]config.WorkerMode{"review_final": {Claude: "bypassPermissions", Codex: "read-only"}, "implement": {Network: true}},
+			Families: map[string]config.WorkerMode{"haiku": {Claude: "bypassPermissions"}},
+		},
+	}
+	old := gateBinary
+	gateBinary = func(string) (string, error) { return "/bin/duolog", nil }
+	t.Cleanup(func() { gateBinary = old })
+	got := workerModeFindings(cfg, t.TempDir())
+	var lines []string
+	for _, f := range got {
+		lines = append(lines, f.Level+": "+f.Message)
+	}
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"info: worker_modes: role review_final asks claude bypassPermissions; it never applies: role review_final is read-only, so its workers start in plan",
+		"info: worker_modes: role review_final asks codex read-only; it applies always",
+		"info: worker_modes: role implement asks codex workspace-write with network; it applies when the lead is in edits or full",
+		"info: worker_modes: family haiku asks claude bypassPermissions; a family entry only lowers: it lowers a role entry above it, and alone gives at most acceptEdits",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("lacks %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "warning: worker_modes: family") || strings.Contains(joined, "warning: worker_modes: role review_final") {
+		t.Errorf("warns about an entry that cannot loosen:\n%s", joined)
+	}
+}
+
 func TestDoctorReportsIgnoredWorkerModes(t *testing.T) {
 	cfg := &config.Config{WorkerModes: config.WorkerModes{Ignored: []string{"worker_modes.roles.implement.claude bypassPermissions in .duolog/config.yaml is ignored: x"}}}
 	got := workerModeFindings(cfg, t.TempDir())

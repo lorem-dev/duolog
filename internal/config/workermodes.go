@@ -5,23 +5,33 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
 
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/pathutil"
 )
 
 // WorkerModes is the native permission mode a delegate worker starts in, per
 // role and per model family. Absent entries mean duolog's own default flags.
 type WorkerModes struct {
 	Roles    map[string]WorkerMode `yaml:"roles" jsonschema_description:"Native mode per role; user level, project layers may only lower. Absent means duolog's default flags."`
-	Families map[string]WorkerMode `yaml:"families" jsonschema_description:"Native mode per model family, such as luna or haiku; combined with the role entry by taking the lower."`
+	Families map[string]WorkerMode `yaml:"families" jsonschema_description:"Native mode per model family, such as luna or haiku; it only lowers: combined with the role entry by taking the lower, and alone at most duolog's default."`
 	// Ignored names each project-layer value that Load dropped because it was
-	// above the user layer.
+	// above the layers before it, and each user value that Load dropped because
+	// a project layer changes the role.
 	Ignored []string `yaml:"-" jsonschema:"-"`
+	// userFamilies is each model's family as the defaults and the user layer
+	// define it, before any project layer.
+	userFamilies map[string]string
 }
+
+// defaultCap is the highest native name that is never looser than duolog's
+// default flag at any level: Claude acceptEdits, Codex workspace-write.
+const defaultCap = 2
 
 // WorkerMode is one role or family entry.
 type WorkerMode struct {
@@ -42,21 +52,40 @@ func (w WorkerMode) For(agent string) string {
 	return ""
 }
 
-// Request combines the role and family entries for one agent by taking the
-// lower. Source names only the entries that set a value.
-func (w WorkerModes) Request(role, family, agent string) mode.Request {
-	r, f := w.Roles[role].For(agent), w.Families[family].For(agent)
+// Request combines the role entry and the entries of the given families for
+// one agent by taking the lower. Only a role entry can ask for more than
+// duolog's default: a family entry lowers, and without a role entry it asks
+// at most acceptEdits or workspace-write. Source names the entries that set a
+// value.
+func (w WorkerModes) Request(role string, families []string, agent string) mode.Request {
+	native := w.Roles[role].For(agent)
 	var sources []string
-	if r != "" {
+	if native != "" {
 		sources = append(sources, "role "+role)
 	}
-	if f != "" {
+	for _, family := range families {
+		f := w.Families[family].For(agent)
+		if f == "" {
+			continue
+		}
 		sources = append(sources, "family "+family)
+		if native == "" {
+			native = capName(agent)
+		}
+		native = mode.LowerNative(agent, native, f)
 	}
 	if len(sources) == 0 {
 		return mode.Request{}
 	}
-	return mode.Request{Native: mode.LowerNative(agent, r, f), Source: strings.Join(sources, ", ")}
+	return mode.Request{Native: native, Source: strings.Join(sources, ", ")}
+}
+
+// capName is the native name of defaultCap for an agent.
+func capName(agent string) string {
+	if agent == "codex" {
+		return "workspace-write"
+	}
+	return "acceptEdits"
 }
 
 // Extras returns the role entry's Codex network switch and writable roots,
@@ -66,9 +95,29 @@ func (w WorkerModes) Extras(role string) (network bool, roots []string) {
 	return e.Network, e.WritableRoots
 }
 
+// Families names the families whose entries apply to a model: its family in
+// the merged config and, when a project layer changed it, its family as the
+// user layer defines it. A project layer then cannot move a model out of a
+// family whose entry lowers it.
+func Families(cfg *Config, model string) []string {
+	families := []string{Family(cfg, model)}
+	user, ok := cfg.WorkerModes.userFamilies[model]
+	if !ok {
+		user = familyOf(nil, model)
+	}
+	if user != families[0] {
+		families = append(families, user)
+	}
+	return families
+}
+
 // Family names the model family of an alias or version pin.
 func Family(cfg *Config, model string) string {
-	if m, ok := cfg.Models[model]; ok {
+	return familyOf(cfg.Models, model)
+}
+
+func familyOf(models map[string]Model, model string) string {
+	if m, ok := models[model]; ok {
 		return cmp.Or(m.Family, model)
 	}
 	parts := strings.Split(model, "-")
@@ -111,18 +160,47 @@ type layerWorkerModes struct {
 		Roles    map[string]layerMode `yaml:"roles"`
 		Families map[string]layerMode `yaml:"families"`
 	} `yaml:"worker_modes"`
+	// Roles holds only the names: any change to a role caps its entry.
+	Roles map[string]yaml.Node `yaml:"roles"`
+}
+
+// userView is the roles and models as the defaults and the user layer define
+// them, before any project layer.
+type userView struct {
+	Roles  map[string]Role  `yaml:"roles"`
+	Models map[string]Model `yaml:"models"`
+}
+
+func decodeUserView(merged *yaml.Node) (userView, error) {
+	var v userView
+	if merged.Kind == 0 {
+		return v, nil
+	}
+	if err := merged.Decode(&v); err != nil {
+		return v, fmt.Errorf("user config: %w", err)
+	}
+	return v, nil
 }
 
 // resolveWorkerModes rebuilds cfg.WorkerModes from the layers: the user layer
 // sets it, and the shared and local project layers may only lower it. Each
-// layer is its bytes, nil when the file does not exist.
-func resolveWorkerModes(cfg *Config, user, shared, local []byte) error {
+// layer is its bytes, nil when the file does not exist. view is the roles and
+// models before the project layers.
+//
+// The rule that keeps a project from raising a worker: a native name above
+// duolog's default (and any Codex extra) comes only from a user-layer role
+// entry, for a role that no project layer changes. Each project layer may
+// only lower the entry as the layers before it left it. A family entry only
+// lowers (Request), and it applies by the model's family in the user layer as
+// well as in the merged config (Families).
+func resolveWorkerModes(cfg *Config, view userView, user, shared, local []byte) error {
 	var base struct {
 		WorkerModes WorkerModes `yaml:"worker_modes"`
 	}
 	if err := yaml.Unmarshal(user, &base); err != nil {
 		return err
 	}
+	userCfg := &Config{Roles: view.Roles}
 	baseRoles, baseFams := base.WorkerModes.Roles, base.WorkerModes.Families
 	for _, kind := range []string{"roles", "families"} {
 		entries := baseRoles
@@ -131,7 +209,9 @@ func resolveWorkerModes(cfg *Config, user, shared, local []byte) error {
 		}
 		for _, name := range sortedKeys(entries) {
 			e := entries[name]
-			if err := validateWorkerEntry(cfg, kind, name, e); err != nil {
+			// User entries are checked against the user's own roles, so that a
+			// project layer cannot make them fail to load.
+			if err := validateWorkerEntry(userCfg, kind, name, e); err != nil {
 				return err
 			}
 			if kind == "roles" {
@@ -155,20 +235,27 @@ func resolveWorkerModes(cfg *Config, user, shared, local []byte) error {
 			return err
 		}
 		for _, kind := range []string{"roles", "families"} {
-			layerEntries, baseEntries, outEntries := layer.WorkerModes.Roles, baseRoles, out.Roles
+			layerEntries, outEntries := layer.WorkerModes.Roles, out.Roles
 			if kind == "families" {
-				layerEntries, baseEntries, outEntries = layer.WorkerModes.Families, baseFams, out.Families
+				layerEntries, outEntries = layer.WorkerModes.Families, out.Families
 			}
 			for _, name := range sortedKeys(layerEntries) {
 				l := layerEntries[name]
 				if err := validateWorkerEntry(cfg, kind, name, l.entry()); err != nil {
 					return fmt.Errorf("%s: %w", file, err)
 				}
-				if err := lowerWorkerEntry(&out, outEntries, baseEntries, kind, name, file, l); err != nil {
+				if err := lowerWorkerEntry(&out, outEntries, kind, name, file, l); err != nil {
 					return fmt.Errorf("%s: %w", file, err)
 				}
 			}
 		}
+		for _, name := range sortedKeys(layer.Roles) {
+			capChangedRole(&out, name, file)
+		}
+	}
+	out.userFamilies = make(map[string]string, len(view.Models))
+	for name := range view.Models {
+		out.userFamilies[name] = familyOf(view.Models, name)
 	}
 	for _, entries := range []map[string]WorkerMode{out.Roles, out.Families} {
 		for name, e := range entries {
@@ -188,11 +275,12 @@ func resolveWorkerModes(cfg *Config, user, shared, local []byte) error {
 }
 
 // lowerWorkerEntry applies one project-layer entry to out, keeping a value
-// only when it is at or below the user layer's, or below duolog's default
-// when the user layer has none.
-func lowerWorkerEntry(out *WorkerModes, outEntries, baseEntries map[string]WorkerMode, kind, name, file string, l layerMode) error {
-	base, hasBase := baseEntries[name]
-	e := outEntries[name]
+// only when it is at or below the entry as the layers before it left it, or
+// at or below duolog's default when they set none.
+func lowerWorkerEntry(out *WorkerModes, outEntries map[string]WorkerMode, kind, name, file string, l layerMode) error {
+	base, hasBase := outEntries[name]
+	e := base
+	e.WritableRoots = slices.Clone(base.WritableRoots)
 	path := "worker_modes." + kind + "." + name
 	applies := func(value string) string {
 		if value == "" {
@@ -214,7 +302,7 @@ func lowerWorkerEntry(out *WorkerModes, outEntries, baseEntries map[string]Worke
 			continue
 		}
 		rank, _ := mode.Rank(agent, *ptr)
-		limit := 2
+		limit := defaultCap
 		if b := base.For(agent); b != "" {
 			limit, _ = mode.Rank(agent, b)
 		}
@@ -260,6 +348,34 @@ func lowerWorkerEntry(out *WorkerModes, outEntries, baseEntries map[string]Worke
 	}
 	outEntries[name] = e
 	return nil
+}
+
+// capChangedRole drops what a role entry asks above duolog's default once a
+// project layer changes the role: its route or sandbox may no longer be the
+// one the person gave the entry for. Lowering values stay.
+func capChangedRole(out *WorkerModes, name, file string) {
+	e, ok := out.Roles[name]
+	if !ok {
+		return
+	}
+	ignore := func(field, value string) {
+		out.Ignored = append(out.Ignored, fmt.Sprintf(
+			"worker_modes.roles.%s.%s %s is ignored: %s changes role %s; duolog's default applies",
+			name, field, value, file, name))
+	}
+	if rank, _ := mode.Rank("claude", e.Claude); rank > defaultCap {
+		ignore("claude", e.Claude)
+		e.Claude = ""
+	}
+	if e.Network {
+		ignore("network", "true")
+		e.Network = false
+	}
+	if len(e.WritableRoots) > 0 {
+		ignore("writable_roots", strings.Join(e.WritableRoots, ", "))
+		e.WritableRoots = nil
+	}
+	out.Roles[name] = e
 }
 
 func validateWorkerEntry(cfg *Config, kind, name string, e WorkerMode) error {
@@ -335,40 +451,74 @@ func expandRoot(raw, home string) (string, string) {
 	return filepath.Clean(p), ""
 }
 
+// RefuseRoot says why a writable root is refused, or returns "" when it is
+// not. delegate asks again at launch, when symlinks may point elsewhere.
+func RefuseRoot(root string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "home folder: " + err.Error()
+	}
+	return refuseRoot(filepath.Clean(root), filepath.Clean(home))
+}
+
+// refuseRoot compares canonical paths (pathutil.Canonical): symlinks in the
+// existing prefix resolved, case folded where the volume ignores it.
 func refuseRoot(root, home string) string {
-	if root == filepath.VolumeName(root)+string(filepath.Separator) {
+	canonical := pathutil.Canonical(root)
+	if canonical == filepath.VolumeName(canonical)+string(filepath.Separator) {
 		return "a volume root is too wide"
 	}
-	if within(root, home) {
+	if pathutil.Within(canonical, pathutil.Canonical(home)) {
 		return "the home folder and its ancestors are too wide"
 	}
-	userDir, _ := os.UserConfigDir()
-	protected := []string{
-		filepath.Join(home, ".ssh"),
-		filepath.Join(home, ".codex"),
-		filepath.Join(home, ".claude"),
-		filepath.Join(home, "Library", "Keychains"),
-	}
-	for _, env := range []string{"CODEX_HOME", "CLAUDE_CONFIG_DIR"} {
-		if v := os.Getenv(env); v != "" && filepath.IsAbs(v) {
-			protected = append(protected, filepath.Clean(v))
-		}
-	}
-	if userDir != "" {
-		protected = append(protected, filepath.Join(userDir, "duolog"))
-	}
-	for _, p := range protected {
-		if within(p, root) || within(root, p) {
+	for _, p := range protectedFolders(runtime.GOOS, home, os.Getenv) {
+		if pathutil.Overlap(p, root) {
 			return "protected: it holds credentials or duolog's own settings"
 		}
 	}
 	return ""
 }
 
-// within reports whether child is parent or lies inside it.
-func within(parent, child string) bool {
-	rel, err := filepath.Rel(parent, child)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+// protectedFolders lists the folders that hold credentials or agent and
+// duolog settings, on goos, for the home folder.
+func protectedFolders(goos, home string, getenv func(string) string) []string {
+	join := func(parts ...string) string { return filepath.Join(parts...) }
+	protected := []string{
+		join(home, ".ssh"),
+		join(home, ".codex"),
+		join(home, ".claude"),
+		join(home, ".aws"),
+		join(home, ".azure"),
+		join(home, ".gnupg"),
+		join(home, ".docker"),
+		join(home, ".kube"),
+		join(home, ".password-store"),
+		join(home, ".config", "gh"),
+		join(home, ".config", "gcloud"),
+		join(home, ".local", "share", "keyrings"),
+		join(home, "Library", "Keychains"),
+	}
+	for _, env := range []string{"CODEX_HOME", "CLAUDE_CONFIG_DIR"} {
+		if v := getenv(env); v != "" && filepath.IsAbs(v) {
+			protected = append(protected, filepath.Clean(v))
+		}
+	}
+	if v := getenv("XDG_CONFIG_HOME"); v != "" && filepath.IsAbs(v) {
+		protected = append(protected, join(v, "gh"), join(v, "gcloud"))
+	}
+	if goos == "windows" {
+		// Credential Manager, the vault and the DPAPI master keys.
+		roaming := cmp.Or(getenv("APPDATA"), join(home, "AppData", "Roaming"))
+		local := cmp.Or(getenv("LOCALAPPDATA"), join(home, "AppData", "Local"))
+		for _, base := range []string{roaming, local} {
+			protected = append(protected, join(base, "Microsoft", "Credentials"), join(base, "Microsoft", "Vault"), join(base, "Microsoft", "Protect"))
+		}
+		protected = append(protected, join(roaming, "GitHub CLI"))
+	}
+	if userDir, err := os.UserConfigDir(); err == nil && userDir != "" {
+		protected = append(protected, join(userDir, "duolog"))
+	}
+	return protected
 }
 
 func cloneModes(m map[string]WorkerMode) map[string]WorkerMode {

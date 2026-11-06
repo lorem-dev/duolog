@@ -153,6 +153,33 @@ func TestRoutePermissionJSON(t *testing.T) {
 	}
 }
 
+// Codex review 9: with no lead, route still shows the request, with no ceiling.
+func TestRouteWithoutLeadShowsRequest(t *testing.T) {
+	isolatedRouteConfig(t)
+	t.Chdir(t.TempDir())
+	t.Setenv("DUOLOG_LEAD", "")
+	if _, err := session.Open(filepath.Join(mustGetwd(t), ".duolog")); err != nil {
+		t.Fatal(err)
+	}
+	writeUserConfig(t, "worker_modes:\n  roles:\n    implement: {codex: workspace-write, claude: auto}\n")
+	if text := runRoute(t, "implement"); !strings.Contains(text, "request=workspace-write (role implement); ceiling: no lead") {
+		t.Fatal(text)
+	}
+	var got struct{ Permission map[string]string }
+	out := runRoute(t, "implement", "--json")
+	if err := json.Unmarshal([]byte(out), &got); err != nil || got.Permission["request"] != "workspace-write" || got.Permission["source"] != "role implement" || got.Permission["ceiling"] != "no lead" {
+		t.Fatal(out, err)
+	}
+	// An explicit lead that does not exist is still an error.
+	cmd := newRootCommand()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"route", "implement", "--lead", "nosuchlead"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("route with an unknown --lead")
+	}
+}
+
 func routeLead(t *testing.T) {
 	t.Helper()
 	t.Chdir(t.TempDir())

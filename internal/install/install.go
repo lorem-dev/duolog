@@ -437,6 +437,14 @@ func events(agent string, timeout int) []event {
 	}
 }
 
+// CodexGateCommands returns the POSIX and Windows commands duolog installs for
+// the Codex gate on event. Codex runs a hook only while its command is the one
+// the person approved, so trust compares an approved gate with these.
+func CodexGateCommands(event string) (posix, windows string) {
+	args := "gate --agent codex --event " + event
+	return command("linux", args, true), command("windows", args, true)
+}
+
 // Codex carries both shell guards in one shared file. POSIX must exec so
 // registration records the agent, not a short-lived shell.
 func command(goos, args string, gate bool) string {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/session"
 )
@@ -71,9 +72,20 @@ func (h *harness) gateOnPath(ok bool) {
 // codexHooksOnly approves the Codex hooks but leaves the folder untrusted.
 func (h *harness) codexHooksOnly() {
 	h.t.Helper()
-	put(h.t, filepath.Join(h.root, ".codex", "hooks.json"), `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"duolog gate"}]}]}}`)
+	put(h.t, filepath.Join(h.root, ".codex", "hooks.json"), codexHooks(h.t))
 	s := fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = \"fixture-hash\"\n", filepath.Join(h.root, ".codex", "hooks.json")+":PreToolUse:0:0")
 	put(h.t, filepath.Join(os.Getenv("HOME"), ".codex", "config.toml"), s)
+}
+
+// codexHooks is the Codex hooks.json duolog installs, so that trust can show
+// the approved gate is duolog's own command.
+func codexHooks(t *testing.T) string {
+	t.Helper()
+	data, err := install.HooksJSON("codex", 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }
 
 // runOn runs role on agent/model at effort medium, as --use does.
@@ -91,7 +103,7 @@ func TestNoWorkerModesKeepsToday(t *testing.T) {
 		t.Fatal(out, err, h.calls[0].Native)
 	}
 	env := strings.Join(h.calls[0].Env, "\n")
-	if !strings.Contains(env, "DUOLOG_MODE=edits") || !strings.Contains(env, "DUOLOG_NATIVE=") {
+	if strings.Contains(env, "DUOLOG_MODE=") || !strings.Contains(env, "DUOLOG_NATIVE=") {
 		t.Fatal(env)
 	}
 }
@@ -182,6 +194,17 @@ func TestFailedGatePreflightRefusesRun(t *testing.T) {
 		// preflight is what refuses.
 		{"codex folder untrusted", "codex", "sol", func(h *harness) { h.codexHooksOnly(); h.gateOnPath(true) }, "codex: workspace-write, network: true"},
 		{"protected root", "codex", "sol", func(h *harness) { h.gateOnPath(true) }, "codex: workspace-write, writable_roots: [\"<state>\"]"},
+		// Codex review 6: an approval of a gate command that changed since, and
+		// a Claude plugin that is enabled but not installed.
+		{"codex hook changed since approval", "codex", "sol", func(h *harness) {
+			h.gateOnPath(true)
+			put(h.t, filepath.Join(h.root, ".codex", "hooks.json"), strings.Replace(codexHooks(h.t), "--event PreToolUse", "--event PreToolUse --agent claude", 2))
+		}, "codex: workspace-write, network: true"},
+		{"claude plugin not installed", "claude", "sonnet", func(h *harness) {
+			h.claudeGate(false)
+			h.gateOnPath(true)
+			put(h.t, filepath.Join(os.Getenv("HOME"), ".claude", "settings.json"), `{"enabledPlugins":{"duolog@duolog":true}}`)
+		}, "claude: auto"},
 	} {
 		h := newHarness(t)
 		tc.setup(h)
@@ -204,6 +227,110 @@ func TestFailedGatePreflightRefusesRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.requireCalls(1)
+}
+
+// Claude review I3, Codex review 5: extras on a role entry apply when the
+// resolved Codex sandbox and level allow them, whichever entry named the
+// native mode.
+func TestExtrasOnlyRoleEntryApplies(t *testing.T) {
+	for _, entry := range []string{"network: true, writable_roots: [\"<dir>\"]", "claude: auto, network: true, writable_roots: [\"<dir>\"]"} {
+		h := newHarness(t)
+		h.gateOnPath(true)
+		h.workerModes("  roles:\n    implement: {" + strings.ReplaceAll(entry, "<dir>", filepath.ToSlash(t.TempDir())) + "}\n")
+		h.lead("codex", mode.Edits, "high")
+		out, err := h.run("implement")
+		if err != nil {
+			t.Fatal(entry, err)
+		}
+		if c := h.calls[0]; c.Native != "workspace-write" || !c.Network || len(c.WritableRoots) != 1 || !strings.Contains(out.Line, "native=workspace-write+network+roots=1 (role implement)") {
+			t.Errorf("%s: native %s network %t roots %v line %q", entry, c.Native, c.Network, c.WritableRoots, out.Line)
+		}
+	}
+	// A family entry that lowers Codex to read-only still drops them.
+	h := newHarness(t)
+	h.gateOnPath(true)
+	h.workerModes("  roles:\n    implement: {network: true}\n  families:\n    sol: {codex: read-only}\n")
+	h.lead("codex", mode.Edits, "high")
+	if _, err := h.run("implement"); err != nil || h.calls[0].Native != "read-only" || h.calls[0].Network {
+		t.Fatal(err, h.calls[0].Native, h.calls[0].Network)
+	}
+}
+
+// Claude review I2: without an entry the gate keeps the lead's mode, so a
+// read-only role reads the web as before; an entry sets DUOLOG_MODE.
+func TestDuologModeOnlyWithAnEntry(t *testing.T) {
+	h := newHarness(t)
+	h.lead("claude", mode.Edits, "high")
+	for _, role := range []string{"review_final", "implement"} {
+		h.calls = nil
+		if _, err := h.run(role); err != nil {
+			t.Fatal(role, err)
+		}
+		if env := strings.Join(h.calls[0].Env, "\n"); strings.Contains(env, "DUOLOG_MODE=") || !strings.Contains(env, "DUOLOG_NATIVE=") {
+			t.Errorf("%s: %s", role, env)
+		}
+	}
+	h.workerModes("  roles:\n    review_final: {claude: plan, codex: read-only}\n")
+	h.calls = nil
+	if _, err := h.run("review_final"); err != nil || !strings.Contains(strings.Join(h.calls[0].Env, "\n"), "DUOLOG_MODE=plan") {
+		t.Fatal(err, h.calls[0].Env)
+	}
+}
+
+// Claude review I1, Codex review 2: at launch the roots are checked again,
+// canonically, against the credential folders and the folders that hold the
+// gate and the agents.
+func TestWritableRootCheckedAgainAtLaunch(t *testing.T) {
+	bin := t.TempDir()
+	put(t, filepath.Join(bin, "claude"), "#!/bin/sh\n")
+	if err := os.Chmod(filepath.Join(bin, "claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, tc := range []struct {
+		name    string
+		root    func(h *harness) string
+		repoint bool
+	}{
+		{"symlink moved to ~/.ssh", func(h *harness) string { return symlinkTo(t, t.TempDir()) }, true},
+		{"folder holding claude", func(h *harness) string { return bin }, false},
+		{"folder holding the gate", func(h *harness) string { return filepath.Join(h.root, "bin") }, false},
+	} {
+		h := newHarness(t)
+		h.gateOnPath(true)
+		ssh := filepath.Join(os.Getenv("HOME"), ".ssh")
+		if err := os.MkdirAll(ssh, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		root := tc.root(h)
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		h.workerModes("  roles:\n    implement: {codex: workspace-write, writable_roots: [\"" + filepath.ToSlash(root) + "\"]}\n")
+		if tc.repoint {
+			if err := os.Remove(root); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(ssh, root); err != nil {
+				t.Fatal(err)
+			}
+		}
+		h.lead("codex", mode.Edits, "high")
+		out, err := h.run("implement")
+		if len(h.calls) != 0 || err == nil || !strings.Contains(out.Line, "gate preflight failed") {
+			t.Errorf("%s: calls %d, %v %q", tc.name, len(h.calls), err, out.Line)
+		}
+	}
+}
+
+// symlinkTo makes a symlink to target in a new temporary folder.
+func symlinkTo(t *testing.T, target string) string {
+	t.Helper()
+	link := filepath.Join(t.TempDir(), "worker-cache")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skip("no symlinks:", err)
+	}
+	return link
 }
 
 func TestLooserRunWithoutGateRowsWarns(t *testing.T) {

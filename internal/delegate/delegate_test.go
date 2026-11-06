@@ -128,7 +128,7 @@ func (h *harness) task(refs string) {
 	put(h.t, h.path, "# Task: example\n\n## Goal\nDo work.\n\n## Read\n"+refs+"\n\n## Write\n- a.go\n\n## Limits\nStay focused.\n\n## Check\ngo test ./...\n")
 }
 func (h *harness) trust(trusted bool) {
-	put(h.t, filepath.Join(h.root, ".codex", "hooks.json"), `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"duolog gate"}]}]}}`)
+	put(h.t, filepath.Join(h.root, ".codex", "hooks.json"), codexHooks(h.t))
 	s := fmt.Sprintf("[projects.%q]\ntrust_level = \"trusted\"\n", h.root)
 	if trusted {
 		s += fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = \"fixture-hash\"\n", filepath.Join(h.root, ".codex", "hooks.json")+":PreToolUse:0:0")
