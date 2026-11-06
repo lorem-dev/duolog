@@ -312,79 +312,104 @@ var patternOptions = map[string][]string{
 var ownOperandCheck = []string{"sed", "gsed", "awk", "gawk", "mawk", "nawk", "tr"}
 
 // ExecOutside checks file operands, not executable names or stream devices.
+// A part whose program runs nothing it is given is read by shell words, so a
+// quoted argument is one word; any other part is read word by word, so a path
+// inside a quoted command, as in sh -c 'cat ../x', still counts.
 func ExecOutside(a Action) bool {
 	// A script or an option can name a file inside one word.
 	if fileTargetsOutside(a) {
 		return true
 	}
-	parts, uncertain := ShellParts(a.Target, a.Shell)
-	if uncertain || len(parts) == 0 {
-		// Uncertain syntax can omit wrapped commands; retain their operands, and
-		// keep the parsed parts, whose operands have their quotes removed.
-		parts = append(rawExecParts(a.Target), parts...)
-	}
 	var own []string
 	for _, part := range rawExecParts(a.Target) {
 		own = append(own, partFileTargets(part).own...)
 	}
-	for _, part := range parts {
-		// A redirect can stand anywhere, even between an option and its value,
-		// so its file is judged on its own and the redirect leaves the words
-		// before any of them is taken as an option's value.
-		for _, target := range append(redirectTargets(part), inputTargets(part)...) {
-			if outsideOperand(a, target) {
+	if a.Shell == "powershell" {
+		parts, uncertain := ShellParts(a.Target, a.Shell)
+		if uncertain || len(parts) == 0 {
+			// Uncertain syntax can omit wrapped commands; retain their operands, and
+			// keep the parsed parts, whose operands have their quotes removed.
+			parts = append(rawExecParts(a.Target), parts...)
+		}
+		return slices.ContainsFunc(parts, func(part string) bool { return wordsOutside(a, part, own) })
+	}
+	for _, part := range rawExecParts(a.Target) {
+		command := commandAfterKeywords(part)
+		if handled, outside := verbatimOutside(a, command, own); handled {
+			if outside {
 				return true
 			}
+			// A word that ends in ) may instead end a subshell, as in shellParts.
+			if command == part || !strings.Contains(part, ")") {
+				continue
+			}
 		}
-		if operandsOutside(a, withoutRedirects(strings.Fields(part)), own) {
+		if wordsOutside(a, part, own) {
 			return true
 		}
 	}
 	return false
 }
 
-// operandsOutside reports whether the operands of one part's words name a
-// file outside the work root. own lists the commands that the sed, awk and
-// tr parsers read; a part that is one of them is theirs to judge. A part
-// whose words only look like one, as FOO='1 sed' cat x does when split at
-// blanks, is judged here.
-func operandsOutside(a Action, words, own []string) bool {
+// ownedCommand reports whether a command, its program at words[0], is one
+// that the sed, awk and tr parsers read, as own lists them; its words are
+// theirs to judge. A part whose words only look like one, as FOO='1 sed' cat x
+// does when split at blanks, is not.
+func ownedCommand(words, own []string) bool {
+	return len(words) > 0 && slices.Contains(ownOperandCheck, programName(words[0])) && slices.Contains(own, ownCommand(words))
+}
+
+// unquoted spells a word as the shell passes it on when its quotes and
+// backslashes only group literal text: '..'/x is ../x.
+var unquoted = strings.NewReplacer("'", "", "\"", "", "\\", "")
+
+// wordsOutside reads a part word by word, with each word's quotes trimmed and
+// removed, and with redirects found even inside quotes. The operands of a
+// command in own are left to its parser.
+func wordsOutside(a Action, part string, own []string) bool {
+	// A redirect can stand anywhere, even between an option and its value,
+	// so its file is judged on its own and the redirect leaves the words
+	// before any of them is taken as an option's value.
+	for _, target := range append(redirectTargets(part), inputTargets(part)...) {
+		if outsideOperand(a, target) || outsideOperand(a, unquoted.Replace(target)) {
+			return true
+		}
+	}
+	words := withoutRedirects(strings.Fields(part))
 	start := execOperandStart(words)
 	var valued []string
 	if start > 0 && start <= len(words) {
-		program := programName(words[start-1])
-		if slices.Contains(ownOperandCheck, program) && slices.Contains(own, ownCommand(words[start-1:])) {
+		if ownedCommand(words[start-1:], own) {
 			return false
 		}
-		valued = patternOptions[program]
+		valued = patternOptions[programName(words[start-1])]
 	}
 	options := true
 	for i := start; i < len(words); i++ {
 		word := strings.Trim(words[i], "'\"")
-		if !options {
-			// Past --, every word is an operand, even one that looks like an
-			// option, so a leading - is part of the path.
-			if outsideOperand(a, strings.Trim(word, "<>&|;()")) {
-				return true
-			}
-			continue
-		}
-		if word == "--" {
-			options = false
-			continue
-		}
 		name, _, attached := strings.Cut(word, "=")
-		if slices.Contains(valued, name) {
+		switch {
+		case options && word == "--":
+			options = false
+		case options && slices.Contains(valued, name):
 			if !attached {
 				i++
 			}
-			continue
-		}
-		if outsideOperand(a, pathWord(word)) {
+		case fieldOutside(a, word, options) || fieldOutside(a, unquoted.Replace(words[i]), options):
 			return true
 		}
 	}
 	return false
+}
+
+// fieldOutside reports whether a word of the word-by-word reading names a
+// file outside the work root. Past --, every word is an operand, even one
+// that looks like an option, so a leading - is part of the path.
+func fieldOutside(a Action, word string, options bool) bool {
+	if options {
+		return outsideOperand(a, pathWord(word))
+	}
+	return outsideOperand(a, strings.Trim(word, "<>&|;()"))
 }
 
 // outsideOperand reports whether a word that names a file names one outside

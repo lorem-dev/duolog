@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/pathutil"
 )
 
@@ -266,6 +268,33 @@ func readCommandTargets(command string) (targets []string, reason string) {
 		return checked, why
 	}
 	return checked, reason
+}
+
+// readTargetDecision applies read rules to one path that a read command reads.
+// It returns a deny, or an ask with counts true, or counts false when the path
+// changes nothing.
+func readTargetDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action, shell, written string) (Decision, bool) {
+	// A stream device holds no file, and a redirect such as > /dev/null can
+	// read here as a file the command reads: only a deny counts.
+	device := streamDevice(expandHome(written))
+	target := workTarget(a, written)
+	if strings.ContainsAny(target, "*?[{") {
+		if statePattern(target) {
+			return Decision{Kind: Deny, Reason: "duolog state is not readable by workers", Rule: RuleState, Mode: m}, true
+		}
+		return Decision{}, false
+	}
+	d := Evaluate(p, lead, m, Action{Kind: "read", Target: target, Role: a.Role, Shell: shell, OwnResult: ownTempRead(a, written)})
+	d.Reason = "read command: " + d.Reason
+	return d, d.Kind == Deny || d.Kind != Allow && !device
+}
+
+// readAskStands reports whether a read command's ask is the answer. The parts
+// of an uncertain line have lost their quotes, so a piece of a quoted pattern
+// can read as a path there: only a person-only ask counts, and only when
+// ExecOutside, which keeps the quotes, finds the path too.
+func readAskStands(a Action, asked *Decision, uncertain bool) bool {
+	return asked != nil && (!uncertain || PersonOnly(*asked) && ExecOutside(a))
 }
 
 // gitTargets lists what a Git read names. A word may be a revision instead of a
