@@ -144,7 +144,9 @@ var stampTemp = regexp.MustCompile(`^` + regexp.QuoteMeta(stampName) + `\.new\.(
 // newStamp creates a missing stamp dated at the Unix epoch, so it records no
 // completed prune. The stamp appears at its name already dated: it is made
 // under a temporary name and linked in, so no one can lock it, or read it
-// as due, between its creation and its date. A file system without hard
+// as due, between its creation and its date. Until the temporary name is
+// removed the stamp has two names; stampLinksOnly lets that pass the
+// one-link check. A file system without hard
 // links, such as exFAT, FAT32 or some SMB shares, refuses the link; there the
 // stamp is created in place and then dated, and the checks under the lock
 // decide.
@@ -180,6 +182,61 @@ func (s *Store) newStamp() error {
 	}
 	defer f.Close()
 	return scrub(s.root.Chtimes(stampName, epoch, epoch))
+}
+
+// stampLinksOnly reports whether every name of the stamp's file f other than
+// prune.stamp is a temporary stamp in the root. newStamp links its temporary
+// in at the stamp's name and removes the temporary after, so in between the
+// stamp has two names, both its own. On Windows the temporary stays while
+// another process holds the stamp open, until a prune removes it. A name
+// anywhere else, such as a hard link from outside the root, keeps the stamp
+// unsafe. The handle's link count is read before and after the listing and
+// must not change in between; a temporary removed meanwhile is read again.
+func stampLinksOnly(r *os.Root, f *os.File) bool {
+	for range 3 {
+		before, err := fileInfo(f)
+		if err != nil {
+			return false
+		}
+		n, ok := linkCount(before)
+		if !ok {
+			return false
+		}
+		if n == 1 {
+			return true
+		}
+		temps, err := stampTemps(r, unwrap(before))
+		if err != nil {
+			return false
+		}
+		after, err := fileInfo(f)
+		if err != nil {
+			return false
+		}
+		if m, _ := linkCount(after); m == n && n == 1+temps {
+			return true
+		}
+	}
+	return false
+}
+
+// stampTemps counts the temporary stamps in the root that are the file of
+// info. Links and other files are not counted, and nothing is followed.
+func stampTemps(r *os.Root, info os.FileInfo) (uint64, error) {
+	entries, err := listDir(r, ".")
+	if err != nil {
+		return 0, err
+	}
+	var n uint64
+	for _, e := range entries {
+		if !stampTemp.MatchString(e.Name()) {
+			continue
+		}
+		if at, err := r.Lstat(e.Name()); err == nil && regular(at) && os.SameFile(info, at) {
+			n++
+		}
+	}
+	return n, nil
 }
 
 // removeStaleStamps removes the temporary stamps that a process killed inside

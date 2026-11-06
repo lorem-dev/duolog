@@ -385,7 +385,11 @@ func confirmFile(r *os.Root, name string, f *os.File, before os.FileInfo, repair
 	if err != nil {
 		return scrub(err)
 	}
-	if !info.Mode().IsRegular() || !singleLink(info) {
+	if !info.Mode().IsRegular() {
+		return errUnsafe
+	}
+	// The stamp has a second name of its own while newStamp links it in.
+	if !singleLink(info) && (name != stampName || !stampLinksOnly(r, f)) {
 		return errUnsafe
 	}
 	if before != nil && !os.SameFile(unwrap(info), before) {

@@ -20,9 +20,21 @@ func secureOwner(path string, info os.FileInfo) error {
 }
 
 func singleLink(info os.FileInfo) bool {
-	st, ok := info.Sys().(*syscall.Stat_t)
-	return ok && st.Nlink == 1
+	n, ok := linkCount(info)
+	return ok && n == 1
 }
+
+// linkCount is how many names the file of info has.
+func linkCount(info os.FileInfo) (uint64, bool) {
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, false
+	}
+	return widen(st.Nlink), true
+}
+
+// widen takes Nlink, whose type differs between systems, to uint64.
+func widen[T ~uint16 | ~uint32 | ~uint64](n T) uint64 { return uint64(n) }
 
 // Unix has no reparse points; symlinks show in the mode.
 func reparse(os.FileInfo) bool { return false }

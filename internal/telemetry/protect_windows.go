@@ -95,8 +95,15 @@ func fileInfo(f *os.File) (os.FileInfo, error) {
 // singleLink needs a handle's info; a path's info has no link count, so it
 // never counts as one link.
 func singleLink(info os.FileInfo) bool {
+	n, ok := linkCount(info)
+	return ok && n == 1
+}
+
+// linkCount is how many names the file of info has; like singleLink it
+// needs a handle's info.
+func linkCount(info os.FileInfo) (uint64, bool) {
 	h, ok := info.(handleInfo)
-	return ok && h.links == 1
+	return uint64(h.links), ok
 }
 
 func unwrap(info os.FileInfo) os.FileInfo {
