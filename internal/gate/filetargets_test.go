@@ -191,6 +191,39 @@ func TestAttachedOptionValuesAreJudged(t *testing.T) {
 	)
 }
 
+// An assignment in front of a program can make it read a file: git reads
+// GIT_CONFIG_GLOBAL, bash reads BASH_ENV. The gate skipped every assignment.
+func TestAssignmentValuesAreJudged(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	wantPerson(t, p, root,
+		// The reviews' commands.
+		`GIT_DIR=/srv/other/.git git log -p`,
+		`GIT_CONFIG_GLOBAL=/outside/cfg git status`,
+		`BASH_ENV=/outside/x bash -c true`,
+		// Any assignment whose value leaves the work root, also in a list.
+		`FOO=/etc/passwd cat x`,
+		`PATH=../peer/bin:$PATH make test`,
+		`env LD_PRELOAD=../x.so make test`,
+		`A=1 PYTHONPATH=src:~/lib uv run pytest`,
+	)
+	// A variable that names a file to read is judged by the read rules.
+	wantDeny(t, p, root, RuleState,
+		`GIT_CONFIG_GLOBAL=.duolog/bus.ndjson git log`,
+		`env BASH_ENV=.duolog/sessions.json bash -c true`,
+	)
+	wantDeny(t, p, root, "read",
+		`BASH_ENV=.env bash -c true`,
+		`AWS_SHARED_CREDENTIALS_FILE=secrets/x make deploy`,
+	)
+	wantLead(t, p, root,
+		`FOO=bar make x`,
+		`CGO_ENABLED=0 go build ./...`,
+		`GIT_CONFIG_GLOBAL=ci/gitconfig git log`,
+		`PATH=bin:$PATH make test`,
+	)
+}
+
 func TestSedTargets(t *testing.T) {
 	for _, tc := range []struct {
 		command       string

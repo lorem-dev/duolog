@@ -17,6 +17,10 @@ type fileTargets struct {
 	// paths are files that the part reads or writes; the gate cannot tell
 	// which, so they are judged both ways.
 	paths []string
+	// named are values that name a file only if the program uses them so,
+	// as FOO=/etc/x does for a program that reads FOO. Only the outside
+	// check judges them.
+	named []string
 	// unknown means the part can reach a file or run a program that the gate
 	// cannot name, such as the command of sed's e.
 	unknown bool
@@ -26,6 +30,7 @@ func (t *fileTargets) add(other fileTargets) {
 	t.reads = append(t.reads, other.reads...)
 	t.writes = append(t.writes, other.writes...)
 	t.paths = append(t.paths, other.paths...)
+	t.named = append(t.named, other.named...)
 	t.unknown = t.unknown || other.unknown
 }
 
@@ -47,6 +52,7 @@ func commandFileTargets(part string, depth int) fileTargets {
 		return t
 	}
 	program, args := words[start-1], words[start:]
+	t.add(assignmentTargets(words[:start-1]))
 	if strings.ContainsAny(program, " \t\r\n") {
 		// The wrapper runs a command line, as sh -c 'script' and eval 'script' do.
 		if depth >= maxScriptDepth {
@@ -64,6 +70,41 @@ func commandFileTargets(part string, depth int) fileTargets {
 		t.add(sedTargets(args))
 	default:
 		t.paths = attachedValues(name, args)
+	}
+	return t
+}
+
+// fileVariables name a file or a folder that a program reads: git's config
+// and repository, the startup file of bash and sh, a library that the loader
+// preloads, a search path for code. Any name that ends in _FILE or _CONFIG
+// counts too.
+var fileVariables = []string{
+	"GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+	"GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_EXEC_PATH", "GIT_TEMPLATE_DIR", "GIT_SSH", "GIT_ASKPASS", "SSH_ASKPASS",
+	"BASH_ENV", "ENV", "ZDOTDIR", "INPUTRC", "HOME", "XDG_CONFIG_HOME",
+	"LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
+	"PYTHONSTARTUP", "PYTHONPATH", "PYTHONHOME", "PERL5LIB", "RUBYLIB", "NODE_PATH",
+	"KUBECONFIG", "DOCKER_CONFIG", "NETRC", "CURL_HOME", "GNUPGHOME",
+}
+
+// assignmentTargets judges the assignments in front of a program. The value
+// of a file variable is read, and any value is named. A value is judged whole
+// and split at : as PATH is; the whole keeps a Windows drive.
+func assignmentTargets(words []string) fileTargets {
+	var t fileTargets
+	for _, word := range words {
+		if !execAssignment.MatchString(word) {
+			continue
+		}
+		name, value, _ := strings.Cut(word, "=")
+		pieces := []string{value}
+		if strings.Contains(value, ":") {
+			pieces = append(pieces, strings.Split(value, ":")...)
+		}
+		t.named = append(t.named, pieces...)
+		if slices.Contains(fileVariables, name) || strings.HasSuffix(name, "_FILE") || strings.HasSuffix(name, "_CONFIG") {
+			t.reads = append(t.reads, pieces...)
+		}
 	}
 	return t
 }
@@ -130,7 +171,7 @@ func fileTargetsOutside(a Action) bool {
 		if targets.unknown {
 			return true
 		}
-		for _, target := range slices.Concat(targets.reads, targets.writes, targets.paths) {
+		for _, target := range slices.Concat(targets.reads, targets.writes, targets.paths, targets.named) {
 			if outsideOperand(a, target) {
 				return true
 			}

@@ -220,6 +220,13 @@ and `make -C../peer` need the person, and `file -m.env x` is denied. A value
 that is text for a known program stays text, such as the separator of
 `cut -d/` or the pattern of `grep -e/api/`.
 
+An assignment in front of a program can make it read a file. Git reads
+`GIT_CONFIG_GLOBAL` and `GIT_DIR`, and `bash` reads `BASH_ENV`. The read rules
+judge the value of such a variable, and of any variable whose name ends in
+`_FILE` or `_CONFIG`. So `GIT_CONFIG_GLOBAL=.duolog/x git log` is denied. Any
+assignment whose value, or a piece of it between colons, leaves the work root
+needs the person, as `PATH=../peer/bin:$PATH make` does.
+
 Workers cannot start `claude` or `codex` themselves (rule `agent launch`).
 The gate denies them by any program path or Windows launcher, behind
 prefixes such as `env`, `timeout` or `sudo`, and through package runners
