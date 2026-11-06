@@ -547,12 +547,15 @@ var execAssignment = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*=`)
 // wrapperValueOptions lists, per wrapper, the options written apart from
 // their value (sudo -u alice): the value is skipped with the option.
 var wrapperValueOptions = map[string][]string{
-	"sudo":    {"-u", "-g", "-h", "-p", "-C", "-U", "-r", "-t", "-D", "-T", "--user", "--group", "--host", "--prompt", "--close-from", "--other-user", "--role", "--type", "--chdir", "--command-timeout"},
-	"doas":    {"-u", "-C"},
-	"env":     {"-u", "-C", "-S", "--unset", "--chdir", "--split-string"},
+	"sudo": {"-u", "-g", "-h", "-p", "-C", "-U", "-r", "-t", "-D", "-T", "--user", "--group", "--host", "--prompt", "--close-from", "--other-user", "--role", "--type", "--chdir", "--command-timeout"},
+	"doas": {"-u", "-C"},
+	// BSD env's -P names the folders to look the program up in.
+	"env":     {"-u", "-C", "-S", "-P", "--unset", "--chdir", "--split-string"},
+	"exec":    {"-a"},
 	"nice":    {"-n", "--adjustment"},
 	"ionice":  {"-c", "-n", "-p", "-P", "-u", "--class", "--classdata"},
 	"timeout": {"-s", "-k", "--signal", "--kill-after"},
+	"stdbuf":  {"-i", "-o", "-e", "--input", "--output", "--error"},
 	"xargs":   {"-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s", "--arg-file", "--delimiter", "--max-args", "--max-procs", "--max-lines", "--max-chars"},
 	// A shell's -o and -O name an option, also when written +o and +O.
 	"sh":         {"-o", "-O", "+o", "+O", "--rcfile", "--init-file"},
@@ -571,17 +574,34 @@ func execOperandStart(words []string) int {
 	return walkWrappers(words, nil)
 }
 
-// wrapperFileOptions lists, per wrapper, the options whose value is a file
-// that the wrapper or the program it starts reads code from: a shell's
-// startup file.
-var wrapperFileOptions = map[string][]string{
-	"sh":   {"--rcfile", "--init-file"},
-	"bash": {"--rcfile", "--init-file"},
+// wrapperValue says what the value of a wrapper's option names.
+type wrapperValue int
+
+const (
+	// valueCode is a file that the wrapper runs as code: a shell's startup
+	// file.
+	valueCode wrapperValue = iota + 1
+	// valueRead is a file or folder that the wrapper reads: the arguments of
+	// xargs -a, the folders that env -P looks the program up in.
+	valueRead
+	// valueFolder is the folder that the program runs in: env -C.
+	valueFolder
+)
+
+// wrapperFileOptions lists, per wrapper, the options whose value names a
+// file or a folder, and what it names. sudo's own options stay unjudged:
+// sudo always needs the person.
+var wrapperFileOptions = map[string]map[string]wrapperValue{
+	"sh":    {"--rcfile": valueCode, "--init-file": valueCode},
+	"bash":  {"--rcfile": valueCode, "--init-file": valueCode},
+	"env":   {"-C": valueFolder, "--chdir": valueFolder, "-P": valueRead},
+	"xargs": {"-a": valueRead, "--arg-file": valueRead},
 }
 
 // walkWrappers is execOperandStart. It calls visit, when not nil, for each
-// option of a wrapper with the value it takes, attached after = or in the
-// next word, or "" for none.
+// option of a wrapper that takes a value, with that value: after = for a
+// long option, after the letter in a cluster of short ones, as in env -iC/x,
+// or else the next word.
 func walkWrappers(words []string, visit func(wrapper, option, value string)) int {
 	for i := 0; i < len(words); {
 		word := strings.Trim(words[i], "'\"")
@@ -597,17 +617,13 @@ func walkWrappers(words []string, visit func(wrapper, option, value string)) int
 			for i < len(words) && wrapperOption(wrapper, words[i]) {
 				// An option such as sudo -u takes the next word as its value,
 				// so that word is not the program.
-				option, value, _ := strings.Cut(words[i], "=")
-				if !strings.HasPrefix(option, "--") {
-					option, value = words[i], ""
-				}
-				takesValue := slices.Contains(wrapperValueOptions[wrapper], words[i])
+				option, value, apart := wrapperOptionValue(wrapper, words[i])
 				i++
-				if takesValue && i < len(words) {
+				if apart && i < len(words) {
 					value = words[i]
 					i++
 				}
-				if visit != nil {
+				if option != "" && visit != nil {
 					visit(wrapper, option, value)
 				}
 			}
@@ -621,16 +637,51 @@ func walkWrappers(words []string, visit func(wrapper, option, value string)) int
 	return len(words)
 }
 
-// wrapperTargets lists the files that the options of the wrappers in front
-// of a program name, as bash --rcfile does.
-func wrapperTargets(words []string) fileTargets {
-	var t fileTargets
+// wrapperOptionValue reads one option word of a wrapper. option is the
+// option that takes a value, or "" for none; value is its value in the same
+// word, and apart means the value is the next word instead.
+func wrapperOptionValue(wrapper, word string) (option, value string, apart bool) {
+	options := wrapperValueOptions[wrapper]
+	switch {
+	case strings.HasPrefix(word, "--"):
+		name, value, attached := strings.Cut(word, "=")
+		if slices.Contains(options, name) {
+			return name, value, !attached
+		}
+	case strings.HasPrefix(word, "-") && len(word) > 2:
+		// A cluster such as -iC: the first letter that takes a value takes
+		// the rest of the word, or the next word when nothing is left.
+		for j := 1; j < len(word); j++ {
+			if letter := "-" + word[j:j+1]; slices.Contains(options, letter) {
+				return letter, word[j+1:], j+1 == len(word)
+			}
+		}
+	case slices.Contains(options, word):
+		return word, "", true
+	}
+	return "", "", false
+}
+
+// wrapperTargets lists the files and folders that the options of the
+// wrappers in front of a program name, as bash --rcfile and xargs -a do, and
+// the folders that env -C runs the program in.
+func wrapperTargets(words []string) (t fileTargets, folders []string) {
 	walkWrappers(words, func(wrapper, option, value string) {
-		if value != "" && slices.Contains(wrapperFileOptions[wrapper], option) {
+		if value == "" {
+			return
+		}
+		switch wrapperFileOptions[wrapper][option] {
+		case valueCode:
 			t.codeFile(value)
+		case valueRead:
+			t.reads = append(t.reads, value)
+		case valueFolder:
+			// The program may read and write there.
+			t.paths = append(t.paths, value)
+			folders = append(folders, value)
 		}
 	})
-	return t
+	return t, folders
 }
 
 // expandHome expands ~ and ~/x to the home folder. ~name, the home folder

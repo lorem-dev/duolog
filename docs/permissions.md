@@ -334,6 +334,18 @@ anywhere. A drive counts when a slash or a backslash follows it, as in
 that is text for a known program stays text, such as the separator of
 `cut -d/` or the pattern of `grep -e/api/`.
 
+A wrapper's options come before the program it starts. The gate skips the
+value of each wrapper option that takes one, written apart, after `=` or in
+a cluster of short options, as in `nice -n 5`, `timeout -s KILL 5`,
+`stdbuf -o L`, `env -iC dir` and `bash -euo pipefail`, so it judges the
+program after them. A value that names a file or a folder is judged too:
+the file of `xargs -a` and `--arg-file` and the folders of BSD `env -P` by
+the read rules, and the folder of `env -C` and `--chdir` as a path the
+program may read and write. The program's relative paths and words count
+from that folder as well as from the working folder, so `env -C ../peer make`
+needs the person and `env -C .git sed -n wconfig x` is denied. `sudo` keeps
+its own check.
+
 `bash` and `sh` run the startup file of `--rcfile` or `--init-file` before
 the command. The gate judges that file with the read rules, and reads the
 `-c` script after it as any other. So `bash --rcfile ../peer/rc -i` needs the

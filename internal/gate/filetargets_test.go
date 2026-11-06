@@ -258,6 +258,93 @@ func TestShellStartupFilesAreJudged(t *testing.T) {
 	)
 }
 
+// A wrapper's options come before the program it starts, and some take a
+// value: env -C names the folder the program runs in, xargs -a the file of
+// its arguments. The gate skipped only values written apart from an option it
+// listed, so it took stdbuf's mode or the value after env -iC for the
+// program, and it judged neither env's folder nor xargs's file.
+func TestWrapperOptionValuesAreJudged(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	wantPersonInFull(t, p, root,
+		`env -C /etc cat passwd`,
+		`env --chdir=/etc make`,
+		`env -C ../peer make test`,
+		`env -C/etc make`,
+		`env -iC /etc make`,
+		`env -P ../peer/bin make`,
+		`xargs -a /etc/x make`,
+		`xargs --arg-file=../list make`,
+		`xargs -0a ../list make`,
+		// The program after the wrapper's options is parsed.
+		`stdbuf -o L sed 1r/etc/passwd x`,
+		`stdbuf --output L sed 1r/etc/passwd x`,
+		`stdbuf -oL -e 0 sed 1r/etc/passwd x`,
+		`nice -n 5 sed 1r/etc/passwd x`,
+		`nice -n5 sed 1r/etc/passwd x`,
+		`timeout -s KILL 5 sed 1r/etc/passwd x`,
+		`timeout -sKILL 5 sed 1r/etc/passwd x`,
+		`nohup sed 1r/etc/passwd x`,
+		`command -p sed 1r/etc/passwd x`,
+		`sudo -u root sed 1r/etc/passwd x`,
+		`exec -a name sed 1r/etc/passwd x`,
+		`bash -euo pipefail -c 'sed 1r/etc/passwd x'`,
+		`env -S 'sed 1r/etc/passwd x'`,
+		// A relative path is judged from env's folder too.
+		`env -C sub cat ../../x`,
+		`env -C sub sed 1r../../x y`,
+	)
+	wantDeny(t, p, root, RuleState, `xargs -a .duolog/bus.ndjson cat`)
+	// The program's words in env's folder may be read or written, so the
+	// write rule for .duolog sees them first.
+	wantDeny(t, p, root, "", `env -C .duolog cat bus.ndjson`)
+	wantDeny(t, p, root, "read",
+		`xargs -a .env make`,
+		`env -C secrets cat x`,
+	)
+	wantDeny(t, p, root, "write", `env -C .git sed -n wconfig README.md`)
+	wantLead(t, p, root,
+		`env -C sub make test`,
+		`env --chdir=sub cat x`,
+		`xargs -a list make`,
+		`nice -n 5 make`,
+		`timeout -s KILL 5 make`,
+		`stdbuf -o L make`,
+		`nohup make`,
+		`command -p make`,
+		`bash -euo pipefail -c 'make test'`,
+	)
+}
+
+func TestExecOperandStart(t *testing.T) {
+	for command, want := range map[string]string{
+		`env -C dir make x`:            "make",
+		`env --chdir=dir make x`:       "make",
+		`env -iC dir make x`:           "make",
+		`env -C/dir make x`:            "make",
+		`nice -n 5 make`:               "make",
+		`nice -n5 make`:                "make",
+		`timeout -s KILL 5 make`:       "make",
+		`timeout -sKILL 5 make`:        "make",
+		`xargs -0a list make`:          "make",
+		`stdbuf -o L make`:             "make",
+		`stdbuf --error 0 make`:        "make",
+		`stdbuf -oL make`:              "make",
+		`nohup make`:                   "make",
+		`command -p make`:              "make",
+		`sudo -u root make`:            "make",
+		`exec -a name make`:            "make",
+		`bash -euo pipefail script.sh`: "script.sh",
+		`sh +o noglob script.sh`:       "script.sh",
+		`A=1 env B=2 make`:             "make",
+	} {
+		words := strings.Fields(command)
+		if start := execOperandStart(words); start < 1 || start > len(words) || words[start-1] != want {
+			t.Errorf("%q: start %d, want the program %q", command, start, want)
+		}
+	}
+}
+
 func TestWrapperTargets(t *testing.T) {
 	for _, tc := range []struct {
 		command string
@@ -268,6 +355,9 @@ func TestWrapperTargets(t *testing.T) {
 		{command: `bash --init-file=rc -c true`, reads: []string{"rc"}},
 		{command: `sudo -u x sh --rcfile a -c true`, reads: []string{"a"}},
 		{command: `bash --rcfile /dev/stdin -i`, reads: []string{"/dev/stdin"}, unknown: true},
+		{command: `xargs -a list make`, reads: []string{"list"}},
+		{command: `xargs --arg-file=list -0 make`, reads: []string{"list"}},
+		{command: `env -P bin make`, reads: []string{"bin"}},
 		// A file option of another program is not the shell's.
 		{command: `bash -c 'make --rcfile x'`},
 	} {

@@ -142,7 +142,17 @@ func wordsFileTargets(split []scriptWord, env []string, depth int) fileTargets {
 	}
 	program, args := words[start-1], words[start:]
 	t.add(assignmentTargets(words[:start-1]))
-	t.add(wrapperTargets(words))
+	wrapped, folders := wrapperTargets(words)
+	t.add(wrapped)
+	if len(folders) > 0 {
+		// env -C runs the program in another folder. Its relative paths and
+		// words are judged from there too; the working folder's reading of
+		// them stays, which is the stricter answer.
+		inner := wordsFileTargets(split[start-1:], env, depth)
+		inner.paths = append(slices.Clip(inner.paths), execdirNames(words[start-1:])...)
+		inner.rebase(folders)
+		t.add(inner)
+	}
 	for _, word := range split[start:] {
 		if word.glob {
 			t.globs = append(t.globs, word.text)
