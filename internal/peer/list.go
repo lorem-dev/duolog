@@ -15,8 +15,8 @@ import (
 
 // LastEvent is the newest thing duolog knows about a peer.
 type LastEvent struct {
-	Kind string    `json:"kind"` // "task", "question" or "record"
-	At   time.Time `json:"at"`   // zero: a question with no recorded start
+	Kind string    `json:"kind"`        // "task", "question" or "record"
+	At   time.Time `json:"at,omitzero"` // zero: a question with no recorded start, left out of JSON
 }
 
 // ListedPeer is a snapshot of a lead's peer in this project's registry.
@@ -33,12 +33,13 @@ type ListedPeer struct {
 	Last     *LastEvent `json:"last,omitempty"`
 }
 
-// Display is the state a person reads: asking, working, or the state itself.
+// Display is the state a person reads: asking for a question, working for a
+// starting peer that works, else the state itself, updating included.
 func (p ListedPeer) Display() string {
 	switch {
 	case p.State == Question:
 		return "asking"
-	case p.Working:
+	case p.State == Starting && p.Working:
 		return "working"
 	}
 	return string(p.State)
@@ -72,20 +73,24 @@ func taskTimes(dir string) map[string]time.Time {
 	return times
 }
 
-// lastEvent picks what to show as the newest event. A question shows its
-// recorded start, which may be unknown (zero). Otherwise the newer of the
-// task send time and the record's update time wins; nil when both are zero.
+// lastEvent picks the newest known event: the question's start, the task
+// send time or the record's update time. A question whose start is unknown
+// is shown as itself with no time, since a newer event would hide that the
+// peer asks. A question wins a tie, then the task; nil when nothing is known.
 func lastEvent(entry session.Entry, state State, sent time.Time) *LastEvent {
+	var last *LastEvent
 	if state == Question {
-		return &LastEvent{Kind: "question", At: entry.QuestionSince}
+		if entry.QuestionSince.IsZero() {
+			return &LastEvent{Kind: "question"}
+		}
+		last = &LastEvent{Kind: "question", At: entry.QuestionSince}
 	}
-	switch {
-	case sent.IsZero() && entry.UpdatedAt.IsZero():
-		return nil
-	case entry.UpdatedAt.After(sent):
-		return &LastEvent{Kind: "record", At: entry.UpdatedAt}
+	for _, e := range []LastEvent{{Kind: "task", At: sent}, {Kind: "record", At: entry.UpdatedAt}} {
+		if !e.At.IsZero() && (last == nil || e.At.After(last.At)) {
+			last = &e
+		}
 	}
-	return &LastEvent{Kind: "task", At: sent}
+	return last
 }
 
 // List observes states without sending keys, answering questions or changing

@@ -66,6 +66,15 @@ func TestFocusArgs(t *testing.T) {
 	}
 }
 
+func TestFocusErrorNamesFocus(t *testing.T) {
+	c := install(t, testbin.Scenario{Exit: 1, Stderr: "Error: client not found"})
+	c.Session = "session:peers"
+	err := c.Focus(context.Background(), "client:gone", "block:peer")
+	if err == nil || !strings.HasPrefix(err.Error(), "rex focus failed (exit 1): ") || !strings.Contains(err.Error(), "client not found") {
+		t.Fatalf("%v", err)
+	}
+}
+
 func TestFocusNeedsClientBlockAndSession(t *testing.T) {
 	c := install(t, testbin.Scenario{})
 	c.Session = "session:peers"

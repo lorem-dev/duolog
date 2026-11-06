@@ -101,9 +101,17 @@ only when you ask the lead for project calibration. Neither agent can start
 the skill on its own, and the `skill_tests` preference does not start it.
 See [Calibration](calibration.md) for its own approvals and cost limits.
 
+## The peers skill lists and shows peers
+
+`duolog install` and the plugins also include `duolog-peers`. It runs
+`duolog peer list --long` and, when you ask, `duolog peer view <id>` for
+the lead. Claude asks you before each `peer view`. See
+[How to see what a peer shows](rex.md#how-to-see-what-a-peer-shows).
+
 ## Related pages
 
 - [Getting started](getting-started.md): install duolog and delegate a task
 - [Configuration](configuration.md): layers, models and prices
 - [Sync](sync.md): keep your own skills in both agents
 - [Calibration](calibration.md): what the `duolog-calibrate` skill runs
+- [Live peers with Rex](rex.md): what the `duolog-peers` skill runs

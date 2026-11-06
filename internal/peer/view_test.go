@@ -75,9 +75,24 @@ func TestViewFocusesExistingTab(t *testing.T) {
 	if sessionsFile(t, r) != before {
 		t.Fatal("view wrote a record")
 	}
-	line := e.ID + " shown on client " + recordedApp + ": duolog | codex-implement; back: rex -C " + recordedApp + " focus block:lead -s sess"
+	// back: names the rex that duolog found, which need not be in PATH.
+	line := e.ID + " shown on client " + recordedApp + ": duolog | codex-implement; back: " + shellWord(r.bin) + " -C " + recordedApp + " focus block:lead -s sess"
 	if got.Line() != line || strings.Count(got.Line(), "\n") != 0 {
 		t.Fatalf("%q", got.Line())
+	}
+}
+
+func TestBackCommandQuotesTheRexPath(t *testing.T) {
+	got := backCommand("/Applications/Rex App.app/Contents/Helpers/x/Contents/MacOS/rex", "client:app", "block:lead", "sess")
+	want := "'/Applications/Rex App.app/Contents/Helpers/x/Contents/MacOS/rex' -C client:app focus block:lead -s sess"
+	if got != want {
+		t.Fatalf("%q", got)
+	}
+	if got := backCommand("/opt/it's/rex", "c", "b", "s"); got != `'/opt/it'\''s/rex' -C c focus b -s s` {
+		t.Fatalf("%q", got)
+	}
+	if got := backCommand("/usr/local/bin/rex", "c", "b", "s"); got != "/usr/local/bin/rex -C c focus b -s s" {
+		t.Fatalf("%q", got)
 	}
 }
 

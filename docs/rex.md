@@ -145,7 +145,9 @@ session and keep the person's current window and pane focused.
 
 ## How to see what a peer shows
 
-No path puts a peer's screen into a model's context, and none costs tokens.
+None of these commands puts screen text into a model's context. In your
+own terminal none costs tokens. Run by the lead or its skill, each costs a
+model turn and the lines it prints.
 
 | Command | Who runs it | Prints | Model cost |
 |---|---|---|---|
@@ -153,13 +155,24 @@ No path puts a peer's screen into a model's context, and none costs tokens.
 | `duolog peer show <id>` | You, in your own terminal | The last lines of the screen, cleaned and bounded | None; it refuses inside an agent, a worker or a pipe |
 | `duolog peer view <id>` | You, or the lead when you ask | One line; your Rex client shows the peer's tab | None in your terminal; one line in a lead's context |
 
+`peer show` refuses when a model may read its output: a Claude or Codex
+marker variable, output that is not a terminal, a worker, or a Claude or
+Codex process above it. The lead hook also stops a lead's tool call that
+names `duolog peer show`, behind any wrapper: Claude asks you, Codex denies
+it. These refusals guard against accidents. They are not a barrier: no
+check can prove that a terminal is yours, and a model that ignored them
+would have to work around them on purpose.
+
 `peer show` and `peer view` need `REX_SESSION`, like the other peer commands.
 `peer view` moves one client: `--client`, or else the only client that shows
-your session. It refuses when it cannot tell. The line it prints ends with a
-`back:` command that returns to the pane you came from.
+your session. It refuses when it cannot tell. When you run it from a Rex
+pane, the line it prints ends with a `back:` command that returns to that
+pane. The command names the rex that duolog found, which may be inside the
+Rex app.
 
 The `duolog-peers` skill runs `peer list --long` and `peer view` for the
-lead. It costs one model turn. For a path with no turn, type the command
+lead. Claude asks you before each `peer view`. The skill costs one model
+turn. For a path with no turn, type the command
 yourself: in Claude Code with the `!` prefix, such as
 `! duolog peer list --long`. That this starts no turn is not checked yet.
 For Codex, no turn-free path is confirmed; do not rely on one. From a Codex

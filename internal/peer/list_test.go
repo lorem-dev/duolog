@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,6 +56,42 @@ func TestListPeersQuestionWinsAndHasUnknownStart(t *testing.T) {
 	}
 	if p.Last == nil || p.Last.Kind != "question" || !p.Last.At.IsZero() {
 		t.Fatalf("last %+v", p.Last)
+	}
+}
+
+// working is the display of a starting peer that works; any other state,
+// updating included, shows itself.
+func TestDisplayWorkingOnlyWhenStarting(t *testing.T) {
+	tests := []struct {
+		p    ListedPeer
+		want string
+	}{
+		{ListedPeer{State: Starting, Working: true}, "working"},
+		{ListedPeer{State: Starting}, "starting"},
+		{ListedPeer{State: Updating, Working: true}, "updating"},
+		{ListedPeer{State: Ready, Working: true}, "ready"},
+		{ListedPeer{State: Question, Working: true}, "asking"},
+	}
+	for _, tt := range tests {
+		if got := tt.p.Display(); got != tt.want {
+			t.Errorf("%+v: %q, want %q", tt.p, got, tt.want)
+		}
+	}
+}
+
+// A question with no recorded start has no time in JSON, not year 1.
+func TestLastEventJSONOmitsUnknownTime(t *testing.T) {
+	data, err := json.Marshal(ListedPeer{ID: "peer-x", State: Question, Last: &LastEvent{Kind: "question"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"at"`) || !strings.Contains(string(data), `"last":{"kind":"question"}`) {
+		t.Fatalf("%s", data)
+	}
+	at := time.Date(2026, 11, 6, 10, 0, 0, 0, time.UTC)
+	data, err = json.Marshal(LastEvent{Kind: "task", At: at})
+	if err != nil || string(data) != `{"kind":"task","at":"2026-11-06T10:00:00Z"}` {
+		t.Fatalf("%s %v", data, err)
 	}
 }
 
@@ -118,6 +155,9 @@ func TestLastEventPicksNewest(t *testing.T) {
 		{"record is newer", session.Entry{UpdatedAt: newer}, Ready, old, &LastEvent{Kind: "record", At: newer}},
 		{"question without start", session.Entry{UpdatedAt: newer}, Question, newer, &LastEvent{Kind: "question"}},
 		{"question with start", session.Entry{QuestionSince: old}, Question, time.Time{}, &LastEvent{Kind: "question", At: old}},
+		{"record newer than a known question", session.Entry{QuestionSince: old, UpdatedAt: old.Add(time.Hour)}, Question, old.Add(30 * time.Minute), &LastEvent{Kind: "record", At: old.Add(time.Hour)}},
+		{"task newer than a known question", session.Entry{QuestionSince: old, UpdatedAt: old}, Question, newer, &LastEvent{Kind: "task", At: newer}},
+		{"known question is newest", session.Entry{QuestionSince: newer, UpdatedAt: old}, Question, old, &LastEvent{Kind: "question", At: newer}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

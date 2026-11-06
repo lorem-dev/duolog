@@ -47,6 +47,31 @@ func agentPID(pid int, parent func(int) (int, string)) int {
 	return 0
 }
 
+// AgentAncestor names the agent, "claude" or "codex", when a Claude Code or
+// Codex process is among this process's ancestors, else "". It walks the
+// parent chain on Linux, macOS and Windows; elsewhere it finds nothing. An
+// agent run through node under another name is not found.
+func AgentAncestor() string { return agentAncestor(os.Getppid(), parentProcess) }
+
+func agentAncestor(pid int, parent func(int) (int, string)) string {
+	for steps := 0; pid > 1 && steps < 64; steps++ {
+		next, name := parent(pid)
+		name = strings.ToLower(filepath.Base(strings.ReplaceAll(name, `\`, "/")))
+		name = strings.TrimSuffix(name, ".exe")
+		switch {
+		case name == "claude":
+			return "claude"
+		case name == "codex" || strings.HasPrefix(name, "codex-"):
+			return "codex"
+		}
+		if next == pid {
+			break
+		}
+		pid = next
+	}
+	return ""
+}
+
 // ValidSessionID accepts the letters, digits, dashes and underscores of
 // Claude session IDs and Codex thread IDs, so an ID cannot name a path.
 func ValidSessionID(id string) bool {

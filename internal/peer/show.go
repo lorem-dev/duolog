@@ -27,6 +27,17 @@ type Shown struct {
 	Cut             bool     // true when lines were dropped for maxShowBytes
 }
 
+// Text is what `peer show` prints: the header and the lines, each ending in
+// a newline. It is at most maxShowBytes long.
+func (s Shown) Text() string {
+	var b strings.Builder
+	b.WriteString(s.Header() + "\n")
+	for _, l := range s.Lines {
+		b.WriteString(l + "\n")
+	}
+	return b.String()
+}
+
 // Show reads the last lines of a peer's pane for the person's terminal. It
 // resolves the peer without a lead, writes no record and uses only the exit
 // probe and a capture: no key, no answer, no observe.
@@ -34,7 +45,7 @@ func Show(ctx context.Context, id string, lines int) (Shown, error) {
 	if lines < 1 || lines > MaxShowLines {
 		return Shown{}, fmt.Errorf("--lines must be 1 to %d", MaxShowLines)
 	}
-	e, err := setupFor(ctx, false)
+	e, err := setupViewer(ctx)
 	if err != nil {
 		return Shown{}, err
 	}
@@ -73,34 +84,40 @@ func Show(ctx context.Context, id string, lines int) (Shown, error) {
 	if err != nil {
 		return Shown{}, err
 	}
-	shown.Lines, shown.Cut = boundLines(strings.Split(string(raw), "\n"))
+	shown.Lines = cutLines(strings.Split(string(raw), "\n"))
+	shown.fit()
 	return shown, nil
 }
 
-// boundLines cuts each line to maxShowRunes, then drops the oldest lines while
-// the total is over maxShowBytes. Blank input gives no lines.
-func boundLines(in []string) ([]string, bool) {
+// cutLines drops blank lines and cuts each other line so that, with its
+// cutMark, it is at most maxShowRunes long.
+func cutLines(in []string) []string {
 	var out []string
+	keep := maxShowRunes - utf8.RuneCountInString(cutMark)
 	for _, l := range in {
 		if strings.TrimSpace(l) == "" {
 			continue
 		}
 		if utf8.RuneCountInString(l) > maxShowRunes {
-			l = string([]rune(l)[:maxShowRunes]) + cutMark
+			l = string([]rune(l)[:keep]) + cutMark
 		}
 		out = append(out, l)
 	}
-	total := 0
-	for _, l := range out {
-		total += len(l) + 1
+	return out
+}
+
+// fit drops the oldest lines until everything printed fits in maxShowBytes:
+// the header, the lines and a newline after each.
+func (s *Shown) fit() {
+	body := 0
+	for _, l := range s.Lines {
+		body += len(l) + 1
 	}
-	cut := false
-	for len(out) > 0 && total > maxShowBytes {
-		total -= len(out[0]) + 1
-		out = out[1:]
-		cut = true
+	for len(s.Lines) > 0 && body+len(s.Header())+1 > maxShowBytes {
+		body -= len(s.Lines[0]) + 1
+		s.Lines = s.Lines[1:]
+		s.Cut = true
 	}
-	return out, cut
 }
 
 // Header is the one line printed above the lines.

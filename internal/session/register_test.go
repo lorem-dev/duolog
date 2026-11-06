@@ -55,6 +55,28 @@ func TestAgentPIDRefusesWithoutAnAgent(t *testing.T) {
 	}
 }
 
+func TestAgentAncestorFindsClaudeOrCodex(t *testing.T) {
+	tests := []struct {
+		name string
+		tree map[int]fakeProcess
+		want string
+	}{
+		{"claude above a pty wrapper", map[int]fakeProcess{40: {30, "script"}, 30: {25, "zsh"}, 25: {20, "claude"}, 20: {1, "launchd"}}, "claude"},
+		{"codex above rex", map[int]fakeProcess{40: {30, "rex"}, 30: {20, "/opt/bin/codex"}, 20: {1, "init"}}, "codex"},
+		{"windows names", map[int]fakeProcess{40: {30, "pwsh.exe"}, 30: {20, "Codex.exe"}}, "codex"},
+		{"codex sandbox helper", map[int]fakeProcess{40: {30, "codex-linux-sandbox"}}, "codex"},
+		{"the person's terminal", map[int]fakeProcess{40: {30, "zsh"}, 30: {20, "rex"}, 20: {1, "launchd"}}, ""},
+		{"an unnamed process is passed over", map[int]fakeProcess{40: {30, ""}, 30: {20, "claude"}}, "claude"},
+		{"a loop ends", map[int]fakeProcess{40: {40, "zsh"}}, ""},
+		{"a name that only starts alike", map[int]fakeProcess{40: {30, "claudette"}, 30: {1, "init"}}, ""},
+	}
+	for _, tt := range tests {
+		if got := agentAncestor(40, fakeTree(tt.tree)); got != tt.want {
+			t.Errorf("%s: %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestFindTranscript(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", "")

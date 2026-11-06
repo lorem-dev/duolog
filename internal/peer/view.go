@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/lorem-dev/duolog/internal/rex"
 )
@@ -27,7 +28,7 @@ func (v Viewed) Line() string {
 // presses no key, opens nothing and writes no record. Focus is interactive,
 // so the person can type into the peer; duolog cannot filter that.
 func View(ctx context.Context, id, client string) (Viewed, error) {
-	e, err := setupFor(ctx, false)
+	e, err := setupViewer(ctx)
 	if err != nil {
 		return Viewed{}, err
 	}
@@ -59,10 +60,29 @@ func View(ctx context.Context, id, client string) (Viewed, error) {
 		return Viewed{}, err
 	}
 	viewed := Viewed{ID: entry.ID, Tab: tabLabel(entry.Agent, entry.Role), Client: client}
+	// Only a Rex pane has a block to come back to.
 	if block := os.Getenv("REX_BLOCK"); block != "" {
-		viewed.Back = "rex -C " + client + " focus " + block + " -s " + os.Getenv("REX_SESSION")
+		viewed.Back = backCommand(rc.Bin, client, block, os.Getenv("REX_SESSION"))
 	}
 	return viewed, nil
+}
+
+// backCommand is the shell command that returns the client to block. It
+// names the rex that duolog found, which may be inside the Rex app and not
+// in PATH.
+func backCommand(bin, client, block, session string) string {
+	return strings.Join([]string{shellWord(bin), "-C", shellWord(client), "focus", shellWord(block), "-s", shellWord(session)}, " ")
+}
+
+// shellWord quotes s for a POSIX shell when it holds more than plain path
+// and id characters.
+func shellWord(s string) string {
+	if s != "" && strings.IndexFunc(s, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_@%+=:,./-", r))
+	}) < 0 {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // pickClient chooses the client to move. An explicit id wins. Otherwise it is

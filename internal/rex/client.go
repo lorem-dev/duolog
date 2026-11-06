@@ -62,5 +62,10 @@ func (c Client) Focus(ctx context.Context, client, block string) error {
 		return errors.New("rex focus: missing client, block or session")
 	}
 	_, err := c.call(ctx, "-C", client, "focus", block, "-s", c.Session)
+	// call names the first argument, which here is -C, not the command.
+	var e *Error
+	if errors.As(err, &e) {
+		e.Cmd = "focus"
+	}
 	return err
 }

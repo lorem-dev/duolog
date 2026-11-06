@@ -242,6 +242,24 @@ type leadInfo struct {
 func setup(ctx context.Context) (*env, error) { return setupFor(ctx, true) }
 
 func setupFor(ctx context.Context, requireLead bool) (*env, error) {
+	e, err := setupRecords(ctx, requireLead)
+	if err != nil {
+		return nil, err
+	}
+	if e.bus, err = bus.Open(e.dir, e.cfg.Wire); err != nil {
+		return nil, err
+	}
+	return e, nil
+}
+
+// setupViewer is the setup of the passive viewers, show and view. It needs
+// no lead and opens no bus, so it creates no bus state and works with a bus
+// the caller may only read. e.bus is nil.
+func setupViewer(ctx context.Context) (*env, error) { return setupRecords(ctx, false) }
+
+// setupRecords checks the caller and opens the registry and Rex, but not the
+// bus.
+func setupRecords(ctx context.Context, requireLead bool) (*env, error) {
 	if depth, _ := strconv.Atoi(os.Getenv("DUOLOG_DEPTH")); depth >= 1 {
 		return nil, fmt.Errorf("workers cannot open or control peer sessions (DUOLOG_DEPTH=%d)", depth)
 	}
@@ -274,10 +292,6 @@ func setupFor(ctx context.Context, requireLead bool) (*env, error) {
 	if err != nil {
 		return nil, err
 	}
-	b, err := bus.Open(s.Dir, cfg.Wire)
-	if err != nil {
-		return nil, err
-	}
 	leadID := opts.Lead
 	if requireLead {
 		lead, err := reg.ResolveLead(opts.Lead)
@@ -288,7 +302,7 @@ func setupFor(ctx context.Context, requireLead bool) (*env, error) {
 	}
 	root = project.CurrentWorkRoot(root)
 	client.Dir = root
-	return &env{opts: opts, root: root, dir: s.Dir, cfg: cfg, reg: reg, bus: b, rex: client, leadID: leadID}, nil
+	return &env{opts: opts, root: root, dir: s.Dir, cfg: cfg, reg: reg, rex: client, leadID: leadID}, nil
 }
 
 // lead reads the lead's live mode and target. A lead that is not registered

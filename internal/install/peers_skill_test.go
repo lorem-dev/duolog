@@ -18,14 +18,17 @@ func TestPeersSkillIsSameForBothAgents(t *testing.T) {
 	if n := words(claude); n >= 200 {
 		t.Errorf("body has %d words", n)
 	}
-	for _, want := range []string{"duolog peer list --long", "duolog peer view", "duolog peer show"} {
+	// The refusal of peer show is a guard against accidents, not a barrier.
+	for _, want := range []string{"duolog peer list --long", "duolog peer view", "duolog peer show", "accidents", "on purpose"} {
 		if !strings.Contains(claude, want) {
 			t.Errorf("body lacks %q", want)
 		}
 	}
 }
 
-func TestPeersSkillAllowsOnlyListAndView(t *testing.T) {
+// Only the list is pre-allowed: peer view moves the person's focus, so
+// Claude asks each time until the person decides otherwise.
+func TestPeersSkillAllowsOnlyList(t *testing.T) {
 	front, _ := splitSkill(t, "claude/skills/duolog-peers/SKILL.md")
 	var got []string
 	for _, line := range strings.Split(front, "\n") {
@@ -33,7 +36,7 @@ func TestPeersSkillAllowsOnlyListAndView(t *testing.T) {
 			got = append(got, strings.TrimSpace(v))
 		}
 	}
-	want := "Bash(duolog peer list*), Bash(duolog peer view *)"
+	want := "Bash(duolog peer list*)"
 	if len(got) != 1 || got[0] != want {
 		t.Errorf("claude allowed-tools = %q, want %q", got, want)
 	}
@@ -67,6 +70,23 @@ func TestPeersSkillIsInstalled(t *testing.T) {
 	for _, dir := range dirs {
 		if _, err := os.Stat(dir); !os.IsNotExist(err) {
 			t.Errorf("%s remains: %v", dir, err)
+		}
+	}
+}
+
+// The skills page names every skill that duolog install ships.
+func TestSkillsPageNamesEveryBundledSkill(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "skills.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range plugin.Skills {
+		// The page is about the duolog skill's tools and names it in prose.
+		if name == "duolog" {
+			continue
+		}
+		if !strings.Contains(string(data), "`"+name+"`") {
+			t.Errorf("docs/skills.md does not name `%s`", name)
 		}
 	}
 }

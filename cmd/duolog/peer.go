@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/peer"
+	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/spf13/cobra"
 )
 
@@ -200,14 +202,26 @@ func newPeerCommand() *cobra.Command {
 // errPeerShowModel is the refusal when a model may read the output.
 var errPeerShowModel = errors.New("duolog peer show prints a peer's screen only to your own terminal, so no model reads it; run it in a terminal outside the agent, or use duolog peer view <id>")
 
+// agentAncestor names a Claude or Codex process above this one; tests
+// replace it.
+var agentAncestor = session.AgentAncestor
+
 // newPeerShowCommand prints the last lines of a peer's pane to the person's
 // terminal. It refuses before any Rex call whenever a model may read the
-// output, and it has no flag that overrides the refusal.
+// output, and it has no flag that overrides the refusal. The checks guard
+// against accidents; no check can prove that a terminal is the person's.
+// The lead hook also stops a lead's tool call that names it (peerShowLeadGuard).
 func newPeerShowCommand(lead *string) *cobra.Command {
 	var lines int
 	cmd := &cobra.Command{Use: "show <id>", Short: "Print the last lines of a peer's screen to your own terminal", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if modelContext(cmd) {
 			return errPeerShowModel
+		}
+		// A pty and a cleaned environment pass the check above, as under
+		// script or in a new Rex or tmux pane; an agent process above
+		// this one still shows.
+		if agent := agentAncestor(); agent != "" {
+			return fmt.Errorf("%w (a %s process runs this command)", errPeerShowModel, agent)
 		}
 		ctx, cancel, err := peerContext(cmd, *lead, false, 0)
 		if err != nil {
@@ -218,16 +232,8 @@ func newPeerShowCommand(lead *string) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		out := cmd.OutOrStdout()
-		if _, err := fmt.Fprintln(out, shown.Header()); err != nil {
-			return err
-		}
-		for _, l := range shown.Lines {
-			if _, err := fmt.Fprintln(out, l); err != nil {
-				return err
-			}
-		}
-		return nil
+		_, err = io.WriteString(cmd.OutOrStdout(), shown.Text())
+		return err
 	}}
 	cmd.Flags().IntVar(&lines, "lines", peer.DefaultShowLines, fmt.Sprintf("Number of lines, 1 to %d", peer.MaxShowLines))
 	return cmd
