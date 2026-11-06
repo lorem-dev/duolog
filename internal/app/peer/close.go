@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/rex"
 	"github.com/lorem-dev/duolog/internal/runner"
+	"github.com/lorem-dev/duolog/internal/store"
 )
 
 // Close closes the pane and the record. The id may be a pane ID, which is what
@@ -27,12 +27,11 @@ func CloseNote(ctx context.Context, id string) (note string, err error) {
 	if err != nil {
 		return "", err
 	}
-	closing := flock.New(filepath.Join(e.dir, "peer-open.lock"))
-	if err := closing.Lock(); err != nil {
-		_ = closing.Close()
+	unlock, err := store.LockFile(filepath.Join(e.dir, "peer-open.lock"))
+	if err != nil {
 		return "", err
 	}
-	defer closing.Close()
+	defer func() { _ = unlock() }()
 	entry, err := e.find(id)
 	if err != nil {
 		removed, lookupErr := e.reg.PeerRemoved(id)

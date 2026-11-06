@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/store"
 )
@@ -145,15 +144,12 @@ func Lock(stateDir string) (unlock func(), err error) {
 	if err := os.MkdirAll(Dir(stateDir), 0o750); err != nil {
 		return nil, err
 	}
-	l := flock.New(filepath.Join(Dir(stateDir), "calibration.lock"))
-	locked, err := l.TryLock()
+	release, locked, err := store.TryLockFile(filepath.Join(Dir(stateDir), "calibration.lock"))
 	if err != nil {
-		_ = l.Close()
 		return nil, err
 	}
 	if !locked {
-		_ = l.Close()
 		return nil, errors.New("calibration is running in another duolog process")
 	}
-	return func() { _ = l.Close() }, nil
+	return func() { _ = release() }, nil
 }

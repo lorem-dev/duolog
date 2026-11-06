@@ -74,23 +74,18 @@ var appOrder = []string{"launch", "lead", "quota", "learn", "paidruns", "gate", 
 // key when the same import gets a new path at one end.
 var knownViolations = map[string]string{
 	"internal/adapter/config (test) -> internal/gate":           "PR 19",
-	"internal/app/sync -> github.com/gofrs/flock":               "PR 43",
 	"internal/app/sync -> github.com/pelletier/go-toml/v2":      "PR 43",
 	"internal/app/sync -> internal/adapter/models":              "PR 33",
-	"internal/app/sync -> os/exec":                              "PR 43",
 	"internal/app/calibrate (test) -> internal/adapter/config":  "after PR 10: its tests load the config files",
 	"internal/app/calibrate (test) -> internal/quota":           "PR 29",
 	"internal/app/calibrate (test) -> internal/runner":          "PR 29",
 	"internal/app/calibrate (test) -> internal/session":         "PR 29",
 	"internal/app/calibrate (test) -> internal/wiring":          "PR 29: the cell tests run real delegations on wiring.DelegateDeps",
-	"internal/app/calibrate -> github.com/gofrs/flock":          "PR 45",
 	"internal/app/calibrate -> github.com/pelletier/go-toml/v2": "PR 45",
 	"internal/app/calibrate -> internal/install":                "PR 45",
 	"internal/app/calibrate -> internal/trust":                  "PR 36",
 	"internal/app/calibrate -> internal/trusthome":              "PR 36",
 	"internal/app/calibrate -> internal/workerenv":              "PR 35",
-	"internal/app/calibrate -> os/exec":                         "PR 45",
-	"internal/app/delegate -> github.com/gofrs/flock":           "PR 28",
 	"internal/app/delegate -> internal/auth":                    "PR 38",
 	"internal/app/delegate -> internal/capability":              "PR 40",
 	"internal/app/delegate -> internal/adapter/config":          "after PR 10: RefuseRootEnv checks writable roots at launch",
@@ -134,7 +129,6 @@ var knownViolations = map[string]string{
 	"internal/app/paidruns -> internal/workerenv":               "PR 22, boundary",
 	"internal/app/paidruns -> syscall":                          "PR 22, boundary; darwin and linux only",
 	"internal/app/peer (test) -> internal/quota":                "PR 29",
-	"internal/app/peer -> github.com/gofrs/flock":               "PR 29",
 	"internal/app/peer -> internal/capability":                  "PR 40",
 	"internal/app/peer -> internal/adapter/config":              "after PR 10: a peer loads the config files",
 	"internal/app/peer -> internal/rex":                         "the Pane port, moved out of PR 29 to a later task",
@@ -142,7 +136,6 @@ var knownViolations = map[string]string{
 	"internal/app/peer -> internal/workerenv":                   "PR 35",
 	"internal/app/profile (test) -> internal/adapter/config":    "after PR 10: its tests load the config files",
 	"internal/app/profile (test) -> internal/runner":            "PR 29",
-	"internal/app/profile -> github.com/gofrs/flock":            "PR 29",
 	"internal/app/roster -> internal/capability":                "PR 40",
 	"internal/app/roster -> internal/adapter/config":            "after PR 10: roster loads the config files",
 	"internal/core/route (test) -> internal/adapter/config":     "after PR 10: its tests load the default config",
@@ -151,7 +144,7 @@ var knownViolations = map[string]string{
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 75
+const maxKnownViolations = 68
 
 // Reasons of the allowed edges, one per target.
 const (

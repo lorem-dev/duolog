@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/session"
+	"github.com/lorem-dev/duolog/internal/store"
 )
 
 func newID() string { return "peer-" + strings.ToLower(rand.Text()[:6]) }
@@ -54,11 +54,11 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	}
 	// Serialize placement across worktrees and agents sharing this registry.
 	// Release before watching startup so another peer can open while this one works.
-	opening := flock.New(filepath.Join(e.dir, "peer-open.lock"))
-	if err := opening.Lock(); err != nil {
+	unlock, err := store.LockFile(filepath.Join(e.dir, "peer-open.lock"))
+	if err != nil {
 		return Entry{}, err
 	}
-	defer opening.Close()
+	defer func() { _ = unlock() }()
 	peers, err := e.livePeers(ctx, lead.id, route.Agent)
 	if err != nil {
 		return Entry{}, err
@@ -66,7 +66,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	for _, p := range peers {
 		if p.Role == role && sameWorkRoot(p.WorkRoot, e.root) {
 			run = p.Run
-			if err := opening.Unlock(); err != nil {
+			if err := unlock(); err != nil {
 				return Entry{}, err
 			}
 			return e.watch(ctx, p, true)
@@ -151,7 +151,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 			return noted(Entry{}, err)
 		}
 	}
-	if err := opening.Unlock(); err != nil {
+	if err := unlock(); err != nil {
 		return noted(Entry{}, err)
 	}
 	return noted(e.watch(ctx, entry, true))

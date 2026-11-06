@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/record"
 	"github.com/lorem-dev/duolog/internal/journal"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -50,15 +50,11 @@ type Replay struct {
 // Run reconstructs the recorded starting tree without changing the process
 // directory or the main checkout. The lock also protects profile numbering.
 func Run(ctx context.Context, d Deps, cfg *config.Config, s *store.Store, delegation string, opts Options) (replay Replay, err error) {
-	lock := flock.New(filepath.Join(s.Dir, "profile.lock"))
-	defer lock.Close()
-	locked, err := lock.TryLockContext(ctx, 20*time.Millisecond)
+	unlock, err := store.LockFileContext(ctx, filepath.Join(s.Dir, "profile.lock"), 20*time.Millisecond)
 	if err != nil {
 		return replay, err
 	}
-	if !locked {
-		return replay, fmt.Errorf("profile lock unavailable")
-	}
+	defer func() { _ = unlock() }()
 	j := &journal.Journal{Dir: filepath.Join(s.Dir, "journal")}
 	records, err := journal.ReadAll[journal.Delegation](j, "delegations.ndjson")
 	if err != nil {
@@ -315,9 +311,9 @@ func apply(dir string, patch []byte) error {
 }
 
 func git(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	out, err := journal.GitCommand(ctx, dir, args...).CombinedOutput()
+	out, err := project.Git(ctx, nil, append([]string{"-C", dir, "-c", "core.autocrlf=false"}, args...)...)
 	if err != nil {
-		return nil, fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(string(out)))
+		return nil, fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(string(out)+project.GitStderr(err)))
 	}
 	return out, nil
 }

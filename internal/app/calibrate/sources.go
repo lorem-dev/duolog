@@ -11,7 +11,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -23,6 +22,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/journal"
+	projectroot "github.com/lorem-dev/duolog/internal/project"
 )
 
 // GH runs the gh CLI with args in the project; nil skips pull requests.
@@ -910,26 +910,15 @@ func hiddenTests(ctx context.Context, root string, blobs *blobs, k *Candidate) e
 
 // blobs reads files at a commit through one `git cat-file --batch`.
 type blobs struct {
-	cmd *exec.Cmd
-	in  io.WriteCloser
-	out *bufio.Reader
+	*projectroot.Batch
 }
 
 func openBlobs(ctx context.Context, root string) (*blobs, error) {
-	cmd := journal.GitCommand(ctx, root, "cat-file", "--batch")
-	cmd.Env = gitEnv()
-	in, err := cmd.StdinPipe()
+	b, err := projectroot.GitBatch(ctx, root, gitEnv())
 	if err != nil {
 		return nil, err
 	}
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-	return &blobs{cmd: cmd, in: in, out: bufio.NewReader(out)}, nil
+	return &blobs{b}, nil
 }
 
 // read returns up to limit bytes (all with a negative limit) of name at
@@ -938,10 +927,10 @@ func (b *blobs) read(rev, name string, limit int) ([]byte, bool, error) {
 	if strings.ContainsAny(name, "\n") {
 		return nil, false, nil
 	}
-	if _, err := fmt.Fprintf(b.in, "%s:%s\n", rev, name); err != nil {
+	if _, err := fmt.Fprintf(b.In, "%s:%s\n", rev, name); err != nil {
 		return nil, false, err
 	}
-	header, err := b.out.ReadString('\n')
+	header, err := b.Out.ReadString('\n')
 	if err != nil {
 		return nil, false, err
 	}
@@ -958,16 +947,15 @@ func (b *blobs) read(rev, name string, limit int) ([]byte, bool, error) {
 		keep = limit
 	}
 	data := make([]byte, keep)
-	if _, err := io.ReadFull(b.out, data); err != nil {
+	if _, err := io.ReadFull(b.Out, data); err != nil {
 		return nil, false, err
 	}
-	if _, err := io.CopyN(io.Discard, b.out, int64(size-keep)+1); err != nil {
+	if _, err := io.CopyN(io.Discard, b.Out, int64(size-keep)+1); err != nil {
 		return nil, false, err
 	}
 	return data, fields[1] == "blob", nil
 }
 
 func (b *blobs) close() {
-	_ = b.in.Close()
-	_ = b.cmd.Wait()
+	_ = b.Close()
 }

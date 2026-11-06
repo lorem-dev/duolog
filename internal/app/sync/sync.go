@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/project"
+	"github.com/lorem-dev/duolog/internal/store"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -99,17 +99,15 @@ func Run(root string, cfg config.Sync, o Options) (Report, error) {
 		if err := os.MkdirAll(filepath.Dir(mutexPath), 0755); err != nil {
 			return Report{}, err
 		}
-		mutex := flock.New(mutexPath)
 		// Eight runs in a row took over two seconds on a slow Windows runner, and a
 		// sync that gives up leaves generated files out of date.
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		locked, err := mutex.TryLockContext(ctx, 20*time.Millisecond)
-		if err != nil || !locked {
-			mutex.Close()
-			return Report{}, fmt.Errorf("sync lock unavailable: %v", err) //nolint:errorlint // err is nil when the lock is merely held, and %w would print %!w(<nil>)
+		unlock, err := store.LockFileContext(ctx, mutexPath, 20*time.Millisecond)
+		if err != nil {
+			return Report{}, fmt.Errorf("sync lock unavailable: %v", err) //nolint:errorlint // the cause is context text, and the message is the whole error
 		}
-		defer mutex.Close()
+		defer func() { _ = unlock() }()
 	}
 	lock, err := LoadLock(root)
 	if err != nil {
