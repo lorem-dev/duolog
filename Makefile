@@ -31,8 +31,10 @@ fmt-check:
 	$(TOOL) golangci-lint fmt -c .golangci.fmt.yml --diff
 	$(TOOL) shfmt -p -d $(SH_FILES)
 
+# GOOS=windows make lint-go lints the Windows files from any host: the tool is
+# built for the host, and GOOS only reaches the packages it analyses.
 lint-go:
-	$(TOOL) golangci-lint run
+	@bin=$$(env -u GOOS -u GOARCH $(TOOL) -n golangci-lint) && $$bin run
 
 lint-sh: install-script
 	uvx --from shellcheck-py==$(SHELLCHECK_PY) shellcheck $(SH_FILES) .release/install.sh

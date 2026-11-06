@@ -31,11 +31,11 @@ func TestRenameOpenWindowsDestination(t *testing.T) {
 		go func() { done <- Rename(old, dest) }()
 		if release {
 			time.Sleep(30 * time.Millisecond)
-			windows.CloseHandle(handle)
+			_ = windows.CloseHandle(handle)
 		}
 		err = <-done
 		if !release {
-			windows.CloseHandle(handle)
+			_ = windows.CloseHandle(handle)
 		}
 		data, readErr := os.ReadFile(dest)
 		want := "old"

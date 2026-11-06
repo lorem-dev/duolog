@@ -161,8 +161,14 @@ jobs:
         run: go mod tidy -diff
       - name: Shell, YAML and workflows
         run: make lint-sh lint-yaml lint-actions
-      - name: Go linters
-        run: make lint-go
+      # The tool runs on this runner; GOOS picks the files it analyses, so each
+      # release OS is linted here.
+      - name: Go linters (linux)
+        run: GOOS=linux make lint-go
+      - name: Go linters (darwin)
+        run: GOOS=darwin make lint-go
+      - name: Go linters (windows)
+        run: GOOS=windows make lint-go
 
   cross-build:
     name: cross-build (all release targets)

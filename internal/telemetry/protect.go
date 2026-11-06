@@ -315,20 +315,6 @@ func sameDir(r *os.Root, root string) error {
 	return nil
 }
 
-// openRootDir opens root and confirms it is the directory info describes.
-func openRootDir(root string, info os.FileInfo) (*os.Root, error) {
-	r, err := os.OpenRoot(root)
-	if err != nil {
-		return nil, scrub(err)
-	}
-	opened, err := r.Stat(".")
-	if err != nil || !os.SameFile(opened, info) {
-		r.Close()
-		return nil, errUnsafe
-	}
-	return r, nil
-}
-
 // openRegular opens one of the telemetry files under r. Every directory on
 // the way and the file itself must be a real directory or a regular file
 // with one link, owned by this user; the opened handle must be the file

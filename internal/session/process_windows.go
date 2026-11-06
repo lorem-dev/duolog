@@ -2,17 +2,21 @@
 
 package session
 
-import "golang.org/x/sys/windows"
+import (
+	"errors"
+
+	"golang.org/x/sys/windows"
+)
 
 func ProcessAlive(pid int) bool {
 	if pid <= 0 {
 		return true
 	}
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid)) //nolint:gosec // G115: pid > 0 here, and Windows process ids are 32-bit
 	if err != nil {
-		return err != windows.ERROR_INVALID_PARAMETER
+		return !errors.Is(err, windows.ERROR_INVALID_PARAMETER)
 	}
-	defer windows.CloseHandle(handle)
+	defer func() { _ = windows.CloseHandle(handle) }()
 	var code uint32
 	if windows.GetExitCodeProcess(handle, &code) != nil {
 		return true
