@@ -293,7 +293,9 @@ sandbox is already on also get both folders in `sandbox.filesystem.denyRead`.
 Codex workers and native Windows have the gate only.
 
 When a lead model runs `duolog telemetry` or reads the folder, a Claude lead
-asks you, and a Codex lead is told to have you run it in your terminal.
+asks you, and a Codex lead is told to have you run it in your terminal. A
+Claude lead in `bypassPermissions` or `auto` is not asked; see the
+[section on such a lead](#a-lead-in-bypass-or-auto-decides-by-itself).
 
 ## Reads and writes outside the work root need the person
 
@@ -318,6 +320,24 @@ when it cannot read the bus. A pending ask has not expired or been answered.
 The hook also guards `duolog remember` when the rule names a path outside the
 project. A Claude lead asks the person. A Codex lead is denied, and the
 person saves such a rule in their own terminal.
+
+### A lead in bypass or auto decides by itself
+
+When you run the Claude lead in `bypassPermissions` or `auto`, you let the
+lead model decide, and none of the lead's guards asks you: not for
+`duolog allow N` on a person-only ask, not for `duolog remember` with an
+outside rule, not for `duolog peer show`, and not for telemetry or balance
+data. The lead may then allow a person-only ask itself. In `default`,
+`acceptEdits`, `plan` or any other mode, every guard asks you as above.
+
+duolog reads the mode from the lead's own hook input, which Claude Code
+writes, and from the mode it recorded for that registered lead from earlier
+hook input. Both must say `bypassPermissions` or `auto`; a lead that has
+just left bypass is asked again. No environment variable or file can turn
+this on. A worker or a peer cannot use it: its session is not a registered
+lead, and its hook takes the worker path. A Codex lead keeps the deny in
+every mode, `danger-full-access` included, because duolog reads its mode
+from a transcript file and not from the hook input.
 
 ## What the gate cannot see
 

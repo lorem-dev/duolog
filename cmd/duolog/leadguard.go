@@ -16,6 +16,57 @@ import (
 	"github.com/lorem-dev/duolog/internal/session"
 )
 
+// guardLeadCall is what the lead hook runs for one tool call: the
+// person-only guards of leadGuard, unless the lead decides by itself.
+func guardLeadCall(stateDir, agent string, input []byte) (gate.Decision, bool) {
+	d, ok := leadGuard(stateDir, agent, input)
+	if ok && leadDecides(stateDir, agent, input) {
+		return gate.Decision{}, false
+	}
+	return d, ok
+}
+
+// selfDeciding names the Claude modes in which the person lets the lead model
+// decide without asking: bypass and auto.
+func selfDeciding(native string) bool { return native == "bypassPermissions" || native == "auto" }
+
+// leadDecides reports whether a Claude lead runs in bypassPermissions or auto,
+// so that the person-only guards leave the call to the lead model. Two
+// records must say so: this call's hook payload, which Claude Code writes to
+// the hook's stdin, and the native mode duolog recorded for the same
+// registered lead from its earlier payloads. A session that is not a
+// registered lead (a worker's or a peer's), a worker or peer process, a
+// state folder that does not exist yet, and a Codex lead, whose mode comes
+// from a transcript file, never qualify. No environment variable or file
+// can raise the answer: they only take it away.
+func leadDecides(stateDir, agent string, input []byte) bool {
+	if agent != "claude" || isWorker() || os.Getenv("DUOLOG_PEER") != "" {
+		return false
+	}
+	var h struct {
+		ID   string `json:"session_id"`
+		Mode string `json:"permission_mode"`
+	}
+	if json.Unmarshal(input, &h) != nil || h.ID == "" || !selfDeciding(h.Mode) {
+		return false
+	}
+	// session.Open would create the folder; a project without state has no lead.
+	if info, err := os.Stat(stateDir); err != nil || !info.IsDir() {
+		return false
+	}
+	reg, err := session.Open(stateDir)
+	if err != nil {
+		return false
+	}
+	lead, ok, err := reg.Lead(h.ID)
+	return err == nil && ok && lead.Agent == "claude" && selfDeciding(lead.Native)
+}
+
+// leadGuard keeps for the person what only the person may do: allowing an
+// ask that reads or writes outside the project, approving a rule outside it,
+// duolog peer show, and telemetry and balance data. A Claude lead's call is
+// asked; a Codex lead's call is denied with a pointer to the person's
+// terminal. The hook runs it through guardLeadCall.
 func leadGuard(stateDir, agent string, input []byte) (gate.Decision, bool) {
 	actions, err := gate.NormalizeAll(agent, input)
 	if err != nil {
@@ -139,7 +190,8 @@ func leadGuard(stateDir, agent string, input []byte) (gate.Decision, bool) {
 // anywhere in its command: behind env, script, rex, tmux, sh -c or any other
 // wrapper, since a model that starts it under a pty with a cleaned
 // environment passes peer show's own checks. A Claude lead's call asks the
-// person; a Codex lead's call is denied. It guards against accidents: no
+// person, unless the lead runs in bypass or auto (guardLeadCall); a Codex
+// lead's call is denied. It guards against accidents: no
 // check can prove that a terminal is the person's.
 func peerShowLeadGuard(agent string, actions []gate.Action) (gate.Decision, bool) {
 	for _, a := range actions {
