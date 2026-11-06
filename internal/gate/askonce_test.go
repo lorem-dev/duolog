@@ -35,8 +35,8 @@ func escalate(t *testing.T, dir, key string, asked *int) Decision {
 
 func TestAskRecordWaitIsCapped(t *testing.T) {
 	dir := t.TempDir()
-	key := AskKey("session", "toolu_1", "exec ls")
-	start := time.Now().UTC().Add(-MaxAskWait - 10*time.Second)
+	key := AskKey("session", "toolu_1", "exec ls", false)
+	start :=time.Now().UTC().Add(-MaxAskWait - 10*time.Second)
 	writeMemo(t, dir, key, askMemo{Done: true, Start: start, Wait: 999999999, Kind: Allow})
 	asked := 0
 	if d := escalate(t, dir, key, &asked); d.Kind != Deny || asked != 1 {
@@ -46,7 +46,7 @@ func TestAskRecordWaitIsCapped(t *testing.T) {
 
 func TestAskRecordFromTheFutureIsIgnored(t *testing.T) {
 	dir := t.TempDir()
-	key := AskKey("session", "toolu_1", "exec ls")
+	key := AskKey("session", "toolu_1", "exec ls", false)
 	writeMemo(t, dir, key, askMemo{Done: true, Start: time.Now().UTC().Add(time.Hour), Wait: 60, Kind: Allow})
 	asked := 0
 	if d := escalate(t, dir, key, &asked); d.Kind != Deny || asked != 1 {
@@ -56,7 +56,7 @@ func TestAskRecordFromTheFutureIsIgnored(t *testing.T) {
 
 func TestQuestionKeyIsReusedOnce(t *testing.T) {
 	dir := t.TempDir()
-	key := AskKey("session", "", "exec rm -rf build")
+	key := AskKey("session", "", "exec rm -rf build", false)
 	asked := 0
 	for i, want := range []int{1, 1, 2, 2} {
 		escalate(t, dir, key, &asked)
@@ -70,17 +70,22 @@ func TestQuestionKeyIsReusedOnce(t *testing.T) {
 }
 
 func TestToolUseKeyDiffersFromQuestionKey(t *testing.T) {
-	if AskKey("s", "toolu_1", "exec ls") == AskKey("s", "", "exec ls") {
+	if AskKey("s", "toolu_1", "exec ls", false) == AskKey("s", "", "exec ls", false) {
 		t.Fatal("keys collide")
 	}
-	if AskKey("", "", "exec ls") != "" {
+	for _, id := range []string{"toolu_1", ""} {
+		if AskKey("s", id, "exec ls", false) == AskKey("s", id, "exec ls", true) {
+			t.Fatalf("tool use id %q: a person-only ask shares the lead's key", id)
+		}
+	}
+	if AskKey("", "", "exec ls", false) != "" {
 		t.Fatal("a key without a session")
 	}
 }
 
 func TestAskRecordIsReusedInsideItsWait(t *testing.T) {
 	dir := t.TempDir()
-	key := AskKey("session", "toolu_1", "exec ls")
+	key := AskKey("session", "toolu_1", "exec ls", false)
 	writeMemo(t, dir, key, askMemo{Done: true, Start: time.Now().UTC().Add(-time.Second), Wait: 60, Kind: Allow})
 	asked := 0
 	if d := escalate(t, dir, key, &asked); d.Kind != Allow || asked != 0 {

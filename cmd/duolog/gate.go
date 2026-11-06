@@ -221,7 +221,7 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 	if d.Kind == gate.Ask {
 		// One answer covers the whole tool call, so the question names every path.
 		a.Target = strings.Join(asked, " ")
-		key := gate.AskKey(envelope.SessionID, envelope.ToolUseID, a.Kind+" "+a.Target+" "+envelope.Cwd)
+		key := gate.AskKey(envelope.SessionID, envelope.ToolUseID, a.Kind+" "+a.Target+" "+envelope.Cwd, person)
 		resolved, err := askLead(cmd.Context(), cfg, root, reg.Dir, lead.ID, key, a, d, initial, person)
 		if err != nil {
 			return a, d, err
