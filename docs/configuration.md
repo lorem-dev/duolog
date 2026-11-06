@@ -208,12 +208,26 @@ The lead's own settings are the ceiling:
 | `env_passthrough` | The only variables a worker inherits. A free run still drops names that bill per token |
 | `workers.inherit_plugins` | `false` (default): a Claude worker or peer turns off every plugin your user and project settings enable, except duolog's own. `true`: it loads them all, as your own sessions do. See [below](#what-workers-inherit) |
 | `workers.compact_window` | `auto` (default): Claude workers and peers compact at the size `workers.compact_ladder` gives for your plan. `0`: Claude's own default. `100000` to `1000000`: the context size in tokens at which they compact. See [below](#what-workers-inherit) |
+| `lead.compact_notes` | `true` (default): the lead's compaction keeps the open peers, asks, branches and pull requests, and lists the live peers again afterwards. `false` turns both off. See [below](#how-the-lead-keeps-its-state-through-compaction) |
 | `rex` | Timeouts and capture settings for live sessions. See [Rex](rex.md) |
 | `rex.stuck_notify_minutes` | Minutes before `peer wait` sends one reminder for an unanswered question. Default: `5`; `0` disables reminders |
 | `rex.auto_answers` | Ordered `{match, answer}` rules for safe peer questions. Defaults to answering `Hooks need review` with `Continue without trusting`. A project list replaces the defaults; `[]` disables it. Trust and persistent approval grants are refused |
 | `coauthors` | Enable worker credit and set commit co-author templates. See [Getting started](getting-started.md#how-to-credit-the-workers-in-commits) |
 | `worker_modes` | The native permission mode a `delegate` worker starts in, per role and per model family. See [below](#which-layers-may-change-worker-modes) and [Permissions](permissions.md#a-workers-native-mode) |
 | `telemetry` | The local history of runs, quota and routing. See [below](#which-layers-may-change-telemetry) and [Telemetry](telemetry.md) |
+
+## How the lead keeps its state through compaction
+
+When Claude compacts the lead's conversation, the summary can lose which peers
+are open and what the lead was doing with them. With `lead.compact_notes: true`
+(the default), `duolog install` adds a `PreCompact` hook to the lead's Claude
+settings. The hook prints instructions that Claude adds to the summary: keep
+the open peers with their task files and worktrees, the asks still open, and
+the branches and pull requests the lead works on. It then prints the live
+`duolog peer list` lines, at most 20. The session start that follows a
+compaction prints the same peer lines again. Set `lead.compact_notes: false`
+to print neither; the hook reads the setting when it runs. Workers and Codex
+leads are not changed.
 
 ## What workers inherit
 

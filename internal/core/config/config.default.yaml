@@ -22,6 +22,11 @@ workers:
     max: 500000
     ultra: 700000
 
+# Claude compacts a long lead session; this keeps the delegation state in the
+# summary and lists the live peers again afterwards.
+lead:
+  compact_notes: true
+
 wire:
   max_summary_bytes: 200
   max_line_bytes: 512

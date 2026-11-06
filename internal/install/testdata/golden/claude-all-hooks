@@ -34,6 +34,22 @@
         ]
       }
     ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "duolog",
+            "args": [
+              "hook",
+              "PreCompact",
+              "--agent",
+              "claude"
+            ]
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "hooks": [

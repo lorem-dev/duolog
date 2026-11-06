@@ -20,6 +20,7 @@ type Config struct {
 	Sync           Sync             `yaml:"sync" jsonschema_description:"Settings for generating agent and skill files; automatic sync defaults to true."`
 	EnvPassthrough []string         `yaml:"env_passthrough" jsonschema_description:"Environment variables passed to workers; defaults include native OS login and agent config directories, not API keys. A free run drops names that bill per token even when listed; only paid_runs.<agent>.allow lets them through."`
 	Workers        Workers          `yaml:"workers" jsonschema_description:"What Claude workers and peers inherit from the person's own settings."`
+	Lead           Lead             `yaml:"lead" jsonschema_description:"What duolog adds to the person's own lead session; compact notes are on by default."`
 	Rex            Rex              `yaml:"rex" jsonschema_description:"Terminal capture and startup settings; defaults to 20 lines and 120 seconds."`
 	Learning       Learning         `yaml:"learning" jsonschema_description:"Learning mode: task classes, classification rules, ladders and priors; off by default."`
 	Telemetry      Telemetry        `yaml:"telemetry" jsonschema_description:"Local telemetry that never leaves the machine; on by default. User level, except that a project may turn off its own events."`
@@ -62,6 +63,11 @@ const (
 	MinCompactWindow = 100000
 	MaxCompactWindow = 1000000
 )
+
+// Lead holds what duolog adds to the person's own lead session.
+type Lead struct {
+	CompactNotes bool `yaml:"compact_notes" jsonschema_description:"Help the lead keep its delegation state through compaction: the PreCompact hook asks Claude to keep the open peers, open asks, branches and pull requests in the summary and lists the live peers, and the session start after a compaction lists them again. Defaults to true."`
+}
 
 type Coauthors struct {
 	Enabled bool   `yaml:"enabled" jsonschema_description:"Record worker changes and offer commit co-author lines; defaults to true."`

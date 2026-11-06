@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/hook"
+	"github.com/lorem-dev/duolog/internal/peer"
 	"github.com/spf13/cobra"
 )
 
@@ -36,11 +38,13 @@ func newHookCommand() *cobra.Command {
 		if err != nil || len(data) > 4*1024*1024 {
 			return nil
 		}
-		env := hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ(), Stderr: cmd.ErrOrStderr()}
+		env := hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ(), Stderr: cmd.ErrOrStderr(), Peers: peerLines(cmd)}
 		var out hook.Output
 		switch args[0] {
 		case "SessionStart", "session-start":
 			out = hook.SessionStart(cmd.Context(), env)
+		case "PreCompact":
+			out = hook.PreCompact(cmd.Context(), env)
 		case "UserPromptSubmit", "prompt":
 			out = hook.Prompt(cmd.Context(), env)
 		case "PostToolUse", "post-tool":
@@ -63,6 +67,29 @@ func newHookCommand() *cobra.Command {
 	}}
 	cmd.Flags().StringVar(&agent, "agent", "", "Agent receiving this hook")
 	return cmd
+}
+
+// peerLines gives the compaction hooks the lines `duolog peer list` prints for
+// the lead with the given session id. A failure gives none: a hook never
+// fails the session.
+func peerLines(cmd *cobra.Command) func(ctx context.Context, leadID string) []string {
+	return func(ctx context.Context, leadID string) []string {
+		cmd.SetContext(ctx)
+		ctx, cancel, err := peerContext(cmd, leadID, false, 0)
+		if err != nil {
+			return nil
+		}
+		defer cancel()
+		peers, err := peer.List(ctx)
+		if err != nil {
+			return nil
+		}
+		lines := make([]string, 0, len(peers))
+		for _, p := range peers {
+			lines = append(lines, p.ID+" "+string(p.State))
+		}
+		return lines
+	}
 }
 
 func exitCode(err error) int {
