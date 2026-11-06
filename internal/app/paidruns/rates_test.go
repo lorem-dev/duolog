@@ -9,12 +9,13 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/quota"
 )
 
 var (
-	sessionWindow = WindowKey{Kind: "session"}
-	weeklyWindow  = WindowKey{Kind: "weekly_all"}
+	sessionWindow = paidrules.WindowKey{Kind: "session"}
+	weeklyWindow  = paidrules.WindowKey{Kind: "weekly_all"}
 )
 
 // rateRead is a Claude read m minutes after now: the five-hour window at
@@ -49,7 +50,7 @@ func newLearner(t *testing.T, cfg *config.Config) *learner {
 // sonnet, none cached and no output, so they weigh input.
 func (l *learner) observe(before, after quota.Snapshot, input int64) {
 	l.t.Helper()
-	in := Interval{Agent: "claude", Family: "sonnet", Fingerprint: Fingerprint("claude", l.key, after),
+	in := paidrules.Interval{Agent: "claude", Family: "sonnet", Fingerprint: paidrules.Fingerprint("claude", l.key, after),
 		Before: before, After: after, Input: input}
 	if err := l.s.Observe(context.Background(), l.cfg, in); err != nil {
 		l.t.Fatal(err)
@@ -75,9 +76,9 @@ func (l *learner) state() State {
 	return got
 }
 
-func (l *learner) learned(window WindowKey) LearnedRate {
+func (l *learner) learned(window paidrules.WindowKey) paidrules.LearnedRate {
 	l.t.Helper()
-	return Learned(l.state().Samples, "claude", "sonnet", Fingerprint("claude", l.key, l.last), window)
+	return paidrules.Learned(l.state().Samples, "claude", "sonnet", paidrules.Fingerprint("claude", l.key, l.last), window)
 }
 
 // climb steps n times, the session window by session points and the weekly
@@ -98,7 +99,7 @@ func (l *learner) climb(n int, session, weekly float64, input int64) {
 func TestRatesRealUnitsAndThreeIntervals(t *testing.T) {
 	t.Run("weighted tokens price cached and output against input", func(t *testing.T) {
 		cfg := pricedConfig()
-		got, err := WeightedTokens(cfg, "claude", "sonnet", 1000000, 400000, 100000)
+		got, err := paidrules.WeightedTokens(cfg, "claude", "sonnet", 1000000, 400000, 100000)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -107,7 +108,7 @@ func TestRatesRealUnitsAndThreeIntervals(t *testing.T) {
 		if !near(got, want) {
 			t.Fatalf("weighted = %v, want %v", got, want)
 		}
-		concrete, err := WeightedTokens(cfg, "claude", "claude-sonnet-5-5", 1000000, 400000, 100000)
+		concrete, err := paidrules.WeightedTokens(cfg, "claude", "claude-sonnet-5-5", 1000000, 400000, 100000)
 		if err != nil || !near(concrete, want) {
 			t.Fatalf("concrete model weighted = %v, %v; want %v", concrete, err, want)
 		}
@@ -138,13 +139,13 @@ func TestRatesRealUnitsAndThreeIntervals(t *testing.T) {
 			{"no config", nil, "claude", "sonnet", 10, 0, 0},
 		}
 		for _, c := range bad {
-			if w, err := WeightedTokens(c.cfg, c.agent, c.family, c.input, c.cached, c.output); err == nil {
+			if w, err := paidrules.WeightedTokens(c.cfg, c.agent, c.family, c.input, c.cached, c.output); err == nil {
 				t.Errorf("%s: weighted = %v, want an error", c.name, w)
 			}
 		}
 
 		l := newLearner(t, cfg)
-		in := Interval{Agent: "claude", Family: "sonnet", Fingerprint: Fingerprint("claude", l.key, rateRead(10, 9, 0)),
+		in := paidrules.Interval{Agent: "claude", Family: "sonnet", Fingerprint: paidrules.Fingerprint("claude", l.key, rateRead(10, 9, 0)),
 			Before: l.last, After: rateRead(10, 9, 0), Input: 10, Cached: 11}
 		if err := l.s.Observe(context.Background(), cfg, in); err == nil {
 			t.Fatal("an invalid cached subset was observed")
@@ -175,7 +176,7 @@ func TestRatesRealUnitsAndThreeIntervals(t *testing.T) {
 		if w := l.learned(weeklyWindow); w.Measured || w.Intervals != 1 || !near(w.PerToken*1e6, 0.01) {
 			t.Fatalf("weekly rate %+v, want 1 unmeasured interval at 0.01 per million", w)
 		}
-		if o := Learned(l.state().Samples, "claude", "opus", Fingerprint("claude", l.key, l.last), sessionWindow); o.Measured || o.Intervals != 0 {
+		if o := paidrules.Learned(l.state().Samples, "claude", "opus", paidrules.Fingerprint("claude", l.key, l.last), sessionWindow); o.Measured || o.Intervals != 0 {
 			t.Fatalf("opus has rate %+v without opus tokens", o)
 		}
 		for _, s := range l.state().Samples {
@@ -206,7 +207,7 @@ func TestRatesRealUnitsAndThreeIntervals(t *testing.T) {
 		}
 		// The next interval shares an endpoint and is independent.
 		l.observe(b, rateRead(20, 12, 0), 1000000)
-		if r := Learned(l.state().Samples, "claude", "sonnet", Fingerprint("claude", l.key, b), sessionWindow); r.Intervals != 2 {
+		if r := paidrules.Learned(l.state().Samples, "claude", "sonnet", paidrules.Fingerprint("claude", l.key, b), sessionWindow); r.Intervals != 2 {
 			t.Fatalf("intervals %d after a following interval, want 2", r.Intervals)
 		}
 	})
@@ -300,14 +301,14 @@ func TestRatesResetAndDrift(t *testing.T) {
 	t.Run("identity change clears rates and tier and keeps money", func(t *testing.T) {
 		l := newLearner(t, pricedConfig())
 		l.climb(6, 3, 0, 1000000)
-		codex := RateSample{Agent: "codex", Family: "sol", Fingerprint: "c", Window: weeklyWindow,
+		codex := paidrules.RateSample{Agent: "codex", Family: "sol", Fingerprint: "c", Window: weeklyWindow,
 			Movement: 0.06, WeightedTokens: 1e6, Intervals: 1}
 		if err := l.s.Update(context.Background(), func(st *State) error {
-			st.Reservations["r1"] = Reservation{ID: "r1", Agent: "claude", Task: true, Created: now,
-				Estimate: Estimate{USD: 1.5}}
-			st.Settled["s1"] = Settlement{ID: "s1", Agent: "claude", ChargedUSD: 2, Ended: now}
-			st.Tiers["claude"] = TierResult{Tier: "large", Limit: 10}
-			st.Tiers["codex"] = TierResult{Tier: "medium", Limit: 5}
+			st.Reservations["r1"] = paidrules.Reservation{ID: "r1", Agent: "claude", Task: true, Created: now,
+				Estimate: paidrules.Estimate{USD: 1.5}}
+			st.Settled["s1"] = paidrules.Settlement{ID: "s1", Agent: "claude", ChargedUSD: 2, Ended: now}
+			st.Tiers["claude"] = paidrules.TierResult{Tier: "large", Limit: 10}
+			st.Tiers["codex"] = paidrules.TierResult{Tier: "medium", Limit: 5}
 			st.Samples = append(st.Samples, codex)
 			return nil
 		}); err != nil {
@@ -342,26 +343,26 @@ func TestRatesResetAndDrift(t *testing.T) {
 
 	t.Run("plan names only change the fingerprint", func(t *testing.T) {
 		read := rateRead(0, 0, 0)
-		fp := Fingerprint("claude", "key-a", read)
+		fp := paidrules.Fingerprint("claude", "key-a", read)
 		if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(fp) {
 			t.Fatalf("fingerprint %q is not a digest", fp)
 		}
-		if Fingerprint("claude", "key-a", read) != fp {
+		if paidrules.Fingerprint("claude", "key-a", read) != fp {
 			t.Fatal("fingerprint is not stable")
 		}
 		other := read
 		other.Plan = "pro"
 		later := rateRead(90, 40, 20)
 		for name, got := range map[string]string{
-			"plan":     Fingerprint("claude", "key-a", other),
-			"identity": Fingerprint("claude", "key-b", read),
-			"agent":    Fingerprint("codex", "key-a", read),
+			"plan":     paidrules.Fingerprint("claude", "key-a", other),
+			"identity": paidrules.Fingerprint("claude", "key-b", read),
+			"agent":    paidrules.Fingerprint("codex", "key-a", read),
 		} {
 			if got == fp {
 				t.Errorf("a changed %s keeps the fingerprint", name)
 			}
 		}
-		if Fingerprint("claude", "key-a", later) != fp {
+		if paidrules.Fingerprint("claude", "key-a", later) != fp {
 			t.Fatal("usage or read time changed the fingerprint")
 		}
 
@@ -389,7 +390,7 @@ func TestRatesResetAndDrift(t *testing.T) {
 		// The weekly window is gone from the next read.
 		next := rateRead(70, 21, 0)
 		next.Windows = next.Windows[:1]
-		if Fingerprint("claude", l.key, next) == Fingerprint("claude", l.key, l.last) {
+		if paidrules.Fingerprint("claude", l.key, next) == paidrules.Fingerprint("claude", l.key, l.last) {
 			t.Fatal("a window shape change keeps the fingerprint")
 		}
 		l.step(next, 1000000)
@@ -398,7 +399,7 @@ func TestRatesResetAndDrift(t *testing.T) {
 		}
 		longer := rateRead(0, 0, 0)
 		longer.Windows[0].DurationMinutes = 600
-		if Fingerprint("claude", l.key, longer) == Fingerprint("claude", l.key, rateRead(0, 0, 0)) {
+		if paidrules.Fingerprint("claude", l.key, longer) == paidrules.Fingerprint("claude", l.key, rateRead(0, 0, 0)) {
 			t.Fatal("a window length change keeps the fingerprint")
 		}
 	})
@@ -407,8 +408,8 @@ func TestRatesResetAndDrift(t *testing.T) {
 		l := newLearner(t, pricedConfig())
 		l.climb(6, 3, 0, 1000000)
 		if err := l.s.Update(context.Background(), func(st *State) error {
-			st.Tiers["claude"] = TierResult{Tier: "small", Limit: 3}
-			st.Reservations["r1"] = Reservation{ID: "r1", Agent: "claude", Task: true, Created: now}
+			st.Tiers["claude"] = paidrules.TierResult{Tier: "small", Limit: 3}
+			st.Reservations["r1"] = paidrules.Reservation{ID: "r1", Agent: "claude", Task: true, Created: now}
 			return nil
 		}); err != nil {
 			t.Fatal(err)
@@ -460,7 +461,7 @@ func TestRatesResetAndDrift(t *testing.T) {
 
 	t.Run("legacy calibration rates never qualify", func(t *testing.T) {
 		l := newLearner(t, pricedConfig())
-		legacy := RateSample{Agent: "claude", Family: "sonnet", Window: sessionWindow,
+		legacy := paidrules.RateSample{Agent: "claude", Family: "sonnet", Window: sessionWindow,
 			Movement: 0.3, WeightedTokens: 1e6, Intervals: 9}
 		if err := l.s.Update(context.Background(), func(st *State) error {
 			st.Samples = append(st.Samples, legacy)
@@ -471,7 +472,7 @@ func TestRatesResetAndDrift(t *testing.T) {
 		if r := l.learned(sessionWindow); r.Measured || r.Intervals != 0 {
 			t.Fatalf("a legacy rate counts: %+v", r)
 		}
-		if r := Learned([]RateSample{legacy}, "claude", "sonnet", "", sessionWindow); r.Measured || r.Intervals != 0 {
+		if r := paidrules.Learned([]paidrules.RateSample{legacy}, "claude", "sonnet", "", sessionWindow); r.Measured || r.Intervals != 0 {
 			t.Fatalf("a legacy rate counts without a fingerprint: %+v", r)
 		}
 		l.climb(1, 1, 0, 1000000)
@@ -481,7 +482,7 @@ func TestRatesResetAndDrift(t *testing.T) {
 	})
 }
 
-func slicesHave(samples []RateSample, want RateSample) bool {
+func slicesHave(samples []paidrules.RateSample, want paidrules.RateSample) bool {
 	for _, s := range samples {
 		if reflect.DeepEqual(s, want) {
 			return true

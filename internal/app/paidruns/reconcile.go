@@ -9,7 +9,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/workerenv"
+	"github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 )
 
 // Presence is what a probe knows of a process or a pane: Unknown when it
@@ -38,8 +39,8 @@ func (p Presence) String() string {
 // Unknown. Now is the time of a recovered settlement and of the 24-hour
 // history cut, zero meaning the Store's clock.
 type ReconcileInput struct {
-	Process func(Owner) Presence
-	Pane    func(context.Context, Owner) Presence
+	Process func(paidrules.Owner) Presence
+	Pane    func(context.Context, paidrules.Owner) Presence
 	Now     time.Time
 }
 
@@ -124,7 +125,7 @@ func (s *Store) Reconcile(ctx context.Context, in ReconcileInput) error {
 	if now.IsZero() {
 		now = s.now()
 	}
-	var probed map[string]Reservation
+	var probed map[string]paidrules.Reservation
 	if err := s.Update(ctx, func(st *State) error {
 		probed = maps.Clone(st.Reservations)
 		return nil
@@ -164,10 +165,10 @@ func (s *Store) Reconcile(ctx context.Context, in ReconcileInput) error {
 // first task never sent it, since a send replaces that hold before anything
 // is typed: it is refunded, as CloseSession does. Any other unsettled task
 // counts as a run of unknown cost: a paid one at least its estimate.
-func (st *State) end(r Reservation, now time.Time) {
-	unsent := r.Shape == workerenv.Peer && r.Session
+func (st *State) end(r paidrules.Reservation, now time.Time) {
+	unsent := r.Shape == launch.Peer && r.Session
 	if _, settled := st.Settled[r.ID]; r.Task && !settled && !unsent {
-		recovered := Settlement{ID: r.ID, Agent: r.Agent, AccountKey: r.AccountKey, Started: true, Ended: now,
+		recovered := paidrules.Settlement{ID: r.ID, Agent: r.Agent, AccountKey: r.AccountKey, Started: true, Ended: now,
 			Windows: r.Estimate.Windows}
 		recovered.ChargedUSD = charge(r, recovered)
 		st.Settled[r.ID] = recovered
@@ -181,13 +182,13 @@ func (st *State) end(r Reservation, now time.Time) {
 // it starts the agent, so a peer open that dies before it records the pane
 // leaves the pane's presence behind. A pane that holds nothing changes
 // nothing.
-func (s *Store) RecordLauncher(ctx context.Context, peer string, launcher Owner) error {
+func (s *Store) RecordLauncher(ctx context.Context, peer string, launcher paidrules.Owner) error {
 	if peer == "" || launcher.PID <= 0 {
 		return errors.New("paid runs: a launcher needs its peer and a process id")
 	}
 	return s.Update(ctx, func(st *State) error {
 		for id, r := range st.Reservations {
-			if r.Peer == peer && r.Session && !r.Started && r.Launcher == (Owner{}) {
+			if r.Peer == peer && r.Session && !r.Started && r.Launcher == (paidrules.Owner{}) {
 				r.Launcher = launcher
 				st.Reservations[id] = r
 			}
@@ -203,7 +204,7 @@ func (s *Store) RecordLauncher(ctx context.Context, peer string, launcher Owner)
 // be checked does not refuse, since the person says it is gone. Each hold
 // then ends as in a reconciliation that found its owners gone. It returns
 // the holds it ended.
-func (s *Store) EndHold(ctx context.Context, name string, in ReconcileInput) ([]Reservation, error) {
+func (s *Store) EndHold(ctx context.Context, name string, in ReconcileInput) ([]paidrules.Reservation, error) {
 	if in.Process == nil {
 		in.Process = ProbeProcess
 	}
@@ -211,7 +212,7 @@ func (s *Store) EndHold(ctx context.Context, name string, in ReconcileInput) ([]
 	if now.IsZero() {
 		now = s.now()
 	}
-	var named []Reservation
+	var named []paidrules.Reservation
 	if err := s.View(ctx, func(st State) error {
 		for _, id := range slices.Sorted(maps.Keys(st.Reservations)) {
 			if r := st.Reservations[id]; id == name || name != "" && r.Peer == name {
@@ -235,7 +236,7 @@ func (s *Store) EndHold(ctx context.Context, name string, in ReconcileInput) ([]
 			return nil, fmt.Errorf("paid runs: %s: the command that holds it still runs (process %d)", name, r.Supervisor.PID)
 		}
 	}
-	var ended []Reservation
+	var ended []paidrules.Reservation
 	err := s.Update(ctx, func(st *State) error {
 		for _, probed := range named {
 			r, ok := st.Reservations[probed.ID]
@@ -251,16 +252,16 @@ func (s *Store) EndHold(ctx context.Context, name string, in ReconcileInput) ([]
 }
 
 // peerID is the peer entry id of the launch in, "" when it is no peer.
-func peerID(in workerenv.ProcessInput) string {
-	if in.Shape == workerenv.Peer {
+func peerID(in launch.ProcessInput) string {
+	if in.Shape == launch.Peer {
 		return in.PeerID
 	}
 	return ""
 }
 
 // judge concludes what to do with r from its owners' presence.
-func (in ReconcileInput) judge(ctx context.Context, r Reservation) conclusion {
-	if !r.Started && r.Child == (Owner{}) {
+func (in ReconcileInput) judge(ctx context.Context, r paidrules.Reservation) conclusion {
+	if !r.Started && r.Child == (paidrules.Owner{}) {
 		switch in.Process(r.Supervisor) {
 		case Alive:
 			return conclusion{}
@@ -320,7 +321,7 @@ func (in ReconcileInput) judge(ctx context.Context, r Reservation) conclusion {
 
 // sameRecord reports whether r is still the reservation that was probed: the
 // same owners in the same stage.
-func sameRecord(r, probed Reservation) bool {
+func sameRecord(r, probed paidrules.Reservation) bool {
 	return r.Supervisor == probed.Supervisor && r.Child == probed.Child && r.Launcher == probed.Launcher &&
 		r.Started == probed.Started && r.Launching == probed.Launching &&
 		r.Task == probed.Task && r.Session == probed.Session &&
@@ -331,24 +332,24 @@ func sameRecord(r, probed Reservation) bool {
 // runs at its ID with its birth identity, Gone when none runs there or one
 // with another birth does. Without an ID, a recorded birth or a readable
 // one, it is Unknown.
-func ProbeProcess(o Owner) Presence {
+func ProbeProcess(o paidrules.Owner) Presence {
 	return processPresence(o, lookProcess)
 }
 
 // ProcessOwner is the process pid as a reservation records it: its ID and
 // birth identity, which stays empty when the platform does not show it.
-func ProcessOwner(pid int) Owner {
+func ProcessOwner(pid int) paidrules.Owner {
 	state, birth := lookProcess(pid)
 	if state != Alive {
 		birth = ""
 	}
-	return Owner{PID: pid, Birth: birth}
+	return paidrules.Owner{PID: pid, Birth: birth}
 }
 
 // processPresence judges o from look, which reports whether a process runs
 // at an ID and its birth identity, "" when unavailable. A permission refusal
 // that hides the birth is Unknown, not Gone.
-func processPresence(o Owner, look func(pid int) (Presence, string)) Presence {
+func processPresence(o paidrules.Owner, look func(pid int) (Presence, string)) Presence {
 	if o.PID <= 0 {
 		return Unknown
 	}

@@ -10,9 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/paidstore"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"github.com/lorem-dev/duolog/internal/workerenv"
@@ -37,7 +39,7 @@ func realQuotaGate(t *testing.T) func() {
 		if err != nil {
 			return nil, err
 		}
-		return &paidruns.Gate{Store: st, Cache: &paidruns.Cache{Read: quota.Reader{Version: "test"}.ReadProcess}, Config: cfg,
+		return &paidruns.Gate{Store: st, Cache: &paidstore.Cache{Read: quota.Reader{Version: "test"}.ReadProcess}, Config: cfg,
 			Layers: paidruns.ReadLayers}, nil
 	}
 	restore := func() { testDeps(t).Delegate.PaidGate = old }
@@ -374,11 +376,11 @@ func TestQuotaAndDoctorShapeReportsInQuota(t *testing.T) {
 		t.Fatal(out, err)
 	}
 	claude, codex := result["claude"], result["codex"]
-	if claude.Reports["worker"].Assessment.Verdict != paidruns.Subscription || claude.Reports["peer"].Assessment.Shape != workerenv.Peer ||
-		claude.Reports["lead"].Assessment.Verdict != paidruns.Paid || claude.Reports["worker"].TotalLimit != 10 {
+	if claude.Reports["worker"].Assessment.Verdict != paidrules.Subscription || claude.Reports["peer"].Assessment.Shape != workerenv.Peer ||
+		claude.Reports["lead"].Assessment.Verdict != paidrules.Paid || claude.Reports["worker"].TotalLimit != 10 {
 		t.Fatalf("claude reports: %+v", claude.Reports)
 	}
-	if codex.Reports["worker"].Assessment.Verdict != paidruns.Paid || codex.Lead == "" || codex.Plan == "" {
+	if codex.Reports["worker"].Assessment.Verdict != paidrules.Paid || codex.Lead == "" || codex.Plan == "" {
 		t.Fatalf("codex: %+v", codex)
 	}
 	if strings.Contains(out, leadKey) {

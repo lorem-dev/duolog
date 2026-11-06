@@ -1,4 +1,4 @@
-package paidruns
+package paidrules
 
 import (
 	"math"
@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	coreaccount "github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/workerenv"
+	"github.com/lorem-dev/duolog/internal/core/launch"
 )
 
 func tierConfig() *config.Config {
@@ -35,7 +35,7 @@ func rates(fiveHour, weekly float64) []RateSample {
 }
 
 func subscriber(agent string) Assessment {
-	return Assessment{Agent: agent, Shape: workerenv.Worker, Verdict: Subscription, Account: "personal", UsableShare: 1}
+	return Assessment{Agent: agent, Shape: launch.Worker, Verdict: Subscription, Account: "personal", UsableShare: 1}
 }
 
 func TestSessionTierMeasuredShareVotes(t *testing.T) {
@@ -128,15 +128,15 @@ func TestSessionTierMeasuredShareVotes(t *testing.T) {
 
 	// A window limited to one family does not vote for the whole agent.
 	scoped := snapshot("claude")
-	scoped.Windows = append(scoped.Windows, quota.Window{Kind: "weekly_opus", DurationMinutes: 10080, UsedPercent: 50, ResetsAt: now.Add(72 * time.Hour)})
-	scoped.ModelLimits = map[string][]quota.Window{"sonnet": {{Kind: "weekly_all", DurationMinutes: 10080, UsedPercent: 5, ResetsAt: now.Add(72 * time.Hour)}}}
+	scoped.Windows = append(scoped.Windows, coreaccount.Window{Kind: "weekly_opus", DurationMinutes: 10080, UsedPercent: 50, ResetsAt: now.Add(72 * time.Hour)})
+	scoped.ModelLimits = map[string][]coreaccount.Window{"sonnet": {{Kind: "weekly_all", DurationMinutes: 10080, UsedPercent: 5, ResetsAt: now.Add(72 * time.Hour)}}}
 	if got := SelectTier(claude, scoped, rates(.001, .001), large, cfg); got.Tier != TierLarge {
 		t.Errorf("family-scoped windows voted: %+v", got)
 	}
 
 	// A window of unknown length takes the stricter weekly cuts.
 	unknown := snapshot("claude")
-	unknown.Windows = []quota.Window{{Kind: "odd", UsedPercent: 1, ResetsAt: now.Add(time.Hour)}}
+	unknown.Windows = []coreaccount.Window{{Kind: "odd", UsedPercent: 1, ResetsAt: now.Add(time.Hour)}}
 	if got := SelectTier(claude, unknown, []RateSample{rate("claude", "opus", "odd", .02, 3)}, large, cfg); got.Tier != TierSmall {
 		t.Errorf("unknown-length window at 0.02: %+v, want small by the weekly cut", got)
 	}

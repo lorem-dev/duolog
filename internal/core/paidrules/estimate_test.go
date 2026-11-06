@@ -1,4 +1,4 @@
-package paidruns
+package paidrules
 
 import (
 	"errors"
@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/usage"
+	"github.com/lorem-dev/duolog/internal/core/record"
+	"github.com/lorem-dev/duolog/internal/core/usage"
 )
 
 func pricedConfig() *config.Config {
@@ -23,8 +23,8 @@ func pricedConfig() *config.Config {
 
 // sized is a finished delegation of size n: n*100K input, half of it
 // cached, and n*10K output.
-func sized(agent, model, role, class string, n int64) journal.Delegation {
-	return journal.Delegation{Agent: agent, Model: model, Role: role, Class: class, Done: true,
+func sized(agent, model, role, class string, n int64) record.Delegation {
+	return record.Delegation{Agent: agent, Model: model, Role: role, Class: class, Done: true,
 		Input: n * 100000, Cached: n * 50000, Output: n * 10000}
 }
 
@@ -36,7 +36,7 @@ func TestEstimatePricesCacheWrites(t *testing.T) {
 	cfg := pricedConfig()
 	d := sized("claude", "claude-sonnet-5-5", "implement", "small", 1)
 	d.CacheWrite, d.CacheWriteHour = 40000, 10000
-	e, err := EstimateTask(cfg, []journal.Delegation{d}, "claude", "sonnet", "implement", "small")
+	e, err := EstimateTask(cfg, []record.Delegation{d}, "claude", "sonnet", "implement", "small")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,20 +52,20 @@ func TestEstimateP90ByTargetAndClass(t *testing.T) {
 
 	// Ten runs of the target and class, sizes 1 to 10; the size 9 run failed
 	// on a provider limit after it used its tokens.
-	var records []journal.Delegation
+	var records []record.Delegation
 	for n := int64(1); n <= 10; n++ {
 		d := sized("claude", "claude-sonnet-5-5", "implement", "small", n)
 		if n%2 == 0 {
 			d.Model = "sonnet"
 		}
 		if n == 9 {
-			d.Done, d.Interrupted, d.Outcome = false, true, journal.OutcomeInfra
+			d.Done, d.Interrupted, d.Outcome = false, true, record.OutcomeInfra
 		}
 		records = append(records, d)
 	}
 	profile := sized("claude", "claude-sonnet-5-5", "implement", "small", 40)
 	profile.ProfileOf = "d-1"
-	unused := journal.Delegation{Agent: "claude", Model: "claude-sonnet-5-5", Role: "implement", Class: "small", Outcome: journal.OutcomeLead}
+	unused := record.Delegation{Agent: "claude", Model: "claude-sonnet-5-5", Role: "implement", Class: "small", Outcome: record.OutcomeLead}
 	records = append(records, profile, unused,
 		sized("claude", "claude-opus-5-5", "implement", "small", 30),
 		sized("codex", "gpt-6.1-sol", "implement", "small", 30),
@@ -99,7 +99,7 @@ func TestEstimateP90ByTargetAndClass(t *testing.T) {
 	})
 
 	t.Run("role when class is unavailable", func(t *testing.T) {
-		byRole := []journal.Delegation{
+		byRole := []record.Delegation{
 			sized("claude", "claude-sonnet-5-5", "implement", "small", 2),
 			sized("claude", "claude-sonnet-5-5", "implement", "large", 4),
 			sized("claude", "claude-sonnet-5-5", "docs", "small", 30),
@@ -116,7 +116,7 @@ func TestEstimateP90ByTargetAndClass(t *testing.T) {
 	})
 
 	t.Run("empty history uses the bound", func(t *testing.T) {
-		for _, history := range [][]journal.Delegation{nil, records} {
+		for _, history := range [][]record.Delegation{nil, records} {
 			e, err := EstimateTask(cfg, history, "claude", "sonnet", "implement", "medium")
 			if err != nil {
 				t.Fatal(err)
@@ -167,13 +167,13 @@ func TestEstimateP90ByTargetAndClass(t *testing.T) {
 	})
 
 	t.Run("invalid records and config", func(t *testing.T) {
-		bad := []journal.Delegation{
+		bad := []record.Delegation{
 			{Agent: "claude", Model: "sonnet", Class: "small", Input: -1, Output: 10},
 			{Agent: "claude", Model: "sonnet", Class: "small", Input: 10, Cached: 11, Output: 10},
 			{Agent: "claude", Model: "sonnet", Class: "small", Input: 10, Output: -1},
 		}
 		for _, d := range bad {
-			_, err := EstimateTask(cfg, []journal.Delegation{d}, "claude", "sonnet", "implement", "small")
+			_, err := EstimateTask(cfg, []record.Delegation{d}, "claude", "sonnet", "implement", "small")
 			if err == nil || errors.Is(err, ErrUnpriced) {
 				t.Fatalf("record %+v: err = %v", d, err)
 			}
@@ -181,7 +181,7 @@ func TestEstimateP90ByTargetAndClass(t *testing.T) {
 		// A broken record of another target does not refuse this one.
 		other := bad[0]
 		other.Model = "opus"
-		if _, err := EstimateTask(cfg, []journal.Delegation{other}, "claude", "sonnet", "implement", "small"); err != nil {
+		if _, err := EstimateTask(cfg, []record.Delegation{other}, "claude", "sonnet", "implement", "small"); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := EstimateTask(nil, nil, "claude", "sonnet", "implement", "small"); err == nil {

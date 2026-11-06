@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -23,16 +24,16 @@ func TestSettledTaskHoldsWindowsUntilALaterRead(t *testing.T) {
 	clock := ledgerNow
 	st := testStore(t, &clock)
 	readAt := ledgerNow.Add(-30 * time.Second)
-	key := WindowKey{Kind: "five_hour", Reset: ledgerNow.Add(3 * time.Hour)}
+	key := paidrules.WindowKey{Kind: "five_hour", Reset: ledgerNow.Add(3 * time.Hour)}
 	task := func(id string, at time.Time) Admission {
 		in := freeTask(id, "claude", "personal", ledgerNow)
-		in.Reservation.Estimate.Windows = []WindowCost{{Key: key, Used: 0.84, Cost: 0.05, Reserve: 0.10}}
+		in.Reservation.Estimate.Windows = []paidrules.WindowCost{{Key: key, Used: 0.84, Cost: 0.05, Reserve: 0.10}}
 		in.ReadAt = at
 		return in
 	}
 	// 84 % used, 5 % for the task and a 10 % reserve fit.
 	mustAdmit(t, st, task("a", readAt))
-	if err := st.Settle(ctx, Settlement{ID: "a", Started: true, CompleteUsage: true, Ended: ledgerNow}); err != nil {
+	if err := st.Settle(ctx, paidrules.Settlement{ID: "a", Started: true, CompleteUsage: true, Ended: ledgerNow}); err != nil {
 		t.Fatal(err)
 	}
 	// The same read, or a cached copy of it, does not show a's 5 %.
@@ -43,11 +44,11 @@ func TestSettledTaskHoldsWindowsUntilALaterRead(t *testing.T) {
 
 // largeRates are rates of account fingerprint fp that make Claude's tier
 // large, in both account windows, with three intervals each.
-func largeRates(fp string) []RateSample {
-	return []RateSample{
-		{Agent: "claude", Family: "sonnet", Fingerprint: fp, Window: WindowKey{Kind: "session"},
+func largeRates(fp string) []paidrules.RateSample {
+	return []paidrules.RateSample{
+		{Agent: "claude", Family: "sonnet", Fingerprint: fp, Window: paidrules.WindowKey{Kind: "session"},
 			Movement: 0.15, WeightedTokens: 25e6, Intervals: 3},
-		{Agent: "claude", Family: "sonnet", Fingerprint: fp, Window: WindowKey{Kind: "weekly_all"},
+		{Agent: "claude", Family: "sonnet", Fingerprint: fp, Window: paidrules.WindowKey{Kind: "weekly_all"},
 			Movement: 0.15, WeightedTokens: 100e6, Intervals: 3},
 	}
 }
@@ -64,8 +65,8 @@ func TestGateRatesFollowTheIdentityOfTheRead(t *testing.T) {
 	}
 	shape, _ := w.read(ctx, workerenv.Process{Agent: "claude"})
 	if err := w.store.Update(ctx, func(st *State) error {
-		st.Samples = largeRates(Fingerprint("claude", keyA, shape))
-		st.Tiers["claude"] = TierResult{Tier: TierLarge, Limit: 10}
+		st.Samples = largeRates(paidrules.Fingerprint("claude", keyA, shape))
+		st.Tiers["claude"] = paidrules.TierResult{Tier: paidrules.TierLarge, Limit: 10}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -80,14 +81,14 @@ func TestGateRatesFollowTheIdentityOfTheRead(t *testing.T) {
 	}
 	p := w.acquire(w.request("claude", workerenv.Worker, workerenv.Free, 100))
 	st := w.state()
-	if tier := st.Tiers["claude"]; tier.Tier != TierSmall || tier.Limit != config.DefaultSessionTiers().Small {
+	if tier := st.Tiers["claude"]; tier.Tier != paidrules.TierSmall || tier.Limit != config.DefaultSessionTiers().Small {
 		t.Fatalf("tier after an account change = %+v, want small", tier)
 	}
 	if got, want := p.Reservation.AccountKey, st.AccountKeys["claude/"+quota.IdentityAccount]; got != want || got == keyA {
 		t.Fatalf("reservation key %q, want account B's %q", got, want)
 	}
 	for _, c := range p.Reservation.Estimate.Windows {
-		_, bound := windowTerms(quota.Window{DurationMinutes: map[string]int{"session": 300, "weekly_all": 10080}[c.Key.Kind]})
+		_, bound := paidrules.WindowTerms(quota.Window{DurationMinutes: map[string]int{"session": 300, "weekly_all": 10080}[c.Key.Kind]})
 		if !near(c.Cost, bound) {
 			t.Fatalf("%s costs %v from the old account's rates, want the bound %v", c.Key.Kind, c.Cost, bound)
 		}
@@ -107,7 +108,7 @@ func TestAdmissionRefusesAnAccountThatChanged(t *testing.T) {
 	old := "key-of-account-a"
 	in := freeTask("a", "claude", "personal", ledgerNow)
 	in.accountKey = &old
-	e, err := st.enter(ctx, in, &line{}, TierResult{Tier: TierLarge, Limit: 10}, nil, false)
+	e, err := st.enter(ctx, in, &line{}, paidrules.TierResult{Tier: paidrules.TierLarge, Limit: 10}, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +116,7 @@ func TestAdmissionRefusesAnAccountThatChanged(t *testing.T) {
 		t.Fatalf("got %+v, want refused with %q", e.Decision, ReasonAccountChanged)
 	}
 	got := readState(t, st)
-	if len(got.Reservations) != 0 || got.Tiers["claude"].Tier == TierLarge {
+	if len(got.Reservations) != 0 || got.Tiers["claude"].Tier == paidrules.TierLarge {
 		t.Fatalf("a refused admission wrote %+v and tier %+v", got.Reservations, got.Tiers["claude"])
 	}
 }
@@ -220,8 +221,8 @@ func TestDefaultPaceBalanceReadsWithThePersonsPassthrough(t *testing.T) {
 	}
 	t.Cleanup(func() { PaceRead = read })
 	DefaultPaceBalance(context.Background(), cfg)
-	if len(envs) != len(paceAgents) {
-		t.Fatalf("%d pace reads, want %d", len(envs), len(paceAgents))
+	if len(envs) != len(paidrules.PaceAgents()) {
+		t.Fatalf("%d pace reads, want %d", len(envs), len(paidrules.PaceAgents()))
 	}
 	for _, env := range envs {
 		if !slices.Contains(env, "CORP_TEST_CA_BUNDLE=/certs/test.pem") {
@@ -238,8 +239,8 @@ func TestGateLearnsRatesFromOrdinaryWorkers(t *testing.T) {
 	// The fake read's resets move with its clock; a gap inside the reset
 	// tolerance keeps them one window.
 	const learnGap = 30 * time.Second
-	sessionSamples := func(w *gateWorld) []RateSample {
-		var out []RateSample
+	sessionSamples := func(w *gateWorld) []paidrules.RateSample {
+		var out []paidrules.RateSample
 		for _, s := range w.state().Samples {
 			if s.Agent == "claude" && s.Window.Kind == "session" {
 				out = append(out, s)
@@ -255,7 +256,7 @@ func TestGateLearnsRatesFromOrdinaryWorkers(t *testing.T) {
 		stale(w)
 		p := w.acquire(w.request("claude", workerenv.Worker, workerenv.Free, 100))
 		w.now, w.used = w.now.Add(learnGap), 16
-		w.finish(p, Settlement{Started: true, CompleteUsage: true, Input: 1_000_000})
+		w.finish(p, paidrules.Settlement{Started: true, CompleteUsage: true, Input: 1_000_000})
 		got := sessionSamples(w)
 		if len(got) != 1 || got[0].Family != "sonnet" || !near(got[0].Movement, 0.06) || !near(got[0].WeightedTokens, 1e6) {
 			t.Fatalf("session samples after an ordinary run: %+v, want one of 6 %% over 1M tokens", got)
@@ -271,7 +272,7 @@ func TestGateLearnsRatesFromOrdinaryWorkers(t *testing.T) {
 		req := w.request("claude", workerenv.Worker, workerenv.Free, 100)
 		p := w.acquire(req)
 		w.now, w.used = w.now.Add(learnGap), 16
-		w.finish(p, Settlement{Started: true, CompleteUsage: true, Input: 1_000_000})
+		w.finish(p, paidrules.Settlement{Started: true, CompleteUsage: true, Input: 1_000_000})
 		reads := w.reads
 		s, _, err := w.gate.Read(context.Background(), req.Input, false)
 		if err != nil || w.reads != reads || !s.ReadAt.Equal(w.now) {
@@ -283,7 +284,7 @@ func TestGateLearnsRatesFromOrdinaryWorkers(t *testing.T) {
 		p := w.acquire(w.request("claude", workerenv.Worker, workerenv.Free, 100))
 		reads := w.reads
 		w.now, w.used = w.now.Add(learnGap), 16
-		w.finish(p, Settlement{Started: true, CompleteUsage: true, Input: 1_000_000})
+		w.finish(p, paidrules.Settlement{Started: true, CompleteUsage: true, Input: 1_000_000})
 		if got := sessionSamples(w); len(got) != 0 || w.reads != reads {
 			t.Fatalf("a run inside the quota age learned %+v with %d reads", got, w.reads-reads)
 		}
@@ -293,7 +294,7 @@ func TestGateLearnsRatesFromOrdinaryWorkers(t *testing.T) {
 		p := w.acquire(w.request("claude", workerenv.Worker, workerenv.Free, 100))
 		reads := w.reads
 		w.now, w.used = w.now.Add(learnGap), 16
-		w.finish(p, Settlement{Started: true, Input: 1_000_000})
+		w.finish(p, paidrules.Settlement{Started: true, Input: 1_000_000})
 		if got := sessionSamples(w); len(got) != 0 || w.reads != reads {
 			t.Fatalf("a run with incomplete usage learned %+v with %d reads", got, w.reads-reads)
 		}
@@ -304,7 +305,7 @@ func TestGateLearnsRatesFromOrdinaryWorkers(t *testing.T) {
 		req.Calibration = true
 		p := w.acquire(req)
 		w.now, w.used = w.now.Add(learnGap), 16
-		w.finish(p, Settlement{Started: true, CompleteUsage: true, Input: 1_000_000})
+		w.finish(p, paidrules.Settlement{Started: true, CompleteUsage: true, Input: 1_000_000})
 		if got := sessionSamples(w); len(got) != 0 {
 			t.Fatalf("a calibration cell learned %+v in Finish", got)
 		}

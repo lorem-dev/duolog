@@ -15,6 +15,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
@@ -62,7 +63,7 @@ func (a *fakeAccounts) Observe(_ context.Context, agent, family string, input, c
 
 // budgetCells makes the fixture's cells record the step budget each one
 // runs under and pass with a measured split of their tokens.
-func (f *runFixture) budgetCells(budgets *[]paidruns.StepBudget) {
+func (f *runFixture) budgetCells(budgets *[]paidrules.StepBudget) {
 	f.runner.Cell = func(ctx context.Context, c Cell, task TaskRecord, start StartFunc) (CellResult, error) {
 		if err := StartStep(start); err != nil {
 			return CellResult{}, err
@@ -98,7 +99,7 @@ func TestCalibrationOnePermitPerActualAttempt(t *testing.T) {
 		fake := f.realClaude(t, testbin.Scenario{Stdout: parseAnswer, Writes: map[string]string{"parse.go": "package widget\n\nfunc Parse(line string) []string { return nil }\n"}}, &out)
 		ctx, step := withStep(context.Background())
 		start := func() (bool, error) {
-			step.budget = &paidruns.StepBudget{PlanHash: "plan-h", StepID: "c-1.1", USDRemaining: 10, WeeklyRemaining: 0.1, WindowRemaining: 0.5, WaitForSession: true}
+			step.budget = &paidrules.StepBudget{PlanHash: "plan-h", StepID: "c-1.1", USDRemaining: 10, WeeklyRemaining: 0.1, WindowRemaining: 0.5, WaitForSession: true}
 			return true, nil
 		}
 		r, err := RunCell(ctx, f.env, f.cell, f.task, start)
@@ -130,7 +131,7 @@ func TestCalibrationOnePermitPerActualAttempt(t *testing.T) {
 
 	t.Run("no start without opt-ins or the approved plan", func(t *testing.T) {
 		f := newRunFixture(t, []string{"t1"}, []string{"codex/sol/medium"})
-		var budgets []paidruns.StepBudget
+		var budgets []paidrules.StepBudget
 		f.budgetCells(&budgets)
 		billing := paidCodex(10, 100, 0)
 		b := billing["codex"]
@@ -148,7 +149,7 @@ func TestCalibrationOnePermitPerActualAttempt(t *testing.T) {
 
 	t.Run("cells leave the judge USD", func(t *testing.T) {
 		f := newRunFixture(t, []string{"t1"}, []string{"codex/sol/medium"})
-		var budgets []paidruns.StepBudget
+		var budgets []paidrules.StepBudget
 		f.budgetCells(&budgets)
 		f.runner.Plan.Hash, f.run.Approved.Hash = "h", "h"
 		f.runner.Plan.Classes[0].JudgeUSD = map[string]float64{"codex": 4}
@@ -168,7 +169,7 @@ func TestCalibrationOnePermitPerActualAttempt(t *testing.T) {
 		f := newRunFixture(t, []string{"t1"}, []string{"codex/sol/medium"})
 		accounts := &fakeAccounts{}
 		f.runner.Accounts = accounts
-		var budgets []paidruns.StepBudget
+		var budgets []paidrules.StepBudget
 		crash := true
 		f.runner.Cell = func(ctx context.Context, c Cell, task TaskRecord, start StartFunc) (CellResult, error) {
 			if err := StartStep(start); err != nil {
@@ -215,14 +216,14 @@ func TestCalibrationSessionWaitAndCapPause(t *testing.T) {
 			t.Fatal(err)
 		}
 		err = g.Store.Update(context.Background(), func(st *paidruns.State) error {
-			st.Reservations["other"] = paidruns.Reservation{ID: "other", Agent: "codex", Shape: corelaunch.Worker,
+			st.Reservations["other"] = paidrules.Reservation{ID: "other", Agent: "codex", Shape: corelaunch.Worker,
 				Variant: corelaunch.Free, Session: true, Task: true, Created: time.Now()}
 			return nil
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		g.Reconcile = paidruns.ReconcileInput{Process: func(paidruns.Owner) paidruns.Presence { return paidruns.Alive }}
+		g.Reconcile = paidruns.ReconcileInput{Process: func(paidrules.Owner) paidruns.Presence { return paidruns.Alive }}
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		waits := 0
@@ -245,7 +246,7 @@ func TestCalibrationSessionWaitAndCapPause(t *testing.T) {
 			budget, waiting := StepOptions(ctx)
 			in := corelaunch.ProcessInput{Agent: "codex", Shape: corelaunch.Worker, Variant: corelaunch.Free, Config: cfg, Environ: os.Environ()}
 			_, err := g.Acquire(ctx, paidruns.Request{Input: in, Family: "sol", Role: "implement", Calibration: true,
-				Budget: budget, Waiting: waiting, Owner: paidruns.Owner{PID: os.Getpid(), Birth: "test"}})
+				Budget: budget, Waiting: waiting, Owner: paidrules.Owner{PID: os.Getpid(), Birth: "test"}})
 			return CellResult{}, err
 		}
 		if _, err := f.runner.Execute(ctx); !errors.Is(err, context.Canceled) {
@@ -293,14 +294,14 @@ func TestCalibrationSessionWaitAndCapPause(t *testing.T) {
 		}
 		g.Cache.Read = paidRoute
 		err = g.Store.Update(context.Background(), func(st *paidruns.State) error {
-			st.Settled["elsewhere"] = paidruns.Settlement{ID: "elsewhere", Agent: "codex", ChargedUSD: 4.9, Started: true, Ended: time.Now()}
+			st.Settled["elsewhere"] = paidrules.Settlement{ID: "elsewhere", Agent: "codex", ChargedUSD: 4.9, Started: true, Ended: time.Now()}
 			return nil
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
 		in := corelaunch.ProcessInput{Agent: "codex", Shape: corelaunch.Worker, Variant: corelaunch.Paid, Config: cfg, Environ: os.Environ()}
-		budget := &paidruns.StepBudget{PlanHash: "h", StepID: "c001.1", USDRemaining: 100, WeeklyRemaining: 1, WindowRemaining: 1}
+		budget := &paidrules.StepBudget{PlanHash: "h", StepID: "c001.1", USDRemaining: 100, WeeklyRemaining: 1, WindowRemaining: 1}
 		_, err = g.Acquire(context.Background(), paidruns.Request{Input: in, Family: "sol", Role: "implement", Calibration: true, Budget: budget})
 		var r *paidruns.Refusal
 		if !errors.As(err, &r) || r.Reason != paidruns.ReasonCap {
@@ -308,7 +309,7 @@ func TestCalibrationSessionWaitAndCapPause(t *testing.T) {
 		}
 		budget.USDRemaining = 0.01
 		cfg.PaidRuns.Codex.DailyCapUSD = 1000
-		if _, err := g.Acquire(context.Background(), paidruns.Request{Input: in, Family: "sol", Role: "implement", Calibration: true, Budget: budget}); !errors.As(err, &r) || r.Reason != paidruns.ReasonStepBudget {
+		if _, err := g.Acquire(context.Background(), paidruns.Request{Input: in, Family: "sol", Role: "implement", Calibration: true, Budget: budget}); !errors.As(err, &r) || r.Reason != paidrules.ReasonStepBudget {
 			t.Fatalf("a step past its approved USD: %v", err)
 		}
 		budget.WeeklyRemaining = 2
@@ -346,7 +347,7 @@ func TestCalibrationSharedRatesAndSpendOnce(t *testing.T) {
 	run := func(t *testing.T, accounts StepAccounts, billing map[string]BillingBudget) *runFixture {
 		f := newRunFixture(t, []string{"t1", "t2"}, []string{"codex/sol/medium"})
 		f.step = 2
-		var budgets []paidruns.StepBudget
+		var budgets []paidrules.StepBudget
 		f.budgetCells(&budgets)
 		f.runner.Accounts, f.runner.Billing = accounts, billing
 		if o := f.execute(t); !o.Done {
@@ -370,7 +371,7 @@ func TestCalibrationSharedRatesAndSpendOnce(t *testing.T) {
 	}
 
 	f := newRunFixture(t, []string{"t1"}, []string{"codex/sol/medium"})
-	var budgets []paidruns.StepBudget
+	var budgets []paidrules.StepBudget
 	f.budgetCells(&budgets)
 	id := f.run.Cells[0].ID
 	f.run.Cells[0].State = CellRunning

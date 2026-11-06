@@ -1,4 +1,4 @@
-package paidruns
+package paidstore
 
 import (
 	"context"
@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/quota"
+	"github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -19,16 +20,16 @@ func TestCacheGivesTheWorkerTheCompactWindowOfThePlanRead(t *testing.T) {
 	reads := 0
 	cache := &Cache{
 		Now: time.Now,
-		Read: func(context.Context, workerenv.Process) (quota.Snapshot, error) {
+		Read: func(context.Context, launch.Process) (account.Snapshot, error) {
 			reads++
-			return quota.Snapshot{ReadAt: time.Now(), Plan: "max"}, nil
+			return account.Snapshot{ReadAt: time.Now(), Plan: "max"}, nil
 		},
 	}
-	build := func() (workerenv.Process, error) {
-		return workerenv.Build(workerenv.ProcessInput{Agent: "claude", Shape: workerenv.Worker, Variant: workerenv.Free,
-			Config: cfg, Plan: cache.Plan("claude"), Environ: []string{"HOME=/h"}, Locations: workerenv.Locations{GOOS: "linux"}})
+	build := func() (launch.Process, error) {
+		return workerenv.Build(launch.ProcessInput{Agent: "claude", Shape: launch.Worker, Variant: launch.Free,
+			Config: cfg, Plan: cache.Plan("claude"), Environ: []string{"HOME=/h"}, Locations: launch.Locations{GOOS: "linux"}})
 	}
-	p, _, _, err := cache.Get(context.Background(), build, cfg, quota.RunEvidence{}, false)
+	p, _, _, err := cache.Get(context.Background(), build, cfg, account.RunEvidence{}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,15 +48,15 @@ func TestCacheRebuildsWhenAnotherGetStoredThePlan(t *testing.T) {
 	cfg.Workers = config.Workers{CompactWindow: "auto", CompactLadder: map[string]int{"pro": 250000}}
 	cache := &Cache{
 		Now: time.Now,
-		Read: func(context.Context, workerenv.Process) (quota.Snapshot, error) {
-			return quota.Snapshot{ReadAt: time.Now(), Plan: "pro"}, nil
+		Read: func(context.Context, launch.Process) (account.Snapshot, error) {
+			return account.Snapshot{ReadAt: time.Now(), Plan: "pro"}, nil
 		},
 	}
 	builds := 0
-	build := func() (workerenv.Process, error) {
+	build := func() (launch.Process, error) {
 		builds++
-		p, err := workerenv.Build(workerenv.ProcessInput{Agent: "claude", Shape: workerenv.Worker, Variant: workerenv.Free,
-			Config: cfg, Plan: cache.Plan("claude"), Environ: []string{"HOME=/h"}, Locations: workerenv.Locations{GOOS: "linux"}})
+		p, err := workerenv.Build(launch.ProcessInput{Agent: "claude", Shape: launch.Worker, Variant: launch.Free,
+			Config: cfg, Plan: cache.Plan("claude"), Environ: []string{"HOME=/h"}, Locations: launch.Locations{GOOS: "linux"}})
 		if builds == 1 {
 			// Another Get stores the plan right after this build.
 			cache.mu.Lock()
@@ -64,7 +65,7 @@ func TestCacheRebuildsWhenAnotherGetStoredThePlan(t *testing.T) {
 		}
 		return p, err
 	}
-	p, _, _, err := cache.Get(context.Background(), build, cfg, quota.RunEvidence{}, false)
+	p, _, _, err := cache.Get(context.Background(), build, cfg, account.RunEvidence{}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

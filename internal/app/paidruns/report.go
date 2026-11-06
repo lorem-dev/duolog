@@ -11,7 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -25,12 +28,12 @@ import (
 // fast-mode pin and the config keys Load ignored. It holds names and numbers
 // only: no environment, settings, URL or identity.
 type Report struct {
-	Assessment      Assessment            `json:"assessment"`
+	Assessment      paidrules.Assessment  `json:"assessment"`
 	SpentUSD        float64               `json:"spent_usd"`
 	InflightUSD     float64               `json:"inflight_usd"`
 	CapUSD          float64               `json:"cap_usd"`
 	EstimatedUSD    float64               `json:"estimated_usd"`
-	Sessions        TierResult            `json:"sessions"`
+	Sessions        paidrules.TierResult  `json:"sessions"`
 	TotalLive       int                   `json:"total_live"`
 	TotalLimit      int                   `json:"total_limit"`
 	Dropped         []string              `json:"dropped,omitempty"`
@@ -45,12 +48,12 @@ type Report struct {
 // conclusion. Name is its peer id, else its reservation id: what duolog
 // peer release takes. EstimateUSD is the paid estimate it keeps off the cap.
 type Held struct {
-	Name        string          `json:"name"`
-	Agent       string          `json:"agent"`
-	Shape       workerenv.Shape `json:"shape"`
-	Created     time.Time       `json:"created"`
-	EstimateUSD float64         `json:"estimate_usd,omitempty"`
-	Reason      string          `json:"reason"`
+	Name        string       `json:"name"`
+	Agent       string       `json:"agent"`
+	Shape       launch.Shape `json:"shape"`
+	Created     time.Time    `json:"created"`
+	EstimateUSD float64      `json:"estimate_usd,omitempty"`
+	Reason      string       `json:"reason"`
 }
 
 // held lists the retained holds of view, one per name, oldest first.
@@ -90,25 +93,25 @@ func (st State) held() []Held {
 // A failed read keeps the route evidence it found, the verdict is paid, and
 // the report comes back with the read's error. Run evidence that settled
 // after the read, such as a run on paid overage, counts as for admission.
-func (g *Gate) Report(ctx context.Context, in workerenv.ProcessInput) (Report, error) {
+func (g *Gate) Report(ctx context.Context, in launch.ProcessInput) (Report, error) {
 	if g.Store == nil || g.Cache == nil || g.Config == nil {
 		return Report{}, errors.New("paid runs: the gate needs a store, a cache and a config")
 	}
 	in.Config = g.Config
 	agent := in.Agent
 	var (
-		p       workerenv.Process
-		s       quota.Snapshot
-		a       Assessment
+		p       launch.Process
+		s       account.Snapshot
+		a       paidrules.Assessment
 		readErr error
 	)
 	switch in.Shape {
-	case workerenv.Worker, workerenv.Peer:
-		p, s, a, readErr = g.Cache.Get(ctx, g.build(ctx, Request{Input: in}), g.Config, quota.RunEvidence{}, false)
+	case launch.Worker, launch.Peer:
+		p, s, a, readErr = g.Cache.Get(ctx, g.build(ctx, Request{Input: in}), g.Config, account.RunEvidence{}, false)
 		if a.Agent == "" {
 			return Report{}, readErr
 		}
-	case workerenv.Lead:
+	case launch.Lead:
 		if g.Layers != nil {
 			layers, err := g.Layers(ctx, in)
 			if err != nil {
@@ -124,7 +127,7 @@ func (g *Gate) Report(ctx context.Context, in workerenv.ProcessInput) (Report, e
 		if s, ok = g.Cache.Latest(agent); !ok {
 			readErr = fmt.Errorf("no free quota read of %s to judge the lead's route with", agent)
 		}
-		a = Evaluate(p, s, readErr, quota.RunEvidence{}, g.Config, g.now())
+		a = paidrules.Evaluate(p, s, readErr, account.RunEvidence{}, g.Config, g.now())
 	default:
 		return Report{}, fmt.Errorf("paid runs: unknown shape %q", in.Shape)
 	}
@@ -134,7 +137,7 @@ func (g *Gate) Report(ctx context.Context, in workerenv.ProcessInput) (Report, e
 		return Report{}, errors.Join(readErr, err)
 	}
 	if e, ok := view.runEvidence(agent, s.ReadAt); ok {
-		a = Evaluate(p, s, readErr, e, g.Config, g.now())
+		a = paidrules.Evaluate(p, s, readErr, e, g.Config, g.now())
 	}
 	now := g.now()
 	r := Report{Assessment: a, Dropped: p.Dropped, EndpointEntries: p.EndpointEntries, FastPinned: p.FastPinned,
@@ -148,11 +151,11 @@ func (g *Gate) Report(ctx context.Context, in workerenv.ProcessInput) (Report, e
 	if paid := g.Config.PaidRuns.Agent(agent); paid.Allow {
 		r.CapUSD = paid.DailyCapUSD
 	}
-	fingerprint := Fingerprint(agent, view.AccountKeys[agent+"/"+quota.IdentityAccount], s)
-	samples := slices.DeleteFunc(slices.Clone(view.Samples), func(x RateSample) bool {
+	fingerprint := paidrules.Fingerprint(agent, view.AccountKeys[agent+"/"+quota.IdentityAccount], s)
+	samples := slices.DeleteFunc(slices.Clone(view.Samples), func(x paidrules.RateSample) bool {
 		return x.Agent != agent || x.Fingerprint != fingerprint
 	})
-	r.Sessions = SelectTier(a, s, samples, view.Tiers[agent], g.Config)
+	r.Sessions = paidrules.SelectTier(a, s, samples, view.Tiers[agent], g.Config)
 	r.Sessions.Live, r.TotalLive = view.sessions(agent)
 	if readErr != nil {
 		r.ReadError = readErr.Error()
@@ -164,14 +167,14 @@ func (g *Gate) Report(ctx context.Context, in workerenv.ProcessInput) (Report, e
 // the route-aware cache: afresh when fresh is set, else a read no older than
 // the quota age limit. It returns the read and its assessment, the paid one
 // of a failed read with its error, and admits nothing.
-func (g *Gate) Read(ctx context.Context, in workerenv.ProcessInput, fresh bool) (quota.Snapshot, Assessment, error) {
+func (g *Gate) Read(ctx context.Context, in launch.ProcessInput, fresh bool) (account.Snapshot, paidrules.Assessment, error) {
 	if g.Cache == nil || g.Config == nil {
-		return quota.Snapshot{}, Assessment{}, errors.New("paid runs: the gate needs a cache and a config")
+		return account.Snapshot{}, paidrules.Assessment{}, errors.New("paid runs: the gate needs a cache and a config")
 	}
-	if in.Shape != workerenv.Worker && in.Shape != workerenv.Peer {
-		return quota.Snapshot{}, Assessment{}, fmt.Errorf("paid runs: a %s is never read", in.Shape)
+	if in.Shape != launch.Worker && in.Shape != launch.Peer {
+		return account.Snapshot{}, paidrules.Assessment{}, fmt.Errorf("paid runs: a %s is never read", in.Shape)
 	}
-	_, s, a, err := g.Cache.Get(ctx, g.build(ctx, Request{Input: in}), g.Config, quota.RunEvidence{}, fresh)
+	_, s, a, err := g.Cache.Get(ctx, g.build(ctx, Request{Input: in}), g.Config, account.RunEvidence{}, fresh)
 	return s, a, err
 }
 
@@ -182,18 +185,18 @@ func (r Report) Lines() []string {
 	a := r.Assessment
 	who := a.Agent + " " + string(a.Shape)
 	head := who + ": " + string(a.Verdict)
-	if a.Verdict == Paid {
+	if a.Verdict == paidrules.Paid {
 		head += ": " + signalList(a.Signals)
 		// duolog never launches the lead, so it spends nothing for it.
-		if r.CapUSD <= 0 && a.Shape != workerenv.Lead {
+		if r.CapUSD <= 0 && a.Shape != launch.Lead {
 			head += "; duolog will not spend without paid_runs." + a.Agent
 		}
 	}
 	lines := []string{head}
 	has := func(name string) bool {
-		return slices.ContainsFunc(a.Signals, func(s workerenv.Signal) bool { return s.Name == name })
+		return slices.ContainsFunc(a.Signals, func(s launch.Signal) bool { return s.Name == name })
 	}
-	if a.Verdict == SubscriptionOverage && has("overage:enabled") {
+	if a.Verdict == paidrules.SubscriptionOverage && has("overage:enabled") {
 		lines = append(lines, "paid overage is on; duolog stops before it")
 	}
 	if has("run:overage") {
@@ -213,7 +216,7 @@ func (r Report) Lines() []string {
 	if len(r.Dropped) > 0 {
 		lines = append(lines, "withheld: "+strings.Join(r.Dropped, ", "))
 	}
-	if a.Shape != workerenv.Worker {
+	if a.Shape != launch.Worker {
 		return lines
 	}
 	switch {
@@ -274,7 +277,7 @@ func CompareLead(lead, worker Report) string {
 }
 
 // signalList names each signal with the layer it came from.
-func signalList(signals []workerenv.Signal) string {
+func signalList(signals []launch.Signal) string {
 	parts := make([]string, 0, len(signals))
 	for _, s := range signals {
 		parts = append(parts, s.Name+" ("+s.Layer+")")
@@ -291,26 +294,26 @@ func signalList(signals []workerenv.Signal) string {
 // the project root it runs in, has layers duolog cannot find. They count as
 // one unreadable layer, a paid signal, so the free variant is refused rather
 // than run with its settings unread.
-func ReadLayers(_ context.Context, in workerenv.ProcessInput) ([]workerenv.LayerFacts, error) {
+func ReadLayers(_ context.Context, in launch.ProcessInput) ([]launch.LayerFacts, error) {
 	loc := in.Locations
-	if loc.Home == "" || loc.GOOS == "" || loc.Root == "" && in.Shape != workerenv.Lead {
-		return []workerenv.LayerFacts{{Layer: "locations", Unreadable: true,
-			Signals: []workerenv.Signal{{Name: "unreadable", Layer: "locations"}}}}, nil
+	if loc.Home == "" || loc.GOOS == "" || loc.Root == "" && in.Shape != launch.Lead {
+		return []launch.LayerFacts{{Layer: "locations", Unreadable: true,
+			Signals: []launch.Signal{{Name: "unreadable", Layer: "locations"}}}}, nil
 	}
 	var endpoints map[string]string
 	if in.Agent == "claude" && in.Config != nil {
 		endpoints = in.Config.PaidRuns.Claude.SubscriptionEndpoints
 	}
 	layers := workerenv.SettingsLayers(in.Agent, in.Locations)
-	if in.Shape == workerenv.Lead && len(in.Prefix) > 1 {
+	if in.Shape == launch.Lead && len(in.Prefix) > 1 {
 		argv := workerenv.ArgvLayers(in.Agent, in.Prefix[1:], in.Locations)
-		at := slices.IndexFunc(layers, func(l workerenv.Layer) bool { return l.Managed })
+		at := slices.IndexFunc(layers, func(l launch.Layer) bool { return l.Managed })
 		if at < 0 {
 			at = len(layers)
 		}
 		layers = slices.Insert(layers, at, argv...)
 	}
-	facts := make([]workerenv.LayerFacts, 0, len(layers))
+	facts := make([]launch.LayerFacts, 0, len(layers))
 	for _, layer := range layers {
 		facts = append(facts, workerenv.ReadLayer(in.Agent, layer, endpoints, os.ReadFile, os.Stat))
 	}

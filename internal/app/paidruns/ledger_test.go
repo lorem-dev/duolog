@@ -7,13 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 func usd(v float64) *float64 { return &v }
 
-func mustSettle(t *testing.T, st *Store, in Settlement) {
+func mustSettle(t *testing.T, st *Store, in paidrules.Settlement) {
 	t.Helper()
 	if err := st.Settle(context.Background(), in); err != nil {
 		t.Fatal(in.ID, err)
@@ -52,7 +53,7 @@ func TestRollingLedgerMaxCostAndInflight(t *testing.T) {
 		priced := map[string]float64{"day-old": 1, "edge": 1.25, "before-12": 0.5}
 		for _, id := range []string{"day-old", "edge", "before-12"} {
 			mustAdmit(t, st, paidTask(id, "claude", 0.5))
-			mustSettle(t, st, Settlement{ID: id, PricedUSD: priced[id], Started: true, CompleteUsage: true, Ended: ended[id]})
+			mustSettle(t, st, paidrules.Settlement{ID: id, PricedUSD: priced[id], Started: true, CompleteUsage: true, Ended: ended[id]})
 		}
 		// A settlement 24 hours old has left the day; one a second younger
 		// has not.
@@ -82,7 +83,7 @@ func TestRollingLedgerMaxCostAndInflight(t *testing.T) {
 		} {
 			mustAdmit(t, st, paidTask(tc.id, "claude", 0.5))
 			// The caller's ChargedUSD is ignored: the Store sets spend.
-			mustSettle(t, st, Settlement{ID: tc.id, Agent: "claude", ChargedUSD: 100, PricedUSD: tc.priced,
+			mustSettle(t, st, paidrules.Settlement{ID: tc.id, Agent: "claude", ChargedUSD: 100, PricedUSD: tc.priced,
 				ReportedUSD: tc.reported, Input: 1000, Output: 100, Started: true, CompleteUsage: true})
 			if got := charged(t, st, tc.id); got != tc.want {
 				t.Fatalf("%s charged %v, want %v", tc.id, got, tc.want)
@@ -102,12 +103,12 @@ func TestRollingLedgerMaxCostAndInflight(t *testing.T) {
 		// A free task holds no money.
 		mustAdmit(t, st, freeTask("free", "claude", "personal", now))
 		wantSpent(t, st, "claude", now, 0, 0.5)
-		mustSettle(t, st, Settlement{ID: "running", PricedUSD: 0.25, Started: true, CompleteUsage: true})
+		mustSettle(t, st, paidrules.Settlement{ID: "running", PricedUSD: 0.25, Started: true, CompleteUsage: true})
 		wantSpent(t, st, "claude", now, 0.25, 0)
 		// A duplicate settlement changes nothing, whatever it says.
 		before := readState(t, st)
-		mustSettle(t, st, Settlement{ID: "running", PricedUSD: 9, ReportedUSD: usd(9), Started: true, CompleteUsage: true})
-		mustSettle(t, st, Settlement{ID: "running", Started: true})
+		mustSettle(t, st, paidrules.Settlement{ID: "running", PricedUSD: 9, ReportedUSD: usd(9), Started: true, CompleteUsage: true})
+		mustSettle(t, st, paidrules.Settlement{ID: "running", Started: true})
 		if after := readState(t, st); !reflect.DeepEqual(after, before) {
 			t.Fatalf("duplicate settlement changed the state:\n%+v\n%+v", before, after)
 		}
@@ -124,15 +125,15 @@ func TestRollingLedgerMaxCostAndInflight(t *testing.T) {
 		now := ledgerNow
 		st := testStore(t, &now)
 		mustAdmit(t, st, paidTask("zero", "claude", 0.5))
-		mustSettle(t, st, Settlement{ID: "zero", Started: true, CompleteUsage: true})
+		mustSettle(t, st, paidrules.Settlement{ID: "zero", Started: true, CompleteUsage: true})
 		mustAdmit(t, st, paidTask("unavailable", "claude", 0.5))
-		mustSettle(t, st, Settlement{ID: "unavailable", Started: true})
+		mustSettle(t, st, paidrules.Settlement{ID: "unavailable", Started: true})
 		// An interrupted attempt keeps at least its estimate, and more when
 		// it measured more.
 		mustAdmit(t, st, paidTask("interrupted", "claude", 0.5))
-		mustSettle(t, st, Settlement{ID: "interrupted", Input: 10_000, PricedUSD: 0.2, Started: true})
+		mustSettle(t, st, paidrules.Settlement{ID: "interrupted", Input: 10_000, PricedUSD: 0.2, Started: true})
 		mustAdmit(t, st, paidTask("interrupted-late", "claude", 0.5))
-		mustSettle(t, st, Settlement{ID: "interrupted-late", Input: 900_000, PricedUSD: 0.7, ReportedUSD: usd(0.6), Started: true})
+		mustSettle(t, st, paidrules.Settlement{ID: "interrupted-late", Input: 900_000, PricedUSD: 0.7, ReportedUSD: usd(0.6), Started: true})
 		for id, want := range map[string]float64{"zero": 0, "unavailable": 0.5, "interrupted": 0.5, "interrupted-late": 0.7} {
 			if got := charged(t, st, id); got != want {
 				t.Fatalf("%s charged %v, want %v", id, got, want)
@@ -148,12 +149,12 @@ func TestRollingLedgerMaxCostAndInflight(t *testing.T) {
 			mustAdmit(t, st, freeTask(id, "codex", "personal", now))
 		}
 		// The CLI prices a subscription run too; that is no spend.
-		mustSettle(t, st, Settlement{ID: "ordinary", PricedUSD: 0.4, ReportedUSD: usd(0.3), Started: true, CompleteUsage: true})
-		mustSettle(t, st, Settlement{ID: "overage", PricedUSD: 0.4, ReportedUSD: usd(0.3), Started: true, CompleteUsage: true,
+		mustSettle(t, st, paidrules.Settlement{ID: "ordinary", PricedUSD: 0.4, ReportedUSD: usd(0.3), Started: true, CompleteUsage: true})
+		mustSettle(t, st, paidrules.Settlement{ID: "overage", PricedUSD: 0.4, ReportedUSD: usd(0.3), Started: true, CompleteUsage: true,
 			Evidence: quota.RunEvidence{Expected: true, Seen: true, UsingOverage: true}})
-		mustSettle(t, st, Settlement{ID: "fast", PricedUSD: 0.2, ReportedUSD: usd(0.35), Started: true, CompleteUsage: true,
+		mustSettle(t, st, paidrules.Settlement{ID: "fast", PricedUSD: 0.2, ReportedUSD: usd(0.35), Started: true, CompleteUsage: true,
 			Evidence: quota.RunEvidence{Fast: true}})
-		mustSettle(t, st, Settlement{ID: "fast-cut", PricedUSD: 0.1, Started: true, Evidence: quota.RunEvidence{Fast: true}})
+		mustSettle(t, st, paidrules.Settlement{ID: "fast-cut", PricedUSD: 0.1, Started: true, Evidence: quota.RunEvidence{Fast: true}})
 		for id, want := range map[string]float64{"ordinary": 0, "overage": 0.4, "fast": 0.35, "fast-cut": 1} {
 			if got := charged(t, st, id); got != want {
 				t.Fatalf("%s charged %v, want %v", id, got, want)
@@ -167,12 +168,12 @@ func TestRollingLedgerMaxCostAndInflight(t *testing.T) {
 		st := testStore(t, &now)
 		mustAdmit(t, st, paidTask("long", "claude", 1))
 		cmd, stdin := waitingTask(t)
-		if err := st.Attach(ctx, "long", Owner{PID: cmd.Process.Pid, Birth: "test"}); err != nil {
+		if err := st.Attach(ctx, "long", paidrules.Owner{PID: cmd.Process.Pid, Birth: "test"}); err != nil {
 			t.Fatal(err)
 		}
 		// The run went far past its estimate and the cap: the settlement
 		// records it, does not fail and stops nothing.
-		mustSettle(t, st, Settlement{ID: "long", PricedUSD: 7, ReportedUSD: usd(6.5), Input: 5_000_000, Started: true, CompleteUsage: true})
+		mustSettle(t, st, paidrules.Settlement{ID: "long", PricedUSD: 7, ReportedUSD: usd(6.5), Input: 5_000_000, Started: true, CompleteUsage: true})
 		wantSpent(t, st, "claude", now, 7, 0)
 		exitedNormally(t, cmd, stdin)
 		// The next admission sees the overrun.
@@ -192,7 +193,7 @@ func TestRollingLedgerMaxCostAndInflight(t *testing.T) {
 		if d.Reservation.AccountKey != first {
 			t.Fatalf("reservation account key %q, want the account kind's %q", d.Reservation.AccountKey, first)
 		}
-		mustSettle(t, st, Settlement{ID: "before", PricedUSD: 4, Started: true, CompleteUsage: true})
+		mustSettle(t, st, paidrules.Settlement{ID: "before", PricedUSD: 4, Started: true, CompleteUsage: true})
 		if s := readState(t, st).Settled["before"]; s.AccountKey != first || s.Agent != "claude" {
 			t.Fatalf("settlement %+v", s)
 		}
@@ -222,14 +223,14 @@ func TestRollingLedgerMaxCostAndInflight(t *testing.T) {
 			t.Fatalf("release left %+v", s)
 		}
 		mustAdmit(t, st, paidTask("started", "claude", 1))
-		if err := st.Attach(ctx, "started", Owner{PID: 99, Birth: "b-99"}); err != nil {
+		if err := st.Attach(ctx, "started", paidrules.Owner{PID: 99, Birth: "b-99"}); err != nil {
 			t.Fatal(err)
 		}
 		if err := st.Release(ctx, "started"); err == nil {
 			t.Fatal("released a started task")
 		}
 		wantSpent(t, st, "claude", now, 0, 1)
-		mustSettle(t, st, Settlement{ID: "started", PricedUSD: 0.5, Started: true, CompleteUsage: true})
+		mustSettle(t, st, paidrules.Settlement{ID: "started", PricedUSD: 0.5, Started: true, CompleteUsage: true})
 		if err := st.Release(ctx, "started"); err != nil {
 			t.Fatal(err)
 		}
@@ -237,7 +238,7 @@ func TestRollingLedgerMaxCostAndInflight(t *testing.T) {
 		// A settlement for an attempt that never started still charges
 		// measured spend, and never less than zero.
 		mustAdmit(t, st, paidTask("refused-by-cli", "claude", 1))
-		mustSettle(t, st, Settlement{ID: "refused-by-cli", CompleteUsage: true})
+		mustSettle(t, st, paidrules.Settlement{ID: "refused-by-cli", CompleteUsage: true})
 		wantSpent(t, st, "claude", now, 0.5, 0)
 	})
 
@@ -247,10 +248,10 @@ func TestRollingLedgerMaxCostAndInflight(t *testing.T) {
 		open := paidTask("pane", "claude", 1)
 		open.Reservation.Shape, open.Assessment.Shape = workerenv.Peer, workerenv.Peer
 		mustAdmit(t, st, open)
-		if err := st.Attach(ctx, "pane", Owner{Pane: "pane-7", PeerSession: "peer-7"}); err != nil {
+		if err := st.Attach(ctx, "pane", paidrules.Owner{Pane: "pane-7", PeerSession: "peer-7"}); err != nil {
 			t.Fatal(err)
 		}
-		mustSettle(t, st, Settlement{ID: "pane", PricedUSD: 0.75, Started: true, CompleteUsage: true})
+		mustSettle(t, st, paidrules.Settlement{ID: "pane", PricedUSD: 0.75, Started: true, CompleteUsage: true})
 		s := readState(t, st)
 		r, ok := s.Reservations["pane"]
 		if !ok || !r.Session || r.Task || r.Estimate.USD != 0 || r.Child.Pane != "pane-7" {
@@ -262,7 +263,7 @@ func TestRollingLedgerMaxCostAndInflight(t *testing.T) {
 		wantSpent(t, st, "claude", now, 0.75, 0)
 		// A worker's session ends with its task.
 		mustAdmit(t, st, paidTask("worker", "claude", 1))
-		mustSettle(t, st, Settlement{ID: "worker", PricedUSD: 0.25, Started: true, CompleteUsage: true})
+		mustSettle(t, st, paidrules.Settlement{ID: "worker", PricedUSD: 0.25, Started: true, CompleteUsage: true})
 		if s := readState(t, st); liveSessions(s, "claude") != 1 {
 			t.Fatalf("worker session kept after settlement: %+v", s.Reservations)
 		}
@@ -273,7 +274,7 @@ func TestRollingLedgerMaxCostAndInflight(t *testing.T) {
 		st := testStore(t, &now)
 		mustAdmit(t, st, paidTask("run", "claude", 1))
 		before := readState(t, st)
-		for name, in := range map[string]Settlement{
+		for name, in := range map[string]paidrules.Settlement{
 			"unknown":        {ID: "missing", PricedUSD: 1},
 			"no id":          {PricedUSD: 1},
 			"other agent":    {ID: "run", Agent: "codex", PricedUSD: 1},

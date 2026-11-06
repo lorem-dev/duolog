@@ -16,7 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/paidstore"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"github.com/lorem-dev/duolog/internal/workerenv"
@@ -153,7 +155,7 @@ func TestIdentitySinkSaltedAndTransient(t *testing.T) {
 
 	// The markers go straight from the reply decoders to the sink; the
 	// snapshot, the assessment, the cache and the state never hold them.
-	cache := &Cache{Read: reader.ReadProcess}
+	cache := &paidstore.Cache{Read: reader.ReadProcess}
 	for _, agent := range []string{"claude", "codex"} {
 		_, s, a, err := cache.Get(ctx, freeWorker(agent), &config.Config{}, quota.RunEvidence{}, true)
 		if err != nil {
@@ -245,10 +247,10 @@ func TestIdentitySinkSaltedAndTransient(t *testing.T) {
 	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
 	key(st, "claude", quota.IdentityAccount, accountMarker)
 	err = st.Update(ctx, func(s *State) error {
-		s.Settled["spent"] = Settlement{ID: "spent", Agent: "claude", AccountKey: claudeAccount, ChargedUSD: 3, Ended: now}
-		s.Reservations["running"] = Reservation{ID: "running", Agent: "claude", AccountKey: claudeAccount, Paid: true, Started: true, Created: now}
-		s.Samples = []RateSample{{Agent: "claude", Family: "sonnet", Intervals: 3}, {Agent: "codex", Family: "codex", Intervals: 3}}
-		s.Tiers = map[string]TierResult{"claude": {Tier: "large"}, "codex": {Tier: "medium"}}
+		s.Settled["spent"] = paidrules.Settlement{ID: "spent", Agent: "claude", AccountKey: claudeAccount, ChargedUSD: 3, Ended: now}
+		s.Reservations["running"] = paidrules.Reservation{ID: "running", Agent: "claude", AccountKey: claudeAccount, Paid: true, Started: true, Created: now}
+		s.Samples = []paidrules.RateSample{{Agent: "claude", Family: "sonnet", Intervals: 3}, {Agent: "codex", Family: "codex", Intervals: 3}}
+		s.Tiers = map[string]paidrules.TierResult{"claude": {Tier: "large"}, "codex": {Tier: "medium"}}
 		return nil
 	})
 	if err != nil {
@@ -266,7 +268,7 @@ func TestIdentitySinkSaltedAndTransient(t *testing.T) {
 	if s.Settled["spent"].ChargedUSD != 3 || !s.Reservations["running"].Started {
 		t.Fatalf("identity change reset spend or freed a reservation: %+v %+v", s.Settled, s.Reservations)
 	}
-	if !slices.Equal(s.Samples, []RateSample{{Agent: "codex", Family: "codex", Intervals: 3}}) || len(s.Tiers) != 1 || s.Tiers["codex"].Tier != "medium" {
+	if !slices.Equal(s.Samples, []paidrules.RateSample{{Agent: "codex", Family: "codex", Intervals: 3}}) || len(s.Tiers) != 1 || s.Tiers["codex"].Tier != "medium" {
 		t.Fatalf("identity change kept the agent's rates or dropped another's: %+v %+v", s.Samples, s.Tiers)
 	}
 
@@ -275,8 +277,8 @@ func TestIdentitySinkSaltedAndTransient(t *testing.T) {
 	failing := quota.Reader{Version: "test", Timeout: 5 * time.Second, IdentitySink: func(string, string, []byte) error {
 		return errors.New("sink failed: " + accountMarker)
 	}}
-	_, failed, a, err := (&Cache{Read: failing.ReadProcess}).Get(ctx, freeWorker("claude"), &config.Config{}, quota.RunEvidence{}, true)
-	if err == nil || a.Verdict != Paid || len(failed.Windows) != 0 {
+	_, failed, a, err := (&paidstore.Cache{Read: failing.ReadProcess}).Get(ctx, freeWorker("claude"), &config.Config{}, quota.RunEvidence{}, true)
+	if err == nil || a.Verdict != paidrules.Paid || len(failed.Windows) != 0 {
 		t.Fatalf("failed identity refresh still admitted: %v %+v %+v", err, a, failed)
 	}
 	noRawMarker(t, "error", errText(err))
@@ -293,7 +295,7 @@ func TestIdentitySinkSaltedAndTransient(t *testing.T) {
 		noRawMarker(t, "error", err.Error())
 	}
 	_, failed, a, err = cache.Get(ctx, freeWorker("claude"), &config.Config{}, quota.RunEvidence{}, true)
-	if err == nil || a.Verdict != Paid || len(failed.Windows) != 0 {
+	if err == nil || a.Verdict != paidrules.Paid || len(failed.Windows) != 0 {
 		t.Fatalf("corrupt state still admitted: %v %+v", err, a)
 	}
 	noRawMarker(t, "error", errText(err))
@@ -369,7 +371,7 @@ func TestAccountStateUserWideAndAtomic(t *testing.T) {
 			}
 			errs[i] = client.Update(ctx, func(s *State) error {
 				s.NextTicket++
-				s.Tickets = append(s.Tickets, Ticket{ID: fmt.Sprintf("t%d", i), Agent: "claude", Sequence: s.NextTicket})
+				s.Tickets = append(s.Tickets, paidrules.Ticket{ID: fmt.Sprintf("t%d", i), Agent: "claude", Sequence: s.NextTicket})
 				return nil
 			})
 		})

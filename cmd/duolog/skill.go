@@ -23,6 +23,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/skilltest"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	corerun "github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/usage"
@@ -369,7 +370,7 @@ func askSkill(d *cmdDeps, cmd *cobra.Command, cfg *config.Config, root, work, pr
 		// was cancelled; a run that never started gives its hold back.
 		settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), skillSettleTimeout)
 		defer cancel()
-		s := paidruns.Settlement{Input: result.Usage.Input, Cached: result.Usage.Cached, Output: result.Usage.Output,
+		s := paidrules.Settlement{Input: result.Usage.Input, Cached: result.Usage.Cached, Output: result.Usage.Output,
 			ReportedUSD: result.ReportedUSD, Evidence: result.Billing, Started: started, CompleteUsage: started && result.UsageComplete}
 		if priced, ok := usage.Cost(cfg, route.Agent, route.Model, result.Usage); ok && priced >= 0 {
 			s.PricedUSD = priced

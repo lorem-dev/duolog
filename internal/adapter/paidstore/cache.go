@@ -1,4 +1,6 @@
-package paidruns
+// Package paidstore keeps what paid runs remember between admissions: the
+// route-aware cache of quota reads and the assessments made from them.
+package paidstore
 
 import (
 	"context"
@@ -10,9 +12,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/workerenv"
+	"github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 )
 
 // Cache keeps the last successful quota read of each launch route, keyed by
@@ -21,7 +24,7 @@ import (
 // environment, settings or argv. It is safe for concurrent use.
 type Cache struct {
 	// Read reads the quota a process sees, quota.Reader.ReadProcess.
-	Read func(context.Context, workerenv.Process) (quota.Snapshot, error)
+	Read func(context.Context, launch.Process) (account.Snapshot, error)
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 
@@ -32,8 +35,8 @@ type Cache struct {
 }
 
 type cacheEntry struct {
-	Snapshot   quota.Snapshot `json:"snapshot"`
-	Assessment Assessment     `json:"assessment"`
+	Snapshot   account.Snapshot     `json:"snapshot"`
+	Assessment paidrules.Assessment `json:"assessment"`
 }
 
 // Get builds the process and assesses it. build runs first on every call, so
@@ -52,10 +55,10 @@ type cacheEntry struct {
 // used after it; the assessment is then paid and Get returns the read's
 // error with it. An error from build returns nothing else.
 func (c *Cache) Get(ctx context.Context,
-	build func() (workerenv.Process, error), cfg *config.Config,
-	evidence quota.RunEvidence, fresh bool) (workerenv.Process, quota.Snapshot, Assessment, error) {
+	build func() (launch.Process, error), cfg *config.Config,
+	evidence account.RunEvidence, fresh bool) (launch.Process, account.Snapshot, paidrules.Assessment, error) {
 	if c.Read == nil {
-		return workerenv.Process{}, quota.Snapshot{}, Assessment{}, errors.New("paid runs: cache has no reader")
+		return launch.Process{}, account.Snapshot{}, paidrules.Assessment{}, errors.New("paid runs: cache has no reader")
 	}
 	for rebuilt := false; ; rebuilt = true {
 		// The plans are read before build, which reads them too: a plan another
@@ -64,10 +67,10 @@ func (c *Cache) Get(ctx context.Context,
 		plans := c.knownPlans()
 		p, err := build()
 		if err != nil {
-			return workerenv.Process{}, quota.Snapshot{}, Assessment{}, err
+			return launch.Process{}, account.Snapshot{}, paidrules.Assessment{}, err
 		}
 		knownPlan := plans[p.Agent]
-		s, cached := c.lookup(p.CacheKey, fresh || rebuilt, quotaMaxAge(cfg))
+		s, cached := c.lookup(p.CacheKey, fresh || rebuilt, paidrules.QuotaMaxAge(cfg))
 		var readErr error
 		if !cached {
 			s, readErr = c.Read(ctx, p)
@@ -82,15 +85,15 @@ func (c *Cache) Get(ctx context.Context,
 			if !rebuilt {
 				continue
 			}
-			return p, s, Assessment{}, errors.New("paid runs: the process was built without the provider env_key the read found")
+			return p, s, paidrules.Assessment{}, errors.New("paid runs: the process was built without the provider env_key the read found")
 		}
 		// The plan the read found sets the compact window of a Claude worker or
 		// peer. The cache key does not hold it, so the read stays valid: the
 		// process is built again once, without a new read.
 		if p, err = c.withPlan(p, s, readErr, knownPlan, build); err != nil {
-			return workerenv.Process{}, quota.Snapshot{}, Assessment{}, err
+			return launch.Process{}, account.Snapshot{}, paidrules.Assessment{}, err
 		}
-		a := Evaluate(p, s, readErr, evidence, cfg, c.now())
+		a := paidrules.Evaluate(p, s, readErr, evidence, cfg, c.now())
 		c.store(p.CacheKey, s, a, readErr)
 		return p, s, a, readErr
 	}
@@ -99,8 +102,8 @@ func (c *Cache) Get(ctx context.Context,
 // withPlan keeps the plan a successful Claude read found and, when it differs
 // from known, the plan p was built with, builds the process again with it.
 // Otherwise it returns p.
-func (c *Cache) withPlan(p workerenv.Process, s quota.Snapshot, readErr error, known string,
-	build func() (workerenv.Process, error)) (workerenv.Process, error) {
+func (c *Cache) withPlan(p launch.Process, s account.Snapshot, readErr error, known string,
+	build func() (launch.Process, error)) (launch.Process, error) {
 	if learned := readErr == nil && p.Agent == "claude" && s.Plan != "" && s.Plan != known; !learned {
 		return p, nil
 	}
@@ -133,18 +136,18 @@ func (c *Cache) knownPlans() map[string]string {
 // is still younger than the quota age limit, it reads nothing and fresh is
 // true. A read that names a provider env_key p was not built with is not
 // kept and is an error, as in Get.
-func (c *Cache) After(ctx context.Context, p workerenv.Process, cfg *config.Config) (s quota.Snapshot, fresh bool, err error) {
+func (c *Cache) After(ctx context.Context, p launch.Process, cfg *config.Config) (s account.Snapshot, fresh bool, err error) {
 	if c.Read == nil {
-		return quota.Snapshot{}, false, errors.New("paid runs: cache has no reader")
+		return account.Snapshot{}, false, errors.New("paid runs: cache has no reader")
 	}
-	if s, ok := c.lookup(p.CacheKey, false, quotaMaxAge(cfg)); ok {
+	if s, ok := c.lookup(p.CacheKey, false, paidrules.QuotaMaxAge(cfg)); ok {
 		return s, true, nil
 	}
 	s, err = c.Read(ctx, p)
 	if key := s.Billing.ProviderEnvKey; err == nil && key != "" && key != p.ProviderEnvKey {
-		return quota.Snapshot{}, false, errors.New("paid runs: the process was built without the provider env_key the read found")
+		return account.Snapshot{}, false, errors.New("paid runs: the process was built without the provider env_key the read found")
 	}
-	c.store(p.CacheKey, s, Evaluate(p, s, err, quota.RunEvidence{}, cfg, c.now()), err)
+	c.store(p.CacheKey, s, paidrules.Evaluate(p, s, err, account.RunEvidence{}, cfg, c.now()), err)
 	return s, false, err
 }
 
@@ -160,14 +163,14 @@ func (c *Cache) ProviderEnvKey(agent string) string {
 // Latest is the most recent successful read of agent from a worker or peer
 // process, which a lead report uses as the account's free read: the lead
 // itself is never run. ok is false when there is none.
-func (c *Cache) Latest(agent string) (quota.Snapshot, bool) {
+func (c *Cache) Latest(agent string) (account.Snapshot, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	var best quota.Snapshot
+	var best account.Snapshot
 	found := false
 	for _, entry := range c.entries {
 		a := entry.Assessment
-		if a.Agent != agent || a.Shape == workerenv.Lead {
+		if a.Agent != agent || a.Shape == launch.Lead {
 			continue
 		}
 		if !found || entry.Snapshot.ReadAt.After(best.ReadAt) {
@@ -178,23 +181,23 @@ func (c *Cache) Latest(agent string) (quota.Snapshot, bool) {
 }
 
 // lookup returns the cached snapshot of key while it is no older than maxAge.
-func (c *Cache) lookup(key string, fresh bool, maxAge time.Duration) (quota.Snapshot, bool) {
+func (c *Cache) lookup(key string, fresh bool, maxAge time.Duration) (account.Snapshot, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	entry, ok := c.entries[key]
 	if !ok || fresh {
-		return quota.Snapshot{}, false
+		return account.Snapshot{}, false
 	}
 	age := c.now().Sub(entry.Snapshot.ReadAt)
 	if entry.Snapshot.ReadAt.IsZero() || age < 0 || age > maxAge {
-		return quota.Snapshot{}, false
+		return account.Snapshot{}, false
 	}
 	return entry.Snapshot, true
 }
 
 // store keeps a successful read and its assessment, and forgets the key on a
 // failed one.
-func (c *Cache) store(key string, s quota.Snapshot, a Assessment, readErr error) {
+func (c *Cache) store(key string, s account.Snapshot, a paidrules.Assessment, readErr error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if readErr != nil {

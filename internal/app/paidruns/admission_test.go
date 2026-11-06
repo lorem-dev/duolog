@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -89,7 +90,7 @@ func helperAdmit() int {
 // raceAdmissions starts one helper process per request, each in one of two
 // unrelated project folders, lets them all through one barrier at once and
 // returns their decisions in request order.
-func raceAdmissions(t *testing.T, dir string, now time.Time, requests []Admission) []Decision {
+func raceAdmissions(t *testing.T, dir string, now time.Time, requests []Admission) []paidrules.Decision {
 	t.Helper()
 	roots := []string{t.TempDir(), t.TempDir()}
 	barrier := t.TempDir()
@@ -138,7 +139,7 @@ func raceAdmissions(t *testing.T, dir string, now time.Time, requests []Admissio
 	if err := os.WriteFile(filepath.Join(barrier, "go"), nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	decisions := make([]Decision, len(requests))
+	decisions := make([]paidrules.Decision, len(requests))
 	for i, cmd := range cmds {
 		if err := cmd.Wait(); err != nil {
 			t.Fatalf("helper %d: %v\n%s", i, err, outs[i])
@@ -158,7 +159,7 @@ func raceAdmissions(t *testing.T, dir string, now time.Time, requests []Admissio
 
 // oneWinner checks that exactly one decision admitted and that every other
 // refused with reason, and returns the winner's index.
-func oneWinner(t *testing.T, decisions []Decision, reason string) int {
+func oneWinner(t *testing.T, decisions []paidrules.Decision, reason string) int {
 	t.Helper()
 	winner := -1
 	for i, d := range decisions {
@@ -191,31 +192,31 @@ func testStore(t *testing.T, now *time.Time) *Store {
 	return st
 }
 
-func subscriptionAssessment(agent string, variant workerenv.Variant, account string) Assessment {
+func subscriptionAssessment(agent string, variant workerenv.Variant, account string) paidrules.Assessment {
 	share := 1.0
 	if account == "workspace" {
 		share = 0.5
 	}
-	return Assessment{Agent: agent, Shape: workerenv.Worker, Variant: variant, Verdict: Subscription,
+	return paidrules.Assessment{Agent: agent, Shape: workerenv.Worker, Variant: variant, Verdict: paidrules.Subscription,
 		Account: account, UsableShare: share}
 }
 
-func paidAssessment(agent string) Assessment {
-	return Assessment{Agent: agent, Shape: workerenv.Worker, Variant: workerenv.Paid, Verdict: Paid,
+func paidAssessment(agent string) paidrules.Assessment {
+	return paidrules.Assessment{Agent: agent, Shape: workerenv.Worker, Variant: workerenv.Paid, Verdict: paidrules.Paid,
 		Account: "personal", UsableShare: 1,
 		Signals: []workerenv.Signal{{Name: "ANTHROPIC_API_KEY", Layer: "environment"}}}
 }
 
 // window is a five-hour window that a subscription task fits in.
-func window(now time.Time) []WindowCost {
-	return []WindowCost{{Key: WindowKey{Kind: "five_hour", Reset: now.Add(3 * time.Hour)}, Used: 0.2, Cost: 0.05, Reserve: 0.10}}
+func window(now time.Time) []paidrules.WindowCost {
+	return []paidrules.WindowCost{{Key: paidrules.WindowKey{Kind: "five_hour", Reset: now.Add(3 * time.Hour)}, Used: 0.2, Cost: 0.05, Reserve: 0.10}}
 }
 
 // workerTask is a worker delegation: one live session running one task.
-func workerTask(id, agent string, usd float64, windows []WindowCost) Reservation {
-	return Reservation{ID: id, Agent: agent, Role: "implement", Family: "sonnet", Shape: workerenv.Worker,
-		Supervisor: Owner{PID: 4242, Birth: "b-4242"}, Session: true, Task: true,
-		Estimate: Estimate{Input: 1_275_000, Output: 225_000, USD: usd, Windows: windows, Source: "test"}}
+func workerTask(id, agent string, usd float64, windows []paidrules.WindowCost) paidrules.Reservation {
+	return paidrules.Reservation{ID: id, Agent: agent, Role: "implement", Family: "sonnet", Shape: workerenv.Worker,
+		Supervisor: paidrules.Owner{PID: 4242, Birth: "b-4242"}, Session: true, Task: true,
+		Estimate: paidrules.Estimate{Input: 1_275_000, Output: 225_000, USD: usd, Windows: windows, Source: "test"}}
 }
 
 func paidTask(id, agent string, usd float64) Admission {
@@ -231,7 +232,7 @@ func freeTask(id, agent, account string, now time.Time) Admission {
 		TotalLimit: 10, AgentLimit: 10}
 }
 
-func mustAdmit(t *testing.T, st *Store, in Admission) Decision {
+func mustAdmit(t *testing.T, st *Store, in Admission) paidrules.Decision {
 	t.Helper()
 	d, err := st.Admit(context.Background(), in)
 	if err != nil {
@@ -243,7 +244,7 @@ func mustAdmit(t *testing.T, st *Store, in Admission) Decision {
 	return d
 }
 
-func mustRefuse(t *testing.T, st *Store, in Admission, reason string) Decision {
+func mustRefuse(t *testing.T, st *Store, in Admission, reason string) paidrules.Decision {
 	t.Helper()
 	before := readState(t, st)
 	d, err := st.Admit(context.Background(), in)
@@ -288,7 +289,7 @@ func TestAdmissionCrossProcessLastCapAndSlot(t *testing.T) {
 		// 3 USD spent an hour ago leaves 2 USD of the 5 USD cap: each
 		// request fits exactly, but only one of them can have it.
 		err := st.Update(ctx, func(s *State) error {
-			s.Settled["earlier"] = Settlement{ID: "earlier", Agent: "claude", ChargedUSD: 3, Ended: now.Add(-time.Hour)}
+			s.Settled["earlier"] = paidrules.Settlement{ID: "earlier", Agent: "claude", ChargedUSD: 3, Ended: now.Add(-time.Hour)}
 			return nil
 		})
 		if err != nil {
@@ -411,7 +412,7 @@ func TestAdmissionCrossProcessLastCapAndSlot(t *testing.T) {
 			pane := func(id string) Admission {
 				in := tc.make(id)
 				in.Reservation.Shape, in.Assessment.Shape = workerenv.Peer, workerenv.Peer
-				in.Reservation.Task, in.Reservation.Estimate = false, Estimate{}
+				in.Reservation.Task, in.Reservation.Estimate = false, paidrules.Estimate{}
 				return in
 			}
 			mustAdmit(t, st, pane("pane-1"))
@@ -427,7 +428,7 @@ func TestAdmissionCrossProcessLastCapAndSlot(t *testing.T) {
 
 			// Once the running task settles, a send on an idle pane runs; it
 			// takes no new slot.
-			if err := st.Settle(ctx, Settlement{ID: requests[winner].Reservation.ID, Agent: "claude", PricedUSD: 0.25,
+			if err := st.Settle(ctx, paidrules.Settlement{ID: requests[winner].Reservation.ID, Agent: "claude", PricedUSD: 0.25,
 				Started: true, CompleteUsage: true}); err != nil {
 				t.Fatal(err)
 			}
@@ -446,7 +447,7 @@ func TestAdmissionCrossProcessLastCapAndSlot(t *testing.T) {
 		// A paid verdict never runs in the free variant, and the paid
 		// variant needs the agent's cap.
 		free := freeTask("free-but-paid", "claude", "personal", now)
-		free.Assessment.Verdict = Paid
+		free.Assessment.Verdict = paidrules.Paid
 		free.DailyCapUSD = 5
 		mustRefuse(t, st, free, ReasonFreeVariantPaid)
 		notAllowed := paidTask("not-allowed", "claude", 1)
@@ -456,7 +457,7 @@ func TestAdmissionCrossProcessLastCapAndSlot(t *testing.T) {
 		// at u = 0.5 and the weekly reserve 0.15, used plus cost may reach
 		// 0.425 of the real window and no more.
 		in := freeTask("tight", "claude", "workspace", now)
-		in.Reservation.Estimate.Windows = []WindowCost{{Key: WindowKey{Kind: "seven_day", Reset: now.Add(48 * time.Hour)},
+		in.Reservation.Estimate.Windows = []paidrules.WindowCost{{Key: paidrules.WindowKey{Kind: "seven_day", Reset: now.Add(48 * time.Hour)},
 			Used: 0.3, Cost: 0.13, Reserve: 0.15}}
 		mustRefuse(t, st, in, ReasonWindow)
 		in.Reservation.Estimate.Windows[0].Cost = 0.125
@@ -467,7 +468,7 @@ func TestAdmissionCrossProcessLastCapAndSlot(t *testing.T) {
 		none.Reservation.Estimate.Windows = nil
 		mustRefuse(t, st, none, ReasonWindow)
 		over := freeTask("overage", "codex", "personal", now)
-		over.Assessment.Verdict = SubscriptionOverage
+		over.Assessment.Verdict = paidrules.SubscriptionOverage
 		over.Reservation.Estimate.Windows[0].Used = 0.86
 		mustRefuse(t, st, over, ReasonWindow)
 		// A task in flight in the same window counts as reserved there.
@@ -533,19 +534,19 @@ func TestAdmissionCrossProcessLastCapAndSlot(t *testing.T) {
 	t.Run("attach", func(t *testing.T) {
 		st := testStore(t, &now)
 		mustAdmit(t, st, paidTask("run", "claude", 1))
-		if err := st.Attach(ctx, "run", Owner{}); err == nil {
+		if err := st.Attach(ctx, "run", paidrules.Owner{}); err == nil {
 			t.Fatal("attached a child without an identity")
 		}
-		if err := st.Attach(ctx, "missing", Owner{PID: 7, Birth: "b-7"}); err == nil {
+		if err := st.Attach(ctx, "missing", paidrules.Owner{PID: 7, Birth: "b-7"}); err == nil {
 			t.Fatal("attached an unknown reservation")
 		}
-		child := Owner{PID: 7, Birth: "b-7"}
+		child := paidrules.Owner{PID: 7, Birth: "b-7"}
 		for range 2 {
 			if err := st.Attach(ctx, "run", child); err != nil {
 				t.Fatal(err)
 			}
 		}
-		if err := st.Attach(ctx, "run", Owner{PID: 8, Birth: "b-8"}); err == nil {
+		if err := st.Attach(ctx, "run", paidrules.Owner{PID: 8, Birth: "b-8"}); err == nil {
 			t.Fatal("a second child replaced the first")
 		}
 		r := readState(t, st).Reservations["run"]

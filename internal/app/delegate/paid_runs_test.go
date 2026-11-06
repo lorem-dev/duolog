@@ -13,6 +13,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/quota"
 )
@@ -28,13 +29,13 @@ func (h *harness) accounts() paidruns.State {
 }
 
 // settled lists the settlements in the order the runs ended.
-func (h *harness) settled() []paidruns.Settlement {
+func (h *harness) settled() []paidrules.Settlement {
 	h.t.Helper()
-	var out []paidruns.Settlement
+	var out []paidrules.Settlement
 	for _, s := range h.accounts().Settled {
 		out = append(out, s)
 	}
-	slices.SortFunc(out, func(a, b paidruns.Settlement) int { return a.Ended.Compare(b.Ended) })
+	slices.SortFunc(out, func(a, b paidrules.Settlement) int { return a.Ended.Compare(b.Ended) })
 	return out
 }
 
@@ -52,7 +53,7 @@ func (h *harness) paidReads(agents ...string) {
 
 // wantSettledOnce checks that every run held its own reservation, attached
 // its child before it ran on, and settled once, and that nothing is held.
-func (h *harness) wantSettledOnce(runs int) []paidruns.Settlement {
+func (h *harness) wantSettledOnce(runs int) []paidrules.Settlement {
 	h.t.Helper()
 	h.requireCalls(runs)
 	ids := map[string]bool{}
@@ -205,7 +206,7 @@ func TestAttemptSettlementOnCancelRetryAndFallback(t *testing.T) {
 				t.Fatalf("%s is not marked as launching: %+v", id, r)
 			}
 			// Even with the supervisor gone, a launch keeps it held.
-			gone := paidruns.ReconcileInput{Process: func(paidruns.Owner) paidruns.Presence { return paidruns.Gone }}
+			gone := paidruns.ReconcileInput{Process: func(paidrules.Owner) paidruns.Presence { return paidruns.Gone }}
 			if err := h.gate.Store.Reconcile(context.Background(), gone); err != nil {
 				t.Fatal(err)
 			}

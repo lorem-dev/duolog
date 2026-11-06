@@ -109,7 +109,7 @@ func (f fields) object(names ...string) fields {
 // a first-party route.
 func unreadFacts(name, layer string) BillingFacts {
 	b := BillingFacts{}
-	b.unknownRoute(name, layer)
+	unknownRoute(&b, name, layer)
 	return b
 }
 
@@ -123,38 +123,38 @@ func parseCodexAccount(data []byte) (BillingFacts, error) {
 	b := BillingFacts{RouteKnown: true}
 	var reply fields
 	if json.Unmarshal(data, &reply) != nil || reply == nil || !reply.has("account") {
-		b.unknownRoute("account:unknown", codexAccountLayer)
+		unknownRoute(&b, "account:unknown", codexAccountLayer)
 		return b, errors.New("unknown account reply")
 	}
 	account := reply.object("account")
 	switch {
 	case string(reply["account"]) == "null":
 		b.AccountType = "none"
-		b.signal("account:none", codexAccountLayer)
+		addSignal(&b, "account:none", codexAccountLayer)
 	case account == nil:
-		b.unknownRoute("account:unknown", codexAccountLayer)
+		unknownRoute(&b, "account:unknown", codexAccountLayer)
 	default:
 		kind, _ := account.text("type")
 		b.AccountType = known(kind, "apiKey", "chatgpt", "amazonBedrock", "gcp")
 		switch b.AccountType {
 		case "chatgpt":
 		case "unknown":
-			b.unknownRoute("account:unknown", codexAccountLayer)
+			unknownRoute(&b, "account:unknown", codexAccountLayer)
 		default:
-			b.signal("account:"+b.AccountType, codexAccountLayer)
+			addSignal(&b, "account:"+b.AccountType, codexAccountLayer)
 		}
 		if name, ok := account.text("workspaceName", "workspace_name"); ok && name != "" {
-			b.addWorkspaceReason("workspace_name")
+			addWorkspaceReason(&b, "workspace_name")
 		}
 		if account.workspacePlan() {
-			b.addWorkspaceReason("workspace_plan")
+			addWorkspaceReason(&b, "workspace_plan")
 		}
 	}
 	if reply.has("requiresOpenaiAuth", "requires_openai_auth") {
 		if requires := reply.boolean("requiresOpenaiAuth", "requires_openai_auth"); requires == nil {
-			b.unknownRoute("account:unknown", codexAccountLayer)
+			unknownRoute(&b, "account:unknown", codexAccountLayer)
 		} else if !*requires {
-			b.signal("account:requires_openai_auth", codexAccountLayer)
+			addSignal(&b, "account:requires_openai_auth", codexAccountLayer)
 		}
 	}
 	// Auth modes with unconfirmed billing, such as headers or agentIdentity,
@@ -168,9 +168,9 @@ func parseCodexAccount(data []byte) (BillingFacts, error) {
 		switch b.AuthMode {
 		case "chatgpt":
 		case "unknown":
-			b.unknownRoute("auth:unknown", codexAccountLayer)
+			unknownRoute(&b, "auth:unknown", codexAccountLayer)
 		default:
-			b.signal("auth:"+b.AuthMode, codexAccountLayer)
+			addSignal(&b, "auth:"+b.AuthMode, codexAccountLayer)
 		}
 		break
 	}
@@ -216,7 +216,7 @@ const codexBuiltinProvider = "openai"
 func parseCodexConfig(data []byte) (BillingFacts, error) {
 	b := BillingFacts{RouteKnown: true}
 	unknown := func() (BillingFacts, error) {
-		b.unknownRoute("provider:unknown", codexConfigLayer)
+		unknownRoute(&b, "provider:unknown", codexConfigLayer)
 		return b, errors.New("unknown config reply")
 	}
 	var reply fields
@@ -228,7 +228,7 @@ func parseCodexConfig(data []byte) (BillingFacts, error) {
 		return unknown()
 	}
 	if raw, ok := config.value("forced_chatgpt_workspace_id", "forcedChatgptWorkspaceId"); ok && string(raw) != "null" && string(raw) != `""` {
-		b.addWorkspaceReason("forced_workspace")
+		addWorkspaceReason(&b, "forced_workspace")
 	}
 	selected := config
 	if raw := config["profile"]; string(raw) != "null" {
@@ -253,18 +253,18 @@ func parseCodexConfig(data []byte) (BillingFacts, error) {
 		return unknown()
 	}
 	if id != codexBuiltinProvider {
-		b.signal("provider:custom", codexConfigLayer)
+		addSignal(&b, "provider:custom", codexConfigLayer)
 	}
 	entry := providers.object(id)
 	if entry == nil {
 		return b, nil
 	}
 	if requires := entry.boolean("requires_openai_auth", "requiresOpenaiAuth"); requires != nil && !*requires {
-		b.signal("provider:requires_openai_auth", codexConfigLayer)
+		addSignal(&b, "provider:requires_openai_auth", codexConfigLayer)
 	}
 	envKey := []string{"env_key", "envKey"}
 	if entry.set(envKey...) {
-		b.signal("provider:env_key", codexConfigLayer)
+		addSignal(&b, "provider:env_key", codexConfigLayer)
 		if key, ok := entry.text(envKey...); ok && envName.MatchString(key) {
 			b.ProviderEnvKey = key
 		}
@@ -276,11 +276,11 @@ func parseCodexConfig(data []byte) (BillingFacts, error) {
 		"provider:aws":          {"aws"},
 	} {
 		if entry.set(names...) {
-			b.signal(signal, codexConfigLayer)
+			addSignal(&b, signal, codexConfigLayer)
 		}
 	}
 	if raw, ok := entry.value("base_url", "baseUrl"); ok && string(raw) != "null" {
-		b.signal("provider:base_url", codexConfigLayer)
+		addSignal(&b, "provider:base_url", codexConfigLayer)
 	}
 	slices.SortStableFunc(b.RouteSignals, func(x, y workerenv.Signal) int { return strings.Compare(x.Name, y.Name) })
 	return b, nil
@@ -296,12 +296,12 @@ func parseCodexAuth(data []byte) (BillingFacts, error) {
 	_ = json.Unmarshal(data, &reply)
 	raw, ok := reply.value("authMethod", "auth_method")
 	if !ok {
-		b.unknownRoute("auth:unknown", codexAuthLayer)
+		unknownRoute(&b, "auth:unknown", codexAuthLayer)
 		return b, errors.New("unknown auth reply")
 	}
 	if string(raw) == "null" {
 		b.AuthMethod = "none"
-		b.signal("auth:none", codexAuthLayer)
+		addSignal(&b, "auth:none", codexAuthLayer)
 		return b, nil
 	}
 	method, _ := reply.text("authMethod", "auth_method")
@@ -314,11 +314,11 @@ func parseCodexAuth(data []byte) (BillingFacts, error) {
 		b.AuthMethod = "chatgptAuthTokens"
 	default:
 		b.AuthMethod = "unknown"
-		b.unknownRoute("auth:unknown", codexAuthLayer)
+		unknownRoute(&b, "auth:unknown", codexAuthLayer)
 		return b, nil
 	}
 	if b.AuthMethod != "chatgpt" {
-		b.signal("auth:"+b.AuthMethod, codexAuthLayer)
+		addSignal(&b, "auth:"+b.AuthMethod, codexAuthLayer)
 	}
 	return b, nil
 }
@@ -339,12 +339,12 @@ func codexBilling(windows BillingFacts, routes ...BillingFacts) BillingFacts {
 		b.ProviderEnvKey = cmp.Or(b.ProviderEnvKey, r.ProviderEnvKey)
 		b.RouteSignals = append(b.RouteSignals, r.RouteSignals...)
 		for _, category := range r.WorkspaceReasons {
-			b.addWorkspaceReason(category)
+			addWorkspaceReason(&b, category)
 		}
 	}
 	b.RouteSignals = append(b.RouteSignals, windows.RouteSignals...)
 	for _, category := range windows.WorkspaceReasons {
-		b.addWorkspaceReason(category)
+		addWorkspaceReason(&b, category)
 	}
 	return b
 }
@@ -432,26 +432,26 @@ func readCodexLimitFacts(f fields) codexLimitFacts {
 // reached spend control turn overage on, and a reached spend control, a
 // workspace plan type or a workspace reached type is workspace evidence. A
 // spend control that is there but not reached is neither.
-func (b *BillingFacts) addCodexLimit(l codexLimitFacts) {
+func addCodexLimit(b *BillingFacts, l codexLimitFacts) {
 	b.SpendControlPresent = b.SpendControlPresent || l.spendPresent
 	b.OverageEnabled = b.OverageEnabled || l.credits || l.spendReached
 	if l.spendReached {
-		b.addWorkspaceReason("spend_control")
+		addWorkspaceReason(b, "spend_control")
 	}
 	if l.workspacePlan {
-		b.addWorkspaceReason("workspace_plan")
+		addWorkspaceReason(b, "workspace_plan")
 	}
 	var reached string
 	if json.Unmarshal(l.reachedType, &reached) == nil {
 		switch strings.ToLower(strings.ReplaceAll(reached, "_", "")) {
 		case "workspaceownercreditsdepleted":
-			b.addWorkspaceReason("workspace_owner_credits_depleted")
+			addWorkspaceReason(b, "workspace_owner_credits_depleted")
 		case "workspacemembercreditsdepleted":
-			b.addWorkspaceReason("workspace_member_credits_depleted")
+			addWorkspaceReason(b, "workspace_member_credits_depleted")
 		case "workspaceownerusagelimitreached":
-			b.addWorkspaceReason("workspace_owner_usage_limit_reached")
+			addWorkspaceReason(b, "workspace_owner_usage_limit_reached")
 		case "workspacememberusagelimitreached":
-			b.addWorkspaceReason("workspace_member_usage_limit_reached")
+			addWorkspaceReason(b, "workspace_member_usage_limit_reached")
 		}
 	}
 }

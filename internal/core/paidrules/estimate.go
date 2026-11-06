@@ -1,4 +1,4 @@
-package paidruns
+package paidrules
 
 import (
 	"cmp"
@@ -8,10 +8,10 @@ import (
 	"slices"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/learning"
-	"github.com/lorem-dev/duolog/internal/models"
-	"github.com/lorem-dev/duolog/internal/usage"
+	"github.com/lorem-dev/duolog/internal/core/learn"
+	"github.com/lorem-dev/duolog/internal/core/record"
+	"github.com/lorem-dev/duolog/internal/core/route"
+	"github.com/lorem-dev/duolog/internal/core/usage"
 )
 
 // The cold estimate of a target without history: calibration's high bound
@@ -37,15 +37,15 @@ var ErrUnpriced = errors.New("no valid price")
 // Input includes the cached subset, so cached tokens are priced once. An
 // invalid record of the target is an error. A missing or invalid price
 // returns the tokens with ErrUnpriced, never a zero cost.
-func EstimateTask(cfg *config.Config, records []journal.Delegation,
+func EstimateTask(cfg *config.Config, records []record.Delegation,
 	agent, family, role, class string) (Estimate, error) {
 	if cfg == nil {
 		return Estimate{}, errors.New("estimate: no config")
 	}
-	byClass := class != "" && class != learning.Unclassified
-	var runs []journal.Delegation
+	byClass := class != "" && class != learn.Unclassified
+	var runs []record.Delegation
 	for _, d := range records {
-		if d.Agent != agent || models.Normalize(d.Agent, d.Model) != family {
+		if d.Agent != agent || route.Normalize(d.Agent, d.Model) != family {
 			continue
 		}
 		if d.Input < 0 || d.Cached < 0 || d.Output < 0 || d.Cached > d.Input {
@@ -69,7 +69,7 @@ func EstimateTask(cfg *config.Config, records []journal.Delegation,
 	}
 	// A run's tokens with its Claude cache writes, which cost more than input.
 	// Counts that do not fit together are priced without the writes.
-	tokens := func(d journal.Delegation) usage.Tokens {
+	tokens := func(d record.Delegation) usage.Tokens {
 		t := usage.Tokens{Input: d.Input, Cached: d.Cached, Write: d.CacheWrite, WriteHour: d.CacheWriteHour, Output: d.Output}
 		if !t.Valid() {
 			t.Write, t.WriteHour = 0, 0
@@ -85,7 +85,7 @@ func EstimateTask(cfg *config.Config, records []journal.Delegation,
 	} else {
 		// Prices are the family's, so ranking by cost ranks by weighted
 		// tokens; unpriced runs rank by their tokens.
-		slices.SortStableFunc(runs, func(a, b journal.Delegation) int {
+		slices.SortStableFunc(runs, func(a, b record.Delegation) int {
 			return cmp.Or(cmp.Compare(cost(tokens(a)), cost(tokens(b))),
 				cmp.Compare(a.Input+a.Output, b.Input+b.Output))
 		})
@@ -110,7 +110,7 @@ func EstimateTask(cfg *config.Config, records []journal.Delegation,
 // must be finite and not negative, and input and output above zero, so that
 // no task is ever priced as free.
 func checkPrice(cfg *config.Config, agent, family string) error {
-	p, ok := cfg.Models[models.Normalize(agent, family)]
+	p, ok := cfg.Models[route.Normalize(agent, family)]
 	switch {
 	case !ok || p.Agent != agent:
 		return errors.New("not in models")

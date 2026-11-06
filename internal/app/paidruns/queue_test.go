@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/paidstore"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -38,8 +40,8 @@ func queueGate(st *Store, cfg *config.Config) *Gate {
 			{Kind: "session", DurationMinutes: 300, UsedPercent: 10, ResetsAt: now.Add(2 * time.Hour)},
 		}, Billing: quota.BillingFacts{AuthMethod: "claude.ai", APIProvider: "firstParty", RouteKnown: true, WindowsAvailable: yes()}}, nil
 	}
-	return &Gate{Store: st, Cache: &Cache{Read: read}, Config: cfg,
-		Reconcile: ReconcileInput{Process: func(Owner) Presence { return Alive }},
+	return &Gate{Store: st, Cache: &paidstore.Cache{Read: read}, Config: cfg,
+		Reconcile: ReconcileInput{Process: func(paidrules.Owner) Presence { return Alive }},
 		Wait: func(ctx context.Context, _ time.Duration) error {
 			select {
 			case <-ctx.Done():
@@ -50,7 +52,7 @@ func queueGate(st *Store, cfg *config.Config) *Gate {
 		}}
 }
 
-func queueRequest(cfg *config.Config, owner Owner, wait time.Duration) Request {
+func queueRequest(cfg *config.Config, owner paidrules.Owner, wait time.Duration) Request {
 	return Request{Input: workerenv.ProcessInput{Agent: "claude", Shape: workerenv.Worker, Variant: workerenv.Free,
 		Config: cfg, LeadID: "lead-1", Role: "implement"},
 		Family: "sonnet", Role: "implement", Owner: owner, Wait: wait}
@@ -71,7 +73,7 @@ func TestQueueHelperProcess(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	cfg := queueConfig()
-	p, err := queueGate(st, cfg).Acquire(ctx, queueRequest(cfg, Owner{PID: os.Getpid(), Birth: name}, -1))
+	p, err := queueGate(st, cfg).Acquire(ctx, queueRequest(cfg, paidrules.Owner{PID: os.Getpid(), Birth: name}, -1))
 	cancel()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -138,7 +140,7 @@ func (w *waiter) stillWaiting(t *testing.T) {
 }
 
 // ticketOf waits until the owner named birth has a ticket and returns it.
-func ticketOf(t *testing.T, st *Store, birth string) Ticket {
+func ticketOf(t *testing.T, st *Store, birth string) paidrules.Ticket {
 	t.Helper()
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		for _, tk := range readState(t, st).Tickets {
@@ -148,15 +150,15 @@ func ticketOf(t *testing.T, st *Store, birth string) Ticket {
 		}
 	}
 	t.Fatalf("%s never took a ticket", birth)
-	return Ticket{}
+	return paidrules.Ticket{}
 }
 
 // addTicket puts an earlier waiter of agent in the queue.
-func addTicket(t *testing.T, st *Store, agent string, owner Owner, expires time.Time) {
+func addTicket(t *testing.T, st *Store, agent string, owner paidrules.Owner, expires time.Time) {
 	t.Helper()
 	err := st.Update(context.Background(), func(s *State) error {
 		s.NextTicket++
-		s.Tickets = append(s.Tickets, Ticket{ID: fmt.Sprintf("early-%d", s.NextTicket), Agent: agent,
+		s.Tickets = append(s.Tickets, paidrules.Ticket{ID: fmt.Sprintf("early-%d", s.NextTicket), Agent: agent,
 			Sequence: s.NextTicket, Owner: owner, Expires: expires})
 		return nil
 	})
@@ -184,7 +186,7 @@ func TestSlotQueueFirstComeAndFreshRead(t *testing.T) {
 		}
 		cfg := queueConfig()
 		gate := queueGate(st, cfg)
-		holder, err := gate.Acquire(ctx, queueRequest(cfg, Owner{PID: 1, Birth: "holder"}, 0))
+		holder, err := gate.Acquire(ctx, queueRequest(cfg, paidrules.Owner{PID: 1, Birth: "holder"}, 0))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -196,7 +198,7 @@ func TestSlotQueueFirstComeAndFreshRead(t *testing.T) {
 			t.Fatalf("tickets out of arrival order: %+v %+v", t1, t2)
 		}
 		// While the slot is full, a delegation that may not wait is refused.
-		_, err = gate.Acquire(ctx, queueRequest(cfg, Owner{PID: 2, Birth: "newcomer"}, 0))
+		_, err = gate.Acquire(ctx, queueRequest(cfg, paidrules.Owner{PID: 2, Birth: "newcomer"}, 0))
 		var r *Refusal
 		if !errors.As(err, &r) || !r.Slot() {
 			t.Fatalf("newcomer: %v", err)
@@ -227,8 +229,8 @@ func TestSlotQueueFirstComeAndFreshRead(t *testing.T) {
 		w := newGateWorld(t)
 		w.cfg.Limits.SessionsByTier.Small = 1
 		holder := w.acquire(w.request("claude", workerenv.Worker, workerenv.Free, 601))
-		addTicket(t, w.store, "claude", Owner{PID: 602, Birth: "b-602"}, time.Time{})
-		w.finish(holder, Settlement{})
+		addTicket(t, w.store, "claude", paidrules.Owner{PID: 602, Birth: "b-602"}, time.Time{})
+		w.finish(holder, paidrules.Settlement{})
 		w.wantLive("claude", 0, 0)
 		r := w.refusal(w.request("claude", workerenv.Worker, workerenv.Free, 603), ReasonQueue)
 		if !r.Slot() || len(w.waits) != 0 {
@@ -246,8 +248,8 @@ func TestSlotQueueFirstComeAndFreshRead(t *testing.T) {
 		w = newGateWorld(t)
 		w.cfg.Limits.MaxTotalSessions = 1
 		holder = w.acquire(w.request("claude", workerenv.Worker, workerenv.Free, 611))
-		addTicket(t, w.store, "codex", Owner{PID: 612, Birth: "b-612"}, time.Time{})
-		w.finish(holder, Settlement{})
+		addTicket(t, w.store, "codex", paidrules.Owner{PID: 612, Birth: "b-612"}, time.Time{})
+		w.finish(holder, paidrules.Settlement{})
 		w.refused(w.request("claude", workerenv.Worker, workerenv.Free, 613), ReasonQueue)
 		// With room for both, an earlier waiter of another agent blocks nothing.
 		w.cfg.Limits.MaxTotalSessions = 10
@@ -257,7 +259,7 @@ func TestSlotQueueFirstComeAndFreshRead(t *testing.T) {
 	t.Run("an expired ticket is removed", func(t *testing.T) {
 		w := newGateWorld(t)
 		w.cfg.Limits.SessionsByTier.Small = 1
-		addTicket(t, w.store, "claude", Owner{PID: 621, Birth: "b-621"}, w.now.Add(-time.Second))
+		addTicket(t, w.store, "claude", paidrules.Owner{PID: 621, Birth: "b-621"}, w.now.Add(-time.Second))
 		w.acquire(w.request("claude", workerenv.Worker, workerenv.Free, 622))
 		if tickets := w.state().Tickets; len(tickets) != 0 {
 			t.Fatalf("an expired ticket stayed: %+v", tickets)
@@ -305,7 +307,7 @@ func TestSlotQueueFirstComeAndFreshRead(t *testing.T) {
 		req.Wait = time.Minute
 		w.onWait = func(n int) {
 			if n == 3 {
-				w.finish(holder, Settlement{})
+				w.finish(holder, paidrules.Settlement{})
 			}
 		}
 		p := w.acquire(req)
@@ -326,7 +328,7 @@ func TestSlotQueueFirstComeAndFreshRead(t *testing.T) {
 		w.onWait = func(n int) {
 			if n == 3 {
 				w.used = 95
-				w.finish(holder, Settlement{})
+				w.finish(holder, paidrules.Settlement{})
 			}
 		}
 		w.refused(req, ReasonWindow)
@@ -344,7 +346,7 @@ func TestSlotQueueFirstComeAndFreshRead(t *testing.T) {
 		req.Wait = time.Minute
 		w.onWait = func(n int) {
 			if n == 2 {
-				w.finish(holder, Settlement{Started: true, CompleteUsage: true, PricedUSD: 4})
+				w.finish(holder, paidrules.Settlement{Started: true, CompleteUsage: true, PricedUSD: 4})
 			}
 		}
 		r := w.refusal(req, ReasonCap)
@@ -363,7 +365,7 @@ func TestSlotQueueFirstComeAndFreshRead(t *testing.T) {
 		w.onWait = func(n int) {
 			if n == 2 {
 				w.cfg.PaidRuns.Claude.Allow = false
-				w.finish(holder, Settlement{})
+				w.finish(holder, paidrules.Settlement{})
 			}
 		}
 		w.refused(req, ReasonNotAllowed)
@@ -392,7 +394,7 @@ func TestSlotQueueFirstComeAndFreshRead(t *testing.T) {
 		cell.Calibration = true
 		w.onWait = func(n int) {
 			if n == 90 {
-				w.finish(holder, Settlement{})
+				w.finish(holder, paidrules.Settlement{})
 			}
 		}
 		p := w.acquire(cell)

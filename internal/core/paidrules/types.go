@@ -1,10 +1,10 @@
-package paidruns
+package paidrules
 
 import (
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/workerenv"
+	coreaccount "github.com/lorem-dev/duolog/internal/core/account"
+	"github.com/lorem-dev/duolog/internal/core/launch"
 )
 
 // WindowKey names one quota window of an agent: its kind, the model family
@@ -54,26 +54,26 @@ type Owner struct {
 // so a dead supervisor no longer proves that nothing started. Retained says
 // why reconciliation kept it without a safe conclusion, "" when it did not.
 type Reservation struct {
-	ID         string            `json:"id"`
-	SessionID  string            `json:"session_id,omitempty"`
-	Agent      string            `json:"agent"`
-	AccountKey string            `json:"account_key,omitempty"`
-	Role       string            `json:"role,omitempty"`
-	Class      string            `json:"class,omitempty"`
-	Family     string            `json:"family,omitempty"`
-	Shape      workerenv.Shape   `json:"shape,omitempty"`
-	Variant    workerenv.Variant `json:"variant,omitempty"`
-	Supervisor Owner             `json:"supervisor"`
-	Child      Owner             `json:"child"`
-	Created    time.Time         `json:"created"`
-	Estimate   Estimate          `json:"estimate"`
-	Paid       bool              `json:"paid,omitempty"`
-	Workspace  bool              `json:"workspace,omitempty"`
-	Session    bool              `json:"session,omitempty"`
-	Task       bool              `json:"task,omitempty"`
-	Started    bool              `json:"started,omitempty"`
-	Launching  bool              `json:"launching,omitempty"`
-	Retained   string            `json:"retained,omitempty"`
+	ID         string         `json:"id"`
+	SessionID  string         `json:"session_id,omitempty"`
+	Agent      string         `json:"agent"`
+	AccountKey string         `json:"account_key,omitempty"`
+	Role       string         `json:"role,omitempty"`
+	Class      string         `json:"class,omitempty"`
+	Family     string         `json:"family,omitempty"`
+	Shape      launch.Shape   `json:"shape,omitempty"`
+	Variant    launch.Variant `json:"variant,omitempty"`
+	Supervisor Owner          `json:"supervisor"`
+	Child      Owner          `json:"child"`
+	Created    time.Time      `json:"created"`
+	Estimate   Estimate       `json:"estimate"`
+	Paid       bool           `json:"paid,omitempty"`
+	Workspace  bool           `json:"workspace,omitempty"`
+	Session    bool           `json:"session,omitempty"`
+	Task       bool           `json:"task,omitempty"`
+	Started    bool           `json:"started,omitempty"`
+	Launching  bool           `json:"launching,omitempty"`
+	Retained   string         `json:"retained,omitempty"`
 	// Route is the RouteKey of the process admitted: names only. A peer
 	// send must be built on its pane's route.
 	Route string `json:"route,omitempty"`
@@ -94,19 +94,19 @@ type Reservation struct {
 // ChargedUSD from the priced and reported costs; a caller cannot set spend.
 // ReportedUSD is nil when the CLI reported no cost.
 type Settlement struct {
-	ID            string            `json:"id"`
-	Agent         string            `json:"agent"`
-	AccountKey    string            `json:"account_key,omitempty"`
-	ChargedUSD    float64           `json:"charged_usd"`
-	Input         int64             `json:"input"`
-	Cached        int64             `json:"cached"`
-	Output        int64             `json:"output"`
-	ReportedUSD   *float64          `json:"reported_usd,omitempty"`
-	PricedUSD     float64           `json:"priced_usd"`
-	Evidence      quota.RunEvidence `json:"evidence"`
-	Started       bool              `json:"started,omitempty"`
-	CompleteUsage bool              `json:"complete_usage,omitempty"`
-	Ended         time.Time         `json:"ended"`
+	ID            string                  `json:"id"`
+	Agent         string                  `json:"agent"`
+	AccountKey    string                  `json:"account_key,omitempty"`
+	ChargedUSD    float64                 `json:"charged_usd"`
+	Input         int64                   `json:"input"`
+	Cached        int64                   `json:"cached"`
+	Output        int64                   `json:"output"`
+	ReportedUSD   *float64                `json:"reported_usd,omitempty"`
+	PricedUSD     float64                 `json:"priced_usd"`
+	Evidence      coreaccount.RunEvidence `json:"evidence"`
+	Started       bool                    `json:"started,omitempty"`
+	CompleteUsage bool                    `json:"complete_usage,omitempty"`
+	Ended         time.Time               `json:"ended"`
 	// Windows are the window costs the task held, kept so that an admission
 	// whose quota read predates the end still counts them. The Store sets
 	// them; a caller's are ignored.
@@ -148,19 +148,4 @@ type Ticket struct {
 	Expires  time.Time `json:"expires"`
 	// Step is the receipt of the calibration step that waits, "" for none.
 	Step string `json:"step,omitempty"`
-}
-
-// State is the account state that every project of the user shares: money,
-// reservations, rates and session slots belong to the account, not to a
-// project. AccountKeys maps "agent/kind" to a salted identity digest; Tiers
-// is keyed by agent. It never holds a raw identity or a route value.
-type State struct {
-	Version      int                    `json:"version"`
-	Reservations map[string]Reservation `json:"reservations"`
-	Settled      map[string]Settlement  `json:"settled"`
-	AccountKeys  map[string]string      `json:"account_keys"`
-	Samples      []RateSample           `json:"samples"`
-	Tiers        map[string]TierResult  `json:"tiers"`
-	Tickets      []Ticket               `json:"tickets"`
-	NextTicket   uint64                 `json:"next_ticket"`
 }

@@ -1,15 +1,17 @@
-// Package paidruns decides how a launch is billed and what share of the
-// account's windows duolog may use.
-package paidruns
+// Package paidrules decides how a launch is billed and what share of the
+// account's windows duolog may use. It reads nothing: internal/app/paidruns
+// reads the quota and the account state and asks it.
+package paidrules
 
 import (
 	"slices"
 	"strings"
 	"time"
 
+	// The file's account func decides the account kind.
+	coreaccount "github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/workerenv"
+	"github.com/lorem-dev/duolog/internal/core/launch"
 )
 
 // Verdict is how a launch shape of an agent is billed.
@@ -33,14 +35,14 @@ const (
 // An assessment of the lead is reporting data: duolog never launches,
 // changes or refuses the lead because of it.
 type Assessment struct {
-	Agent          string             `json:"agent"`
-	Shape          workerenv.Shape    `json:"shape"`
-	Variant        workerenv.Variant  `json:"variant"`
-	Verdict        Verdict            `json:"verdict"`
-	Account        string             `json:"account"`
-	UsableShare    float64            `json:"usable_share"`
-	Signals        []workerenv.Signal `json:"signals"`
-	AccountReasons []string           `json:"account_reasons"`
+	Agent          string          `json:"agent"`
+	Shape          launch.Shape    `json:"shape"`
+	Variant        launch.Variant  `json:"variant"`
+	Verdict        Verdict         `json:"verdict"`
+	Account        string          `json:"account"`
+	UsableShare    float64         `json:"usable_share"`
+	Signals        []launch.Signal `json:"signals"`
+	AccountReasons []string        `json:"account_reasons"`
 }
 
 // defaultUsableShare applies when the config has no valid share. The oldest
@@ -64,12 +66,12 @@ const defaultUsableShare = 0.5
 // The account is workspace on any safe workspace evidence of the read or the
 // run, or with paid_runs.<agent>.account: workspace; else personal. An
 // explicit personal never hides workspace evidence.
-func Evaluate(p workerenv.Process, s quota.Snapshot, readErr error,
-	e quota.RunEvidence, cfg *config.Config, now time.Time) Assessment {
+func Evaluate(p launch.Process, s coreaccount.Snapshot, readErr error,
+	e coreaccount.RunEvidence, cfg *config.Config, now time.Time) Assessment {
 	a := Assessment{Agent: p.Agent, Shape: p.Shape, Variant: p.Variant}
-	var paid, overage []workerenv.Signal
-	add := func(list *[]workerenv.Signal, name, layer string) {
-		*list = append(*list, workerenv.Signal{Name: name, Layer: layer})
+	var paid, overage []launch.Signal
+	add := func(list *[]launch.Signal, name, layer string) {
+		*list = append(*list, launch.Signal{Name: name, Layer: layer})
 	}
 	read := readLayer(p.Agent)
 
@@ -90,7 +92,7 @@ func Evaluate(p workerenv.Process, s quota.Snapshot, readErr error,
 		if s.ReadAt.IsZero() || now.Sub(s.ReadAt) > quotaMaxAge(cfg) {
 			add(&paid, "read:stale", read)
 		}
-		if !slices.ContainsFunc(s.Windows, func(w quota.Window) bool { return w.ResetsAt.After(now) }) {
+		if !slices.ContainsFunc(s.Windows, func(w coreaccount.Window) bool { return w.ResetsAt.After(now) }) {
 			add(&paid, "read:no-window", read)
 		}
 	}
@@ -134,7 +136,7 @@ func Evaluate(p workerenv.Process, s quota.Snapshot, readErr error,
 // firstParty reports whether the read named a first-party subscription
 // login: claude.ai or an OAuth token on the first-party API for Claude, a
 // chatgpt account, auth mode and stored login for Codex.
-func firstParty(agent string, b quota.BillingFacts) bool {
+func firstParty(agent string, b coreaccount.BillingFacts) bool {
 	if !b.RouteKnown {
 		return false
 	}
@@ -163,10 +165,10 @@ func readLayer(agent string) string {
 // account decides the account kind and its usable share. The snapshot's plan
 // name is not evidence; only safe workspace categories, among them the
 // read's own workspace_plan, and the config's workspace are.
-func account(agent string, b quota.BillingFacts, e quota.RunEvidence, cfg *config.Config) (string, float64, []string) {
+func account(agent string, b coreaccount.BillingFacts, e coreaccount.RunEvidence, cfg *config.Config) (string, float64, []string) {
 	var reasons []string
 	for _, reason := range slices.Concat(b.WorkspaceReasons, e.WorkspaceReasons) {
-		if quota.SafeWorkspaceReason(reason) && !slices.Contains(reasons, reason) {
+		if coreaccount.SafeWorkspaceReason(reason) && !slices.Contains(reasons, reason) {
 			reasons = append(reasons, reason)
 		}
 	}
@@ -189,19 +191,19 @@ func account(agent string, b quota.BillingFacts, e quota.RunEvidence, cfg *confi
 // account is rejected or at its spend control, or a window of the family's
 // own limits is rejected. A scoped rejection blocks its family only. An
 // empty family asks about the account alone.
-func FamilyBlocked(s quota.Snapshot, family string) bool {
+func FamilyBlocked(s coreaccount.Snapshot, family string) bool {
 	if s.Rejected || s.SpendControlReached {
 		return true
 	}
 	if family == "" {
 		return false
 	}
-	return slices.ContainsFunc(s.ModelLimits[family], quota.Window.Rejected)
+	return slices.ContainsFunc(s.ModelLimits[family], coreaccount.Window.Rejected)
 }
 
-func sortedSignals(list []workerenv.Signal) []workerenv.Signal {
+func sortedSignals(list []launch.Signal) []launch.Signal {
 	list = slices.Clone(list)
-	slices.SortFunc(list, func(a, b workerenv.Signal) int {
+	slices.SortFunc(list, func(a, b launch.Signal) int {
 		if c := strings.Compare(a.Name, b.Name); c != 0 {
 			return c
 		}

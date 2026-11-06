@@ -27,6 +27,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/core/policy"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
@@ -97,7 +98,7 @@ type Options struct {
 	// Budget is what an approved calibration plan still allows this step; the
 	// account gate admits each of its runs within it. Waiting hears when a run
 	// starts and stops waiting for a session slot.
-	Budget  *paidruns.StepBudget
+	Budget  *paidrules.StepBudget
 	Waiting func(bool)
 	// Observe receives every worker run, failed ones included, with learning
 	// on or off; nil observes nothing.
@@ -685,7 +686,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 				// A run admitted as free that spent paid overage: the ledger
 				// charged it, admission now sees subscription_overage, and
 				// every line that ends this delegation says so.
-				if current.permit.Assessment.Verdict != paidruns.Paid && out.Result.Billing.UsingOverage {
+				if current.permit.Assessment.Verdict != paidrules.Paid && out.Result.Billing.UsingOverage {
 					if n := route.Agent + " worker ran on paid overage; duolog stopped further runs"; !slices.Contains(notices, n) {
 						notices = append(notices, n)
 					}

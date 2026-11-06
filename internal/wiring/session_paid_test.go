@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
-	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -73,7 +73,7 @@ func TestLeadBillingIsObservationOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lead.Assessment.Shape != workerenv.Lead || lead.Assessment.Verdict != paidruns.Paid || reads[workerenv.Lead] != 0 || reads[workerenv.Worker] != 1 {
+	if lead.Assessment.Shape != workerenv.Lead || lead.Assessment.Verdict != paidrules.Paid || reads[workerenv.Lead] != 0 || reads[workerenv.Worker] != 1 {
 		t.Fatalf("lead report: %+v, reads %v", lead.Assessment, reads)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "state.json")); !os.IsNotExist(err) {

@@ -17,6 +17,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/rex"
 )
@@ -44,7 +45,7 @@ func (e *env) accounts() (*paidruns.Gate, error) {
 // paneProbe reports whether the pane of a reservation is there: Alive while
 // its program runs, Gone once rex says the pane or its program ended, and
 // Unknown when rex cannot tell.
-func (e *env) paneProbe(ctx context.Context, o paidruns.Owner) paidruns.Presence {
+func (e *env) paneProbe(ctx context.Context, o paidrules.Owner) paidruns.Presence {
 	client := e.rex
 	client.Anchor = ""
 	if o.PeerSession != "" {
@@ -84,7 +85,7 @@ func (h *hold) launch(ctx context.Context, token string) error {
 func (h *hold) attach(ctx context.Context, block, rexSession string) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), accountTimeout)
 	defer cancel()
-	return h.gate.Store.Attach(ctx, h.id(), paidruns.Owner{Pane: block, PeerSession: rexSession})
+	return h.gate.Store.Attach(ctx, h.id(), paidrules.Owner{Pane: block, PeerSession: rexSession})
 }
 
 // release gives back a hold whose pane never opened or whose task was proven
@@ -92,7 +93,7 @@ func (h *hold) attach(ctx context.Context, block, rexSession string) error {
 func (h *hold) release(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), accountTimeout)
 	defer cancel()
-	return h.gate.Finish(ctx, h.permit, paidruns.Settlement{})
+	return h.gate.Finish(ctx, h.permit, paidrules.Settlement{})
 }
 
 // admitPane admits a new pane of route before it exists: one live slot and
@@ -106,7 +107,7 @@ func (e *env) admitPane(ctx context.Context, route coreroute.Route, lead leadInf
 		return nil, err
 	}
 	variants := []corelaunch.Variant{corelaunch.Free}
-	for _, c := range paidruns.Candidates([]config.Target{route.Target}, true, e.cfg.PaidRuns) {
+	for _, c := range paidrules.Candidates([]config.Target{route.Target}, true, e.cfg.PaidRuns) {
 		if c.Variant == corelaunch.Paid {
 			variants = append(variants, corelaunch.Paid)
 		}
@@ -198,7 +199,7 @@ func (e *env) admitSend(ctx context.Context, entry session.Entry) (*hold, error)
 	if err != nil {
 		return nil, err
 	}
-	var open paidruns.Reservation
+	var open paidrules.Reservation
 	if err := g.Store.Update(ctx, func(st *paidruns.State) error { open = st.Reservations[entry.AccountSessionID]; return nil }); err != nil {
 		return nil, err
 	}
@@ -246,12 +247,12 @@ func (e *env) taskEnded(ctx context.Context, entry session.Entry) (string, error
 	}
 	g, err := e.accounts()
 	if err == nil {
-		var task paidruns.Reservation
+		var task paidrules.Reservation
 		if err = g.Store.Update(ctx, func(st *paidruns.State) error { task = st.Reservations[gen]; return nil }); err == nil {
 			settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), accountTimeout)
 			defer cancel()
-			permit := paidruns.Permit{Reservation: paidruns.Reservation{ID: gen, Agent: entry.Agent}}
-			if err = g.Finish(settleCtx, permit, paidruns.Settlement{Started: true}); err == nil {
+			permit := paidruns.Permit{Reservation: paidrules.Reservation{ID: gen, Agent: entry.Agent}}
+			if err = g.Finish(settleCtx, permit, paidrules.Settlement{Started: true}); err == nil {
 				if task.Paid {
 					return fmt.Sprintf("peers report no token counts, so the task counts at its estimate of %.2f USD", task.Estimate.USD), nil
 				}

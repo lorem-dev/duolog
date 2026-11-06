@@ -27,6 +27,7 @@ import (
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	corelead "github.com/lorem-dev/duolog/internal/core/lead"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/taskspec"
@@ -64,7 +65,7 @@ type harness struct {
 	// gate admits the harness's runs, with fake quota reads.
 	gate *paidruns.Gate
 	// held is each run's reservation as the run saw it after its start.
-	held []paidruns.Reservation
+	held []paidrules.Reservation
 	// skipStart marks runs, by index, whose child never starts.
 	skipStart map[int]bool
 	// beforeStart runs inside a run just before its child is recorded.
@@ -232,7 +233,7 @@ func newHarness(t *testing.T) *harness {
 				t.Fatal(err)
 			}
 			for _, r := range st.Reservations {
-				if r.Child.PID == os.Getpid() && !slices.ContainsFunc(h.held, func(o paidruns.Reservation) bool { return o.ID == r.ID }) {
+				if r.Child.PID == os.Getpid() && !slices.ContainsFunc(h.held, func(o paidrules.Reservation) bool { return o.ID == r.ID }) {
 					h.held = append(h.held, r)
 				}
 			}

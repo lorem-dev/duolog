@@ -1,4 +1,4 @@
-package paidruns
+package paidstore
 
 import (
 	"context"
@@ -11,8 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/quota"
+	"github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -32,8 +34,8 @@ func (cacheInfo) ModTime() time.Time { return time.Date(2026, 11, 5, 12, 0, 0, 0
 // variant and Codex's provider env_key.
 type cacheWorld struct {
 	agent    string
-	shape    workerenv.Shape
-	variant  workerenv.Variant
+	shape    launch.Shape
+	variant  launch.Variant
 	cfg      *config.Config
 	environ  []string
 	files    map[string]string
@@ -51,13 +53,13 @@ func newCacheWorld(agent string) *cacheWorld {
 	cfg.PaidRuns.Claude.Allow, cfg.PaidRuns.Claude.DailyCapUSD = true, 5
 	cfg.PaidRuns.Claude.SubscriptionEndpoints = map[string]string{"corp": trustedURL}
 	w := &cacheWorld{
-		agent: agent, shape: workerenv.Worker, variant: workerenv.Paid, cfg: cfg,
+		agent: agent, shape: launch.Worker, variant: launch.Paid, cfg: cfg,
 		environ: []string{"HOME=/home/test", "ANTHROPIC_BASE_URL=" + trustedURL, "CORP_LLM_KEY=" + cacheKey},
 		files:   map[string]string{"settings.json": `{"env": {"ANTHROPIC_BASE_URL": "` + trustedURL + `"}}`},
 		now:     time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC),
 	}
 	if agent == "codex" {
-		w.variant = workerenv.Free
+		w.variant = launch.Free
 		w.files = map[string]string{"settings.json": `model = "gpt"`}
 	}
 	w.cache = &Cache{Read: w.read, Now: func() time.Time { return w.now }}
@@ -66,7 +68,7 @@ func newCacheWorld(agent string) *cacheWorld {
 
 // build reads the layer and builds the process afresh, as a launch path
 // does, with the provider env_key the cache learned from earlier reads.
-func (w *cacheWorld) build() (workerenv.Process, error) {
+func (w *cacheWorld) build() (launch.Process, error) {
 	w.builds++
 	read := func(path string) ([]byte, error) {
 		data, ok := w.files[path]
@@ -79,47 +81,47 @@ func (w *cacheWorld) build() (workerenv.Process, error) {
 		return []byte(data), nil
 	}
 	stat := func(string) (os.FileInfo, error) { return cacheInfo{}, nil }
-	layer := workerenv.Layer{Name: "user", Path: "settings.json"}
+	layer := launch.Layer{Name: "user", Path: "settings.json"}
 	facts := workerenv.ReadLayer(w.agent, layer, w.cfg.PaidRuns.Claude.SubscriptionEndpoints, read, stat)
 	envKey := w.envKey
 	if envKey == "" {
 		envKey = w.cache.ProviderEnvKey(w.agent)
 	}
-	return workerenv.Build(workerenv.ProcessInput{
+	return workerenv.Build(launch.ProcessInput{
 		Agent: w.agent, Shape: w.shape, Variant: w.variant, Config: w.cfg, Environ: w.environ,
-		Layers: []workerenv.LayerFacts{facts}, ProviderEnvKey: envKey, LeadID: "lead-1",
+		Layers: []launch.LayerFacts{facts}, ProviderEnvKey: envKey, LeadID: "lead-1",
 	})
 }
 
 // read is a subscription reply, or the configured failure.
-func (w *cacheWorld) read(_ context.Context, p workerenv.Process) (quota.Snapshot, error) {
+func (w *cacheWorld) read(_ context.Context, p launch.Process) (account.Snapshot, error) {
 	w.reads++
 	if p.Agent != w.agent {
-		return quota.Snapshot{}, errors.New("read another agent's process")
+		return account.Snapshot{}, errors.New("read another agent's process")
 	}
-	window := quota.Window{Kind: "session", UsedPercent: 10, ResetsAt: w.now.Add(time.Hour)}
-	s := quota.Snapshot{Windows: []quota.Window{window}, ReadAt: w.now}
+	window := account.Window{Kind: "session", UsedPercent: 10, ResetsAt: w.now.Add(time.Hour)}
+	s := account.Snapshot{Windows: []account.Window{window}, ReadAt: w.now}
 	switch w.agent {
 	case "claude":
-		s.Billing = quota.BillingFacts{AuthMethod: "claude.ai", RouteKnown: true}
+		s.Billing = account.BillingFacts{AuthMethod: "claude.ai", RouteKnown: true}
 	case "codex":
 		allowed := true
-		s.Billing = quota.BillingFacts{AccountType: "chatgpt", RouteKnown: true, OrdinaryUsageAllowed: &allowed,
+		s.Billing = account.BillingFacts{AccountType: "chatgpt", RouteKnown: true, OrdinaryUsageAllowed: &allowed,
 			ProviderEnvKey: w.discover}
 		if w.discover != "" {
-			s.Billing.RouteSignals = []workerenv.Signal{{Name: "provider:env_key", Layer: "config/read"}}
+			s.Billing.RouteSignals = []launch.Signal{{Name: "provider:env_key", Layer: "config/read"}}
 		}
 	}
 	if w.readErr != nil {
-		return quota.Snapshot{Billing: s.Billing}, w.readErr
+		return account.Snapshot{Billing: s.Billing}, w.readErr
 	}
 	return s, nil
 }
 
-func (w *cacheWorld) get(t *testing.T, fresh bool) (workerenv.Process, Assessment, error) {
+func (w *cacheWorld) get(t *testing.T, fresh bool) (launch.Process, paidrules.Assessment, error) {
 	t.Helper()
 	builds := w.builds
-	p, _, a, err := w.cache.Get(context.Background(), w.build, w.cfg, quota.RunEvidence{}, fresh)
+	p, _, a, err := w.cache.Get(context.Background(), w.build, w.cfg, account.RunEvidence{}, fresh)
 	if w.builds == builds {
 		t.Fatal("Get reused a process without building it")
 	}
@@ -144,29 +146,29 @@ func TestCacheRebuildsSameNameEndpointBeforeReuse(t *testing.T) {
 		name    string
 		change  func(*cacheWorld)
 		reread  bool
-		verdict Verdict
+		verdict paidrules.Verdict
 	}
 	for _, c := range []step{
 		{"env URL under the same name", func(w *cacheWorld) {
 			w.environ[1] = "ANTHROPIC_BASE_URL=" + movedURL
-		}, true, Paid},
+		}, true, paidrules.Paid},
 		{"settings URL with the same mtime", func(w *cacheWorld) {
 			w.files["settings.json"] = `{"env": {"ANTHROPIC_BASE_URL": "` + movedURL + `"}}`
-		}, true, Paid},
-		{"layer disappears", func(w *cacheWorld) { delete(w.files, "settings.json") }, true, Subscription},
-		{"layer unreadable", func(w *cacheWorld) { w.files["settings.json"] = "denied" }, true, Paid},
+		}, true, paidrules.Paid},
+		{"layer disappears", func(w *cacheWorld) { delete(w.files, "settings.json") }, true, paidrules.Subscription},
+		{"layer unreadable", func(w *cacheWorld) { w.files["settings.json"] = "denied" }, true, paidrules.Paid},
 		{"config endpoint moves", func(w *cacheWorld) {
 			w.cfg.PaidRuns.Claude.SubscriptionEndpoints = map[string]string{"corp": movedURL}
-		}, true, Paid},
-		{"config cap", func(w *cacheWorld) { w.cfg.PaidRuns.Claude.DailyCapUSD = 6 }, true, Subscription},
-		{"shape", func(w *cacheWorld) { w.shape = workerenv.Peer }, true, Subscription},
-		{"variant", func(w *cacheWorld) { w.variant = workerenv.Free }, true, Subscription},
-		{"nothing", func(*cacheWorld) {}, false, Subscription},
+		}, true, paidrules.Paid},
+		{"config cap", func(w *cacheWorld) { w.cfg.PaidRuns.Claude.DailyCapUSD = 6 }, true, paidrules.Subscription},
+		{"shape", func(w *cacheWorld) { w.shape = launch.Peer }, true, paidrules.Subscription},
+		{"variant", func(w *cacheWorld) { w.variant = launch.Free }, true, paidrules.Subscription},
+		{"nothing", func(*cacheWorld) {}, false, paidrules.Subscription},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			w := newCacheWorld("claude")
 			p, a, err := w.get(t, false)
-			if err != nil || a.Verdict != Subscription || !slices.Equal(p.EndpointEntries, []string{"corp"}) || w.reads != 1 {
+			if err != nil || a.Verdict != paidrules.Subscription || !slices.Equal(p.EndpointEntries, []string{"corp"}) || w.reads != 1 {
 				t.Fatalf("first: %+v %v reads=%d", a, err, w.reads)
 			}
 			w.now = w.now.Add(30 * time.Second)
@@ -178,7 +180,7 @@ func TestCacheRebuildsSameNameEndpointBeforeReuse(t *testing.T) {
 			if reread := w.reads == 2; reread != c.reread {
 				t.Fatalf("reads = %d, want a re-read %v", w.reads, c.reread)
 			}
-			if c.verdict == Paid && len(a.Signals) == 0 {
+			if c.verdict == paidrules.Paid && len(a.Signals) == 0 {
 				t.Fatal("paid without a signal")
 			}
 		})
@@ -186,7 +188,7 @@ func TestCacheRebuildsSameNameEndpointBeforeReuse(t *testing.T) {
 
 	// Codex: a changed provider env_key is a new route.
 	w := newCacheWorld("codex")
-	if _, a, err := w.get(t, false); err != nil || a.Verdict != Subscription || w.reads != 1 {
+	if _, a, err := w.get(t, false); err != nil || a.Verdict != paidrules.Subscription || w.reads != 1 {
 		t.Fatalf("codex first: %+v %v", a, err)
 	}
 	w.envKey = "CORP_LLM_KEY"
@@ -203,7 +205,7 @@ func TestCacheRebuildsSameNameEndpointBeforeReuse(t *testing.T) {
 	if err != nil || w.builds != 2 || w.reads != 2 || p.ProviderEnvKey != "CORP_LLM_KEY" || !slices.Contains(p.Dropped, "CORP_LLM_KEY") {
 		t.Fatalf("discovered env_key: builds=%d reads=%d %+v %v", w.builds, w.reads, p, err)
 	}
-	if a.Verdict != Paid || !slices.Contains(a.Signals, workerenv.Signal{Name: "provider:env_key", Layer: "config/read"}) {
+	if a.Verdict != paidrules.Paid || !slices.Contains(a.Signals, launch.Signal{Name: "provider:env_key", Layer: "config/read"}) {
 		t.Fatalf("discovered env_key verdict: %+v", a)
 	}
 	for _, pair := range p.Env {
@@ -231,18 +233,18 @@ func TestCacheRebuildsSameNameEndpointBeforeReuse(t *testing.T) {
 		t.Fatalf("fresh reads = %d", w.reads)
 	}
 	w.readErr = errors.New("read timed out or canceled")
-	if _, a, err := w.get(t, true); err == nil || a.Verdict != Paid || w.reads != 4 {
+	if _, a, err := w.get(t, true); err == nil || a.Verdict != paidrules.Paid || w.reads != 4 {
 		t.Fatalf("failed read: %+v %v reads=%d", a, err, w.reads)
 	}
 	w.readErr = nil
 	w.now = w.now.Add(time.Second)
-	if _, a, err := w.get(t, false); err != nil || a.Verdict != Subscription || w.reads != 5 {
+	if _, a, err := w.get(t, false); err != nil || a.Verdict != paidrules.Subscription || w.reads != 5 {
 		t.Fatalf("after a failure: %+v %v reads=%d", a, err, w.reads)
 	}
 
 	// A build that fails is an error, and nothing is read.
 	w.agent = "other"
-	if _, _, _, err := w.cache.Get(context.Background(), w.build, w.cfg, quota.RunEvidence{}, false); err == nil || w.reads != 5 {
+	if _, _, _, err := w.cache.Get(context.Background(), w.build, w.cfg, account.RunEvidence{}, false); err == nil || w.reads != 5 {
 		t.Fatalf("failed build: %v reads=%d", err, w.reads)
 	}
 

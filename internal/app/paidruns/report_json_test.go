@@ -7,14 +7,15 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // TestReportJSONNamesAreSnakeCase is review finding M2: quota --json prints
 // the assessment with snake_case keys, like the rest of the report.
 func TestReportJSONNamesAreSnakeCase(t *testing.T) {
-	r := Report{Assessment: Assessment{Agent: "claude", Shape: workerenv.Worker, Variant: workerenv.Free,
-		Verdict: Paid, Account: "workspace", UsableShare: 0.5,
+	r := Report{Assessment: paidrules.Assessment{Agent: "claude", Shape: workerenv.Worker, Variant: workerenv.Free,
+		Verdict: paidrules.Paid, Account: "workspace", UsableShare: 0.5,
 		Signals:        []workerenv.Signal{{Name: "auth:unread", Layer: "auth status"}},
 		AccountReasons: []string{"org"}}}
 	data, err := json.Marshal(r)
@@ -42,7 +43,7 @@ func TestReportJSONNamesAreSnakeCase(t *testing.T) {
 // the ignored config keys belong to the account and the config, so they are
 // not part of an agent's lines; AccountLines says them once.
 func TestReportAccountLinesOnce(t *testing.T) {
-	r := Report{Assessment: Assessment{Agent: "codex", Shape: workerenv.Worker, Verdict: Subscription, Account: "personal"},
+	r := Report{Assessment: paidrules.Assessment{Agent: "codex", Shape: workerenv.Worker, Verdict: paidrules.Subscription, Account: "personal"},
 		TotalLive: 2, TotalLimit: 10,
 		Notices: []config.ConfigNotice{{Key: "paid_runs.codex.allow", Reason: "a shared config may only make paid runs stricter"}}}
 	agent := strings.Join(r.Lines(), "\n")

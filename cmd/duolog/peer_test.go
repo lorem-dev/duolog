@@ -17,6 +17,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -380,7 +381,7 @@ func TestPeerLaunchRecordsItselfOnTheHold(t *testing.T) {
 	testDeps(t).OpenLaunchState = func() (*paidruns.Store, error) { return st, nil }
 	ctx := context.Background()
 	if err := st.Update(ctx, func(s *paidruns.State) error {
-		s.Reservations["pane"] = paidruns.Reservation{ID: "pane", Agent: "claude", Peer: "p1", Session: true, Task: true, Launching: true}
+		s.Reservations["pane"] = paidrules.Reservation{ID: "pane", Agent: "claude", Peer: "p1", Session: true, Task: true, Launching: true}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -392,7 +393,7 @@ func TestPeerLaunchRecordsItselfOnTheHold(t *testing.T) {
 	if _, err := executeBusCommand(t, "peer", "launch", "--env-file", file, "--", program); err != nil {
 		t.Fatal(err)
 	}
-	var held paidruns.Reservation
+	var held paidrules.Reservation
 	if err := st.View(ctx, func(s paidruns.State) error { held = s.Reservations["pane"]; return nil }); err != nil {
 		t.Fatal(err)
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -191,8 +192,8 @@ func TestCalibrationSharedRatesThroughGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = g.Store.Update(context.Background(), func(st *paidruns.State) error {
-		st.Reservations["r1"] = paidruns.Reservation{ID: "r1", Agent: "codex", Step: "h/c001.1", Shape: workerenv.Worker,
-			Variant: workerenv.Free, Session: true, Task: true, Created: time.Now(), Supervisor: paidruns.Owner{PID: os.Getpid()}}
+		st.Reservations["r1"] = paidrules.Reservation{ID: "r1", Agent: "codex", Step: "h/c001.1", Shape: workerenv.Worker,
+			Variant: workerenv.Free, Session: true, Task: true, Created: time.Now(), Supervisor: paidrules.Owner{PID: os.Getpid()}}
 		return nil
 	})
 	if err != nil {

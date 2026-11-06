@@ -1,4 +1,4 @@
-package paidruns
+package paidrules
 
 import (
 	"errors"
@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	coreaccount "github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/quota"
 )
 
 // Window terms as raw fractions. The lead reserves stay as they are and apply
@@ -45,7 +45,7 @@ const (
 // the cost is the bound, raised by any measurement above it; from three on it
 // is the pooled rate, never below the p90 of the measurements. USD plays no
 // part, so the usable share never scales money.
-func WindowCosts(s quota.Snapshot, family string, estimate Estimate,
+func WindowCosts(s coreaccount.Snapshot, family string, estimate Estimate,
 	samples []RateSample) ([]WindowCost, error) {
 	e := estimate
 	if e.Input < 0 || e.Cached < 0 || e.Output < 0 || e.Cached > e.Input || !finite(e.USD) || e.USD < 0 {
@@ -71,7 +71,7 @@ func WindowCosts(s quota.Snapshot, family string, estimate Estimate,
 	weighted := float64(e.Input) + float64(e.Output)*outputWeight(defaults)
 
 	type scoped struct {
-		w     quota.Window
+		w     coreaccount.Window
 		scope string
 	}
 	var ws []scoped
@@ -131,7 +131,7 @@ func FitsWindows(costs []WindowCost, usableShare float64) bool {
 // windowTerms are a window's reserve and unmeasured bound: weekly terms for a
 // window of a week or longer, five-hour terms for a shorter one, and the
 // larger of each for a window of unknown length.
-func windowTerms(w quota.Window) (reserve, bound float64) {
+func windowTerms(w coreaccount.Window) (reserve, bound float64) {
 	switch {
 	case w.DurationMinutes >= weeklyMinutes:
 		return reserveWeekly, boundWeekly
@@ -144,7 +144,7 @@ func windowTerms(w quota.Window) (reserve, bound float64) {
 // windowScope is the model family an account window limits, "" for all. A
 // window scoped to a model name that is not a known family keeps that name,
 // so it limits every family.
-func windowScope(w quota.Window, known map[string]config.Model) string {
+func windowScope(w coreaccount.Window, known map[string]config.Model) string {
 	switch w.Kind {
 	case "weekly_opus":
 		return "opus"

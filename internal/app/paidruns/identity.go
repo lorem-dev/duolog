@@ -15,6 +15,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 )
 
 const (
@@ -112,6 +114,6 @@ func (st *State) recordIdentity(agent, kind, key string) {
 		return
 	}
 	st.AccountKeys[name] = key
-	st.Samples = slices.DeleteFunc(st.Samples, func(r RateSample) bool { return r.Agent == agent })
+	st.Samples = slices.DeleteFunc(st.Samples, func(r paidrules.RateSample) bool { return r.Agent == agent })
 	delete(st.Tiers, agent)
 }

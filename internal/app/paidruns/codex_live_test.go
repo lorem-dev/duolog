@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"github.com/lorem-dev/duolog/internal/workerenv"
@@ -97,8 +98,8 @@ func TestCodex0165PersonalPlusIsSubscription(t *testing.T) {
 	// window reset, which is the earliest reset in the fixture.
 	at := s.Windows[0].ResetsAt.Add(-time.Hour)
 	s.ReadAt = at
-	a := Evaluate(p, s, readErr, quota.RunEvidence{}, testConfig(), at)
-	if a.Verdict != Subscription || len(a.Signals) != 0 {
+	a := paidrules.Evaluate(p, s, readErr, quota.RunEvidence{}, testConfig(), at)
+	if a.Verdict != paidrules.Subscription || len(a.Signals) != 0 {
 		t.Fatalf("verdict = %s %v, want subscription with no signal", a.Verdict, a.Signals)
 	}
 	if a.Account != "personal" || a.UsableShare != 1 || len(a.AccountReasons) != 0 {

@@ -2,11 +2,11 @@ package paidruns
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/workerenv"
+	"github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 )
 
 // capSpan is how far back spend counts against the cap: the last 24 hours,
@@ -28,8 +28,8 @@ const capSpan = 24 * time.Hour
 // held, so an admission from a read made before the end still counts them. A peer's session stays held after its task
 // settles; a worker's session ends with it. Invalid amounts are errors, and
 // nothing is written.
-func (s *Store) Settle(ctx context.Context, in Settlement) error {
-	if err := in.validate(); err != nil {
+func (s *Store) Settle(ctx context.Context, in paidrules.Settlement) error {
+	if err := in.Validate(); err != nil {
 		return err
 	}
 	return s.Update(ctx, func(st *State) error {
@@ -52,8 +52,8 @@ func (s *Store) Settle(ctx context.Context, in Settlement) error {
 			in.Ended = s.now()
 		}
 		st.Settled[in.ID] = in
-		if r.Shape == workerenv.Peer && r.Session {
-			r.Task, r.Estimate = false, Estimate{}
+		if r.Shape == launch.Peer && r.Session {
+			r.Task, r.Estimate = false, paidrules.Estimate{}
 			st.Reservations[in.ID] = r
 		} else {
 			delete(st.Reservations, in.ID)
@@ -63,7 +63,7 @@ func (s *Store) Settle(ctx context.Context, in Settlement) error {
 }
 
 // charge is the money a settled task spent.
-func charge(r Reservation, in Settlement) float64 {
+func charge(r paidrules.Reservation, in paidrules.Settlement) float64 {
 	if !r.Paid && !in.Evidence.UsingOverage && !in.Evidence.Fast {
 		return 0
 	}
@@ -77,23 +77,6 @@ func charge(r Reservation, in Settlement) float64 {
 	return usd
 }
 
-func (in Settlement) validate() error {
-	var errs []error
-	if in.ID == "" {
-		errs = append(errs, errors.New("a settlement needs an id"))
-	}
-	if in.Input < 0 || in.Cached < 0 || in.Output < 0 || in.Cached > in.Input {
-		errs = append(errs, errors.New("tokens must be 0 or more, cached at most input"))
-	}
-	if !finiteAmount(in.PricedUSD) || in.ReportedUSD != nil && !finiteAmount(*in.ReportedUSD) {
-		errs = append(errs, errors.New("costs must be finite numbers of USD, 0 or more"))
-	}
-	if err := errors.Join(errs...); err != nil {
-		return fmt.Errorf("paid runs: settlement refused: %w", err)
-	}
-	return nil
-}
-
 // Release drops reservation id when it is proven never to have started: no
 // child was attached. That refunds its estimate and frees its slot. An ID
 // that is not held, released or settled before, is nothing to release. A
@@ -105,7 +88,7 @@ func (s *Store) Release(ctx context.Context, id string) error {
 		if !ok {
 			return nil
 		}
-		if r.Started || r.Child != (Owner{}) {
+		if r.Started || r.Child != (paidrules.Owner{}) {
 			return fmt.Errorf("paid runs: reservation %s has started; settle it", id)
 		}
 		delete(st.Reservations, id)

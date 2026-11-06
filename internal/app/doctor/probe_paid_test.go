@@ -12,6 +12,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/usage"
 	"github.com/lorem-dev/duolog/internal/quota"
@@ -144,7 +145,7 @@ func TestProbeUsesGateAndBuild(t *testing.T) {
 		cfg.Limits.SessionsByTier.Small = 1
 		g := reportGate(t, cfg, nil)
 		err := g.Store.Update(ctx, func(st *paidruns.State) error {
-			st.Reservations["busy"] = paidruns.Reservation{ID: "busy", Agent: "claude", Shape: corelaunch.Worker,
+			st.Reservations["busy"] = paidrules.Reservation{ID: "busy", Agent: "claude", Shape: corelaunch.Worker,
 				Variant: corelaunch.Free, Session: true, Task: true, Created: time.Now()}
 			return nil
 		})
@@ -160,7 +161,7 @@ func TestProbeUsesGateAndBuild(t *testing.T) {
 			s.Windows[0].UsedPercent = 95
 			return s, err
 		}
-		g.Cache = &paidruns.Cache{Read: g.Cache.Read}
+		g.Cache = paidrunstest.Cache(g.Cache.Read)
 		if err := probe(ctx, testDeps, "claude", cfg, nil); err == nil || !strings.Contains(err.Error(), "no window headroom") {
 			t.Fatalf("probe past the window reserve: %v", err)
 		}

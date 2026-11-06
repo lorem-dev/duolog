@@ -31,7 +31,7 @@ func readClaude(ctx context.Context, run runner) (Snapshot, error) {
 		if err != nil {
 			continue
 		}
-		billing.mergeClaudeUsage(s.Billing)
+		mergeClaudeUsage(&billing, s.Billing)
 		if len(s.Windows) > 0 {
 			found = &s
 		} else {
@@ -70,14 +70,14 @@ func readClaude(ctx context.Context, run runner) (Snapshot, error) {
 // any report that says windows are not available, that overage is on or
 // that names a workspace reason counts, so a later report cannot hide an
 // earlier one's evidence, nor the reverse.
-func (b *BillingFacts) mergeClaudeUsage(from BillingFacts) {
+func mergeClaudeUsage(b *BillingFacts, from BillingFacts) {
 	if a := from.WindowsAvailable; a != nil && (b.WindowsAvailable == nil || !*a) {
 		available := *a
 		b.WindowsAvailable = &available
 	}
 	b.OverageEnabled = b.OverageEnabled || from.OverageEnabled
 	for _, reason := range from.WorkspaceReasons {
-		b.addWorkspaceReason(reason)
+		addWorkspaceReason(b, reason)
 	}
 }
 
@@ -99,11 +99,11 @@ func readClaudeAuth(ctx context.Context, run runner, s *Snapshot) (bool, error) 
 	auth := run.command(authCtx, "auth", "status", "--json")
 	pipe, err := auth.StdoutPipe()
 	if err != nil {
-		s.Billing.claudeRouteUnread()
+		claudeRouteUnread(&s.Billing)
 		return true, nil
 	}
 	if auth.Start() != nil {
-		s.Billing.claudeRouteUnread()
+		claudeRouteUnread(&s.Billing)
 		return true, nil
 	}
 	closeAuthOnCancel := context.AfterFunc(authCtx, func() { _ = pipe.Close() })
@@ -123,14 +123,14 @@ func readClaudeAuth(ctx context.Context, run runner, s *Snapshot) (bool, error) 
 	}
 	if !parsed || err != nil {
 		if authCtx.Err() != nil {
-			s.Billing.claudeRouteTimedOut()
+			claudeRouteTimedOut(&s.Billing)
 		} else {
-			s.Billing.claudeRouteUnread()
+			claudeRouteUnread(&s.Billing)
 		}
 		return true, nil
 	}
 	s.Plan = plan(status.SubscriptionType)
-	s.Billing.claudeRoute(status.AuthMethod, status.APIProvider)
+	claudeRoute(&s.Billing, status.AuthMethod, status.APIProvider)
 	var identity fields
 	_ = json.Unmarshal(data, &identity)
 	return true, run.identify(identity.identity("email"), identity.identity("orgId"))
@@ -247,7 +247,7 @@ func parseClaudeUsage(data []byte) (Snapshot, error) {
 	if limits.Extra != nil {
 		s.ExtraUsage = &ExtraUsage{Enabled: limits.Extra.Enabled, UsedCredits: limits.Extra.Used, MonthlyLimit: limits.Extra.Limit}
 		s.Billing.OverageEnabled = limits.Extra.Enabled
-		s.Billing.addClaudeWorkspaceReason(limits.Extra.DisabledReason)
+		addClaudeWorkspaceReason(&s.Billing, limits.Extra.DisabledReason)
 	}
 	return s, nil
 }

@@ -21,6 +21,7 @@ import (
 	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 )
 
 // FixtureVersions is the single source of versions used to collect the fixtures.
@@ -234,7 +235,7 @@ func billing(ctx context.Context, d Deps, cfg *config.Config, root string, avail
 	report := func(r paidruns.Report) {
 		for i, line := range r.Lines() {
 			level := "info"
-			if i == 0 && r.Assessment.Verdict != paidruns.Subscription || strings.Contains(line, "paid overage") {
+			if i == 0 && r.Assessment.Verdict != paidrules.Subscription || strings.Contains(line, "paid overage") {
 				level = "warning"
 			}
 			out = append(out, Finding{level, line})

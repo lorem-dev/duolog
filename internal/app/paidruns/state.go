@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -26,6 +27,21 @@ const (
 // publish replaces a state file with a closed temporary one; tests make it
 // fail as an interrupted write would.
 var publish = store.Rename
+
+// State is the account state that every project of the user shares: money,
+// reservations, rates and session slots belong to the account, not to a
+// project. AccountKeys maps "agent/kind" to a salted identity digest; Tiers
+// is keyed by agent. It never holds a raw identity or a route value.
+type State struct {
+	Version      int                              `json:"version"`
+	Reservations map[string]paidrules.Reservation `json:"reservations"`
+	Settled      map[string]paidrules.Settlement  `json:"settled"`
+	AccountKeys  map[string]string                `json:"account_keys"`
+	Samples      []paidrules.RateSample           `json:"samples"`
+	Tiers        map[string]paidrules.TierResult  `json:"tiers"`
+	Tickets      []paidrules.Ticket               `json:"tickets"`
+	NextTicket   uint64                           `json:"next_ticket"`
+}
 
 // Store is the account state of the user, in one folder that every project
 // shares. Dir is that folder; Now is the clock, nil meaning time.Now.
@@ -149,16 +165,16 @@ func (s *Store) load() ([]byte, State, error) {
 func (st *State) init() {
 	st.Version = stateVersion
 	if st.Reservations == nil {
-		st.Reservations = map[string]Reservation{}
+		st.Reservations = map[string]paidrules.Reservation{}
 	}
 	if st.Settled == nil {
-		st.Settled = map[string]Settlement{}
+		st.Settled = map[string]paidrules.Settlement{}
 	}
 	if st.AccountKeys == nil {
 		st.AccountKeys = map[string]string{}
 	}
 	if st.Tiers == nil {
-		st.Tiers = map[string]TierResult{}
+		st.Tiers = map[string]paidrules.TierResult{}
 	}
 }
 

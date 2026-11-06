@@ -7,6 +7,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/quota"
 )
@@ -32,7 +33,7 @@ func TestRefusalLineWording(t *testing.T) {
 	signals := []corelaunch.Signal{{Name: "env:ANTHROPIC_BASE_URL", Layer: "user"}}
 	refusal := func(shape corelaunch.Shape, optedIn bool) *paidruns.Refusal {
 		return &paidruns.Refusal{Agent: "claude", Shape: shape, Variant: corelaunch.Free,
-			Reason: paidruns.ReasonFreeVariantPaid, Verdict: paidruns.Paid, Signals: signals, OptedIn: optedIn}
+			Reason: paidruns.ReasonFreeVariantPaid, Verdict: paidrules.Paid, Signals: signals, OptedIn: optedIn}
 	}
 	if got := RefusalLine(refusal(corelaunch.Worker, false)); got != "claude worker is paid (env:ANTHROPIC_BASE_URL in user); set paid_runs.claude to allow" {
 		t.Fatalf("not opted in: %q", got)

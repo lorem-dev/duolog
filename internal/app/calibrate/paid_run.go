@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 )
 
 // StepAccounts is the user's account state as calibration steps share it
@@ -31,7 +31,7 @@ const (
 // stepHolder carries, through a step's context, the budget and the wait
 // notice its start set for the step's delegation.
 type stepHolder struct {
-	budget  *paidruns.StepBudget
+	budget  *paidrules.StepBudget
 	waiting func(bool)
 }
 
@@ -46,7 +46,7 @@ func withStep(ctx context.Context) (context.Context, *stepHolder) {
 // StepOptions returns what the runner set for the step that ctx belongs to:
 // its budget and its wait notice, for the step's delegate.Options. Outside
 // a runner, or before the step's start, both are nil.
-func StepOptions(ctx context.Context) (*paidruns.StepBudget, func(bool)) {
+func StepOptions(ctx context.Context) (*paidrules.StepBudget, func(bool)) {
 	h, _ := ctx.Value(stepKey{}).(*stepHolder)
 	if h == nil {
 		return nil, nil
@@ -100,7 +100,7 @@ func (r *Runner) newReceipt(step string) string {
 // the whole windows. A step of the run may wait for a session without a
 // deadline. Without an approved plan there is no budget to state, and the
 // step is admitted as any calibration step is.
-func (r *Runner) stepBudget(agent, stepID string, judge bool) *paidruns.StepBudget {
+func (r *Runner) stepBudget(agent, stepID string, judge bool) *paidrules.StepBudget {
 	if r.Run.Approved == nil || r.Run.Approved.Hash == "" {
 		return nil
 	}
@@ -114,7 +114,7 @@ func (r *Runner) stepBudget(agent, stepID string, judge bool) *paidruns.StepBudg
 		usd -= r.judgeUSDLeft(agent)
 	}
 	window := cal.MaxWindowShare*100*u - r.Run.Spend.Own(agent, r.Now())
-	return &paidruns.StepBudget{PlanHash: r.Run.Approved.Hash, StepID: stepID, USDRemaining: max(0, usd),
+	return &paidrules.StepBudget{PlanHash: r.Run.Approved.Hash, StepID: stepID, USDRemaining: max(0, usd),
 		WeeklyRemaining: fraction(weekly), WindowRemaining: fraction(window), WaitForSession: true}
 }
 

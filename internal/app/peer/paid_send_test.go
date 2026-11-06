@@ -12,6 +12,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
@@ -69,7 +70,7 @@ func TestPeerReleaseEndsAnOrphanedHold(t *testing.T) {
 	if len(held) != 1 {
 		t.Fatalf("held %+v, want the pane's hold", held)
 	}
-	var res paidruns.Reservation
+	var res paidrules.Reservation
 	for _, res = range held {
 	}
 	if res.Peer == "" {
@@ -82,7 +83,7 @@ func TestPeerReleaseEndsAnOrphanedHold(t *testing.T) {
 	r.wantHeld(1, 1)
 	if err := r.gate.Store.Update(context.Background(), func(st *paidruns.State) error {
 		x := st.Reservations[res.ID]
-		x.Supervisor = paidruns.Owner{PID: math.MaxInt32, Birth: "gone"}
+		x.Supervisor = paidrules.Owner{PID: math.MaxInt32, Birth: "gone"}
 		st.Reservations[res.ID] = x
 		return nil
 	}); err != nil {
@@ -201,7 +202,7 @@ func TestPeerFirstSendIsAdmittedAfresh(t *testing.T) {
 		}
 		e := r.ready()
 		used = 95
-		r.gate.Cache = &paidruns.Cache{Read: r.gate.Cache.Read}
+		r.gate.Cache = paidrunstest.Cache(r.gate.Cache.Read)
 		path := r.task()
 		script := baseScript()
 		script["capture"] = screens(sendOK(path)...)

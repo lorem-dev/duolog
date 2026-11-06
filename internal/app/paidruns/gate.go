@@ -12,9 +12,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/paidstore"
+	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
+	"github.com/lorem-dev/duolog/internal/core/record"
+	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/lorem-dev/duolog/internal/workerenv"
@@ -35,7 +39,7 @@ const (
 // withholds, the matched endpoint entries, its signals, its fast-mode pin and
 // its provider env_key. Unlike CacheKey it holds no config or modification
 // time, so a lowered cap or a touched file does not move it.
-func RouteKey(p workerenv.Process) string {
+func RouteKey(p launch.Process) string {
 	names := make([]string, 0, len(p.Env))
 	for _, pair := range p.Env {
 		name, _, _ := strings.Cut(pair, "=")
@@ -44,10 +48,10 @@ func RouteKey(p workerenv.Process) string {
 	slices.Sort(names)
 	data, _ := json.Marshal(struct {
 		Agent                   string
-		Shape                   workerenv.Shape
-		Variant                 workerenv.Variant
+		Shape                   launch.Shape
+		Variant                 launch.Variant
 		EnvNames, Dropped, Ends []string
-		Signals                 []workerenv.Signal
+		Signals                 []launch.Signal
 		FastPinned              bool
 		ProviderEnvKey          string
 	}{p.Agent, p.Shape, p.Variant, names, p.Dropped, p.EndpointEntries, p.Signals, p.FastPinned, p.ProviderEnvKey})
@@ -80,13 +84,13 @@ const (
 // for a slot only with Budget.WaitForSession. Waiting, when set, hears true
 // once the request starts to wait for a slot and false when it stops.
 type Request struct {
-	Input                                workerenv.ProcessInput
+	Input                                launch.ProcessInput
 	Family, Role, Class, ExistingSession string
-	Records                              []journal.Delegation
-	Owner                                Owner
+	Records                              []record.Delegation
+	Owner                                paidrules.Owner
 	Calibration, OpenPeer                bool
 	Wait                                 time.Duration
-	Budget                               *StepBudget
+	Budget                               *paidrules.StepBudget
 	Waiting                              func(bool)
 }
 
@@ -95,12 +99,12 @@ type Request struct {
 // state. Before starting the child, call Store.Launch, then Store.Attach
 // with the child, and end it with Finish, or CloseSession for a pane.
 type Permit struct {
-	Process     workerenv.Process
-	Assessment  Assessment
-	Reservation Reservation
+	Process     launch.Process
+	Assessment  paidrules.Assessment
+	Reservation paidrules.Reservation
 	// Snapshot is the quota read the admission used. Finish learns window
 	// rates from it and a read after an ordinary worker's run.
-	Snapshot quota.Snapshot
+	Snapshot account.Snapshot
 	// calibration marks a calibration cell, whose steps feed the rate
 	// learner themselves.
 	calibration bool
@@ -116,12 +120,12 @@ type Permit struct {
 // keeps Input.Layers.
 type Gate struct {
 	Store     *Store
-	Cache     *Cache
+	Cache     *paidstore.Cache
 	Config    *config.Config
 	Reconcile ReconcileInput
 	Now       func() time.Time
 	Wait      func(context.Context, time.Duration) error
-	Layers    func(context.Context, workerenv.ProcessInput) ([]workerenv.LayerFacts, error)
+	Layers    func(context.Context, launch.ProcessInput) ([]launch.LayerFacts, error)
 }
 
 // Refusal says why the gate did not admit a request, with names and numbers
@@ -131,11 +135,11 @@ type Gate struct {
 // environment, settings or a route value.
 type Refusal struct {
 	Agent                 string
-	Shape                 workerenv.Shape
-	Variant               workerenv.Variant
+	Shape                 launch.Shape
+	Variant               launch.Variant
 	Reason, Detail        string
-	Verdict               Verdict
-	Signals               []workerenv.Signal
+	Verdict               paidrules.Verdict
+	Signals               []launch.Signal
 	EstimateUSD           float64
 	EstimateSource        string
 	Tier                  string
@@ -158,13 +162,13 @@ func (r *Refusal) Error() string {
 		b.WriteString(": " + r.Detail)
 	}
 	switch {
-	case r.Verdict == Paid && len(r.Signals) > 0:
+	case r.Verdict == paidrules.Paid && len(r.Signals) > 0:
 		names := make([]string, 0, len(r.Signals))
 		for _, s := range r.Signals {
 			names = append(names, s.Name+" ("+s.Layer+")")
 		}
 		b.WriteString("; paid: " + strings.Join(names, ", "))
-	case r.Verdict == SubscriptionOverage:
+	case r.Verdict == paidrules.SubscriptionOverage:
 		b.WriteString("; paid overage is on; duolog stops before it")
 	}
 	if r.Limit > 0 {
@@ -177,7 +181,7 @@ func (r *Refusal) Error() string {
 	if r.EstimateSource != "" {
 		fmt.Fprintf(&b, "; estimate %.2f USD (%s)", r.EstimateUSD, r.EstimateSource)
 	}
-	if r.Shape == workerenv.Peer && r.Slot() && r.Reason != ReasonOneTask {
+	if r.Shape == launch.Peer && r.Slot() && r.Reason != ReasonOneTask {
 		b.WriteString("; close an open pane with duolog peer close first")
 	}
 	return b.String()
@@ -287,25 +291,25 @@ func (g *Gate) check(req Request) error {
 	switch {
 	case g.Store == nil || g.Cache == nil || g.Config == nil:
 		return errors.New("paid runs: the gate needs a store, a cache and a config")
-	case in.Shape == workerenv.Lead:
+	case in.Shape == launch.Lead:
 		return errors.New("paid runs: the lead is never admitted or launched; it is only reported")
-	case in.Shape != workerenv.Worker && in.Shape != workerenv.Peer:
+	case in.Shape != launch.Worker && in.Shape != launch.Peer:
 		return fmt.Errorf("paid runs: unknown shape %q", in.Shape)
 	case in.Agent != "claude" && in.Agent != "codex":
 		return fmt.Errorf("paid runs: unknown agent %q", in.Agent)
 	case req.Family == "":
 		return errors.New("paid runs: a request needs the model family")
-	case in.Shape == workerenv.Worker && (req.OpenPeer || req.ExistingSession != ""):
+	case in.Shape == launch.Worker && (req.OpenPeer || req.ExistingSession != ""):
 		return errors.New("paid runs: a worker opens no pane and joins no session")
-	case in.Shape == workerenv.Peer && req.OpenPeer == (req.ExistingSession != ""):
+	case in.Shape == launch.Peer && req.OpenPeer == (req.ExistingSession != ""):
 		return errors.New("paid runs: a peer request either opens a pane or sends to an open session")
-	case req.Calibration && in.Shape != workerenv.Worker:
+	case req.Calibration && in.Shape != launch.Worker:
 		return errors.New("paid runs: a calibration cell is a worker")
 	case req.Budget != nil && !req.Calibration:
 		return errors.New("paid runs: only a calibration step has a step budget")
 	}
 	if req.Budget != nil {
-		return req.Budget.validate()
+		return req.Budget.Validate()
 	}
 	return nil
 }
@@ -327,20 +331,20 @@ func (g *Gate) attempt(ctx context.Context, req Request, id string, l *line, fre
 
 func (g *Gate) attemptOnce(ctx context.Context, req Request, id string, l *line, fresh bool) (Permit, Admission, *Refusal, error) {
 	agent := req.Input.Agent
-	family := models.Normalize(agent, req.Family)
+	family := route.Normalize(agent, req.Family)
 	paid := g.Config.PaidRuns.Agent(agent)
-	refuse := func(a Assessment, reason, detail string) *Refusal {
+	refuse := func(a paidrules.Assessment, reason, detail string) *Refusal {
 		return &Refusal{Agent: agent, Shape: req.Input.Shape, Variant: req.Input.Variant, Reason: reason, Detail: detail,
-			Verdict: a.Verdict, Signals: a.Signals, OptedIn: optedIn(g.Config.PaidRuns, agent)}
+			Verdict: a.Verdict, Signals: a.Signals, OptedIn: paidrules.OptedIn(g.Config.PaidRuns, agent)}
 	}
-	if req.Input.Variant == workerenv.Paid && !optedIn(g.Config.PaidRuns, agent) {
-		return Permit{}, Admission{}, refuse(Assessment{}, ReasonNotAllowed,
+	if req.Input.Variant == launch.Paid && !paidrules.OptedIn(g.Config.PaidRuns, agent) {
+		return Permit{}, Admission{}, refuse(paidrules.Assessment{}, ReasonNotAllowed,
 			"set paid_runs."+agent+".allow with daily_cap_usd above 0"), nil
 	}
 	if err := g.reconcile(ctx); err != nil {
 		return Permit{}, Admission{}, nil, err
 	}
-	p, s, a, readErr := g.Cache.Get(ctx, g.build(ctx, req), g.Config, quota.RunEvidence{}, fresh)
+	p, s, a, readErr := g.Cache.Get(ctx, g.build(ctx, req), g.Config, account.RunEvidence{}, fresh)
 	if a.Agent == "" {
 		return Permit{}, Admission{}, nil, readErr
 	}
@@ -353,7 +357,7 @@ func (g *Gate) attemptOnce(ctx context.Context, req Request, id string, l *line,
 	gone := goneWaiters(view.Tickets, l.ticket, g.probe())
 	accountKey := view.AccountKeys[agent+"/"+quota.IdentityAccount]
 	if e, ok := view.runEvidence(agent, s.ReadAt); ok {
-		a = Evaluate(p, s, readErr, e, g.Config, g.now())
+		a = paidrules.Evaluate(p, s, readErr, e, g.Config, g.now())
 	}
 	if req.ExistingSession != "" {
 		// A send runs in its pane, on the route and billing class the pane
@@ -362,34 +366,34 @@ func (g *Gate) attemptOnce(ctx context.Context, req Request, id string, l *line,
 			if open.Route == "" || open.Route != RouteKey(p) || open.Workspace && a.Account != "workspace" {
 				return Permit{}, Admission{}, refuse(a, ReasonPaneRoute, "close the pane and open it again"), nil
 			}
-			if open.Paid && a.Verdict != Paid {
-				a.Verdict = Paid
-				a.Signals = append(a.Signals, workerenv.Signal{Name: "pane:paid", Layer: "pane admission"})
+			if open.Paid && a.Verdict != paidrules.Paid {
+				a.Verdict = paidrules.Paid
+				a.Signals = append(a.Signals, launch.Signal{Name: "pane:paid", Layer: "pane admission"})
 			}
 		}
 	}
 	switch {
-	case a.Verdict == Paid && p.Variant != workerenv.Paid:
+	case a.Verdict == paidrules.Paid && p.Variant != launch.Paid:
 		return Permit{}, Admission{}, refuse(a, ReasonFreeVariantPaid, ""), nil
-	case req.Calibration && a.Verdict == Paid && (!paid.Allow || !paid.Calibrate):
+	case req.Calibration && a.Verdict == paidrules.Paid && (!paid.Allow || !paid.Calibrate):
 		return Permit{}, Admission{}, refuse(a, ReasonCalibration, "set paid_runs."+agent+".calibrate with allow"), nil
 	}
 
-	est, err := EstimateTask(g.Config, req.Records, agent, family, req.Role, req.Class)
+	est, err := paidrules.EstimateTask(g.Config, req.Records, agent, family, req.Role, req.Class)
 	switch {
-	case errors.Is(err, ErrUnpriced) && a.Verdict == Paid:
+	case errors.Is(err, paidrules.ErrUnpriced) && a.Verdict == paidrules.Paid:
 		r := refuse(a, ReasonUnpriced, "models."+family+" has no valid input and output price")
 		r.EstimateSource = est.Source
 		return Permit{}, Admission{}, r, nil
-	case err != nil && !errors.Is(err, ErrUnpriced):
+	case err != nil && !errors.Is(err, paidrules.ErrUnpriced):
 		return Permit{}, Admission{}, nil, err
 	}
-	fingerprint := Fingerprint(agent, accountKey, s)
-	samples := slices.DeleteFunc(slices.Clone(view.Samples), func(r RateSample) bool {
+	fingerprint := paidrules.Fingerprint(agent, accountKey, s)
+	samples := slices.DeleteFunc(slices.Clone(view.Samples), func(r paidrules.RateSample) bool {
 		return r.Agent != agent || r.Fingerprint != fingerprint
 	})
-	if a.Verdict != Paid {
-		costs, err := WindowCosts(s, family, est, samples)
+	if a.Verdict != paidrules.Paid {
+		costs, err := paidrules.WindowCosts(s, family, est, samples)
 		if err != nil {
 			r := refuse(a, ReasonWindow, strings.TrimPrefix(err.Error(), "window costs: "))
 			r.EstimateUSD, r.EstimateSource = est.USD, est.Source
@@ -401,19 +405,19 @@ func (g *Gate) attemptOnce(ctx context.Context, req Request, id string, l *line,
 	// admission as the account's cap and slots.
 	step := ""
 	if b := req.Budget; b != nil {
-		if reason := b.check(est, a.Verdict == Paid); reason != "" {
-			r := refuse(a, ReasonStepBudget, reason)
+		if reason := b.Check(est, a.Verdict == paidrules.Paid); reason != "" {
+			r := refuse(a, paidrules.ReasonStepBudget, reason)
 			r.EstimateUSD, r.EstimateSource = est.USD, est.Source
 			return Permit{}, Admission{}, r, nil
 		}
 		step = b.Key()
 	}
-	tier := SelectTier(a, s, samples, view.Tiers[agent], g.Config)
+	tier := paidrules.SelectTier(a, s, samples, view.Tiers[agent], g.Config)
 
 	in := Admission{
-		Reservation: Reservation{ID: id, SessionID: req.ExistingSession, Agent: agent, Role: req.Role, Class: req.Class,
+		Reservation: paidrules.Reservation{ID: id, SessionID: req.ExistingSession, Agent: agent, Role: req.Role, Class: req.Class,
 			Family: family, Shape: p.Shape, Variant: p.Variant, Supervisor: req.Owner, Estimate: est,
-			Session: req.Input.Shape == workerenv.Worker || req.OpenPeer, Task: true, Step: step, Route: RouteKey(p),
+			Session: req.Input.Shape == launch.Worker || req.OpenPeer, Task: true, Step: step, Route: RouteKey(p),
 			Peer: peerID(req.Input)},
 		Assessment: a,
 		TotalLimit: g.totalLimit(),
@@ -421,7 +425,7 @@ func (g *Gate) attemptOnce(ctx context.Context, req Request, id string, l *line,
 		ReadAt:     s.ReadAt,
 		accountKey: &accountKey,
 	}
-	if p.Variant == workerenv.Paid {
+	if p.Variant == launch.Paid {
 		in.DailyCapUSD = paid.DailyCapUSD
 	}
 	e, err := g.Store.enter(ctx, in, l, tier, gone, false)
@@ -446,11 +450,11 @@ func (g *Gate) turn(ctx context.Context, last Admission, l *line) (entry, error)
 	if err := g.reconcile(ctx); err != nil {
 		return entry{}, err
 	}
-	var tickets []Ticket
+	var tickets []paidrules.Ticket
 	if err := g.Store.Update(ctx, func(st *State) error { tickets = slices.Clone(st.Tickets); return nil }); err != nil {
 		return entry{}, err
 	}
-	return g.Store.enter(ctx, last, l, TierResult{}, goneWaiters(tickets, l.ticket, g.probe()), true)
+	return g.Store.enter(ctx, last, l, paidrules.TierResult{}, goneWaiters(tickets, l.ticket, g.probe()), true)
 }
 
 // build returns the builder of req's process: the gate's config, the
@@ -458,8 +462,8 @@ func (g *Gate) turn(ctx context.Context, last Admission, l *line) (entry, error)
 // again when the gate has a reader. The layers are found with the
 // environment the process gets, not duolog's: a CLAUDE_CONFIG_DIR or
 // CODEX_HOME that env_passthrough does not pass moves no layer.
-func (g *Gate) build(ctx context.Context, req Request) func() (workerenv.Process, error) {
-	return func() (workerenv.Process, error) {
+func (g *Gate) build(ctx context.Context, req Request) func() (launch.Process, error) {
+	return func() (launch.Process, error) {
 		in := req.Input
 		in.Config = g.Config
 		if in.ProviderEnvKey == "" {
@@ -471,7 +475,7 @@ func (g *Gate) build(ctx context.Context, req Request) func() (workerenv.Process
 		if g.Layers != nil {
 			own, err := workerenv.Build(in)
 			if err != nil {
-				return workerenv.Process{}, err
+				return launch.Process{}, err
 			}
 			in.Locations.Environ = own.Env
 			// The home whose settings the agent loads is the process's own,
@@ -481,7 +485,7 @@ func (g *Gate) build(ctx context.Context, req Request) func() (workerenv.Process
 			}
 			layers, err := g.Layers(ctx, in)
 			if err != nil {
-				return workerenv.Process{}, err
+				return launch.Process{}, err
 			}
 			in.Layers = layers
 		}
@@ -495,7 +499,7 @@ func (g *Gate) build(ctx context.Context, req Request) func() (workerenv.Process
 // worker's session ends with its task; a pane keeps its session until
 // CloseSession. After an ordinary worker's run, Finish learns window rates
 // from it, as learn says.
-func (g *Gate) Finish(ctx context.Context, p Permit, s Settlement) error {
+func (g *Gate) Finish(ctx context.Context, p Permit, s paidrules.Settlement) error {
 	if err := g.settle(ctx, p, s); err != nil {
 		return err
 	}
@@ -517,9 +521,9 @@ const learnTimeout = 20 * time.Second
 // to count. The read runs no model and spends no tokens, and goes to the
 // cache, so the next admission uses it. A failed read or observation learns
 // nothing, which leaves the rates and the tier as they are.
-func (g *Gate) learn(ctx context.Context, p Permit, s Settlement) {
+func (g *Gate) learn(ctx context.Context, p Permit, s paidrules.Settlement) {
 	r := p.Reservation
-	if p.calibration || r.Shape != workerenv.Worker || p.Assessment.Verdict == Paid || !s.Started || !s.CompleteUsage ||
+	if p.calibration || r.Shape != launch.Worker || p.Assessment.Verdict == paidrules.Paid || !s.Started || !s.CompleteUsage ||
 		p.Snapshot.ReadAt.IsZero() || r.Family == "" || g.Cache == nil || g.Cache.Read == nil || ctx.Err() != nil {
 		return
 	}
@@ -536,19 +540,19 @@ func (g *Gate) learn(ctx context.Context, p Permit, s Settlement) {
 	}) != nil || key != r.AccountKey {
 		return
 	}
-	_ = g.Store.Observe(ctx, g.Config, Interval{Agent: r.Agent, Family: r.Family,
-		Fingerprint: Fingerprint(r.Agent, key, after), Before: p.Snapshot, After: after,
+	_ = g.Store.Observe(ctx, g.Config, paidrules.Interval{Agent: r.Agent, Family: r.Family,
+		Fingerprint: paidrules.Fingerprint(r.Agent, key, after), Before: p.Snapshot, After: after,
 		Input: s.Input, Cached: s.Cached, Output: s.Output})
 }
 
 // settle is Finish's settlement.
-func (g *Gate) settle(ctx context.Context, p Permit, s Settlement) error {
+func (g *Gate) settle(ctx context.Context, p Permit, s paidrules.Settlement) error {
 	s.ID, s.Agent = p.Reservation.ID, p.Reservation.Agent
 	if !s.Started {
 		var started bool
 		err := g.Store.Update(ctx, func(st *State) error {
 			r, ok := st.Reservations[s.ID]
-			started = ok && (r.Started || r.Child != Owner{})
+			started = ok && (r.Started || r.Child != paidrules.Owner{})
 			return nil
 		})
 		if err != nil {
@@ -574,12 +578,12 @@ func (g *Gate) CloseSession(ctx context.Context, sessionID string) error {
 	now := g.now()
 	return g.Store.Update(ctx, func(st *State) error {
 		for id, r := range st.Reservations {
-			if r.Shape != workerenv.Peer || sessionKey(r) != sessionID {
+			if r.Shape != launch.Peer || sessionKey(r) != sessionID {
 				continue
 			}
-			if r.Task && !r.Session && (r.Started || r.Launching || r.Child != Owner{}) {
+			if r.Task && !r.Session && (r.Started || r.Launching || r.Child != paidrules.Owner{}) {
 				if _, ok := st.Settled[id]; !ok {
-					ended := Settlement{ID: id, Agent: r.Agent, AccountKey: r.AccountKey, Started: true, Ended: now,
+					ended := paidrules.Settlement{ID: id, Agent: r.Agent, AccountKey: r.AccountKey, Started: true, Ended: now,
 						Windows: r.Estimate.Windows}
 					ended.ChargedUSD = charge(r, ended)
 					st.Settled[id] = ended
@@ -592,21 +596,21 @@ func (g *Gate) CloseSession(ctx context.Context, sessionID string) error {
 }
 
 // openSession returns the reservation that holds agent's session id.
-func (st *State) openSession(agent, id string) (Reservation, bool) {
+func (st *State) openSession(agent, id string) (paidrules.Reservation, bool) {
 	for _, r := range st.Reservations {
 		if r.Session && r.Agent == agent && sessionKey(r) == id {
 			return r, true
 		}
 	}
-	return Reservation{}, false
+	return paidrules.Reservation{}, false
 }
 
 // runEvidence merges the run evidence of agent's settlements that ended
 // after a read at readAt, which that read could not have seen: overage, fast
 // mode, missing expected evidence and workspace reasons. ok is false when
 // there is none.
-func (st *State) runEvidence(agent string, readAt time.Time) (quota.RunEvidence, bool) {
-	var e quota.RunEvidence
+func (st *State) runEvidence(agent string, readAt time.Time) (account.RunEvidence, bool) {
+	var e account.RunEvidence
 	found := false
 	for _, s := range st.Settled {
 		if s.Agent != agent || !s.Ended.After(readAt) {
@@ -637,7 +641,7 @@ func (g *Gate) reconcile(ctx context.Context) error {
 	return g.Store.Reconcile(ctx, in)
 }
 
-func (g *Gate) probe() func(Owner) Presence {
+func (g *Gate) probe() func(paidrules.Owner) Presence {
 	if g.Reconcile.Process != nil {
 		return g.Reconcile.Process
 	}

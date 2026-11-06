@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"github.com/lorem-dev/duolog/internal/workerenv"
@@ -33,7 +34,7 @@ func paceSnapshot(agent string, week, five float64) quota.Snapshot {
 func TestAgentPaceFromFreshSubscriptionRead(t *testing.T) {
 	cfg := testConfig()
 	for _, agent := range []string{"claude", "codex"} {
-		got := AgentPace(process(agent, workerenv.Worker, workerenv.Free), paceSnapshot(agent, .61, .2), nil, cfg, now)
+		got := paidrules.AgentPace(process(agent, workerenv.Worker, workerenv.Free), paceSnapshot(agent, .61, .2), nil, cfg, now)
 		if !got.Subscription || got.Week == nil || got.FiveHour == nil {
 			t.Fatalf("%s: pace = %+v, want a subscription with both windows", agent, got)
 		}
@@ -62,7 +63,7 @@ func TestAgentPaceUnknownQuota(t *testing.T) {
 		"window has reset": {reset, nil},
 		"no windows":       {none, nil},
 	} {
-		got := AgentPace(p, c.s, c.err, cfg, now)
+		got := paidrules.AgentPace(p, c.s, c.err, cfg, now)
 		if got.Subscription || got.Week != nil {
 			t.Errorf("%s: pace = %+v, want no balancing input", name, got)
 		}
@@ -73,17 +74,17 @@ func TestAgentPaceNeverSubscriptionOnOverageOrPaid(t *testing.T) {
 	cfg := testConfig()
 	over := paceSnapshot("codex", .1, .1)
 	over.Billing.OverageEnabled = true
-	if got := AgentPace(process("codex", workerenv.Worker, workerenv.Free), over, nil, cfg, now); got.Subscription {
+	if got := paidrules.AgentPace(process("codex", workerenv.Worker, workerenv.Free), over, nil, cfg, now); got.Subscription {
 		t.Errorf("overage read is a subscription: %+v", got)
 	}
 	paid := paceSnapshot("codex", .1, .1)
-	if got := AgentPace(process("codex", workerenv.Worker, workerenv.Free,
+	if got := paidrules.AgentPace(process("codex", workerenv.Worker, workerenv.Free,
 		workerenv.Signal{Name: "env:OPENAI_API_KEY", Layer: "env"}), paid, nil, cfg, now); got.Subscription {
 		t.Errorf("paid route is a subscription: %+v", got)
 	}
 	apiKey := paceSnapshot("claude", .1, .1)
 	apiKey.Billing.RouteSignals = []workerenv.Signal{{Name: "auth:api_key", Layer: "auth status"}}
-	if got := AgentPace(process("claude", workerenv.Worker, workerenv.Free), apiKey, nil, cfg, now); got.Subscription {
+	if got := paidrules.AgentPace(process("claude", workerenv.Worker, workerenv.Free), apiKey, nil, cfg, now); got.Subscription {
 		t.Errorf("api key read is a subscription: %+v", got)
 	}
 }
@@ -91,12 +92,12 @@ func TestAgentPaceNeverSubscriptionOnOverageOrPaid(t *testing.T) {
 func TestAgentPaceScalesByWorkspaceShare(t *testing.T) {
 	cfg := testConfig()
 	cfg.PaidRuns.Codex.Account = "workspace"
-	got := AgentPace(process("codex", workerenv.Worker, workerenv.Free), paceSnapshot("codex", .30, .1), nil, cfg, now)
+	got := paidrules.AgentPace(process("codex", workerenv.Worker, workerenv.Free), paceSnapshot("codex", .30, .1), nil, cfg, now)
 	if got.Week == nil || !near(got.Week.Used, .6) {
 		t.Errorf("workspace week = %+v, want 0.6 of the usable half", got.Week)
 	}
 	// The scaled share never passes 1.
-	got = AgentPace(process("codex", workerenv.Worker, workerenv.Free), paceSnapshot("codex", .80, .1), nil, cfg, now)
+	got = paidrules.AgentPace(process("codex", workerenv.Worker, workerenv.Free), paceSnapshot("codex", .80, .1), nil, cfg, now)
 	if got.Week == nil || got.Week.Used != 1 {
 		t.Errorf("workspace week = %+v, want it capped at 1", got.Week)
 	}

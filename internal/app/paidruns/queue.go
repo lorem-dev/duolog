@@ -8,7 +8,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/workerenv"
+	"github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 )
 
 // ReasonQueue refuses a request because an earlier waiter has the claim on
@@ -29,7 +30,7 @@ func slotReason(reason string) bool {
 // none, its process, its deadline, zero for none, and whether it may wait.
 type line struct {
 	ticket  string
-	owner   Owner
+	owner   paidrules.Owner
 	expires time.Time
 	wait    bool
 }
@@ -37,7 +38,7 @@ type line struct {
 // entry is the outcome of one locked admission attempt: the decision and the
 // sessions held after it, of the agent and of all agents.
 type entry struct {
-	Decision
+	paidrules.Decision
 	agentLive, totalLive int
 }
 
@@ -57,8 +58,8 @@ type entry struct {
 //
 // dry decides without writing anything but the dropped tickets, to learn
 // whether a waiter's turn has come.
-func (s *Store) enter(ctx context.Context, in Admission, l *line, tier TierResult,
-	gone map[string]Owner, dry bool) (entry, error) {
+func (s *Store) enter(ctx context.Context, in Admission, l *line, tier paidrules.TierResult,
+	gone map[string]paidrules.Owner, dry bool) (entry, error) {
 	r, err := in.prepare()
 	if err != nil {
 		return entry{}, err
@@ -75,7 +76,7 @@ func (s *Store) enter(ctx context.Context, in Admission, l *line, tier TierResul
 		// decided without that hold, so it is not counted twice; admitted, it
 		// replaces the hold, and refused, the hold stays as it was.
 		var restore func()
-		if r.Shape == workerenv.Peer && !r.Session {
+		if r.Shape == launch.Peer && !r.Session {
 			var err error
 			if restore, err = st.setAsideOpenTask(r); err != nil {
 				return err
@@ -87,7 +88,7 @@ func (s *Store) enter(ctx context.Context, in Admission, l *line, tier TierResul
 		}
 		if d.Admitted && st.ahead(d.Reservation, seq, in) {
 			live, _ := st.sessions(r.Agent)
-			d = Decision{Reservation: d.Reservation, Reason: ReasonQueue, Live: live, Limit: in.AgentLimit}
+			d = paidrules.Decision{Reservation: d.Reservation, Reason: ReasonQueue, Live: live, Limit: in.AgentLimit}
 		}
 		if restore != nil && (!d.Admitted || dry) {
 			restore()
@@ -114,7 +115,7 @@ func (s *Store) enter(ctx context.Context, in Admission, l *line, tier TierResul
 			l.ticket = ""
 		case l.ticket == "":
 			st.NextTicket++
-			st.Tickets = append(st.Tickets, Ticket{ID: r.ID, Agent: r.Agent, Sequence: st.NextTicket,
+			st.Tickets = append(st.Tickets, paidrules.Ticket{ID: r.ID, Agent: r.Agent, Sequence: st.NextTicket,
 				Created: now, Owner: l.owner, Expires: l.expires, Step: r.Step})
 			l.ticket = r.ID
 		}
@@ -130,7 +131,7 @@ func (s *Store) enter(ctx context.Context, in Admission, l *line, tier TierResul
 // session, if it still holds one, so that the send is decided on the state
 // without it; restore puts it back. A send of another variant than its
 // session's is an error.
-func (st *State) setAsideOpenTask(r Reservation) (restore func(), err error) {
+func (st *State) setAsideOpenTask(r paidrules.Reservation) (restore func(), err error) {
 	for _, id := range slices.Sorted(maps.Keys(st.Reservations)) {
 		open := st.Reservations[id]
 		if !open.Session || open.Agent != r.Agent || sessionKey(open) != r.SessionID {
@@ -143,7 +144,7 @@ func (st *State) setAsideOpenTask(r Reservation) (restore func(), err error) {
 			return nil, nil
 		}
 		aside := open
-		aside.Task, aside.Estimate = false, Estimate{}
+		aside.Task, aside.Estimate = false, paidrules.Estimate{}
 		st.Reservations[id] = aside
 		return func() { st.Reservations[id] = open }, nil
 	}
@@ -157,7 +158,7 @@ func (st *State) setAsideOpenTask(r Reservation) (restore func(), err error) {
 // the limit its tier last recorded; one whose agent is full could not use
 // it. r needs a session when it has one; a paid or workspace task also
 // waits behind the agent's earlier waiters for the one task.
-func (st *State) ahead(r Reservation, seq uint64, in Admission) bool {
+func (st *State) ahead(r paidrules.Reservation, seq uint64, in Admission) bool {
 	agentLive, totalLive := st.sessions(r.Agent)
 	same, other := 0, 0
 	for _, t := range st.Tickets {
@@ -183,8 +184,8 @@ func (st *State) ahead(r Reservation, seq uint64, in Admission) bool {
 // pruneTickets drops the tickets whose deadline passed before now and those
 // of gone, a ticket ID with the owner a probe found gone, while the ticket
 // still has that owner.
-func (st *State) pruneTickets(now time.Time, gone map[string]Owner) {
-	st.Tickets = slices.DeleteFunc(st.Tickets, func(t Ticket) bool {
+func (st *State) pruneTickets(now time.Time, gone map[string]paidrules.Owner) {
+	st.Tickets = slices.DeleteFunc(st.Tickets, func(t paidrules.Ticket) bool {
 		if owner, ok := gone[t.ID]; ok && owner == t.Owner {
 			return true
 		}
@@ -209,14 +210,14 @@ func (st *State) dropTicket(id string) {
 	if id == "" {
 		return
 	}
-	st.Tickets = slices.DeleteFunc(st.Tickets, func(t Ticket) bool { return t.ID == id })
+	st.Tickets = slices.DeleteFunc(st.Tickets, func(t paidrules.Ticket) bool { return t.ID == id })
 }
 
 // goneWaiters probes the owners of tickets other than own, outside the
 // lock, and returns those proven gone. An owner that cannot be checked
 // keeps its ticket.
-func goneWaiters(tickets []Ticket, own string, probe func(Owner) Presence) map[string]Owner {
-	gone := map[string]Owner{}
+func goneWaiters(tickets []paidrules.Ticket, own string, probe func(paidrules.Owner) Presence) map[string]paidrules.Owner {
+	gone := map[string]paidrules.Owner{}
 	for _, t := range tickets {
 		if t.ID != own && probe(t.Owner) == Gone {
 			gone[t.ID] = t.Owner

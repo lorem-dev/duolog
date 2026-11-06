@@ -13,6 +13,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/calibrate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -143,7 +144,7 @@ func (a *calibrationAccounts) Observe(ctx context.Context, agent, family string,
 	}); err != nil {
 		return err
 	}
-	in := paidruns.Interval{Agent: agent, Family: family, Fingerprint: paidruns.Fingerprint(agent, key, after),
+	in := paidrules.Interval{Agent: agent, Family: family, Fingerprint: paidrules.Fingerprint(agent, key, after),
 		Before: before, After: after, Input: input, Cached: cached, Output: output}
 	if err := g.Store.Observe(ctx, a.cfg, in); err != nil {
 		return err

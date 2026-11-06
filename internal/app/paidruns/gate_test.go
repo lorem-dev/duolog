@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/paidstore"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -59,11 +61,11 @@ func newGateWorld(t *testing.T) *gateWorld {
 	clock := func() time.Time { return w.now }
 	w.gate = &Gate{
 		Store:  w.store,
-		Cache:  &Cache{Read: w.read, Now: clock},
+		Cache:  &paidstore.Cache{Read: w.read, Now: clock},
 		Config: w.cfg,
 		Reconcile: ReconcileInput{
-			Process: func(o Owner) Presence { return w.presence(w.procs[o.PID]) },
-			Pane:    func(_ context.Context, o Owner) Presence { return w.presence(w.panes[o.Pane]) },
+			Process: func(o paidrules.Owner) Presence { return w.presence(w.procs[o.PID]) },
+			Pane:    func(_ context.Context, o paidrules.Owner) Presence { return w.presence(w.panes[o.Pane]) },
 		},
 		Now:  clock,
 		Wait: w.wait,
@@ -134,7 +136,7 @@ func (w *gateWorld) request(agent string, shape workerenv.Shape, variant workere
 		Input: workerenv.ProcessInput{Agent: agent, Shape: shape, Variant: variant, Config: w.cfg,
 			Environ: []string{"HOME=/home/test", "ANTHROPIC_API_KEY=" + gateSecret}, LeadID: "lead-1", Role: "implement"},
 		Family: family, Role: "implement",
-		Owner: Owner{PID: pid, Birth: fmt.Sprintf("b-%d", pid)},
+		Owner: paidrules.Owner{PID: pid, Birth: fmt.Sprintf("b-%d", pid)},
 	}
 }
 
@@ -198,7 +200,7 @@ func (w *gateWorld) refusal(req Request, reason string) *Refusal {
 	return r
 }
 
-func (w *gateWorld) finish(p Permit, s Settlement) {
+func (w *gateWorld) finish(p Permit, s paidrules.Settlement) {
 	w.t.Helper()
 	if err := w.gate.Finish(context.Background(), p, s); err != nil {
 		w.t.Fatal(err)
@@ -259,7 +261,7 @@ func TestGateCountsProcessesAndPanes(t *testing.T) {
 		}
 		// A personal subscription without measured rates is tier small: 3.
 		r := w.refusal(w.request("claude", workerenv.Worker, workerenv.Free, 104), ReasonAgentSessions)
-		if r.Live != 3 || r.Limit != 3 || r.Tier != TierSmall || !r.Slot() {
+		if r.Live != 3 || r.Limit != 3 || r.Tier != paidrules.TierSmall || !r.Slot() {
 			t.Fatalf("refusal: %+v", r)
 		}
 		for _, want := range []string{"claude worker", "sessions 3 of 3 (tier small)", "3 of 10 in all", "estimate"} {
@@ -268,7 +270,7 @@ func TestGateCountsProcessesAndPanes(t *testing.T) {
 			}
 		}
 		// The ended run's thread stays resumable, but holds no slot.
-		w.finish(fresh, Settlement{Started: true, CompleteUsage: true})
+		w.finish(fresh, paidrules.Settlement{Started: true, CompleteUsage: true})
 		w.wantLive("claude", 2, 2)
 		w.acquire(w.request("claude", workerenv.Worker, workerenv.Free, 105))
 		w.wantLive("claude", 3, 3)
@@ -305,7 +307,7 @@ func TestGateCountsProcessesAndPanes(t *testing.T) {
 		// A paid agent runs one task at a time; a send never waits for a
 		// slot it does not need, but this one may not wait at all.
 		w.refused(w.peerSend("claude", workerenv.Paid, 203, session), ReasonOneTask)
-		w.finish(first, Settlement{Started: true, CompleteUsage: true, PricedUSD: 1})
+		w.finish(first, paidrules.Settlement{Started: true, CompleteUsage: true, PricedUSD: 1})
 		// The idle pane still counts.
 		w.wantLive("claude", 1, 0)
 
@@ -318,7 +320,7 @@ func TestGateCountsProcessesAndPanes(t *testing.T) {
 		if _, after := spent(t, w.store, "claude", w.now); !near(after, second.Reservation.Estimate.USD) {
 			t.Fatalf("second send in flight %v, want its estimate", after)
 		}
-		w.finish(second, Settlement{Started: true, CompleteUsage: true, PricedUSD: 1})
+		w.finish(second, paidrules.Settlement{Started: true, CompleteUsage: true, PricedUSD: 1})
 
 		// A send to a session that is not open is refused.
 		w.refused(w.peerSend("claude", workerenv.Paid, 205, "no-such-session"), ReasonNoSession)
@@ -351,17 +353,17 @@ func TestGateCountsProcessesAndPanes(t *testing.T) {
 			// (TestIdlePaneDoesNotBlockOneTask); its sends run one at a time.
 			open := w.acquire(w.peerOpenRequest("claude", workerenv.Free, 300+i))
 			send := w.acquire(w.peerSend("claude", workerenv.Free, 310+i, open.Reservation.ID))
-			w.finish(send, Settlement{Started: true, CompleteUsage: true})
+			w.finish(send, paidrules.Settlement{Started: true, CompleteUsage: true})
 			sessions = append(sessions, open.Reservation.ID)
 		}
 		w.wantLive("claude", 3, 0)
 		busy := w.acquire(w.peerSend("claude", workerenv.Free, 320, sessions[0]))
 		w.refused(w.peerSend("claude", workerenv.Free, 321, sessions[1]), ReasonOneTask)
 		w.refused(w.request("claude", workerenv.Worker, workerenv.Free, 322), ReasonOneTask)
-		w.finish(busy, Settlement{Started: true, CompleteUsage: true})
+		w.finish(busy, paidrules.Settlement{Started: true, CompleteUsage: true})
 		// A workspace account is tier small: a fourth pane has no slot.
 		r := w.refusal(w.peerOpenRequest("claude", workerenv.Free, 323), ReasonAgentSessions)
-		if r.Tier != TierSmall || r.Limit != 3 {
+		if r.Tier != paidrules.TierSmall || r.Limit != 3 {
 			t.Fatalf("workspace refusal: %+v", r)
 		}
 		if !strings.Contains(r.Error(), "close") {
@@ -399,20 +401,20 @@ func TestGateKeepsRunEvidenceUntilFreshRead(t *testing.T) {
 	w := newGateWorld(t)
 	first := w.acquire(w.request("claude", workerenv.Worker, workerenv.Free, 501))
 	w.now = w.now.Add(10 * time.Second)
-	w.finish(first, Settlement{Started: true, CompleteUsage: true, PricedUSD: 0.4,
+	w.finish(first, paidrules.Settlement{Started: true, CompleteUsage: true, PricedUSD: 0.4,
 		Evidence: quota.RunEvidence{Expected: true, Seen: true, UsingOverage: true}})
 	if got := w.state().Settled[first.Reservation.ID].ChargedUSD; !near(got, 0.4) {
 		t.Fatalf("a run on overage charged %v", got)
 	}
 	w.now = w.now.Add(10 * time.Second)
 	cached := w.acquire(w.request("claude", workerenv.Worker, workerenv.Free, 502))
-	if cached.Assessment.Verdict != SubscriptionOverage {
+	if cached.Assessment.Verdict != paidrules.SubscriptionOverage {
 		t.Fatalf("after an overage run on a cached read: %s", cached.Assessment.Verdict)
 	}
-	w.finish(cached, Settlement{Started: true, CompleteUsage: true})
+	w.finish(cached, paidrules.Settlement{Started: true, CompleteUsage: true})
 	w.now = w.now.Add(5 * time.Minute)
 	fresh := w.acquire(w.request("claude", workerenv.Worker, workerenv.Free, 503))
-	if fresh.Assessment.Verdict != Subscription {
+	if fresh.Assessment.Verdict != paidrules.Subscription {
 		t.Fatalf("after a fresh read: %s", fresh.Assessment.Verdict)
 	}
 
@@ -421,7 +423,7 @@ func TestGateKeepsRunEvidenceUntilFreshRead(t *testing.T) {
 		return quota.Snapshot{}, errors.New("usage read failed")
 	}
 	r := failing.refusal(failing.request("claude", workerenv.Worker, workerenv.Free, 504), ReasonFreeVariantPaid)
-	if r.Verdict != Paid || !strings.Contains(r.Error(), "read:failed") {
+	if r.Verdict != paidrules.Paid || !strings.Contains(r.Error(), "read:failed") {
 		t.Fatalf("failed read refusal: %+v", r)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/claude"
 	"github.com/lorem-dev/duolog/internal/adapter/kit"
 	"github.com/lorem-dev/duolog/internal/adapter/mcpauth"
+	"github.com/lorem-dev/duolog/internal/adapter/paidstore"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/doctor"
@@ -171,5 +172,5 @@ func paidGate(cfg *config.Config) (*paidruns.Gate, error) {
 		_, err := st.Identity(agent, kind, raw)
 		return err
 	}}
-	return &paidruns.Gate{Store: st, Cache: &paidruns.Cache{Read: reader.ReadProcess}, Config: cfg, Layers: paidruns.ReadLayers}, nil
+	return &paidruns.Gate{Store: st, Cache: &paidstore.Cache{Read: reader.ReadProcess}, Config: cfg, Layers: paidruns.ReadLayers}, nil
 }

@@ -11,10 +11,11 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/paidstore"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/workerenv"
+	"github.com/lorem-dev/duolog/internal/core/launch"
 )
 
 // Gate is a gate on the account state in dir, which it creates, for cfg.
@@ -25,7 +26,7 @@ func Gate(dir string, cfg *config.Config) (*paidruns.Gate, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &paidruns.Gate{Store: st, Cache: &paidruns.Cache{Read: Subscription}, Config: cfg}, nil
+	return &paidruns.Gate{Store: st, Cache: &paidstore.Cache{Read: Subscription}, Config: cfg}, nil
 }
 
 // Factory returns a gate opener for delegate.NewGate that gives every
@@ -56,20 +57,26 @@ func ByWorkingDir(root string) func(*config.Config) (*paidruns.Gate, error) {
 	}
 }
 
+// Cache is a fresh route-aware cache that reads with read, for a test that
+// drops what a gate's cache holds.
+func Cache(read func(context.Context, launch.Process) (account.Snapshot, error)) *paidstore.Cache {
+	return &paidstore.Cache{Read: read}
+}
+
 // Subscription is a read of p's agent on a first-party subscription login,
 // overage off, with a five-hour and a weekly window that reset later.
-func Subscription(_ context.Context, p workerenv.Process) (quota.Snapshot, error) {
+func Subscription(_ context.Context, p launch.Process) (account.Snapshot, error) {
 	now := time.Now()
 	yes := true
-	s := quota.Snapshot{ReadAt: now, Windows: []quota.Window{
+	s := account.Snapshot{ReadAt: now, Windows: []account.Window{
 		{Kind: "session", DurationMinutes: 300, ResetsAt: now.Add(2 * time.Hour)},
 		{Kind: "weekly_all", DurationMinutes: 10080, ResetsAt: now.Add(72 * time.Hour)},
 	}}
 	switch p.Agent {
 	case "claude":
-		s.Billing = quota.BillingFacts{AuthMethod: "claude.ai", APIProvider: "firstParty", RouteKnown: true, WindowsAvailable: &yes}
+		s.Billing = account.BillingFacts{AuthMethod: "claude.ai", APIProvider: "firstParty", RouteKnown: true, WindowsAvailable: &yes}
 	case "codex":
-		s.Billing = quota.BillingFacts{AccountType: "chatgpt", AuthMode: "chatgpt", RouteKnown: true, OrdinaryUsageAllowed: &yes}
+		s.Billing = account.BillingFacts{AccountType: "chatgpt", AuthMode: "chatgpt", RouteKnown: true, OrdinaryUsageAllowed: &yes}
 	}
 	return s, nil
 }

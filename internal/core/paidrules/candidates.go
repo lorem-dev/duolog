@@ -1,17 +1,17 @@
-package paidruns
+package paidrules
 
 import (
 	"slices"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/workerenv"
+	"github.com/lorem-dev/duolog/internal/core/launch"
 )
 
 // Candidate is one way to run a task: a target and the variant of its
 // agent's process.
 type Candidate struct {
 	Target  config.Target
-	Variant workerenv.Variant
+	Variant launch.Variant
 }
 
 // Candidates orders the ways to run a task of a role whose targets are
@@ -28,8 +28,8 @@ type Candidate struct {
 func Candidates(targets []config.Target, pinned bool,
 	paid config.PaidRuns) []Candidate {
 	var out []Candidate
-	add := func(t config.Target, v workerenv.Variant) {
-		if t.Agent == "" || v == workerenv.Paid && !optedIn(paid, t.Agent) {
+	add := func(t config.Target, v launch.Variant) {
+		if t.Agent == "" || v == launch.Paid && !optedIn(paid, t.Agent) {
 			return
 		}
 		if c := (Candidate{Target: t, Variant: v}); !slices.Contains(out, c) {
@@ -38,11 +38,11 @@ func Candidates(targets []config.Target, pinned bool,
 	}
 	rest := targets
 	if pinned && len(targets) > 0 {
-		add(targets[0], workerenv.Free)
-		add(targets[0], workerenv.Paid)
+		add(targets[0], launch.Free)
+		add(targets[0], launch.Paid)
 		rest = targets[1:]
 	}
-	for _, v := range []workerenv.Variant{workerenv.Free, workerenv.Paid} {
+	for _, v := range []launch.Variant{launch.Free, launch.Paid} {
 		for _, t := range rest {
 			add(t, v)
 		}

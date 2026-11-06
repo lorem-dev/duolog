@@ -15,6 +15,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/usage"
@@ -59,7 +60,7 @@ func pluginNeeds(needs []string) []string {
 
 // variants are the variants delegation tries, in order: every free
 // candidate of the role before any paid one, and a paid pass only when the
-// role's candidates, by paidruns.Candidates, hold a paid variant. paid names
+// role's candidates, by paidrules.Candidates, hold a paid variant. paid names
 // the agents that have one.
 func variants(cfg *config.Config, role string, opts Options) ([]corelaunch.Variant, map[string]bool) {
 	var targets []config.Target
@@ -73,7 +74,7 @@ func variants(cfg *config.Config, role string, opts Options) ([]corelaunch.Varia
 		}
 	}
 	paid := map[string]bool{}
-	for _, c := range paidruns.Candidates(targets, opts.Entry != nil, cfg.PaidRuns) {
+	for _, c := range paidrules.Candidates(targets, opts.Entry != nil, cfg.PaidRuns) {
 		if c.Variant == corelaunch.Paid {
 			paid[c.Target.Agent] = true
 		}
@@ -163,7 +164,7 @@ const settleTimeout = 10 * time.Second
 func (a *permitRun) finish(ctx context.Context, cfg *config.Config, route coreroute.Route, r run.Result) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), settleTimeout)
 	defer cancel()
-	s := paidruns.Settlement{Input: r.Usage.Input, Cached: r.Usage.Cached, Output: r.Usage.Output,
+	s := paidrules.Settlement{Input: r.Usage.Input, Cached: r.Usage.Cached, Output: r.Usage.Output,
 		ReportedUSD: r.ReportedUSD, Evidence: r.Billing, Started: a.started, CompleteUsage: a.started && r.UsageComplete}
 	if cfg != nil {
 		// The run's own usage, so Claude's cache writes cost their premium.

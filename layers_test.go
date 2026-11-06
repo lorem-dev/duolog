@@ -33,13 +33,9 @@ type legacyTier struct {
 // legacyTiers gives today's packages the tier of the part that stays at their
 // path after the migration. A row goes when its package moves.
 var legacyTiers = map[string]legacyTier{
-	"internal/mode":     {tier: tierCore},
-	"internal/router":   {tier: tierCore},
-	"internal/usage":    {tier: tierCore},
-	"internal/learning": {tier: tierCore},
+	"internal/mode": {tier: tierCore},
 
 	"internal/config":     {tier: tierKit},
-	"internal/models":     {tier: tierKit},
 	"internal/rex":        {tier: tierKit},
 	"internal/bus":        {tier: tierKit},
 	"internal/journal":    {tier: tierKit},
@@ -84,16 +80,6 @@ var knownViolations = map[string]string{
 	"internal/core/learn -> go.yaml.in/yaml/v3":                 "PR 16: Render moves out once calibrate.go shrinks",
 	"internal/core/learn (test) -> internal/adapter/config":     "after PR 10: its tests load the default config",
 	"internal/core/learn -> internal/journal":                   "journal.Outcomes moves to core/record",
-	"internal/app/paidruns -> github.com/gofrs/flock":           "PR 22, boundary",
-	"internal/app/paidruns -> golang.org/x/sys/unix":            "PR 22, boundary; darwin only",
-	"internal/app/paidruns -> golang.org/x/sys/windows":         "PR 22, boundary; windows only",
-	"internal/app/paidruns -> internal/journal":                 "PR 22, boundary",
-	"internal/app/paidruns -> internal/models":                  "PR 22, boundary",
-	"internal/app/paidruns -> internal/quota":                   "PR 22, boundary",
-	"internal/app/paidruns -> internal/store":                   "PR 22, boundary",
-	"internal/app/paidruns -> internal/trusthome":               "PR 22, boundary",
-	"internal/app/paidruns -> internal/workerenv":               "PR 22, boundary",
-	"internal/app/paidruns -> syscall":                          "PR 22, boundary; darwin and linux only",
 	"internal/app/peer (test) -> internal/quota":                "PR 29",
 	"internal/app/peer -> internal/capability":                  "PR 40",
 	"internal/app/peer -> internal/adapter/config":              "after PR 10: a peer loads the config files",
@@ -106,7 +92,7 @@ var knownViolations = map[string]string{
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 36
+const maxKnownViolations = 26
 
 // Reasons of the allowed edges, one per target.
 const (
@@ -180,7 +166,8 @@ func invalidAllowedEdges(m map[string]string) []string {
 }
 
 // boundaryExceptions are the imports of the security boundary that stay on
-// purpose ("security boundary: moves only").
+// purpose ("security boundary: moves only"): the gate's since PR 20, the paid
+// runs part since PR 22.
 var boundaryExceptions = map[string]string{
 	// core/policy reads the file system as part of the security decision: the
 	// protected-path check compares file identity, the exec checks expand ~ with
@@ -200,6 +187,16 @@ var boundaryExceptions = map[string]string{
 	"internal/app/gate -> internal/trust":                  "security boundary: moves only; lead.go",
 	"internal/app/gate -> internal/trusthome":              "security boundary: moves only; lead.go",
 	"internal/app/gate (test) -> internal/config":          "security boundary: moves only; gate_test.go and other tests load the default config",
+
+	"internal/app/paidruns -> github.com/gofrs/flock":     "security boundary: moves only; state.go locks the account state folder for Store.Update and Store.View",
+	"internal/app/paidruns -> golang.org/x/sys/unix":      "security boundary: moves only; process_darwin.go reads a process's start time, the birth of an Owner (darwin only)",
+	"internal/app/paidruns -> golang.org/x/sys/windows":   "security boundary: moves only; process_windows.go probes a process and reads its creation time (windows only)",
+	"internal/app/paidruns -> syscall":                    "security boundary: moves only; process_unix.go probes a process with signal 0 (darwin and linux only)",
+	"internal/app/paidruns -> internal/adapter/paidstore": "security boundary: moves only; gate.go keeps the route-aware quota cache, paidstore.Cache, in Gate.Cache",
+	"internal/app/paidruns -> internal/quota":             "security boundary: moves only; pace.go reads with quota.Reader.ReadProcess, and admission.go, gate.go and report.go key the account by quota.IdentityAccount (kept for the boundary)",
+	"internal/app/paidruns -> internal/store":             "security boundary: moves only; state.go and pace.go replace their files with store.Rename",
+	"internal/app/paidruns -> internal/trusthome":         "security boundary: moves only; gate.go finds the home of a worker's environment with trusthome.HomeIn (kept for the boundary)",
+	"internal/app/paidruns -> internal/workerenv":         "security boundary: moves only; gate.go, pace.go and report.go build processes and read settings layers with workerenv.Build, SettingsLayers, ArgvLayers and ReadLayer (kept for the boundary)",
 }
 
 // boundaryPackages are the packages whose imports boundaryExceptions may hold.
@@ -244,7 +241,7 @@ func TestLayers(t *testing.T) {
 			{"internal/app/delegate", m + "internal/newthing", false, "unknown-tier"},
 			{"internal/app/hook", m + "internal/telemetry", false, ""},
 			{"internal/app/delegate", m + "internal/rex", false, "app-imports-adapter"},
-			{"internal/router", m + "internal/models", false, "core-imports-outer"},
+			{"internal/mode", m + "internal/config", false, "core-imports-outer"},
 		}
 		for _, c := range cases {
 			if got := layerRule(c.from, c.to, c.test); got != c.want {

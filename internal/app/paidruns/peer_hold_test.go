@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -71,7 +72,7 @@ func TestReconcileTakesLaunchToken(t *testing.T) {
 
 // launcher is the process of duolog peer launch in a pane, which records
 // itself on its pane's hold once it took the env file.
-var launcher = Owner{PID: 5151, Birth: "b-5151"}
+var launcher = paidrules.Owner{PID: 5151, Birth: "b-5151"}
 
 // launchedPane admits pane p1's open, marks its launch with a token that the
 // launcher already took and lets its supervisor die: the input of re-review
@@ -184,10 +185,10 @@ func TestReleaseEndsANamedHold(t *testing.T) {
 	w := newWorld()
 	open := peerOf(paidTask("pane", "claude", 1))
 	open.Reservation.Peer = "p1"
-	started(t, st, open, Owner{Pane: "block-1"})
+	started(t, st, open, paidrules.Owner{Pane: "block-1"})
 	send := sendTo(paidTask("send", "claude", 1), "pane")
 	send.Reservation.Peer = "p1"
-	started(t, st, send, Owner{Pane: "block-1"})
+	started(t, st, send, paidrules.Owner{Pane: "block-1"})
 	w.set(supervisor.PID, Gone, "")
 	w.pane("block-1", Alive)
 	if _, err := st.EndHold(ctx, "p1", w.input(now)); err == nil || !strings.Contains(err.Error(), "its pane still runs") {
@@ -213,12 +214,12 @@ func TestReportShowsRetainedHolds(t *testing.T) {
 	w := newGateWorld(t)
 	created := w.now.Add(-time.Hour)
 	if err := w.store.Update(ctx, func(st *State) error {
-		st.Reservations["pane"] = Reservation{ID: "pane", Agent: "claude", Shape: workerenv.Peer, Peer: "p1", Session: true,
-			Task: true, Created: created, Estimate: Estimate{USD: 1.5}, Paid: true,
+		st.Reservations["pane"] = paidrules.Reservation{ID: "pane", Agent: "claude", Shape: workerenv.Peer, Peer: "p1", Session: true,
+			Task: true, Created: created, Estimate: paidrules.Estimate{USD: 1.5}, Paid: true,
 			Retained: "its supervisor ended during the launch; a child may run unrecorded"}
-		st.Reservations["work"] = Reservation{ID: "work", Agent: "codex", Shape: workerenv.Worker, Session: true,
+		st.Reservations["work"] = paidrules.Reservation{ID: "work", Agent: "codex", Shape: workerenv.Worker, Session: true,
 			Task: true, Created: created, Retained: "its process cannot be checked"}
-		st.Reservations["live"] = Reservation{ID: "live", Agent: "codex", Shape: workerenv.Worker, Session: true, Created: created}
+		st.Reservations["live"] = paidrules.Reservation{ID: "live", Agent: "codex", Shape: workerenv.Worker, Session: true, Created: created}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -271,7 +272,7 @@ func TestIdlePaneDoesNotBlockOneTask(t *testing.T) {
 			// The pane's first send waits for the delegation's task.
 			send := sendTo(c.work(), "pane")
 			send.Reservation.ID = "send"
-			e, err := st.enter(ctx, send, &line{}, TierResult{}, nil, false)
+			e, err := st.enter(ctx, send, &line{}, paidrules.TierResult{}, nil, false)
 			if err != nil {
 				t.Fatal(err)
 			}

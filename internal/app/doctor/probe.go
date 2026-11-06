@@ -14,6 +14,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/usage"
 )
@@ -82,7 +83,7 @@ func probe(ctx context.Context, d Deps, agent string, cfg *config.Config, entrie
 		// was cancelled; a call that never started gives its hold back.
 		settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), probeSettleTimeout)
 		defer cancel()
-		s := paidruns.Settlement{Input: measured.Input, Cached: measured.Cached, Output: measured.Output,
+		s := paidrules.Settlement{Input: measured.Input, Cached: measured.Cached, Output: measured.Output,
 			ReportedUSD: measured.CostUSD, Started: started, CompleteUsage: started && measured.Known}
 		if priced, ok := usage.Cost(cfg, agent, model, measured.Tokens); ok && priced >= 0 {
 			s.PricedUSD = priced
@@ -118,7 +119,7 @@ func admitProbe(ctx context.Context, build launch.Build, g *paidruns.Gate, cfg *
 	}
 	loc := corelaunch.Locations{Home: home, Root: dir, GOOS: runtime.GOOS, Environ: free.Env}
 	variants := []corelaunch.Variant{corelaunch.Free}
-	for _, c := range paidruns.Candidates([]config.Target{{Agent: agent}}, true, cfg.PaidRuns) {
+	for _, c := range paidrules.Candidates([]config.Target{{Agent: agent}}, true, cfg.PaidRuns) {
 		if c.Variant == corelaunch.Paid {
 			variants = append(variants, corelaunch.Paid)
 		}

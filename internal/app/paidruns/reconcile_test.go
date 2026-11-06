@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -59,8 +60,8 @@ func (w *world) look(pid int) (Presence, string) {
 // platform probe, panes by their ID.
 func (w *world) input(now time.Time) ReconcileInput {
 	return ReconcileInput{
-		Process: func(o Owner) Presence { return processPresence(o, w.look) },
-		Pane: func(_ context.Context, o Owner) Presence {
+		Process: func(o paidrules.Owner) Presence { return processPresence(o, w.look) },
+		Pane: func(_ context.Context, o paidrules.Owner) Presence {
 			w.mu.Lock()
 			defer w.mu.Unlock()
 			w.probes++
@@ -80,10 +81,10 @@ func mustReconcile(t *testing.T, st *Store, in ReconcileInput) {
 }
 
 // supervisor is the owner that workerTask admits with.
-var supervisor = Owner{PID: 4242, Birth: "b-4242"}
+var supervisor = paidrules.Owner{PID: 4242, Birth: "b-4242"}
 
 // started admits in, marks its launch and attaches child.
-func started(t *testing.T, st *Store, in Admission, child Owner) {
+func started(t *testing.T, st *Store, in Admission, child paidrules.Owner) {
 	t.Helper()
 	ctx := context.Background()
 	mustAdmit(t, st, in)
@@ -104,7 +105,7 @@ func peerOpen(id string, usd float64) Admission {
 
 // wantHeld checks that reservation id is still held, started, and reported
 // when report is set, or not reported.
-func wantHeld(t *testing.T, st *Store, id string, report bool) Reservation {
+func wantHeld(t *testing.T, st *Store, id string, report bool) paidrules.Reservation {
 	t.Helper()
 	r, ok := readState(t, st).Reservations[id]
 	if !ok {
@@ -130,7 +131,7 @@ func TestReconcileRetainsLiveChildAndUncertainPeer(t *testing.T) {
 		now := ledgerNow
 		st := testStore(t, &now)
 		w := newWorld()
-		started(t, st, paidTask("run", "claude", 1), Owner{PID: 7, Birth: "b-7"})
+		started(t, st, paidTask("run", "claude", 1), paidrules.Owner{PID: 7, Birth: "b-7"})
 		w.set(supervisor.PID, Gone, "")
 		w.set(7, Alive, "b-7")
 		for range 3 {
@@ -152,7 +153,7 @@ func TestReconcileRetainsLiveChildAndUncertainPeer(t *testing.T) {
 		now := ledgerNow
 		st := testStore(t, &now)
 		w := newWorld()
-		started(t, st, paidTask("run", "claude", 1), Owner{PID: 7, Birth: "b-7"})
+		started(t, st, paidTask("run", "claude", 1), paidrules.Owner{PID: 7, Birth: "b-7"})
 		w.set(supervisor.PID, Gone, "")
 		// Another process was born at the child's ID.
 		w.set(7, Alive, "b-7-again")
@@ -176,7 +177,7 @@ func TestReconcileRetainsLiveChildAndUncertainPeer(t *testing.T) {
 				now := ledgerNow
 				st := testStore(t, &now)
 				w := newWorld()
-				started(t, st, paidTask("run", "claude", 1), Owner{PID: 7, Birth: "b-7"})
+				started(t, st, paidTask("run", "claude", 1), paidrules.Owner{PID: 7, Birth: "b-7"})
 				w.set(supervisor.PID, Gone, "")
 				w.set(7, p.state, p.birth)
 				mustReconcile(t, st, w.input(now))
@@ -192,7 +193,7 @@ func TestReconcileRetainsLiveChildAndUncertainPeer(t *testing.T) {
 		w := newWorld()
 		// A child recorded without its birth cannot be told from a process
 		// that took its ID later.
-		started(t, st, paidTask("no-birth", "claude", 1), Owner{PID: 7})
+		started(t, st, paidTask("no-birth", "claude", 1), paidrules.Owner{PID: 7})
 		w.set(supervisor.PID, Gone, "")
 		w.set(7, Alive, "b-7")
 		// A started record without any child.
@@ -230,7 +231,7 @@ func TestReconcileRetainsLiveChildAndUncertainPeer(t *testing.T) {
 		wantSpent(t, st, "claude", now.Add(72*time.Hour), 0, 1)
 		// A supervisor that cannot be checked proves nothing either.
 		unchecked := paidTask("unchecked", "codex", 1)
-		unchecked.Reservation.Supervisor = Owner{PID: 5555, Birth: "b-5555"}
+		unchecked.Reservation.Supervisor = paidrules.Owner{PID: 5555, Birth: "b-5555"}
 		mustAdmit(t, st, unchecked)
 		mustReconcile(t, st, w.input(now))
 		wantHeld(t, st, "unchecked", true)
@@ -240,7 +241,7 @@ func TestReconcileRetainsLiveChildAndUncertainPeer(t *testing.T) {
 		now := ledgerNow
 		st := testStore(t, &now)
 		w := newWorld()
-		started(t, st, peerOpen("pane", 1), Owner{Pane: "pane-7", PeerSession: "peer-7"})
+		started(t, st, peerOpen("pane", 1), paidrules.Owner{Pane: "pane-7", PeerSession: "peer-7"})
 		w.set(supervisor.PID, Gone, "")
 		// No pane probe answers.
 		mustReconcile(t, st, w.input(now))
@@ -260,7 +261,7 @@ func TestReconcileRetainsLiveChildAndUncertainPeer(t *testing.T) {
 		now := ledgerNow
 		st := testStore(t, &now)
 		w := newWorld()
-		started(t, st, peerOpen("pane", 1), Owner{PID: 9, Birth: "b-9", Pane: "pane-7", PeerSession: "peer-7"})
+		started(t, st, peerOpen("pane", 1), paidrules.Owner{PID: 9, Birth: "b-9", Pane: "pane-7", PeerSession: "peer-7"})
 		// The supervisor and the pane's own process ID are gone, yet the
 		// pane service shows the pane: the pane decides.
 		w.set(supervisor.PID, Gone, "")
@@ -275,7 +276,7 @@ func TestReconcileRetainsLiveChildAndUncertainPeer(t *testing.T) {
 		now := ledgerNow
 		st := testStore(t, &now)
 		w := newWorld()
-		started(t, st, peerOpen("pane", 0.75), Owner{Pane: "pane-7", PeerSession: "peer-7"})
+		started(t, st, peerOpen("pane", 0.75), paidrules.Owner{Pane: "pane-7", PeerSession: "peer-7"})
 		w.set(supervisor.PID, Gone, "")
 		w.pane("pane-7", Gone)
 		mustReconcile(t, st, w.input(now))
@@ -302,11 +303,11 @@ func TestReconcileRetainsLiveChildAndUncertainPeer(t *testing.T) {
 		now := ledgerNow
 		st := testStore(t, &now)
 		w := newWorld()
-		started(t, st, peerOpen("pane", 0.75), Owner{Pane: "pane-7", PeerSession: "peer-7"})
-		mustSettle(t, st, Settlement{ID: "pane", Started: true, CompleteUsage: true})
+		started(t, st, peerOpen("pane", 0.75), paidrules.Owner{Pane: "pane-7", PeerSession: "peer-7"})
+		mustSettle(t, st, paidrules.Settlement{ID: "pane", Started: true, CompleteUsage: true})
 		send := peerOpen("send", 0.5)
 		send.Reservation.SessionID, send.Reservation.Session = "pane", false
-		started(t, st, send, Owner{Pane: "pane-7", PeerSession: "peer-7"})
+		started(t, st, send, paidrules.Owner{Pane: "pane-7", PeerSession: "peer-7"})
 		w.set(supervisor.PID, Gone, "")
 		w.pane("pane-7", Gone)
 		mustReconcile(t, st, w.input(now))
@@ -324,14 +325,14 @@ func TestReconcileRetainsLiveChildAndUncertainPeer(t *testing.T) {
 		now := ledgerNow
 		st := testStore(t, &now)
 		w := newWorld()
-		started(t, st, peerOpen("pane", 1), Owner{Pane: "pane-7"})
+		started(t, st, peerOpen("pane", 1), paidrules.Owner{Pane: "pane-7"})
 		w.set(supervisor.PID, Alive, supervisor.Birth)
 		w.pane("pane-7", Gone)
 		mustReconcile(t, st, w.input(now))
 		wantHeld(t, st, "pane", false)
 		// The live supervisor settles what it measured, then the closed
 		// pane's session ends.
-		mustSettle(t, st, Settlement{ID: "pane", PricedUSD: 0.25, Started: true, CompleteUsage: true})
+		mustSettle(t, st, paidrules.Settlement{ID: "pane", PricedUSD: 0.25, Started: true, CompleteUsage: true})
 		mustReconcile(t, st, w.input(now))
 		wantGone(t, st, "pane")
 		wantSpent(t, st, "claude", now, 0.25, 0)
@@ -343,8 +344,8 @@ func TestReconcileRetainsLiveChildAndUncertainPeer(t *testing.T) {
 		w := newWorld()
 		// A paid agent runs one task at a time: each settles before the next.
 		for i, id := range []string{"closed", "open", "unknown"} {
-			started(t, st, peerOpen(id, 1), Owner{Pane: "pane-" + strconv.Itoa(i+1)})
-			mustSettle(t, st, Settlement{ID: id, PricedUSD: 0.5, Started: true, CompleteUsage: true})
+			started(t, st, peerOpen(id, 1), paidrules.Owner{Pane: "pane-" + strconv.Itoa(i+1)})
+			mustSettle(t, st, paidrules.Settlement{ID: id, PricedUSD: 0.5, Started: true, CompleteUsage: true})
 		}
 		w.set(supervisor.PID, Gone, "")
 		w.pane("pane-1", Gone)
@@ -363,9 +364,9 @@ func TestReconcileRetainsLiveChildAndUncertainPeer(t *testing.T) {
 		now := ledgerNow
 		st := testStore(t, &now)
 		w := newWorld()
-		started(t, st, paidTask("paid", "claude", 1.25), Owner{PID: 7, Birth: "b-7"})
-		started(t, st, freeTask("free", "codex", "personal", now), Owner{PID: 8, Birth: "b-8"})
-		started(t, st, paidTask("settling", "codex", 2), Owner{PID: 10, Birth: "b-10"})
+		started(t, st, paidTask("paid", "claude", 1.25), paidrules.Owner{PID: 7, Birth: "b-7"})
+		started(t, st, freeTask("free", "codex", "personal", now), paidrules.Owner{PID: 8, Birth: "b-8"})
+		started(t, st, paidTask("settling", "codex", 2), paidrules.Owner{PID: 10, Birth: "b-10"})
 		w.set(7, Gone, "")
 		w.set(8, Gone, "")
 		w.set(10, Gone, "")
@@ -373,7 +374,7 @@ func TestReconcileRetainsLiveChildAndUncertainPeer(t *testing.T) {
 		// of its own that still reads the child's usage.
 		if err := st.Update(ctx, func(s *State) error {
 			r := s.Reservations["settling"]
-			r.Supervisor = Owner{PID: 11, Birth: "b-11"}
+			r.Supervisor = paidrules.Owner{PID: 11, Birth: "b-11"}
 			s.Reservations["settling"] = r
 			return nil
 		}); err != nil {
@@ -394,7 +395,7 @@ func TestReconcileRetainsLiveChildAndUncertainPeer(t *testing.T) {
 		}
 		// The supervisor that lived settles its measured cost, not the
 		// estimate.
-		mustSettle(t, st, Settlement{ID: "settling", PricedUSD: 0.5, Started: true, CompleteUsage: true})
+		mustSettle(t, st, paidrules.Settlement{ID: "settling", PricedUSD: 0.5, Started: true, CompleteUsage: true})
 		mustReconcile(t, st, w.input(now))
 		wantSpent(t, st, "codex", now, 0.5, 0)
 	})
@@ -405,18 +406,18 @@ func TestReconcileRetainsLiveChildAndUncertainPeer(t *testing.T) {
 		}
 		for _, tc := range []struct {
 			name  string
-			owner Owner
+			owner paidrules.Owner
 			look  func(int) (Presence, string)
 			want  Presence
 		}{
-			{"same birth", Owner{PID: 7, Birth: "b"}, look(Alive, "b"), Alive},
-			{"reused ID", Owner{PID: 7, Birth: "b"}, look(Alive, "c"), Gone},
-			{"no process", Owner{PID: 7, Birth: "b"}, look(Gone, ""), Gone},
-			{"no process, no birth recorded", Owner{PID: 7}, look(Gone, ""), Gone},
-			{"permission denied", Owner{PID: 7, Birth: "b"}, look(Unknown, ""), Unknown},
-			{"birth unreadable", Owner{PID: 7, Birth: "b"}, look(Alive, ""), Unknown},
-			{"no birth recorded", Owner{PID: 7}, look(Alive, "b"), Unknown},
-			{"no process ID", Owner{Birth: "b"}, look(Alive, "b"), Unknown},
+			{"same birth", paidrules.Owner{PID: 7, Birth: "b"}, look(Alive, "b"), Alive},
+			{"reused ID", paidrules.Owner{PID: 7, Birth: "b"}, look(Alive, "c"), Gone},
+			{"no process", paidrules.Owner{PID: 7, Birth: "b"}, look(Gone, ""), Gone},
+			{"no process, no birth recorded", paidrules.Owner{PID: 7}, look(Gone, ""), Gone},
+			{"permission denied", paidrules.Owner{PID: 7, Birth: "b"}, look(Unknown, ""), Unknown},
+			{"birth unreadable", paidrules.Owner{PID: 7, Birth: "b"}, look(Alive, ""), Unknown},
+			{"no birth recorded", paidrules.Owner{PID: 7}, look(Alive, "b"), Unknown},
+			{"no process ID", paidrules.Owner{Birth: "b"}, look(Alive, "b"), Unknown},
 		} {
 			if got := processPresence(tc.owner, tc.look); got != tc.want {
 				t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
@@ -445,13 +446,13 @@ func TestReconcileRetainsLiveChildAndUncertainPeer(t *testing.T) {
 		if got := ProbeProcess(o); got != Alive {
 			t.Fatalf("running child %v", got)
 		}
-		if got := ProbeProcess(Owner{PID: pid, Birth: o.Birth + "-other"}); got != Gone {
+		if got := ProbeProcess(paidrules.Owner{PID: pid, Birth: o.Birth + "-other"}); got != Gone {
 			t.Fatalf("other birth at the child's ID %v", got)
 		}
-		if got := ProbeProcess(Owner{PID: pid}); got != Unknown {
+		if got := ProbeProcess(paidrules.Owner{PID: pid}); got != Unknown {
 			t.Fatalf("child without birth %v", got)
 		}
-		if got := ProbeProcess(Owner{}); got != Unknown {
+		if got := ProbeProcess(paidrules.Owner{}); got != Unknown {
 			t.Fatalf("no process ID %v", got)
 		}
 		exitedNormally(t, cmd, stdin)
@@ -503,7 +504,7 @@ func TestReconcileAfterCrashAtEveryTransition(t *testing.T) {
 		now := ledgerNow
 		st := testStore(t, &now)
 		w := newWorld()
-		started(t, st, paidTask("run", "claude", 1), Owner{PID: 7, Birth: "b-7"})
+		started(t, st, paidTask("run", "claude", 1), paidrules.Owner{PID: 7, Birth: "b-7"})
 		w.set(supervisor.PID, Gone, "")
 		w.set(7, Alive, "b-7")
 		for range 3 {
@@ -524,7 +525,7 @@ func TestReconcileAfterCrashAtEveryTransition(t *testing.T) {
 		now := ledgerNow
 		st := testStore(t, &now)
 		w := newWorld()
-		started(t, st, paidTask("run", "claude", 1.5), Owner{PID: 7, Birth: "b-7"})
+		started(t, st, paidTask("run", "claude", 1.5), paidrules.Owner{PID: 7, Birth: "b-7"})
 		w.set(supervisor.PID, Gone, "")
 		w.set(7, Gone, "")
 		mustReconcile(t, st, w.input(now))
@@ -536,7 +537,7 @@ func TestReconcileAfterCrashAtEveryTransition(t *testing.T) {
 			mustReconcile(t, st, w.input(now))
 		}
 		// A supervisor that comes back late cannot charge again.
-		mustSettle(t, st, Settlement{ID: "run", PricedUSD: 4, Started: true, CompleteUsage: true})
+		mustSettle(t, st, paidrules.Settlement{ID: "run", PricedUSD: 4, Started: true, CompleteUsage: true})
 		if after := readState(t, st); !reflect.DeepEqual(after, before) {
 			t.Fatalf("repeated recovery changed the state:\n%+v\n%+v", before, after)
 		}
@@ -547,8 +548,8 @@ func TestReconcileAfterCrashAtEveryTransition(t *testing.T) {
 		now := ledgerNow
 		st := testStore(t, &now)
 		w := newWorld()
-		started(t, st, paidTask("run", "claude", 1), Owner{PID: 7, Birth: "b-7"})
-		mustSettle(t, st, Settlement{ID: "run", PricedUSD: 0.25, Started: true, CompleteUsage: true})
+		started(t, st, paidTask("run", "claude", 1), paidrules.Owner{PID: 7, Birth: "b-7"})
+		mustSettle(t, st, paidrules.Settlement{ID: "run", PricedUSD: 0.25, Started: true, CompleteUsage: true})
 		w.set(supervisor.PID, Gone, "")
 		w.set(7, Gone, "")
 		before := readState(t, st)
@@ -565,7 +566,7 @@ func TestReconcileAfterCrashAtEveryTransition(t *testing.T) {
 		now := ledgerNow
 		st := testStore(t, &now)
 		w := newWorld()
-		started(t, st, paidTask("old", "claude", 4.5), Owner{PID: 7, Birth: "b-7"})
+		started(t, st, paidTask("old", "claude", 4.5), paidrules.Owner{PID: 7, Birth: "b-7"})
 		w.set(supervisor.PID, Gone, "")
 		later := now.Add(30 * time.Hour)
 		now = later
@@ -587,9 +588,9 @@ func TestReconcileAfterCrashAtEveryTransition(t *testing.T) {
 			"in-future": now.Add(time.Hour),
 		} {
 			mustAdmit(t, st, paidTask(id, "claude", 0.5))
-			mustSettle(t, st, Settlement{ID: id, PricedUSD: 0.5, Started: true, CompleteUsage: true, Ended: ended})
+			mustSettle(t, st, paidrules.Settlement{ID: id, PricedUSD: 0.5, Started: true, CompleteUsage: true, Ended: ended})
 		}
-		started(t, st, paidTask("old-run", "codex", 1), Owner{PID: 7, Birth: "b-7"})
+		started(t, st, paidTask("old-run", "codex", 1), paidrules.Owner{PID: 7, Birth: "b-7"})
 		w.set(7, Alive, "b-7")
 		wantSpent(t, st, "claude", now, 1.5, 0)
 		mustReconcile(t, st, w.input(now))
@@ -615,7 +616,7 @@ func TestReconcileAfterCrashAtEveryTransition(t *testing.T) {
 		mustAdmit(t, st, paidTask("racing", "claude", 1))
 		attached := false
 		in := ReconcileInput{
-			Process: func(o Owner) Presence {
+			Process: func(o paidrules.Owner) Presence {
 				// While the supervisor is probed, another process attaches
 				// the child: the lock must be free, and the stale probe must
 				// not release the now started task.
@@ -624,7 +625,7 @@ func TestReconcileAfterCrashAtEveryTransition(t *testing.T) {
 					if err := st.Launch(ctx, "racing"); err != nil {
 						t.Error(err)
 					}
-					if err := st.Attach(ctx, "racing", Owner{PID: 7, Birth: "b-7"}); err != nil {
+					if err := st.Attach(ctx, "racing", paidrules.Owner{PID: 7, Birth: "b-7"}); err != nil {
 						t.Error(err)
 					}
 				}

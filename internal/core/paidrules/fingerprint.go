@@ -1,4 +1,4 @@
-package paidruns
+package paidrules
 
 import (
 	"crypto/sha256"
@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/lorem-dev/duolog/internal/quota"
+	coreaccount "github.com/lorem-dev/duolog/internal/core/account"
 )
 
 // fingerprintDomain keeps a fingerprint from matching any other digest.
@@ -21,7 +21,7 @@ const fingerprintDomain = "duolog paid runs account fingerprint v1"
 // no longer apply. The plan name only changes the fingerprint; it never
 // decides an account kind or a tier. The result is a SHA-256 digest, so no
 // plan name or key is kept in it.
-func Fingerprint(agent, identityKey string, s quota.Snapshot) string {
+func Fingerprint(agent, identityKey string, s coreaccount.Snapshot) string {
 	h := sha256.New()
 	part := func(v string) {
 		h.Write(binary.BigEndian.AppendUint64(nil, uint64(len(v))))
@@ -39,8 +39,8 @@ func Fingerprint(agent, identityKey string, s quota.Snapshot) string {
 
 // windowShape lists the read's windows by scope, kind, group, model and
 // length, in a stable order.
-func windowShape(s quota.Snapshot) []string {
-	shape := func(scope string, w quota.Window) string {
+func windowShape(s coreaccount.Snapshot) []string {
+	shape := func(scope string, w coreaccount.Window) string {
 		return scope + "\x00" + w.Kind + "\x00" + w.Group + "\x00" + w.Model + "\x00" + strconv.Itoa(w.DurationMinutes)
 	}
 	var out []string

@@ -126,7 +126,7 @@ func TestPeerSendKeepsPaneRoute(t *testing.T) {
 
 			// A new command reads afresh: nothing cached says paid.
 			paid = false
-			r.gate.Cache = &paidruns.Cache{Read: r.gate.Cache.Read}
+			r.gate.Cache = paidrunstest.Cache(r.gate.Cache.Read)
 			if c.key {
 				if err := os.Unsetenv("OPENAI_API_KEY"); err != nil {
 					t.Fatal(err)

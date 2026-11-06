@@ -17,71 +17,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
-type Window struct {
-	Kind            string    `json:"kind"`
-	Group           string    `json:"group,omitempty"`
-	Model           string    `json:"model,omitempty"`
-	DurationMinutes int       `json:"duration_minutes,omitempty"`
-	UsedPercent     float64   `json:"used_percent"`
-	ResetsAt        time.Time `json:"resets_at"`
-	Severity        string    `json:"severity,omitempty"`
-	Active          bool      `json:"active,omitempty"`
-}
-
-type ExtraUsage struct {
-	Enabled      bool     `json:"enabled"`
-	UsedCredits  float64  `json:"used_credits"`
-	MonthlyLimit *float64 `json:"monthly_limit"`
-}
-
-type Credits struct {
-	HasCredits bool    `json:"hasCredits"`
-	Unlimited  bool    `json:"unlimited"`
-	Balance    *string `json:"balance,omitempty"`
-}
-
-// Snapshot contains quota fields and billing evidence only; identity and
-// credentials are discarded.
-type Snapshot struct {
-	Plan                string              `json:"plan,omitempty"`
-	Windows             []Window            `json:"windows"`
-	ModelLimits         map[string][]Window `json:"model_limits,omitempty"`
-	ExtraUsage          *ExtraUsage         `json:"extra_usage,omitempty"`
-	Credits             *Credits            `json:"credits,omitempty"`
-	Rejected            bool                `json:"rejected"`
-	SpendControlReached bool                `json:"spend_control_reached,omitempty"`
-	Billing             BillingFacts        `json:"billing"`
-	ReadAt              time.Time           `json:"read_at"`
-}
-
-// Healthy requires current, explicit headroom in every reported window.
-func (s Snapshot) Healthy(now time.Time) bool {
-	if s.Rejected || s.SpendControlReached || len(s.Windows) == 0 {
-		return false
-	}
-	check := func(windows []Window) bool {
-		for _, w := range windows {
-			if w.UsedPercent < 0 || w.UsedPercent >= 100 || !w.ResetsAt.After(now) || rejected(w.Severity) {
-				return false
-			}
-		}
-		return true
-	}
-	if !check(s.Windows) {
-		return false
-	}
-	for _, windows := range s.ModelLimits {
-		if !check(windows) {
-			return false
-		}
-	}
-	return true
-}
+// The read's data types live in core/account, which the paid-runs rules
+// read without reading anything themselves.
+type (
+	Window     = account.Window
+	ExtraUsage = account.ExtraUsage
+	Credits    = account.Credits
+	Snapshot   = account.Snapshot
+)
 
 type Reader struct {
 	Version string
@@ -144,7 +93,7 @@ func (r Reader) ReadProcess(ctx context.Context, p workerenv.Process) (Snapshot,
 		timeout = 15 * time.Second
 	}
 	s, err := r.readOnce(ctx, p, timeout, claudeAuthTimeout)
-	if !r.Once && ctx.Err() == nil && (errors.Is(err, ErrTimedOut) || err == nil && s.Billing.timedOut()) {
+	if !r.Once && ctx.Err() == nil && (errors.Is(err, ErrTimedOut) || err == nil && timedOut(s.Billing)) {
 		s, err = r.readOnce(ctx, p, retryFactor*timeout, retryFactor*claudeAuthTimeout)
 	}
 	return s, err
@@ -261,17 +210,8 @@ func plan(value string) string {
 	return ""
 }
 
-// Rejected reports whether the account refuses runs in this window whatever
-// its used percent says.
-func (w Window) Rejected() bool { return rejected(w.Severity) }
-
-func rejected(value string) bool {
-	switch value {
-	case "rejected", "blocked", "exceeded":
-		return true
-	}
-	return false
-}
+// rejected reports whether a severity refuses runs, as Window.Rejected does.
+func rejected(value string) bool { return Window{Severity: value}.Rejected() }
 
 func safeSeverity(value string) string {
 	switch value {
@@ -482,7 +422,7 @@ func parseCodex(data []byte) (Snapshot, error) {
 	// is never read: duolog neither counts nor spends a reset.
 	ordinary := joinPermissions(readCodexPermission(top), l.facts.ordinary)
 	billing := BillingFacts{OrdinaryUsageAllowed: ordinary, ResetCredits: l.facts.resetCredits}
-	billing.addCodexLimit(l.facts)
+	addCodexLimit(&billing, l.facts)
 	if len(windows) == 0 {
 		return Snapshot{Billing: billing}, errors.New("no quota windows")
 	}
@@ -505,7 +445,7 @@ func parseCodex(data []byte) (Snapshot, error) {
 		if err != nil {
 			return Snapshot{}, err
 		}
-		s.Billing.addCodexLimit(limit.facts)
+		addCodexLimit(&s.Billing, limit.facts)
 		// A limit without windows of its own, or with the account's, is the
 		// account's limit. A scoped block stays with its family's windows,
 		// so the account and the other families keep their state.

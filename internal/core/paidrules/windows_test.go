@@ -1,20 +1,20 @@
-package paidruns
+package paidrules
 
 import (
 	"math"
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/quota"
+	coreaccount "github.com/lorem-dev/duolog/internal/core/account"
 )
 
 // codexScoped is a Codex read with account windows and per-family limits:
 // luna's own limit is rejected, sol's is at 40 %, and "codex" names no one
 // family.
-func codexScoped() quota.Snapshot {
+func codexScoped() coreaccount.Snapshot {
 	s := snapshot("codex")
 	week := now.Add(72 * time.Hour)
-	s.ModelLimits = map[string][]quota.Window{
+	s.ModelLimits = map[string][]coreaccount.Window{
 		"luna":  {{Kind: "weekly_all", DurationMinutes: 10080, UsedPercent: 20, ResetsAt: week, Severity: "rejected"}},
 		"sol":   {{Kind: "weekly_all", DurationMinutes: 10080, UsedPercent: 40, ResetsAt: week}},
 		"codex": {{Kind: "weekly_all", DurationMinutes: 10080, UsedPercent: 25, ResetsAt: week}},
@@ -155,9 +155,9 @@ func TestUsableHeadroomReservesAndScopedLimits(t *testing.T) {
 		c := snapshot("claude")
 		week := now.Add(72 * time.Hour)
 		c.Windows = append(c.Windows,
-			quota.Window{Kind: "weekly_opus", Group: "weekly", DurationMinutes: 10080, UsedPercent: 100, ResetsAt: week},
-			quota.Window{Kind: "weekly_scoped", Group: "weekly", Model: "opus 5", DurationMinutes: 10080, UsedPercent: 95, ResetsAt: week},
-			quota.Window{Kind: "weekly_scoped", Group: "weekly", Model: "nova", DurationMinutes: 10080, UsedPercent: 10, ResetsAt: week})
+			coreaccount.Window{Kind: "weekly_opus", Group: "weekly", DurationMinutes: 10080, UsedPercent: 100, ResetsAt: week},
+			coreaccount.Window{Kind: "weekly_scoped", Group: "weekly", Model: "opus 5", DurationMinutes: 10080, UsedPercent: 95, ResetsAt: week},
+			coreaccount.Window{Kind: "weekly_scoped", Group: "weekly", Model: "nova", DurationMinutes: 10080, UsedPercent: 10, ResetsAt: week})
 		sonnet, err := WindowCosts(c, "sonnet", task, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -173,9 +173,9 @@ func TestUsableHeadroomReservesAndScopedLimits(t *testing.T) {
 			t.Fatalf("opus = %+v", opus)
 		}
 
-		for name, blocked := range map[string]func(*quota.Snapshot){
-			"account rejected":      func(s *quota.Snapshot) { s.Rejected = true },
-			"spend control reached": func(s *quota.Snapshot) { s.SpendControlReached = true },
+		for name, blocked := range map[string]func(*coreaccount.Snapshot){
+			"account rejected":      func(s *coreaccount.Snapshot) { s.Rejected = true },
+			"spend control reached": func(s *coreaccount.Snapshot) { s.SpendControlReached = true },
 		} {
 			s := codexScoped()
 			blocked(&s)
@@ -190,9 +190,9 @@ func TestUsableHeadroomReservesAndScopedLimits(t *testing.T) {
 		// The weekly window has room for the task, but only inside the
 		// lead's reserve: .845 used + .01 cost + .15 reserve > 1.
 		s.Windows[1].UsedPercent = 84.5
-		s.Credits = &quota.Credits{HasCredits: true, Unlimited: true}
+		s.Credits = &coreaccount.Credits{HasCredits: true, Unlimited: true}
 		s.Billing.OverageEnabled = true
-		s.ExtraUsage = &quota.ExtraUsage{Enabled: true}
+		s.ExtraUsage = &coreaccount.ExtraUsage{Enabled: true}
 		costs, err := WindowCosts(s, "sol", task, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -204,16 +204,18 @@ func TestUsableHeadroomReservesAndScopedLimits(t *testing.T) {
 	})
 
 	t.Run("absent or expired evidence", func(t *testing.T) {
-		refuse := map[string]func(*quota.Snapshot){
-			"no windows":      func(s *quota.Snapshot) { s.Windows = nil },
-			"never read":      func(s *quota.Snapshot) { s.ReadAt = time.Time{} },
-			"all expired":     func(s *quota.Snapshot) { s.ReadAt = now.Add(100 * time.Hour) },
-			"no reset times":  func(s *quota.Snapshot) { s.Windows[0].ResetsAt, s.Windows[1].ResetsAt = time.Time{}, time.Time{} },
-			"NaN used":        func(s *quota.Snapshot) { s.Windows[0].UsedPercent = math.NaN() },
-			"infinite used":   func(s *quota.Snapshot) { s.Windows[1].UsedPercent = math.Inf(1) },
-			"negative used":   func(s *quota.Snapshot) { s.Windows[0].UsedPercent = -1 },
-			"used above 100":  func(s *quota.Snapshot) { s.Windows[1].UsedPercent = 101 },
-			"bad family used": func(s *quota.Snapshot) { s.ModelLimits = map[string][]quota.Window{"sol": {{UsedPercent: math.NaN()}}} },
+		refuse := map[string]func(*coreaccount.Snapshot){
+			"no windows":     func(s *coreaccount.Snapshot) { s.Windows = nil },
+			"never read":     func(s *coreaccount.Snapshot) { s.ReadAt = time.Time{} },
+			"all expired":    func(s *coreaccount.Snapshot) { s.ReadAt = now.Add(100 * time.Hour) },
+			"no reset times": func(s *coreaccount.Snapshot) { s.Windows[0].ResetsAt, s.Windows[1].ResetsAt = time.Time{}, time.Time{} },
+			"NaN used":       func(s *coreaccount.Snapshot) { s.Windows[0].UsedPercent = math.NaN() },
+			"infinite used":  func(s *coreaccount.Snapshot) { s.Windows[1].UsedPercent = math.Inf(1) },
+			"negative used":  func(s *coreaccount.Snapshot) { s.Windows[0].UsedPercent = -1 },
+			"used above 100": func(s *coreaccount.Snapshot) { s.Windows[1].UsedPercent = 101 },
+			"bad family used": func(s *coreaccount.Snapshot) {
+				s.ModelLimits = map[string][]coreaccount.Window{"sol": {{UsedPercent: math.NaN()}}}
+			},
 		}
 		for name, change := range refuse {
 			s := snapshot("codex")

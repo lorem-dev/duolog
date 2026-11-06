@@ -9,7 +9,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
-	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
@@ -125,7 +125,7 @@ func TestMigrationSurvivesQuestionAndError(t *testing.T) {
 		}
 		// A fresh read, not the cached paid one.
 		paid = false
-		r.gate.Cache = &paidruns.Cache{Read: read}
+		r.gate.Cache = paidrunstest.Cache(read)
 		if e := r.open("implement"); e.State != Ready || strings.Contains(e.Note, "no longer get") {
 			t.Fatalf("%+v", e)
 		}

@@ -1,4 +1,4 @@
-package paidruns
+package paidrules
 
 import (
 	"slices"
@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
+	coreaccount "github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/quota"
 )
 
 // Session tiers, from the fewest live sessions to the most.
@@ -69,7 +69,7 @@ func quotaMaxAge(cfg *config.Config) time.Duration {
 // Rates holds each measured account window's rate in share per million.
 // Limit is the tier's configured session count; Live is kept from previous,
 // since live sessions are counted by the caller.
-func SelectTier(a Assessment, snapshot quota.Snapshot, samples []RateSample,
+func SelectTier(a Assessment, snapshot coreaccount.Snapshot, samples []RateSample,
 	previous TierResult, cfg *config.Config) TierResult {
 	tiers, balance := tierSettings(cfg)
 	result := TierResult{Live: previous.Live}
@@ -178,7 +178,7 @@ func (c tierCuts) at(i int) float64 {
 }
 
 // windowVotes are the votes of s's account windows, in the read's order.
-func windowVotes(agent string, s quota.Snapshot, samples []RateSample, balance config.Balance) []windowVote {
+func windowVotes(agent string, s coreaccount.Snapshot, samples []RateSample, balance config.Balance) []windowVote {
 	known, err := config.DefaultModels()
 	if err != nil {
 		known = nil

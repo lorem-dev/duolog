@@ -12,6 +12,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/quota"
 )
 
@@ -57,17 +58,17 @@ func seed(t *testing.T, g *paidruns.Gate) {
 	t.Helper()
 	later := time.Now().Add(time.Minute)
 	err := g.Store.Update(context.Background(), func(st *paidruns.State) error {
-		st.Reservations["claude-live"] = paidruns.Reservation{ID: "claude-live", Agent: "claude", Shape: corelaunch.Worker,
+		st.Reservations["claude-live"] = paidrules.Reservation{ID: "claude-live", Agent: "claude", Shape: corelaunch.Worker,
 			Variant: corelaunch.Free, Session: true, Task: true, Created: time.Now()}
-		st.Reservations["codex-paid"] = paidruns.Reservation{ID: "codex-paid", Agent: "codex", Shape: corelaunch.Worker,
+		st.Reservations["codex-paid"] = paidrules.Reservation{ID: "codex-paid", Agent: "codex", Shape: corelaunch.Worker,
 			Variant: corelaunch.Paid, Paid: true, Session: true, Task: true, Created: time.Now(),
-			Estimate: paidruns.Estimate{USD: 0.75, Source: "test"}}
-		st.Settled["codex-run"] = paidruns.Settlement{ID: "codex-run", Agent: "codex", ChargedUSD: 1.5,
+			Estimate: paidrules.Estimate{USD: 0.75, Source: "test"}}
+		st.Settled["codex-run"] = paidrules.Settlement{ID: "codex-run", Agent: "codex", ChargedUSD: 1.5,
 			Started: true, CompleteUsage: true, Ended: time.Now()}
-		st.Settled["codex-peer"] = paidruns.Settlement{ID: "codex-peer", Agent: "codex", ChargedUSD: 0.5,
+		st.Settled["codex-peer"] = paidrules.Settlement{ID: "codex-peer", Agent: "codex", ChargedUSD: 0.5,
 			Started: true, Ended: time.Now()}
 		// A free Claude run that went on paid overage after the last read.
-		st.Settled["claude-overage"] = paidruns.Settlement{ID: "claude-overage", Agent: "claude", ChargedUSD: 0.2,
+		st.Settled["claude-overage"] = paidrules.Settlement{ID: "claude-overage", Agent: "claude", ChargedUSD: 0.2,
 			Started: true, CompleteUsage: true, Ended: later,
 			Evidence: quota.RunEvidence{Expected: true, Seen: true, UsingOverage: true}}
 		return nil
@@ -92,7 +93,7 @@ func TestDoctorWarnsOfRetainedHolds(t *testing.T) {
 	cfg, opts, _ := setup(t)
 	g := reportGate(t, cfg, shapeReads)
 	if err := g.Store.Update(context.Background(), func(st *paidruns.State) error {
-		st.Reservations["pane"] = paidruns.Reservation{ID: "pane", Agent: "claude", Shape: corelaunch.Peer, Peer: "p1",
+		st.Reservations["pane"] = paidrules.Reservation{ID: "pane", Agent: "claude", Shape: corelaunch.Peer, Peer: "p1",
 			Session: true, Task: true, Created: time.Now(), Retained: "its supervisor ended during the launch; a child may run unrecorded"}
 		return nil
 	}); err != nil {
