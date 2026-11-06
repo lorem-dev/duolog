@@ -146,6 +146,9 @@ func (s *Store) writeTemp(plain, gz, tmp string) (read os.FileInfo, kept bool, w
 	return read, false, written, err
 }
 
+// maxRawCopy bounds what writeGzip reads out of an old .gz.
+const maxRawCopy = 1024 * megabyte
+
 // writeGzip writes the lines of the gzip stream old, when there is one, then
 // plain, as one gzip stream to dst. A last line of old without its newline
 // was cut by a crash; it is ended, so plain's first line stays whole.
@@ -157,8 +160,14 @@ func writeGzip(dst io.Writer, old, plain io.Reader) error {
 			return err
 		}
 		end := &lastByte{w: z}
-		if _, err := io.Copy(end, r); err != nil {
+		// A day segment is at most a few megabytes raw; a .gz that expands
+		// past maxRawCopy was not written by this store and is not copied.
+		n, err := io.Copy(end, io.LimitReader(r, maxRawCopy+1))
+		if err != nil {
 			return err
+		}
+		if n > maxRawCopy {
+			return errUnsafe
 		}
 		if end.n > 0 && end.last != '\n' {
 			if _, err := z.Write([]byte{'\n'}); err != nil {
