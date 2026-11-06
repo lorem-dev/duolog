@@ -89,6 +89,9 @@ var accountLimits = []accountLimit{
 		func(c *Config) float64 { return c.Balance.MinIntervalShare }},
 	{"balance.margin", true, func(v float64) bool { return v >= 0 && v < 1 }, "must be 0 or more and below 1", false,
 		func(c *Config) float64 { return c.Balance.Margin }},
+	// A larger routing margin balances later, so a shared project may only lower it.
+	{"routing.margin", true, func(v float64) bool { return v >= 0 && v < 1 }, "must be 0 or more and below 1", true,
+		func(c *Config) float64 { return c.Routing.Margin }},
 }
 
 func atLeast(n float64) func(float64) bool {

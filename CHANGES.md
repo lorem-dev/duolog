@@ -42,6 +42,15 @@
 
 ## Development
 
+### Added
+
+- `routing.balance: pace` (default) starts a new task on a role's `fallback`
+  while its `use` agent runs ahead of its weekly window by more than
+  `routing.margin` (default `0.10`) or is above 0.80 of its five-hour window.
+  It never moves work to a paid or overage run, and unknown quota keeps `use`.
+  `route`, `delegate` and `peer open` print the reason. The shared project
+  config cannot loosen it.
+
 ## 1.4.0
 
 ### Added

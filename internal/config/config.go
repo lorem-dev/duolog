@@ -32,6 +32,7 @@ type Config struct {
 	Calibration    Calibration      `yaml:"calibration" jsonschema_description:"Project calibration caps and task filters; calibration runs only when the person asks the lead for it."`
 	PaidRuns       PaidRuns         `yaml:"paid_runs" jsonschema_description:"Paid runs per agent with a daily USD cap, and the share of each window used on workspace accounts; paid runs are off by default."`
 	Balance        Balance          `yaml:"balance" jsonschema_description:"How quota reads and learned window rates are trusted: read age, interval size and the margin of a tier step up. The shared project config may only make these stricter."`
+	Routing        Routing          `yaml:"routing" jsonschema_description:"How a new task picks between a role's agents beyond the ladder: balance subscriptions by pace, and the margin. The shared project config may only tighten these."`
 	// Notices names the keys that Load ignored or capped: values of the
 	// shared .duolog/config.yaml that would widen paid runs or session
 	// limits, and session tiers above their defaults.
@@ -197,7 +198,7 @@ func Load(root string) (*Config, error) {
 		// and the account session limits.
 		if i == 1 && node != nil {
 			for _, restrict := range []func(base, layer *yaml.Node) ([]ConfigNotice, error){
-				restrictProjectPaid, restrictProjectSessionLimits,
+				restrictProjectPaid, restrictProjectSessionLimits, restrictProjectRouting,
 			} {
 				found, err := restrict(merged.Content[0], node)
 				if err != nil {

@@ -1,0 +1,49 @@
+package config
+
+import (
+	"fmt"
+	"sync"
+
+	"go.yaml.in/yaml/v3"
+)
+
+// Routing says how a new task picks between a role's agents beyond the
+// ladder.
+type Routing struct {
+	Balance string  `yaml:"balance" jsonschema_description:"Balance subscriptions by pace: pace starts a new task on the role's fallback while its use agent runs ahead of its weekly window, off keeps the ladder as written; defaults to pace. The shared project config may not turn it off." jsonschema:"enum=pace,enum=off"`
+	Margin  float64 `yaml:"margin" jsonschema_description:"How far the used share of the weekly window may exceed the elapsed share before an agent counts as ahead of pace, and how far below pace it must fall to count as back, 0 or more and below 1; defaults to 0.10. The shared project config may only lower it." jsonschema:"minimum=0,exclusiveMaximum=1"`
+}
+
+// embeddedRouting is the routing section of the embedded config.default.yaml.
+var embeddedRouting = sync.OnceValue(func() (out struct {
+	Routing Routing `yaml:"routing"`
+}) {
+	_ = yaml.Unmarshal(defaultConfig, &out)
+	return out
+})
+
+// DefaultRouting returns the embedded routing settings.
+func DefaultRouting() Routing { return embeddedRouting().Routing }
+
+// restrictProjectRouting removes the project's routing.balance when it turns
+// balancing off under a layer that has it on. The margin is bounded with the
+// other account limits. The nodes are resolved mappings.
+func restrictProjectRouting(base, layer *yaml.Node) ([]ConfigNotice, error) {
+	value, err := limitNode(layer, "routing.balance")
+	if err != nil || value == nil {
+		return nil, err
+	}
+	baseValue, err := limitNode(base, "routing.balance")
+	if err != nil {
+		return nil, err
+	}
+	if value.Value != "off" || baseValue == nil || baseValue.Value == "off" {
+		return nil, nil
+	}
+	parent, _ := limitNode(layer, "routing")
+	parent.Content, _ = keepEntries(parent.Content, func(key string, _ *yaml.Node) (bool, error) {
+		return key != "balance", nil
+	})
+	return []ConfigNotice{{Key: "routing.balance", Reason: fmt.Sprintf(
+		"off in %s is ignored: a shared config may not turn pace balancing off; %s applies", projectFile, baseValue.Value)}}, nil
+}

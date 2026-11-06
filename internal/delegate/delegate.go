@@ -349,6 +349,12 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	cacheDir := filepath.Join(s.Dir, "cache")
 	loginTried := false
 	capNotes := ""
+	// Pace balancing reads the quota once per task; a pinned target is never
+	// balanced, and the paid pass is never balanced either.
+	var balance *router.Balance
+	if opts.Entry == nil {
+		balance = paidruns.DefaultPaceBalance(ctx, cfg)
+	}
 	for attempt := 0; ; attempt++ {
 		// Use and fallback make one pass; then the paid pass, if any.
 		if attempt == 2 {
@@ -358,6 +364,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			priorAgent, attempt = "", 0
 		}
 		ro := router.Options{Lead: leadTarget, AllowManualModel: opts.AllowManualModel}
+		if pass == 0 {
+			ro.Balance = balance
+		}
 		if opts.Entry != nil {
 			if unavailable[opts.Entry.Agent] {
 				if later() {
@@ -381,6 +390,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		}
 		lr.resolved(route)
 		worker = route.Agent + "/" + role
+		paidruns.SaveDefaultPaceState(route.Ahead)
 		if route.IsFallback {
 			from := priorAgent
 			if from == "" {
@@ -389,7 +399,11 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					from = ro.Use.Agent
 				}
 			}
-			if err = send(worker, address, "status", fmt.Sprintf("role %s moved from %s to %s model=%s effort=%s", role, from, route.Agent, route.Model, route.Effort), ref); err != nil {
+			moved := fmt.Sprintf("role %s moved from %s to %s model=%s effort=%s", role, from, route.Agent, route.Model, route.Effort)
+			if route.Reason != "" {
+				moved += "; " + route.Reason
+			}
+			if err = send(worker, address, "status", moved, ref); err != nil {
 				return out, err
 			}
 		}
