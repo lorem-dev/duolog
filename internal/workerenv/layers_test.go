@@ -69,6 +69,66 @@ func stubSystem(t *testing.T, dirs map[string][]string, dirErr error, policy boo
 	codexTrusted = func(string, string) (bool, error) { return trusted, nil }
 }
 
+// A shape whose HOME is not the account's own home folder never reads that
+// home's agent folders as project layers, even when the project lies below
+// it, as t.TempDir does on Windows: a test with a fake HOME must not read
+// the person's real settings. A HOME that is the account's home keeps its
+// layers, user layer and project folders below it, as before.
+func TestProjectWalkSkipsTheAccountHomeOfAnotherHOME(t *testing.T) {
+	tmp := t.TempDir()
+	account := filepath.Join(tmp, "account")
+	work := filepath.Join(account, "work")
+	root := filepath.Join(work, "repo")
+	home := filepath.Join(tmp, "home")
+	for _, dir := range []string{filepath.Join(account, ".claude"), filepath.Join(account, ".codex"), root, home} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	real := filepath.Join(account, ".claude", "settings.json")
+	if err := os.WriteFile(real, []byte(`{"enabledPlugins":{"superpowers@market":true}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stubSystem(t, nil, nil, false, true)
+	old := accountHome
+	t.Cleanup(func() { accountHome = old })
+	accountHome = func() string { return account }
+
+	paths := func(agent, home string) []string {
+		var got []string
+		for _, layer := range SettingsLayers(agent, Locations{Home: home, Root: root, GOOS: "linux"}) {
+			if !layer.Managed {
+				got = append(got, layer.Path)
+			}
+		}
+		return got
+	}
+	for _, agent := range []string{"claude", "codex"} {
+		for _, path := range paths(agent, home) {
+			if filepath.Dir(filepath.Dir(path)) == account {
+				t.Errorf("%s with a fake HOME reads the account home's %s", agent, path)
+			}
+		}
+	}
+	// The folders between the project and the account home still count.
+	if got := paths("claude", home); !slices.Contains(got, filepath.Join(work, ".claude", "settings.json")) ||
+		!slices.Contains(got, filepath.Join(root, ".claude", "settings.json")) {
+		t.Errorf("fake HOME layers = %v, want the work and repo folders", got)
+	}
+
+	// A worker whose HOME is the account home reads what it always did.
+	want := []string{
+		real,
+		filepath.Join(work, ".claude", "settings.json"),
+		filepath.Join(root, ".claude", "settings.json"),
+		filepath.Join(work, ".claude", "settings.local.json"),
+		filepath.Join(root, ".claude", "settings.local.json"),
+	}
+	if got := paths("claude", account); !slices.Equal(got, want) {
+		t.Errorf("account HOME layers:\n got %v\nwant %v", got, want)
+	}
+}
+
 // Every settings layer counts: user, each ancestor project and local file,
 // an explicit --settings argument and managed policy, with its drop-in files.
 // Route names in env, any apiKeyHelper, a forceLoginMethod other than

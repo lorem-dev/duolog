@@ -5,11 +5,13 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
 
+	"github.com/lorem-dev/duolog/internal/adapter/kit"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -117,6 +119,16 @@ var (
 	// codexTrusted reports whether the Codex config in codexHome trusts the
 	// project folder root; tests replace it.
 	codexTrusted = codexTrustedIn
+	// accountHome is the home folder of duolog's own account, read from the
+	// account rather than from HOME or USERPROFILE; empty when it is
+	// unknown. Tests replace it.
+	accountHome = func() string {
+		u, err := user.Current()
+		if err != nil {
+			return ""
+		}
+		return u.HomeDir
+	}
 )
 
 // SettingsLayers lists the settings files agent reads for a launch at loc,
@@ -247,7 +259,11 @@ func codexTrustedIn(codexHome, root string) (bool, error) {
 
 // projectFolders returns the project root and the folders above it, the
 // outermost first. It stops below the home folder, whose agent folder holds
-// the user layer, or at the top of the file system.
+// the user layer, or at the top of the file system. The home folder is the
+// shape's HOME (loc.Home). When that is not the account's own home, the
+// account's home is passed over: its agent folders hold that account's user
+// settings, not a project's, and a test with a fake HOME and a project below
+// the real one, as t.TempDir is on Windows, must not read them.
 func projectFolders(loc Locations) []string {
 	if loc.Root == "" {
 		return nil
@@ -256,9 +272,15 @@ func projectFolders(loc Locations) []string {
 	if loc.Home != "" {
 		home = filepath.Clean(loc.Home)
 	}
+	account := accountHome()
+	if account != "" {
+		account = kit.Canonical(account)
+	}
 	var folders []string
 	for dir := filepath.Clean(loc.Root); dir != home; {
-		folders = append(folders, dir)
+		if account == "" || kit.Canonical(dir) != account {
+			folders = append(folders, dir)
+		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			break
