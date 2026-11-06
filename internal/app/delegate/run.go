@@ -14,7 +14,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"crypto/sha256"
 	"github.com/bmatcuk/doublestar/v4"
@@ -135,32 +134,6 @@ func Place(cfg *config.Config, taskPath string, route coreroute.Route) (Placemen
 	}
 	return place(cfg, taskPath, root, route)
 }
-func place(cfg *config.Config, taskPath, root string, route coreroute.Route) (Placement, error) {
-	p := Placement{Where: "self", Model: route.Model, Effort: route.Effort, Task: taskPath}
-	refs, err := task.References(taskPath, root)
-	if err != nil {
-		return p, err
-	}
-	files := make(map[string]bool)
-	lines := 0
-	for _, ref := range refs {
-		files[ref.Path] = true
-		data, err := ref.Text(root)
-		if err != nil {
-			p.Where = "subagent"
-			return p, nil //nolint:nilerr // an unreadable file is reported as a problem in p, not as an error
-		}
-		lines += strings.Count(string(data), "\n")
-		if len(data) > 0 && data[len(data)-1] != '\n' {
-			lines++
-		}
-	}
-	if len(files) > cfg.Limits.SelfMaxReadFiles || lines > cfg.Limits.SelfMaxReadLines {
-		p.Where = "subagent"
-	}
-	return p, nil
-}
-
 func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath, thread string) (out Outcome, err error) {
 	started := time.Now()
 	opts := OptionsFrom(ctx)
@@ -933,10 +906,6 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	return out, nil
 }
 
-// annotate puts lines at the start of the Limits section.
-func annotate(text, lines string) string {
-	return task.Annotate(text, lines)
-}
 func missingBinary(err error) bool {
 	var pathErr *os.PathError
 	return errors.Is(err, exec.ErrNotFound) || (errors.As(err, &pathErr) && pathErr.Op == "fork/exec" && errors.Is(err, os.ErrNotExist))
@@ -964,17 +933,6 @@ func ClaimMigration(reg *session.Registry, cfg *config.Config, leadID, agent str
 	return lines, nil
 }
 
-// withoutNotice takes the last copy of notice out of line, with the "; " that
-// leads it.
-func withoutNotice(line, notice string) string {
-	i := strings.LastIndex(line, notice)
-	if i < 0 {
-		return line
-	}
-	head := strings.TrimSuffix(strings.TrimRight(line[:i], " "), ";")
-	return oneLine(head + " " + line[i+len(notice):])
-}
-
 // migrationLines names the billing keys a refused agent login may have lost.
 func migrationLines(cfg *config.Config, p auth.Problem) []string {
 	if p.Server != "" {
@@ -985,106 +943,6 @@ func migrationLines(cfg *config.Config, p auth.Problem) []string {
 		lines = append(lines, workerenv.MigrationLine(p.Agent, name))
 	}
 	return lines
-}
-
-// observedLead brings the registered lead up to date with its transcript, and
-// returns it with the mode that limits workers.
-func observedLead(reg *session.Registry, lead session.Lead, started time.Time) (session.Lead, mode.Mode, error) {
-	if lead.TranscriptPath != "" {
-		observed, _ := readLeadState(lead.Agent, lead.TranscriptPath)
-		if observed.Model != "" {
-			lead.Model = observed.Model
-		}
-		if observed.Effort != "" {
-			lead.Effort = observed.Effort
-		}
-		if lead.Agent == "codex" {
-			if observed.Mode != "" {
-				lead.Mode = observed.Mode
-			} else {
-				lead.Mode = mode.Lower(lead.Mode, mode.Ask)
-			}
-		}
-		o := session.LeadObservation{ID: lead.ID, Agent: lead.Agent, Model: &lead.Model, Effort: &lead.Effort}
-		if lead.Agent == "codex" {
-			o.Mode = &lead.Mode
-		}
-		var err error
-		if lead, err = reg.ObserveLead(o, started); err != nil {
-			return lead, mode.Ask, err
-		}
-	}
-	return reg.EffectiveMode(lead.ID)
-}
-
-// trustWarning says what the lead must know about the worker's rules. A write role
-// with untrusted Codex hooks would run with no gate, so it does not start.
-func trustWarning(route coreroute.Route, role string, state trust.State, folder bool) (string, error) {
-	warning := ""
-	if route.Agent == "claude" && !state.Installed {
-		warning = "; Claude has no duolog hooks: rules are off; sandbox only"
-	}
-	if !state.Trusted {
-		if route.Sandbox != "read-only" {
-			return "", fmt.Errorf("Codex hooks untrusted; open /hooks before running write role %s", role) //nolint:staticcheck // ST1005: Codex is a product name
-		}
-		warning = "; rules are off; open /hooks"
-	}
-	if !folder {
-		warning += "; folder trust missing"
-	}
-	return warning, nil
-}
-
-func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
-
-// maxLine is what the lead reads for one worker. It costs tokens on every turn.
-const maxLine = 512
-
-// resultLine gives the summary only the room that needs, files and warnings leave.
-// A warning such as "rules are off" or "outside=" must reach the lead, so a line
-// that is still too long after the summary is cut gets its files list cut at a
-// comma, never a warning. The summary and the files are also in answer.json.
-func resultLine(done bool, needs, summary, files, warning, pointer string) string {
-	line := func(summary, files string) string {
-		return oneLine(fmt.Sprintf("done=%t%s summary=%s files=%s%s", done, needs, summary, files, warning))
-	}
-	summary = oneLine(summary)
-	if over := len(line(summary, files)) - maxLine; over > 0 {
-		cut := " ... [cut; " + pointer + "]"
-		summary = short(summary, max(0, len(summary)-over-len(cut))) + cut
-		if over = len(line(summary, files)) - maxLine; over > 0 {
-			// A cut list ends in ... so that it does not read as the whole list.
-			const more = ",..."
-			files = short(files, max(0, len(files)-over-len(more)))
-			if i := strings.LastIndex(files, ","); i >= 0 {
-				files = files[:i] + more
-			} else {
-				files = more[1:]
-			}
-		}
-	}
-	return line(summary, files)
-}
-
-// answerPointer names the answer as a path from the current folder, which differs
-// from the state folder in a linked worktree. A worker that failed wrote none.
-func answerPointer(dir string) string {
-	path := filepath.Join(dir, "answer.json")
-	label := "answer="
-	if _, err := os.Stat(path); err != nil {
-		path, label = dir, "task="
-	}
-	return label + relativeTask(path)
-}
-func short(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n]
 }
 
 type usageRecord struct {
@@ -1184,19 +1042,6 @@ const gateRetryLine = "If the gate refuses a command, retry once with a plainer 
 
 // maxBriefBytes bounds the brief: it is sent to every worker.
 const maxBriefBytes = 32 * 1024
-
-// needsKind reports whether a task names a need of one of these kinds. A Claude
-// worker keeps MCP servers only for an mcp or plugin need, since a plugin can
-// bring a server, and a minimal worker keeps skills only for a skill or plugin
-// need.
-func needsKind(needs []string, kinds ...string) bool {
-	for _, need := range needs {
-		if kind, _, err := capability.ParseNeed(need); err == nil && slices.Contains(kinds, kind) {
-			return true
-		}
-	}
-	return false
-}
 
 // withoutBridged drops the needs that bridged servers meet: a Claude worker
 // whose only MCP needs are bridged starts with those servers and no others.
@@ -1396,38 +1241,6 @@ func settleAuth(ctx context.Context, cfg *config.Config, reg *session.Registry, 
 	out.Needs = []string{p.Need()}
 	out.Line = oneLine("role " + role + " waits for lead: " + reason + "." + tail)
 	return false, nil
-}
-
-// limitOwn adds capabilities.mcp_tools for the worker's own servers that the
-// task needs, so that the list filters them as it filters a bridged server.
-// The worker's servers are those of workerEnv, its environment.
-func limitOwn(spec runner.Spec, needs []string, tools map[string][]string, workerEnv []string) *runner.MCP {
-	var own []string
-	for _, need := range withoutBridged(needs, spec.MCP) {
-		if kind, name, err := capability.ParseNeed(need); err == nil && kind == capability.KindMCP {
-			own = append(own, name)
-		}
-	}
-	if spec.Route.Agent == "codex" {
-		// enabled_tools for a server Codex does not define, such as a plugin's,
-		// would make a table with no transport, which Codex refuses.
-		defs := capability.ServersEnv("codex", spec.Cwd, workerEnv)
-		own = slices.DeleteFunc(own, func(name string) bool { _, ok := defs[name]; return !ok })
-	}
-	codexArgs, allowed := capability.Limit(spec.Route.Agent, own, tools)
-	m := spec.MCP
-	if m == nil {
-		if len(codexArgs) == 0 && len(allowed) == 0 {
-			return nil
-		}
-		m = &runner.MCP{}
-	} else {
-		copied := *m
-		m = &copied
-	}
-	m.CodexArgs = append(append([]string(nil), m.CodexArgs...), codexArgs...)
-	m.AllowedTools = append(append([]string(nil), m.AllowedTools...), allowed...)
-	return m
 }
 
 // outsideWrite lists the changed paths that no Write entry covers: a file, a
