@@ -297,11 +297,32 @@ func pathWord(word string) string {
 // Any other program's option is not known to take a value, so the word after
 // it is judged as an operand.
 var patternOptions = map[string][]string{
-	"git":   {"--grep", "--author", "--committer", "--format", "--pretty"},
+	"git":   {"--grep", "--author", "--committer"},
 	"rg":    {"--regexp", "--glob", "--iglob"},
 	"grep":  {"--regexp"},
 	"egrep": {"--regexp"},
 	"fgrep": {"--regexp"},
+}
+
+// attachedPatternOptions lists, per program, the options whose value is a
+// format only after =: git reads a bare --pretty as the default format and
+// takes no next word, so the word after it is judged as an operand.
+var attachedPatternOptions = map[string][]string{
+	"git": {"--format", "--pretty"},
+}
+
+// skipsPatternValue returns how a pattern option at word moves the reading:
+// skip is true for a pattern option, and next is true when its value is the
+// next word.
+func skipsPatternValue(program, word string) (skip, next bool) {
+	name, _, attached := strings.Cut(word, "=")
+	switch {
+	case slices.Contains(patternOptions[program], name):
+		return true, !attached
+	case attached && slices.Contains(attachedPatternOptions[program], name):
+		return true, false
+	}
+	return false, false
 }
 
 // ownOperandCheck lists the programs whose words operandsOutside leaves
@@ -377,22 +398,22 @@ func wordsOutside(a Action, part string, own []string) bool {
 	}
 	words := withoutRedirects(strings.Fields(part))
 	start := execOperandStart(words)
-	var valued []string
+	program := ""
 	if start > 0 && start <= len(words) {
 		if ownedCommand(words[start-1:], own) {
 			return false
 		}
-		valued = patternOptions[programName(words[start-1])]
+		program = programName(words[start-1])
 	}
 	options := true
 	for i := start; i < len(words); i++ {
 		word := strings.Trim(words[i], "'\"")
-		name, _, attached := strings.Cut(word, "=")
+		skip, next := skipsPatternValue(program, word)
 		switch {
 		case options && word == "--":
 			options = false
-		case options && slices.Contains(valued, name):
-			if !attached {
+		case options && skip:
+			if next {
 				i++
 			}
 		case fieldOutside(a, word, options) || fieldOutside(a, unquoted.Replace(words[i]), options):

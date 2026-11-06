@@ -65,8 +65,11 @@ func TestExecOutsideOptionValuesBelongToTheirProgram(t *testing.T) {
 		{"rg --regexp ../x .", false},
 		{"grep --regexp ../x file", false},
 		{"git log --grep /x", false},
-		{"git log --format ../x -5", false},
-		{"/usr/bin/git log --pretty ../x", false},
+		{"git log --format=../x -5", false},
+		{"/usr/bin/git log --pretty=../x", false},
+		// git takes a --format or --pretty value only after =, so ../x is a path.
+		{"git log --format ../x -5", true},
+		{"/usr/bin/git log --pretty ../x", true},
 	} {
 		a := Action{Kind: "exec", Target: tc.command, Role: "implement", Work: root, Cwd: root}
 		if got := ExecOutside(a); got != tc.person {

@@ -62,3 +62,19 @@ func TestBackslashNewlineContinuesTheWord(t *testing.T) {
 		t.Errorf("scriptWords: %+v", got)
 	}
 }
+
+// git log reads a bare --pretty as the default format, and takes --format and
+// --pretty values only after =, so the next word is a path. -G, -S, --grep,
+// --author and --committer take the next word.
+func TestGitFormatTakesNoNextWord(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	// The review's command.
+	wantDeny(t, p, root, "read", `git log -p --pretty .env`, `git log -p --format .env`)
+	wantPerson(t, p, root, `git log --pretty ../peer/f`, `git show --format ../peer/f`)
+	checkNotPersonOnly(t, []string{
+		`git log --pretty=format:../x -- go.mod`,
+		`git log --format=../x go.mod`,
+		`git log --author ../x --committer ../y --grep ../z -- go.mod`,
+	})
+}
