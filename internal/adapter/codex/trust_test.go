@@ -185,7 +185,7 @@ func TestHookTrustNeedsAGateForEveryTool(t *testing.T) {
 func TestGateProblemNeedsTheCurrentGate(t *testing.T) {
 	root := t.TempDir()
 	trustFixture(t, fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = \"approved-hash\"\n", filepath.Join(root, ".codex", "hooks.json")+":pre_tool_use:0:0"))
-	generated, err := install.HooksJSON("codex", 30)
+	generated, err := HooksJSON(30)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,14 +213,30 @@ func TestStaleCodexApprovalAfterReinstall(t *testing.T) {
 	key := filepath.Join(root, ".codex", "hooks.json") + ":pre_tool_use:0:0"
 	trustFixture(t, fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = \"old-hash\"\n", key))
 	home := os.Getenv("HOME")
-	generated, err := install.HooksJSON("codex", 150)
+	generated, err := HooksJSON(150)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// reinstall is what duolog install does for Codex in this project: merge
+	// the hooks, and when the gate command changed, mark the approvals of the
+	// old command stale.
 	reinstall := func() {
 		t.Helper()
-		if _, err := install.Run(install.Options{Scope: "project", Agent: "codex", Home: home, Root: root}); err != nil {
+		var i Installer
+		path := i.HookFile("project", root, home)
+		old, err := os.ReadFile(path)
+		if err != nil {
 			t.Fatal(err)
+		}
+		data, _, err := i.Hooks(old, install.GateTimeout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, path, string(data))
+		if i.GateChanged(old, data) {
+			if err := i.MarkStale(home, path); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	// An unchanged gate keeps its approval through a reinstall.
@@ -287,7 +303,7 @@ func TestGeneratedHooksTrustedAtBothScopesAndCodexHome(t *testing.T) {
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				t.Fatal(err)
 			}
-			data, err := install.HooksJSON("codex", 150)
+			data, err := HooksJSON(150)
 			if err != nil {
 				t.Fatal(err)
 			}

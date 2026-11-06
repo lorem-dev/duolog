@@ -194,7 +194,7 @@ func TestClaudeArgv(t *testing.T) {
 		t.Fatal(a)
 	}
 }
-func install(t *testing.T, s *Spec, sc testbin.Scenario) string {
+func installWorker(t *testing.T, s *Spec, sc testbin.Scenario) string {
 	t.Helper()
 	p := testbin.Install(t, s.Route.Agent, sc)
 	*s = rebuilt(t, *s)
@@ -215,7 +215,7 @@ func fixture(t *testing.T, name string) string {
 func TestStdoutGoesToLogFile(t *testing.T) {
 	s := spec(t, "codex")
 	out := strings.Repeat("x", 1024*1024) + "\n"
-	install(t, &s, testbin.Scenario{Stdout: out, Stderr: "diagnostic\n", Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): goodAnswer}})
+	installWorker(t, &s, testbin.Scenario{Stdout: out, Stderr: "diagnostic\n", Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): goodAnswer}})
 	r, e := Run(context.Background(), s)
 	if e != nil || !r.Done || r.Summary != "Implemented." {
 		t.Fatalf("%+v %v", r, e)
@@ -259,7 +259,7 @@ func TestUsageParsed(t *testing.T) {
 				want = Usage{Input: 32831, Cached: 28035, Write: 4792, WriteHour: 4792, Output: 91}
 				session = "00000000-0000-4000-8000-000000000043"
 			}
-			install(t, &s, sc)
+			installWorker(t, &s, sc)
 			r, e := Run(context.Background(), s)
 			if e != nil || r.Usage != want || r.SessionID != session || !r.Done {
 				t.Fatalf("%+v %v; want %+v, %s", r, e, want, session)
@@ -272,7 +272,7 @@ func TestUsageParsed(t *testing.T) {
 }
 func TestQuotaDetected(t *testing.T) {
 	s := spec(t, "codex")
-	install(t, &s, testbin.Scenario{Exit: 1, Stderr: "usage limit"})
+	installWorker(t, &s, testbin.Scenario{Exit: 1, Stderr: "usage limit"})
 	r, e := Run(context.Background(), s)
 	if e == nil || !r.QuotaEnded || r.Done || r.ExitCode != 1 {
 		t.Fatalf("%+v %v", r, e)
@@ -280,7 +280,7 @@ func TestQuotaDetected(t *testing.T) {
 }
 func TestRealClaudeLimitText(t *testing.T) {
 	s := spec(t, "claude")
-	install(t, &s, testbin.Scenario{Exit: 1, Stderr: fixture(t, "limits/claude-5h.txt")})
+	installWorker(t, &s, testbin.Scenario{Exit: 1, Stderr: fixture(t, "limits/claude-5h.txt")})
 	before := time.Now()
 	r, e := Run(context.Background(), s)
 	if e == nil || !r.QuotaEnded || r.ResetAt.IsZero() {
@@ -302,7 +302,7 @@ func TestRealClaudeLimitText(t *testing.T) {
 func TestLimitWithoutResetTime(t *testing.T) {
 	for text, wait := range map[string]time.Duration{"usage limit": time.Hour, "usage limit resets tomorrow": time.Hour, "usage limit resets 25am (Europe/London)": time.Hour, "usage limit resets 3am (Invalid/Zone)": time.Hour, "You've hit your 5-hour limit": 5 * time.Hour} {
 		s := spec(t, "claude")
-		install(t, &s, testbin.Scenario{Exit: 1, Stderr: text})
+		installWorker(t, &s, testbin.Scenario{Exit: 1, Stderr: text})
 		before := time.Now()
 		r, _ := Run(context.Background(), s)
 		if !r.QuotaEnded || r.ResetAt.Before(before.Add(wait)) || r.ResetAt.After(time.Now().Add(wait)) {
@@ -312,7 +312,7 @@ func TestLimitWithoutResetTime(t *testing.T) {
 }
 func TestOtherFailureNotQuota(t *testing.T) {
 	s := spec(t, "codex")
-	install(t, &s, testbin.Scenario{Exit: 1, Stderr: "panic"})
+	installWorker(t, &s, testbin.Scenario{Exit: 1, Stderr: "panic"})
 	r, e := Run(context.Background(), s)
 	if e == nil || r.QuotaEnded || r.Done {
 		t.Fatalf("%+v %v", r, e)
@@ -321,7 +321,7 @@ func TestOtherFailureNotQuota(t *testing.T) {
 func TestMalformedAnswer(t *testing.T) {
 	for _, answer := range []string{"not JSON", "{}", "null", `{"done":true}`, `{"done":true,"summary":"ok","files":null,"needs":[]}`} {
 		s := spec(t, "codex")
-		install(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): answer}})
+		installWorker(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): answer}})
 		r, e := Run(context.Background(), s)
 		if r.Done || e == nil || !strings.Contains(e.Error(), filepath.Join(s.TaskDir, "stdout.log")) {
 			t.Fatalf("%+v %v", r, e)
@@ -330,7 +330,7 @@ func TestMalformedAnswer(t *testing.T) {
 }
 func TestOnlyPassthroughEnvIsSet(t *testing.T) {
 	s := spec(t, "codex")
-	p := install(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): goodAnswer}})
+	p := installWorker(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): goodAnswer}})
 	t.Setenv("DUOLOG_PRIVATE_TEST", "secret")
 	if _, e := Run(context.Background(), s); e != nil {
 		t.Fatal(e)
@@ -355,7 +355,7 @@ func TestStdinCarriesPrompt(t *testing.T) {
 			if agent == "claude" {
 				sc.Stdout = `{"structured_output":` + goodAnswer + `}`
 			}
-			p := install(t, &s, sc)
+			p := installWorker(t, &s, sc)
 			s.Stdin = block
 			s.Prompt = "This must not go in argv"
 			if _, e := Run(context.Background(), s); e != nil {
@@ -382,7 +382,7 @@ func TestStdinCarriesPrompt(t *testing.T) {
 func TestExitZeroWithoutAnswerIsNotDone(t *testing.T) {
 	for _, agent := range []string{"codex", "claude"} {
 		s := spec(t, agent)
-		install(t, &s, testbin.Scenario{})
+		installWorker(t, &s, testbin.Scenario{})
 		r, e := Run(context.Background(), s)
 		if r.Done || e == nil || !strings.Contains(e.Error(), filepath.Join(s.TaskDir, "stdout.log")) {
 			t.Fatalf("%+v %v", r, e)
@@ -393,7 +393,7 @@ func TestSpawnDisablesUpdates(t *testing.T) {
 	s := spec(t, "codex")
 	containsArgs(t, Argv(s), "check_for_update_on_startup=false")
 	s = spec(t, "claude")
-	p := install(t, &s, testbin.Scenario{Stdout: `{"structured_output":` + goodAnswer + `}`})
+	p := installWorker(t, &s, testbin.Scenario{Stdout: `{"structured_output":` + goodAnswer + `}`})
 	// The person's own values, even listed in env_passthrough, never win.
 	t.Setenv("DISABLE_AUTOUPDATER", "0")
 	t.Setenv("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "0")
@@ -418,7 +418,7 @@ func TestInterruptedRun(t *testing.T) {
 		t.Skip("Windows has no Unix signal exit status")
 	}
 	s := spec(t, "codex")
-	install(t, &s, testbin.Scenario{Exit: -1})
+	installWorker(t, &s, testbin.Scenario{Exit: -1})
 	r, e := Run(context.Background(), s)
 	if e == nil || !r.Interrupted || r.QuotaEnded {
 		t.Fatalf("%+v %v", r, e)
@@ -426,7 +426,7 @@ func TestInterruptedRun(t *testing.T) {
 }
 func TestHungRunTimesOut(t *testing.T) {
 	s := spec(t, "codex")
-	p := install(t, &s, testbin.Scenario{SleepMS: 60000, Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): goodAnswer}})
+	p := installWorker(t, &s, testbin.Scenario{SleepMS: 60000, Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): goodAnswer}})
 	s.Timeout = 3 * time.Second
 	start := time.Now()
 	r, e := Run(context.Background(), s)
@@ -446,7 +446,7 @@ func TestHungRunTimesOut(t *testing.T) {
 }
 func TestCanceledRun(t *testing.T) {
 	s := spec(t, "codex")
-	install(t, &s, testbin.Scenario{SleepMS: 60000})
+	installWorker(t, &s, testbin.Scenario{SleepMS: 60000})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	r, e := Run(ctx, s)
@@ -456,7 +456,7 @@ func TestCanceledRun(t *testing.T) {
 }
 func TestReusedTaskDirDoesNotAcceptStaleAnswer(t *testing.T) {
 	s := spec(t, "codex")
-	install(t, &s, testbin.Scenario{})
+	installWorker(t, &s, testbin.Scenario{})
 	if e := os.WriteFile(filepath.Join(s.TaskDir, "answer.json"), []byte(goodAnswer), 0600); e != nil {
 		t.Fatal(e)
 	}
@@ -468,7 +468,7 @@ func TestReusedTaskDirDoesNotAcceptStaleAnswer(t *testing.T) {
 func TestAnswerCanReportUnfinishedTask(t *testing.T) {
 	s := spec(t, "codex")
 	answer := `{"done":false,"summary":"Need input.","files":[],"needs":["Specify target."]}`
-	install(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): answer}})
+	installWorker(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): answer}})
 	r, e := Run(context.Background(), s)
 	if e != nil || r.Done || !reflect.DeepEqual(r.Needs, []string{"Specify target."}) {
 		t.Fatalf("%+v %v", r, e)
@@ -487,7 +487,7 @@ func TestSuccessfulAnswerMentioningQuota(t *testing.T) {
 			} else {
 				sc.Stdout = `{"structured_output":` + answer + `}`
 			}
-			install(t, &s, sc)
+			installWorker(t, &s, sc)
 			r, err := Run(context.Background(), s)
 			if err != nil || !r.Done || r.QuotaEnded || !r.ResetAt.IsZero() {
 				t.Fatalf("%+v %v", r, err)
@@ -507,7 +507,7 @@ func TestClaudeStderrDoesNotCorruptResult(t *testing.T) {
 				mid := len(stdout) / 2
 				sc.Output = []testbin.OutputChunk{{Text: stdout[:mid]}, {Stderr: true, Text: diagnostic}, {Text: stdout[mid:]}}
 			}
-			install(t, &s, sc)
+			installWorker(t, &s, sc)
 			r, err := Run(context.Background(), s)
 			if err != nil || !r.Done || r.SessionID != "session-123" || r.Usage.Input != 7 {
 				t.Fatalf("%+v %v", r, err)
@@ -545,7 +545,7 @@ func TestQuotaFailureChannels(t *testing.T) {
 		} {
 			t.Run(agent+"/"+tc.name, func(t *testing.T) {
 				s := spec(t, agent)
-				install(t, &s, testbin.Scenario{Exit: tc.exit, Stdout: tc.stdout, Stderr: tc.stderr})
+				installWorker(t, &s, testbin.Scenario{Exit: tc.exit, Stdout: tc.stdout, Stderr: tc.stderr})
 				r, _ := Run(context.Background(), s)
 				if r.QuotaEnded != tc.quota || !tc.quota && !r.ResetAt.IsZero() {
 					t.Fatalf("quota=%v, want %v; result: %+v", r.QuotaEnded, tc.quota, r)
@@ -569,7 +569,7 @@ func TestClaudeLeadingStdoutDiagnostics(t *testing.T) {
 		t.Fatal(err)
 	}
 	diagnostics := "Startup warning: using project settings\n{warning: connection delayed}\n\nConnecting to services...\n"
-	install(t, &s, testbin.Scenario{Stdout: diagnostics + string(pretty), Stderr: "stderr diagnostic\n"})
+	installWorker(t, &s, testbin.Scenario{Stdout: diagnostics + string(pretty), Stderr: "stderr diagnostic\n"})
 	r, err := Run(context.Background(), s)
 	if err != nil || !r.Done || r.SessionID != "session-123" || r.Usage.Input != 7 || r.Summary != "Implemented." {
 		t.Fatalf("%+v %v", r, err)
@@ -586,7 +586,7 @@ func TestClaudeLeadingStdoutDiagnostics(t *testing.T) {
 
 func TestRealCodexLimitText(t *testing.T) {
 	s := spec(t, "codex")
-	install(t, &s, testbin.Scenario{Exit: 1, Stdout: fixture(t, "limits/codex-usage.jsonl")})
+	installWorker(t, &s, testbin.Scenario{Exit: 1, Stdout: fixture(t, "limits/codex-usage.jsonl")})
 	before := time.Now()
 	r, e := Run(context.Background(), s)
 	if e == nil || !r.QuotaEnded || r.ResetAt.IsZero() {
@@ -616,7 +616,7 @@ func TestCodexArgvHasNoOutputSchema(t *testing.T) {
 
 func TestCodexStdinEndsWithAnswerInstruction(t *testing.T) {
 	s := spec(t, "codex")
-	p := install(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): goodAnswer}})
+	p := installWorker(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): goodAnswer}})
 	if _, e := Run(context.Background(), s); e != nil {
 		t.Fatal(e)
 	}
@@ -642,7 +642,7 @@ func TestCodexTolerantAnswer(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s := spec(t, "codex")
-			install(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): c.message}})
+			installWorker(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): c.message}})
 			r, e := Run(context.Background(), s)
 			if e != nil || r.Done != c.done || r.Summary != c.summary {
 				t.Fatalf("%+v %v", r, e)
@@ -654,7 +654,7 @@ func TestCodexTolerantAnswer(t *testing.T) {
 func TestCodexNoObjectGivesSummaryAndLogError(t *testing.T) {
 	s := spec(t, "codex")
 	message := "I could not do it.\n" + strings.Repeat("long ", 100)
-	install(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): message}})
+	installWorker(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): message}})
 	r, e := Run(context.Background(), s)
 	if e == nil || r.Done || !strings.Contains(e.Error(), filepath.Join(s.TaskDir, "stdout.log")) {
 		t.Fatalf("%+v %v", r, e)
@@ -666,7 +666,7 @@ func TestCodexNoObjectGivesSummaryAndLogError(t *testing.T) {
 
 func TestClaudeJSONResultLimitTriggersQuota(t *testing.T) {
 	s := spec(t, "claude")
-	install(t, &s, testbin.Scenario{Exit: 1, Stdout: `{"type":"result","is_error":true,"result":"You've hit your usage limit"}`})
+	installWorker(t, &s, testbin.Scenario{Exit: 1, Stdout: `{"type":"result","is_error":true,"result":"You've hit your usage limit"}`})
 	got, err := Run(context.Background(), s)
 	if err == nil || !got.QuotaEnded {
 		t.Fatal(got, err)
@@ -697,7 +697,7 @@ func TestClaudeTurnCapEndsRun(t *testing.T) {
 	for _, exit := range []int{0, 1} {
 		s := spec(t, "claude")
 		s.MaxTurns = 2
-		install(t, &s, testbin.Scenario{Exit: exit, Stdout: `{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":3,"session_id":"worker-1","usage":{"input_tokens":30,"cache_read_input_tokens":10,"output_tokens":5}}` + "\n"})
+		installWorker(t, &s, testbin.Scenario{Exit: exit, Stdout: `{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":3,"session_id":"worker-1","usage":{"input_tokens":30,"cache_read_input_tokens":10,"output_tokens":5}}` + "\n"})
 		got, err := Run(context.Background(), s)
 		if !errors.Is(err, ErrTurnCap) || !got.TurnsEnded || got.Done || got.QuotaEnded {
 			t.Fatalf("exit %d: %+v %v, want TurnsEnded and ErrTurnCap", exit, got, err)
@@ -709,7 +709,7 @@ func TestClaudeTurnCapEndsRun(t *testing.T) {
 	// Cache writes without a split by cache lifetime count as five-minute writes.
 	s := spec(t, "claude")
 	s.MaxTurns = 2
-	install(t, &s, testbin.Scenario{Exit: 1, Stdout: `{"type":"result","subtype":"error_max_turns","is_error":true,"session_id":"worker-1","usage":{"input_tokens":30,"cache_creation_input_tokens":20,"cache_read_input_tokens":10,"output_tokens":5}}` + "\n"})
+	installWorker(t, &s, testbin.Scenario{Exit: 1, Stdout: `{"type":"result","subtype":"error_max_turns","is_error":true,"session_id":"worker-1","usage":{"input_tokens":30,"cache_creation_input_tokens":20,"cache_read_input_tokens":10,"output_tokens":5}}` + "\n"})
 	got, err := Run(context.Background(), s)
 	if !errors.Is(err, ErrTurnCap) || got.Usage != (Usage{Input: 60, Cached: 10, Write: 20, Output: 5}) || !got.UsageKnown {
 		t.Fatalf("cache writes: usage %+v known %v %v, want 60 input, 10 cached, 20 five-minute writes", got.Usage, got.UsageKnown, err)
@@ -717,7 +717,7 @@ func TestClaudeTurnCapEndsRun(t *testing.T) {
 	// A capped run without usage is told from one with zero usage.
 	s = spec(t, "claude")
 	s.MaxTurns = 2
-	install(t, &s, testbin.Scenario{Exit: 1, Stdout: `{"type":"result","subtype":"error_max_turns","is_error":true,"session_id":"worker-1"}` + "\n"})
+	installWorker(t, &s, testbin.Scenario{Exit: 1, Stdout: `{"type":"result","subtype":"error_max_turns","is_error":true,"session_id":"worker-1"}` + "\n"})
 	got, err = Run(context.Background(), s)
 	if !errors.Is(err, ErrTurnCap) || !got.TurnsEnded || got.UsageKnown || got.Usage != (Usage{}) {
 		t.Fatalf("without usage: %+v %v, want TurnsEnded with usage unknown", got, err)
@@ -726,7 +726,7 @@ func TestClaudeTurnCapEndsRun(t *testing.T) {
 
 func TestFinishedWorkerSurvivesDescendantHoldingOutput(t *testing.T) {
 	s := spec(t, "claude")
-	fake := install(t, &s, testbin.Scenario{SpawnChild: true, Stdout: `{"structured_output":` + goodAnswer + `}`})
+	fake := installWorker(t, &s, testbin.Scenario{SpawnChild: true, Stdout: `{"structured_output":` + goodAnswer + `}`})
 	t.Cleanup(func() {
 		data, err := os.ReadFile(fake + ".child-pid")
 		if err != nil {
@@ -752,7 +752,7 @@ func TestCancellationKillsDescendantHoldingOutput(t *testing.T) {
 	}
 	s := spec(t, "claude")
 	s.Timeout = time.Minute
-	fake := install(t, &s, testbin.Scenario{SpawnChild: true, SleepMS: 60000})
+	fake := installWorker(t, &s, testbin.Scenario{SpawnChild: true, SleepMS: 60000})
 	// Cancel once the descendant runs. A fixed short timeout could expire
 	// before a loaded machine started it, and the test then saw no child.
 	ctx, cancel := context.WithCancel(context.Background())

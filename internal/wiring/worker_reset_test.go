@@ -142,7 +142,7 @@ func TestResetMarkExpires(t *testing.T) {
 // A line without a reset never replaces a reset read from another line.
 func TestReadResetKeptOverFallback(t *testing.T) {
 	s := spec(t, "claude")
-	install(t, &s, testbin.Scenario{Exit: 1, Stderr: "You've hit your 5-hour limit · resets 8:40pm (Europe/London)\nrate_limit\n"})
+	installWorker(t, &s, testbin.Scenario{Exit: 1, Stderr: "You've hit your 5-hour limit · resets 8:40pm (Europe/London)\nrate_limit\n"})
 	before := time.Now()
 	r, _ := Run(context.Background(), s)
 	want := ResetTime("resets 8:40pm (Europe/London)", before)

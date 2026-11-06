@@ -30,6 +30,9 @@ type HookGroup struct {
 	} `json:"hooks"`
 }
 
+// pluginKey is the enabledPlugins key of the duolog Claude plugin.
+const pluginKey = "duolog@duolog"
+
 // GateTimeout is the timeout, in seconds, that install writes for a gate
 // hook: longer than the gate's longest wait.
 const GateTimeout = 150

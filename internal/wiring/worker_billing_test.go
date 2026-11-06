@@ -29,7 +29,7 @@ func billingStream(t *testing.T) []string {
 // that only talks about overage changes nothing.
 func TestClaudeStreamFinalResultKeepsEarlierOverage(t *testing.T) {
 	s := spec(t, "claude")
-	fake := install(t, &s, testbin.Scenario{Stdout: strings.Join(billingStream(t), "")})
+	fake := installWorker(t, &s, testbin.Scenario{Stdout: strings.Join(billingStream(t), "")})
 	r, err := Run(context.Background(), s)
 	if err != nil || !r.Done || r.Summary != "Implemented." || r.SessionID != "stream-session" {
 		t.Fatalf("%+v %v", r, err)
@@ -67,7 +67,7 @@ func TestClaudeStreamPartialCancelAndTurnCap(t *testing.T) {
 	t.Run("cancelled", func(t *testing.T) {
 		s := spec(t, "claude")
 		s.Timeout = time.Minute
-		install(t, &s, testbin.Scenario{Stdout: prefix, SleepMS: 60000})
+		installWorker(t, &s, testbin.Scenario{Stdout: prefix, SleepMS: 60000})
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		go func() {
@@ -102,7 +102,7 @@ func TestClaudeStreamPartialCancelAndTurnCap(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := spec(t, "claude")
 			s.MaxTurns = tc.turns
-			install(t, &s, testbin.Scenario{Exit: tc.exit, Stdout: prefix + tc.result + "\n"})
+			installWorker(t, &s, testbin.Scenario{Exit: tc.exit, Stdout: prefix + tc.result + "\n"})
 			r, err := Run(context.Background(), s)
 			if err == nil || r.Done || errors.Is(err, ErrTurnCap) != tc.turnCap || r.TurnsEnded != tc.turnCap {
 				t.Fatalf("%+v %v", r, err)
@@ -119,7 +119,7 @@ func TestClaudeStreamPartialCancelAndTurnCap(t *testing.T) {
 
 	t.Run("no rate limit event", func(t *testing.T) {
 		s := spec(t, "claude")
-		install(t, &s, testbin.Scenario{Stdout: lines[0] + `{"type":"result","subtype":"success","is_error":false,"session_id":"stream-session","usage":{"input_tokens":3},"structured_output":` + goodAnswer + "}\n"})
+		installWorker(t, &s, testbin.Scenario{Stdout: lines[0] + `{"type":"result","subtype":"success","is_error":false,"session_id":"stream-session","usage":{"input_tokens":3},"structured_output":` + goodAnswer + "}\n"})
 		r, err := Run(context.Background(), s)
 		if err != nil || !r.Done {
 			t.Fatalf("%+v %v", r, err)

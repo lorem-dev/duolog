@@ -1,6 +1,9 @@
 package doctor
 
 import (
+	"path/filepath"
+	"sort"
+
 	"github.com/lorem-dev/duolog/internal/app/launch"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
@@ -39,8 +42,30 @@ type Trust interface {
 	GateProblem(s coreagent.TrustState, folder bool) string
 }
 
+// Installer names the project instruction file of an agent: the one it reads
+// now in the project at root, and every place one could have been written.
+type Installer interface {
+	InstructionFiles(root string) (current string, all []string)
+}
+
 // Agent holds what doctor asks of one registered agent. A nil port fails
-// closed: an agent with no Trust reads as untrusted.
+// closed: an agent with no Trust reads as untrusted, and one with no
+// Installer has no instruction file to check.
 type Agent struct {
-	Trust Trust
+	Trust     Trust
+	Installer Installer
+}
+
+// instructionPaths are the instruction files the agents read in the project at
+// root, by file name, so that AGENTS.md comes before CLAUDE.md.
+func (d Deps) instructionPaths(root string) []string {
+	var paths []string
+	for _, a := range d.Agents {
+		if a.Installer != nil {
+			current, _ := a.Installer.InstructionFiles(root)
+			paths = append(paths, current)
+		}
+	}
+	sort.SliceStable(paths, func(i, j int) bool { return filepath.Base(paths[i]) < filepath.Base(paths[j]) })
+	return paths
 }

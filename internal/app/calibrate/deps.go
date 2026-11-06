@@ -38,10 +38,19 @@ type Trust interface {
 	Folder(root string, environ []string) (bool, error)
 }
 
+// Installer renders an agent's hooks: with a nil existing file and a gate
+// timeout in seconds, the whole hooks document. It is the Installer port of
+// app/install, which wiring fills; calibration needs only Hooks.
+type Installer interface {
+	Hooks(existing []byte, timeout int) ([]byte, []string, error)
+}
+
 // Agent holds what calibration asks of one registered agent. A nil port fails
-// closed: a tree of an agent with no Trust is refused.
+// closed: a tree of an agent with no Trust is refused, and one with no
+// Installer gets no gate written.
 type Agent struct {
-	Trust Trust
+	Trust     Trust
+	Installer Installer
 }
 
 // cellLimit is the time cap of one cell.

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/lorem-dev/duolog/internal/install"
+	"github.com/lorem-dev/duolog/internal/app/install"
 	"github.com/spf13/cobra"
 )
 
@@ -20,14 +20,14 @@ func installOptions(scope, agent string) (install.Options, error) {
 	return install.Options{Scope: scope, Agent: agent, Home: home, Root: root}, nil
 }
 
-func newInstallCommand() *cobra.Command {
+func newInstallCommand(d *cmdDeps) *cobra.Command {
 	var scope, agent string
 	cmd := &cobra.Command{Use: "install", Short: "Install duolog hooks and skill for Claude Code and Codex", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		o, err := installOptions(scope, agent)
 		if err != nil {
 			return err
 		}
-		report, err := install.Run(o)
+		report, err := d.Install.Run(o)
 		if err != nil {
 			return err
 		}
@@ -47,14 +47,14 @@ func newInstallCommand() *cobra.Command {
 	return cmd
 }
 
-func newUninstallCommand() *cobra.Command {
+func newUninstallCommand(d *cmdDeps) *cobra.Command {
 	var scope, agent string
 	cmd := &cobra.Command{Use: "uninstall", Short: "Remove duolog hooks and skill, keeping other hooks and the config", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		o, err := installOptions(scope, agent)
 		if err != nil {
 			return err
 		}
-		return install.Remove(o)
+		return d.Install.Remove(o)
 	}}
 	cmd.Flags().StringVar(&scope, "scope", "project", "Where to uninstall: project or user")
 	cmd.Flags().StringVar(&agent, "agent", "both", "Which agent: claude, codex or both")

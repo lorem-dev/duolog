@@ -15,8 +15,8 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/capability"
+	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -304,8 +304,8 @@ func TestInstallOfferIsInfoOnly(t *testing.T) {
 	cfg, opts, _ := setup(t)
 	for _, present := range []bool{false, true} {
 		if present {
-			for _, path := range install.InstructionPaths(opts.Root) {
-				if err := os.WriteFile(path, []byte(install.InstallOffer+"\n"), 0644); err != nil {
+			for _, path := range testDeps.instructionPaths(opts.Root) {
+				if err := os.WriteFile(path, []byte(coreagent.InstallOffer+"\n"), 0644); err != nil {
 					t.Fatal(err)
 				}
 			}

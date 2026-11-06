@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/core/agent"
-	"github.com/lorem-dev/duolog/internal/install"
 )
 
 func fixture(t *testing.T) {
@@ -271,7 +270,7 @@ func TestClaudeRecognizesGeneratedAndOlderHooks(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		t.Fatal(err)
 	}
-	generated, err := install.HooksJSON("claude", 150)
+	generated, err := HooksJSON(150)
 	if err != nil {
 		t.Fatal(err)
 	}

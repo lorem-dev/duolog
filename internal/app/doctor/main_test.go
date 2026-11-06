@@ -28,8 +28,9 @@ func TestMain(m *testing.M) {
 	testDeps = Deps{PaidGate: paidrunstest.Factory(accounts), GateBinary: launchtest.GateBinary,
 		Build: launchtest.Build, LookPath: launchtest.LookPath, DroppedKeys: launchtest.DroppedKeys,
 		ClaudeFolder: launchtest.ClaudeFolder, Agents: map[string]Agent{}}
+	installers := launchtest.Installers()
 	for name, t := range launchtest.Trusts() {
-		testDeps.Agents[name] = Agent{Trust: t}
+		testDeps.Agents[name] = Agent{Trust: t, Installer: installers[name]}
 	}
 	code := m.Run()
 	_ = os.RemoveAll(accounts)

@@ -128,7 +128,7 @@ func hooksAt(path string, s codexSettings, stale map[string]string) (agent.Trust
 	if err := json.Unmarshal(data, &definition); err != nil {
 		return agent.TrustState{}, err
 	}
-	posix, windows := install.CodexGateCommands("PreToolUse")
+	posix, windows := CodexGateCommands("PreToolUse")
 	var unproven agent.TrustState
 	for i, group := range definition.Hooks["PreToolUse"] {
 		if !group.CoversEveryTool() {

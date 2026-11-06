@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+
+	"github.com/lorem-dev/duolog/internal/core/agent"
 )
 
 const offerMarker = "<!-- duolog -->"
-
-// InstallOffer is the project instruction shared by installation and doctor.
-const InstallOffer = "<!-- duolog --> If `.duolog/config.yaml` exists and `duolog` is not on PATH, offer the user this install, and run it only if they agree; macOS/Linux: `curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh && duolog install --scope project`; Windows PowerShell: `irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex` then add the printed directory to PATH and run `duolog install --scope project`."
 
 type instructionState struct {
 	Created         bool   `json:"created,omitempty"`
@@ -20,13 +20,35 @@ type instructionState struct {
 	AddedNewline    bool   `json:"added_newline,omitempty"`
 }
 
-// InstructionPaths chooses the existing Claude instruction file, or its default.
-func InstructionPaths(root string) []string {
-	claude := "CLAUDE.md"
-	if _, err := os.Stat(filepath.Join(root, ".claude", "CLAUDE.md")); err == nil {
-		claude = filepath.Join(".claude", "CLAUDE.md")
+// instructionPaths are the instruction files of every registered agent in the
+// project at root: the file each reads now, and every place one could have
+// been written. Both are listed by base name, so AGENTS.md comes before
+// CLAUDE.md, and keep each agent's own order for the same name.
+func (d Deps) instructionPaths(root string) (current, all []string) {
+	for _, a := range d.Agents {
+		file, files := a.Installer.InstructionFiles(root)
+		current = append(current, file)
+		for _, f := range files {
+			if !contains(all, f) {
+				all = append(all, f)
+			}
+		}
 	}
-	return []string{filepath.Join(root, "AGENTS.md"), filepath.Join(root, claude)}
+	byName := func(list []string) {
+		sort.SliceStable(list, func(i, j int) bool { return filepath.Base(list[i]) < filepath.Base(list[j]) })
+	}
+	byName(current)
+	byName(all)
+	return current, all
+}
+
+func contains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 func stripOffer(data []byte) []byte {
@@ -65,22 +87,23 @@ func insertOffer(data []byte) ([]byte, bool) {
 			if added {
 				prefix = append(prefix, '\n')
 			}
-			prefix = append(prefix, []byte(InstallOffer+"\n")...)
+			prefix = append(prefix, []byte(agent.InstallOffer+"\n")...)
 			return append(prefix, data[offset:]...), added
 		}
 		previous = text
 	}
-	return append([]byte(InstallOffer+"\n"), data...), false
+	return append([]byte(agent.InstallOffer+"\n"), data...), false
 }
 
-func instructionEdits(root string) ([]edit, error) {
+func (d Deps) instructionEdits(root string) ([]edit, error) {
 	statePath := filepath.Join(root, ".duolog", "instruction-files.json")
 	state, err := readInstructionState(statePath)
 	if err != nil {
 		return nil, err
 	}
 	var edits []edit
-	for _, path := range InstructionPaths(root) {
+	paths, _ := d.instructionPaths(root)
+	for _, path := range paths {
 		rel, _ := filepath.Rel(root, path)
 		old, err := os.ReadFile(path)
 		if err != nil && !os.IsNotExist(err) {
@@ -128,15 +151,16 @@ func readInstructionState(path string) (map[string]instructionState, error) {
 	return state, nil
 }
 
-func removeInstructions(root string) error {
+func (d Deps) removeInstructions(root string) error {
 	statePath := filepath.Join(root, ".duolog", "instruction-files.json")
 	state, err := readInstructionState(statePath)
 	if err != nil {
 		return err
 	}
-	// Include both possible Claude locations, including a previously selected one.
-	for _, rel := range []string{"AGENTS.md", "CLAUDE.md", filepath.Join(".claude", "CLAUDE.md")} {
-		path := filepath.Join(root, rel)
+	// Every possible location, including a previously selected one.
+	_, all := d.instructionPaths(root)
+	for _, path := range all {
+		rel, _ := filepath.Rel(root, path)
 		data, err := os.ReadFile(path)
 		if os.IsNotExist(err) {
 			continue

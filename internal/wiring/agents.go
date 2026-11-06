@@ -9,6 +9,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/doctor"
 	"github.com/lorem-dev/duolog/internal/app/hook"
+	"github.com/lorem-dev/duolog/internal/app/install"
 	"github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/core/agent"
@@ -18,7 +19,7 @@ import (
 func doctorAgents() map[string]doctor.Agent {
 	out := map[string]doctor.Agent{}
 	for _, a := range Agents() {
-		out[a.Facts.Name] = doctor.Agent{Trust: a.Trust}
+		out[a.Facts.Name] = doctor.Agent{Trust: a.Trust, Installer: a.Installer}
 	}
 	return out
 }
@@ -51,14 +52,44 @@ type Agent struct {
 	// Trust reads the agent's hook and folder trust. The app packages that
 	// need less of it declare smaller interfaces that this one satisfies.
 	Trust delegate.Trust
+	// Installer writes the agent's hooks and skill. An agent whose Installer
+	// also implements install.Plugins has a plugin that registers the same.
+	Installer install.Installer
 }
 
 // Agents returns the registered agents in order: claude, then codex.
 func Agents() []Agent {
 	return []Agent{
-		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}, Login: claude.Login{}, Trust: claude.Trust{}},
-		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}, Login: codex.Login{}, Trust: codex.Trust{}},
+		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}, Login: claude.Login{}, Trust: claude.Trust{}, Installer: claude.Installer{}},
+		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}, Login: codex.Login{}, Trust: codex.Trust{}, Installer: codex.Installer{}},
 	}
+}
+
+// Claude's Installer is also its Plugins, and Codex's its Approvals: install
+// asserts them.
+var (
+	_ install.Plugins   = claude.Installer{}
+	_ install.Approvals = codex.Installer{}
+)
+
+// InstallDeps gives install the Installer of each registered agent, in order.
+func InstallDeps() install.Deps {
+	var d install.Deps
+	for _, a := range Agents() {
+		d.Agents = append(d.Agents, install.Agent{Name: a.Facts.Name, Installer: a.Installer})
+	}
+	return d
+}
+
+// CalibrationInstallers gives calibrate the Installer of each registered agent
+// by name; cmd/duolog builds calibrate's Agent values from these and from
+// CalibrationTrusts.
+func CalibrationInstallers() map[string]install.Installer {
+	out := map[string]install.Installer{}
+	for _, a := range Agents() {
+		out[a.Facts.Name] = a.Installer
+	}
+	return out
 }
 
 // HookEnv fills the Events and Lead of env.Agent. An agent that is not

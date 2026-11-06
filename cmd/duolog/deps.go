@@ -81,8 +81,9 @@ func (d *cmdDeps) calibrateDeps() calibration.Deps {
 // calibrationAgents gives calibration the ports of each registered agent.
 func calibrationAgents() map[string]calibration.Agent {
 	out := map[string]calibration.Agent{}
+	installers := wiring.CalibrationInstallers()
 	for name, t := range wiring.CalibrationTrusts() {
-		out[name] = calibration.Agent{Trust: t}
+		out[name] = calibration.Agent{Trust: t, Installer: installers[name]}
 	}
 	return out
 }

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/install"
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -583,7 +583,7 @@ func TestTreeTrustReadsTheWorkersEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = cleanup() })
-	if !install.HasGate(filepath.Join(dir, ".claude", "settings.local.json")) {
+	if !launchtest.HasGate(filepath.Join(dir, ".claude", "settings.local.json")) {
 		t.Error("claude: no local gate in the tree, although the worker's settings have none")
 	}
 
@@ -610,7 +610,7 @@ func TestTreeTrustReadsTheWorkersEnvironment(t *testing.T) {
 
 func claudeGate(t *testing.T) string {
 	t.Helper()
-	hooks, err := install.HooksJSON("claude", 150)
+	hooks, err := launchtest.HooksJSON("claude", 150)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -637,7 +637,7 @@ func TestNewTreeAtAddsClaudeGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	local := filepath.Join(dir, ".claude", "settings.local.json")
-	if !install.HasGate(local) {
+	if !launchtest.HasGate(local) {
 		t.Fatalf("%s has no duolog gate", local)
 	}
 	if out := git(t, dir, "ls-files"); out != "a.txt" {
@@ -679,7 +679,7 @@ func TestNewJudgeSlotGivesClaudeGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !install.HasGate(filepath.Join(slot, ".claude", "settings.local.json")) {
+	if !launchtest.HasGate(filepath.Join(slot, ".claude", "settings.local.json")) {
 		t.Fatal("the judge slot has no Claude gate")
 	}
 	if err := CheckTreeTrust("claude", slot, os.Environ()); err != nil {

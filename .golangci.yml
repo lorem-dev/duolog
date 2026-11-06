@@ -89,7 +89,7 @@ linters:
       # .duolog/, the config and the files duolog writes into a project are meant
       # to be read by the person and by Git (0755 and 0644). Telemetry and the
       # calibration trees are not in this list, so their modes stay checked.
-      - path: ^(cmd|scripts)/|^internal/(adapter/codex|app/delegate|app/learn|app/peer|app/sync|adapter/session|artifact|bus|capability|install|journal|learning|models|store|testbin)/|^internal/adapter/kit/process/
+      - path: ^(cmd|scripts)/|^internal/(adapter/codex|app/delegate|app/install|app/learn|app/peer|app/sync|adapter/session|artifact|bus|capability|install|journal|learning|models|store|testbin)/|^internal/adapter/kit/process/
         text: G30[126]
         linters: [gosec]
       # PowerShell accepts any prefix of -recurse; the arguments are in that order on purpose.
@@ -301,13 +301,14 @@ linters:
       - {path: '^internal/app/hook/hook\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Wake. has too many statements \(41 > |complexity 35 of func .(?:\(\*?\w+\)\.)?Wake. is|function (?:\(\*?\w+\)\.)?Wake is 21,'} # Wake: cyclomatic 21, statements 41, cognitive 35
       - {path: '^internal/app/hook/hook\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .prepare. has too many statements \(58 > |complexity 32 of func .(?:\(\*?\w+\)\.)?prepare. is|function (?:\(\*?\w+\)\.)?prepare is 30,'} # prepare: cyclomatic 30, statements 58, cognitive 32
       - {path: '^internal/app/hook/hook\.go$', linters: [nestif], text: '.if\ current\ !=\ previous. has complex nested blocks \(complexity: 8\)'} # if if current != previous: nesting 8
-      - {path: '^internal/install/approvals\.go$', linters: [cyclop, gocognit], text: 'complexity 22 of func .(?:\(\*?\w+\)\.)?markStaleApprovals. is|function (?:\(\*?\w+\)\.)?markStaleApprovals is 20,'} # markStaleApprovals: cyclomatic 20, cognitive 22
-      - {path: '^internal/install/install\.go$', linters: [cyclop, gocognit], text: 'complexity 48 of func .(?:\(\*?\w+\)\.)?Remove. is|function (?:\(\*?\w+\)\.)?Remove is 22,'} # Remove: cyclomatic 22, cognitive 48
-      - {path: '^internal/install/install\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Run. has too many statements \(67 > |complexity 61 of func .(?:\(\*?\w+\)\.)?Run. is|function (?:\(\*?\w+\)\.)?Run is 33,'} # Run: cyclomatic 33, statements 67, cognitive 61
-      - {path: '^internal/install/install\.go$', linters: [cyclop, gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?apply. is|function (?:\(\*?\w+\)\.)?apply is 20,'} # apply: cyclomatic 20, cognitive 23
-      - {path: '^internal/install/install\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .mergeHooks. is too long \(63 > |complexity 33 of func .(?:\(\*?\w+\)\.)?mergeHooks. is|function (?:\(\*?\w+\)\.)?mergeHooks is 21,'} # mergeHooks: cyclomatic 21, lines 63, cognitive 33
-      - {path: '^internal/install/install\.go$', linters: [nestif], text: '.if\ o\.Scope\ !=\ "user". has complex nested blocks \(complexity: 6\)'} # if if o.Scope != "user": nesting 6
-      - {path: '^internal/install/instructions\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?insertOffer is 21,'} # insertOffer: cyclomatic 21
+      - {path: '^internal/install/approvals\.go$', linters: [cyclop, gocognit], text: 'complexity 22 of func .(?:\(\*?\w+\)\.)?MarkStaleApprovals. is|function (?:\(\*?\w+\)\.)?MarkStaleApprovals is 20,'} # MarkStaleApprovals: cyclomatic 20, cognitive 22
+      - {path: '^internal/app/install/install\.go$', linters: [cyclop, gocognit], text: 'complexity 46 of func .(?:\(\*?\w+\)\.)?Remove. is|function (?:\(\*?\w+\)\.)?Remove is 21,'} # Remove: cyclomatic 21, cognitive 46
+      - {path: '^internal/app/install/install\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Run. has too many statements \(60 > |complexity 53 of func .(?:\(\*?\w+\)\.)?Run. is|function (?:\(\*?\w+\)\.)?Run is 28,'} # Run: cyclomatic 28, statements 60, cognitive 53
+      - {path: '^internal/app/install/install\.go$', linters: [cyclop, gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?apply. is|function (?:\(\*?\w+\)\.)?apply is 20,'} # apply: cyclomatic 20, cognitive 23
+      - {path: '^internal/install/install\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Merge. is too long \(61 > |complexity 32 of func .(?:\(\*?\w+\)\.)?Merge. is|function (?:\(\*?\w+\)\.)?Merge is 20,'} # Merge: cyclomatic 20, lines 61, cognitive 32
+      - {path: '^internal/app/install/install\.go$', linters: [nestif], text: '.if\ ok. has complex nested blocks \(complexity: 7\)'} # if if ok: nesting 7
+      - {path: '^internal/app/install/install\.go$', linters: [nestif], text: '.if\ o\.Scope\ !=\ "user". has complex nested blocks \(complexity: 6\)'} # if if o.Scope != "user": nesting 6
+      - {path: '^internal/app/install/instructions\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?insertOffer is 21,'} # insertOffer: cyclomatic 21
       - {path: '^internal/journal/usage_log\.go$', linters: [funlen, gocognit], text: 'Function .SummarizeUsage. has too many statements \(45 > |complexity 22 of func .(?:\(\*?\w+\)\.)?SummarizeUsage. is'} # SummarizeUsage: statements 45, cognitive 22
       - {path: '^internal/app/paidruns/admission\.go$', linters: [cyclop, gocognit], text: 'complexity 22 of func .(?:\(\*?\w+\)\.)?admit. is|function (?:\(\*?\w+\)\.)?admit is 23,'} # admit: cyclomatic 23, cognitive 22
       - {path: '^internal/app/paidruns/admission\.go$', linters: [cyclop, gocognit], text: 'complexity 27 of func .(?:\(\*?\w+\)\.)?validate. is|function (?:\(\*?\w+\)\.)?validate is 28,'} # validate: cyclomatic 28, cognitive 27

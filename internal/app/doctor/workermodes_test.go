@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/install"
 )
 
 func TestDoctorReportsWorkerModes(t *testing.T) {
@@ -136,7 +136,7 @@ func TestDoctorReadsTheWorkersSettings(t *testing.T) {
 			}},
 		{"codex folder trust only in the caller's CODEX_HOME", "codex", "Codex does not trust this folder", config.WorkerMode{Codex: "workspace-write", Network: true},
 			func(t *testing.T, home, root, alternate string) {
-				hooks, err := install.HooksJSON("codex", 30)
+				hooks, err := launchtest.HooksJSON("codex", 30)
 				if err != nil {
 					t.Fatal(err)
 				}

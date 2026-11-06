@@ -77,7 +77,7 @@ func TestPeersSkillIsInstalled(t *testing.T) {
 
 // The skills page names every skill that duolog install ships.
 func TestSkillsPageNamesEveryBundledSkill(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "skills.md"))
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "docs", "skills.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

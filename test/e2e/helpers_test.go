@@ -23,8 +23,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/claude"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
-	"github.com/lorem-dev/duolog/internal/install"
 )
 
 // binDir holds the duolog binary built once for the whole run.
@@ -137,7 +137,7 @@ func (p *project) registerLead() {
 	if err != nil {
 		p.t.Fatal(err)
 	}
-	data, err := install.HooksJSON("claude", 150)
+	data, err := claude.HooksJSON(150)
 	if err != nil {
 		p.t.Fatal(err)
 	}

@@ -18,7 +18,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/gate"
-	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/wiring"
@@ -39,7 +38,7 @@ func putWorktreeFile(t *testing.T, path, text string) {
 // them and the folder in the home's Codex config.
 func trustCodexIn(t *testing.T, dir string) {
 	t.Helper()
-	hooks, err := install.HooksJSON("codex", 30)
+	hooks, err := hooksJSON("codex", 30)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +156,7 @@ func TestLinkedWorktreeUsesOwnTaskCwdGateAndSync(t *testing.T) {
 
 // The Codex hooks that the delegate tests approve are the ones install writes.
 func TestDelegateHooksFixtureMatchesInstall(t *testing.T) {
-	want, err := install.HooksJSON("codex", 30)
+	want, err := hooksJSON("codex", 30)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,6 +165,6 @@ func TestDelegateHooksFixtureMatchesInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(got, want) {
-		t.Fatal("internal/app/delegate/testdata/codex-hooks.json differs from install.HooksJSON(\"codex\", 30); copy the install output over it")
+		t.Fatal("internal/app/delegate/testdata/codex-hooks.json differs from codex.HooksJSON(30); copy the install output over it")
 	}
 }

@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/install"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
-	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -27,7 +27,7 @@ func generatedCommand(t *testing.T, agent, event string) testbin.HookCommand {
 
 func generatedCommandForOS(t *testing.T, agent, goos, event string) testbin.HookCommand {
 	t.Helper()
-	data, err := install.HooksJSON(agent, 150)
+	data, err := hooksJSON(agent, 150)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 			t.Chdir(root)
 			home := os.Getenv("HOME")
 			// User scope must initialize a project that has no .duolog yet.
-			if _, err := install.Run(install.Options{Scope: "user", Agent: "both", Root: root, Home: home}); err != nil {
+			if _, err := runInstall(install.Options{Scope: "user", Agent: "both", Root: root, Home: home}); err != nil {
 				t.Fatal(err)
 			}
 			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))

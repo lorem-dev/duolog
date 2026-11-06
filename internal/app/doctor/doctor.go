@@ -22,7 +22,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/gate"
-	"github.com/lorem-dev/duolog/internal/install"
 )
 
 // FixtureVersions is the single source of versions used to collect the fixtures.
@@ -69,12 +68,12 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 			return out
 		}
 	}
-	for _, path := range install.InstructionPaths(root) {
+	for _, path := range d.instructionPaths(root) {
 		data, err := os.ReadFile(path)
 		present := false
 		if err == nil {
 			for _, line := range strings.Split(string(data), "\n") {
-				if strings.TrimSuffix(line, "\r") == install.InstallOffer {
+				if strings.TrimSuffix(line, "\r") == coreagent.InstallOffer {
 					present = true
 				}
 			}

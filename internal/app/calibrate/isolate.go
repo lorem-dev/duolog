@@ -20,7 +20,6 @@ import (
 	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
-	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/journal"
 	projectroot "github.com/lorem-dev/duolog/internal/project"
 )
@@ -173,7 +172,11 @@ func (d Deps) addClaudeGate(dir string, environ []string) error {
 	if err != nil || state.Installed {
 		return err
 	}
-	hooks, err := install.HooksJSON("claude", gateTimeout)
+	installer := d.Agents["claude"].Installer
+	if installer == nil {
+		return errors.New("calibration: no installer for claude, so the tree has no gate to write")
+	}
+	hooks, _, err := installer.Hooks(nil, gateTimeout)
 	if err != nil {
 		return err
 	}

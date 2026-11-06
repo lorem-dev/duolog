@@ -54,9 +54,9 @@ func ApprovalPath(key string) (path, position string, ok bool) {
 	return "", "", false
 }
 
-// gateCommands lists the gate handlers of a Codex hooks file with their
+// GateCommands lists the gate handlers of a Codex hooks file with their
 // positions and commands; it changes exactly when a gate command changes.
-func gateCommands(data []byte) string {
+func GateCommands(data []byte) string {
 	var doc struct {
 		Hooks map[string][]HookGroup `json:"hooks"`
 	}
@@ -74,10 +74,10 @@ func gateCommands(data []byte) string {
 	return b.String()
 }
 
-// markStaleApprovals records, for each Codex approval of a gate position in
+// MarkStaleApprovals records, for each Codex approval of a gate position in
 // hooksPath, the trusted_hash Codex holds now, after duolog changed the gate
 // command there. Entries Codex has approved again since are dropped.
-func markStaleApprovals(home, hooksPath string) error {
+func MarkStaleApprovals(home, hooksPath string) error {
 	codexHome := trusthome.Codex(home)
 	var cfg struct {
 		Hooks struct {

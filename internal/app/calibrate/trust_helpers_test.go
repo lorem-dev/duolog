@@ -10,8 +10,9 @@ import (
 // the temporary homes the tests set.
 func trustDeps() Deps {
 	d := Deps{Agents: map[string]Agent{}}
+	installers := launchtest.Installers()
 	for name, t := range launchtest.Trusts() {
-		d.Agents[name] = Agent{Trust: t}
+		d.Agents[name] = Agent{Trust: t, Installer: installers[name]}
 	}
 	return d
 }

@@ -29,7 +29,7 @@ func bridged() *MCP {
 // during the run, and the values reach its environment, not argv or the file.
 func TestClaudeWorkerGetsBridgedServers(t *testing.T) {
 	s := spec(t, "claude")
-	p := install(t, &s, testbin.Scenario{Stdout: `{"structured_output":` + goodAnswer + `}`})
+	p := installWorker(t, &s, testbin.Scenario{Stdout: `{"structured_output":` + goodAnswer + `}`})
 	s.MCP = bridged()
 	s = rebuilt(t, s)
 	if _, err := Run(context.Background(), s); err != nil {
@@ -73,7 +73,7 @@ func TestClaudeWorkerGetsBridgedServers(t *testing.T) {
 // A failed run removes the file as well.
 func TestClaudeBridgedConfigRemovedOnFailure(t *testing.T) {
 	s := spec(t, "claude")
-	fake := install(t, &s, testbin.Scenario{Exit: 1, Stderr: "boom"})
+	fake := installWorker(t, &s, testbin.Scenario{Exit: 1, Stderr: "boom"})
 	s.MCP = bridged()
 	s = rebuilt(t, s)
 	if _, err := Run(context.Background(), s); err == nil {
@@ -107,7 +107,7 @@ func TestClaudeBridgedWithOwnServers(t *testing.T) {
 
 func TestCodexWorkerGetsBridgedServers(t *testing.T) {
 	s := spec(t, "codex")
-	p := install(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): goodAnswer}})
+	p := installWorker(t, &s, testbin.Scenario{Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): goodAnswer}})
 	s.MCP = bridged()
 	s = rebuilt(t, s)
 	if _, err := Run(context.Background(), s); err != nil {
@@ -139,7 +139,7 @@ func TestAuthFailureClassified(t *testing.T) {
 	}
 	for _, c := range cases {
 		s := spec(t, c.agent)
-		install(t, &s, testbin.Scenario{Exit: 1, Stderr: c.stderr})
+		installWorker(t, &s, testbin.Scenario{Exit: 1, Stderr: c.stderr})
 		r, _ := Run(context.Background(), s)
 		if r.AuthFailed != c.failed || r.AuthServer != c.server {
 			t.Fatalf("%q: %+v", c.stderr, r)
@@ -147,7 +147,7 @@ func TestAuthFailureClassified(t *testing.T) {
 	}
 	// Output of a run that went well is not authoritative.
 	s := spec(t, "codex")
-	install(t, &s, testbin.Scenario{Stderr: "tool said: 401 Unauthorized\n", Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): goodAnswer}})
+	installWorker(t, &s, testbin.Scenario{Stderr: "tool said: 401 Unauthorized\n", Writes: map[string]string{filepath.Join(s.TaskDir, "answer.json"): goodAnswer}})
 	if r, _ := Run(context.Background(), s); r.AuthFailed {
 		t.Fatal(r)
 	}

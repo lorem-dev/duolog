@@ -8,6 +8,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/doctor"
+	"github.com/lorem-dev/duolog/internal/app/install"
 	"github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/peer"
@@ -33,6 +34,10 @@ type CmdDeps struct {
 	PeerDeps    func(delegate.Deps) peer.Deps
 	ProfileDeps func(delegate.Deps) profile.Deps
 	DoctorDeps  func(delegate.Deps) doctor.Deps
+
+	// Install is what install and uninstall reach: the registered agents'
+	// Installers.
+	Install install.Deps
 
 	// CalibrationNext names the calibrate command after each step.
 	CalibrationNext map[string]string
@@ -64,6 +69,7 @@ func Cmd() CmdDeps {
 		PeerDeps:        PeerDeps,
 		ProfileDeps:     ProfileDeps,
 		DoctorDeps:      DoctorDeps,
+		Install:         InstallDeps(),
 		CalibrationNext: budget.NextStep,
 		LocateRex:       func() (string, bool) { return rex.Locate(os.Getenv("REX_BIN_DIR"), rex.BundleGlobs()) },
 		Lead:            LeadDeps(),

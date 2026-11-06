@@ -21,7 +21,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	corerun "github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/taskspec"
-	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/testbin"
@@ -689,7 +688,7 @@ func TestRunCellTokenCap(t *testing.T) {
 // it: the worker runs with rules, not "sandbox only".
 func TestRunCellClaudeTreeHasGate(t *testing.T) {
 	f := newCellFixture(t)
-	hooks, err := install.HooksJSON("claude", 150)
+	hooks, err := launchtest.HooksJSON("claude", 150)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -759,7 +758,7 @@ func TestRunCellWorkerGetsProtectedRoots(t *testing.T) {
 // local settings file out, so that layer holds only duolog's gate.
 func TestRunCellRefusesClaudeTreeWithHooksOff(t *testing.T) {
 	off := `{"disableAllHooks":true}`
-	gate, err := install.HooksJSON("claude", 150)
+	gate, err := launchtest.HooksJSON("claude", 150)
 	if err != nil {
 		t.Fatal(err)
 	}

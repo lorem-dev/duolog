@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"github.com/lorem-dev/duolog/plugin"
@@ -235,7 +235,7 @@ func TestHookTimeoutAboveAskTimeout(t *testing.T) {
 	home, root := setup(t)
 	write(t, filepath.Join(root, ".duolog/config.yaml"), "version: 1\npolicy:\n  ask_timeout_seconds: 300\n")
 	run(t, Options{Scope: "project", Agent: "both", Home: home, Root: root})
-	cfg, err := configfile.Load(root)
+	cfg, err := launchtest.LoadConfig(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestCreatesConfigWithModeline(t *testing.T) {
 	if first != "# yaml-language-server: $schema="+config.SchemaURL {
 		t.Fatalf("first line %q", first)
 	}
-	if _, err := configfile.Load(root); err != nil {
+	if _, err := launchtest.LoadConfig(root); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -382,7 +382,7 @@ func TestPluginHooksFileMatchesGenerated(t *testing.T) {
 }
 
 func TestManifests(t *testing.T) {
-	root := filepath.Join("..", "..")
+	root := filepath.Join("..", "..", "..")
 	for path, keys := range map[string][]string{
 		"plugin/claude/.claude-plugin/plugin.json": {"name", "version", "description"},
 		"plugin/codex/plugin.json":                 {"$schema", "name", "version", "description"},
