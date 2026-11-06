@@ -247,6 +247,34 @@ Run each wait as its own background command: one for each peer and one for
 each CI run. Do not chain them. New peer tabs stay in the detached project
 session and keep the person's current window and pane focused.
 
+## How to queue peers that open when a session is free
+
+The ready queue holds the peers that the lead wants to run next. duolog opens
+them by itself when a session is free, so the number of peers does not depend
+on how many the lead remembers to open.
+
+| Command | What it does |
+|---|---|
+| `duolog peer queue add <role> --task <file> [--cwd <dir>] [--after <peer-id>]` | Adds an item. `--cwd`, the current folder by default, must be in the project or one of its linked worktrees. `--task` is a file path relative to `--cwd`, with no `..` |
+| `duolog peer queue list` | Prints `<id> <role> <cwd> <task> <state>` for each item, in order. The state is `queued`, `opening`, `opened <peer-id>` or `failed: <reason>` |
+| `duolog peer queue remove <id>` | Drops an item. An item that a run is opening stays |
+| `duolog peer queue run` | Opens the queued items in order, then prints the list |
+
+A run opens each item in its `--cwd` as `peer open` does there, with the same
+session limits, window headroom and paid-run rules. It stops at the first item
+that admission refuses and leaves that item queued, because a later close
+frees a session. An item whose open or send fails for another reason is
+marked `failed`, and the run goes on. Each opened peer gets its task as
+`peer send` sends it, and the lead gets one bus line:
+`queue: opened <peer-id> (<role>) in <cwd> for <task>`. An item with `--after`
+waits until that peer is idle or closed; the items behind it do not wait.
+
+`duolog peer close` starts a run in a separate process after it closes the
+peer, and its line then ends with `; queue run started`. A lock in `.duolog`
+lets one run per lead go at a time, and a second run exits at once. The items
+are in `.duolog/peer-queue.ndjson`, and the output of the last run started
+this way is in `.duolog/peer-queue-run.log`.
+
 ## How to see what a peer shows
 
 None of these commands puts screen text into a model's context. In your

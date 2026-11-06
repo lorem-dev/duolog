@@ -58,8 +58,8 @@
   `use` agent runs ahead of its window, never onto a paid route.
 - `peer list --long`, `show`, `view` (Rex Remote Control) and `duolog-peers`
   show peers; leads hear of stalled peers; bypass/auto skips person-only asks.
-- The lead sees its load in a `duolog peers:` line, also in `duolog peer list`,
-  and hears when a peer ends a turn or exits (`peer-idle`, `peer-exit`).
+- The lead sees its load (`duolog peers:`), hears when a peer ends a turn or
+  exits, and can queue peers that open once a session is free (`peer queue`).
 
 ### Changed
 
@@ -81,10 +81,8 @@
 
 ### Security
 
-- Codex peers ignore `network_access` and `writable_roots` in
-  `.codex/config.toml`, so a cloned repository cannot widen their sandbox.
-- Workers cannot start `claude` or `codex` through any path, `.cmd` or `.ps1`
-  launcher, `npx`-style runner or `env` prefix.
+- Codex peers ignore `network_access`/`writable_roots` from the project; workers
+  cannot start `claude`/`codex` via any path, `.cmd`/`.ps1`, runner or `env`.
 
 ## 1.4.1
 
