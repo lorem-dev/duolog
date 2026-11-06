@@ -1,0 +1,123 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/lorem-dev/duolog/internal/bus"
+	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/session"
+)
+
+// answerAsks replies kind to every ask that reaches the bus until the test ends.
+func answerAsks(t *testing.T, root, kind string) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	t.Cleanup(func() { cancel(); <-done })
+	dir := filepath.Join(root, ".duolog")
+	go func() {
+		defer close(done)
+		answered := map[int64]bool{}
+		for ctx.Err() == nil {
+			time.Sleep(5 * time.Millisecond)
+			data, err := os.ReadFile(filepath.Join(dir, "bus.ndjson"))
+			if err != nil {
+				continue
+			}
+			for _, line := range strings.Split(string(data), "\n") {
+				var m bus.Message
+				if json.Unmarshal([]byte(line), &m) != nil || m.K != gate.Ask || answered[m.N] {
+					continue
+				}
+				answered[m.N] = true
+				reg, err := session.Open(dir)
+				if err != nil {
+					continue
+				}
+				lead, _, err := reg.Lead("lead-123456")
+				if err != nil {
+					continue
+				}
+				b, err := bus.Open(dir, config.Wire{MaxLineBytes: 512, MaxSummaryBytes: 200})
+				if err == nil {
+					_, _ = b.Send(bus.Message{From: session.Address(lead), To: m.From, K: kind, Ref: strconv.FormatInt(m.N, 10), S: kind})
+				}
+			}
+		}
+	}()
+}
+
+func busAsks(t *testing.T, root string) []bus.Message {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(root, ".duolog", "bus.ndjson"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var asks []bus.Message
+	for _, line := range strings.Split(string(data), "\n") {
+		var m bus.Message
+		if json.Unmarshal([]byte(line), &m) == nil && m.K == gate.Ask {
+			asks = append(asks, m)
+		}
+	}
+	return asks
+}
+
+func claudeGate(t *testing.T, event, toolUseID, command string) string {
+	t.Helper()
+	data, _ := json.Marshal(map[string]any{"session_id": "claude-session", "tool_use_id": toolUseID, "tool_name": "Bash", "tool_input": map[string]string{"command": command}})
+	out, err := gateCommand(t, string(data), "gate", "--agent", "claude", "--event", event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// Claude runs PreToolUse and then PermissionRequest for one tool call. Both
+// reached the same ask, so the lead was asked twice for one command.
+func TestGateOneAskForPreToolUseAndPermissionRequest(t *testing.T) {
+	for _, kind := range []string{gate.Allow, gate.Deny} {
+		t.Run(kind, func(t *testing.T) {
+			_, root := gateSetup(t, mode.Ask)
+			t.Setenv("DUOLOG_LEAD", "lead-123456")
+			answerAsks(t, root, kind)
+			pre := claudeGate(t, "PreToolUse", "toolu_1", "custom-command")
+			perm := claudeGate(t, "PermissionRequest", "toolu_1", "custom-command")
+			if n := len(busAsks(t, root)); n != 1 {
+				t.Fatalf("%d asks on the bus for one tool call", n)
+			}
+			if kind == gate.Allow {
+				if pre != "" || !strings.Contains(perm, `"behavior":"allow"`) {
+					t.Fatalf("pre %q, permission %q", pre, perm)
+				}
+				return
+			}
+			if !strings.Contains(pre, `"permissionDecision":"deny"`) || !strings.Contains(perm, `"behavior":"deny"`) {
+				t.Fatalf("pre %q, permission %q", pre, perm)
+			}
+		})
+	}
+}
+
+// A second tool call asks for itself, and a wait that ran out is not an answer.
+func TestGateAskIsNotSharedAcrossCallsOrTimeouts(t *testing.T) {
+	_, root := gateSetup(t, mode.Ask)
+	shortAskWait(t)
+	for _, id := range []string{"toolu_1", "toolu_1", "toolu_2"} {
+		if out := claudeGate(t, "PermissionRequest", id, "custom-command"); !strings.Contains(out, `"behavior":"deny"`) {
+			t.Fatal(out)
+		}
+	}
+	if n := len(busAsks(t, root)); n != 3 {
+		t.Fatalf("%d asks, want one per call that got no answer", n)
+	}
+}
