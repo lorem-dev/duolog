@@ -348,6 +348,10 @@
           "$ref": "#/$defs/Workers",
           "description": "What Claude workers and peers inherit from the person's own settings."
         },
+        "lead": {
+          "$ref": "#/$defs/Lead",
+          "description": "What duolog adds to the person's own lead session; compact notes are on by default."
+        },
         "rex": {
           "$ref": "#/$defs/Rex",
           "description": "Terminal capture and startup settings; defaults to 20 lines and 120 seconds."
@@ -413,6 +417,16 @@
         "prior": {
           "type": "number",
           "description": "Guessed quality from 0 to 3, worth prior_runs judged runs."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Lead": {
+      "properties": {
+        "compact_notes": {
+          "type": "boolean",
+          "description": "Help the lead keep its delegation state through compaction: the PreCompact hook asks Claude to keep the open peers, open asks, branches and pull requests in the summary and lists the live peers, and the session start after a compaction lists them again. Defaults to true."
         }
       },
       "additionalProperties": false,

@@ -33,6 +33,9 @@ type Env struct {
 	// StartedAt is captured by the command before it reads hook stdin.
 	// Embedded callers may omit it; the hook then captures its own start time.
 	StartedAt time.Time
+	// Peers returns the lines of `duolog peer list` for the lead with this
+	// session id. Nil means none; the command sets it.
+	Peers func(ctx context.Context, leadID string) []string
 }
 
 type Output struct {
@@ -48,6 +51,8 @@ type input struct {
 	// AgentID is set when a Claude subagent makes the call. The subagent
 	// shares its lead's session id, but its permission_mode is its own.
 	AgentID string `json:"agent_id"`
+	// Source is why a Claude session started: startup, resume, clear or compact.
+	Source string `json:"source"`
 }
 
 type state struct {
@@ -230,7 +235,7 @@ func SessionStart(ctx context.Context, e Env) Output {
 	return deliver(ctx, e, "SessionStart", true, true, startTime(e), func() string {
 		prune(e)
 		var lines []string
-		for _, line := range []string{telemetryStart(ctx, e), syncStart(e)} {
+		for _, line := range []string{telemetryStart(ctx, e), syncStart(e), compactStart(ctx, e)} {
 			if line != "" {
 				lines = append(lines, line)
 			}

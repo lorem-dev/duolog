@@ -140,6 +140,19 @@ func TestSharedLayersOnlyLowerWorkers(t *testing.T) {
 	}
 }
 
+func TestLeadCompactNotesDefaultsToTrue(t *testing.T) {
+	root := isolatedRoot(t)
+	cfg, err := Load(root)
+	if err != nil || !cfg.Lead.CompactNotes {
+		t.Fatalf("default: %+v %v", cfg.Lead, err)
+	}
+	writeConfig(t, filepath.Join(root, ".duolog/config.yaml"), "lead:\n  compact_notes: false\n")
+	cfg, err = Load(root)
+	if err != nil || cfg.Lead.CompactNotes {
+		t.Fatalf("off: %+v %v", cfg.Lead, err)
+	}
+}
+
 func TestWorkersFixedWindowIgnoresThePlan(t *testing.T) {
 	root := isolatedRoot(t)
 	writeConfig(t, filepath.Join(root, ".duolog/config.yaml"), "workers:\n  compact_window: 150000\n")

@@ -437,7 +437,7 @@ func events(agent string, timeout int) []event {
 		h.AsyncRewake = true
 		start = append(start, group{[]handler{h}})
 	}
-	return []event{
+	list := []event{
 		{"SessionStart", start},
 		{"SessionEnd", []group{hook("SessionEnd")}},
 		{"UserPromptSubmit", []group{hook("UserPromptSubmit")}},
@@ -447,6 +447,12 @@ func events(agent string, timeout int) []event {
 		{"PreToolUse", []group{gate("PreToolUse")}},
 		{"PermissionRequest", []group{gate("PermissionRequest")}},
 	}
+	// Only Claude's lead compacts through a hook that adds summary
+	// instructions; Codex has none.
+	if agent == "claude" {
+		list = append(list, event{"PreCompact", []group{hook("PreCompact")}})
+	}
+	return list
 }
 
 // CodexGateCommands returns the POSIX and Windows commands duolog installs for
