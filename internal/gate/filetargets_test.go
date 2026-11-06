@@ -45,12 +45,18 @@ func wantPerson(t *testing.T, p config.Policy, root string, commands ...string) 
 	}
 }
 
-// wantPersonInFull names the commands that full mode must leave to the
-// person as well. Full mode still confirms every ask, so for now it checks
-// the modes that ask, as wantPerson does.
+// wantPersonInFull is wantPerson, and checks full mode too, which confirms
+// only the lead's asks.
 func wantPersonInFull(t *testing.T, p config.Policy, root string, commands ...string) {
 	t.Helper()
 	wantPerson(t, p, root, commands...)
+	for _, command := range commands {
+		command = onVolume(root, command)
+		a := Action{Kind: "exec", Target: command, Role: "implement", Work: root, Cwd: root}
+		if d := Evaluate(p, LeadRules{}, mode.Full, a); !PersonOnly(d) {
+			t.Errorf("full: %q: %+v, want the person's ask", command, d)
+		}
+	}
 }
 
 // wantDeny checks that a command is denied in every mode, with the rule given.
@@ -139,9 +145,9 @@ func TestSedScriptFilesAreJudged(t *testing.T) {
 		`sed s/a/b/ -i .git/config`,
 	)
 	// A script that names no file, or files inside the work root, stays the
-	// lead's ask. (A script word that starts with / was judged as an outside
-	// path before, and still is.)
+	// lead's ask, also one that starts with /.
 	wantLead(t, p, root,
+		`sed '/^$/d' go.mod`,
 		`sed s/a/b/ go.mod`,
 		`sed -i s/a/b/g go.mod`,
 		`sed -i.bak -e 's/a/b/' -e '$d' go.mod`,
@@ -240,6 +246,7 @@ func TestSedBracketExpressionsHoldTheDelimiter(t *testing.T) {
 	)
 	wantDeny(t, p, root, "write", `sed -i x s/[/]/x/w.git/hooks/pre-commit README.md`)
 	wantLead(t, p, root,
+		`sed -n '/[0-9]/p' go.mod`,
 		`sed 's/[a-z]*/x/g' go.mod`,
 		`sed -i 's/a/b/' src/main.go`,
 	)
