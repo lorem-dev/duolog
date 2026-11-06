@@ -92,7 +92,7 @@ func TestClaudeBridgedConfigRemovedOnFailure(t *testing.T) {
 func TestClaudeBridgedWithOwnServers(t *testing.T) {
 	s := spec(t, "claude")
 	s.MCP = bridged()
-	s.MCP.configPath = "/tmp/x.json"
+	s.MCP.ConfigPath = "/tmp/x.json"
 	s.KeepMCP = true
 	a := Argv(s)
 	containsArgs(t, a, "--mcp-config=/tmp/x.json")

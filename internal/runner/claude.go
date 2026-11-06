@@ -42,8 +42,8 @@ func claudeArgv(s Spec) []string {
 	disallowed := []string{"Agent", "Task"}
 	if s.MCP != nil {
 		// These options take a list, so each gets one comma-joined value with =.
-		if s.MCP.configPath != "" {
-			args = append(args, "--mcp-config="+s.MCP.configPath)
+		if s.MCP.ConfigPath != "" {
+			args = append(args, "--mcp-config="+s.MCP.ConfigPath)
 		}
 		if len(s.MCP.AllowedTools) > 0 {
 			args = append(args, "--allowedTools="+strings.Join(s.MCP.AllowedTools, ","))

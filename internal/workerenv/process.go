@@ -16,41 +16,6 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// ProcessInput describes one launch. Environ is the environment the process
-// is built from, duolog's own for a worker or peer and the observed one for
-// the lead. Layers are the agent's settings layers, already read with
-// ReadLayer, from the lowest precedence to the highest: SettingsLayers'
-// order with the argv layers before managed policy. ProviderEnvKey is the
-// env_key of Codex's default provider.
-// Prefix is the program and its leading words, by default the agent's name;
-// for the lead it is the observed command and stays as it is.
-// ProtectedRoots are the private usage stores a Claude worker's sandbox
-// denies. ExtraEnv holds NAME=value pairs duolog adds for this launch, such
-// as bridged MCP servers' variables and the run id; they pass the same route
-// detection as the environment, so a route name among them is withheld from
-// a free process and is a paid signal of a paid one.
-// Launch holds the words a worker or peer launch puts right after the prefix:
-// the operation, Codex's exec for a worker, and the native permission flags
-// with Codex's sandbox pins. They are part of the admitted process, so what
-// the gate assessed is what starts; quota and login reads never use them.
-type ProcessInput struct {
-	Agent                          string
-	Shape                          Shape
-	Variant                        Variant
-	Config                         *config.Config
-	Locations                      Locations
-	Environ                        []string
-	LeadID, Role, PeerID, StateDir string
-	Minimal                        bool
-	ExtraSettings                  map[string]any
-	Layers                         []LayerFacts
-	ProviderEnvKey                 string
-	Prefix                         []string
-	ProtectedRoots                 []string
-	ExtraEnv                       []string
-	Launch                         []string
-}
-
 // codexSpeedPins are the Codex settings recorded as supported for pinning a
 // speed or service tier off, by key, with the TOML value that does it. None
 // is confirmed yet (open question 4 of the design), so duolog adds no guessed

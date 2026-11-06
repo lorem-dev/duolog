@@ -8,6 +8,7 @@ type (
 	Shape         = launch.Shape
 	Variant       = launch.Variant
 	Process       = launch.Process
+	ProcessInput  = launch.ProcessInput
 	Signal        = launch.Signal
 	Layer         = launch.Layer
 	LayerFacts    = launch.LayerFacts
