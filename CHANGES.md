@@ -60,8 +60,9 @@
   sessions and `held:` panes; `duolog peer release <id>` frees a closed one.
 - `routing.balance: pace` starts a new task on the role's `fallback` while its
   `use` agent runs ahead of its window, never onto a paid route.
-- `peer list --long`, `peer show`, `peer view` and a `duolog-peers` skill show
-  peers; the lead hears of stalled peers and expired asks. See docs/rex.md.
+- `peer list --long`, `peer show`, `peer view`, `duolog-peers` show peers; the
+  lead hears of stalled peers; a bypass or auto lead skips its own
+  person-only asks.
 
 ### Changed
 

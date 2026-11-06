@@ -413,8 +413,9 @@ func yamlMapping(m *yaml.Node, key string) (*yaml.Node, error) {
 // spelling or wrapper, or a read or write that reaches either root. It uses
 // the worker gate's own checks, which compute the roots and place paths
 // without opening any file. A Claude lead's call asks the person; a Codex
-// lead's call is denied with a pointer to the person's terminal. The mode
-// plays no part, full mode included.
+// lead's call is denied with a pointer to the person's terminal. duolog's
+// mode plays no part, full mode included; only a Claude lead whose own mode
+// is bypassPermissions or auto decides by itself (guardLeadCall).
 func telemetryLeadGuard(agent string, actions []gate.Action) (gate.Decision, bool) {
 	roots, rootsErr := gateProtectedRoots()
 	for _, a := range actions {

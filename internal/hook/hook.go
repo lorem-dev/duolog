@@ -44,6 +44,9 @@ type input struct {
 	TranscriptPath string `json:"transcript_path"`
 	Model          string `json:"model"`
 	PermissionMode string `json:"permission_mode"`
+	// AgentID is set when a Claude subagent makes the call. The subagent
+	// shares its lead's session id, but its permission_mode is its own.
+	AgentID string `json:"agent_id"`
 }
 
 type state struct {
@@ -143,11 +146,12 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 	if lead.Model == "" {
 		lead.Model = h.Model
 	}
-	if e.Agent == "claude" {
-		if h.PermissionMode != "" {
-			lead.Mode = mode.Parse(e.Agent, h.PermissionMode)
-		}
-	} else if observed.Mode != "" {
+	// Only the lead's own main-thread payloads say its mode: a subagent's
+	// definition can set a mode of its own, such as bypassPermissions.
+	claudeMode := e.Agent == "claude" && h.PermissionMode != "" && h.AgentID == ""
+	if claudeMode {
+		lead.Mode = mode.Parse(e.Agent, h.PermissionMode)
+	} else if e.Agent != "claude" && observed.Mode != "" {
 		lead.Mode = observed.Mode
 	}
 	o := session.LeadObservation{ID: h.ID, Agent: e.Agent, Model: &lead.Model, Effort: &lead.Effort}
@@ -157,10 +161,10 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 	if !known {
 		o.PID = &lead.PID
 	}
-	if (e.Agent == "claude" && h.PermissionMode != "") || (e.Agent == "codex" && observed.Mode != "") {
+	if claudeMode || (e.Agent == "codex" && observed.Mode != "") {
 		o.Mode = &lead.Mode
 	}
-	if e.Agent == "claude" && h.PermissionMode != "" {
+	if claudeMode {
 		native := h.PermissionMode
 		o.Native = &native
 	}
