@@ -47,6 +47,9 @@ register a lead.
 | 4 | `duolog peer wait <id>` | Keeps waiting for the session. The default limit is 30 minutes |
 | 5 | `duolog peer status <id>` | Prints the state in one line |
 | 6 | `duolog peer close <id>` | Closes the pane. Changed files stay |
+| 7 | `duolog peer list [--long]` | Lists your peers. Plain output is `<id> <state>`; `--long` adds role, agent, task, last activity and tab. It presses no key |
+| 8 | `duolog peer show <id> [--lines N]` | Prints the last lines of the peer's screen (40 by default, 1 to 200). It refuses inside an agent |
+| 9 | `duolog peer view <id> [--client C]` | Switches your Rex client to the peer's tab and prints one line |
 
 A peer belongs to its role and work root. Opening that role again in the same
 worktree reuses the peer. Opening it in another worktree starts a new peer.
@@ -55,7 +58,8 @@ For peers, `max_live_sessions` applies per lead, agent and work root.
 The first peer creates a separate Rex session for the project, named
 `duolog | <project folder name>`. It stays detached: duolog does not show it
 on a client or select it. The person's session, windows, panes and focus stay
-as they were. Every peer gets a tab named `duolog | <pane label>`, such as
+as they were. duolog never moves focus, except `duolog peer view`, which you
+ask for. Every peer gets a tab named `duolog | <pane label>`, such as
 `duolog | codex-planner`. Leads and linked worktrees share that project
 session. Commands use the session recorded for each peer.
 
@@ -139,6 +143,28 @@ Run each wait as its own background command: one for each peer and one for
 each CI run. Do not chain them. New peer tabs stay in the detached project
 session and keep the person's current window and pane focused.
 
+## How to see what a peer shows
+
+No path puts a peer's screen into a model's context, and none costs tokens.
+
+| Command | Who runs it | Prints | Model cost |
+|---|---|---|---|
+| `duolog peer list --long` | You, or the lead | One table row per peer, no screen text | None in your terminal; one line per peer in a lead's context |
+| `duolog peer show <id>` | You, in your own terminal | The last lines of the screen, cleaned and bounded | None; it refuses inside an agent, a worker or a pipe |
+| `duolog peer view <id>` | You, or the lead when you ask | One line; your Rex client shows the peer's tab | None in your terminal; one line in a lead's context |
+
+`peer show` and `peer view` need `REX_SESSION`, like the other peer commands.
+`peer view` moves one client: `--client`, or else the only client that shows
+your session. It refuses when it cannot tell. The line it prints ends with a
+`back:` command that returns to the pane you came from.
+
+The `duolog-peers` skill runs `peer list --long` and `peer view` for the
+lead. It costs one model turn. For a path with no turn, type the command
+yourself: in Claude Code with the `!` prefix, such as
+`! duolog peer list --long`. That this starts no turn is not checked yet.
+For Codex, no turn-free path is confirmed; do not rely on one. From a Codex
+lead, run these commands outside the sandbox.
+
 ## How duolog settles routine questions
 
 Peers start with Codex's `tui.notifications=false` and `notify=[]`, or Claude's
@@ -203,6 +229,12 @@ These come from the
   pane whose lead has ended.
 - Rex has no known Windows build. Live sessions are unavailable on Windows.
   `duolog peer` prints this limit; use `duolog delegate` instead.
+- A tab shown by `duolog peer view` is interactive. Your keys reach the peer,
+  and duolog cannot filter them. Look; do not type.
+- `scripts/dev/rebuild` closes every ready peer, so it may close one that you
+  are viewing.
+- How Rex switches the client's session and whether it resizes the pane are
+  not checked in real Rex yet.
 
 ## How to test the Rex flow by hand
 
