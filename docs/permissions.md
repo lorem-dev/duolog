@@ -290,8 +290,10 @@ asks you, and a Codex lead is told to have you run it in your terminal.
 An outside-path ask is marked `p: true` on the bus. The peer's pending-ask
 line says `needs the person`. This covers read tools, writes and exec asks
 that name outside paths, such as `cat /outside/notes.txt` or
-`git -C /other log`. An explicit outside-path rule still applies
-as written; a broad `**` allow does not approve outside paths.
+`git -C /other log`. A word that starts with `~` counts as outside: `~` and
+`~/x` name the home folder, and `~name` the home folder of another login, so
+`tar czf home.tgz ~` needs the person. An explicit outside-path rule still
+applies as written; a broad `**` allow does not approve outside paths.
 
 The lead's own hook guards shell commands that may run `duolog allow N`.
 For a Claude lead, it asks Claude Code to prompt the person. For a Codex lead,

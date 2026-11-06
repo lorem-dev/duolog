@@ -354,7 +354,17 @@ func outsideOperand(a Action, target string) bool {
 	if target == "" {
 		return false
 	}
+	if strings.Contains(target, `\`) && posixShell(a) {
+		// A POSIX shell passes a backslash on as part of the word, or drops it
+		// as an escape; it never separates folders. The word is outside when
+		// either reading of it is.
+		return outsideOperand(a, strings.ReplaceAll(target, `\`, "")) || literalOutside(a, target)
+	}
 	target = expandHome(target)
+	if strings.HasPrefix(target, "~") {
+		// ~name, or ~ where the home folder is not known.
+		return true
+	}
 	clean := pathutil.Clean(target)
 	if slices.Contains([]string{"/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"}, clean) || strings.HasPrefix(clean, "/dev/fd/") {
 		return false
@@ -475,15 +485,17 @@ func execOperandStart(words []string) int {
 	return len(words)
 }
 
+// expandHome expands ~ and ~/x to the home folder. ~name, the home folder
+// of another login, stays as written; outsideOperand counts it as outside.
 func expandHome(target string) string {
-	if !strings.HasPrefix(target, "~/") {
+	if target != "~" && !strings.HasPrefix(target, "~/") {
 		return target
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return target
 	}
-	return filepath.Join(home, target[2:])
+	return filepath.Join(home, strings.TrimPrefix(target[1:], "/"))
 }
 
 // needsReview names command lines whose effect the gate cannot read from the

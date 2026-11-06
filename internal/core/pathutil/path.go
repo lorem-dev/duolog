@@ -47,9 +47,12 @@ func IsAbs(s string) bool {
 	return strings.HasPrefix(s, "/") || len(s) >= 2 && s[1] == ':'
 }
 
+// Outside reports whether s leaves the folder it is relative to. A leading ~
+// counts: a shell expands ~ and ~/x to the home folder, and ~name to the
+// home folder of another login.
 func Outside(s string) bool {
 	s = Clean(s)
-	return IsAbs(s) || s == ".." || strings.HasPrefix(s, "../") || strings.HasPrefix(s, "~/")
+	return IsAbs(s) || s == ".." || strings.HasPrefix(s, "../") || strings.HasPrefix(s, "~")
 }
 
 // Relative handles foreign drive and UNC paths lexically; native callers can

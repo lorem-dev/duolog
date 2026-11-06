@@ -24,6 +24,21 @@ func TestWindowsPathsOnEveryHost(t *testing.T) {
 	}
 }
 
+// A shell expands ~ alone to the home folder and ~name to another one, so
+// both leave the work root, as ~/x does.
+func TestTildeIsOutside(t *testing.T) {
+	for _, name := range []string{`~`, `~/x`, `~alice`, `~alice/.ssh/id_rsa`, `~+/x`, `~-`} {
+		if !Outside(name) {
+			t.Errorf("Outside(%q) = false", name)
+		}
+	}
+	for _, name := range []string{`a~`, `x/~alice`, `.`, `src/~/x`} {
+		if Outside(name) {
+			t.Errorf("Outside(%q) = true", name)
+		}
+	}
+}
+
 func TestWindowsRelativeCurrentDirectory(t *testing.T) {
 	for _, tc := range []struct{ root, target, want string }{
 		{`.\`, `.duolog`, ".duolog"},
