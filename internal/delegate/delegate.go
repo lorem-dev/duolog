@@ -286,6 +286,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	// carries them, whichever way it ends.
 	var notices []string
 	var firstFailure error
+	// quotaEnded says an agent's quota ended in this run, so the line that
+	// hands the task to the lead names it as answerPointer names paths.
+	quotaEnded := false
 	send := func(from, to, kind, text, reference string) error {
 		_, e := b.Send(bus.Message{From: from, To: to, K: kind, Th: thread, Ref: reference, S: short(oneLine(text), cfg.Wire.MaxSummaryBytes)})
 		return e
@@ -297,13 +300,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		if out.Line == "" && err != nil {
 			out.Line = oneLine(fmt.Sprintf("role %s: %v", role, err))
 		}
-		var fresh []string
-		for _, n := range notices {
-			if !strings.Contains(out.Line, n) {
-				fresh = append(fresh, n)
-			}
-		}
-		extra := joinNotices(fresh)
+		extra := joinNotices(absentFrom(out.Line, notices))
 		if len(out.Line)+len(extra) > maxLine {
 			// A claimed notice does not come again in this lead, so it leaves
 			// the text that is cut and follows it whole.
@@ -437,9 +434,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				continue
 			}
 			out.RunHere = &p
-			out.Line = p.String()
+			out.Line = shownTask(p, quotaEnded).String()
 			if len(refusals) > 0 || len(failures) > 0 {
-				out.Line = leadLine(role, append(failures, refusals...), p)
+				out.Line = leadLine(role, append(failures, refusals...), shownTask(p, quotaEnded))
 			}
 			return out, nil
 		}
@@ -876,6 +873,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				return out, nil
 			}
 			if out.Result.QuotaEnded {
+				quotaEnded = true
 				if markErr := reg.MarkUnavailable(route.Agent, out.Result.ResetAt); markErr != nil {
 					return out, errors.Join(err, markErr)
 				}
@@ -930,7 +928,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		p = *inLead
 	}
 	out.RunHere = &p
-	out.Line = leadLine(role, append(failures, refusals...), p)
+	out.Line = leadLine(role, append(failures, refusals...), shownTask(p, quotaEnded))
 	return out, nil
 }
 
@@ -963,22 +961,6 @@ func ClaimMigration(reg *session.Registry, cfg *config.Config, leadID, agent str
 		}
 	}
 	return lines, nil
-}
-
-// joinNotices is what follows a line to carry notices: each leads with "; ",
-// except one that comes after a notice ending in a full stop, which leads with
-// a space, so that ".;" never appears.
-func joinNotices(notices []string) string {
-	var b strings.Builder
-	for i, n := range notices {
-		if i > 0 && strings.HasSuffix(notices[i-1], ".") {
-			b.WriteString(" ")
-		} else {
-			b.WriteString("; ")
-		}
-		b.WriteString(n)
-	}
-	return b.String()
 }
 
 // withoutNotice takes the last copy of notice out of line, with the "; " that
@@ -1092,12 +1074,7 @@ func answerPointer(dir string) string {
 	if _, err := os.Stat(path); err != nil {
 		path, label = dir, "task="
 	}
-	if cwd, err := os.Getwd(); err == nil {
-		if relative, err := filepath.Rel(cwd, path); err == nil {
-			path = relative
-		}
-	}
-	return label + filepath.ToSlash(path)
+	return label + relativeTask(path)
 }
 func short(s string, n int) string {
 	if len(s) <= n {
