@@ -47,7 +47,7 @@ register a lead.
 | 4 | `duolog peer wait <id>` | Keeps waiting for the session. The default limit is 30 minutes |
 | 5 | `duolog peer status <id>` | Prints the state in one line |
 | 6 | `duolog peer close <id>` | Closes the pane. Changed files stay. A pane that is already gone is not closed again; the line says so |
-| 7 | `duolog peer list [--long]` | Lists your peers. Plain output is `<id> <state>`; `--long` adds role, agent, task, last activity and tab. It presses no key |
+| 7 | `duolog peer list [--long]` | Lists your peers. Plain output is `<id> <state>`; `--long` adds role, agent, task, last activity and tab. The last line is the load line. It presses no key |
 | 8 | `duolog peer show <id> [--lines N]` | Prints the last lines of the peer's screen (40 by default, 1 to 200). It refuses inside an agent |
 | 9 | `duolog peer view <id> [--client C]` | Switches your Rex client to the peer's tab and prints one line |
 
@@ -186,6 +186,36 @@ install gets it when you update the plugin or run `duolog install` again.
 A Codex peer runs it
 only after you approve the hooks in `/hooks`; the auto-answer
 `Continue without trusting` leaves them off.
+
+## How the lead sees how many peers it can run
+
+A lead that sizes its peers by habit leaves sessions unused. So duolog adds
+one line to the lead's context. It shows the lead's live peers, the session
+limit of each agent and the 5-hour window:
+
+```text
+duolog peers: claude 3 running (1 idle) of 12; codex 0 of 3; 5h 41%
+```
+
+- `3 running (1 idle) of 12` counts the lead's own live peers. An idle peer
+  finished its turn with nothing queued, and it still holds a session. The
+  line names idle peers as `idle: peer-ab12cd, ...`. The limit is the one
+  that `duolog quota` prints as `<agent> sessions N of M`, which counts the
+  sessions of all leads. duolog counts them once, from the same account state.
+- An agent with no session limit is left out. So is a window that duolog does
+  not know.
+- When an agent has at least half of its sessions free, the window is under
+  70% and the lead's ready queue is empty, the line ends with
+  `- <n> <agent> sessions free: start independent work or stack it on open
+  pull request branches (duolog peer queue add)`. The queue file is
+  `.duolog/peer-queue.ndjson`; a missing file is an empty queue.
+
+The `UserPromptSubmit` hook adds the line to every prompt. The `PostToolUse`
+hook adds it only to a bus delivery, and at most once in 5 minutes unless a
+number changed. Only a registered lead gets it. Workers and peers never do.
+If duolog cannot work the line out, it prints nothing and the hook goes on.
+`duolog peer list` prints the same line as its last line, except with
+`--json`.
 
 ## How to run several peers at once
 

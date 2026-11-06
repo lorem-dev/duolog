@@ -58,6 +58,8 @@
   `use` agent runs ahead of its window, never onto a paid route.
 - `peer list --long`, `show`, `view` (Rex Remote Control) and `duolog-peers`
   show peers; leads hear of stalled peers; bypass/auto skips person-only asks.
+- The lead sees a `duolog peers:` line with its peers, idle ones, session
+  limit and 5h use, also at the end of `duolog peer list`.
 
 ### Changed
 
