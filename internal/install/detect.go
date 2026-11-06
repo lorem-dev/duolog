@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/lorem-dev/duolog/internal/core/pathutil"
+	"github.com/lorem-dev/duolog/internal/adapter/kit"
 	"github.com/lorem-dev/duolog/internal/trusthome"
 )
 
@@ -241,7 +241,7 @@ func PluginGateFilesIn(root, home string, environ []string) []string {
 		switch in.Scope {
 		case "", "user":
 		case "project", "local":
-			if in.ProjectPath == "" || root == "" || pathutil.Canonical(in.ProjectPath) != pathutil.Canonical(root) {
+			if in.ProjectPath == "" || root == "" || kit.Canonical(in.ProjectPath) != kit.Canonical(root) {
 				continue
 			}
 		default:

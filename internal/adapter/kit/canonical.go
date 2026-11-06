@@ -1,4 +1,5 @@
-package pathutil
+// Package kit holds small helpers for adapters that touch the host.
+package kit
 
 import (
 	"os"
@@ -6,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"unicode"
+
+	"github.com/lorem-dev/duolog/internal/core/pathutil"
 )
 
 // Canonical spells a local path the way two spellings of one folder compare
@@ -17,9 +20,9 @@ import (
 // On macOS a path through the data volume's firmlinks
 // (/System/Volumes/Data/Users is /Users) is spelled from /.
 func Canonical(name string) string {
-	resolved := filepath.Clean(Resolved(filepath.Clean(name)))
+	resolved := filepath.Clean(pathutil.Resolved(filepath.Clean(name)))
 	if mapped := firmlinked(runtime.GOOS, resolved); mapped != resolved {
-		resolved = filepath.Clean(Resolved(mapped))
+		resolved = filepath.Clean(pathutil.Resolved(mapped))
 	}
 	if foldsCase(resolved) {
 		resolved = strings.ToLower(resolved)
