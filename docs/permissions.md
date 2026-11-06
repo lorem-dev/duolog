@@ -255,9 +255,24 @@ such text, so the gate cannot read the words it passes on. A read-only role
 may be denied instead of asked. A brace anywhere in a command asks for the
 same reason. Quoted `rg` glob options follow the glob check above.
 
-`sed` reads only as `sed -n 'N,Mp' file`. `grep`, `jq`, `sort`, `uniq` and
-`file` pass only with options that change the output, so `jq -f`, `sort -o`,
-`uniq - out`, `file -m.env` and ugrep's `grep --filter` ask. A `jq` filter
+`sed` reads only as `sed -n 'N,Mp' file`. Other `sed` scripts ask. The gate
+judges the files of the `r`, `R`, `w` and `W` commands and the `s///w` flag,
+with or without a blank before the name. So `sed '1r/etc/passwd' x` needs the
+person, and `sed 'w.git/config' x` is denied. The `e` command, the `s///e` flag
+and a script the gate cannot read need the person, because the gate cannot
+name what they reach. BSD `sed`, as on macOS, takes the word after a lone
+`-i` as the backup suffix, and GNU `sed` takes it as the script. The gate
+judges both readings, so `sed -i x w.git/config y` is denied. A backup
+suffix also writes each input with the suffix added, and a suffix with a `/`
+or a `*` needs the person, as in `sed '-i../*' -e s/a/b/ go.mod`. Each reading
+follows its own `sed`: BSD `sed` ends a bracket expression at its own `]`, so
+in `s/[/]/x/w /tmp/out` the first `/` belongs to the class, and the gate
+judges `/tmp/out`. A script that both `sed`s can run must parse both ways,
+or it needs the person.
+
+`grep`, `jq`, `sort`, `uniq` and `file` pass only with options that change
+the output, so `jq -f`, `sort -o`, `uniq - out`, `file -m.env` and ugrep's
+`grep --filter` ask. A `jq` filter
 that names `env` or a `$` variable asks, because it can print the worker's
 API keys. The context options `-A`, `-B`, `-C`, `--after-context`,
 `--before-context` and `--context` of `rg` and `grep` read with a number, as in
