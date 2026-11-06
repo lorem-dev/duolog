@@ -31,6 +31,9 @@ type workerMode struct {
 	// starts in Claude's default mode. It needs its gate shown to run, though
 	// nothing it asks is looser than duolog's default.
 	Held bool
+	// LeadPlan reports a worker started under a lead in plan. Its level stays
+	// plan when the lead later moves to a looser mode (env), as a peer's does.
+	LeadPlan bool
 }
 
 // gateBinary finds the duolog a worker's hooks run; tests replace it.
@@ -46,6 +49,7 @@ func resolveWorkerMode(cfg *config.Config, role string, route coreroute.Route, l
 	ceiling := mode.NewCeiling(lead.Agent, lead.Native, lead.Mode, effective)
 	w := workerMode{Resolved: mode.Resolve(route.Agent, req, ceiling, route.Sandbox), Request: req.Native}
 	w.Held = mode.GateHeld(route.Agent, w.Level, route.Sandbox)
+	w.LeadPlan = effective == mode.Plan && w.Level == mode.Plan
 	if route.Agent == "codex" && w.Native == "workspace-write" && (w.Level == mode.Edits || w.Level == mode.Full) && route.Sandbox == "workspace-write" {
 		w.Network, w.WritableRoots = cfg.WorkerModes.Extras(role)
 		if (w.Network || len(w.WritableRoots) > 0) && w.Source == "default" {
@@ -60,12 +64,13 @@ func (w workerMode) applies() bool {
 	return w.Source != "default" && w.Source != ""
 }
 
-// env is what the worker's gate reads: DUOLOG_MODE only when an entry
-// applies, so that without one the gate keeps the lead's mode as before, and
-// DUOLOG_NATIVE always, for the decision log.
+// env is what the worker's gate reads: DUOLOG_MODE when an entry applies or
+// the worker starts under a lead in plan (LeadPlan), and DUOLOG_NATIVE always,
+// for the decision log. Otherwise the gate keeps the lead's live mode as
+// before; a read-only role's sandbox holds such a worker to reads.
 func (w workerMode) env() []string {
 	env := []string{"DUOLOG_NATIVE=" + w.Native}
-	if w.applies() {
+	if w.applies() || w.LeadPlan {
 		env = append(env, "DUOLOG_MODE="+string(w.Level))
 	}
 	return env
@@ -137,6 +142,11 @@ func (w workerMode) gatePreflight(agent, root string, env, protected []string) e
 	gate, err := gateBinary(pathEnv)
 	if problem == "" && err != nil {
 		problem = err.Error()
+	}
+	// Only the gate keeps a held worker read-only, so its hook must be the
+	// gate itself, not a hook that names it.
+	if problem == "" && w.Held && agent == "claude" {
+		problem = trust.HeldGateProblem(root, env, gate)
 	}
 	if problem == "" && len(w.WritableRoots) > 0 {
 		protected = append(slices.Clone(protected), programFolders(pathEnv, gate)...)

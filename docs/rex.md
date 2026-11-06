@@ -176,7 +176,8 @@ later is told again. A peer whose task is finished, or that a `peer wait`
 watches, sends none: the wait reports the turn itself. The `Stop` hook and
 an expiring ask never wait long for duolog's state: when another process
 holds its lock, they drop the line and the peer stops or is denied on time.
-Each message is one line, and the lead's hooks
+A dropped stop line does not count as sent: the next turn that ends on the
+same task sends it. Each message is one line, and the lead's hooks
 deliver it with the next prompt or tool call. Answer with `peer status`,
 `peer send` or `peer close`.
 

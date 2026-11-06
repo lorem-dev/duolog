@@ -56,18 +56,27 @@ func AgentAncestor() string { return agentAncestor(os.Getppid(), parentProcess) 
 func agentAncestor(pid int, parent func(int) (int, string)) string {
 	for steps := 0; pid > 1 && steps < 64; steps++ {
 		next, name := parent(pid)
-		name = strings.ToLower(filepath.Base(strings.ReplaceAll(name, `\`, "/")))
-		name = strings.TrimSuffix(name, ".exe")
-		switch {
-		case name == "claude":
-			return "claude"
-		case name == "codex" || strings.HasPrefix(name, "codex-"):
-			return "codex"
+		if agent := agentName(name); agent != "" {
+			return agent
 		}
 		if next == pid {
 			break
 		}
 		pid = next
+	}
+	return ""
+}
+
+// agentName names the agent a process name is, "claude" or "codex", by any
+// path, with .exe, and as codex-<target triple>; "" for any other program.
+func agentName(name string) string {
+	name = strings.ToLower(filepath.Base(strings.ReplaceAll(name, `\`, "/")))
+	name = strings.TrimSuffix(name, ".exe")
+	switch {
+	case name == "claude":
+		return "claude"
+	case name == "codex" || strings.HasPrefix(name, "codex-"):
+		return "codex"
 	}
 	return ""
 }

@@ -12,13 +12,16 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
+	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -364,6 +367,184 @@ func TestGateHeldClaudeWorkerNeedsItsGate(t *testing.T) {
 		t.Fatal(out.Line, err)
 	}
 	h.requireCalls(1)
+}
+
+// unprovenGates are Claude settings whose PreToolUse hook names the gate but
+// cannot be shown to run it: the gate's words in a shell comment, and an
+// absolute path to a duolog that does not exist.
+func unprovenGates(t *testing.T) map[string]string {
+	missing, _ := json.Marshal(filepath.Join(t.TempDir(), "gone", "duolog"))
+	return map[string]string{
+		"comment":            `{"permissions":{"allow":["Write","Edit","Bash(*)"]},"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"true # duolog gate --agent claude --event PreToolUse"}]}]}}`,
+		"missing executable": `{"permissions":{"allow":["Write","Edit","Bash(*)"]},"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":` + string(missing) + `,"args":["gate","--agent","claude","--event","PreToolUse"]}]}]}}`,
+	}
+}
+
+// Re-review 3: a held Claude worker starts only when its hook is the gate
+// command duolog install writes, run by the duolog the launch uses. A hook
+// that only names the gate, or runs a duolog that is not there, starts
+// nothing, and the message names the hook and duolog install.
+func TestHeldWorkerRefusesAnUnprovenGateHook(t *testing.T) {
+	for name, settings := range unprovenGates(t) {
+		h := newHarness(t)
+		h.gateOnPath(true)
+		put(h.t, filepath.Join(h.root, ".claude", "settings.local.json"), settings)
+		h.lead("claude", mode.Full, "high")
+		out, err := h.runOn("review_final", "claude", "haiku")
+		h.requireCalls(0)
+		if err == nil || !strings.Contains(out.Line, "gate preflight failed") || !strings.Contains(out.Line, "duolog install") || !strings.Contains(out.Line, "settings.local.json") {
+			t.Errorf("%s: %v %q", name, err, out.Line)
+		}
+	}
+	// The command install writes, as one string or as program and args, runs.
+	for _, settings := range []string{
+		`{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"duolog gate --agent claude --event PreToolUse"}]}]}}`,
+		`{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"duolog","args":["gate","--agent","claude","--event","PreToolUse"]}]}]}}`,
+	} {
+		h := newHarness(t)
+		h.gateOnPath(true)
+		put(h.t, filepath.Join(h.root, ".claude", "settings.local.json"), settings)
+		h.lead("claude", mode.Full, "high")
+		if out, err := h.runOn("review_final", "claude", "haiku"); err != nil {
+			t.Fatal(settings, out.Line, err)
+		}
+	}
+}
+
+// devGateHook is the PreToolUse gate of duolog's own .claude/settings.json,
+// which runs the dev launcher of the checkout.
+const devGateHook = `exec "$CLAUDE_PROJECT_DIR"/scripts/dev/bin/duolog gate --agent claude --event PreToolUse`
+
+// devGateSettings is Claude settings whose only PreToolUse hook is command.
+func devGateSettings(t *testing.T, command string) string {
+	t.Helper()
+	data, err := json.Marshal(command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return `{"permissions":{"allow":["Write","Edit","Bash(*)"]},"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":` + string(data) + `}]}]}}`
+}
+
+// Re-review 5, R-1: in duolog's own checkout the held Claude worker starts
+// with the dev hook, the variable read as the project root, when the file it
+// names is the dev launcher, though the duolog on the worker PATH is the
+// build. Any other shell text, or a file there that is not the launcher,
+// starts nothing.
+func TestHeldWorkerAcceptsTheDevLauncherHook(t *testing.T) {
+	_, testFile, _, _ := runtime.Caller(0)
+	launcher := read(t, filepath.Join(filepath.Dir(testFile), "..", "..", "scripts", "dev", "bin", "duolog"))
+	run := func(settings, file string) (Outcome, error) {
+		h := newHarness(t)
+		h.gateOnPath(true)
+		if file != "" {
+			put(t, filepath.Join(h.root, "scripts", "dev", "bin", "duolog"), file)
+		}
+		put(t, filepath.Join(h.root, ".claude", "settings.json"), settings)
+		h.lead("claude", mode.Full, "high")
+		out, err := h.runOn("review_final", "claude", "haiku")
+		if err == nil {
+			h.requireCalls(1)
+		} else {
+			h.requireCalls(0)
+		}
+		return out, err
+	}
+	// A Windows checkout may give the launcher either line ending.
+	lf := strings.ReplaceAll(launcher, "\r\n", "\n")
+	for _, file := range []string{lf, strings.ReplaceAll(lf, "\n", "\r\n")} {
+		if out, err := run(devGateSettings(t, devGateHook), file); err != nil {
+			t.Fatal(out.Line, err)
+		}
+	}
+	for name, c := range map[string]struct{ command, file string }{
+		"no launcher":            {devGateHook, ""},
+		"another script there":   {devGateHook, "#!/bin/sh\nexit 0\n"},
+		"text after the gate":    {devGateHook + "; true", launcher},
+		"comment after the gate": {devGateHook + " # x", launcher},
+		"another variable":       {`exec "$HOME"/scripts/dev/bin/duolog gate --agent claude --event PreToolUse`, launcher},
+		"no exec":                {`"$CLAUDE_PROJECT_DIR"/scripts/dev/bin/duolog gate --agent claude --event PreToolUse`, launcher},
+		"another event":          {`exec "$CLAUDE_PROJECT_DIR"/scripts/dev/bin/duolog gate --agent claude --event PermissionRequest`, launcher},
+	} {
+		out, err := run(devGateSettings(t, c.command), c.file)
+		if err == nil || !strings.Contains(out.Line, "gate preflight failed") || !strings.Contains(out.Line, "duolog install") {
+			t.Errorf("%s: %v %q", name, err, out.Line)
+		}
+	}
+}
+
+// Re-review 5, N2: Claude does not wait for an async gate hook, and runs the
+// tool when a hook times out, so a held Claude worker starts only when its
+// gate hook is neither async nor asyncRewake and has no timeout below the 150
+// seconds install writes. Without a timeout, Claude's default applies.
+func TestHeldWorkerRefusesAnAsyncOrShortGateHook(t *testing.T) {
+	hook := func(extra string) string {
+		return `{"permissions":{"allow":["Write","Edit","Bash(*)"]},"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"duolog","args":["gate","--agent","claude","--event","PreToolUse"]` + extra + `}]}]}}`
+	}
+	run := func(settings string) (Outcome, error) {
+		h := newHarness(t)
+		h.gateOnPath(true)
+		put(t, filepath.Join(h.root, ".claude", "settings.local.json"), settings)
+		h.lead("claude", mode.Full, "high")
+		return h.runOn("review_final", "claude", "haiku")
+	}
+	for name, extra := range map[string]string{
+		"async":          `,"async":true`,
+		"asyncRewake":    `,"asyncRewake":true`,
+		"one second":     `,"timeout":1`,
+		"below 150":      `,"timeout":149.5`,
+		"async and long": `,"async":true,"timeout":150`,
+	} {
+		out, err := run(hook(extra))
+		if err == nil || !strings.Contains(out.Line, "gate preflight failed") || !strings.Contains(out.Line, "duolog install") {
+			t.Errorf("%s: %v %q", name, err, out.Line)
+		}
+	}
+	for _, extra := range []string{"", `,"timeout":150`, `,"timeout":600`, `,"async":false`} {
+		if out, err := run(hook(extra)); err != nil {
+			t.Errorf("%q: %v %q", extra, err, out.Line)
+		}
+	}
+}
+
+// Re-review 4: a worker started under a lead in plan keeps level plan when
+// the lead moves to acceptEdits while it runs, as a peer does: the gate,
+// reading the live lead mode and the worker's environment, still denies its
+// write command and its web read.
+func TestWorkerKeepsPlanWhenItsLeadLoosens(t *testing.T) {
+	h := newHarness(t)
+	h.claudeGate(true)
+	h.gateOnPath(true)
+	h.leadNative("claude", mode.Plan, "plan")
+	policy := h.cfg.Policy
+	policy.Rules = append([]config.Rule{{Action: "exec", Match: "touch *", Decision: gate.Allow}}, policy.Rules...)
+	var during []gate.Decision
+	h.beforeStart = func() {
+		h.leadNative("claude", mode.Edits, "acceptEdits")
+		_, live, err := gate.LeadMode(h.reg, "lead-123456", time.Now())
+		if err != nil || live != mode.Edits {
+			t.Fatal("the lead did not move:", live, err)
+		}
+		env := h.calls[len(h.calls)-1].Process.Env
+		m := gate.WorkerMode(live, trusthome.Getenv(env, "DUOLOG_MODE"))
+		lead := gate.LeadRules{RoleSandbox: h.cfg.Roles["review_final"].Sandbox}
+		for _, a := range []gate.Action{
+			{Kind: "exec", Target: "touch marker.txt", Role: "review_final"},
+			{Kind: "net", Target: "https://example.com/", Role: "review_final"},
+		} {
+			during = append(during, gate.Evaluate(policy, lead, m, a))
+		}
+	}
+	if out, err := h.runOn("review_final", "claude", "haiku"); err != nil {
+		t.Fatal(out.Line, err)
+	}
+	if len(during) != 2 {
+		t.Fatal("the worker did not run")
+	}
+	for _, d := range during {
+		if d.Kind != gate.Deny || d.Mode != mode.Plan {
+			t.Errorf("after the lead loosened: %+v", d)
+		}
+	}
 }
 
 // Re-review m1 and m2: a family entry that asks above duolog's default does

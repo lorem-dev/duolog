@@ -57,6 +57,24 @@ func TestHeldClaudePeerNeedsItsGate(t *testing.T) {
 			t.Errorf("%s: a refused pane holds: %+v", tc.name, st.Reservations)
 		}
 	}
+	// Re-review 3: a hook that only names the gate in a comment, or runs a
+	// duolog that is not there, does not show the gate.
+	missing := filepath.ToSlash(filepath.Join(t.TempDir(), "gone", "duolog"))
+	for name, settings := range map[string]string{
+		"comment":            `{"permissions":{"allow":["Write","Edit","Bash(*)"]},"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"true # duolog gate --agent claude --event PreToolUse"}]}]}}`,
+		"missing executable": `{"permissions":{"allow":["Write","Edit","Bash(*)"]},"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"` + missing + `","args":["gate","--agent","claude","--event","PreToolUse"]}]}]}}`,
+	} {
+		r := newRig(t, baseScript())
+		r.lead("claude", mode.Full)
+		writeFile(r.t, filepath.Join(r.root, ".claude", "settings.local.json"), settings)
+		_, err := Open(r.ctx, "review_final")
+		if err == nil || !strings.Contains(err.Error(), "gate preflight failed") || !strings.Contains(err.Error(), "duolog install") {
+			t.Errorf("%s: %v", name, err)
+		}
+		if len(r.spawns()) != 0 {
+			t.Errorf("%s: a pane was opened", name)
+		}
+	}
 	// With its gate shown, the same pane opens.
 	r := newRig(t, withScreens(claudeIdle("")))
 	r.lead("claude", mode.Full)

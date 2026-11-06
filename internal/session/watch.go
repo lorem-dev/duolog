@@ -54,3 +54,17 @@ func (r *Registry) ClaimStopNotice(peer string) (Entry, bool, error) {
 	})
 	return entry, claimed, err
 }
+
+// ReleaseStopNotice takes back the claim of claimed, the entry
+// ClaimStopNotice returned, when its line was not sent, so the next stop on
+// the same task sends it. A claim of a newer task stays.
+func (r *Registry) ReleaseStopNotice(claimed Entry) error {
+	return r.access(true, func(s *state) error {
+		for i := range s.Entries {
+			if x := &s.Entries[i]; x.ID == claimed.ID && x.StopNotified == claimed.stopKey() {
+				x.StopNotified = ""
+			}
+		}
+		return nil
+	})
+}
