@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   test:
-    name: test (${{ matrix.os }})
+    name: test (${{ matrix.os }}${{ matrix.part && format(', {0}', matrix.part) || '' }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
@@ -23,11 +23,21 @@ jobs:
             race: '-race'
           - os: macos-latest
             race: '-race'
+          # Windows runs the tests in two jobs: part 2 takes the three
+          # slowest packages, and the first job takes the rest and every
+          # other check. The first job keeps the plain name that branch
+          # protection requires.
           - os: windows-latest
             race: '-race'
+          - os: windows-latest
+            race: '-race'
+            part: part 2
           # Go does not support the race detector on windows/arm64.
           - os: windows-11-arm
             race: ''
+          - os: windows-11-arm
+            race: ''
+            part: part 2
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
@@ -36,30 +46,45 @@ jobs:
           cache: true
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Vet
+        if: matrix.part == ''
         run: go vet ./...
       # Windows checkouts may turn line endings into CRLF, which gofmt reports.
       - name: Go files are gofmt-formatted
-        if: matrix.os == 'ubuntu-latest'
+        if: (matrix.os == 'ubuntu-latest') && matrix.part == ''
         run: make lint
       - name: Vet the end-to-end tests (do not run them)
+        if: matrix.part == ''
         run: go vet -tags=e2e ./test/e2e/
       - name: Unit and native generated-command tests
         timeout-minutes: 20
         # Most packages take under a minute; delegate and calibration, with
         # their Git repositories, take two to four on Windows. The timeout
         # names the test that hangs and prints its stack.
-        run: go test ${{ matrix.race }} -timeout 6m ./...
+        shell: bash
+        env:
+          RACE: ${{ matrix.race }}
+          PART: ${{ matrix.part }}
+        run: |
+          slow='github.com/lorem-dev/duolog/cmd/duolog github.com/lorem-dev/duolog/internal/calibration github.com/lorem-dev/duolog/internal/delegate'
+          case "$PART:$RUNNER_OS" in
+            "part 2:"*) pkgs=$slow ;;
+            ":Windows") pkgs=$(go list ./... | grep -vxF -e "${slow// /$'\n'}" ) ;;
+            *) pkgs=./... ;;
+          esac
+          # shellcheck disable=SC2086 # RACE and pkgs are word lists
+          go test $RACE -timeout 6m $pkgs
       # The native evidence for telemetry, by name in each runner's log: the
       # owner and mode or the Windows DACL, the macOS backup and index
       # exclusions, the Linux cache tag and NFS probe, files held open on
       # Windows, and several processes writing and pruning at once. A
       # cross-build does not prove any of it.
       - name: Native telemetry protection checks
+        if: matrix.part == ''
         run: go test ${{ matrix.race }} -count=1 -v -run '^Test(Root|PruneOpenWindowsFile|PurgeOpenWindowsFile|AppendWholeLines|SaltConcurrentCreation|MaintenanceWriterPurgeRace|PruneDoesNotFollowLinks)' ./internal/telemetry
       # The NFS check above fakes statfs; this one mounts NFS over loopback
       # and checks that the real probe refuses a root there.
       - name: A real NFS mount refuses the telemetry root
-        if: matrix.os == 'ubuntu-latest'
+        if: (matrix.os == 'ubuntu-latest') && matrix.part == ''
         run: |
           sudo apt-get update
           sudo apt-get install -y nfs-kernel-server
@@ -71,26 +96,29 @@ jobs:
           sudo mount -t nfs -o vers=4 127.0.0.1:/srv/duolog-nfs /mnt/duolog-nfs
           DUOLOG_TEST_NFS_DIR=/mnt/duolog-nfs go test -count=1 -v -run '^TestRootRefusalRealNFS$' ./internal/telemetry
       - name: Every place states the same version, and CHANGES.md keeps its limits
+        if: matrix.part == ''
         run: uv run scripts/version/version.py check
       - name: Version tool tests
-        if: matrix.os == 'ubuntu-latest'
+        if: (matrix.os == 'ubuntu-latest') && matrix.part == ''
         run: uv run --no-project --python 3.12 --with click --with pytest python -m pytest scripts/version/tests -q -p no:cacheprovider
       - name: Generated skill copies are current
-        if: matrix.os == 'ubuntu-latest'
+        if: (matrix.os == 'ubuntu-latest') && matrix.part == ''
         # The sync lock is not committed, so regenerate the copies and compare.
         run: |
           rm -rf .agents/skills
           go run ./cmd/duolog sync --from claude
           test -z "$(git status --porcelain --untracked-files=all -- .agents .codex)"
       - name: Schema is current
+        if: matrix.part == ''
         run: go test . -run '^TestSchemaFileIsCurrent$'
       - name: Third-party notices are current
+        if: matrix.part == ''
         run: go run ./scripts/thirdparty -check
       - name: Docs lint
-        if: runner.os != 'Windows'
+        if: (runner.os != 'Windows') && matrix.part == ''
         run: make docs-lint
       - name: Docs lint (Windows)
-        if: runner.os == 'Windows'
+        if: (runner.os == 'Windows') && matrix.part == ''
         shell: pwsh
         run: |
           $paths = @('README.md') + @(Get-ChildItem docs -Recurse -Filter '*.md' |
@@ -100,9 +128,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -run TestDocs .
       - name: Render both installers
+        if: matrix.part == ''
         run: go run ./scripts/render-install
       - name: Parse installer with Windows PowerShell 5.1
-        if: runner.os == 'Windows'
+        if: (runner.os == 'Windows') && matrix.part == ''
         shell: powershell
         run: |
           $tokens = $null
@@ -111,7 +140,7 @@ jobs:
             (Join-Path $PWD '.release/install.ps1'), [ref]$tokens, [ref]$parseErrors) > $null
           if ($parseErrors.Count) { $parseErrors; exit 1 }
       - name: Parse installer with pwsh
-        if: runner.os == 'Windows'
+        if: (runner.os == 'Windows') && matrix.part == ''
         shell: pwsh
         run: |
           $tokens = $null
@@ -122,7 +151,7 @@ jobs:
       # Errors only: the PowerShell installer and launcher are checked for
       # parse errors above, and for analyzer errors here.
       - name: PSScriptAnalyzer (errors only)
-        if: runner.os == 'Windows'
+        if: (runner.os == 'Windows') && matrix.part == ''
         shell: pwsh
         run: |
           Install-Module PSScriptAnalyzer -RequiredVersion 1.24.0 -Scope CurrentUser -Force
@@ -133,12 +162,12 @@ jobs:
           }
           if ($failed) { exit 1 }
       - name: Run POSIX installer test with dash
-        if: matrix.os == 'ubuntu-latest'
+        if: (matrix.os == 'ubuntu-latest') && matrix.part == ''
         run: |
           test "$(readlink /bin/sh)" = dash
           go test ./scripts/render-install -run '^TestInstaller$' -count=1
       - name: Vulnerability check
-        if: matrix.os == 'ubuntu-latest'
+        if: (matrix.os == 'ubuntu-latest') && matrix.part == ''
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
   # Shell, YAML and workflow checks, with the tools pinned in the Makefile and
