@@ -48,20 +48,16 @@
   never above the lead's; a looser mode needs a gate preflight.
 - `paid_runs.<agent>.allow` lets workers and peers run paid when out of quota,
   up to `daily_cap_usd` in 24 hours; `calibrate` does so within the plan's USD.
-- `limits.max_total_sessions` (10) and `limits.sessions_by_tier` (3, 5, 10 by
-  measured window) limit live sessions per account, across all projects.
-- A delegation waits up to `limits.session_wait_seconds` (60) for a session
-  slot; `peer open` is refused at once, and calibration cells wait.
-- `paid_runs.usable_share` (0.5) keeps a workspace account to that share of
-  each window; paid and workspace agents run one task at a time.
-- `paid_runs.claude.subscription_endpoints` names gateway URLs that count as
-  the subscription.
+- `limits.max_total_sessions` and `limits.sessions_by_tier` cap live sessions
+  per account; a delegation waits `limits.session_wait_seconds` for a slot.
+- `paid_runs.usable_share` (0.5) keeps a workspace account to that share of its
+  window; `paid_runs.claude.subscription_endpoints` names subscription URLs.
 - `duolog quota` and `duolog doctor` show billing by agent and signal, spend,
   sessions and `held:` panes; `duolog peer release <id>` frees a closed one.
 - `routing.balance: pace` starts a new task on the role's `fallback` while its
   `use` agent runs ahead of its window, never onto a paid route.
-- `duolog peer list --long`, `peer show` and `peer view` let you see peers; a
-  new `duolog-peers` skill runs the list and view. See docs/rex.md.
+- `duolog peer list --long`, `peer show` and `peer view` show peers; `view`
+  needs Rex Remote Control. A `duolog-peers` skill runs them. See docs/rex.md.
 
 ### Changed
 
@@ -71,8 +67,15 @@
   `env_passthrough`, so calibration starts; `duolog doctor` shows the fix.
 - The prices in `models` now drive admission of paid runs. They leave out fast
   mode and cloud surcharges, so spend is a lower bound.
-- `.duolog/config.yaml` may only tighten, as raising `models` prices; so may a
-  `.duolog/config.local.yaml` Git tracks or outside Git. Opt in at user level.
+- Project config and `.duolog/config.local.yaml`, tracked or not, may only
+  tighten: higher `models` prices, fewer `limits`. Raise `limits` at user level.
+
+### Fixed
+
+- After a Rex restart, `duolog peer list` shows the lead's peers as `gone`, and
+  `peer close` frees their records and session slots.
+- Telemetry's prune stamp keeps one name at all times, so a racing process no
+  longer finds the store unsafe, which could last on Windows.
 
 ### Security
 

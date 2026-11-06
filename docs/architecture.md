@@ -79,9 +79,19 @@ import one direction. It matches the imports of today's code: `hook` imports
 
 Most packages have not moved yet. The `legacyTiers` table in `layers_test.go`
 gives each one the tier of the part that stays at its path after the
-migration, so the rules apply now. For example, `internal/mode` is core,
+migration, so the rules apply now. For example, `internal/task` is core,
 `internal/delegate` is the app `delegate`, `internal/runner` is kit and
 `internal/config/schemagen` is wiring.
+
+Some code has moved already. The core packages `internal/core/mode`,
+`internal/core/pathutil`, `internal/core/record`, `internal/core/route`,
+`internal/core/screen`, `internal/core/usage` and `internal/core/learn` hold
+what used to sit in `internal/mode`, `internal/pathutil`, `internal/router`,
+`internal/peer`, `internal/usage` and `internal/learning`. The model resolver
+is `internal/adapter/models`, and the code that edits the project config for
+learning is `internal/app/learn`. A few old paths stay as forwarding packages
+with aliases, so that the security boundary and the files near their size
+limits keep their imports. Import the new path in new code.
 
 When a package moves under a tier path, delete its row in the same change. The
 test fails when a row names a package that `go list` does not report. Put a
