@@ -411,7 +411,7 @@ func wordsOutside(a Action, part string, own []string) bool {
 	}
 	options := true
 	for i := start; i < len(words); i++ {
-		word := strings.Trim(words[i], "'\"")
+		word := strings.Trim(withoutEscapes(a, words[i]), "'\"")
 		skip, next := skipsPatternValue(program, word)
 		switch {
 		case options && word == "--":

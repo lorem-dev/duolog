@@ -25,6 +25,52 @@ func posixShell(a Action) bool {
 	return runtime.GOOS != "windows" && a.Shell != "powershell" && a.Shell != "windows"
 }
 
+// escaped lists the characters a POSIX shell gives a meaning of their own, so
+// a backslash in front of one is an escape: \{ is {, and \; is ;. A backslash
+// in front of any other character, a backslash among them, may separate the
+// folders of a Windows path, as in \x or C:\x.
+const escaped = "{}[]()<>;&|*?$`'\"!#~"
+
+// withoutEscapes removes the backslash of each escape in word, outside single
+// quotes, as a POSIX shell does, Git Bash on Windows too, before the word
+// is judged as a path: grep \{a,b} searches for {a,b}, not for \{a,b} at the
+// root of the drive. PowerShell and cmd have no such escapes. Inside double
+// quotes only \$, \` and \" are escapes.
+func withoutEscapes(a Action, word string) string {
+	if a.Shell == "powershell" || a.Shell == "windows" || !strings.Contains(word, `\`) {
+		return word
+	}
+	var b strings.Builder
+	var quote byte
+	for i := 0; i < len(word); i++ {
+		c := word[i]
+		switch {
+		case quote == '\'':
+			if c == quote {
+				quote = 0
+			}
+		case c == '\\' && escapes(word[i+1:], quote):
+			i++
+			c = word[i]
+		case c == quote:
+			quote = 0
+		case quote == 0 && (c == '\'' || c == '"'):
+			quote = c
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
+}
+
+// escapes reports whether a backslash in front of rest, outside quotes or
+// inside the quote given, is an escape.
+func escapes(rest string, quote byte) bool {
+	if rest == "" || strings.IndexByte(escaped, rest[0]) < 0 {
+		return false
+	}
+	return quote == 0 || strings.IndexByte("$`\"", rest[0]) >= 0
+}
+
 // literalOutside reports whether target, a command word, names a path outside
 // a's work root when its backslashes are characters of a file name. A work
 // root or folder written as a Windows path keeps RelativeTarget's reading. A
@@ -65,12 +111,35 @@ func literalResolved(name string) string {
 	return filepath.Join(literalResolved(parent), filepath.Base(name))
 }
 
+// onCurrentDrive spells a rooted path without a drive, such as /etc/passwd or
+// \x, on the drive or share of cwd: Windows reads it from the root of the
+// current drive, not from the current folder. A path with a drive or a share,
+// a relative path, and any path under a cwd without a drive, as on a POSIX
+// host, stay as written.
+func onCurrentDrive(cwd, target string) string {
+	rooted := pathutil.Slashes(target)
+	if !strings.HasPrefix(rooted, "/") || strings.HasPrefix(rooted, "//") {
+		return target
+	}
+	folder := pathutil.Slashes(cwd)
+	if len(folder) >= 2 && folder[1] == ':' {
+		return folder[:2] + rooted
+	}
+	if share := strings.SplitN(strings.TrimPrefix(folder, "//"), "/", 3); strings.HasPrefix(folder, "//") && len(share) >= 2 {
+		return "//" + share[0] + "/" + share[1] + rooted
+	}
+	return target
+}
+
 // RelativeTarget compares real filesystem roots, including OS aliases such as
 // /var and /private/var, and parents of files that have not been created yet.
+// A rooted path without a drive is on the drive of cwd, as onCurrentDrive
+// spells it.
 func RelativeTarget(root, cwd, target string) string {
 	if cwd == "" {
 		cwd = root
 	}
+	target = onCurrentDrive(cwd, target)
 	// Foreign Windows paths cannot be resolved by the host filesystem.
 	if runtime.GOOS != "windows" && (pathutil.Windows(root) || pathutil.Windows(cwd) || pathutil.IsAbs(target) && pathutil.Windows(target)) {
 		target = pathutil.Clean(target)
