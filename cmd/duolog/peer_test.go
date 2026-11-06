@@ -314,6 +314,47 @@ func TestPeerLaunchSetsEnvWithoutRex(t *testing.T) {
 	}
 }
 
+// Integration review, Important: the launcher starts the program its pane's
+// admitted environment finds, on the env file's PATH, never the one its own
+// PATH would pick.
+func TestPeerLaunchFindsTheProgramOnTheAdmittedPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("peer launcher is unused on Windows")
+	}
+	checked := testbin.Install(t, "codex", testbin.Scenario{})
+	pane := testbin.Install(t, "codex", testbin.Scenario{}) // first on the launcher's PATH
+	if filepath.Dir(checked) == filepath.Dir(pane) {
+		t.Fatal("one folder for both programs")
+	}
+	set, err := json.Marshal([]string{"PATH=" + filepath.Dir(checked), "DUOLOG_DEPTH=1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "env.json")
+	if err := os.WriteFile(file, set, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executeBusCommand(t, "peer", "launch", "--env-file", file, "--", "codex", "-m", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(checked + ".env.json"); err != nil {
+		t.Errorf("the admitted PATH's codex did not run: %v", err)
+	}
+	if _, err := os.Stat(pane + ".env.json"); err == nil {
+		t.Error("the launcher's own PATH picked the program")
+	}
+	// A program the admitted PATH lacks starts nothing, and the file stays.
+	if err := os.WriteFile(file, []byte(`["PATH=`+t.TempDir()+`"]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executeBusCommand(t, "peer", "launch", "--env-file", file, "--", "codex"); err == nil {
+		t.Error("a program missing from the admitted PATH started")
+	}
+	if _, err := os.Stat(file); err != nil {
+		t.Errorf("the env file was taken: %v", err)
+	}
+}
+
 // TestPeerLaunchRecordsItselfOnTheHold is re-review finding N2: the launcher
 // records itself on its pane's account hold, by the DUOLOG_PEER of the
 // pane's variables, before it takes the env file. A peer open that dies

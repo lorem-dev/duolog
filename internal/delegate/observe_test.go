@@ -228,7 +228,7 @@ func TestAttemptRunnerCodes(t *testing.T) {
 				s.Route.Model = "luna"
 			}
 			testbin.Install(t, c.agent, c.scenario)
-			p, buildErr := workerEnv(workerenv.ProcessInput{Agent: c.agent, Variant: workerenv.Free, Config: &config.Config{}, Environ: os.Environ()})
+			p, buildErr := workerEnv(workerenv.ProcessInput{Agent: c.agent, Variant: workerenv.Free, Config: &config.Config{}, Environ: os.Environ(), Launch: runner.Launch(s)})
 			if buildErr != nil {
 				t.Fatal(buildErr)
 			}

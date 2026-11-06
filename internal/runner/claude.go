@@ -17,10 +17,11 @@ import (
 // claudeArgv is the process prefix, which carries the worker's one --settings
 // (auto memory off, instruction files out for minimal context, state roots
 // denied to an enabled sandbox, and fast mode pinned off in the free
-// variant), then the run's own flags. --setting-sources would do more, but
-// it also drops the user settings that enable the duolog plugin and its gate.
+// variant), then the admitted launch words, -p and the permission flags,
+// then the run's own flags. --setting-sources would do more, but it also
+// drops the user settings that enable the duolog plugin and its gate.
 func claudeArgv(s Spec) []string {
-	args := s.Process.Argv("-p", "--model", s.Route.Model)
+	args := s.Process.LaunchArgv("--model", s.Route.Model)
 	if s.Route.Effort != "" {
 		args = append(args, "--effort", s.Route.Effort)
 	}
@@ -30,7 +31,6 @@ func claudeArgv(s Spec) []string {
 	if s.MaxTurns > 0 {
 		args = append(args, "--max-turns", strconv.Itoa(s.MaxTurns))
 	}
-	args = append(args, permissionArgs("claude", s)...)
 	// In the cost study the user's MCP servers added 7.4 thousand tokens to every
 	// call, so a worker gets them only when its task needs one. Bridged servers
 	// add to the worker's own when it keeps them, and are the only ones otherwise.

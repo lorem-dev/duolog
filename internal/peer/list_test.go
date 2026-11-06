@@ -122,6 +122,48 @@ func TestListPeersChangesNothing(t *testing.T) {
 	}
 }
 
+// Integration review, Minor: list reads the registry, Rex and the bus's task
+// times only. A missing bus stays missing, and a bus the caller may not
+// write does not stop it; it still resolves the lead.
+func TestListLeavesTheBusAlone(t *testing.T) {
+	r := newRig(t, baseScript())
+	e := r.ready()
+	dir := filepath.Join(r.root, ".duolog")
+	busFile := filepath.Join(dir, "bus.ndjson")
+	for _, name := range []string{"bus.ndjson", "cursors", "bus.lock"} {
+		if err := os.RemoveAll(filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.rex(withScreens(codexIdle("")))
+	if peers, err := List(r.ctx); err != nil || len(peers) != 1 || peers[0].ID != e.ID {
+		t.Fatalf("%+v %v", peers, err)
+	}
+	for _, name := range []string{"bus.ndjson", "cursors", "bus.lock"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Errorf("%s was created: %v", name, err)
+		}
+	}
+
+	// The task times still come from a bus the caller may only read.
+	sent := time.Now().Add(time.Hour).UTC()
+	line, _ := json.Marshal(bus.Message{K: "task", Ref: e.ID, T: sent.Format(time.RFC3339Nano)})
+	if err := os.Remove(busFile); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(busFile, append(line, '\n'), 0400); err != nil {
+		t.Fatal(err)
+	}
+	if f, err := os.OpenFile(busFile, os.O_RDWR, 0); err == nil {
+		f.Close()
+		t.Skip("this user can write a read-only file")
+	}
+	peers, err := List(r.ctx)
+	if err != nil || len(peers) != 1 || peers[0].Last == nil || peers[0].Last.Kind != "task" || !peers[0].Last.At.Equal(sent) {
+		t.Fatalf("list with a read-only bus: %+v %v", peers, err)
+	}
+}
+
 func TestListTabMatchesOpenedLabel(t *testing.T) {
 	r := newRig(t, baseScript())
 	r.ready()

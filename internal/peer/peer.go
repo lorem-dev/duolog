@@ -466,7 +466,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 		_ = os.Remove(envFile)
 		return noted(Entry{}, errors.Join(err, pane.release(ctx)))
 	}
-	block, rexSession, err := e.openProjectPeer(ctx, tabLabel(route.Agent, role), launchArgv(exe, envFile, agentArgv(route, lead.mode, pane.permit.Process)))
+	block, rexSession, err := e.openProjectPeer(ctx, tabLabel(route.Agent, role), launchArgv(exe, envFile, agentArgv(route, pane.permit.Process)))
 	openedEnvFile(envFile)
 	if err != nil {
 		// Rex's own refusal shows that no pane holds the reservation. So does

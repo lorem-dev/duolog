@@ -88,9 +88,15 @@ func HasOurHook(path string) bool {
 
 // ClaudeSettingsFiles lists the files Claude reads, in the order it applies them.
 func ClaudeSettingsFiles(root, home string) []string {
+	return ClaudeSettingsFilesIn(root, home, os.Environ())
+}
+
+// ClaudeSettingsFilesIn lists the files a Claude process whose environment is
+// environ reads, in the order it applies them.
+func ClaudeSettingsFilesIn(root, home string, environ []string) []string {
 	paths := []string{}
 	if home != "" {
-		paths = append(paths, filepath.Join(trusthome.Claude(home), "settings.json"))
+		paths = append(paths, filepath.Join(trusthome.ClaudeIn(home, environ), "settings.json"))
 	}
 	if root != "" && root != home {
 		paths = append(paths, filepath.Join(root, ".claude", "settings.json"), filepath.Join(root, ".claude", "settings.local.json"))
@@ -104,7 +110,13 @@ func ClaudeSettingsFiles(root, home string) []string {
 // user scope counts everywhere; a project or local install only for its own
 // projectPath; any other scope does not count.
 func PluginInstalled(root, home string) bool {
-	data, err := os.ReadFile(filepath.Join(trusthome.Claude(home), "plugins", "installed_plugins.json"))
+	return PluginInstalledIn(root, home, os.Environ())
+}
+
+// PluginInstalledIn is PluginInstalled for a Claude process whose
+// environment is environ.
+func PluginInstalledIn(root, home string, environ []string) bool {
+	data, err := os.ReadFile(filepath.Join(trusthome.ClaudeIn(home, environ), "plugins", "installed_plugins.json"))
 	if err != nil {
 		return false
 	}
@@ -141,8 +153,14 @@ func PluginInstalled(root, home string) bool {
 // PluginEnabled applies project and local plugin settings after user settings. An
 // explicit project disable overrides an enabled user plugin.
 func PluginEnabled(root, home string) bool {
+	return PluginEnabledIn(root, home, os.Environ())
+}
+
+// PluginEnabledIn is PluginEnabled for a Claude process whose environment is
+// environ.
+func PluginEnabledIn(root, home string, environ []string) bool {
 	enabled := false
-	for _, path := range ClaudeSettingsFiles(root, home) {
+	for _, path := range ClaudeSettingsFilesIn(root, home, environ) {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue

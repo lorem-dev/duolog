@@ -14,6 +14,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/trust"
+	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -87,18 +88,37 @@ func (w workerMode) needsGate() bool {
 	return w.Looser || w.Network || len(w.WritableRoots) > 0
 }
 
+// gateState reads the hook state and folder trust of an agent process whose
+// environment is env: the settings, plugins, approvals and trusted folders
+// that environment's CLAUDE_CONFIG_DIR or CODEX_HOME select.
+func gateState(agent, root string, env []string) (trust.State, bool, error) {
+	state, err := trust.HooksEnv(agent, root, env)
+	if err != nil {
+		return trust.State{}, false, err
+	}
+	folder, err := trust.FolderEnv(agent, root, env)
+	return state, folder, err
+}
+
 // gatePreflight refuses a looser worker when the gate cannot be shown to run
-// for it, or when a writable root overlaps a protected folder.
-func (w workerMode) gatePreflight(agent string, state trust.State, folder bool, protected []string) error {
+// for the process whose environment is env, or when a writable root overlaps
+// a protected folder. Hooks, folder trust, the gate binary on PATH and the
+// protected agent folders all come from env, the environment that process
+// runs with, never from duolog's own.
+func (w workerMode) gatePreflight(agent, root string, env, protected []string) error {
+	state, folder, err := gateState(agent, root, env)
+	if err != nil {
+		return err
+	}
 	problem := trust.GateProblem(agent, state, folder)
-	pathEnv := workerenv.Path()
+	pathEnv := "PATH=" + trusthome.Getenv(env, "PATH")
 	gate, err := gateBinary(pathEnv)
 	if problem == "" && err != nil {
 		problem = err.Error()
 	}
 	if problem == "" && len(w.WritableRoots) > 0 {
 		protected = append(slices.Clone(protected), programFolders(pathEnv, gate)...)
-		problem = protectedRoot(w.WritableRoots, protected)
+		problem = protectedRoot(w.WritableRoots, protected, env)
 	}
 	if problem == "" {
 		return nil
@@ -108,10 +128,11 @@ func (w workerMode) gatePreflight(agent string, state trust.State, folder bool, 
 
 // protectedRoot names the first writable root that config refuses now, at
 // launch, or that equals, lies inside or holds a protected folder; empty when
-// none does. Paths compare canonically (pathutil.Canonical).
-func protectedRoot(roots, protected []string) string {
+// none does. Paths compare canonically (pathutil.Canonical). env is the
+// worker's environment, whose agent folders are protected too.
+func protectedRoot(roots, protected, env []string) string {
 	for _, root := range roots {
-		if reason := config.RefuseRoot(root); reason != "" {
+		if reason := config.RefuseRootEnv(root, env); reason != "" {
 			return "writable root " + root + ": " + reason
 		}
 		for _, p := range protected {

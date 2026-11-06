@@ -13,6 +13,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/delegate"
+	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/rex"
@@ -121,7 +122,7 @@ func (e *env) admitPane(ctx context.Context, route router.Route, lead leadInfo, 
 	}
 	var refusals []string
 	for _, variant := range variants {
-		in, err := e.paneInput(e.root, route, variant, lead.id, role, id, run)
+		in, err := e.paneInput(e.root, route, lead.mode, variant, lead.id, role, id, run)
 		if err != nil {
 			return nil, err
 		}
@@ -145,9 +146,10 @@ func (e *env) admitPane(ctx context.Context, route router.Route, lead leadInfo, 
 // root, this platform and the environment the pane gets, so the gate reads
 // the layers the pane will. The pane's environment is the free build's: the
 // variables that move the layers, such as CLAUDE_CONFIG_DIR and CODEX_HOME,
-// are never route names, so both variants have the same.
-func (e *env) paneInput(root string, route router.Route, variant workerenv.Variant, leadID, role, id, run string) (workerenv.ProcessInput, error) {
-	in := peerInput(e.cfg, route, variant, leadID, role, id, run, filepath.Dir(e.dir), e.opts.ProtectedRoots, os.Environ())
+// are never route names, so both variants have the same. m is the lead's
+// mode, which picks the pane's native permission flags.
+func (e *env) paneInput(root string, route router.Route, m mode.Mode, variant workerenv.Variant, leadID, role, id, run string) (workerenv.ProcessInput, error) {
+	in := peerInput(e.cfg, route, m, variant, leadID, role, id, run, filepath.Dir(e.dir), e.opts.ProtectedRoots, os.Environ())
 	free := in
 	free.Variant = workerenv.Free
 	built, err := agentEnv(free)
@@ -205,7 +207,7 @@ func (e *env) admitSend(ctx context.Context, entry session.Entry) (*hold, error)
 	if root == "" {
 		root = e.root
 	}
-	in, err := e.paneInput(root, route, open.Variant, entry.Lead, entry.Role, entry.ID, entry.Run)
+	in, err := e.paneInput(root, route, entry.Mode, open.Variant, entry.Lead, entry.Role, entry.ID, entry.Run)
 	if err != nil {
 		return nil, err
 	}

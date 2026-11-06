@@ -501,8 +501,9 @@ func TestOpenUsesRoleModel(t *testing.T) {
 	r := newRig(t, baseScript())
 	r.open("implement")
 	argv := strings.Join(r.started(), " ")
-	// The process prefix comes first, with its global overrides.
-	if !strings.Contains(argv, "codex -c check_for_update_on_startup=false -m gpt-6.1-sol") || !strings.Contains(argv, `model_reasoning_effort="medium"`) {
+	// The process prefix comes first, with its global overrides, then the
+	// admitted permission words.
+	if !strings.Contains(argv, "codex -c check_for_update_on_startup=false -s ") || !strings.Contains(argv, " -m gpt-6.1-sol") || !strings.Contains(argv, `model_reasoning_effort="medium"`) {
 		t.Fatal(argv)
 	}
 	r2 := newRig(t, withScreens(claudeIdle("")))

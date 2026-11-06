@@ -17,6 +17,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/peer"
 	"github.com/lorem-dev/duolog/internal/session"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/spf13/cobra"
 )
 
@@ -283,13 +284,21 @@ func newPeerLaunchCommand() *cobra.Command {
 		if err := json.Unmarshal(data, &set); err != nil {
 			return fmt.Errorf("%s: %w", envFile, err)
 		}
+		// The program is the one the admitted environment finds on its own
+		// PATH, as a worker's is, never the one this launcher's PATH picks.
+		// Not found starts nothing and leaves the file to take.
+		bin, err := workerenv.LookPath(args[0], set)
+		if err != nil {
+			return fmt.Errorf("peer launch: %w", err)
+		}
 		if err := recordLauncher(cmd.Context(), set); err != nil {
 			return fmt.Errorf("peer launch: %w", err)
 		}
 		if err := os.Remove(envFile); err != nil {
 			return err
 		}
-		child := exec.CommandContext(cmd.Context(), args[0], args[1:]...)
+		child := exec.CommandContext(cmd.Context(), bin, args[1:]...)
+		child.Args[0] = args[0]
 		child.Env = launchEnv(os.Environ(), set)
 		child.Stdin, child.Stdout, child.Stderr = os.Stdin, os.Stdout, os.Stderr
 		err = child.Run()

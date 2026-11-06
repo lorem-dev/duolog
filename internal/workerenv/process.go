@@ -47,6 +47,10 @@ const (
 // as bridged MCP servers' variables and the run id; they pass the same route
 // detection as the environment, so a route name among them is withheld from
 // a free process and is a paid signal of a paid one.
+// Launch holds the words a worker or peer launch puts right after the prefix:
+// the operation, Codex's exec for a worker, and the native permission flags
+// with Codex's sandbox pins. They are part of the admitted process, so what
+// the gate assessed is what starts; quota and login reads never use them.
 type ProcessInput struct {
 	Agent                          string
 	Shape                          Shape
@@ -62,6 +66,7 @@ type ProcessInput struct {
 	Prefix                         []string
 	ProtectedRoots                 []string
 	ExtraEnv                       []string
+	Launch                         []string
 }
 
 // Process is what a launch gets: its environment, the argv prefix with the
@@ -76,6 +81,7 @@ type Process struct {
 	Variant                  Variant
 	Env                      []string `json:"-"`
 	Prefix                   []string `json:"-"`
+	Launch                   []string `json:"-"`
 	Settings                 string   `json:"-"`
 	Signals                  []Signal
 	Dropped, EndpointEntries []string
@@ -145,7 +151,10 @@ func Build(in ProcessInput) (Process, error) {
 	}
 	providerKeys := []string{in.ProviderEnvKey}
 	if in.Agent == "codex" {
+		// The launch words start the process too, so a speed-shaped
+		// override among them is the gate's to see as well.
 		p.Signals = append(p.Signals, codexArgvSpeed(in.Prefix, in.Locations)...)
+		p.Signals = append(p.Signals, codexArgvSpeed(in.Launch, in.Locations)...)
 		signals, keys := resolveCodex(in.Layers)
 		p.Signals = append(p.Signals, signals...)
 		providerKeys = append(providerKeys, keys...)
@@ -189,6 +198,7 @@ func Build(in ProcessInput) (Process, error) {
 			p.FastPinned = pinned
 			p.Prefix = append(prefix, overrides...)
 		}
+		p.Launch = slices.Clone(in.Launch)
 	}
 	p.Signals = append(p.Signals, sel.signals...)
 	p.Dropped = sel.dropped
@@ -235,6 +245,12 @@ func sortedUnique(list []string) []string {
 // overrides, then the operation and its own flags as given.
 func (p Process) Argv(args ...string) []string {
 	return append(slices.Clone(p.Prefix), args...)
+}
+
+// LaunchArgv is the command line of the launch itself: the prefix, the
+// launch words the process was admitted with, then the run's own flags.
+func (p Process) LaunchArgv(args ...string) []string {
+	return append(append(slices.Clone(p.Prefix), p.Launch...), args...)
 }
 
 // envSelection sorts the names of one launch into what passes, the route

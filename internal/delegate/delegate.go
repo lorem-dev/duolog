@@ -530,11 +530,31 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				}
 			}
 		}
-		state, trustErr := trust.Hooks(route.Agent, root)
-		if trustErr != nil {
-			return out, trustErr
+		// The worker's process, built after every choice that moves its route:
+		// the variant, the context and the bridged servers' env. Its gate
+		// preflight, its login check, its quota read and its run all use it.
+		extra := runEnv
+		if bridged != nil {
+			extra = append(slices.Clone(runEnv), bridged.Env...)
 		}
-		folder, trustErr := trust.Folder(route.Agent, root)
+		in := workerInput(cfg, route, variant, leadID, role, root, opts.ProtectedRoots, extra)
+		// The whole launch is admitted: Codex's exec with its sandbox flag
+		// and pins, Claude's -p with its permission flag. The runner adds
+		// none after it.
+		in.Launch = runner.Launch(runner.Spec{Route: route, Mode: wm.Level, Native: wm.Native, Network: wm.Network, WritableRoots: wm.WritableRoots})
+		in.ProviderEnvKey = accounts.Cache.ProviderEnvKey(route.Agent)
+		if accounts.Layers != nil {
+			if in.Layers, err = accounts.Layers(ctx, in); err != nil {
+				return out, err
+			}
+		}
+		var pre workerenv.Process
+		if pre, err = workerEnv(in); err != nil {
+			return out, err
+		}
+		// The hooks, approvals and folder trust the worker loads are those its
+		// own environment selects, not duolog's.
+		state, folder, trustErr := gateState(route.Agent, root, pre.Env)
 		if trustErr != nil {
 			return out, trustErr
 		}
@@ -543,9 +563,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		}
 		// A looser worker whose gate cannot be shown to run does not start, and
 		// the other agent does not run in its place.
+		protected := append(slices.Clone(opts.ProtectedRoots), filepath.Join(root, ".duolog"), s.Dir)
 		if wm.needsGate() {
-			protected := append(slices.Clone(opts.ProtectedRoots), filepath.Join(root, ".duolog"), s.Dir)
-			if err = wm.gatePreflight(route.Agent, state, folder, protected); err != nil {
+			if err = wm.gatePreflight(route.Agent, root, pre.Env, protected); err != nil {
 				return out, err
 			}
 		}
@@ -581,24 +601,6 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 			return out, noticeErr
 		}
 		notices = append(notices, claimed...)
-		// The worker's process, built after every choice that moves its route:
-		// the variant, the context and the bridged servers' env. Its login check,
-		// its quota read and its run all use it.
-		extra := runEnv
-		if bridged != nil {
-			extra = append(slices.Clone(runEnv), bridged.Env...)
-		}
-		in := workerInput(cfg, route, variant, leadID, role, root, opts.ProtectedRoots, extra)
-		in.ProviderEnvKey = accounts.Cache.ProviderEnvKey(route.Agent)
-		if accounts.Layers != nil {
-			if in.Layers, err = accounts.Layers(ctx, in); err != nil {
-				return out, err
-			}
-		}
-		var pre workerenv.Process
-		if pre, err = workerEnv(in); err != nil {
-			return out, err
-		}
 		checker := newChecker(cacheDir, pre)
 		// A worker that cannot sign in would fail after the lead waited for it,
 		// so its agent and the servers it needs are checked first.
@@ -626,9 +628,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		} else {
 			route.Model = model
 			stdin := append(append(brief, inline...), workerLines...)
-			// The admitted process is the base (current.launch sets it); the
-			// runner adds the resolved native flags and the Codex sandbox pins
-			// after its prefix.
+			// The admitted process (current.launch sets it) already holds the
+			// resolved native flags and the Codex sandbox pins; the runner
+			// refuses it if this spec asks for other ones.
 			spec := runner.Spec{Route: route, Mode: wm.Level, Native: wm.Native, Network: wm.Network, WritableRoots: wm.WritableRoots, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Persistent: route.Session == "resume", KeepMCP: needsKind(withoutBridged(opts.Needs, bridged), capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin), MCP: bridged, ProtectedRoots: opts.ProtectedRoots}
 			spec.MCP = limitOwn(spec, opts.Needs, cfg.Capabilities.MCPTools)
 			spec.MaxTurns = opts.MaxTurns
@@ -666,7 +668,17 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 				if err != nil || refusal != nil {
 					return nil, refusal, err
 				}
-				return a, nil, a.sameRoute(ctx, pre, cacheDir)
+				if err := a.sameRoute(ctx, pre, cacheDir); err != nil {
+					return nil, nil, err
+				}
+				// The process that launches is the one admitted: its gate is
+				// shown to run once more, from its own environment.
+				if wm.needsGate() {
+					if err := wm.gatePreflight(route.Agent, root, a.permit.Process.Env, protected); err != nil {
+						return nil, nil, errors.Join(err, a.release(ctx))
+					}
+				}
+				return a, nil, nil
 			}
 			current, refusal, admitErr := acquire()
 			if admitErr != nil {

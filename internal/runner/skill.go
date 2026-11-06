@@ -8,13 +8,14 @@ import (
 )
 
 // skillArgv is a skill test's argv: the process prefix, built minimal and
-// without a state folder, then the test's own flags.
+// without a state folder, the admitted launch words (Claude's -p, Codex's
+// exec with a read-only sandbox), then the test's own flags.
 func skillArgv(s Spec) []string {
 	switch s.Route.Agent {
 	case "claude":
-		return s.Process.Argv("-p", "--model", s.Route.Model, "--effort", s.Route.Effort, "--tools", "", "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands", "--output-format", "json")
+		return s.Process.LaunchArgv("--model", s.Route.Model, "--effort", s.Route.Effort, "--tools", "", "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands", "--output-format", "json")
 	case "codex":
-		args := s.Process.Argv("exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "-m", s.Route.Model, "-c", fmt.Sprintf("model_reasoning_effort=%q", s.Route.Effort), "-c", "project_doc_max_bytes=0", "-c", "skills.include_instructions=false", "-c", "features.shell_tool=false", "-c", "features.apply_patch_freeform=false", "-c", `web_search="disabled"`)
+		args := s.Process.LaunchArgv("--skip-git-repo-check", "--ephemeral", "-m", s.Route.Model, "-c", fmt.Sprintf("model_reasoning_effort=%q", s.Route.Effort), "-c", "project_doc_max_bytes=0", "-c", "skills.include_instructions=false", "-c", "features.shell_tool=false", "-c", "features.apply_patch_freeform=false", "-c", `web_search="disabled"`)
 		if s.MCP != nil {
 			args = append(args, s.MCP.CodexArgs...)
 		}

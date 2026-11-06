@@ -10,19 +10,17 @@ import (
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
-// agentArgv is the interactive command of a peer: the built process's prefix
-// once, with its settings or global overrides, then the pane's own flags. The
-// lead's mode picks the native permission flags. Updates are off through the
-// process: Codex's setting in its prefix, Claude's variable in its
-// environment. Nothing here bypasses the sandbox; Claude's protected roots
-// are in its settings, and Codex reads have only the gate. A Codex
-// workspace-write peer gets no network and no writable root beyond the
-// project, whatever Codex's own config files say, as a worker does.
-func agentArgv(route router.Route, m mode.Mode, p workerenv.Process) []string {
+// agentArgv is the interactive command of a peer: the admitted process's
+// launch argv once, its prefix with its settings or global overrides and its
+// permission words (paneLaunch), then the pane's own flags, none of which
+// grants a permission. Updates are off through the process: Codex's setting
+// in its prefix, Claude's variable in its environment. Nothing here bypasses
+// the sandbox; Claude's protected roots are in its settings, and Codex reads
+// have only the gate.
+func agentArgv(route router.Route, p workerenv.Process) []string {
 	switch route.Agent {
 	case "codex":
-		args := p.Argv("-m", route.Model)
-		args = append(args, mode.PinCodexSandbox("codex", mode.Args("codex", m, route.Sandbox), false, nil)...)
+		args := p.LaunchArgv("-m", route.Model)
 		if route.Effort != "" {
 			args = append(args, "-c", `model_reasoning_effort="`+route.Effort+`"`)
 		}
@@ -32,16 +30,24 @@ func agentArgv(route router.Route, m mode.Mode, p workerenv.Process) []string {
 		}
 		return args
 	case "claude":
-		args := p.Argv("--model", route.Model)
+		args := p.LaunchArgv("--model", route.Model)
 		if route.Effort != "" {
 			args = append(args, "--effort", route.Effort)
 		}
 		// A peer cannot delegate: the gate denies a spawn, and without the tools the
 		// peer does not spend turns trying. One value with =, as the option takes a list.
-		args = append(args, "--disallowedTools=Agent,Task")
-		return append(args, mode.Args("claude", m, route.Sandbox)...)
+		return append(args, "--disallowedTools=Agent,Task")
 	}
 	return nil
+}
+
+// paneLaunch is what a pane's process carries after its prefix, in
+// workerenv.ProcessInput.Launch: the native permission flags the lead's mode
+// m picks. A Codex workspace-write peer gets no network and no writable root
+// beyond the project, whatever Codex's own config files say, as a worker
+// does.
+func paneLaunch(route router.Route, m mode.Mode) []string {
+	return mode.PinCodexSandbox(route.Agent, mode.Args(route.Agent, m, route.Sandbox), false, nil)
 }
 
 // agentEnv builds a peer pane's process: its environment, its argv prefix and
@@ -55,16 +61,17 @@ func agentEnv(in workerenv.ProcessInput) (workerenv.Process, error) {
 	return workerenv.Build(in)
 }
 
-// peerInput describes the pane of route in variant: environ, the route's
-// context, the state folder and protected roots its Claude settings deny,
-// and Claude's notifications off. run, when set, is the pane's DUOLOG_RUN:
+// peerInput describes the pane of route in variant under a lead in mode m:
+// environ, the route's context, the state folder and protected roots its
+// Claude settings deny, Claude's notifications off, and the permission words
+// the pane launches with, so that the gate admits them. run, when set, is the pane's DUOLOG_RUN:
 // the run id duolog drew for this launch, never a vendor id; the gate's
 // telemetry events and the peer's own carry it.
-func peerInput(cfg *config.Config, route router.Route, variant workerenv.Variant, leadID, role, peerID, run, stateDir string,
+func peerInput(cfg *config.Config, route router.Route, m mode.Mode, variant workerenv.Variant, leadID, role, peerID, run, stateDir string,
 	roots, environ []string) workerenv.ProcessInput {
 	in := workerenv.ProcessInput{Agent: route.Agent, Shape: workerenv.Peer, Variant: variant, Config: cfg,
 		Environ: environ, LeadID: leadID, Role: role, PeerID: peerID, StateDir: stateDir,
-		Minimal: route.Context == "minimal", ProtectedRoots: roots}
+		Minimal: route.Context == "minimal", ProtectedRoots: roots, Launch: paneLaunch(route, m)}
 	if run != "" {
 		in.ExtraEnv = []string{"DUOLOG_RUN=" + run}
 	}

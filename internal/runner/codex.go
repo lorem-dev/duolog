@@ -10,11 +10,12 @@ import (
 )
 
 // codexArgv is the process prefix, which carries the global -c overrides,
-// the update check off among them, then exec and the run's own flags.
+// the update check off among them, then the admitted launch words, exec with
+// its sandbox flag and pins, and the run's own flags.
 func codexArgv(s Spec) []string {
-	args := s.Process.Argv("exec")
-	// Sandbox belongs to exec; its resume subcommand does not accept it.
-	args = append(args, permissionArgs("codex", s)...)
+	// Sandbox belongs to exec; its resume subcommand does not accept it, so
+	// the launch words come before resume.
+	args := s.Process.LaunchArgv()
 	if s.ThreadID != "" {
 		args = append(args, "resume", s.ThreadID)
 	}

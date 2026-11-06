@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +14,9 @@ import (
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // workerModes writes a user-level worker_modes section and reloads the config.
@@ -394,6 +397,116 @@ func TestRouteChangeCannotEscapeFamilyLowering(t *testing.T) {
 		if c := h.calls[0]; c.Native != "plan" {
 			t.Errorf("%s: %s on %s, want plan (%s)", tc.name, c.Native, c.Route.Model, out.Line)
 		}
+	}
+}
+
+// Integration review, Critical: the gate preflight reads the settings the
+// worker's own environment selects. A CLAUDE_CONFIG_DIR or CODEX_HOME that
+// only duolog's caller has, because env_passthrough does not pass it, holds
+// a gate the worker never loads, so the looser mode is refused.
+func TestGatePreflightReadsTheWorkersSettings(t *testing.T) {
+	for _, tc := range []struct {
+		name, agent, model, entry, lead string
+		setup                           func(h *harness, alternate string)
+	}{
+		{"claude gate only in the caller's CLAUDE_CONFIG_DIR", "claude", "sonnet", "claude: bypassPermissions", "bypassPermissions",
+			func(h *harness, alternate string) {
+				h.claudeGate(false)
+				put(h.t, filepath.Join(os.Getenv("HOME"), ".claude", "settings.json"), `{}`)
+				put(h.t, filepath.Join(alternate, "settings.json"), `{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"duolog gate --agent claude --event PreToolUse"}]}]}}`)
+				h.t.Setenv("CLAUDE_CONFIG_DIR", alternate)
+			}},
+		// The hooks are approved in both homes, so only the folder trust the
+		// worker's own home lacks is left to the preflight.
+		{"codex folder trust only in the caller's CODEX_HOME", "codex", "sol", "codex: workspace-write, network: true", "bypassPermissions",
+			func(h *harness, alternate string) {
+				put(h.t, filepath.Join(alternate, "config.toml"), read(h.t, filepath.Join(os.Getenv("HOME"), ".codex", "config.toml")))
+				h.codexHooksOnly()
+				h.t.Setenv("CODEX_HOME", alternate)
+			}},
+	} {
+		h := newHarness(t)
+		h.gateOnPath(true)
+		tc.setup(h, t.TempDir())
+		userDir, _ := os.UserConfigDir()
+		put(t, filepath.Join(userDir, "duolog", "config.yaml"), "env_passthrough: [HOME, USER]\nworker_modes:\n  roles:\n    implement: {"+tc.entry+"}\n")
+		var err error
+		if h.cfg, err = config.Load(h.root); err != nil {
+			t.Fatal(err)
+		}
+		h.leadNative("claude", mode.Full, tc.lead)
+		out, err := h.runOn("implement", tc.agent, tc.model)
+		if len(h.calls) != 0 || err == nil || !strings.Contains(out.Line, "gate preflight failed") {
+			t.Errorf("%s: calls %d, %v %q", tc.name, len(h.calls), err, out.Line)
+		}
+	}
+	// Passed on, the same directory is the worker's, and its gate counts.
+	h := newHarness(t)
+	h.gateOnPath(true)
+	h.claudeGate(false)
+	alternate := t.TempDir()
+	put(t, filepath.Join(alternate, "settings.json"), `{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"duolog gate --agent claude --event PreToolUse"}]}]}}`)
+	t.Setenv("CLAUDE_CONFIG_DIR", alternate)
+	userDir, _ := os.UserConfigDir()
+	put(t, filepath.Join(userDir, "duolog", "config.yaml"), "env_passthrough: [HOME, USER, CLAUDE_CONFIG_DIR]\nworker_modes:\n  roles:\n    implement: {claude: bypassPermissions}\n")
+	var err error
+	if h.cfg, err = config.Load(h.root); err != nil {
+		t.Fatal(err)
+	}
+	h.leadNative("claude", mode.Full, "bypassPermissions")
+	if out, err := h.runOn("implement", "claude", "sonnet"); err != nil || len(h.calls) != 1 {
+		t.Fatal(out.Line, err)
+	}
+}
+
+// Integration review, Important: the process the gate admits carries the
+// whole launch, Codex's exec, its sandbox flag and both pins with the role's
+// extras, and the runner launches exactly that, in the free and the paid
+// variant; Claude's permission flag likewise.
+func TestAdmittedArgvIsLaunchedArgv(t *testing.T) {
+	for _, paid := range []bool{false, true} {
+		h := newHarness(t)
+		h.gateOnPath(true)
+		safe := filepath.ToSlash(t.TempDir())
+		h.workerModes("  roles:\n    implement: {codex: workspace-write, network: true, writable_roots: [\"" + safe + "\"]}\n")
+		if paid {
+			h.paidReads("codex", "claude")
+			h.cfg.PaidRuns.Codex.Allow, h.cfg.PaidRuns.Codex.DailyCapUSD = true, 1000
+			h.gate.Config = h.cfg // workerModes loaded a new config
+		}
+		h.lead("codex", mode.Edits, "high")
+		if out, err := h.run("implement"); err != nil {
+			t.Fatal(paid, out.Line, err)
+		}
+		h.requireCalls(1)
+		c := h.calls[0]
+		if paid != (c.Process.Variant == workerenv.Paid) {
+			t.Fatalf("paid %t: variant %s", paid, c.Process.Variant)
+		}
+		want := []string{"exec", "-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=true",
+			"-c", `sandbox_workspace_write.writable_roots=["` + filepath.Clean(safe) + `"]`}
+		if !slices.Equal(c.Process.Launch, want) {
+			t.Errorf("paid %t: admitted launch %v, want %v", paid, c.Process.Launch, want)
+		}
+		argv, admitted := runner.Argv(c), c.Process.LaunchArgv()
+		if len(argv) < len(admitted) || !slices.Equal(argv[:len(admitted)], admitted) || slices.Index(argv[len(admitted):], "-s") >= 0 {
+			t.Errorf("paid %t: launched %v, admitted %v", paid, argv, admitted)
+		}
+	}
+	h := newHarness(t)
+	h.claudeGate(true)
+	h.gateOnPath(true)
+	h.workerModes("  roles:\n    implement: {claude: bypassPermissions}\n")
+	h.leadNative("claude", mode.Full, "bypassPermissions")
+	if _, err := h.runOn("implement", "claude", "sonnet"); err != nil {
+		t.Fatal(err)
+	}
+	c := h.calls[0]
+	if want := []string{"-p", "--permission-mode", "bypassPermissions"}; !slices.Equal(c.Process.Launch, want) {
+		t.Errorf("claude: admitted launch %v", c.Process.Launch)
+	}
+	if argv, admitted := runner.Argv(c), c.Process.LaunchArgv(); !slices.Equal(argv[:len(admitted)], admitted) || slices.Contains(argv[len(admitted):], "--permission-mode") {
+		t.Errorf("claude: launched %v, admitted %v", argv, admitted)
 	}
 }
 

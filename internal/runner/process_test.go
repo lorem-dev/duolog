@@ -38,7 +38,7 @@ func built(t *testing.T, s Spec, cfg *config.Config, variant workerenv.Variant) 
 	t.Helper()
 	in := workerenv.ProcessInput{Agent: s.Route.Agent, Shape: workerenv.Worker, Variant: variant, Config: cfg,
 		Environ: os.Environ(), LeadID: "lead-123", Role: "implement", StateDir: project.StateRoot(s.Cwd),
-		Minimal: s.Route.Context == "minimal", ProtectedRoots: s.ProtectedRoots}
+		Minimal: s.Route.Context == "minimal", ProtectedRoots: s.ProtectedRoots, Launch: Launch(s)}
 	if s.SkillTest {
 		in.StateDir, in.Minimal = "", true
 	}

@@ -70,7 +70,7 @@ func TestTelemetryDenyReadSettings(t *testing.T) {
 	roots := []string{"/t/telemetry", "/t/balance", "/t/telemetry"}
 	for _, context := range []string{"minimal", "project"} {
 		route := router.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Context: context}
-		denied := peerDenied(peerSandbox(t, agentArgv(route, mode.Ask, peerProcess(t, &config.Config{}, route, workerenv.Free, state, roots...))))
+		denied := peerDenied(peerSandbox(t, agentArgv(route, peerProcess(t, &config.Config{}, route, workerenv.Free, state, roots...))))
 		if len(denied) < 3 || denied[len(denied)-2] != "/t/telemetry" || denied[len(denied)-1] != "/t/balance" {
 			t.Fatal(context, denied)
 		}
@@ -79,7 +79,7 @@ func TestTelemetryDenyReadSettings(t *testing.T) {
 		}
 	}
 	codexRoute := router.Route{Target: config.Target{Agent: "codex", Model: "sol"}}
-	codex := agentArgv(codexRoute, mode.Ask, peerProcess(t, &config.Config{}, codexRoute, workerenv.Free, state, roots...))
+	codex := agentArgv(codexRoute, peerProcess(t, &config.Config{}, codexRoute, workerenv.Free, state, roots...))
 	if strings.Contains(strings.Join(codex, " "), "/t/") {
 		t.Fatal(codex)
 	}
@@ -94,7 +94,7 @@ func TestAgentEnvPinsExecutableDirectory(t *testing.T) {
 		t.Setenv("PATH", parent)
 		for _, agent := range []string{"claude", "codex"} {
 			route := router.Route{Target: config.Target{Agent: agent, Model: "sol"}}
-			p, err := agentEnv(peerInput(&config.Config{EnvPassthrough: []string{"PATH", "Path"}}, route, workerenv.Free, "lead", "docs", "peer-test",
+			p, err := agentEnv(peerInput(&config.Config{EnvPassthrough: []string{"PATH", "Path"}}, route, mode.Ask, workerenv.Free, "lead", "docs", "peer-test",
 				"0123456789abcdef0123456789abcdef", "", nil, os.Environ()))
 			if err != nil {
 				t.Fatal(err)

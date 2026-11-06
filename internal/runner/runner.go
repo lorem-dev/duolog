@@ -74,6 +74,26 @@ type Spec struct {
 	WritableRoots []string
 }
 
+// Launch is what a worker's process carries after its prefix, in
+// workerenv.ProcessInput.Launch: the operation, then the permission words.
+// For Codex, exec and its sandbox flag with both pins, as the run puts them
+// before resume; for Claude, -p and its permission flags. A skill test's
+// Codex run is exec with a read-only sandbox, its Claude run -p alone. The
+// caller builds them into the process the gate admits; Run refuses a process
+// whose launch words differ.
+func Launch(s Spec) []string {
+	operation := map[string]string{"codex": "exec", "claude": "-p"}[s.Route.Agent]
+	switch {
+	case operation == "":
+		return nil
+	case s.SkillTest && s.Route.Agent == "codex":
+		return []string{operation, "--sandbox", "read-only"}
+	case s.SkillTest:
+		return []string{operation}
+	}
+	return append([]string{operation}, permissionArgs(s.Route.Agent, s)...)
+}
+
 // permissionArgs returns the native permission flags for a worker. It falls
 // back to mode.Args when Native is empty, unknown, above Mode, or not
 // plan/read-only under a read-only sandbox. A Codex workspace-write launch
@@ -421,6 +441,11 @@ func checkProcess(s Spec) error {
 		return errors.New("no built worker process; build one with workerenv.Build")
 	case p.Agent != s.Route.Agent || p.Shape != workerenv.Worker:
 		return fmt.Errorf("the process is a %s %s, not a %s worker", p.Agent, p.Shape, s.Route.Agent)
+	case !slices.Equal(p.Launch, Launch(s)):
+		// The runner adds no permission word after admission: what starts
+		// is what the gate admitted, or nothing does.
+		return fmt.Errorf("the admitted process launches with %q, not this run's %q; build it with runner.Launch",
+			strings.Join(p.Launch, " "), strings.Join(Launch(s), " "))
 	}
 	if s.MCP != nil {
 		for _, pair := range s.MCP.Env {

@@ -350,7 +350,9 @@ func askSkill(cmd *cobra.Command, cfg *config.Config, root, work, prompt string,
 	environ := os.Environ()
 	in := workerenv.ProcessInput{Agent: target.Agent, Shape: workerenv.Worker, Variant: workerenv.Free,
 		Config: cfg, Environ: environ, Role: "skill_test", Minimal: true,
-		Locations: workerenv.Locations{Home: home, Root: work, GOOS: runtime.GOOS, Environ: environ}}
+		Locations: workerenv.Locations{Home: home, Root: work, GOOS: runtime.GOOS, Environ: environ},
+		// Codex's exec with its read-only sandbox is admitted with the rest.
+		Launch: runner.Launch(runner.Spec{Route: route, SkillTest: true})}
 	permit, err := g.Acquire(ctx, paidruns.Request{Input: in, Family: models.Normalize(target.Agent, model),
 		Role: "skill_test", Owner: paidruns.ProcessOwner(os.Getpid()), Wait: paidruns.SessionWait(cfg)})
 	var refusal *paidruns.Refusal

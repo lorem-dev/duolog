@@ -367,6 +367,37 @@ func TestBuildFastModeLayerIsPaidSignal(t *testing.T) {
 // duolog adds no guessed flag to switch them off. A speed-shaped setting is
 // the route:unknown-speed signal instead. Only a setting recorded as
 // supported adds a pin, and then only to the free variant.
+// Integration review, Important: the launch words, Codex's exec and its
+// sandbox flag with the pins, are part of the built process, right after its
+// overrides and before the run's own flags, in both variants. Reads never get
+// them, and a launch word that may move the route is a signal the gate sees.
+func TestBuildCarriesLaunchWords(t *testing.T) {
+	launch := []string{"exec", "-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=true",
+		"-c", `sandbox_workspace_write.writable_roots=["/safe/cache"]`}
+	for _, variant := range []Variant{Free, Paid} {
+		in := buildInput("codex", Worker, variant)
+		in.Config.PaidRuns.Codex.Allow, in.Config.PaidRuns.Codex.DailyCapUSD = true, 5
+		in.Launch = launch
+		p := mustBuild(t, in)
+		if !slices.Equal(p.Launch, launch) {
+			t.Fatalf("%s: launch %v", variant, p.Launch)
+		}
+		got := p.LaunchArgv("resume", "thread-1")
+		want := append(append(slices.Clone(p.Prefix), launch...), "resume", "thread-1")
+		if !slices.Equal(got, want) {
+			t.Errorf("%s: %v, want %v", variant, got, want)
+		}
+		if slices.Contains(p.Argv("app-server"), "exec") {
+			t.Errorf("%s: a read carries the launch words: %v", variant, p.Argv("app-server"))
+		}
+	}
+	in := buildInput("codex", Worker, Free)
+	in.Launch = []string{"exec", "-c", `service_tier="fast"`}
+	if want := []string{"route:unknown-speed@argv"}; !reflect.DeepEqual(processSignals(mustBuild(t, in)), want) {
+		t.Errorf("launch signals = %v, want %v", processSignals(mustBuild(t, in)), want)
+	}
+}
+
 func TestBuildDoesNotInventCodexSpeedFlag(t *testing.T) {
 	speedArgs := func(argv []string) []string {
 		var out []string
