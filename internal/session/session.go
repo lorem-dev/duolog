@@ -17,70 +17,11 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/mode"
 )
 
-type Lead struct {
-	ID string
-	config.Target
-	Mode mode.Mode
-	// Native is the raw native permission mode name the lead reported with
-	// Mode. Empty when not observed.
-	Native         string
-	TranscriptPath string
-	PID            int
-}
-
-// LeadObservation contains only fields actually read by a caller. Nil means
-// unobserved; a pointer to an empty string records an explicitly unknown value.
-// Callers capture the time before reading stdin, the registry or a transcript.
-type LeadObservation struct {
-	ID, Agent                     string
-	Model, Effort, TranscriptPath *string
-	Mode                          *mode.Mode
-	// Native travels with Mode: an observation that sets Mode replaces Native
-	// with *Native, or with empty when Native is nil.
-	Native *string
-	PID    *int
-	Ended  bool
-}
-
 type leadObservationTimes struct {
 	Agent, Model, Effort, Mode, TranscriptPath, PID time.Time
 	EndedAt                                         time.Time
 }
 
-type Entry struct {
-	ID, Lead, Agent, Role, Thread, ThreadID string
-	// Block is the Rex pane of a live peer session; it is empty for threads
-	// that only exist in the agent. Doctor and peer commands join on it.
-	Block string
-	// WorkRoot keys live peers by checkout, while state is shared across worktrees.
-	WorkRoot   string
-	RexSession string
-	Run        string // the pane's DUOLOG_RUN, a duolog run id; never a vendor id
-	PID        int
-	Input      int64
-	// Task is the task file a live peer was sent and has not finished. Base is
-	// the working tree before that task, as path to Git status.
-	Task string
-	Base map[string]string
-	// Mode is the lead mode the peer was started under. Asked is the last
-	// question already sent to the lead, so one question makes one message.
-	Mode             mode.Mode
-	Asked            string
-	QuestionSince    time.Time
-	QuestionNotified bool
-	UpdatedAt        time.Time
-	Closed           bool
-	// AccountSessionID is the account reservation of a peer's pane slot, in
-	// the user's account state; AdmissionID is the reservation of its latest
-	// admitted task, the open's own until a send takes it over; and
-	// TaskGeneration is the reservation of the sent task not yet settled, ""
-	// when none is. Clearing TaskGeneration claims the settlement, so a task
-	// settles once however many commands see it end.
-	AccountSessionID, AdmissionID, TaskGeneration string
-	// StopNotified is the task, by path and generation, whose unfinished
-	// stop the peer's Stop hook already told the lead of: once per task.
-	StopNotified string `json:",omitempty"`
-}
 type Registry struct {
 	Dir string
 	// LeadID binds limit ownership when the caller selected a lead explicitly.

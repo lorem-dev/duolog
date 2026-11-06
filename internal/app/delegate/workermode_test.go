@@ -2,7 +2,6 @@ package delegate
 
 import (
 	"cmp"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,7 +17,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/gate"
-	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/trusthome"
@@ -63,12 +61,10 @@ func (h *harness) hooksOff() {
 	put(h.t, filepath.Join(h.root, ".claude", "settings.json"), `{"disableAllHooks": true}`)
 }
 
-// gateOnPath replaces gateBinary for the test.
+// gateOnPath replaces the harness's GateBinary.
 func (h *harness) gateOnPath(ok bool) {
 	h.t.Helper()
-	old := gateBinary
-	h.t.Cleanup(func() { gateBinary = old })
-	gateBinary = func(string) (string, error) {
+	h.deps.GateBinary = func(string) (string, error) {
 		if ok {
 			return filepath.Join(h.root, "bin", "duolog"), nil
 		}
@@ -85,10 +81,13 @@ func (h *harness) codexHooksOnly() {
 }
 
 // codexHooks is the Codex hooks.json duolog installs, so that trust can show
-// the approved gate is duolog's own command.
+// the approved gate is duolog's own command. testdata/codex-hooks.json holds
+// it; TestDelegateHooksFixtureMatchesInstall in cmd/duolog keeps it equal to
+// what internal/install writes.
 func codexHooks(t *testing.T) string {
 	t.Helper()
-	data, err := install.HooksJSON("codex", 30)
+	_, testFile, _, _ := runtime.Caller(0)
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(testFile), "testdata", "codex-hooks.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +98,7 @@ func codexHooks(t *testing.T) string {
 func (h *harness) runOn(role, agent, model string) (Outcome, error) {
 	h.t.Helper()
 	opts := Options{Entry: &config.Target{Agent: agent, Model: model, Effort: "medium"}, Person: true}
-	return Run(WithOptions(context.Background(), opts), h.cfg, h.s, role, h.path, "topic")
+	return h.runWith(role, opts)
 }
 
 func TestNoWorkerModesKeepsToday(t *testing.T) {

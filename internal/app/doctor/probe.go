@@ -55,7 +55,7 @@ func probe(ctx context.Context, agent string, cfg *config.Config, entries []cata
 		model = "haiku"
 		args = []string{"-p", "--model", model, "--effort", "low", "--no-session-persistence", "--output-format", "json", "--strict-mcp-config", "--permission-mode", "plan", "--", "Reply with the word ok."}
 	}
-	g, err := delegate.NewGate(cfg)
+	g, err := PaidGate(cfg)
 	if err != nil {
 		return err
 	}

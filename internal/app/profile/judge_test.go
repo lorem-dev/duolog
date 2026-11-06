@@ -105,7 +105,7 @@ func TestJudgeLabelsFollowShuffle(t *testing.T) {
 			f, r := judgeFixture(t)
 			stubShuffle(t, first)
 			f.fake(t, func(ctx context.Context, _ *config.Config, _ *store.Store, role, path, _ string) (delegate.Outcome, error) {
-				o := delegate.OptionsFrom(ctx)
+				o := optionsFrom(ctx)
 				want := config.Target{Agent: "claude", Model: "opus", Effort: "high"}
 				if role != "review_final" || !o.Judge || o.Entry == nil || *o.Entry != want || o.WorkRoot != f.root || o.Lead != "judge-lead" || !o.AllowManualModel {
 					t.Fatalf("role %q options %+v", role, o)
@@ -119,8 +119,7 @@ func TestJudgeLabelsFollowShuffle(t *testing.T) {
 				}
 				return delegate.Outcome{Result: runner.Result{Done: true, Summary: judgeSummary}}, nil
 			})
-			ctx := delegate.WithOptions(context.Background(), delegate.Options{Lead: "judge-lead", AllowManualModel: true})
-			v, err := Judge(ctx, f.cfg, f.s, r)
+			v, err := Judge(context.Background(), f.cfg, f.s, r, delegate.Options{Lead: "judge-lead", AllowManualModel: true})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -174,7 +173,7 @@ func TestParseVerdictValidatesCountsAndCriteria(t *testing.T) {
 func TestVerdictRecordedInOriginalTerms(t *testing.T) {
 	f, r := judgeFixture(t)
 	stubShuffle(t, false)
-	v, err := Judge(context.Background(), f.cfg, f.s, r)
+	v, err := Judge(context.Background(), f.cfg, f.s, r, delegate.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +197,7 @@ func TestBadJudgeAnswerRecordsNothing(t *testing.T) {
 		dir = filepath.Dir(path)
 		return delegate.Outcome{Result: runner.Result{Done: true, Summary: "no scores"}}, nil
 	})
-	_, err := Judge(context.Background(), f.cfg, f.s, r)
+	_, err := Judge(context.Background(), f.cfg, f.s, r, delegate.Options{})
 	if err == nil || !strings.Contains(err.Error(), filepath.Join(dir, "answer.json")) {
 		t.Fatal(err)
 	}

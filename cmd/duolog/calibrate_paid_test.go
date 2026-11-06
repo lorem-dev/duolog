@@ -10,7 +10,6 @@ import (
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/app/calibrate"
-	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/core/config"
@@ -24,8 +23,8 @@ func readsGate(t *testing.T, read func(context.Context, workerenv.Process) (quot
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "accounts")
 	reads := new(int)
-	old := delegate.NewGate
-	delegate.NewGate = func(cfg *config.Config) (*paidruns.Gate, error) {
+	old := delegateDeps.PaidGate
+	delegateDeps.PaidGate = func(cfg *config.Config) (*paidruns.Gate, error) {
 		g, err := paidrunstest.Gate(dir, cfg)
 		if err != nil {
 			return nil, err
@@ -36,7 +35,7 @@ func readsGate(t *testing.T, read func(context.Context, workerenv.Process) (quot
 		}
 		return g, nil
 	}
-	t.Cleanup(func() { delegate.NewGate = old })
+	t.Cleanup(func() { delegateDeps.PaidGate = old })
 	return reads
 }
 

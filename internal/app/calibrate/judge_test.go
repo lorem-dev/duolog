@@ -20,7 +20,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/runner"
-	"github.com/lorem-dev/duolog/internal/store"
 )
 
 const (
@@ -194,8 +193,8 @@ func newJudgeFixture(t *testing.T, a, b string, score scoreFunc) *judgeFixture {
 	f := &judgeFixture{runDir: runDir, run: run, task: task, pair: Pair{Task: "k-1", Class: "implement", A: a, B: b}, slot: slot, home: home}
 	f.env = JudgeEnv{
 		CellEnv: CellEnv{Root: root, StateDir: stateDir, RunDir: runDir, Lead: "lead-1", Cfg: cfg,
-			Delegate: func(ctx context.Context, _ *config.Config, _ *store.Store, role, taskPath, _ string) (delegate.Outcome, error) {
-				opts := delegate.OptionsFrom(ctx)
+			Delegate: func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+				role, taskPath, opts := r.Role, r.TaskPath, r.Options
 				// Calibration keeps the task copy in the work root's state,
 				// where task.Inline reads it.
 				if !opts.Judge || !opts.Calibration || opts.Entry == nil || opts.Lead != "lead-1" {
@@ -476,14 +475,14 @@ func TestJudgeChargesCallBeforeItStarts(t *testing.T) {
 	f := newJudgeFixture(t, "claude/opus/high", "codex/sol/high", clearScores)
 	inner := f.env.Delegate
 	var during float64
-	f.env.Delegate = func(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath, lead string) (delegate.Outcome, error) {
+	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
 		saved, err := LoadRun(f.env.StateDir, f.run.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		agent := delegate.OptionsFrom(ctx).Entry.Agent
+		agent := r.Options.Entry.Agent
 		during = saved.Spend.WeeklyPct[agent]
-		if _, err := inner(ctx, cfg, s, role, taskPath, lead); err != nil {
+		if _, err := inner(ctx, r); err != nil {
 			return delegate.Outcome{}, err
 		}
 		return delegate.Outcome{}, errors.New("worker failed")
@@ -509,7 +508,7 @@ func TestJudgeChargesCallBeforeItStarts(t *testing.T) {
 // charged: the admitted charge is released.
 func TestJudgeReleasesCallNotStarted(t *testing.T) {
 	f := newJudgeFixture(t, "claude/opus/high", "codex/sol/high", clearScores)
-	f.env.Delegate = func(context.Context, *config.Config, *store.Store, string, string, string) (delegate.Outcome, error) {
+	f.env.Delegate = func(context.Context, delegate.Request) (delegate.Outcome, error) {
 		return delegate.Outcome{}, &delegate.NotStartedError{Err: errors.New("lead lead-1 is not registered")}
 	}
 	r := f.runner(&fakeQuota{weekly: 20, window: 20, reset: testTime.Add(time.Hour)}, &bytes.Buffer{})
@@ -625,8 +624,8 @@ func TestJudgeRecordsRateFromCallRise(t *testing.T) {
 	f := newJudgeFixture(t, "codex/sol/high", "codex/sol/medium", clearScores)
 	q := &fakeQuota{weekly: 20, window: 20, reset: testTime.Add(time.Hour)}
 	inner := f.env.Delegate
-	f.env.Delegate = func(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath, thread string) (delegate.Outcome, error) {
-		out, err := inner(ctx, cfg, s, role, taskPath, thread)
+	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+		out, err := inner(ctx, r)
 		q.weekly, q.window = q.weekly+0.2, q.window+1
 		out.Result.Usage = runner.Usage{Input: 80000, Output: 20000}
 		return out, err
@@ -651,8 +650,8 @@ func TestJudgeSetsNoRateWithoutWeeklyRise(t *testing.T) {
 	q := &fakeQuota{weekly: 20, window: 20, reset: testTime.Add(time.Hour)}
 	weekly := 0.0
 	inner := f.env.Delegate
-	f.env.Delegate = func(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath, thread string) (delegate.Outcome, error) {
-		out, err := inner(ctx, cfg, s, role, taskPath, thread)
+	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+		out, err := inner(ctx, r)
 		q.weekly, q.window = q.weekly+weekly, q.window+1
 		out.Result.Usage = runner.Usage{Input: 80000, Output: 20000}
 		return out, err

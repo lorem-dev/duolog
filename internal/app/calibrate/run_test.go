@@ -13,9 +13,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/app/delegate"
-	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -926,9 +924,9 @@ func TestRunTrustRefusalChargesNothing(t *testing.T) {
 	trustCodex(t, f.home, f.slot, false, false)
 	workers := 0
 	work := worked(t)
-	f.env.Delegate = func(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath, thread string) (delegate.Outcome, error) {
+	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
 		workers++
-		return work(ctx, cfg, s, role, taskPath, thread)
+		return work(ctx, r)
 	}
 	run := &Run{ID: "cal-1", Step: "plan", Created: testTime, Approved: &Approval{Hash: "h", Time: testTime},
 		Cells: []Cell{{ID: "c001", Task: f.task.ID, Class: "implement", Entry: "codex/sol/high", Round: 1, State: CellPending}}}

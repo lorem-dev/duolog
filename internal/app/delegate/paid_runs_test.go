@@ -263,8 +263,7 @@ func TestAttemptSettlementOnCancelRetryAndFallback(t *testing.T) {
 			t.Fatalf("a refusal held or charged: %+v", st)
 		}
 		// A calibration step refused this way never started.
-		ctx := WithOptions(context.Background(), Options{Calibration: true})
-		_, err = Run(ctx, h.cfg, h.s, "implement", h.path, "topic")
+		_, err = h.runWith("implement", Options{Calibration: true})
 		var notStarted *NotStartedError
 		if !errors.As(err, &notStarted) {
 			t.Fatalf("calibration refusal: %v", err)

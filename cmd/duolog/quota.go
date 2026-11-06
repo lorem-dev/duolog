@@ -14,7 +14,6 @@ import (
 	"time"
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
-	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/session"
@@ -70,7 +69,7 @@ func newQuotaCommand() *cobra.Command {
 			defer tel.Close()
 			observe = observeBalance(tel)
 		}
-		gate, err := delegate.NewGate(cfg)
+		gate, err := delegateDeps.PaidGate(cfg)
 		if err != nil {
 			return err
 		}

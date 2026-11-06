@@ -17,29 +17,9 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/usage"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/project"
-	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
-
-// NewGate opens the account admission gate of one delegation: the user's
-// account state, reads of the quota each built process sees, and the
-// settings layers each build reads. Tests of packages that run real
-// delegations with fake agent binaries replace it, so that no quota read
-// starts a binary and no test touches the user's account state.
-var NewGate = defaultGate
-
-func defaultGate(cfg *config.Config) (*paidruns.Gate, error) {
-	st, err := paidruns.OpenUserState("")
-	if err != nil {
-		return nil, err
-	}
-	reader := quota.Reader{IdentitySink: func(agent, kind string, raw []byte) error {
-		_, err := st.Identity(agent, kind, raw)
-		return err
-	}}
-	return &paidruns.Gate{Store: st, Cache: &paidruns.Cache{Read: reader.ReadProcess}, Config: cfg, Layers: paidruns.ReadLayers}, nil
-}
 
 // workerEnv builds a worker's process: its environment, its argv prefix and
 // its settings, from one launch description. The login check, the quota read
@@ -158,11 +138,11 @@ func (a *permitRun) release(ctx context.Context) error {
 // gate builds it again, so a settings edit or a newly found provider key in
 // between moves the route; the moved route then gets its own check, and a
 // failed check gives the permit back.
-func (a *permitRun) sameRoute(ctx context.Context, checked workerenv.Process, cacheDir string) error {
+func (a *permitRun) sameRoute(ctx context.Context, d Deps, checked workerenv.Process, cacheDir string) error {
 	if a.permit.Process.CacheKey == checked.CacheKey {
 		return nil
 	}
-	if p := newChecker(cacheDir, a.permit.Process).Agent(ctx, a.permit.Process.Agent); p != nil {
+	if p := d.NewChecker(cacheDir, a.permit.Process).Agent(ctx, a.permit.Process.Agent); p != nil {
 		return errors.Join(fmt.Errorf("%s: %s, after the worker's route changed during admission; delegate again", p.Subject(), p.Reason),
 			a.release(ctx))
 	}

@@ -12,9 +12,9 @@ import (
 
 // observedLead brings the registered lead up to date with its transcript, and
 // returns it with the mode that limits workers.
-func observedLead(reg *session.Registry, lead session.Lead, started time.Time) (session.Lead, mode.Mode, error) {
+func observedLead(d Deps, reg *session.Registry, lead session.Lead, started time.Time) (session.Lead, mode.Mode, error) {
 	if lead.TranscriptPath != "" {
-		observed, _ := readLeadState(lead.Agent, lead.TranscriptPath)
+		observed, _ := d.ReadLeadState(lead.Agent, lead.TranscriptPath)
 		if observed.Model != "" {
 			lead.Model = observed.Model
 		}

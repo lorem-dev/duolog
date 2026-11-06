@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/capability"
@@ -219,13 +218,17 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 	return out
 }
 
+// PaidGate opens the account admission gate; cmd/duolog sets it to the one
+// delegate uses, and tests set a fake. Temporary: Task 29 replaces it.
+var PaidGate func(*config.Config) (*paidruns.Gate, error)
+
 // billing reports, per available agent, how its worker, its peer and its lead
 // are billed, as quota does: verdicts with their signals, the account, the
 // spend and the sessions. Reporting reads the account state and admits
 // nothing. A lead without an observation is unknown.
 func billing(ctx context.Context, cfg *config.Config, root string, available map[string]bool, leads map[string]session.LeadRoute) []Finding {
 	out := []Finding{{"info", "managed policy outside files is not checked: duolog reads managed settings files only, not device management profiles or the Windows registry"}}
-	g, err := delegate.NewGate(cfg)
+	g, err := PaidGate(cfg)
 	if err != nil {
 		return append(out, Finding{"warning", "billing: " + err.Error()})
 	}

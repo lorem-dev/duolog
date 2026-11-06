@@ -28,9 +28,9 @@ import (
 // CellsDir is kept in a run's folder; each cell writes CellsDir/<id>/.
 const CellsDir = "cells"
 
-// DelegateFunc runs one delegation with the options in ctx; delegate.Run is
-// the real one.
-type DelegateFunc func(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath, thread string) (delegate.Outcome, error)
+// DelegateFunc runs one delegation; delegate.Run bound to its Deps is the real
+// one.
+type DelegateFunc = delegate.Runner
 
 // CellEnv is what every cell of a run shares.
 type CellEnv struct {
@@ -42,6 +42,15 @@ type CellEnv struct {
 	// ProtectedRoots are the telemetry and balance roots the command
 	// resolved; they reach each cell's and judge's worker launch settings.
 	ProtectedRoots []string
+}
+
+// delegationState is the state folder a delegation of this run works in: the
+// store's when there is one, else the run's.
+func (e CellEnv) delegationState() string {
+	if e.Store != nil {
+		return e.Store.Dir
+	}
+	return e.StateDir
 }
 
 // CellResult is one cell's outcome. result.json holds it without the patch
@@ -166,10 +175,10 @@ func RunCell(ctx context.Context, env CellEnv, c Cell, t TaskRecord, start Start
 	// The step's budget and wait notice, which its start set: the account
 	// gate admits each of the cell's worker runs within them.
 	budget, waiting := StepOptions(ctx)
-	cellCtx = delegate.WithOptions(cellCtx, delegate.Options{Lead: env.Lead, Entry: &target, WorkRoot: tree, Calibration: true,
-		MaxTurns: env.Cfg.Calibration.CellMaxTurns, ProtectedRoots: env.ProtectedRoots, Budget: budget, Waiting: waiting})
 	started := time.Now()
-	out, runErr := env.Delegate(cellCtx, env.Cfg, env.Store, cellRole(env.Cfg, t), taskPath, "calibration-"+c.ID)
+	out, runErr := env.Delegate(cellCtx, delegate.Request{Config: env.Cfg, StateDir: env.delegationState(), Role: cellRole(env.Cfg, t), TaskPath: taskPath, Thread: "calibration-" + c.ID,
+		Options: delegate.Options{Lead: env.Lead, Entry: &target, WorkRoot: tree, Calibration: true,
+			MaxTurns: env.Cfg.Calibration.CellMaxTurns, ProtectedRoots: env.ProtectedRoots, Budget: budget, Waiting: waiting}})
 	r.Seconds = time.Since(started).Seconds()
 	u := out.Result.Usage
 	r.Tokens = u.Input + u.Output

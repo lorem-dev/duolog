@@ -1,0 +1,48 @@
+package delegate
+
+import (
+	"context"
+
+	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	"github.com/lorem-dev/duolog/internal/auth"
+	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/lead"
+	"github.com/lorem-dev/duolog/internal/runner"
+	"github.com/lorem-dev/duolog/internal/workerenv"
+)
+
+// Runner runs one delegation. Run, bound to its Deps, is the real one.
+type Runner func(ctx context.Context, r Request) (Outcome, error)
+
+// Request is one delegation: the project's config and state folder, the role,
+// the task file, the reusable thread and the options of the caller.
+type Request struct {
+	Config                 *config.Config
+	StateDir               string // the project's .duolog folder
+	Role, TaskPath, Thread string
+	Options                Options
+}
+
+// Deps is what Run reaches outside the package: the worker's process, the
+// model lookup, the lead's transcript, the capability scan, the account gate
+// and the path check. The wiring package fills every field with the real
+// function; app tests fill them with fakes.
+type Deps struct {
+	RunWorker        func(ctx context.Context, s runner.Spec) (runner.Result, error)
+	ResolveModel     func(ctx context.Context, cfg *config.Config, cacheDir string, t config.Target) (string, error)
+	ReadLeadState    func(agent, transcript string) (lead.LeadState, error)
+	ScanCapabilities func(ctx context.Context, agent, root string, environ []string) (capability.Inventory, error)
+	BridgeMCP        func(from, to, root string, names []string, tools map[string][]string, workerEnv []string) (*runner.MCP, map[string]string)
+	// NewChecker checks a worker's logins on the worker's own built process.
+	NewChecker func(cacheDir string, p workerenv.Process) auth.Checker
+	// PaidGate opens the account admission gate of one delegation: the user's
+	// account state, reads of the quota each built process sees, and the
+	// settings layers each build reads.
+	PaidGate func(cfg *config.Config) (*paidruns.Gate, error)
+	// GateBinary finds the duolog a worker's hooks run on a PATH=... pair.
+	GateBinary func(pathEnv string) (string, error)
+	// Canonical spells a local path so that two spellings of one folder
+	// compare equal.
+	Canonical func(path string) string
+}

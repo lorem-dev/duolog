@@ -98,7 +98,7 @@ func newCellFixtureWith(t *testing.T, parentFiles map[string]string) *cellFixtur
 	f := &cellFixture{root: root, runDir: runDir, home: home, slot: slot, task: task,
 		cell: Cell{ID: "c-1", Task: c.ID, Class: c.Class, Entry: "codex/sol/high", Round: 1, State: CellRunning}}
 	f.env = CellEnv{Root: root, StateDir: stateDir, RunDir: runDir, Lead: "lead-1", Cfg: cfg, Store: s,
-		Delegate: func(context.Context, *config.Config, *store.Store, string, string, string) (delegate.Outcome, error) {
+		Delegate: func(context.Context, delegate.Request) (delegate.Outcome, error) {
 			t.Fatal("delegate called")
 			return delegate.Outcome{}, nil
 		},
@@ -142,8 +142,8 @@ func (f *cellFixture) realClaude(t *testing.T, worker testbin.Scenario, outcome 
 		t.Fatal(err)
 	}
 	f.cell.Entry = "claude/opus/high"
-	f.env.Delegate = func(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath, thread string) (delegate.Outcome, error) {
-		out, err := delegate.Run(ctx, cfg, s, role, taskPath, thread)
+	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+		out, err := delegate.Run(ctx, realDeps, r)
 		*outcome = out
 		return out, err
 	}
@@ -196,8 +196,8 @@ func (f *cellFixture) emptied(t *testing.T, tree string) {
 func TestRunCellIsolatedAndChecked(t *testing.T) {
 	f := newCellFixture(t)
 	var tree string
-	f.env.Delegate = func(ctx context.Context, _ *config.Config, _ *store.Store, role, taskPath, _ string) (delegate.Outcome, error) {
-		opts := delegate.OptionsFrom(ctx)
+	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+		role, taskPath, opts := r.Role, r.TaskPath, r.Options
 		tree = opts.WorkRoot
 		if !opts.Calibration || opts.Lead != "lead-1" || opts.Entry == nil || opts.Entry.Agent != "codex" || opts.Entry.Model != "sol" || opts.Entry.Effort != "high" {
 			t.Errorf("options %+v", opts)
@@ -244,8 +244,8 @@ func TestRunCellTimeCap(t *testing.T) {
 	t.Cleanup(func() { cellTimeout = old })
 	cellTimeout = func(config.Calibration) time.Duration { return 50 * time.Millisecond }
 	var tree string
-	f.env.Delegate = func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-		tree = delegate.OptionsFrom(ctx).WorkRoot
+	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+		tree = r.Options.WorkRoot
 		<-ctx.Done()
 		return delegate.Outcome{}, ctx.Err()
 	}
@@ -309,8 +309,8 @@ func makeFixture(t *testing.T, refMakefile bool) *cellFixture {
 	f.env.Cfg.Learning.Classes["implement"] = class
 	// The candidate makes the check pass without the fix: it turns the test
 	// target into true and deletes the test.
-	f.env.Delegate = func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-		tree := delegate.OptionsFrom(ctx).WorkRoot
+	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+		tree := r.Options.WorkRoot
 		write(t, tree, "Makefile", "test:\n\ttrue\n")
 		if err := os.Remove(filepath.Join(tree, "tests", "check_test.sh")); err != nil {
 			t.Error(err)
@@ -413,8 +413,8 @@ func TestRunCellKeepsDependencyChanges(t *testing.T) {
 	f := npmFixture(t, checked)
 	manifest := `{"scripts":{"test":"node test.js","build":"tsc"},"dependencies":{"left-pad":"^1.3.0"}}` + "\n"
 	lock := `{"lockfileVersion":3,"packages":{"node_modules/left-pad":{"version":"1.3.0"}}}` + "\n"
-	f.env.Delegate = func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-		tree := delegate.OptionsFrom(ctx).WorkRoot
+	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+		tree := r.Options.WorkRoot
 		write(t, tree, "package.json", manifest)
 		write(t, tree, "package-lock.json", lock)
 		return delegate.Outcome{Result: runner.Result{Done: true}}, nil
@@ -434,8 +434,8 @@ func TestRunCellMarksCheckScriptChange(t *testing.T) {
 	checked := map[string]string{}
 	f := npmFixture(t, checked)
 	manifest := `{"scripts":{"test":"true","build":"tsc"},"dependencies":{}}` + "\n"
-	f.env.Delegate = func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-		write(t, delegate.OptionsFrom(ctx).WorkRoot, "package.json", manifest)
+	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+		write(t, r.Options.WorkRoot, "package.json", manifest)
 		return delegate.Outcome{Result: runner.Result{Done: true}}, nil
 	}
 	r := f.run(t)
@@ -457,8 +457,8 @@ func TestRunCellMarksScriptAPackageScriptRuns(t *testing.T) {
 	class := f.env.Cfg.Learning.Classes["implement"]
 	class.Checks = []string{"npm test"}
 	f.env.Cfg.Learning.Classes["implement"] = class
-	f.env.Delegate = func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-		write(t, delegate.OptionsFrom(ctx).WorkRoot, "scripts/check.sh", "true\n")
+	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+		write(t, r.Options.WorkRoot, "scripts/check.sh", "true\n")
 		return delegate.Outcome{Result: runner.Result{Done: true}}, nil
 	}
 	r := f.run(t)
@@ -473,8 +473,8 @@ func TestRunCellMarksScriptAPackageScriptRuns(t *testing.T) {
 func TestRunCellLeavesIgnoredFiles(t *testing.T) {
 	f := newCellFixtureWith(t, map[string]string{".gitignore": "node_modules/\n.venv/\n"})
 	ignored := []string{"node_modules/dep/package.json", "node_modules/dep/Makefile", ".venv/lib/conftest.py"}
-	f.env.Delegate = func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-		tree := delegate.OptionsFrom(ctx).WorkRoot
+	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+		tree := r.Options.WorkRoot
 		for _, name := range ignored {
 			write(t, tree, name, "installed\n")
 		}
@@ -564,8 +564,8 @@ func TestSetupChangedFindsCheckDefinitions(t *testing.T) {
 
 // worked is a delegate that changes parse.go in its work tree and finishes.
 func worked(t *testing.T) DelegateFunc {
-	return func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-		write(t, delegate.OptionsFrom(ctx).WorkRoot, "parse.go", "package widget\n\nfunc Parse(line string) []string { return nil }\n")
+	return func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+		write(t, r.Options.WorkRoot, "parse.go", "package widget\n\nfunc Parse(line string) []string { return nil }\n")
 		return delegate.Outcome{Result: runner.Result{Done: true}}, nil
 	}
 }
@@ -661,8 +661,8 @@ func TestRunCellTokenCap(t *testing.T) {
 	} {
 		f := newCellFixture(t)
 		f.env.Cfg.Calibration.CellMaxTokens = 1000
-		f.env.Delegate = func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-			write(t, delegate.OptionsFrom(ctx).WorkRoot, "parse.go", "package widget\n\nfunc Parse(line string) []string { return nil }\n")
+		f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+			write(t, r.Options.WorkRoot, "parse.go", "package widget\n\nfunc Parse(line string) []string { return nil }\n")
 			return delegate.Outcome{Result: runner.Result{Done: true, UsageKnown: true, Usage: runner.Usage{Input: tc.input, Output: tc.output}}}, nil
 		}
 		r := f.run(t)
@@ -721,11 +721,11 @@ func TestRunCellWorkerGetsProtectedRoots(t *testing.T) {
 	var out delegate.Outcome
 	fake := f.realClaude(t, testbin.Scenario{Stdout: parseAnswer, Writes: map[string]string{"parse.go": "package widget\n\nfunc Parse(line string) []string { return nil }\n"}}, &out)
 	delegateRun := f.env.Delegate
-	f.env.Delegate = func(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath, thread string) (delegate.Outcome, error) {
-		if got := delegate.OptionsFrom(ctx).ProtectedRoots; !slices.Equal(got, roots) {
+	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+		if got := r.Options.ProtectedRoots; !slices.Equal(got, roots) {
 			t.Errorf("delegation roots %q, want %q", got, roots)
 		}
-		return delegateRun(ctx, cfg, s, role, taskPath, thread)
+		return delegateRun(ctx, r)
 	}
 	if r := f.run(t); r.State != CellDone {
 		t.Fatalf("result %+v, want done (delegation line %q)", r, out.Line)
@@ -799,8 +799,8 @@ func TestRunCellRefusesClaudeTreeWithHooksOff(t *testing.T) {
 func TestRunCellProviderLimit(t *testing.T) {
 	f := newCellFixture(t)
 	var tree string
-	f.env.Delegate = func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-		tree = delegate.OptionsFrom(ctx).WorkRoot
+	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+		tree = r.Options.WorkRoot
 		return delegate.Outcome{Result: runner.Result{QuotaEnded: true, Usage: runner.Usage{Input: 10, Output: 5}}}, errors.New("usage limit reached")
 	}
 	r := f.run(t)
@@ -877,8 +877,8 @@ func onlyHooks(t *testing.T, slot string) {
 
 func TestRunCellTreeHasProjectHooks(t *testing.T) {
 	f := newCellFixture(t)
-	f.env.Delegate = func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
-		tree := delegate.OptionsFrom(ctx).WorkRoot
+	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+		tree := r.Options.WorkRoot
 		if body, err := os.ReadFile(filepath.Join(tree, ".codex", "hooks.json")); err != nil || string(body) != gateHooks {
 			t.Errorf("hooks.json in the work tree = %q, %v", body, err)
 		}
@@ -892,7 +892,8 @@ func TestCellBriefDemotesStatementHeadings(t *testing.T) {
 	f.task.Statement = "Add Parse.\n\n## Background\n\nLines come from a file.\n\n## Check\n\nIt splits.\n\n```\n## kept in the fence\n```\n"
 	var brief string
 	var invalid error
-	f.env.Delegate = func(_ context.Context, _ *config.Config, _ *store.Store, _, taskPath, _ string) (delegate.Outcome, error) {
+	f.env.Delegate = func(_ context.Context, r delegate.Request) (delegate.Outcome, error) {
+		taskPath := r.TaskPath
 		data, err := os.ReadFile(taskPath)
 		if err != nil {
 			t.Fatal(err)
@@ -914,8 +915,8 @@ func TestCellBriefDemotesStatementHeadings(t *testing.T) {
 func TestRunCellBriefHasNoSolution(t *testing.T) {
 	f := newCellFixture(t)
 	var brief string
-	f.env.Delegate = func(_ context.Context, _ *config.Config, _ *store.Store, _, taskPath, _ string) (delegate.Outcome, error) {
-		data, err := os.ReadFile(taskPath)
+	f.env.Delegate = func(_ context.Context, r delegate.Request) (delegate.Outcome, error) {
+		data, err := os.ReadFile(r.TaskPath)
 		if err != nil {
 			t.Fatal(err)
 		}

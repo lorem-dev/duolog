@@ -85,6 +85,7 @@ var knownViolations = map[string]string{
 	"internal/app/calibrate (test) -> internal/quota":           "PR 29",
 	"internal/app/calibrate (test) -> internal/runner":          "PR 29",
 	"internal/app/calibrate (test) -> internal/session":         "PR 29",
+	"internal/app/calibrate (test) -> internal/wiring":          "PR 29: the cell tests run real delegations on wiring.DelegateDeps",
 	"internal/app/calibrate -> github.com/gofrs/flock":          "PR 45",
 	"internal/app/calibrate -> github.com/pelletier/go-toml/v2": "PR 45",
 	"internal/app/calibrate -> internal/install":                "PR 45",
@@ -95,9 +96,6 @@ var knownViolations = map[string]string{
 	"internal/app/calibrate -> internal/trusthome":              "PR 36",
 	"internal/app/calibrate -> internal/workerenv":              "PR 35",
 	"internal/app/calibrate -> os/exec":                         "PR 45",
-	"internal/app/delegate (test) -> internal/app/sync":         "PR 28",
-	"internal/app/delegate (test) -> internal/app/hook":         "PR 28",
-	"internal/app/delegate (test) -> internal/install":          "PR 28",
 	"internal/app/delegate -> github.com/gofrs/flock":           "PR 28",
 	"internal/app/delegate -> internal/auth":                    "PR 38",
 	"internal/app/delegate -> internal/bus":                     "PR 28",
@@ -105,10 +103,9 @@ var knownViolations = map[string]string{
 	"internal/app/delegate -> internal/coauthor":                "PR 28",
 	"internal/app/delegate -> internal/adapter/config":          "after PR 10: RefuseRootEnv checks writable roots at launch",
 	"internal/app/delegate -> internal/journal":                 "PR 28",
-	"internal/app/delegate -> internal/adapter/kit":             "Task 28: delegate.Deps.Canonical replaces kit.Canonical",
-	"internal/app/delegate -> internal/adapter/models":          "PR 33",
+	"internal/app/delegate (test) -> internal/adapter/models":   "PR 33",
+	"internal/app/delegate (test) -> internal/quota":            "PR 39",
 	"internal/app/delegate -> internal/project":                 "PR 28",
-	"internal/app/delegate -> internal/quota":                   "PR 39",
 	"internal/app/delegate -> internal/runner":                  "PR 32",
 	"internal/app/delegate -> internal/session":                 "PR 34",
 	"internal/app/delegate -> internal/store":                   "PR 28",
@@ -183,7 +180,7 @@ var knownViolations = map[string]string{
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 107
+const maxKnownViolations = 104
 
 // boundaryExceptions are the imports of the security boundary that stay on
 // purpose ("security boundary: moves only"). Empty until PR 20.

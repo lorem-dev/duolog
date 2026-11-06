@@ -343,7 +343,7 @@ func askSkill(cmd *cobra.Command, cfg *config.Config, root, work, prompt string,
 	// admits it like any worker, in the free variant only: a skill test never
 	// spends money, so a paid route is refused before any model call.
 	ctx := cmd.Context()
-	g, err := delegate.NewGate(cfg)
+	g, err := delegateDeps.PaidGate(cfg)
 	if err != nil {
 		return runner.Result{}, route, err
 	}

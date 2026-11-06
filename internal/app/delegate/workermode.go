@@ -10,14 +10,12 @@ import (
 	"strings"
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
-	"github.com/lorem-dev/duolog/internal/adapter/kit"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/trust"
 	"github.com/lorem-dev/duolog/internal/trusthome"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // workerMode is the native permission mode one delegate worker starts in.
@@ -35,9 +33,6 @@ type workerMode struct {
 	// plan when the lead later moves to a looser mode (env), as a peer's does.
 	LeadPlan bool
 }
-
-// gateBinary finds the duolog a worker's hooks run; tests replace it.
-var gateBinary = workerenv.GateBinary
 
 // resolveWorkerMode resolves the worker_modes entries for one route. It reads
 // the family from route.Model, so it runs before resolveModel replaces the
@@ -125,7 +120,7 @@ func gateState(agent, root string, env []string) (trust.State, bool, error) {
 // a protected folder. Hooks, folder trust, the gate binary on PATH and the
 // protected agent folders all come from env, the environment that process
 // runs with, never from duolog's own.
-func (w workerMode) gatePreflight(agent, root string, env, protected []string) error {
+func (w workerMode) gatePreflight(d Deps, agent, root string, env, protected []string) error {
 	state, folder, err := gateState(agent, root, env)
 	var problem string
 	switch {
@@ -139,7 +134,7 @@ func (w workerMode) gatePreflight(agent, root string, env, protected []string) e
 		problem = trust.GateProblem(agent, state, folder)
 	}
 	pathEnv := "PATH=" + trusthome.Getenv(env, "PATH")
-	gate, err := gateBinary(pathEnv)
+	gate, err := d.GateBinary(pathEnv)
 	if problem == "" && err != nil {
 		problem = err.Error()
 	}
@@ -150,7 +145,7 @@ func (w workerMode) gatePreflight(agent, root string, env, protected []string) e
 	}
 	if problem == "" && len(w.WritableRoots) > 0 {
 		protected = append(slices.Clone(protected), programFolders(pathEnv, gate)...)
-		problem = protectedRoot(w.WritableRoots, protected, env)
+		problem = protectedRoot(d.Canonical, w.WritableRoots, protected, env)
 	}
 	if problem == "" {
 		return nil
@@ -164,9 +159,9 @@ func (w workerMode) gatePreflight(agent, root string, env, protected []string) e
 // HeldGate refuses a peer pane that only the gate keeps read-only
 // (mode.GateHeld) when its gate cannot be shown to run for the process whose
 // environment is env, as gatePreflight refuses such a worker.
-func HeldGate(agent, root string, env []string) error {
+func HeldGate(d Deps, agent, root string, env []string) error {
 	w := workerMode{Resolved: mode.Resolved{Level: mode.Plan, Native: mode.Default(agent, mode.Plan, "read-only")}, Held: true}
-	return w.gatePreflight(agent, root, env, nil)
+	return w.gatePreflight(d, agent, root, env, nil)
 }
 
 // noHomeProblem says why nothing a worker's agent loads can be read from an
@@ -201,20 +196,34 @@ func calibrationGate(agent, root string, env []string) error {
 
 // protectedRoot names the first writable root that config refuses now, at
 // launch, or that equals, lies inside or holds a protected folder; empty when
-// none does. Paths compare canonically (kit.Canonical). env is the
-// worker's environment, whose agent folders are protected too.
-func protectedRoot(roots, protected, env []string) string {
+// none does. Paths compare canonically (canonical is kit.Canonical). env is
+// the worker's environment, whose agent folders are protected too.
+func protectedRoot(canonical func(string) string, roots, protected, env []string) string {
 	for _, root := range roots {
 		if reason := configfile.RefuseRootEnv(root, env); reason != "" {
 			return "writable root " + root + ": " + reason
 		}
 		for _, p := range protected {
-			if p != "" && kit.Overlap(p, root) {
+			if p != "" && overlap(canonical, p, root) {
 				return "writable root " + root + " overlaps protected " + p
 			}
 		}
 	}
 	return ""
+}
+
+// overlap reports whether one of two local folders is the other or lies inside
+// it, compared by canonical.
+func overlap(canonical func(string) string, a, b string) bool {
+	ca, cb := canonical(a), canonical(b)
+	return within(ca, cb) || within(cb, ca)
+}
+
+// within reports whether child is parent or lies inside it, comparing the
+// spellings as given.
+func within(parent, child string) bool {
+	rel, err := filepath.Rel(parent, child)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // programFolders lists the folders a writable root must not reach, so that a

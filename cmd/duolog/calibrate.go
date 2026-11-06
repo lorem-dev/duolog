@@ -765,9 +765,9 @@ func rewriteStatement(root string, cfg *config.Config, s *store.Store, runDir, l
 		}
 		// The rewrite's budget and wait notice, which its start set.
 		budget, waiting := calibration.StepOptions(ctx)
-		ctx = delegate.WithOptions(ctx, delegate.Options{Lead: lead, Entry: &target, WorkRoot: work, Calibration: true, ProtectedRoots: launchProtectedRoots(),
-			Budget: budget, Waiting: waiting})
-		out, err := runDelegate(ctx, cfg, s, "docs", taskPath, "")
+		out, err := runDelegate(ctx, delegate.Request{Config: cfg, StateDir: s.Dir, Role: "docs", TaskPath: taskPath,
+			Options: delegate.Options{Lead: lead, Entry: &target, WorkRoot: work, Calibration: true, ProtectedRoots: launchProtectedRoots(),
+				Budget: budget, Waiting: waiting}})
 		tokens := out.Result.Usage.Input + out.Result.Usage.Output
 		if err != nil {
 			return "", tokens, err

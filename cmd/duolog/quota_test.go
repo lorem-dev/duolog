@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/quota"
@@ -32,8 +31,8 @@ func freeClaudeRead(args string) string {
 func realQuotaGate(t *testing.T) func() {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "accounts")
-	old := delegate.NewGate
-	delegate.NewGate = func(cfg *config.Config) (*paidruns.Gate, error) {
+	old := delegateDeps.PaidGate
+	delegateDeps.PaidGate = func(cfg *config.Config) (*paidruns.Gate, error) {
 		st, err := paidruns.OpenUserState(dir)
 		if err != nil {
 			return nil, err
@@ -41,7 +40,7 @@ func realQuotaGate(t *testing.T) func() {
 		return &paidruns.Gate{Store: st, Cache: &paidruns.Cache{Read: quota.Reader{Version: "test"}.ReadProcess}, Config: cfg,
 			Layers: paidruns.ReadLayers}, nil
 	}
-	restore := func() { delegate.NewGate = old }
+	restore := func() { delegateDeps.PaidGate = old }
 	t.Cleanup(restore)
 	return restore
 }

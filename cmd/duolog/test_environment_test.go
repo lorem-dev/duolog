@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/gate"
@@ -67,7 +66,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	// One state per test folder: a peer's open, send and close share it.
-	delegate.NewGate = paidrunstest.ByWorkingDir(accounts)
+	delegateDeps.PaidGate = paidrunstest.ByWorkingDir(accounts)
 	// A gate ask reads its reply every 10 ms instead of every half second; the
 	// answers in these tests come at once.
 	gate.AskPoll = 10 * time.Millisecond

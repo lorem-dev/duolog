@@ -48,7 +48,9 @@ type Replay struct {
 	Original, Profile         Side
 }
 
-var runDelegate = delegate.Run
+// Delegate runs one delegation; cmd/duolog sets it to delegate.Run bound to
+// its Deps, and tests set a fake. Temporary: Task 29 replaces it.
+var Delegate delegate.Runner
 
 // Run reconstructs the recorded starting tree without changing the process
 // directory or the main checkout. The lock also protects profile numbering.
@@ -152,8 +154,8 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, delegation str
 		if i > 0 {
 			entry = config.Target{Agent: rec.Agent, Model: rec.Model, Effort: rec.Effort}
 		}
-		ctxRun := delegate.WithOptions(ctx, delegate.Options{Entry: &entry, ReplayOf: rec.ID, Lead: opts.Lead, AllowManualModel: opts.AllowManualModel, WorkRoot: wt, ProtectedRoots: opts.ProtectedRoots, Observe: opts.Observe})
-		out, e := runDelegate(ctxRun, cfg, s, rec.Role, taskPath, "")
+		out, e := Delegate(ctx, delegate.Request{Config: cfg, StateDir: s.Dir, Role: rec.Role, TaskPath: taskPath,
+			Options: delegate.Options{Entry: &entry, ReplayOf: rec.ID, Lead: opts.Lead, AllowManualModel: opts.AllowManualModel, WorkRoot: wt, ProtectedRoots: opts.ProtectedRoots, Observe: opts.Observe}})
 		if e != nil {
 			if strings.Contains(e.Error(), "Codex hooks untrusted") {
 				e = fmt.Errorf("%w; profiling worktree: %s; open /hooks there once", e, wt)
