@@ -3,10 +3,12 @@ package delegate
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -316,8 +318,13 @@ func TestFamilyEntryKeepsTheDefaultsLevel(t *testing.T) {
 // gate and the agents.
 func TestWritableRootCheckedAgainAtLaunch(t *testing.T) {
 	bin := t.TempDir()
-	put(t, filepath.Join(bin, "claude"), "#!/bin/sh\n")
-	if err := os.Chmod(filepath.Join(bin, "claude"), 0o755); err != nil {
+	// Windows finds a program on PATH by its PATHEXT suffix only.
+	claude := "claude"
+	if runtime.GOOS == "windows" {
+		claude += ".exe"
+	}
+	put(t, filepath.Join(bin, claude), "#!/bin/sh\n")
+	if err := os.Chmod(filepath.Join(bin, claude), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -406,6 +413,11 @@ func TestRouteChangeCannotEscapeFamilyLowering(t *testing.T) {
 // only duolog's caller has, because env_passthrough does not pass it, holds
 // a gate the worker never loads, so the looser mode is refused.
 func TestGatePreflightReadsTheWorkersSettings(t *testing.T) {
+	// The variable that names the worker's home: USERPROFILE on Windows.
+	home := "HOME"
+	if runtime.GOOS == "windows" {
+		home = "USERPROFILE"
+	}
 	for _, tc := range []struct {
 		name, agent, model, entry, lead string
 		setup                           func(h *harness, alternate string)
@@ -444,7 +456,7 @@ func TestGatePreflightReadsTheWorkersSettings(t *testing.T) {
 		h.gateOnPath(true)
 		tc.setup(h, t.TempDir())
 		userDir, _ := os.UserConfigDir()
-		passthrough := cmp.Or(tc.passthrough, "[HOME, USER]")
+		passthrough := cmp.Or(tc.passthrough, "["+home+", USER]")
 		put(t, filepath.Join(userDir, "duolog", "config.yaml"), "env_passthrough: "+passthrough+"\nworker_modes:\n  roles:\n    implement: {"+tc.entry+"}\n")
 		var err error
 		if h.cfg, err = config.Load(h.root); err != nil {
@@ -464,7 +476,7 @@ func TestGatePreflightReadsTheWorkersSettings(t *testing.T) {
 	put(t, filepath.Join(alternate, "settings.json"), `{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"duolog gate --agent claude --event PreToolUse"}]}]}}`)
 	t.Setenv("CLAUDE_CONFIG_DIR", alternate)
 	userDir, _ := os.UserConfigDir()
-	put(t, filepath.Join(userDir, "duolog", "config.yaml"), "env_passthrough: [HOME, USER, CLAUDE_CONFIG_DIR]\nworker_modes:\n  roles:\n    implement: {claude: bypassPermissions}\n")
+	put(t, filepath.Join(userDir, "duolog", "config.yaml"), "env_passthrough: ["+home+", USER, CLAUDE_CONFIG_DIR]\nworker_modes:\n  roles:\n    implement: {claude: bypassPermissions}\n")
 	var err error
 	if h.cfg, err = config.Load(h.root); err != nil {
 		t.Fatal(err)
@@ -512,8 +524,14 @@ func TestAdmittedArgvIsLaunchedArgv(t *testing.T) {
 		if paid != (c.Process.Variant == workerenv.Paid) {
 			t.Fatalf("paid %t: variant %s", paid, c.Process.Variant)
 		}
+		// A TOML basic string escapes backslashes, as on Windows: the JSON
+		// encoding PinCodexSandbox writes.
+		roots, err := json.Marshal([]string{filepath.Clean(safe)})
+		if err != nil {
+			t.Fatal(err)
+		}
 		want := []string{"exec", "-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=true",
-			"-c", `sandbox_workspace_write.writable_roots=["` + filepath.Clean(safe) + `"]`}
+			"-c", "sandbox_workspace_write.writable_roots=" + string(roots)}
 		if !slices.Equal(c.Process.Launch, want) {
 			t.Errorf("paid %t: admitted launch %v, want %v", paid, c.Process.Launch, want)
 		}

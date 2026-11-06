@@ -45,8 +45,13 @@ func recordedCalls(t *testing.T, bin string) [][]string {
 	return calls
 }
 
+// windowsAdded are the names a Windows child gets without its parent: the
+// SYSTEMROOT that Go adds, and the processor names that Windows on Arm sets
+// for a child, such as one it runs under x64 emulation.
+var windowsAdded = []string{"SYSTEMROOT", "PROCESSOR_ARCHITECTURE", "PROCESSOR_ARCHITEW6432"}
+
 // sameEnv checks that the fake's last call saw exactly env: every pair and
-// nothing else, except the SYSTEMROOT that Go adds to a Windows child.
+// nothing else, except the names in windowsAdded on Windows.
 func sameEnv(t *testing.T, bin string, env []string) {
 	t.Helper()
 	data, err := os.ReadFile(bin + ".env.json")
@@ -57,9 +62,12 @@ func sameEnv(t *testing.T, bin string, env []string) {
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatal(err)
 	}
+	added := func(name string) bool {
+		return runtime.GOOS == "windows" && slices.ContainsFunc(windowsAdded, func(n string) bool { return strings.EqualFold(n, name) })
+	}
 	for _, pair := range got {
 		name, _, _ := strings.Cut(pair, "=")
-		if !slices.Contains(env, pair) && (runtime.GOOS != "windows" || !strings.EqualFold(name, "SYSTEMROOT")) {
+		if !slices.Contains(env, pair) && !added(name) {
 			t.Errorf("fake saw %s, which the process does not set", name)
 		}
 	}

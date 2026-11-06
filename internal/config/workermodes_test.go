@@ -204,8 +204,12 @@ func TestWorkerModesWindowsCredentialFolders(t *testing.T) {
 
 func TestWorkerModesProjectOnlyLowers(t *testing.T) {
 	root := isolatedRoot(t)
-	writeConfig(t, userConfigPath(t), "worker_modes:\n  roles:\n    implement: {claude: auto, codex: workspace-write, writable_roots: [\"/tmp/a\", \"/tmp/b\"]}\n  families:\n    luna: {codex: read-only}\n")
-	writeConfig(t, filepath.Join(root, ".duolog/config.yaml"), "worker_modes:\n  roles:\n    implement: {claude: bypassPermissions, network: true, writable_roots: [\"/tmp/a\", \"/tmp/c\"]}\n    tests: {claude: auto, codex: workspace-write}\n    docs: {claude: acceptEdits}\n  families:\n    luna: {codex: workspace-write}\n")
+	// Platform folders: /tmp/a is not absolute on Windows. Single quotes keep
+	// a Windows path's backslashes literal in YAML.
+	base := t.TempDir()
+	a, b, c := filepath.Join(base, "a"), filepath.Join(base, "b"), filepath.Join(base, "c")
+	writeConfig(t, userConfigPath(t), fmt.Sprintf("worker_modes:\n  roles:\n    implement: {claude: auto, codex: workspace-write, writable_roots: ['%s', '%s']}\n  families:\n    luna: {codex: read-only}\n", a, b))
+	writeConfig(t, filepath.Join(root, ".duolog/config.yaml"), fmt.Sprintf("worker_modes:\n  roles:\n    implement: {claude: bypassPermissions, network: true, writable_roots: ['%s', '%s']}\n    tests: {claude: auto, codex: workspace-write}\n    docs: {claude: acceptEdits}\n  families:\n    luna: {codex: workspace-write}\n", a, c))
 	writeConfig(t, filepath.Join(root, ".duolog/config.local.yaml"), "worker_modes:\n  roles:\n    debug: {claude: bypassPermissions}\n")
 	cfg, err := Load(root)
 	if err != nil {
@@ -213,7 +217,7 @@ func TestWorkerModesProjectOnlyLowers(t *testing.T) {
 	}
 	w := cfg.WorkerModes
 	impl := w.Roles["implement"]
-	if impl.Claude != "auto" || impl.Network || !slices.Equal(impl.WritableRoots, []string{"/tmp/a"}) {
+	if impl.Claude != "auto" || impl.Network || !slices.Equal(impl.WritableRoots, []string{a}) {
 		t.Fatalf("implement %+v", impl)
 	}
 	if w.Roles["tests"].Claude != "" || w.Roles["tests"].Codex != "workspace-write" || w.Roles["docs"].Claude != "acceptEdits" || w.Roles["debug"].Claude != "" || w.Families["luna"].Codex != "read-only" {
@@ -223,7 +227,7 @@ func TestWorkerModesProjectOnlyLowers(t *testing.T) {
 	for _, want := range []string{
 		"worker_modes.roles.implement.claude bypassPermissions in .duolog/config.yaml is ignored: a project config may only lower worker modes; auto applies",
 		"worker_modes.roles.implement.network true in .duolog/config.yaml is ignored",
-		"worker_modes.roles.implement.writable_roots /tmp/c in .duolog/config.yaml is ignored",
+		"worker_modes.roles.implement.writable_roots " + c + " in .duolog/config.yaml is ignored",
 		"worker_modes.roles.tests.claude auto in .duolog/config.yaml is ignored: a project config may only lower worker modes; duolog's default applies",
 		"worker_modes.families.luna.codex workspace-write in .duolog/config.yaml is ignored",
 		"worker_modes.roles.debug.claude bypassPermissions in .duolog/config.local.yaml is ignored",
@@ -243,9 +247,11 @@ func TestWorkerModesProjectOnlyLowers(t *testing.T) {
 // left it, not as the user layer set it.
 func TestWorkerModesLaterLayerCannotUndoLowering(t *testing.T) {
 	root := isolatedRoot(t)
-	writeConfig(t, userConfigPath(t), "worker_modes:\n  roles:\n    implement: {claude: auto, codex: workspace-write, network: true, writable_roots: [\"/tmp/cache-a\", \"/tmp/cache-b\"]}\n")
+	base := t.TempDir()
+	cacheA, cacheB := filepath.Join(base, "cache-a"), filepath.Join(base, "cache-b")
+	writeConfig(t, userConfigPath(t), fmt.Sprintf("worker_modes:\n  roles:\n    implement: {claude: auto, codex: workspace-write, network: true, writable_roots: ['%s', '%s']}\n", cacheA, cacheB))
 	writeConfig(t, filepath.Join(root, ".duolog/config.yaml"), "worker_modes:\n  roles:\n    implement: {claude: plan, network: false, writable_roots: []}\n    tests: {claude: plan}\n  families:\n    luna: {codex: read-only}\n")
-	writeConfig(t, filepath.Join(root, ".duolog/config.local.yaml"), "worker_modes:\n  roles:\n    implement: {claude: auto, network: true, writable_roots: [\"/tmp/cache-b\"]}\n    tests: {claude: acceptEdits}\n  families:\n    luna: {codex: workspace-write}\n")
+	writeConfig(t, filepath.Join(root, ".duolog/config.local.yaml"), fmt.Sprintf("worker_modes:\n  roles:\n    implement: {claude: auto, network: true, writable_roots: ['%s']}\n    tests: {claude: acceptEdits}\n  families:\n    luna: {codex: workspace-write}\n", cacheB))
 	cfg, err := Load(root)
 	if err != nil {
 		t.Fatal(err)
@@ -261,7 +267,7 @@ func TestWorkerModesLaterLayerCannotUndoLowering(t *testing.T) {
 	for _, want := range []string{
 		"worker_modes.roles.implement.claude auto in .duolog/config.local.yaml is ignored: a project config may only lower worker modes; plan applies",
 		"worker_modes.roles.implement.network true in .duolog/config.local.yaml is ignored",
-		"worker_modes.roles.implement.writable_roots /tmp/cache-b in .duolog/config.local.yaml is ignored",
+		"worker_modes.roles.implement.writable_roots " + cacheB + " in .duolog/config.local.yaml is ignored",
 		"worker_modes.roles.tests.claude acceptEdits in .duolog/config.local.yaml is ignored: a project config may only lower worker modes; plan applies",
 		"worker_modes.families.luna.codex workspace-write in .duolog/config.local.yaml is ignored",
 	} {
