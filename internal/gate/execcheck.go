@@ -392,13 +392,8 @@ var unquoted = strings.NewReplacer("'", "", "\"", "", "\\", "")
 // removed, and with redirects found even inside quotes. The operands of a
 // command in own are left to its parser.
 func wordsOutside(a Action, part string, own []string) bool {
-	// A redirect can stand anywhere, even between an option and its value,
-	// so its file is judged on its own and the redirect leaves the words
-	// before any of them is taken as an option's value.
-	for _, target := range append(redirectTargets(part), inputTargets(part)...) {
-		if outsideOperand(a, target) || outsideOperand(a, unquoted.Replace(target)) {
-			return true
-		}
+	if redirectsOutside(a, part) {
+		return true
 	}
 	words := withoutRedirects(strings.Fields(part))
 	start := execOperandStart(words)
@@ -423,14 +418,31 @@ func wordsOutside(a Action, part string, own []string) bool {
 		case program == "find" && slices.Contains(findExecdir, word):
 			// The command runs in each match's folder, so fileTargetsOutside
 			// judges its words from the search roots instead.
-			for i+1 < len(words) && !slices.Contains([]string{";", "+"}, strings.Trim(withoutEscapes(a, words[i+1]), `'"`)) {
-				i++
-			}
+			i = execdirEnd(a, words, i)
 		case fieldOutside(a, word, options) || fieldOutside(a, unquoted.Replace(words[i]), options):
 			return true
 		}
 	}
 	return false
+}
+
+// redirectsOutside reports whether a redirect of a part names a file outside
+// the work root. A redirect can stand anywhere, even between an option and
+// its value, so its file is judged on its own and the redirect leaves the
+// words before any of them is taken as an option's value.
+func redirectsOutside(a Action, part string) bool {
+	return slices.ContainsFunc(append(redirectTargets(part), inputTargets(part)...), func(target string) bool {
+		return outsideOperand(a, target) || outsideOperand(a, unquoted.Replace(target))
+	})
+}
+
+// execdirEnd returns the index of the last word of the command that find's
+// -execdir or -okdir at words[i] runs, before its ; or +.
+func execdirEnd(a Action, words []string, i int) int {
+	for i+1 < len(words) && !slices.Contains([]string{";", "+"}, strings.Trim(withoutEscapes(a, words[i+1]), `'"`)) {
+		i++
+	}
+	return i
 }
 
 // fieldOutside reports whether a word of the word-by-word reading names a
@@ -613,20 +625,7 @@ func walkWrappers(words []string, visit func(wrapper, option, value string)) int
 		switch wrapper {
 		case "command", "builtin", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "powershell", "cmd",
 			"time", "nice", "ionice", "timeout", "nohup", "stdbuf", "setsid", "busybox", "doas", "watch", "parallel", "caffeinate":
-			i++
-			for i < len(words) && wrapperOption(wrapper, words[i]) {
-				// An option such as sudo -u takes the next word as its value,
-				// so that word is not the program.
-				option, value, apart := wrapperOptionValue(wrapper, words[i])
-				i++
-				if apart && i < len(words) {
-					value = words[i]
-					i++
-				}
-				if option != "" && visit != nil {
-					visit(wrapper, option, value)
-				}
-			}
+			i = skipWrapperOptions(wrapper, words, i+1, visit)
 			if wrapper == "timeout" && i < len(words) {
 				i++ // timeout's duration precedes the executable.
 			}
@@ -635,6 +634,26 @@ func walkWrappers(words []string, visit func(wrapper, option, value string)) int
 		}
 	}
 	return len(words)
+}
+
+// skipWrapperOptions returns the index of the first word from i on that is
+// not an option of wrapper or the value of one, calling visit as
+// walkWrappers says.
+func skipWrapperOptions(wrapper string, words []string, i int, visit func(wrapper, option, value string)) int {
+	for i < len(words) && wrapperOption(wrapper, words[i]) {
+		// An option such as sudo -u takes the next word as its value, so that
+		// word is not the program.
+		option, value, apart := wrapperOptionValue(wrapper, words[i])
+		i++
+		if apart && i < len(words) {
+			value = words[i]
+			i++
+		}
+		if option != "" && visit != nil {
+			visit(wrapper, option, value)
+		}
+	}
+	return i
 }
 
 // wrapperOptionValue reads one option word of a wrapper. option is the
