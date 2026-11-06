@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -211,7 +212,7 @@ func evaluateHook(deps *cmdDeps, cmd *cobra.Command, root, agent, event string, 
 	if d.Kind == gate.Ask {
 		// One answer covers the whole tool call, so the question names every path.
 		a.Target = strings.Join(asked, " ")
-		key := gate.AskKey(envelope.SessionID, envelope.ToolUseID, a.Kind+" "+a.Target+" "+envelope.Cwd)
+		key := gate.AskKey(envelope.SessionID, envelope.ToolUseID, askQuestion(a.Kind, asked, envelope.Cwd), person)
 		resolved, err := askLead(cmd.Context(), deps.AskWait, cfg, root, reg.Dir, lead.ID, key, a, d, initial, person)
 		if err != nil {
 			return a, d, err
@@ -219,6 +220,18 @@ func evaluateHook(deps *cmdDeps, cmd *cobra.Command, root, agent, event string, 
 		d = resolved
 	}
 	return a, d, nil
+}
+
+// askQuestion is the text that keys an ask record: the kind, each asked path
+// after its length, and the folder. Joined with spaces alone, a file named
+// "a b" and the files a and b would read the same.
+func askQuestion(kind string, asked []string, cwd string) string {
+	var b strings.Builder
+	b.WriteString(kind)
+	for _, path := range asked {
+		b.WriteString(" " + strconv.Itoa(len(path)) + ":" + path)
+	}
+	return b.String() + " " + cwd
 }
 
 // askLead sends the ask of one tool call to the lead. PreToolUse and

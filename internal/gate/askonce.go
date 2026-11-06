@@ -44,10 +44,14 @@ const questionKey = "q"
 // the hook input has no tool_use_id, the session and the question itself. It
 // is empty when nothing identifies the session, so that no ask is shared. A
 // question key can name two tool calls that ask the same, so its reply is
-// reused at most once.
-func AskKey(sessionID, toolUseID, question string) string {
+// reused at most once. A person-only ask has keys of its own, so that a reply
+// from the lead never answers it.
+func AskKey(sessionID, toolUseID, question string, person bool) string {
 	if sessionID == "" {
 		return ""
+	}
+	if person {
+		sessionID += "\x00person"
 	}
 	if toolUseID == "" {
 		sum := sha256.Sum256([]byte(sessionID + "\x00q\x00" + question))
