@@ -38,7 +38,7 @@ func defaultGate(cfg *config.Config) (*paidruns.Gate, error) {
 		_, err := st.Identity(agent, kind, raw)
 		return err
 	}}
-	return &paidruns.Gate{Store: st, Cache: &paidruns.Cache{Read: reader.ReadProcess}, Config: cfg, Layers: paidruns.ReadLayers}, nil
+	return &paidruns.Gate{Store: st, Cache: &paidruns.Cache{Read: reader.ReadProcess, State: st}, Config: cfg, Layers: paidruns.ReadLayers}, nil
 }
 
 // workerEnv builds a worker's process: its environment, its argv prefix and

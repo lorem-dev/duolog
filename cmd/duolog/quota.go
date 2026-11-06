@@ -158,7 +158,7 @@ func printQuota(w io.Writer, results map[string]quotaResult, now time.Time) erro
 		if r.Plan != "" {
 			fmt.Fprintf(&b, " plan %s", r.Plan)
 		}
-		b.WriteByte('\n')
+		fmt.Fprintf(&b, "%s\n", cachedNote(*r.Snapshot, now))
 		windows := func(ws []quota.Window, prefix string) {
 			for _, window := range ws {
 				label := window.Kind
@@ -242,6 +242,15 @@ func printQuota(w io.Writer, results map[string]quotaResult, now time.Time) erro
 	}
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// cachedNote marks the last good read lent to a read that timed out, with
+// its age; a read of its own has none.
+func cachedNote(s quota.Snapshot, now time.Time) string {
+	if !s.Cached {
+		return ""
+	}
+	return fmt.Sprintf(" (cached %ds ago)", int(now.Sub(s.ReadAt).Round(time.Second)/time.Second))
 }
 
 // printBilling adds how the agent's worker, peer and lead are billed, and

@@ -516,11 +516,12 @@ const learnTimeout = 20 * time.Second
 // wait for a read, and so short an interval rarely moves a window enough
 // to count. The read runs no model and spends no tokens, and goes to the
 // cache, so the next admission uses it. A failed read or observation learns
-// nothing, which leaves the rates and the tier as they are.
+// nothing, which leaves the rates and the tier as they are, and so does a
+// run admitted on a lent read, which is minutes older than the run.
 func (g *Gate) learn(ctx context.Context, p Permit, s Settlement) {
 	r := p.Reservation
 	if p.calibration || r.Shape != workerenv.Worker || p.Assessment.Verdict == Paid || !s.Started || !s.CompleteUsage ||
-		p.Snapshot.ReadAt.IsZero() || r.Family == "" || g.Cache == nil || g.Cache.Read == nil || ctx.Err() != nil {
+		!teaches(p.Snapshot) || r.Family == "" || g.Cache == nil || g.Cache.Read == nil || ctx.Err() != nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), learnTimeout)

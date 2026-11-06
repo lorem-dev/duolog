@@ -307,6 +307,31 @@ func TestQuotaWeeklyFamilyKindLabels(t *testing.T) {
 	}
 }
 
+// TestQuotaShowsACachedRead: a read lent to one that timed out says so, with
+// its age, on the agent's line.
+func TestQuotaShowsACachedRead(t *testing.T) {
+	var out bytes.Buffer
+	now := time.Now()
+	err := printQuota(&out, map[string]quotaResult{
+		"claude": {Snapshot: &quota.Snapshot{Plan: "max", Cached: true, ReadAt: now.Add(-42 * time.Second), Windows: []quota.Window{
+			{Kind: "session", UsedPercent: 30, ResetsAt: now.Add(time.Hour)},
+		}}},
+		"codex": {Snapshot: &quota.Snapshot{ReadAt: now, Windows: []quota.Window{
+			{Kind: "session", UsedPercent: 10, ResetsAt: now.Add(time.Hour)},
+		}}},
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(out.String(), "\n")
+	if lines[0] != "claude  plan max (cached 42s ago)" {
+		t.Fatalf("claude line %q:\n%s", lines[0], out.String())
+	}
+	if strings.Count(out.String(), "cached") != 1 {
+		t.Fatalf("a fresh read shows as cached:\n%s", out.String())
+	}
+}
+
 // subscriptionFakes installs Claude and Codex fakes that answer the free
 // reads as first-party subscriptions, Codex with an API key route when
 // apiKey is set, and keeps PATH to them.

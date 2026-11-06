@@ -24,6 +24,9 @@ type Cache struct {
 	Read func(context.Context, workerenv.Process) (quota.Snapshot, error)
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
+	// State keeps the last good read of each route for a read that times
+	// out, see lend; nil keeps none.
+	State *Store
 
 	mu      sync.Mutex
 	entries map[string]cacheEntry
@@ -50,7 +53,9 @@ type cacheEntry struct {
 //
 // A failed read drops the key's entry, so no older and cheaper verdict is
 // used after it; the assessment is then paid and Get returns the read's
-// error with it. An error from build returns nothing else.
+// error with it. The one exception is a read that timed out, which gets the
+// last good read of the same account and route that State keeps, marked as
+// cached, while lend allows it. An error from build returns nothing else.
 func (c *Cache) Get(ctx context.Context,
 	build func() (workerenv.Process, error), cfg *config.Config,
 	evidence quota.RunEvidence, fresh bool) (workerenv.Process, quota.Snapshot, Assessment, error) {
@@ -70,7 +75,7 @@ func (c *Cache) Get(ctx context.Context,
 		s, cached := c.lookup(p.CacheKey, fresh || rebuilt, quotaMaxAge(cfg))
 		var readErr error
 		if !cached {
-			s, readErr = c.Read(ctx, p)
+			s, readErr = c.read(ctx, p)
 		}
 		if key := s.Billing.ProviderEnvKey; key != "" && key != p.ProviderEnvKey {
 			c.mu.Lock()
@@ -144,6 +149,9 @@ func (c *Cache) After(ctx context.Context, p workerenv.Process, cfg *config.Conf
 	if key := s.Billing.ProviderEnvKey; err == nil && key != "" && key != p.ProviderEnvKey {
 		return quota.Snapshot{}, false, errors.New("paid runs: the process was built without the provider env_key the read found")
 	}
+	if err == nil {
+		c.keep(ctx, p, s)
+	}
 	c.store(p.CacheKey, s, Evaluate(p, s, err, quota.RunEvidence{}, cfg, c.now()), err)
 	return s, false, err
 }
@@ -178,11 +186,12 @@ func (c *Cache) Latest(agent string) (quota.Snapshot, bool) {
 }
 
 // lookup returns the cached snapshot of key while it is no older than maxAge.
+// A lent read is never returned: the next request reads again.
 func (c *Cache) lookup(key string, fresh bool, maxAge time.Duration) (quota.Snapshot, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	entry, ok := c.entries[key]
-	if !ok || fresh {
+	if !ok || fresh || entry.Snapshot.Cached {
 		return quota.Snapshot{}, false
 	}
 	age := c.now().Sub(entry.Snapshot.ReadAt)

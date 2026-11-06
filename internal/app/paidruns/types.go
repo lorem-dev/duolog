@@ -153,7 +153,8 @@ type Ticket struct {
 // State is the account state that every project of the user shares: money,
 // reservations, rates and session slots belong to the account, not to a
 // project. AccountKeys maps "agent/kind" to a salted identity digest; Tiers
-// is keyed by agent. It never holds a raw identity or a route value.
+// is keyed by agent; LastReads by RouteKey. It never holds a raw identity or
+// a route value.
 type State struct {
 	Version      int                    `json:"version"`
 	Reservations map[string]Reservation `json:"reservations"`
@@ -163,4 +164,5 @@ type State struct {
 	Tiers        map[string]TierResult  `json:"tiers"`
 	Tickets      []Ticket               `json:"tickets"`
 	NextTicket   uint64                 `json:"next_ticket"`
+	LastReads    map[string]LastRead    `json:"last_reads,omitempty"`
 }

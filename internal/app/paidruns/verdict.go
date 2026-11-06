@@ -87,7 +87,7 @@ func Evaluate(p workerenv.Process, s quota.Snapshot, readErr error,
 		if !firstParty(p.Agent, b) && len(b.RouteSignals) == 0 {
 			add(&paid, "route:unknown", read)
 		}
-		if s.ReadAt.IsZero() || now.Sub(s.ReadAt) > quotaMaxAge(cfg) {
+		if stale(s, cfg, now) {
 			add(&paid, "read:stale", read)
 		}
 		if !slices.ContainsFunc(s.Windows, func(w quota.Window) bool { return w.ResetsAt.After(now) }) {
@@ -129,6 +129,15 @@ func Evaluate(p workerenv.Process, s quota.Snapshot, readErr error,
 	}
 	a.Account, a.UsableShare, a.AccountReasons = account(p.Agent, b, e, cfg)
 	return a
+}
+
+// stale reports whether a successful read s is too old to decide a verdict
+// at now. A lent read has its own, stricter test of age and headroom.
+func stale(s quota.Snapshot, cfg *config.Config, now time.Time) bool {
+	if s.Cached {
+		return !lendable(s, now)
+	}
+	return s.ReadAt.IsZero() || now.Sub(s.ReadAt) > quotaMaxAge(cfg)
 }
 
 // firstParty reports whether the read named a first-party subscription

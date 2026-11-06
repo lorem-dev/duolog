@@ -97,7 +97,14 @@ func (b *BillingFacts) claudeRouteUnread() {
 // so rather than that the login could not be read.
 func (b *BillingFacts) claudeRouteTimedOut() {
 	b.AuthMethod, b.APIProvider, b.RouteKnown = "", "", false
-	b.signal("auth:timeout", claudeAuthLayer)
+	b.signal(authTimeoutSignal, claudeAuthLayer)
+}
+
+const authTimeoutSignal = "auth:timeout"
+
+// timedOut reports whether auth status ran past its bound.
+func (b BillingFacts) timedOut() bool {
+	return slices.Contains(b.RouteSignals, workerenv.Signal{Name: authTimeoutSignal, Layer: claudeAuthLayer})
 }
 
 // addClaudeWorkspaceReason keeps the level of an overage disabled reason set
