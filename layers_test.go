@@ -77,10 +77,7 @@ var knownViolations = map[string]string{
 	"internal/app/sync -> github.com/gofrs/flock":               "PR 43",
 	"internal/app/sync -> github.com/pelletier/go-toml/v2":      "PR 43",
 	"internal/app/sync -> internal/adapter/models":              "PR 33",
-	"internal/app/sync -> internal/project":                     "PR 43",
-	"internal/app/sync -> internal/store":                       "PR 43",
 	"internal/app/sync -> os/exec":                              "PR 43",
-	"internal/app/sync -> plugin":                               "PR 43",
 	"internal/app/calibrate (test) -> internal/adapter/config":  "after PR 10: its tests load the config files",
 	"internal/app/calibrate (test) -> internal/quota":           "PR 29",
 	"internal/app/calibrate (test) -> internal/runner":          "PR 29",
@@ -89,26 +86,17 @@ var knownViolations = map[string]string{
 	"internal/app/calibrate -> github.com/gofrs/flock":          "PR 45",
 	"internal/app/calibrate -> github.com/pelletier/go-toml/v2": "PR 45",
 	"internal/app/calibrate -> internal/install":                "PR 45",
-	"internal/app/calibrate -> internal/journal":                "PR 29",
-	"internal/app/calibrate -> internal/project":                "PR 29",
-	"internal/app/calibrate -> internal/store":                  "PR 29",
 	"internal/app/calibrate -> internal/trust":                  "PR 36",
 	"internal/app/calibrate -> internal/trusthome":              "PR 36",
 	"internal/app/calibrate -> internal/workerenv":              "PR 35",
 	"internal/app/calibrate -> os/exec":                         "PR 45",
 	"internal/app/delegate -> github.com/gofrs/flock":           "PR 28",
 	"internal/app/delegate -> internal/auth":                    "PR 38",
-	"internal/app/delegate -> internal/bus":                     "PR 28",
 	"internal/app/delegate -> internal/capability":              "PR 40",
-	"internal/app/delegate -> internal/coauthor":                "PR 28",
 	"internal/app/delegate -> internal/adapter/config":          "after PR 10: RefuseRootEnv checks writable roots at launch",
-	"internal/app/delegate -> internal/journal":                 "PR 28",
 	"internal/app/delegate (test) -> internal/adapter/models":   "PR 33",
 	"internal/app/delegate (test) -> internal/quota":            "PR 39",
-	"internal/app/delegate -> internal/project":                 "PR 28",
 	"internal/app/delegate -> internal/runner":                  "PR 32",
-	"internal/app/delegate -> internal/session":                 "PR 34",
-	"internal/app/delegate -> internal/store":                   "PR 28",
 	"internal/app/delegate -> internal/trust":                   "PR 36",
 	"internal/app/delegate -> internal/trusthome":               "PR 36",
 	"internal/app/delegate -> internal/workerenv":               "PR 35",
@@ -117,7 +105,6 @@ var knownViolations = map[string]string{
 	"internal/app/doctor (test) -> internal/quota":              "PR 39",
 	"internal/app/doctor -> internal/capability":                "PR 40",
 	"internal/app/doctor -> internal/install":                   "PR 37",
-	"internal/app/doctor -> internal/session":                   "PR 34",
 	"internal/app/doctor -> internal/trust":                     "PR 36",
 	"internal/app/doctor -> internal/trusthome":                 "PR 36",
 	"internal/app/doctor -> internal/workerenv":                 "PR 35",
@@ -130,11 +117,8 @@ var knownViolations = map[string]string{
 	"internal/gate -> internal/store":                           "PR 20, boundary",
 	"internal/gate -> internal/trust":                           "PR 20, boundary",
 	"internal/gate -> internal/trusthome":                       "PR 20, boundary",
-	"internal/app/hook -> internal/bus":                         "PR 42",
 	"internal/app/hook -> internal/capability":                  "PR 40",
 	"internal/app/hook -> internal/adapter/config":              "after PR 10: hooks load the config files",
-	"internal/app/hook -> internal/session":                     "PR 34",
-	"internal/app/hook -> internal/store":                       "PR 42",
 	"internal/app/learn -> internal/adapter/config":             "after PR 10: learn loads the config files",
 	"internal/core/learn -> go.yaml.in/yaml/v3":                 "PR 16: Render moves out once calibrate.go shrinks",
 	"internal/core/learn (test) -> internal/adapter/config":     "after PR 10: its tests load the default config",
@@ -151,36 +135,94 @@ var knownViolations = map[string]string{
 	"internal/app/paidruns -> syscall":                          "PR 22, boundary; darwin and linux only",
 	"internal/app/peer (test) -> internal/quota":                "PR 29",
 	"internal/app/peer -> github.com/gofrs/flock":               "PR 29",
-	"internal/app/peer -> internal/bus":                         "PR 29",
 	"internal/app/peer -> internal/capability":                  "PR 40",
-	"internal/app/peer -> internal/coauthor":                    "PR 29",
 	"internal/app/peer -> internal/adapter/config":              "after PR 10: a peer loads the config files",
 	"internal/app/peer -> internal/adapter/models":              "PR 33",
-	"internal/app/peer -> internal/project":                     "PR 29",
 	"internal/app/peer -> internal/rex":                         "PR 29",
 	"internal/app/peer -> internal/runner":                      "PR 41",
-	"internal/app/peer -> internal/session":                     "PR 34",
-	"internal/app/peer -> internal/store":                       "PR 29",
 	"internal/app/peer -> internal/workerenv":                   "PR 35",
 	"internal/app/peer -> os/exec":                              "PR 41",
 	"internal/app/profile (test) -> internal/adapter/config":    "after PR 10: its tests load the config files",
 	"internal/app/profile (test) -> internal/runner":            "PR 29",
 	"internal/app/profile -> github.com/gofrs/flock":            "PR 29",
-	"internal/app/profile -> internal/journal":                  "PR 29",
-	"internal/app/profile -> internal/project":                  "PR 29",
-	"internal/app/profile -> internal/store":                    "PR 29",
 	"internal/app/profile -> os/exec":                           "PR 29",
 	"internal/app/profile -> syscall":                           "PR 29; darwin and linux only",
 	"internal/app/roster -> internal/capability":                "PR 40",
 	"internal/app/roster -> internal/adapter/config":            "after PR 10: roster loads the config files",
-	"internal/app/roster -> internal/session":                   "PR 34",
 	"internal/core/route (test) -> internal/adapter/config":     "after PR 10: its tests load the default config",
 	"internal/session (test) -> internal/app/paidruns":          "PR 22",
 	"internal/core/usage (test) -> internal/adapter/config":     "after PR 10: its tests load the default config",
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 104
+const maxKnownViolations = 79
+
+// Reasons of the allowed edges, one per target.
+const (
+	reasonStore    = "state folder handle, renames and locks; the same for every agent, no second backend, no seam (design section 3 port rule)"
+	reasonJournal  = "append-only journal in the state folder; same reason"
+	reasonBus      = "message files in the state folder; same reason"
+	reasonCoauthor = "co-author records in the state folder; the templates per agent come from config"
+	reasonProject  = "git rev-parse of the project and state roots, and git helpers; git is the project's tool, not an agent's"
+	reasonSession  = "lead and peer registry in the state folder; its agent parts go behind the Lead port in Task 34"
+	reasonPlugin   = "embedded skill names, read-only data"
+)
+
+// allowedEdges are the app-to-kit imports where a port buys nothing, by the
+// port rule of the design (section 3): a port only for behaviour that differs
+// per agent, a planned second backend, or a test seam at a process, clock or
+// random boundary. Keyed "from -> to"; the value is the reason. Targets are
+// closed, see allowedTargets.
+var allowedEdges = map[string]string{
+	"internal/app/calibrate -> internal/journal": reasonJournal,
+	"internal/app/calibrate -> internal/project": reasonProject,
+	"internal/app/calibrate -> internal/store":   reasonStore,
+	"internal/app/delegate -> internal/bus":      reasonBus,
+	"internal/app/delegate -> internal/coauthor": reasonCoauthor,
+	"internal/app/delegate -> internal/journal":  reasonJournal,
+	"internal/app/delegate -> internal/project":  reasonProject,
+	"internal/app/delegate -> internal/session":  reasonSession,
+	"internal/app/delegate -> internal/store":    reasonStore,
+	"internal/app/doctor -> internal/session":    reasonSession,
+	"internal/app/hook -> internal/bus":          reasonBus,
+	"internal/app/hook -> internal/session":      reasonSession,
+	"internal/app/hook -> internal/store":        reasonStore,
+	"internal/app/peer -> internal/bus":          reasonBus,
+	"internal/app/peer -> internal/coauthor":     reasonCoauthor,
+	"internal/app/peer -> internal/project":      reasonProject,
+	"internal/app/peer -> internal/session":      reasonSession,
+	"internal/app/peer -> internal/store":        reasonStore,
+	"internal/app/profile -> internal/journal":   reasonJournal,
+	"internal/app/profile -> internal/project":   reasonProject,
+	"internal/app/profile -> internal/store":     reasonStore,
+	"internal/app/roster -> internal/session":    reasonSession,
+	"internal/app/sync -> internal/project":      reasonProject,
+	"internal/app/sync -> internal/store":        reasonStore,
+	"internal/app/sync -> plugin":                reasonPlugin,
+}
+
+// allowedTargets is the closed set of targets an allowed edge may have.
+var allowedTargets = []string{
+	"internal/store", "internal/journal", "internal/bus", "internal/coauthor",
+	"internal/project", "internal/adapter/session", "internal/session", "plugin",
+}
+
+// invalidAllowedEdges returns the keys of m that are not valid allowed edges,
+// sorted: the from must be internal/app/<x>, the to one of allowedTargets, and
+// the reason not empty.
+func invalidAllowedEdges(m map[string]string) []string {
+	var bad []string
+	for key, reason := range m {
+		from, to, ok := strings.Cut(key, " -> ")
+		parts := strings.Split(from, "/")
+		appFrom := ok && len(parts) == 3 && parts[0] == "internal" && parts[1] == "app" && parts[2] != ""
+		if !appFrom || !slices.Contains(allowedTargets, to) || strings.TrimSpace(reason) == "" {
+			bad = append(bad, key)
+		}
+	}
+	sort.Strings(bad)
+	return bad
+}
 
 // boundaryExceptions are the imports of the security boundary that stay on
 // purpose ("security boundary: moves only"). Empty until PR 20.
@@ -285,6 +327,23 @@ func TestLayers(t *testing.T) {
 			t.Errorf("layerRule to internal/adapter/telemetry = %q, want app-imports-adapter", got)
 		}
 	})
+	t.Run("allowed", func(t *testing.T) {
+		bad := map[string]string{
+			"internal/app/delegate -> internal/runner": "x",
+			"internal/core/route -> internal/store":    "x",
+			"internal/app/peer -> internal/bus":        "",
+		}
+		want := []string{"internal/app/delegate -> internal/runner", "internal/app/peer -> internal/bus", "internal/core/route -> internal/store"}
+		if got := invalidAllowedEdges(bad); !slices.Equal(got, want) {
+			t.Errorf("invalidAllowedEdges = %q, want %q", got, want)
+		}
+		if got := invalidAllowedEdges(map[string]string{"internal/app/peer -> internal/bus": "reason"}); len(got) != 0 {
+			t.Errorf("invalidAllowedEdges of a valid edge = %q, want none", got)
+		}
+		if got := invalidAllowedEdges(allowedEdges); len(got) != 0 {
+			t.Errorf("allowedEdges has invalid keys %q", got)
+		}
+	})
 	t.Run("stale", func(t *testing.T) {
 		known := map[string]string{"a -> b": "", "c -> d": ""}
 		if got := staleViolations(known, map[string]bool{"a -> b": true}); !slices.Equal(got, []string{"c -> d"}) {
@@ -310,7 +369,8 @@ func TestLayers(t *testing.T) {
 			found[v.Key] = true
 			_, known := knownViolations[v.Key]
 			_, excepted := boundaryExceptions[v.Key]
-			if !known && !excepted {
+			_, allowed := allowedEdges[v.Key]
+			if !known && !excepted && !allowed {
 				t.Errorf("%s breaks %s; fix the import or, in a move, rename its key in knownViolations", v.Key, v.Rule)
 			}
 		}
@@ -319,6 +379,9 @@ func TestLayers(t *testing.T) {
 	if targets == 6 {
 		for _, key := range staleViolations(knownViolations, found) {
 			t.Errorf("%s no longer happens on any target; delete it from knownViolations and lower maxKnownViolations", key)
+		}
+		for _, key := range staleViolations(allowedEdges, found) {
+			t.Errorf("%s no longer happens on any target; delete it from allowedEdges", key)
 		}
 		for _, rel := range staleLegacyTiers(listed) {
 			t.Errorf("%s is not a package any more; delete it from legacyTiers", rel)

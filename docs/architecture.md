@@ -143,6 +143,33 @@ Run the test alone with:
 go test -run TestLayers .
 ```
 
+## Which app imports are allowed edges
+
+A port buys nothing when the code behind it is the same for every agent, has
+no planned second backend and needs no test seam at a process, clock or random
+boundary. That is the port rule of the design. An app package may import such
+a kit directly. `allowedEdges` in `layers_test.go` lists these imports, keyed
+`from -> to`, each with its reason. The layers test accepts a key there as it
+does one in `boundaryExceptions`, and fails when a key happens on no target.
+
+A key is valid only when its `from` is `internal/app/<name>`, its `to` is one
+of the targets below, and its reason is not empty. `invalidAllowedEdges`
+checks this. Any other kit import stays in `knownViolations` until a port
+replaces it.
+
+| Target | Reason |
+|---|---|
+| `internal/store` | State folder handle, renames and locks. The same for every agent, with no second backend and no seam |
+| `internal/journal` | Append-only journal in the state folder. Same reason |
+| `internal/bus` | Message files in the state folder. Same reason |
+| `internal/coauthor` | Co-author records in the state folder. The templates per agent come from config |
+| `internal/project` | `git rev-parse` of the project and state roots, and git helpers. Git is the project's tool, not an agent's |
+| `internal/session`, later `internal/adapter/session` | Lead and peer registry in the state folder. Its agent parts go behind the Lead port |
+| `plugin` | Embedded skill names, read-only data |
+
+`internal/rex` is not on this list. It gets the `Pane` port, because a second
+pane backend is planned.
+
 ## How to prove a move changed nothing
 
 A move changes no logic. It only moves code, changes import paths and adds
