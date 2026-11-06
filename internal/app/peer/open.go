@@ -81,7 +81,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	if limit := e.cfg.Limits.MaxLiveSessions; limit > 0 && len(here) >= limit {
 		return Entry{}, fmt.Errorf("max_live_sessions is %d and %s session %s is still open; close it with duolog peer close %s first", limit, route.Agent, here[0].ID, here[0].ID)
 	}
-	model, err := resolveModel(ctx, e.cfg, filepath.Join(e.dir, "cache"), route.Target)
+	model, err := e.opts.Deps.ResolveModel(ctx, e.cfg, filepath.Join(e.dir, "cache"), route.Target)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -117,7 +117,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 		return noted(Entry{}, errors.Join(err, pane.release(ctx)))
 	}
 	block, rexSession, err := e.openProjectPeer(ctx, tabLabel(route.Agent, role), launchArgv(exe, envFile, agentArgv(route, lead.mode, pane.permit.Process)))
-	openedEnvFile(envFile)
+	e.opts.Deps.OnEnvFile(envFile)
 	if err != nil {
 		// Rex's own refusal shows that no pane holds the reservation. So does
 		// an env file still there to take: duolog peer launch starts nothing
@@ -132,7 +132,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 		AccountSessionID: pane.id(), AdmissionID: pane.id()}
 	attachErr := pane.attach(ctx, block, rexSession)
 	if attachErr == nil {
-		attachErr = recordPeer(e.reg, entry, e.cfg.Limits.MaxLiveSessions)
+		attachErr = e.opts.Deps.RecordPeer(e.reg, entry, e.cfg.Limits.MaxLiveSessions)
 	}
 	if attachErr != nil {
 		// The pane exists but nothing records it: do not leave it unowned. Its

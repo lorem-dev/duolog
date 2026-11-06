@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"slices"
@@ -33,9 +32,6 @@ const (
 	closeMeans = 0.5
 	disputeGap = 2
 )
-
-// judgeOrder returns true when the pair's A is shown first; tests replace it.
-var judgeOrder = func() bool { return rand.IntN(2) == 0 }
 
 // judgeInputs are the files a judge reads, in the order its task lists them.
 var judgeInputs = []struct{ name, what string }{
@@ -284,7 +280,7 @@ const restartNote = "judged again from the start: the judges or the rubric chang
 // calls on the schedule of judges and rubric, or of a new verdict with the
 // order of its first calls drawn. Unfinished calls on another schedule are
 // dropped.
-func openPair(root string, p Pair, judges []string, rubric string) (id, dir string, st pairState, err error) {
+func openPair(root string, aFirst func() bool, p Pair, judges []string, rubric string) (id, dir string, st pairState, err error) {
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return "", "", st, err
 	}
@@ -329,7 +325,7 @@ func openPair(root string, p Pair, judges []string, rubric string) (id, dir stri
 		}
 		break
 	}
-	st = pairState{Pair: p, Judges: judges, Rubric: rubric, AFirst: judgeOrder(), Note: note}
+	st = pairState{Pair: p, Judges: judges, Rubric: rubric, AFirst: aFirst(), Note: note}
 	return id, dir, st, writeJSON(filepath.Join(dir, pairFile), st)
 }
 
@@ -391,7 +387,7 @@ func JudgePair(ctx context.Context, env JudgeEnv, run *Run, p Pair, t TaskRecord
 	for _, target := range targets {
 		judges = append(judges, targetKey(target))
 	}
-	id, dir, st, err := openPair(filepath.Join(env.RunDir, JudgeDir), p, judges, hashOf(c.Rubric))
+	id, dir, st, err := openPair(filepath.Join(env.RunDir, JudgeDir), env.Rand, p, judges, hashOf(c.Rubric))
 	if err != nil {
 		return v, err
 	}

@@ -22,11 +22,11 @@ func TestDoctorReportsWorkerModes(t *testing.T) {
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	root := t.TempDir()
-	old := gateBinary
-	gateBinary = func(string) (string, error) { return "", errors.New("duolog is not on the worker PATH") }
-	t.Cleanup(func() { gateBinary = old })
+	d := testDeps
+	var gateCalls int
+	d.GateBinary = func(string) (string, error) { gateCalls++; return "", errors.New("duolog is not on the worker PATH") }
 	cfg := &config.Config{EnvPassthrough: config.DefaultEnvPassthrough(runtime.GOOS), WorkerModes: config.WorkerModes{Roles: map[string]config.WorkerMode{"implement": {Claude: "auto"}, "docs": {Claude: "plan"}}}}
-	got := workerModeFindings(cfg, root)
+	got := workerModeFindings(d, cfg, root)
 	want := []Finding{
 		{"info", "worker_modes: role docs asks claude plan; it applies always"},
 		{"info", "worker_modes: role implement asks claude auto; it applies when the lead is in auto or full"},
@@ -34,6 +34,43 @@ func TestDoctorReportsWorkerModes(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("%+v", got)
+	}
+	if gateCalls != 0 {
+		t.Fatalf("GateBinary called %d times before the hooks were shown", gateCalls)
+	}
+}
+
+// TestDoctorUsesGateBinary: with the Claude gate in the worker's settings, the
+// GateBinary of Deps is called once, and its error is the worker-mode advice.
+func TestDoctorUsesGateBinary(t *testing.T) {
+	home := t.TempDir()
+	for _, k := range []string{"HOME", "USERPROFILE", "XDG_CONFIG_HOME", "APPDATA"} {
+		t.Setenv(k, home)
+	}
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	settings := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settings), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	gate := `{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"duolog gate --agent claude --event PreToolUse"}]}]}}`
+	if err := os.WriteFile(settings, []byte(gate), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Roles:          map[string]config.Role{"implement": {Sandbox: "workspace-write"}},
+		EnvPassthrough: []string{"HOME", "USERPROFILE", "USER"},
+		WorkerModes:    config.WorkerModes{Roles: map[string]config.WorkerMode{"implement": {Claude: "bypassPermissions"}}},
+	}
+	calls := 0
+	d := testDeps
+	d.GateBinary = func(string) (string, error) {
+		calls++
+		return "", errors.New("duolog is not on the worker PATH")
+	}
+	got := findingText(workerModeFindings(d, cfg, t.TempDir()))
+	if calls != 1 || !strings.Contains(got, "warning: worker_modes: role implement asks claude bypassPermissions") || !strings.Contains(got, "duolog is not on the worker PATH") {
+		t.Fatalf("GateBinary called %d times:\n%s", calls, got)
 	}
 }
 
@@ -49,10 +86,9 @@ func TestDoctorSaysWhenAnEntryNeverApplies(t *testing.T) {
 			Families: map[string]config.WorkerMode{"haiku": {Claude: "bypassPermissions"}},
 		},
 	}
-	old := gateBinary
-	gateBinary = func(string) (string, error) { return "/bin/duolog", nil }
-	t.Cleanup(func() { gateBinary = old })
-	got := workerModeFindings(cfg, t.TempDir())
+	d := testDeps
+	d.GateBinary = func(string) (string, error) { return "/bin/duolog", nil }
+	got := workerModeFindings(d, cfg, t.TempDir())
 	var lines []string
 	for _, f := range got {
 		lines = append(lines, f.Level+": "+f.Message)
@@ -120,19 +156,18 @@ func TestDoctorReadsTheWorkersSettings(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", "")
 			root, alternate := t.TempDir(), t.TempDir()
 			tc.setup(t, home, root, alternate)
-			old := gateBinary
-			gateBinary = func(string) (string, error) { return "/bin/duolog", nil }
-			t.Cleanup(func() { gateBinary = old })
+			d := testDeps
+			d.GateBinary = func(string) (string, error) { return "/bin/duolog", nil }
 			cfg := &config.Config{
 				Roles:          map[string]config.Role{"implement": {Sandbox: "workspace-write"}},
 				EnvPassthrough: []string{"HOME", "USERPROFILE", "USER"},
 				WorkerModes:    config.WorkerModes{Roles: map[string]config.WorkerMode{"implement": tc.entry}},
 			}
-			if joined := findingText(workerModeFindings(cfg, root)); !strings.Contains(joined, "warning: ") || !strings.Contains(joined, tc.want) {
+			if joined := findingText(workerModeFindings(d, cfg, root)); !strings.Contains(joined, "warning: ") || !strings.Contains(joined, tc.want) {
 				t.Errorf("no warning %q:\n%s", tc.want, joined)
 			}
 			cfg.EnvPassthrough = append(cfg.EnvPassthrough, "CLAUDE_CONFIG_DIR", "CODEX_HOME")
-			if joined := findingText(workerModeFindings(cfg, root)); strings.Contains(joined, "warning: ") {
+			if joined := findingText(workerModeFindings(d, cfg, root)); strings.Contains(joined, "warning: ") {
 				t.Errorf("warns with the folder passed on:\n%s", joined)
 			}
 		})
@@ -149,7 +184,7 @@ func findingText(findings []Finding) string {
 
 func TestDoctorReportsIgnoredWorkerModes(t *testing.T) {
 	cfg := &config.Config{WorkerModes: config.WorkerModes{Ignored: []string{"worker_modes.roles.implement.claude bypassPermissions in .duolog/config.yaml is ignored: x"}}}
-	got := workerModeFindings(cfg, t.TempDir())
+	got := workerModeFindings(testDeps, cfg, t.TempDir())
 	if len(got) != 1 || got[0].Level != "warning" || !strings.HasPrefix(got[0].Message, "worker_modes.roles.implement.claude bypassPermissions") {
 		t.Fatal(got)
 	}

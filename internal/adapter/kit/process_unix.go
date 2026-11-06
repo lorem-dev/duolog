@@ -1,6 +1,6 @@
 //go:build !windows
 
-package profile
+package kit
 
 import (
 	"os/exec"

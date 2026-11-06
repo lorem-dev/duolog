@@ -44,11 +44,12 @@ func newProfileCommand() *cobra.Command {
 			defer tel.Close()
 			opts.Observe = observeAttempt(tel, cfg)
 		}
-		replay, err := profile.Run(cmd.Context(), cfg, s, args[0], opts)
+		deps := profileDeps()
+		replay, err := profile.Run(cmd.Context(), deps, cfg, s, args[0], opts)
 		if err != nil {
 			return err
 		}
-		verdict, err := profile.Judge(cmd.Context(), cfg, s, replay, delegate.Options{Lead: opts.Lead, AllowManualModel: opts.AllowManualModel, ProtectedRoots: opts.ProtectedRoots, Observe: opts.Observe})
+		verdict, err := profile.Judge(cmd.Context(), deps, cfg, s, replay, delegate.Options{Lead: opts.Lead, AllowManualModel: opts.AllowManualModel, ProtectedRoots: opts.ProtectedRoots, Observe: opts.Observe})
 		if err != nil {
 			return err
 		}

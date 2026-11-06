@@ -114,7 +114,7 @@ linters:
       # no longer fires, and make lint-exceptions-update rewrites the block (it
       # refuses to add a finding or raise a number). Do not edit it by hand.
       # BEGIN size exceptions
-      - {path: '^cmd/duolog/calibrate\.go$', linters: [revive], text: 'file length is 1150 lines'} # cmd/duolog/calibrate.go: code lines 1150
+      - {path: '^cmd/duolog/calibrate\.go$', linters: [revive], text: 'file length is 1149 lines'} # cmd/duolog/calibrate.go: code lines 1149
       - {path: '^cmd/duolog/calibrate\.go$', linters: [funlen, gocognit], text: 'Function .newCalibrateClassesCommand. is too long \(63 > |complexity 30 of func .(?:\(\*?\w+\)\.)?newCalibrateClassesCommand. is'} # newCalibrateClassesCommand: lines 63, cognitive 30
       - {path: '^cmd/duolog/calibrate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newCalibrateJudgeCommand. is too long \(146 > |complexity 91 of func .(?:\(\*?\w+\)\.)?newCalibrateJudgeCommand. is|function (?:\(\*?\w+\)\.)?newCalibrateJudgeCommand is 48,'} # newCalibrateJudgeCommand: cyclomatic 48, lines 146, cognitive 91
       - {path: '^cmd/duolog/calibrate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .newCalibrateMineCommand. is too long \(81 > |complexity 41 of func .(?:\(\*?\w+\)\.)?newCalibrateMineCommand. is|function (?:\(\*?\w+\)\.)?newCalibrateMineCommand is 20,'} # newCalibrateMineCommand: cyclomatic 20, lines 81, cognitive 41
@@ -180,7 +180,7 @@ linters:
       - {path: '^internal/app/calibrate/classes\.go$', linters: [cyclop, gocognit], text: 'complexity 29 of func .(?:\(\*?\w+\)\.)?ApplyClasses. is|function (?:\(\*?\w+\)\.)?ApplyClasses is 16,'} # ApplyClasses: cyclomatic 16, cognitive 29
       - {path: '^internal/app/calibrate/isolate\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?extract is 16,'} # extract: cyclomatic 16
       - {path: '^internal/app/calibrate/isolate\.go$', linters: [cyclop, gocognit], text: 'complexity 37 of func .(?:\(\*?\w+\)\.)?writeEntries. is|function (?:\(\*?\w+\)\.)?writeEntries is 19,'} # writeEntries: cyclomatic 19, cognitive 37
-      - {path: '^internal/app/calibrate/judge\.go$', linters: [revive], text: 'file length is 629 lines'} # internal/app/calibrate/judge.go: code lines 629
+      - {path: '^internal/app/calibrate/judge\.go$', linters: [revive], text: 'file length is 627 lines'} # internal/app/calibrate/judge.go: code lines 627
       - {path: '^internal/app/calibrate/judge\.go$', linters: [cyclop, gocognit], text: 'complexity 30 of func .(?:\(\*?\w+\)\.)?Combine. is|function (?:\(\*?\w+\)\.)?Combine is 17,'} # Combine: cyclomatic 17, cognitive 30
       - {path: '^internal/app/calibrate/judge\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Judge. has too many statements \(65 > |complexity 30 of func .(?:\(\*?\w+\)\.)?Judge. is|function (?:\(\*?\w+\)\.)?Judge is 23,'} # Judge: cyclomatic 23, statements 65, cognitive 30
       - {path: '^internal/app/calibrate/judge\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .JudgePair. has too many statements \(58 > |complexity 30 of func .(?:\(\*?\w+\)\.)?JudgePair. is|function (?:\(\*?\w+\)\.)?JudgePair is 24,'} # JudgePair: cyclomatic 24, statements 58, cognitive 30
@@ -336,7 +336,7 @@ linters:
       - {path: '^internal/app/peer/env\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?pendingAsk is 17,'} # pendingAsk: cyclomatic 17
       - {path: '^internal/app/peer/env\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .watch. has too many statements \(72 > |complexity 87 of func .(?:\(\*?\w+\)\.)?watch. is|function (?:\(\*?\w+\)\.)?watch is 39,'} # watch: cyclomatic 39, statements 72, cognitive 87
       - {path: '^internal/app/peer/env\.go$', linters: [nestif], text: '.if\ screen\.Queued. has complex nested blocks \(complexity: 6\)'} # if if screen.Queued: nesting 6
-      - {path: '^internal/app/peer/env\.go$', linters: [nestif], text: '.if\ worked\ \|\|\ time\.Since\(begin\)\ >=\ workGrace. has complex nested blocks \(complexity: 9\)'} # if if worked || time.Since(begin) >= workGrace: nesting 9
+      - {path: '^internal/app/peer/env\.go$', linters: [nestif], text: '.if\ worked\ \|\|\ e\.opts\.Deps\.Clock\.Now\(\)\.Sub\(begin\)\ >=\ e\.opts\.Deps\.Pauses\.WorkGrace. has complex nested blocks \(complexity: 9\)'} # if if worked || e.opts.Deps.Clock.Now().Sub(begin) >= e.opts.Deps.Pauses.WorkGrace: nesting 9
       - {path: '^internal/app/peer/open\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Open. has too many statements \(85 > |complexity 39 of func .(?:\(\*?\w+\)\.)?Open. is|function (?:\(\*?\w+\)\.)?Open is 33,'} # Open: cyclomatic 33, statements 85, cognitive 39
       - {path: '^internal/app/peer/paid_runs\.go$', linters: [nestif], text: '.if\ err\ ==\ nil. has complex nested blocks \(complexity: 6\)'} # if if err == nil: nesting 6
       - {path: '^internal/app/peer/send\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Send. has too many statements \(50 > |complexity 21 of func .(?:\(\*?\w+\)\.)?Send. is|function (?:\(\*?\w+\)\.)?Send is 20,'} # Send: cyclomatic 20, statements 50, cognitive 21

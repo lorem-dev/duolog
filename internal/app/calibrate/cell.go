@@ -28,16 +28,12 @@ import (
 // CellsDir is kept in a run's folder; each cell writes CellsDir/<id>/.
 const CellsDir = "cells"
 
-// DelegateFunc runs one delegation; delegate.Run bound to its Deps is the real
-// one.
-type DelegateFunc = delegate.Runner
-
 // CellEnv is what every cell of a run shares.
 type CellEnv struct {
+	Deps
 	Root, StateDir, RunDir, Lead string
 	Cfg                          *config.Config
 	Store                        *store.Store
-	Delegate                     DelegateFunc
 	Checks                       CheckRunner
 	// ProtectedRoots are the telemetry and balance roots the command
 	// resolved; they reach each cell's and judge's worker launch settings.
@@ -84,12 +80,10 @@ type cellChecks struct {
 	Class  []journal.Check `json:"class,omitempty"`
 }
 
-// Seams for tests: the isolation check, the cell's time cap and the time cap
-// of one check run.
+// Seams for tests: the cell's time cap and the time cap of one check run.
 var (
-	verifyIsolated = VerifyIsolated
-	cellTimeout    = func(c config.Calibration) time.Duration { return time.Duration(c.CellMaxMinutes) * time.Minute }
-	checkTimeout   = func(c config.Calibration) time.Duration { return time.Duration(c.CellMaxMinutes) * time.Minute }
+	cellTimeout  = func(c config.Calibration) time.Duration { return time.Duration(c.CellMaxMinutes) * time.Minute }
+	checkTimeout = func(c config.Calibration) time.Duration { return time.Duration(c.CellMaxMinutes) * time.Minute }
 )
 
 // CheckLimit is how long one run of a class's checks may take: the cell's
@@ -148,7 +142,7 @@ func RunCell(ctx context.Context, env CellEnv, c Cell, t TaskRecord, start Start
 		return r, err
 	}
 	defer func() { err = errors.Join(err, cleanup()) }()
-	if err := verifyIsolated(tree, env.Root); err != nil {
+	if err := env.Verify(tree, env.Root); err != nil {
 		r.State, r.Reason = CellLeakage, err.Error()
 		return r, saveCell(dir, r, false)
 	}
@@ -214,7 +208,7 @@ func RunCell(ctx context.Context, env CellEnv, c Cell, t TaskRecord, start Start
 		return r, fmt.Errorf("calibration cell %s: entry %s ran in the lead, not as a worker", c.ID, c.Entry)
 	}
 
-	if err := verifyIsolated(tree, env.Root); err != nil {
+	if err := env.Verify(tree, env.Root); err != nil {
 		r.State, r.Reason = CellLeakage, err.Error()
 		return r, saveCell(dir, r, false)
 	}

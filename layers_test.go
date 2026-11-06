@@ -137,16 +137,12 @@ var knownViolations = map[string]string{
 	"internal/app/peer -> github.com/gofrs/flock":               "PR 29",
 	"internal/app/peer -> internal/capability":                  "PR 40",
 	"internal/app/peer -> internal/adapter/config":              "after PR 10: a peer loads the config files",
-	"internal/app/peer -> internal/adapter/models":              "PR 33",
-	"internal/app/peer -> internal/rex":                         "PR 29",
+	"internal/app/peer -> internal/rex":                         "the Pane port, moved out of PR 29 to a later task",
 	"internal/app/peer -> internal/runner":                      "PR 41",
 	"internal/app/peer -> internal/workerenv":                   "PR 35",
-	"internal/app/peer -> os/exec":                              "PR 41",
 	"internal/app/profile (test) -> internal/adapter/config":    "after PR 10: its tests load the config files",
 	"internal/app/profile (test) -> internal/runner":            "PR 29",
 	"internal/app/profile -> github.com/gofrs/flock":            "PR 29",
-	"internal/app/profile -> os/exec":                           "PR 29",
-	"internal/app/profile -> syscall":                           "PR 29; darwin and linux only",
 	"internal/app/roster -> internal/capability":                "PR 40",
 	"internal/app/roster -> internal/adapter/config":            "after PR 10: roster loads the config files",
 	"internal/core/route (test) -> internal/adapter/config":     "after PR 10: its tests load the default config",
@@ -155,7 +151,7 @@ var knownViolations = map[string]string{
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 79
+const maxKnownViolations = 75
 
 // Reasons of the allowed edges, one per target.
 const (

@@ -261,7 +261,7 @@ func (e *env) observe(ctx context.Context, entry session.Entry) (State, Screen, 
 				}
 				queuedOpened = true
 			}
-			if err := sleep(ctx, keyDelay); err != nil {
+			if err := e.opts.Deps.Clock.Sleep(ctx, e.opts.Deps.Pauses.Key); err != nil {
 				return Question, screen, err
 			}
 			screen, err = e.screen(ctx, entry)
@@ -304,7 +304,7 @@ func (e *env) screen(ctx context.Context, entry session.Entry) (Screen, error) {
 // start_timeout_seconds. With a task sent it waits for the session to be idle
 // again, and reports text that is stuck in the input line.
 func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Entry, error) {
-	begin := time.Now()
+	begin := e.opts.Deps.Clock.Now()
 	deadline := begin.Add(time.Duration(e.cfg.Rex.StartTimeoutSeconds) * time.Second)
 	last := Starting
 	var idle, stuck int
@@ -371,7 +371,7 @@ func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Ent
 				break
 			}
 			stuck = 0
-			if worked || time.Since(begin) >= workGrace {
+			if worked || e.opts.Deps.Clock.Now().Sub(begin) >= e.opts.Deps.Pauses.WorkGrace {
 				if idle++; idle >= 2 {
 					if err := e.credit(entry); err != nil {
 						return Entry{ID: entry.ID, State: Ready}, err
@@ -402,7 +402,7 @@ func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Ent
 			note := fmt.Sprintf("timed out after %ds in state %s; the pane stays open", e.cfg.Rex.StartTimeoutSeconds, last)
 			return Entry{ID: entry.ID, State: last, Note: note}, nil
 		}
-		if err := sleep(ctx, pollInterval); err != nil {
+		if err := e.opts.Deps.Clock.Sleep(ctx, e.opts.Deps.Pauses.Poll); err != nil {
 			return Entry{ID: entry.ID, State: last}, err
 		}
 	}
@@ -569,7 +569,7 @@ func (e *env) selectOption(ctx context.Context, entry session.Entry, screen Scre
 		if err := e.clientFor(entry).SendKey(ctx, entry.Block, key); err != nil {
 			return err
 		}
-		if err := sleep(ctx, keyDelay); err != nil {
+		if err := e.opts.Deps.Clock.Sleep(ctx, e.opts.Deps.Pauses.Key); err != nil {
 			return err
 		}
 	}
@@ -586,7 +586,7 @@ func (e *env) selectOption(ctx context.Context, entry session.Entry, screen Scre
 	if err := e.clientFor(entry).SendKey(ctx, entry.Block, "enter"); err != nil {
 		return err
 	}
-	if err := sleep(ctx, sendDelay); err != nil {
+	if err := e.opts.Deps.Clock.Sleep(ctx, e.opts.Deps.Pauses.Send); err != nil {
 		return err
 	}
 	return nil

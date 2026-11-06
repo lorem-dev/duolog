@@ -18,7 +18,6 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/app/calibrate"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
-	"github.com/lorem-dev/duolog/internal/app/profile"
 	"github.com/lorem-dev/duolog/internal/core/budget"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/learn"
@@ -28,17 +27,17 @@ import (
 )
 
 // surveyChecks runs the baseline checks; tests replace it with a fake.
-var surveyChecks calibration.CheckRunner = profile.RunChecks
+var surveyChecks calibration.CheckRunner = profileChecks
 
 // mineChecks runs the class checks that validate mined tasks, and mineGH
 // the gh CLI for pull request texts; tests replace both.
 var (
-	mineChecks calibration.CheckRunner = profile.RunChecks
+	mineChecks calibration.CheckRunner = profileChecks
 	mineGH     calibration.GH          = runGH
 )
 
 // cellChecks runs the class checks of a calibration cell; tests replace it.
-var cellChecks calibration.CheckRunner = profile.RunChecks
+var cellChecks calibration.CheckRunner = profileChecks
 
 func runGH(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "gh", args...)
@@ -714,7 +713,7 @@ func withCalibrationRunner(cmd *cobra.Command, lead string, f func(*calibration.
 // workers get the telemetry and balance roots in their launch settings, as
 // every other delegation does.
 func cellEnv(root string, s *store.Store, runDir, lead string, cfg *config.Config) calibration.CellEnv {
-	return calibration.CellEnv{Root: root, StateDir: s.Dir, RunDir: runDir, Lead: lead, Cfg: cfg, Store: s, Delegate: runDelegate, ProtectedRoots: launchProtectedRoots()}
+	return calibration.CellEnv{Root: root, StateDir: s.Dir, RunDir: runDir, Lead: lead, Cfg: cfg, Store: s, Deps: calibrateDeps(), ProtectedRoots: launchProtectedRoots()}
 }
 
 // rewriteStatement asks the first judge for a statement written from a

@@ -53,7 +53,7 @@ func TestProjectSessionIsSharedAcrossLeads(t *testing.T) {
 	}
 	t.Setenv("REX_SESSION", "another-lead-session")
 	t.Setenv("REX_BLOCK", "another-lead-pane")
-	ctx := WithOptions(context.Background(), Options{Root: r.root, Config: r.cfg, Lead: "lead-2"})
+	ctx := WithOptions(context.Background(), Options{Deps: r.deps, Root: r.root, Config: r.cfg, Lead: "lead-2"})
 	script := baseScript()
 	script["window new"] = testbin.Scenario{Stdout: `{"block_ids":["block:second"]}`}
 	r.rex(script)

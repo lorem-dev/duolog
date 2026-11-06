@@ -8,11 +8,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
@@ -31,6 +29,24 @@ type fixture struct {
 	s    *store.Store
 	j    *journal.Journal
 	rec  journal.Delegation
+	deps Deps
+}
+
+// execCheck stands for kit.RunCheck in tests that need a real check to run.
+func execCheck(ctx context.Context, dir, command string) int {
+	args := strings.Fields(command)
+	if len(args) == 0 {
+		return -1
+	}
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd.Dir = dir
+	if err := cmd.Run(); err == nil {
+		return 0
+	}
+	if cmd.ProcessState != nil {
+		return cmd.ProcessState.ExitCode()
+	}
+	return -1
 }
 
 func gitTest(t *testing.T, root string, args ...string) string {
@@ -100,7 +116,8 @@ func newFixture(t *testing.T) *fixture {
 	if err := j.Append("delegations.ndjson", r); err != nil {
 		t.Fatal(err)
 	}
-	f := &fixture{root, cfg, s, j, r}
+	f := &fixture{root: root, cfg: cfg, s: s, j: j, rec: r,
+		deps: Deps{Rand: func() bool { return true }, RunCheck: execCheck}}
 	f.fake(t, func(context.Context, *config.Config, *store.Store, string, string, string) (delegate.Outcome, error) {
 		return delegate.Outcome{Result: runner.Result{Done: true, Summary: "profile answer"}}, nil
 	})
@@ -115,15 +132,13 @@ func optionsFrom(ctx context.Context) delegate.Options {
 	return o
 }
 
-// fake replaces Delegate with fn, which gets the request's fields as
-// arguments and its options from optionsFrom(ctx).
+// fake replaces the fixture's Delegate with fn, which gets the request's
+// fields as arguments and its options from optionsFrom(ctx).
 func (f *fixture) fake(t *testing.T, fn func(context.Context, *config.Config, *store.Store, string, string, string) (delegate.Outcome, error)) {
 	t.Helper()
-	previous := Delegate
-	Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+	f.deps.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
 		return fn(context.WithValue(ctx, optionsKey{}, r.Options), r.Config, &store.Store{Dir: r.StateDir}, r.Role, r.TaskPath, r.Thread)
 	}
-	t.Cleanup(func() { Delegate = previous })
 }
 
 func (f *fixture) run(t *testing.T, opts Options) Replay {
@@ -131,7 +146,7 @@ func (f *fixture) run(t *testing.T, opts Options) Replay {
 	if opts.Entry.Agent == "" {
 		opts.Entry = config.Target{Agent: "codex", Model: "sol", Effort: "high"}
 	}
-	r, err := Run(context.Background(), f.cfg, f.s, f.rec.ID, opts)
+	r, err := Run(context.Background(), f.deps, f.cfg, f.s, f.rec.ID, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,58 +307,47 @@ func TestChecksSeeReconstructedOriginalAndReplay(t *testing.T) {
 	}
 }
 
-func TestRunChecksUsesArgumentsAndWorkingDirectory(t *testing.T) {
-	f := newFixture(t)
-	commands := []string{"git rev-parse --is-inside-work-tree", "git diff --exit-code -- base.txt", "git no-such-subcommand", "no-such-program-x", "", "git --version ; no-such-program-x"}
-	checks := RunChecks(context.Background(), f.root, commands)
-	if len(checks) != len(commands) {
-		t.Fatal(checks)
-	}
-	for i, want := range []int{0, 0, 1, -1, -1, 0} {
-		if checks[i].Exit != want || checks[i].Command != commands[i] || checks[i].Seconds < 0 {
-			t.Fatalf("check %d: %+v", i, checks[i])
+// TestProfileChecksUseRunCheck: the exit code of each check comes from the
+// RunCheck of Deps, and once ctx ends the later checks fail with -1 without
+// RunCheck being called for them.
+func TestProfileChecksUseRunCheck(t *testing.T) {
+	t.Parallel()
+	var ran []string
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d := Deps{RunCheck: func(_ context.Context, dir, command string) int {
+		ran = append(ran, dir+"|"+command)
+		if command == "go test ./..." {
+			return 3
 		}
+		cancel()
+		return 0
+	}}
+	checks := RunChecks(ctx, d, "wt", []string{"go test ./...", "go vet ./...", "never ran"})
+	if len(checks) != 3 || checks[0].Exit != 3 || checks[1].Exit != 0 || checks[2].Exit != -1 || checks[2].Command != "never ran" {
+		t.Fatalf("checks %+v", checks)
+	}
+	if !reflect.DeepEqual(ran, []string{"wt|go test ./...", "wt|go vet ./..."}) {
+		t.Fatalf("RunCheck calls %v", ran)
 	}
 }
 
-// A check that starts its own child, as go test and npm test do, is stopped
-// with that child once ctx ends, and the commands after it do not run.
-func TestRunChecksStopsWithContext(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("uses sh")
-	}
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "hang.sh"), []byte("sleep 30 &\necho $! > child.pid\nwait\n"), 0o644); err != nil {
+// TestProfileUsesDelegate: the judge's Delegate sees the two sides in the
+// order that Rand of Deps gives. It cannot run in parallel: judgeFixture
+// changes the working directory.
+func TestProfileUsesDelegate(t *testing.T) {
+	f, r := judgeFixture(t)
+	stubShuffle(f, false)
+	var first []byte
+	f.fake(t, func(_ context.Context, _ *config.Config, _ *store.Store, _, path, _ string) (delegate.Outcome, error) {
+		first = readTest(t, filepath.Join(filepath.Dir(path), "a.patch"))
+		return delegate.Outcome{Result: runner.Result{Done: true, Summary: judgeSummary}}, nil
+	})
+	if _, err := Judge(context.Background(), f.deps, f.cfg, f.s, r, delegate.Options{}); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-	started := time.Now()
-	checks := RunChecks(ctx, dir, []string{"sh hang.sh", "touch ran.txt"})
-	if elapsed := time.Since(started); elapsed > 10*time.Second {
-		t.Fatalf("RunChecks took %s after its context ended", elapsed)
-	}
-	if len(checks) != 2 || checks[0].Exit == 0 || checks[1].Exit == 0 {
-		t.Fatalf("checks %+v, want both failed", checks)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "ran.txt")); err == nil {
-		t.Fatal("a check ran after the context ended")
-	}
-	data, err := os.ReadFile(filepath.Join(dir, "child.pid"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for exec.Command("kill", "-0", strconv.Itoa(pid)).Run() == nil {
-		if time.Now().After(deadline) {
-			_ = exec.Command("kill", "-9", strconv.Itoa(pid)).Run()
-			t.Fatalf("the check's child %d still runs", pid)
-		}
-		time.Sleep(50 * time.Millisecond)
+	if !bytes.Equal(first, r.Profile.Patch) {
+		t.Fatalf("side A %q, want the profile's patch %q", first, r.Profile.Patch)
 	}
 }
 
@@ -424,7 +428,7 @@ func TestReplayRefusesWithoutBase(t *testing.T) {
 			} else if err := os.Remove(filepath.Join(f.j.TaskDir(f.rec.Task, f.rec.ID), "before.patch")); err != nil {
 				t.Fatal(err)
 			}
-			_, err := Run(context.Background(), f.cfg, f.s, f.rec.ID, Options{})
+			_, err := Run(context.Background(), f.deps, f.cfg, f.s, f.rec.ID, Options{})
 			want := "delegation d1 has no base commit; it was not in a Git repository"
 			if err == nil || err.Error() != want {
 				t.Fatal(err)
@@ -449,7 +453,7 @@ func TestReplayRemovesWorktreeOnError(t *testing.T) {
 				}
 				return delegate.Outcome{}, want
 			})
-			_, err := Run(ctx, f.cfg, f.s, f.rec.ID, Options{})
+			_, err := Run(ctx, f.deps, f.cfg, f.s, f.rec.ID, Options{})
 			if interrupted {
 				want = context.Canceled
 			}
@@ -494,7 +498,7 @@ func TestReplayNamesWorktreeWhenTrustRefuses(t *testing.T) {
 	f.fake(t, func(context.Context, *config.Config, *store.Store, string, string, string) (delegate.Outcome, error) {
 		return delegate.Outcome{}, errors.New("Codex hooks untrusted; open /hooks to trust them")
 	})
-	_, err := Run(context.Background(), f.cfg, f.s, f.rec.ID, Options{})
+	_, err := Run(context.Background(), f.deps, f.cfg, f.s, f.rec.ID, Options{})
 	if err == nil || !strings.Contains(err.Error(), "profiling worktree: "+filepath.Join(f.s.Dir, WorktreeDir)+"; open /hooks there once") {
 		t.Fatal(err)
 	}

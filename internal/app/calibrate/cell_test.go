@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/app/delegate"
-	"github.com/lorem-dev/duolog/internal/app/profile"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
@@ -98,9 +97,12 @@ func newCellFixtureWith(t *testing.T, parentFiles map[string]string) *cellFixtur
 	f := &cellFixture{root: root, runDir: runDir, home: home, slot: slot, task: task,
 		cell: Cell{ID: "c-1", Task: c.ID, Class: c.Class, Entry: "codex/sol/high", Round: 1, State: CellRunning}}
 	f.env = CellEnv{Root: root, StateDir: stateDir, RunDir: runDir, Lead: "lead-1", Cfg: cfg, Store: s,
-		Delegate: func(context.Context, delegate.Request) (delegate.Outcome, error) {
-			t.Fatal("delegate called")
-			return delegate.Outcome{}, nil
+		Deps: Deps{
+			Delegate: func(context.Context, delegate.Request) (delegate.Outcome, error) {
+				t.Fatal("delegate called")
+				return delegate.Outcome{}, nil
+			},
+			Verify: VerifyIsolated,
 		},
 		Checks: func(_ context.Context, dir string, commands []string) []journal.Check {
 			f.checkCalls++
@@ -303,7 +305,7 @@ func makeFixture(t *testing.T, refMakefile bool) *cellFixture {
 	f.root, f.runDir, f.slot, f.task = root, runDir, slot, task
 	f.cell.Task = c.ID
 	f.env.Root, f.env.StateDir, f.env.RunDir, f.env.Store = root, filepath.Join(root, ".duolog"), runDir, s
-	f.env.Checks = profile.RunChecks
+	f.env.Checks = realChecks
 	class := f.env.Cfg.Learning.Classes["implement"]
 	class.Checks = []string{"make test"}
 	f.env.Cfg.Learning.Classes["implement"] = class
@@ -563,7 +565,7 @@ func TestSetupChangedFindsCheckDefinitions(t *testing.T) {
 }
 
 // worked is a delegate that changes parse.go in its work tree and finishes.
-func worked(t *testing.T) DelegateFunc {
+func worked(t *testing.T) delegate.Runner {
 	return func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
 		write(t, r.Options.WorkRoot, "parse.go", "package widget\n\nfunc Parse(line string) []string { return nil }\n")
 		return delegate.Outcome{Result: runner.Result{Done: true}}, nil
@@ -600,7 +602,7 @@ func TestRunCellCheckTimeCap(t *testing.T) {
 	}
 	f := newCellFixture(t)
 	f.env.Delegate = worked(t)
-	f.env.Checks = profile.RunChecks
+	f.env.Checks = realChecks
 	class := f.env.Cfg.Learning.Classes["implement"]
 	class.Checks = []string{"sleep 30"}
 	f.env.Cfg.Learning.Classes["implement"] = class
@@ -815,10 +817,8 @@ func TestRunCellProviderLimit(t *testing.T) {
 
 func TestRunCellLeakageExposed(t *testing.T) {
 	f := newCellFixture(t)
-	old := verifyIsolated
-	t.Cleanup(func() { verifyIsolated = old })
 	var tree string
-	verifyIsolated = func(dir, repo string) error {
+	f.env.Verify = func(dir, repo string) error {
 		tree = dir
 		return errors.New("tree has a remote: origin")
 	}

@@ -106,7 +106,7 @@ func TestProbeUsesGateAndBuild(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := probe(ctx, "claude", cfg, nil); err != nil {
+		if err := probe(ctx, testDeps, "claude", cfg, nil); err != nil {
 			t.Fatal(err)
 		}
 		args := recordedArgs(t, claude)
@@ -123,7 +123,7 @@ func TestProbeUsesGateAndBuild(t *testing.T) {
 			t.Fatalf("probe env lacks the worker depth: %q", env)
 		}
 		entries := []catalogEntry{{Entry: route.Entry{Slug: "gpt-6-luna", Visibility: "list"}}}
-		if err := probe(ctx, "codex", cfg, entries); err != nil {
+		if err := probe(ctx, testDeps, "codex", cfg, entries); err != nil {
 			t.Fatal(err)
 		}
 		args = recordedArgs(t, codex)
@@ -146,13 +146,13 @@ func TestProbeUsesGateAndBuild(t *testing.T) {
 		cfg, _, _ := setup(t)
 		reportGate(t, cfg, paidReads(10))
 		claude, _ := exec.LookPath("claude")
-		err := probe(ctx, "claude", cfg, nil)
+		err := probe(ctx, testDeps, "claude", cfg, nil)
 		if err == nil || !strings.Contains(err.Error(), "paid") {
 			t.Fatalf("paid probe without allow: %v", err)
 		}
 		cfg.PaidRuns.Claude.Allow, cfg.PaidRuns.Claude.DailyCapUSD = true, 0.000001
 		cfg.PaidRuns.Claude.Env = []string{"ANTHROPIC_API_KEY"}
-		if err := probe(ctx, "claude", cfg, nil); err == nil || !strings.Contains(err.Error(), "daily cap") {
+		if err := probe(ctx, testDeps, "claude", cfg, nil); err == nil || !strings.Contains(err.Error(), "daily cap") {
 			t.Fatalf("paid probe above the cap: %v", err)
 		}
 		if n := modelCalls(t, claude); n != 0 {
@@ -167,7 +167,7 @@ func TestProbeUsesGateAndBuild(t *testing.T) {
 		cfg.PaidRuns.Claude.Env = []string{"ANTHROPIC_API_KEY"}
 		g := reportGate(t, cfg, paidReads(10))
 		claude := testbin.Install(t, "claude", testbin.Scenario{Stdout: `{"is_error":false,"result":"ok","usage":{"input_tokens":100,"cache_read_input_tokens":20,"output_tokens":5},"total_cost_usd":0.0123}`})
-		if err := probe(ctx, "claude", cfg, nil); err != nil {
+		if err := probe(ctx, testDeps, "claude", cfg, nil); err != nil {
 			t.Fatal(err)
 		}
 		if !slices.Contains(recordedEnv(t, claude), "ANTHROPIC_API_KEY="+probeKey) {
@@ -197,7 +197,7 @@ func TestProbeUsesGateAndBuild(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := probe(ctx, "claude", cfg, nil); err == nil || !strings.Contains(err.Error(), "sessions 1 of 1") {
+		if err := probe(ctx, testDeps, "claude", cfg, nil); err == nil || !strings.Contains(err.Error(), "sessions 1 of 1") {
 			t.Fatalf("probe with no slot: %v", err)
 		}
 		cfg.Limits.SessionsByTier.Small = 3
@@ -207,7 +207,7 @@ func TestProbeUsesGateAndBuild(t *testing.T) {
 			return s, err
 		}
 		g.Cache = &paidruns.Cache{Read: g.Cache.Read}
-		if err := probe(ctx, "claude", cfg, nil); err == nil || !strings.Contains(err.Error(), "no window headroom") {
+		if err := probe(ctx, testDeps, "claude", cfg, nil); err == nil || !strings.Contains(err.Error(), "no window headroom") {
 			t.Fatalf("probe past the window reserve: %v", err)
 		}
 		if n := modelCalls(t, claude); n != 0 {
@@ -227,7 +227,7 @@ func TestProbeUsesGateAndBuild(t *testing.T) {
 			t.Fatal(err)
 		}
 		claude, _ := exec.LookPath("claude")
-		err := probe(ctx, "claude", cfg, nil)
+		err := probe(ctx, testDeps, "claude", cfg, nil)
 		if err == nil || !strings.Contains(err.Error(), "apiKeyHelper in user") {
 			t.Fatalf("probe over a paid user layer: %v", err)
 		}

@@ -51,7 +51,7 @@ type Options struct {
 	Lead map[string]session.LeadRoute
 }
 
-func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
+func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Finding {
 	// Bound metadata and probe calls even when the caller has no deadline.
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -140,8 +140,8 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 		}
 	}
 	add("info", bridgeLine(cfg, root, available))
-	out = append(out, workerModeFindings(cfg, root)...)
-	out = append(out, billing(ctx, cfg, root, available, opts.Lead)...)
+	out = append(out, workerModeFindings(d, cfg, root)...)
+	out = append(out, billing(ctx, d, cfg, root, available, opts.Lead)...)
 	// Said every time while the person sets or lists a key that paid runs do
 	// not let through, so the change is never silent. Names only, never
 	// values. An explicit list replaces the default, so the example keeps the
@@ -202,7 +202,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 			if !available[agent] {
 				continue
 			}
-			if err := probe(ctx, agent, cfg, entries); err != nil {
+			if err := probe(ctx, d, agent, cfg, entries); err != nil {
 				add("warning", agent+" probe failed: "+err.Error())
 				continue
 			}
@@ -218,17 +218,13 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) []Finding {
 	return out
 }
 
-// PaidGate opens the account admission gate; cmd/duolog sets it to the one
-// delegate uses, and tests set a fake. Temporary: Task 29 replaces it.
-var PaidGate func(*config.Config) (*paidruns.Gate, error)
-
 // billing reports, per available agent, how its worker, its peer and its lead
 // are billed, as quota does: verdicts with their signals, the account, the
 // spend and the sessions. Reporting reads the account state and admits
 // nothing. A lead without an observation is unknown.
-func billing(ctx context.Context, cfg *config.Config, root string, available map[string]bool, leads map[string]session.LeadRoute) []Finding {
+func billing(ctx context.Context, d Deps, cfg *config.Config, root string, available map[string]bool, leads map[string]session.LeadRoute) []Finding {
 	out := []Finding{{"info", "managed policy outside files is not checked: duolog reads managed settings files only, not device management profiles or the Windows registry"}}
-	g, err := PaidGate(cfg)
+	g, err := d.PaidGate(cfg)
 	if err != nil {
 		return append(out, Finding{"warning", "billing: " + err.Error()})
 	}

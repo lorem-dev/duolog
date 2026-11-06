@@ -71,8 +71,8 @@ type rig struct {
 	sleeps []sleepAt
 	// gate is the account gate every command of the test admits through.
 	gate *paidruns.Gate
-	// defaults are the pauses the code has when no test changed them.
-	defaultSend, defaultKey time.Duration
+	// deps are the Deps every command of the test gets.
+	deps Deps
 }
 
 func baseScript() map[string]testbin.Scenario {
@@ -148,39 +148,57 @@ func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
 	// level plan or in a read-only role opens only then.
 	r.claudeGate(true)
 	testbin.Install(t, "duolog", testbin.Scenario{})
-	r.ctx = WithOptions(context.Background(), Options{Root: r.root, Config: r.cfg, Lead: "lead-1"})
 	// One account state for the whole test, as for one user: open, send and
 	// close are separate commands. Its quota reads start no binary.
 	if r.gate, err = paidrunstest.Gate(filepath.Join(home, "accounts"), r.cfg); err != nil {
 		t.Fatal(err)
 	}
-	oldGate := PaidGate
-	PaidGate = func(*config.Config) (*paidruns.Gate, error) { return r.gate, nil }
-	t.Cleanup(func() { PaidGate = oldGate })
-	// The held-gate check is the real one, on the real gate binary lookup.
-	oldHeld := HeldGate
-	HeldGate = func(agent, root string, env []string) error {
-		return delegate.HeldGate(delegate.Deps{GateBinary: workerenv.GateBinary}, agent, root, env)
+	r.deps = Deps{
+		Clock:  &rigClock{r: r},
+		Pauses: Pauses{Poll: time.Millisecond, Settle: time.Millisecond, Send: 3 * time.Millisecond, Key: time.Millisecond},
+		ResolveModel: func(_ context.Context, _ *config.Config, _ string, target config.Target) (string, error) {
+			if target.Agent == "codex" {
+				return "gpt-6.1-" + target.Model, nil
+			}
+			return route.Normalize(target.Agent, target.Model), nil
+		},
+		Notify:     func(string, string) {},
+		RecordPeer: func(reg *session.Registry, e session.Entry, limit int) error { return reg.RecordLimited(e, limit) },
+		OnEnvFile:  func(string) {},
+		PaidGate:   func(*config.Config) (*paidruns.Gate, error) { return r.gate, nil },
+		// The held-gate check is the real one, on the real gate binary lookup.
+		HeldGate: func(agent, root string, env []string) error {
+			return delegate.HeldGate(delegate.Deps{GateBinary: workerenv.GateBinary}, agent, root, env)
+		},
 	}
-	t.Cleanup(func() { HeldGate = oldHeld })
-	oldPoll, oldSettle, oldSend, oldKey, oldGrace, oldSleep, oldResolve := pollInterval, settleDelay, sendDelay, keyDelay, workGrace, sleep, resolveModel
-	r.defaultSend, r.defaultKey = oldSend, oldKey
-	t.Cleanup(func() {
-		pollInterval, settleDelay, sendDelay, keyDelay, workGrace, sleep, resolveModel = oldPoll, oldSettle, oldSend, oldKey, oldGrace, oldSleep, oldResolve
-	})
-	pollInterval, settleDelay, sendDelay, keyDelay, workGrace = time.Millisecond, time.Millisecond, 3*time.Millisecond, time.Millisecond, 0
-	sleep = func(ctx context.Context, d time.Duration) error {
-		r.sleeps = append(r.sleeps, sleepAt{len(r.calls()), d})
-		time.Sleep(time.Millisecond)
-		return ctx.Err()
-	}
-	resolveModel = func(_ context.Context, _ *config.Config, _ string, target config.Target) (string, error) {
-		if target.Agent == "codex" {
-			return "gpt-6.1-" + target.Model, nil
-		}
-		return route.Normalize(target.Agent, target.Model), nil
-	}
+	r.useDeps(func(*Deps) {})
 	return r
+}
+
+// rigClock is real time whose sleeps are recorded with the number of rex
+// calls made before them, and last one millisecond.
+type rigClock struct{ r *rig }
+
+func (rigClock) Now() time.Time { return time.Now() }
+
+func (c *rigClock) Sleep(ctx context.Context, d time.Duration) error {
+	c.r.sleeps = append(c.r.sleeps, sleepAt{len(c.r.calls()), d})
+	time.Sleep(time.Millisecond)
+	return ctx.Err()
+}
+
+// options is the rig's Options with its Deps and the fields of o.
+func (r *rig) options(o Options) Options {
+	o.Deps = r.deps
+	return o
+}
+
+// useDeps changes the rig's Deps with change and makes r.ctx carry them. A
+// context made from r.ctx before the call keeps the old ones.
+func (r *rig) useDeps(change func(*Deps)) {
+	r.t.Helper()
+	change(&r.deps)
+	r.ctx = WithOptions(context.Background(), r.options(Options{Root: r.root, Config: r.cfg, Lead: "lead-1"}))
 }
 
 // lead registers or updates the lead that the rig's ctx names.
@@ -1021,13 +1039,11 @@ func TestSendWaitsBeforeEnter(t *testing.T) {
 		t.Fatalf("send at %d, enter at %d", sendAt, enterAt)
 	}
 	// The recorded run lost an enter that followed at once: 0.7 s fixed it. The
-	// rig shortens the pause, so check the one the code has by default.
-	if r.defaultSend < 700*time.Millisecond {
-		t.Fatalf("the default pause between send and enter is %v, want at least 700 ms", r.defaultSend)
-	}
+	// wiring package holds the pause the commands have by default, and its
+	// test checks it.
 	paused := false
 	for _, s := range r.sleeps {
-		if s.calls > sendAt && s.calls <= enterAt && s.d == sendDelay {
+		if s.calls > sendAt && s.calls <= enterAt && s.d == r.deps.Pauses.Send {
 			paused = true
 		}
 	}
@@ -1731,16 +1747,21 @@ func TestWaitNeverFinishesWhileWorking(t *testing.T) {
 	}
 	busy := "• Working (48s)\n" + codexIdle("")
 	r.rex(withScreens(busy))
-	ctx, cancel := context.WithCancel(r.ctx)
+	var cancel context.CancelFunc
 	calls := 0
-	sleep = func(context.Context, time.Duration) error {
-		calls++
-		if calls >= 3 {
-			cancel()
-			return context.Canceled
-		}
-		return nil
-	}
+	r.useDeps(func(d *Deps) {
+		d.Clock = funcClock(func(context.Context, time.Duration) error {
+			calls++
+			if calls >= 3 {
+				cancel()
+				return context.Canceled
+			}
+			return nil
+		})
+	})
+	var ctx context.Context
+	ctx, cancel = context.WithCancel(r.ctx)
+	defer cancel()
 	got, err := Wait(ctx, e.ID)
 	if !errors.Is(err, context.Canceled) || got.Note == "task finished" || r.entry(e.ID).Task == "" {
 		t.Fatalf("%+v %v", got, err)

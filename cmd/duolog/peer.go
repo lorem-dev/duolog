@@ -35,7 +35,7 @@ func peerContext(cmd *cobra.Command, lead string, allowManual bool, timeout time
 	if err != nil {
 		return nil, nil, err
 	}
-	opts := peer.Options{Root: root, Config: cfg, Lead: lead, AllowManualModel: allowManual, ProtectedRoots: launchProtectedRoots()}
+	opts := peer.Options{Deps: peerDeps(), Root: root, Config: cfg, Lead: lead, AllowManualModel: allowManual, ProtectedRoots: launchProtectedRoots()}
 	// Peer opens, sends and closes, and each task a peer ends, reach
 	// telemetry through these observers; a store that cannot open records none.
 	done := func() {}

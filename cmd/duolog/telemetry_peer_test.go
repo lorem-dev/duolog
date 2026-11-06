@@ -228,7 +228,7 @@ func TestTelemetryPeerOperations(t *testing.T) {
 		peerRex(t, claudeIdleScreen())
 		var ops []peer.Operation
 		var attempts []record.Attempt
-		ctx := peer.WithOptions(context.Background(), peer.Options{Root: root, Lead: "lead-1",
+		ctx := peer.WithOptions(context.Background(), peer.Options{Deps: peerDeps(), Root: root, Lead: "lead-1",
 			Observe:        func(o peer.Operation) { ops = append(ops, o) },
 			ObserveAttempt: func(a record.Attempt) { attempts = append(attempts, a) }})
 		e, err := peer.Open(ctx, "plan")

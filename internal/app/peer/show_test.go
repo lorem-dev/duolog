@@ -140,7 +140,7 @@ func TestShowNeedsNoLead(t *testing.T) {
 	// Registry.Close on a lead also closes its peers' records, which Show
 	// refuses, so the lead is left out of the options instead: no lead is
 	// named and none is looked up.
-	ctx := WithOptions(context.Background(), Options{Root: r.root, Config: r.cfg})
+	ctx := WithOptions(context.Background(), Options{Deps: r.deps, Root: r.root, Config: r.cfg})
 	if _, err := Show(ctx, e.ID, 5); err != nil {
 		t.Fatal(err)
 	}

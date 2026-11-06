@@ -35,7 +35,7 @@ func TestDoctorRepeatsMigrationWhileKeyDropped(t *testing.T) {
 		return false
 	}
 	for range 2 {
-		got := Run(context.Background(), cfg, opts)
+		got := Run(context.Background(), testDeps, cfg, opts)
 		if !warned(got, claude) {
 			t.Fatalf("no migration warning with %q: %+v", example, got)
 		}
@@ -50,7 +50,7 @@ func TestDoctorRepeatsMigrationWhileKeyDropped(t *testing.T) {
 	// reach workers, so the warning stays, set or not.
 	base := slices.Clone(cfg.EnvPassthrough)
 	cfg.EnvPassthrough = append(cfg.EnvPassthrough, "ANTHROPIC_API_KEY", "OPENAI_API_KEY")
-	if got := Run(context.Background(), cfg, opts); !warned(got, claude) || !slices.ContainsFunc(got, func(f Finding) bool {
+	if got := Run(context.Background(), testDeps, cfg, opts); !warned(got, claude) || !slices.ContainsFunc(got, func(f Finding) bool {
 		return strings.Contains(f.Message, codex) && strings.Contains(f.Message, "paid_runs: {codex: {allow: true, daily_cap_usd: 5, env: [OPENAI_API_KEY]}}")
 	}) {
 		t.Fatalf("listed keys not warned: %+v", got)
@@ -61,7 +61,7 @@ func TestDoctorRepeatsMigrationWhileKeyDropped(t *testing.T) {
 	cfg.EnvPassthrough = base
 	cfg.PaidRuns.Claude.Allow, cfg.PaidRuns.Claude.DailyCapUSD = true, 5
 	cfg.PaidRuns.Claude.Env = []string{"ANTHROPIC_API_KEY"}
-	for _, f := range Run(context.Background(), cfg, opts) {
+	for _, f := range Run(context.Background(), testDeps, cfg, opts) {
 		if strings.Contains(f.Message, "no longer get") {
 			t.Fatalf("allowed key still warned: %+v", f)
 		}
@@ -72,7 +72,7 @@ func TestDoctorRepeatsMigrationWhileKeyDropped(t *testing.T) {
 	if err := os.Unsetenv("ANTHROPIC_API_KEY"); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range Run(context.Background(), cfg, opts) {
+	for _, f := range Run(context.Background(), testDeps, cfg, opts) {
 		if strings.Contains(f.Message, "no longer get") {
 			t.Fatalf("%+v", f)
 		}

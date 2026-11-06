@@ -176,9 +176,9 @@ func TestPeerOpenReservationTransfersOnce(t *testing.T) {
 			script := baseScript()
 			script["block close"] = c.close
 			r := newRig(t, script)
-			old := recordPeer
-			recordPeer = func(*session.Registry, session.Entry, int) error { return errors.New("registry is full") }
-			t.Cleanup(func() { recordPeer = old })
+			r.useDeps(func(d *Deps) {
+				d.RecordPeer = func(*session.Registry, session.Entry, int) error { return errors.New("registry is full") }
+			})
 			if _, err := Open(r.ctx, "implement"); err == nil {
 				t.Fatal("open succeeded without a record")
 			}

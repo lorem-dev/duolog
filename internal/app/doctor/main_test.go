@@ -5,7 +5,12 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
+
+// testDeps is what the tests pass to Run; a test that needs another gate or
+// gate binary sets the field and restores it with t.Cleanup.
+var testDeps Deps
 
 func TestMain(m *testing.M) {
 	// Each test process starts as an independent lead; tests set worker roles explicitly.
@@ -20,7 +25,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	PaidGate = paidrunstest.Factory(accounts)
+	testDeps = Deps{PaidGate: paidrunstest.Factory(accounts), GateBinary: workerenv.GateBinary}
 	code := m.Run()
 	_ = os.RemoveAll(accounts)
 	os.Exit(code)

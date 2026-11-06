@@ -105,7 +105,7 @@ func (e *env) reply(ctx context.Context, entry session.Entry, answered string, s
 		case state == Closed, state == Exited, sample >= interruptSamples:
 			return fmt.Errorf("peer %s is %s, not interrupted, so the reason was not sent; send it as a task with duolog peer send", entry.ID, state)
 		}
-		if err := sleep(ctx, settleDelay); err != nil {
+		if err := e.opts.Deps.Clock.Sleep(ctx, e.opts.Deps.Pauses.Settle); err != nil {
 			return err
 		}
 		var err error

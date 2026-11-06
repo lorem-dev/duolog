@@ -32,9 +32,7 @@ func TestPeerOpenFailedMidLaunchFreesProvenUnstartedHold(t *testing.T) {
 			r := newRig(t, script)
 			r.paidCodex()
 			if c.taken {
-				old := openedEnvFile
-				openedEnvFile = func(path string) { _ = os.Remove(path) }
-				t.Cleanup(func() { openedEnvFile = old })
+				r.useDeps(func(d *Deps) { d.OnEnvFile = func(path string) { _ = os.Remove(path) } })
 			}
 			if _, err := Open(r.ctx, "implement"); err == nil {
 				t.Fatal("open succeeded")
@@ -63,9 +61,7 @@ func TestPeerReleaseEndsAnOrphanedHold(t *testing.T) {
 	script["new"] = testbin.Scenario{Stdout: "{not json"}
 	r := newRig(t, script)
 	r.paidCodex()
-	old := openedEnvFile
-	openedEnvFile = func(path string) { _ = os.Remove(path) }
-	t.Cleanup(func() { openedEnvFile = old })
+	r.useDeps(func(d *Deps) { d.OnEnvFile = func(path string) { _ = os.Remove(path) } })
 	if _, err := Open(r.ctx, "implement"); err == nil {
 		t.Fatal("open succeeded")
 	}
@@ -115,14 +111,14 @@ func TestPeerReleaseEndsAnOrphanedHold(t *testing.T) {
 func TestPeerOpenRecordsLaunchToken(t *testing.T) {
 	r := newRig(t, baseScript())
 	var token, file string
-	old := openedEnvFile
-	openedEnvFile = func(path string) {
-		file = path
-		for _, res := range r.accounts().Reservations {
-			token = res.LaunchToken
+	r.useDeps(func(d *Deps) {
+		d.OnEnvFile = func(path string) {
+			file = path
+			for _, res := range r.accounts().Reservations {
+				token = res.LaunchToken
+			}
 		}
-	}
-	t.Cleanup(func() { openedEnvFile = old })
+	})
 	r.ready()
 	if file == "" || token != file {
 		t.Fatalf("launch token %q, env file %q", token, file)

@@ -24,11 +24,8 @@ const judgeCriterion = "structure matches what was asked"
 const judgeCountCriterion = "unrequested files (count)"
 const judgeSummary = `{"scores":[{"criterion":"structure matches what was asked","a":3,"b":1,"reason":"A follows the task"},{"criterion":"unrequested files (count)","a":2,"b":0,"count_a":1,"count_b":4,"reason":"B adds more files"}]}`
 
-func stubShuffle(t *testing.T, originalFirst bool) {
-	t.Helper()
-	previous := shuffle
-	shuffle = func() bool { return originalFirst }
-	t.Cleanup(func() { shuffle = previous })
+func stubShuffle(f *fixture, originalFirst bool) {
+	f.deps.Rand = func() bool { return originalFirst }
 }
 
 func judgeFixture(t *testing.T) (*fixture, Replay) {
@@ -103,7 +100,7 @@ func TestJudgeLabelsFollowShuffle(t *testing.T) {
 	for _, first := range []bool{true, false} {
 		t.Run(map[bool]string{true: "original-A", false: "original-B"}[first], func(t *testing.T) {
 			f, r := judgeFixture(t)
-			stubShuffle(t, first)
+			stubShuffle(f, first)
 			f.fake(t, func(ctx context.Context, _ *config.Config, _ *store.Store, role, path, _ string) (delegate.Outcome, error) {
 				o := optionsFrom(ctx)
 				want := config.Target{Agent: "claude", Model: "opus", Effort: "high"}
@@ -119,7 +116,7 @@ func TestJudgeLabelsFollowShuffle(t *testing.T) {
 				}
 				return delegate.Outcome{Result: runner.Result{Done: true, Summary: judgeSummary}}, nil
 			})
-			v, err := Judge(context.Background(), f.cfg, f.s, r, delegate.Options{Lead: "judge-lead", AllowManualModel: true})
+			v, err := Judge(context.Background(), f.deps, f.cfg, f.s, r, delegate.Options{Lead: "judge-lead", AllowManualModel: true})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -172,8 +169,8 @@ func TestParseVerdictValidatesCountsAndCriteria(t *testing.T) {
 
 func TestVerdictRecordedInOriginalTerms(t *testing.T) {
 	f, r := judgeFixture(t)
-	stubShuffle(t, false)
-	v, err := Judge(context.Background(), f.cfg, f.s, r, delegate.Options{})
+	stubShuffle(f, false)
+	v, err := Judge(context.Background(), f.deps, f.cfg, f.s, r, delegate.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +194,7 @@ func TestBadJudgeAnswerRecordsNothing(t *testing.T) {
 		dir = filepath.Dir(path)
 		return delegate.Outcome{Result: runner.Result{Done: true, Summary: "no scores"}}, nil
 	})
-	_, err := Judge(context.Background(), f.cfg, f.s, r, delegate.Options{})
+	_, err := Judge(context.Background(), f.deps, f.cfg, f.s, r, delegate.Options{})
 	if err == nil || !strings.Contains(err.Error(), filepath.Join(dir, "answer.json")) {
 		t.Fatal(err)
 	}

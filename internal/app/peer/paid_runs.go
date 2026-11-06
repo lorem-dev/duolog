@@ -21,27 +21,9 @@ import (
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
-// recordPeer records a new pane's entry; tests replace it to fail.
-var recordPeer = func(reg *session.Registry, e session.Entry, limit int) error {
-	return reg.RecordLimited(e, limit)
-}
-
-// openedEnvFile runs once rex answered an open, before its env file is
-// checked; tests replace it to stand for a launcher that took the file.
-var openedEnvFile = func(string) {}
-
 // accountTimeout bounds an account state write that must happen even after
 // the command was cancelled: a record of a pane or a task that exists.
 const accountTimeout = 10 * time.Second
-
-// PaidGate opens the account admission gate; cmd/duolog sets it to the one
-// delegate uses, and tests set a fake. Temporary: Task 29 replaces it.
-var PaidGate func(*config.Config) (*paidruns.Gate, error)
-
-// HeldGate shows that the gate of a pane that only it keeps read-only runs, as
-// delegate.HeldGate does; cmd/duolog sets it on delegate's Deps, and tests set
-// a fake. Temporary: Task 29 replaces it.
-var HeldGate func(agent, root string, env []string) error
 
 // accounts opens the account gate that delegate uses, shared by every lead
 // and project of the user, with this command's pane probe: one rex inspect
@@ -50,7 +32,7 @@ func (e *env) accounts() (*paidruns.Gate, error) {
 	if e.gate != nil {
 		return e.gate, nil
 	}
-	g, err := PaidGate(e.cfg)
+	g, err := e.opts.Deps.PaidGate(e.cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +133,7 @@ func (e *env) admitPane(ctx context.Context, route coreroute.Route, lead leadInf
 		// only where that gate is shown to run, from the pane's own
 		// environment. Nothing has started, so the hold goes back.
 		if mode.GateHeld(route.Agent, lead.mode, route.Sandbox) {
-			if err := HeldGate(route.Agent, e.root, permit.Process.Env); err != nil {
+			if err := e.opts.Deps.HeldGate(route.Agent, e.root, permit.Process.Env); err != nil {
 				return nil, errors.Join(err, h.release(ctx))
 			}
 		}

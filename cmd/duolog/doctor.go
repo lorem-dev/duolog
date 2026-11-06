@@ -55,7 +55,7 @@ func newDoctorCommand() *cobra.Command {
 				inventoryFindings = append(inventoryFindings, doctor.Finding{Level: "info", Message: "Rex pane inventory checked"})
 			}
 		}
-		for _, finding := range append(inventoryFindings, doctor.Run(cmd.Context(), cfg, opts)...) {
+		for _, finding := range append(inventoryFindings, doctor.Run(cmd.Context(), doctorDeps(), cfg, opts)...) {
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", finding.Level, finding.Message); err != nil {
 				return err
 			}
