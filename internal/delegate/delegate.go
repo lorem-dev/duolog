@@ -297,20 +297,20 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		if out.Line == "" && err != nil {
 			out.Line = oneLine(fmt.Sprintf("role %s: %v", role, err))
 		}
-		extra := ""
+		var fresh []string
 		for _, n := range notices {
 			if !strings.Contains(out.Line, n) {
-				extra += "; " + n
+				fresh = append(fresh, n)
 			}
 		}
+		extra := joinNotices(fresh)
 		if len(out.Line)+len(extra) > maxLine {
 			// A claimed notice does not come again in this lead, so it leaves
 			// the text that is cut and follows it whole.
-			extra = ""
 			for _, n := range notices {
 				out.Line = withoutNotice(out.Line, n)
-				extra += "; " + n
 			}
+			extra = joinNotices(notices)
 			tail := " ... [cut; " + answerPointer(dir) + "]"
 			out.Line = short(out.Line, max(0, maxLine-len(tail)-len(extra))) + tail
 		}
@@ -871,9 +871,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					}
 				}
 				lineWarning += lr.note()
-				for _, n := range notices {
-					lineWarning += "; " + n
-				}
+				lineWarning += joinNotices(notices)
 				out.Line = resultLine(out.Result.Done, needs, out.Result.Summary, strings.Join(out.Result.Files, ","), lineWarning, answerPointer(dir))
 				return out, nil
 			}
@@ -965,6 +963,22 @@ func ClaimMigration(reg *session.Registry, cfg *config.Config, leadID, agent str
 		}
 	}
 	return lines, nil
+}
+
+// joinNotices is what follows a line to carry notices: each leads with "; ",
+// except one that comes after a notice ending in a full stop, which leads with
+// a space, so that ".;" never appears.
+func joinNotices(notices []string) string {
+	var b strings.Builder
+	for i, n := range notices {
+		if i > 0 && strings.HasSuffix(notices[i-1], ".") {
+			b.WriteString(" ")
+		} else {
+			b.WriteString("; ")
+		}
+		b.WriteString(n)
+	}
+	return b.String()
 }
 
 // withoutNotice takes the last copy of notice out of line, with the "; " that
