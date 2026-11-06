@@ -2,7 +2,6 @@
 package hook
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -186,15 +185,13 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 }
 
 func receive(s *state) ([]byte, error) {
-	lines, more, err := s.bus.InboxLimited(session.Address(s.lead), 10)
-	if err != nil {
-		return nil, err
-	}
-	data := bytes.Join(lines, nil)
-	if more {
-		data = append(data, []byte("More messages: duolog inbox --reader "+session.Address(s.lead)+"\n")...)
-	}
-	return data, nil
+	var data []byte
+	err := s.bus.Consume(session.Address(s.lead), func(held, unread [][]byte) [][]byte {
+		var keep [][]byte
+		data, keep = present(s.bus.Directory(), held, unread)
+		return keep
+	})
+	return data, err
 }
 
 func render(agent, event string, data []byte) Output {

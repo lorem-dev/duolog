@@ -95,7 +95,7 @@ func TestHookCLIWakeExitTwoAndStderr(t *testing.T) {
 	cmd.SetIn(strings.NewReader(`{"session_id":"wake-lead"}`))
 	cmd.SetArgs([]string{"hook", "wake", "--agent", "claude"})
 	err = cmd.Execute()
-	if err == nil || exitCode(err) != 2 || out.Len() != 0 || stderr.String() != raw {
+	if err == nil || exitCode(err) != 2 || out.Len() != 0 || stderr.String() != "msg 0 other: wake now\n" {
 		t.Fatal(out.String(), stderr.String(), err)
 	}
 }

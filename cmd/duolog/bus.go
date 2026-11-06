@@ -6,6 +6,7 @@ import (
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/bus"
+	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -76,6 +77,18 @@ func newInboxCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if reader == "" {
+				// A lead's hooks name no reader: its own address is the default.
+				reg, err := session.Open(b.Directory())
+				if err != nil {
+					return err
+				}
+				lead, err := reg.ResolveLead("")
+				if err != nil {
+					return fmt.Errorf("no --reader given and no lead to read for: %w", err)
+				}
+				reader = session.Address(lead)
+			}
 			lines, err := b.Inbox(reader)
 			if err != nil {
 				return err
@@ -88,7 +101,6 @@ func newInboxCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&reader, "reader", "", "Reader address")
-	_ = cmd.MarkFlagRequired("reader")
+	cmd.Flags().StringVar(&reader, "reader", "", "Reader address; the current lead when omitted")
 	return cmd
 }

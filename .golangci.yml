@@ -176,7 +176,6 @@ linters:
       - {path: '^internal/app/sync/toml\.go$', linters: [gocognit], text: 'complexity 26 of func .(?:\(\*?\w+\)\.)?tomlMultiline. is'} # tomlMultiline: cognitive 26
       - {path: '^internal/app/learn/propose\.go$', linters: [cyclop, gocognit], text: 'complexity 23 of func .(?:\(\*?\w+\)\.)?EditConfig. is|function (?:\(\*?\w+\)\.)?EditConfig is 19,'} # EditConfig: cyclomatic 19, cognitive 23
       - {path: '^internal/artifact/artifact\.go$', linters: [nestif], text: '.if\ at\ >=\ 0. has complex nested blocks \(complexity: 6\)'} # if if at >= 0: nesting 6
-      - {path: '^internal/bus/bus\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .InboxLimited. has too many statements \(43 > |complexity 30 of func .(?:\(\*?\w+\)\.)?InboxLimited. is|function (?:\(\*?\w+\)\.)?InboxLimited is 25,'} # InboxLimited: cyclomatic 25, statements 43, cognitive 30
       - {path: '^internal/app/calibrate/cell\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .RunCell. has too many statements \(102 > |complexity 34 of func .(?:\(\*?\w+\)\.)?RunCell. is|function (?:\(\*?\w+\)\.)?RunCell is 38,'} # RunCell: cyclomatic 38, statements 102, cognitive 34
       - {path: '^internal/app/calibrate/classes\.go$', linters: [cyclop, gocognit], text: 'complexity 29 of func .(?:\(\*?\w+\)\.)?ApplyClasses. is|function (?:\(\*?\w+\)\.)?ApplyClasses is 16,'} # ApplyClasses: cyclomatic 16, cognitive 29
       - {path: '^internal/app/calibrate/isolate\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?extract is 16,'} # extract: cyclomatic 16

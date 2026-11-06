@@ -199,6 +199,26 @@ func (b *Bus) Inbox(reader string) ([][]byte, error) {
 // InboxLimited consumes at most limit matching lines. Remaining messages stay
 // unread for duolog inbox. A nonpositive limit reads the entire inbox.
 func (b *Bus) InboxLimited(reader string, limit int) ([][]byte, bool, error) {
+	return b.read(reader, limit, nil)
+}
+
+// Consume moves the reader's cursor past every unread message and calls take
+// with the lines an earlier Consume kept and the matching unread lines. take
+// returns the lines to keep: they replace the kept lines and come back in the
+// reader's next Inbox, ahead of newer messages. The bus file itself is not
+// changed. With no kept and no unread lines take is not called.
+func (b *Bus) Consume(reader string, take func(held, unread [][]byte) (keep [][]byte)) error {
+	_, _, err := b.read(reader, 0, take)
+	return err
+}
+
+func (b *Bus) heldPath(reader string) string {
+	return filepath.Join(b.dir, "held", url.PathEscape(reader))
+}
+
+// read is InboxLimited and Consume. A plain read of the whole inbox (no limit,
+// no take) also returns, and clears, the lines an earlier Consume kept.
+func (b *Bus) read(reader string, limit int, take func(held, unread [][]byte) [][]byte) ([][]byte, bool, error) {
 	if reader == "" || reader == "." || reader == ".." {
 		return nil, false, fmt.Errorf("invalid reader address %q", reader)
 	}
@@ -208,48 +228,118 @@ func (b *Bus) InboxLimited(reader string, limit int) ([][]byte, bool, error) {
 	}
 	defer lock.Close()
 	cursor := filepath.Join(b.dir, "cursors", url.PathEscape(reader))
-	data, err := os.ReadFile(cursor)
-	var offset int64
-	if err == nil {
-		offset, err = strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
-		if err != nil || offset < 0 {
-			return nil, false, fmt.Errorf("invalid cursor for %q: %q", reader, data)
-		}
-	} else if !os.IsNotExist(err) {
-		return nil, false, err
-	}
-	f, err := os.Open(filepath.Join(b.dir, "bus.ndjson"))
+	lines, more, offset, err := b.scan(reader, limit, cursor)
 	if err != nil {
 		return nil, false, err
 	}
-	defer f.Close()
+	whole := take == nil && limit <= 0
+	if take != nil {
+		err = b.hold(reader, take, lines)
+		lines = nil
+	} else if whole {
+		lines, err = b.withHeld(reader, lines)
+	}
+	if err == nil {
+		err = writeCursor(cursor, offset)
+	}
+	if err == nil && whole {
+		// The cursor is written first: a failure here only repeats held lines.
+		if err = os.Remove(b.heldPath(reader)); os.IsNotExist(err) {
+			err = nil
+		}
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return lines, more, nil
+}
+
+// withHeld puts the lines a Consume kept ahead of lines.
+func (b *Bus) withHeld(reader string, lines [][]byte) ([][]byte, error) {
+	old, err := os.ReadFile(b.heldPath(reader))
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	return append(splitLines(old), lines...), nil
+}
+
+// hold gives take the kept and the unread lines and keeps the ones it returns
+// in their place. The caller writes the cursor after it: a failure there only
+// repeats lines.
+func (b *Bus) hold(reader string, take func(held, unread [][]byte) [][]byte, lines [][]byte) error {
+	path := b.heldPath(reader)
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	held := splitLines(data)
+	if len(held) == 0 && len(lines) == 0 {
+		return nil
+	}
+	keep := take(held, lines)
+	if len(keep) == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return writeHeld(path, keep)
+}
+
+// openAt opens the bus file at the reader's cursor.
+func (b *Bus) openAt(reader, cursor string) (*os.File, int64, error) {
+	var offset int64
+	data, err := os.ReadFile(cursor)
+	if err == nil {
+		offset, err = strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+		if err != nil || offset < 0 {
+			return nil, 0, fmt.Errorf("invalid cursor for %q: %q", reader, data)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, 0, err
+	}
+	f, err := os.Open(filepath.Join(b.dir, "bus.ndjson"))
+	if err != nil {
+		return nil, 0, err
+	}
 	// A cursor past the end means someone replaced the file. Waiting for it to grow
 	// would hide every new message until then.
 	if info, err := f.Stat(); err != nil {
-		return nil, false, err
+		_ = f.Close()
+		return nil, 0, err
 	} else if offset > info.Size() {
 		offset = 0
 	}
 	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		return nil, false, err
+		_ = f.Close()
+		return nil, 0, err
 	}
+	return f, offset, nil
+}
+
+// scan reads the matching lines after the reader's cursor, at most limit of
+// them when limit is positive, and returns the offset to move the cursor to.
+func (b *Bus) scan(reader string, limit int, cursor string) (lines [][]byte, more bool, offset int64, err error) {
+	f, offset, err := b.openAt(reader, cursor)
+	if err != nil {
+		return nil, false, 0, err
+	}
+	defer f.Close()
 	input := bufio.NewReader(f)
-	var lines [][]byte
-	var more bool
 	for {
 		line, err := input.ReadBytes('\n')
 		if err == io.EOF {
 			break // The incomplete tail is not consumed, even if it is valid JSON.
 		}
 		if err != nil {
-			return nil, false, err
+			return nil, false, 0, err
 		}
 		var address struct {
 			From string `json:"from"`
 			To   string `json:"to"`
 		}
 		if err := json.Unmarshal(line, &address); err != nil {
-			return nil, false, fmt.Errorf("bus line at %d: %w", offset, err)
+			return nil, false, 0, fmt.Errorf("bus line at %d: %w", offset, err)
 		}
 		matches := address.From != reader && (address.To == reader || address.To == "*")
 		if matches && limit > 0 && len(lines) >= limit {
@@ -262,10 +352,41 @@ func (b *Bus) InboxLimited(reader string, limit int) ([][]byte, bool, error) {
 			}
 		}
 	}
-	if err := writeCursor(cursor, offset); err != nil {
-		return nil, false, err
+	return lines, more, offset, nil
+}
+
+func splitLines(data []byte) [][]byte {
+	var lines [][]byte
+	for len(data) > 0 {
+		i := bytes.IndexByte(data, '\n')
+		if i < 0 {
+			break
+		}
+		lines = append(lines, data[:i+1])
+		data = data[i+1:]
 	}
-	return lines, more, nil
+	return lines
+}
+
+// writeHeld replaces the held file with lines in one rename.
+func writeHeld(path string, lines [][]byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), ".held-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	_, writeErr := f.Write(bytes.Join(lines, nil))
+	closeErr := f.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return store.Rename(f.Name(), path)
 }
 
 func writeCursor(path string, offset int64) error {

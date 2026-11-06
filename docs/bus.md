@@ -42,7 +42,8 @@ duolog inbox --reader claude/lead.abc123
 ```
 
 `inbox` prints only new messages for that reader and remembers where it
-stopped. A lead's hooks do this for you.
+stopped. A lead's hooks do this for you. Without `--reader`, the lead that
+runs the command is the reader.
 
 ## How artifacts keep messages short
 
@@ -61,9 +62,24 @@ refuses paths outside the project and paths with symlinks.
 ## When the hooks show a message
 
 A hook with no new message prints nothing and costs no tokens. When there is
-mail, the hook adds the lines to the lead's context. At most 10 lines come at
-once, followed by `More messages: duolog inbox --reader <address>`. At
-session start the lead also gets a short roster line with its roles.
+mail, the hook adds one short line per message to the lead's context, not the
+JSON from the bus:
+
+```text
+ask 15287 peer-x: exec go test ./... (person)
+status peer-x: pane closed
+notice duolog/plugin: plugin offered
+```
+
+An ask line carries its number, the peer, and the command cut to 80
+characters; `(person)` marks an ask only the person may answer. An ask that
+was answered or has expired before the hook runs is not shown, and every other
+ask is. When more than 5 other messages arrive at once, the hook shows the
+newest 3 of them and one line, `and N more: duolog inbox`. Each later hook
+prints that line again while those messages wait. The bus keeps every message,
+and the ones the hook did not show are what `duolog inbox` prints next, as the
+full JSON lines. At session start the lead also gets a short roster line with
+its roles.
 
 Claude Code can wake an idle session with a hook that has `asyncRewake`. This
 was OBSERVED, not VERIFIED. The hook starts with the session and watches for one
