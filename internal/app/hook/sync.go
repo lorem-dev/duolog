@@ -15,7 +15,7 @@ import (
 // syncConfig returns the sync settings, or false when this hook must not sync:
 // a worker, an unknown agent, or a project without .duolog.
 func syncConfig(e Env) (config.Sync, bool) {
-	if worker(e) || (e.Agent != "claude" && e.Agent != "codex") {
+	if worker(e) || !served(e) {
 		return config.Sync{}, false
 	}
 	if info, err := os.Stat(filepath.Join(e.Root, ".duolog")); err != nil || !info.IsDir() {

@@ -21,6 +21,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
+	"github.com/lorem-dev/duolog/internal/wiring"
 )
 
 // putWorktreeFile writes a test file, creating its folders.
@@ -138,7 +139,7 @@ func TestLinkedWorktreeUsesOwnTaskCwdGateAndSync(t *testing.T) {
 	}
 	putWorktreeFile(t, filepath.Join(work, ".claude/skills/s/SKILL.md"), "---\nname: s\ndescription: Skill.\n---\nWORKTREE_SKILL_EDIT\n")
 	input := []byte(`{"session_id":"lead-123456","tool_input":{"file_path":".claude/skills/s/SKILL.md"}}`)
-	hook.PostTool(context.Background(), hook.Env{Root: main, WorkRoot: work, Agent: "codex", Input: input, Environ: []string{}})
+	hook.PostTool(context.Background(), wiring.HookEnv(hook.Env{Root: main, WorkRoot: work, Agent: "codex", Input: input, Environ: []string{}}))
 	got, err := os.ReadFile(filepath.Join(work, ".agents/skills/s/SKILL.md"))
 	if err != nil {
 		t.Fatal(err)

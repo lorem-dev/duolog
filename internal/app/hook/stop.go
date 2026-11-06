@@ -22,7 +22,7 @@ import (
 // less when ctx ends first, and drops the line then.
 func Stop(ctx context.Context, e Env) Output {
 	peer := value(environment(e), "DUOLOG_PEER")
-	if ctx.Err() != nil || peer == "" || !worker(e) || (e.Agent != "claude" && e.Agent != "codex") {
+	if ctx.Err() != nil || peer == "" || !worker(e) || !served(e) {
 		return Output{}
 	}
 	dir := filepath.Join(e.Root, ".duolog")

@@ -23,6 +23,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/telemetry"
 	"github.com/lorem-dev/duolog/internal/trusthome"
+	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/spf13/cobra"
 )
@@ -54,7 +55,7 @@ func newGateCommand(deps *cmdDeps) *cobra.Command {
 							_, _ = cmd.OutOrStdout().Write(gate.RenderLead(agent, d))
 						}
 					}
-					hook.Observe(cmd.Context(), hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ()})
+					hook.Observe(cmd.Context(), wiring.HookEnv(hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ()}))
 				}
 			}
 			return nil

@@ -75,7 +75,7 @@ func setup(t *testing.T, agent string) (Env, *session.Registry, *bus.Bus) {
 	h["transcript_path"] = path
 	h["permission_mode"] = "default"
 	input, _ := json.Marshal(h)
-	return Env{Root: root, Agent: agent, Input: input, Environ: []string{"CLAUDE_CODE_ENTRYPOINT=cli"}}, reg, b
+	return withAgent(Env{Root: root, Input: input, Environ: []string{"CLAUDE_CODE_ENTRYPOINT=cli"}}, agent), reg, b
 }
 func change(t *testing.T, e Env, key string, v any) Env {
 	t.Helper()

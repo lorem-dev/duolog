@@ -21,10 +21,32 @@ import (
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
+// Events is what one agent's hooks differ in: how a hook's context is handed
+// back to the agent, and where the lead's permission mode is read from.
+type Events interface {
+	// Render wraps text in the output of the hook event, or returns nothing
+	// when text is empty.
+	Render(event string, text []byte) []byte
+	// Mode reads the lead's permission mode from the hook payload or the
+	// session transcript; false when this agent's hook says none.
+	Mode(payload []byte, transcript string) (mode.Mode, bool)
+}
+
+// Lead is what the hooks ask of an agent's lead session.
+type Lead interface {
+	// Interactive reports whether the session is an interactive one in a
+	// terminal, from its environment and its transcript.
+	Interactive(environ []string, transcript string) bool
+}
+
 // Env makes hook stdin, environment and output explicit for embedded callers.
 // Root is the shared project root. Nil Environ uses the process environment.
+// Events and Lead are those of Agent; an agent without Events is not one the
+// hooks serve, and every hook of it does nothing.
 type Env struct {
 	Root, Agent string
+	Events      Events
+	Lead        Lead
 	WorkRoot    string
 	Input       []byte
 	Environ     []string
@@ -88,15 +110,16 @@ func startTime(e Env) time.Time {
 }
 
 func interactiveLead(e Env, h input) bool {
-	if e.Agent == "codex" {
-		return session.Originator(h.TranscriptPath) == "codex-tui"
-	}
-	return value(environment(e), "CLAUDE_CODE_ENTRYPOINT") == "cli"
+	return e.Lead != nil && e.Lead.Interactive(environment(e), h.TranscriptPath)
 }
+
+// served reports whether the hooks serve this agent: one without Events does
+// nothing.
+func served(e Env) bool { return e.Events != nil }
 
 // prepare refuses uninitialized projects before any library can create state.
 func prepare(e Env, register bool, started time.Time) (*state, error) {
-	if worker(e) || (e.Agent != "claude" && e.Agent != "codex") {
+	if worker(e) || !served(e) {
 		return nil, nil
 	}
 	var h input
@@ -151,13 +174,12 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 	if lead.Model == "" {
 		lead.Model = h.Model
 	}
-	// Only the lead's own main-thread payloads say its mode: a subagent's
-	// definition can set a mode of its own, such as bypassPermissions.
-	claudeMode := e.Agent == "claude" && h.PermissionMode != "" && h.AgentID == ""
-	if claudeMode {
-		lead.Mode = mode.Parse(e.Agent, h.PermissionMode)
-	} else if e.Agent != "claude" && observed.Mode != "" {
-		lead.Mode = observed.Mode
+	// The agent says where its lead's mode is read from: for Claude only the
+	// lead's own main-thread payloads (a subagent's definition can set a mode
+	// of its own, such as bypassPermissions), for Codex the transcript.
+	observedMode, hasMode := e.Events.Mode(e.Input, lead.TranscriptPath)
+	if hasMode {
+		lead.Mode = observedMode
 	}
 	o := session.LeadObservation{ID: h.ID, Agent: e.Agent, Model: &lead.Model, Effort: &lead.Effort}
 	if h.TranscriptPath != "" {
@@ -166,10 +188,11 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 	if !known {
 		o.PID = &lead.PID
 	}
-	if claudeMode || (e.Agent == "codex" && observed.Mode != "") {
+	if hasMode {
 		o.Mode = &lead.Mode
 	}
-	if claudeMode {
+	// The native mode is recorded only when the payload itself carries the mode.
+	if _, fromPayload := e.Events.Mode(e.Input, ""); fromPayload {
 		native := h.PermissionMode
 		o.Native = &native
 	}
@@ -194,17 +217,13 @@ func receive(s *state) ([]byte, error) {
 	return data, err
 }
 
-func render(agent, event string, data []byte) Output {
-	if len(data) == 0 {
+// render hands data to the agent as the output of event. asyncRewake needs
+// exit 2 and plain stderr instead, so Wake does not come through here.
+func render(e Env, event string, data []byte) Output {
+	if len(data) == 0 || !served(e) {
 		return Output{}
 	}
-	// Both agents use the hookSpecificOutput envelope for these synchronous
-	// events; asyncRewake instead requires exit 2 and plain stderr.
-	if agent != "claude" && agent != "codex" {
-		return Output{}
-	}
-	encoded, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": event, "additionalContext": string(data)}})
-	return Output{Stdout: append(encoded, '\n')}
+	return Output{Stdout: e.Events.Render(event, data)}
 }
 func deliver(ctx context.Context, e Env, event string, register, includeRoster bool, started time.Time, extra func() string) Output {
 	if ctx.Err() != nil {
@@ -226,7 +245,7 @@ func deliver(ctx context.Context, e Env, event string, register, includeRoster b
 			data = append(data, []byte(line+"\n")...)
 		}
 	}
-	return render(e.Agent, event, data)
+	return render(e, event, data)
 }
 func SessionStart(ctx context.Context, e Env) Output {
 	return deliver(ctx, e, "SessionStart", true, true, startTime(e), func() string {
@@ -244,7 +263,7 @@ func SessionStart(ctx context.Context, e Env) Output {
 // prune lets a lead's session start remove the delegation folders and
 // artifacts that nothing reads any more. A worker never removes state.
 func prune(e Env) {
-	if worker(e) || (e.Agent != "claude" && e.Agent != "codex") {
+	if worker(e) || !served(e) {
 		return
 	}
 	dir := filepath.Join(e.Root, ".duolog")
@@ -270,7 +289,7 @@ func Observe(ctx context.Context, e Env) Output {
 }
 func SessionEnd(ctx context.Context, e Env) Output {
 	started := startTime(e)
-	if ctx.Err() != nil || worker(e) || (e.Agent != "claude" && e.Agent != "codex") {
+	if ctx.Err() != nil || worker(e) || !served(e) {
 		return Output{}
 	}
 	if info, err := os.Stat(filepath.Join(e.Root, ".duolog")); err != nil || !info.IsDir() {

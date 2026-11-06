@@ -29,7 +29,7 @@ func stopSetup(t *testing.T, peer session.Entry) (Env, *session.Registry, *bus.B
 		t.Fatal(err)
 	}
 	input, _ := json.Marshal(map[string]any{"session_id": "peer-session-1", "hook_event_name": "Stop"})
-	pane := Env{Root: e.Root, Agent: "codex", Input: input, Environ: []string{"DUOLOG_DEPTH=1", "DUOLOG_LEAD=" + l.ID, "DUOLOG_PEER=peer-abc123"}}
+	pane := withAgent(Env{Root: e.Root, Input: input, Environ: []string{"DUOLOG_DEPTH=1", "DUOLOG_LEAD=" + l.ID, "DUOLOG_PEER=peer-abc123"}}, "codex")
 	return pane, r, b, session.Address(l)
 }
 

@@ -36,7 +36,7 @@ func telemetryLocation() telemetry.Location {
 // collection off too, on a root that already exists; a worker does nothing.
 // The line never names a path, an id, a size or a failure.
 func telemetryStart(ctx context.Context, e Env) string {
-	if ctx.Err() != nil || worker(e) || (e.Agent != "claude" && e.Agent != "codex") {
+	if ctx.Err() != nil || worker(e) || !served(e) {
 		return ""
 	}
 	if info, err := os.Stat(filepath.Join(e.Root, ".duolog")); err != nil || !info.IsDir() {
