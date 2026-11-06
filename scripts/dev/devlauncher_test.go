@@ -19,6 +19,26 @@ const fakeBuild = "#!/bin/sh\necho \"$1 from $0\"\n"
 // launcher tests have a fake go copy it as the build, then run it.
 func TestMain(m *testing.M) {
 	if os.Getenv("DUOLOG_TEST_FAKE_BUILD") == "1" {
+		switch {
+		case len(os.Args) == 4 && os.Args[1] == "start-hold":
+			// Start a build that keeps running. Go hands the child no handle
+			// but its own standard ones, here none, so the launcher's pipes
+			// close when the launcher ends.
+			if err := exec.Command(os.Args[2], "hold", os.Args[3]).Start(); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		case len(os.Args) == 3 && os.Args[1] == "hold":
+			// Stand in for another hook's build that is still running, until
+			// the test releases it.
+			for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+				if _, err := os.Stat(os.Args[2]); err == nil {
+					break
+				}
+			}
+			os.Exit(0)
+		}
 		fmt.Println(strings.Join(append([]string{"fake build"}, os.Args[1:]...), " "))
 		os.Exit(0)
 	}
@@ -54,11 +74,18 @@ func run(t *testing.T, dir string, env []string, name string, args ...string) (s
 // pathWithoutDuolog is PATH minus every folder that holds a duolog, so that a
 // duolog installed on the host, or the hooks' PATH entry for this checkout,
 // cannot answer for the fallback under test.
-func pathWithoutDuolog() string {
-	names := []string{"duolog"}
-	if runtime.GOOS == "windows" {
-		for _, ext := range filepath.SplitList(os.Getenv("PATHEXT")) {
-			names = append(names, "duolog"+strings.ToLower(ext))
+func pathWithoutDuolog() string { return pathWithout("duolog") }
+
+// pathWithout drops every PATH folder that holds one of the programs, with
+// any PATHEXT extension on Windows.
+func pathWithout(programs ...string) string {
+	var names []string
+	for _, program := range programs {
+		names = append(names, program)
+		if runtime.GOOS == "windows" {
+			for _, ext := range filepath.SplitList(os.Getenv("PATHEXT")) {
+				names = append(names, program+strings.ToLower(ext))
+			}
 		}
 	}
 	var keep []string
@@ -278,6 +305,12 @@ const (
 // fake go and git first on PATH and no duolog anywhere on it, and returns the
 // checkout, the environment and Windows PowerShell 5.1, which Codex runs.
 func windowsFixture(t *testing.T, fakeGo string) (string, []string, string) {
+	return windowsFixtureWith(t, fakeGo, fakeGit)
+}
+
+// windowsFixtureWith is windowsFixture with its own git. An empty fakeGo or
+// fakeGit drops that program from PATH.
+func windowsFixtureWith(t *testing.T, fakeGo, fakeGitScript string) (string, []string, string) {
 	t.Helper()
 	if runtime.GOOS != "windows" {
 		t.Skip("the PowerShell launcher is tested on Windows")
@@ -301,10 +334,22 @@ func windowsFixture(t *testing.T, fakeGo string) (string, []string, string) {
 	root := filepath.Join(base, "root")
 	fake := filepath.Join(base, "fake")
 	write(t, filepath.Join(root, "scripts", "dev", "bin", "duolog.ps1"), string(script), 0o644)
-	write(t, filepath.Join(fake, "go.cmd"), fakeGo, 0o755)
-	write(t, filepath.Join(fake, "git.cmd"), fakeGit, 0o755)
+	// An empty script means no such program at all: the real one is dropped
+	// from PATH.
+	missing := []string{"duolog"}
+	if fakeGo == "" {
+		missing = append(missing, "go")
+	} else {
+		write(t, filepath.Join(fake, "go.cmd"), fakeGo, 0o755)
+	}
+	if fakeGitScript == "" {
+		missing = append(missing, "git")
+	} else {
+		write(t, filepath.Join(fake, "git.cmd"), fakeGitScript, 0o755)
+	}
+	path := pathWithout(missing...)
 	env := append(os.Environ(),
-		"PATH="+fake+string(os.PathListSeparator)+pathWithoutDuolog(),
+		"PATH="+fake+string(os.PathListSeparator)+path,
 		"DUOLOG_DEV_TRIED=",
 		"DUOLOG_TEST_EXE="+exe,
 		"DUOLOG_TEST_FAKE_BUILD=1",
@@ -365,5 +410,90 @@ func TestPowerShellLauncherFailsClosedWithoutFallback(t *testing.T) {
 	matches, err := filepath.Glob(filepath.Join(root, ".cache", "dev", "*"))
 	if err != nil || len(matches) != 0 {
 		t.Errorf("left behind %v (%v)", matches, err)
+	}
+}
+
+// A missing go is a failed build, as in the POSIX launcher: the fallback
+// runs, and a worker without its gate still exits 2.
+func TestPowerShellLauncherTreatsMissingGoAsFailedBuild(t *testing.T) {
+	root, env, shell := windowsFixture(t, "")
+	for _, tc := range []struct {
+		depth string
+		want  int
+	}{{"1", 2}, {"0", 1}} {
+		stdout, stderr, code := runPowerShellLauncher(t, root, env, shell, tc.depth)
+		if code != tc.want {
+			t.Errorf("depth %s: exit %d, want %d, stderr: %s", tc.depth, code, tc.want, stderr)
+		}
+		if !strings.Contains(stderr, "go is not on PATH") || !strings.Contains(stderr, "there is no earlier build") {
+			t.Errorf("depth %s: stderr = %q, want the missing go reported and the fallback to run", tc.depth, stderr)
+		}
+		if strings.Contains(stderr, "is not recognized") {
+			t.Errorf("depth %s: stderr = %q, the missing go escaped as an error", tc.depth, stderr)
+		}
+		if stdout != "" {
+			t.Errorf("depth %s: stdout = %q, want none", tc.depth, stdout)
+		}
+	}
+}
+
+// A missing git only means the main checkout's build cannot be found: with
+// neither go nor git, an installed duolog still runs.
+func TestPowerShellLauncherFallsBackWithoutGoOrGit(t *testing.T) {
+	root, env, shell := windowsFixtureWith(t, "", "")
+	installed := filepath.Join(t.TempDir(), "installed")
+	write(t, filepath.Join(installed, "duolog.cmd"), "@\"%DUOLOG_TEST_EXE%\" %*\r\n", 0o755)
+	for i, kv := range env {
+		if strings.HasPrefix(strings.ToUpper(kv), "PATH=") {
+			env[i] = kv + string(os.PathListSeparator) + installed
+		}
+	}
+	for _, depth := range []string{"1", "0"} {
+		stdout, stderr, code := runPowerShellLauncher(t, root, env, shell, depth)
+		if code != 0 || strings.TrimSpace(stdout) != "fake build version" {
+			t.Errorf("depth %s: exit %d, stdout = %q, stderr: %s", depth, code, stdout, stderr)
+		}
+		if !strings.Contains(stderr, "running the installed duolog") {
+			t.Errorf("depth %s: stderr = %q, want the installed duolog to run", depth, stderr)
+		}
+		if strings.Contains(stderr, "is not recognized") {
+			t.Errorf("depth %s: stderr = %q, the missing git escaped as an error", depth, stderr)
+		}
+	}
+}
+
+// fakeGoLosesRace builds, but another hook's build lands first and is
+// running, so Windows refuses to replace it. The test binary starts the
+// running copy, which waits for the file that DUOLOG_TEST_RELEASE names.
+const fakeGoLosesRace = "@echo off\r\n" +
+	"copy /y \"%DUOLOG_TEST_EXE%\" \"%~3\" >nul\r\n" +
+	"copy /y \"%DUOLOG_TEST_EXE%\" \".cache\\dev\\duolog.exe\" >nul\r\n" +
+	"\"%DUOLOG_TEST_EXE%\" start-hold \"%CD%\\.cache\\dev\\duolog.exe\" \"%DUOLOG_TEST_RELEASE%\"\r\n" +
+	"exit /b %errorlevel%\r\n"
+
+// Parallel first builds: the hook whose move fails because the other build
+// is in place and running runs that build, and leaves no file of its own.
+func TestPowerShellLauncherRunsTheBuildThatWonTheRace(t *testing.T) {
+	root, env, shell := windowsFixture(t, fakeGoLosesRace)
+	release := filepath.Join(t.TempDir(), "release")
+	bin := filepath.Join(root, ".cache", "dev", "duolog.exe")
+	t.Cleanup(func() {
+		// The running copy ends once released; until then its file stays.
+		write(t, release, "", 0o644)
+		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+			if err := os.Remove(bin); err == nil || os.IsNotExist(err) {
+				return
+			}
+		}
+		t.Error("the running build did not end")
+	})
+	env = append(env, "DUOLOG_TEST_RELEASE="+release)
+	stdout, stderr, code := runPowerShellLauncher(t, root, env, shell, "1")
+	if code != 0 || strings.TrimSpace(stdout) != "fake build version" {
+		t.Fatalf("exit %d, stdout = %q, stderr: %s", code, stdout, stderr)
+	}
+	matches, err := filepath.Glob(filepath.Join(root, ".cache", "dev", "*"))
+	if err != nil || len(matches) != 1 || matches[0] != bin {
+		t.Errorf("left %v (%v), want only the build that won", matches, err)
 	}
 }

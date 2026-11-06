@@ -38,15 +38,27 @@ if (-not (Test-Path $bin)) {
 	try {
 		# The build output goes to stderr, as in the POSIX launcher: the
 		# hook's stdout is its answer to the agent.
-		& go build -o $tmp ./cmd/duolog 2>&1 | ForEach-Object { [Console]::Error.WriteLine([string]$_) }
-		# A missing go leaves $LASTEXITCODE as it was, so check the file too.
-		$built = ($LASTEXITCODE -eq 0) -and (Test-Path $tmp)
+		# A missing go is a failed build, as in the POSIX launcher: calling it
+		# would throw, so look it up first and fall through to the fallback.
+		if (Get-Command go -CommandType Application -ErrorAction SilentlyContinue) {
+			& go build -o $tmp ./cmd/duolog 2>&1 | ForEach-Object { [Console]::Error.WriteLine([string]$_) }
+			$built = ($LASTEXITCODE -eq 0) -and (Test-Path $tmp)
+		} else {
+			[Console]::Error.WriteLine('duolog: go is not on PATH, so this checkout was not built')
+		}
 	} finally {
 		$ErrorActionPreference = 'Stop'
 		Pop-Location
 	}
 	if ($built) {
-		Move-Item -Force $tmp $bin
+		try {
+			Move-Item -Force $tmp $bin
+		} catch {
+			# Another hook built at the same time and its build is running, so
+			# Windows refuses to replace it. That build is as good as this one.
+			if (-not (Test-Path $bin)) { throw }
+			Remove-Item -Force -ErrorAction SilentlyContinue $tmp
+		}
 	} else {
 		Remove-Item -Force -ErrorAction SilentlyContinue $tmp
 		if (Test-Path $bin) {
@@ -63,6 +75,9 @@ if (-not (Test-Path $bin)) {
 			$gitOk = $false
 			if ($tried -contains $here) {
 				[Console]::Error.WriteLine('duolog: this launcher already ran in this chain of fallbacks, so it runs none again')
+			} elseif (-not (Get-Command git -CommandType Application -ErrorAction SilentlyContinue)) {
+				# Calling a missing git would throw past the installed fallback.
+				[Console]::Error.WriteLine('duolog: git is not on PATH, so the main checkout was not looked for')
 			} else {
 				$ErrorActionPreference = 'Continue'
 				try {
