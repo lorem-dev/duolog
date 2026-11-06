@@ -49,9 +49,16 @@ func TestMain(m *testing.M) {
 func run(t *testing.T, dir string, env []string, name string, args ...string) (string, string, int) {
 	t.Helper()
 	// A chain of fallbacks that never ends must fail the test, not hang it.
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	timeout := 2 * time.Minute
+	if runtime.GOOS == "windows" {
+		// These commands use fake builds; none needs a compiler's budget.
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
+	// Killing a launcher does not close pipes inherited by its children.
+	cmd.WaitDelay = 5 * time.Second
 	cmd.Dir = dir
 	cmd.Env = env
 	var stdout, stderr bytes.Buffer
@@ -349,6 +356,10 @@ func windowsFixtureWith(t *testing.T, fakeGo, fakeGitScript string) (string, []s
 	base := t.TempDir()
 	root := filepath.Join(base, "root")
 	fake := filepath.Join(base, "fake")
+	modules := filepath.Join(base, "modules")
+	if err := os.MkdirAll(modules, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	write(t, filepath.Join(root, "scripts", "dev", "bin", "duolog.ps1"), string(script), 0o644)
 	// An empty script means no such program at all: the real one is dropped
 	// from PATH.
@@ -366,6 +377,10 @@ func windowsFixtureWith(t *testing.T, fakeGo, fakeGitScript string) (string, []s
 	path := pathWithout(missing...)
 	env := append(os.Environ(),
 		"PATH="+fake+string(os.PathListSeparator)+path,
+		// A missing command can trigger PowerShell's module discovery. Do
+		// not search the runner's installed modules for go or duolog; the
+		// launcher imports its built-in modules by absolute path.
+		"PSModulePath="+modules,
 		"DUOLOG_DEV_TRIED=",
 		"DUOLOG_TEST_EXE="+exe,
 		"DUOLOG_TEST_FAKE_BUILD=1",
