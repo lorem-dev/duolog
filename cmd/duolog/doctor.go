@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -36,7 +37,7 @@ func newDoctorCommand() *cobra.Command {
 		}
 		cfg, err := configfile.Load(root)
 		if err != nil {
-			return err
+			return doctorConfigError(cmd, err)
 		}
 		reg, err := session.Open(filepath.Join(root, ".duolog"))
 		if err != nil {
@@ -64,6 +65,16 @@ func newDoctorCommand() *cobra.Command {
 	}}
 	cmd.Flags().BoolVar(&probe, "probe", false, "Make a minimal model call from an empty temporary folder")
 	return cmd
+}
+
+// doctorConfigError reports a config that does not load as doctor's first
+// line, with its file and line. Every other check needs the config, so doctor
+// stops there and fails.
+func doctorConfigError(cmd *cobra.Command, err error) error {
+	if _, werr := fmt.Fprintf(cmd.OutOrStdout(), "error: %s; hooks and the gate cannot load their rules\n", configfile.Problem(err)); werr != nil {
+		return werr
+	}
+	return errors.New("the config does not load; fix it and run duolog doctor again")
 }
 
 // doctorTelemetry checks the telemetry store for doctor. It creates no root

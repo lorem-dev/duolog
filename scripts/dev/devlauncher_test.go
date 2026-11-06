@@ -219,25 +219,40 @@ func TestLauncherPrefersMainCheckoutOverInstalled(t *testing.T) {
 	}
 }
 
+// noBuildExits is what a launcher with no build and no fallback exits with:
+// a worker's gate exits 2, so the agent does not run the tool without its
+// gate. A hook exits 0, since for Claude's Stop hook 2 means "do not stop"
+// and a peer would loop. Any other command exits 1.
+var noBuildExits = []struct {
+	depth string
+	args  []string
+	want  int
+}{
+	{"1", []string{"gate", "--agent", "claude", "--event", "PreToolUse"}, 2},
+	{"1", []string{"hook", "Stop", "--agent", "claude"}, 0},
+	{"1", []string{"hook", "PostToolUse", "--agent", "codex"}, 0},
+	{"1", []string{"version"}, 1},
+	{"0", []string{"gate", "--agent", "claude", "--event", "PreToolUse"}, 1},
+	{"0", []string{"hook", "Stop", "--agent", "claude"}, 0},
+	{"0", []string{"version"}, 1},
+}
+
 func TestLauncherFailsClosedWithoutFallback(t *testing.T) {
 	_, wt, env := fixture(t)
-	for _, tc := range []struct {
-		depth string
-		want  int
-	}{{"1", 2}, {"0", 1}} {
-		_, stderr, code := run(t, wt, append(env, "DUOLOG_DEPTH="+tc.depth), launcher(wt), "version")
+	for _, tc := range noBuildExits {
+		_, stderr, code := run(t, wt, append(env, "DUOLOG_DEPTH="+tc.depth), launcher(wt), tc.args...)
 		if code != tc.want {
-			t.Errorf("depth %s: exit %d, want %d, stderr: %s", tc.depth, code, tc.want, stderr)
+			t.Errorf("depth %s, %v: exit %d, want %d, stderr: %s", tc.depth, tc.args, code, tc.want, stderr)
 		}
 		if !strings.Contains(stderr, "there is no earlier build") {
-			t.Errorf("depth %s: stderr = %q", tc.depth, stderr)
+			t.Errorf("depth %s, %v: stderr = %q", tc.depth, tc.args, stderr)
 		}
 	}
 }
 
 // Two worktrees that do not build, both launchers on PATH: neither takes the
-// other's launcher for an installed duolog, so the worker stops with exit 2
-// instead of the two handing the run to each other.
+// other's launcher for an installed duolog, so the worker's gate stops with
+// exit 2 instead of the two handing the run to each other.
 func TestLauncherSkipsOtherCheckoutLaunchers(t *testing.T) {
 	main, wt, env := fixture(t)
 	wt2 := filepath.Join(filepath.Dir(wt), "wt2")
@@ -247,7 +262,7 @@ func TestLauncherSkipsOtherCheckoutLaunchers(t *testing.T) {
 	bins := filepath.Dir(launcher(wt2)) + ":" + filepath.Dir(launcher(wt))
 	env = append(env, "PATH="+bins+":"+pathWithoutDuolog(), "DUOLOG_DEPTH=1")
 	for _, tree := range []string{wt, wt2} {
-		_, stderr, code := run(t, tree, env, launcher(tree), "version")
+		_, stderr, code := run(t, tree, env, launcher(tree), "gate", "--agent", "claude")
 		if code != 2 {
 			t.Errorf("%s: exit %d, want 2, stderr: %s", tree, code, stderr)
 		}
@@ -265,7 +280,7 @@ func TestLauncherRunsNoFallbackTwice(t *testing.T) {
 	write(t, filepath.Join(installed, "duolog"), "#!/bin/sh\nexec "+launcher(wt)+" \"$@\"\n", 0o755)
 	env = append(env, "PATH="+installed+":"+pathWithoutDuolog(), "DUOLOG_DEPTH=1")
 
-	_, stderr, code := run(t, wt, env, launcher(wt), "version")
+	_, stderr, code := run(t, wt, env, launcher(wt), "gate", "--agent", "claude")
 	if code != 2 {
 		t.Errorf("exit %d, want 2, stderr: %s", code, stderr)
 	}
@@ -358,11 +373,16 @@ func windowsFixtureWith(t *testing.T, fakeGo, fakeGitScript string) (string, []s
 	return root, env, shell
 }
 
-func runPowerShellLauncher(t *testing.T, root string, env []string, shell, depth string) (string, string, int) {
+// runPowerShellLauncher runs the launcher with args, or with version when
+// there are none.
+func runPowerShellLauncher(t *testing.T, root string, env []string, shell, depth string, args ...string) (string, string, int) {
 	t.Helper()
+	if len(args) == 0 {
+		args = []string{"version"}
+	}
 	script := filepath.Join(root, "scripts", "dev", "bin", "duolog.ps1")
 	return run(t, root, append(env, "DUOLOG_DEPTH="+depth), shell,
-		"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "version")
+		append([]string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script}, args...)...)
 }
 
 // Windows PowerShell 5.1 with 'Stop' turns a redirected stderr line into a
@@ -387,25 +407,23 @@ func TestPowerShellLauncherBuildsDespiteStderr(t *testing.T) {
 }
 
 // A failed build whose stderr has lines, and a git that fails with stderr,
-// reach the fallback: a worker stops with exit 2, anyone else with 1.
+// reach the fallback: a worker's gate stops with exit 2, a hook ends with 0,
+// anything else with 1.
 func TestPowerShellLauncherFailsClosedWithoutFallback(t *testing.T) {
 	root, env, shell := windowsFixture(t, fakeGoFails)
-	for _, tc := range []struct {
-		depth string
-		want  int
-	}{{"1", 2}, {"0", 1}} {
-		stdout, stderr, code := runPowerShellLauncher(t, root, env, shell, tc.depth)
+	for _, tc := range noBuildExits {
+		stdout, stderr, code := runPowerShellLauncher(t, root, env, shell, tc.depth, tc.args...)
 		if code != tc.want {
-			t.Errorf("depth %s: exit %d, want %d, stderr: %s", tc.depth, code, tc.want, stderr)
+			t.Errorf("depth %s, %v: exit %d, want %d, stderr: %s", tc.depth, tc.args, code, tc.want, stderr)
 		}
 		if !strings.Contains(stderr, "there is no earlier build") {
-			t.Errorf("depth %s: stderr = %q, want the fallback to run", tc.depth, stderr)
+			t.Errorf("depth %s, %v: stderr = %q, want the fallback to run", tc.depth, tc.args, stderr)
 		}
 		if strings.Contains(stderr, "NativeCommandError") || strings.Contains(stderr, "fatal: not a git repository") {
-			t.Errorf("depth %s: stderr = %q, a native command's stderr escaped", tc.depth, stderr)
+			t.Errorf("depth %s, %v: stderr = %q, a native command's stderr escaped", tc.depth, tc.args, stderr)
 		}
 		if stdout != "" {
-			t.Errorf("depth %s: stdout = %q, want none", tc.depth, stdout)
+			t.Errorf("depth %s, %v: stdout = %q, want none", tc.depth, tc.args, stdout)
 		}
 	}
 	matches, err := filepath.Glob(filepath.Join(root, ".cache", "dev", "*"))
@@ -415,25 +433,22 @@ func TestPowerShellLauncherFailsClosedWithoutFallback(t *testing.T) {
 }
 
 // A missing go is a failed build, as in the POSIX launcher: the fallback
-// runs, and a worker without its gate still exits 2.
+// runs, and a worker's gate without its build still exits 2.
 func TestPowerShellLauncherTreatsMissingGoAsFailedBuild(t *testing.T) {
 	root, env, shell := windowsFixture(t, "")
-	for _, tc := range []struct {
-		depth string
-		want  int
-	}{{"1", 2}, {"0", 1}} {
-		stdout, stderr, code := runPowerShellLauncher(t, root, env, shell, tc.depth)
+	for _, tc := range noBuildExits {
+		stdout, stderr, code := runPowerShellLauncher(t, root, env, shell, tc.depth, tc.args...)
 		if code != tc.want {
-			t.Errorf("depth %s: exit %d, want %d, stderr: %s", tc.depth, code, tc.want, stderr)
+			t.Errorf("depth %s, %v: exit %d, want %d, stderr: %s", tc.depth, tc.args, code, tc.want, stderr)
 		}
 		if !strings.Contains(stderr, "go is not on PATH") || !strings.Contains(stderr, "there is no earlier build") {
-			t.Errorf("depth %s: stderr = %q, want the missing go reported and the fallback to run", tc.depth, stderr)
+			t.Errorf("depth %s, %v: stderr = %q, want the missing go reported and the fallback to run", tc.depth, tc.args, stderr)
 		}
 		if strings.Contains(stderr, "is not recognized") {
-			t.Errorf("depth %s: stderr = %q, the missing go escaped as an error", tc.depth, stderr)
+			t.Errorf("depth %s, %v: stderr = %q, the missing go escaped as an error", tc.depth, tc.args, stderr)
 		}
 		if stdout != "" {
-			t.Errorf("depth %s: stdout = %q, want none", tc.depth, stdout)
+			t.Errorf("depth %s, %v: stdout = %q, want none", tc.depth, tc.args, stdout)
 		}
 	}
 }

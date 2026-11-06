@@ -109,7 +109,7 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 	}
 	cfg, err := configfile.Load(e.Root)
 	if err != nil {
-		return nil, err
+		return nil, &configError{err}
 	}
 	reg, err := session.Open(dir)
 	if err != nil {
@@ -212,6 +212,8 @@ func deliver(ctx context.Context, e Env, event string, register, includeRoster b
 		if includeRoster {
 			data = append([]byte(roster.Line(s.cfg, s.lead.ID, s.reg)+roster.StartNote(e.Root, s.lead)+roster.LearningNote(s.cfg)+"\n"), data...)
 		}
+	} else {
+		data = configLine(event, err)
 	}
 	if extra != nil {
 		if line := extra(); line != "" {
