@@ -465,15 +465,18 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	if err != nil {
 		return noted(Entry{}, errors.Join(err, pane.release(ctx)))
 	}
-	if err := pane.launch(ctx); err != nil {
+	if err := pane.launch(ctx, envFile); err != nil {
 		_ = os.Remove(envFile)
 		return noted(Entry{}, errors.Join(err, pane.release(ctx)))
 	}
 	block, rexSession, err := e.openProjectPeer(ctx, route.Agent+"-"+role, launchArgv(exe, envFile, agentArgv(route, lead.mode, pane.permit.Process)))
+	openedEnvFile(envFile)
 	if err != nil {
-		_ = os.Remove(envFile)
-		// Only rex's own refusal shows that no pane holds the reservation.
-		if paneAbsent(err) {
+		// Rex's own refusal shows that no pane holds the reservation. So does
+		// an env file still there to take: duolog peer launch starts nothing
+		// without it, and one that read it first cannot remove it after us.
+		// A file already taken means the agent may run: the hold stays.
+		if removeErr := os.Remove(envFile); paneAbsent(err) || removeErr == nil {
 			err = errors.Join(err, pane.release(ctx))
 		}
 		return noted(Entry{}, err)
@@ -1002,7 +1005,7 @@ func Send(ctx context.Context, id, taskRef string) (err error) {
 	if entry, err = e.update(entry.ID, func(x *session.Entry) { x.TaskGeneration, x.AdmissionID = task.id(), task.id() }); err != nil {
 		return errors.Join(err, task.release(ctx))
 	}
-	if err := task.launch(ctx); err != nil {
+	if err := task.launch(ctx, ""); err != nil {
 		return errors.Join(err, e.unsent(ctx, entry, task))
 	}
 	text := taskLine(e.root, path)

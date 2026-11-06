@@ -336,6 +336,13 @@ prices in `models`. A run in progress is not
 stopped at the cap; the next admission sees what it spent. Each agent runs
 one paid task at a time.
 
+A peer pane keeps the route and the billing it opened with: its environment,
+its home folder and the settings layers of its project. Each task sent to it
+is admitted again, against the cap and the windows as they are then, and
+counts as paid when the pane opened paid. A send from a command that would
+put the pane on another route, such as a shell without the pane's API key,
+is refused; close the pane with `duolog peer close` and open it again.
+
 A finished run counts the larger of two costs: its tokens times the prices,
 and the cost the agent's CLI reports. The prices leave out fast mode and
 cloud surcharges, so the spend is a lower bound of the bill. A paid target
@@ -391,7 +398,9 @@ runs. A small tier is about a personal plan of 20 USD a month, medium a window
 about 5 times larger and large about 20 times larger. An agent with no
 measured rate yet is `small`, and so is one with a `paid` verdict or a
 workspace account. A paid run or a workspace account runs one task at a time
-per agent, even when the tier allows more sessions. A tier steps down at once
+per agent, even when the tier allows more sessions. An idle peer pane runs no
+task, so it keeps no delegation waiting; its next send waits its turn
+instead. A tier steps down at once
 and steps up only past its cut by `balance.margin`.
 
 `limits.max_live_sessions` still applies: it limits the resumable threads and

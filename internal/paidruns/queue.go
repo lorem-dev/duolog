@@ -50,9 +50,10 @@ type entry struct {
 // none, and otherwise leaves it. The agent's tier is recorded with its live
 // sessions.
 //
-// A peer send whose session still holds the open's task takes that task
-// over: the open keeps its slot, the send gets the open's estimate, and
-// nothing is reserved twice.
+// A peer send whose session still holds the open's task is admitted afresh,
+// on the cap, windows, one task and assessment as they are now, with that
+// hold set aside; admitted, it replaces the hold, so nothing is reserved
+// twice, and refused, the open keeps it. The open keeps its slot either way.
 //
 // dry decides without writing anything but the dropped tickets, to learn
 // whether a waiter's turn has come.
@@ -70,26 +71,29 @@ func (s *Store) enter(ctx context.Context, in Admission, l *line, tier TierResul
 		if !queued {
 			l.ticket = ""
 		}
-		var d Decision
-		moved := false
+		// A peer send whose session's open still holds the first task is
+		// decided without that hold, so it is not counted twice; admitted, it
+		// replaces the hold, and refused, the hold stays as it was.
+		var restore func()
 		if r.Shape == workerenv.Peer && !r.Session {
 			var err error
-			if d, moved, err = st.transfer(r, now, dry); err != nil {
+			if restore, err = st.setAsideOpenTask(r); err != nil {
 				return err
 			}
 		}
-		if !moved {
-			var err error
-			if d, err = st.decide(in, r, now); err != nil {
-				return err
-			}
-			if d.Admitted && st.ahead(d.Reservation, seq, in) {
-				live, _ := st.sessions(r.Agent)
-				d = Decision{Reservation: d.Reservation, Reason: ReasonQueue, Live: live, Limit: in.AgentLimit}
-			}
-			if d.Admitted && !dry {
-				st.Reservations[r.ID] = d.Reservation
-			}
+		d, err := st.decide(in, r, now)
+		if err != nil {
+			return err
+		}
+		if d.Admitted && st.ahead(d.Reservation, seq, in) {
+			live, _ := st.sessions(r.Agent)
+			d = Decision{Reservation: d.Reservation, Reason: ReasonQueue, Live: live, Limit: in.AgentLimit}
+		}
+		if restore != nil && (!d.Admitted || dry) {
+			restore()
+		}
+		if d.Admitted && !dry {
+			st.Reservations[r.ID] = d.Reservation
 		}
 		agentLive, totalLive := st.sessions(r.Agent)
 		if dry && d.Admitted && r.Session {
@@ -121,33 +125,28 @@ func (s *Store) enter(ctx context.Context, in Admission, l *line, tier TierResul
 	return e, nil
 }
 
-// transfer gives peer send r the task its session's open still holds, if it
-// does. The open keeps the session; the send gets its estimate. Unless dry,
-// both are written.
-func (st *State) transfer(r Reservation, now time.Time, dry bool) (Decision, bool, error) {
+// setAsideOpenTask takes the first task off the open of peer send r's
+// session, if it still holds one, so that the send is decided on the state
+// without it; restore puts it back. A send of another variant than its
+// session's is an error.
+func (st *State) setAsideOpenTask(r Reservation) (restore func(), err error) {
 	for _, id := range slices.Sorted(maps.Keys(st.Reservations)) {
 		open := st.Reservations[id]
-		if !open.Session || !open.Task || open.Agent != r.Agent || sessionKey(open) != r.SessionID {
+		if !open.Session || open.Agent != r.Agent || sessionKey(open) != r.SessionID {
 			continue
 		}
 		if open.Variant != r.Variant {
-			return Decision{}, false, fmt.Errorf("paid runs: session %s runs the %s variant, not %s", r.SessionID, open.Variant, r.Variant)
+			return nil, fmt.Errorf("paid runs: session %s runs the %s variant, not %s", r.SessionID, open.Variant, r.Variant)
 		}
-		if _, ok := st.Settled[r.ID]; ok {
-			return Decision{}, false, fmt.Errorf("paid runs: reservation %s is already settled", r.ID)
+		if !open.Task {
+			return nil, nil
 		}
-		send := r
-		send.AccountKey, send.Created = open.AccountKey, now
-		send.Estimate, send.Paid, send.Workspace = open.Estimate, open.Paid, open.Workspace
-		if !dry {
-			open.Task, open.Estimate = false, Estimate{}
-			st.Reservations[id] = open
-			st.Reservations[send.ID] = send
-		}
-		live, _ := st.sessions(r.Agent)
-		return Decision{Admitted: true, Reservation: send, Live: live}, true, nil
+		aside := open
+		aside.Task, aside.Estimate = false, Estimate{}
+		st.Reservations[id] = aside
+		return func() { st.Reservations[id] = open }, nil
 	}
-	return Decision{}, false, nil
+	return nil, nil
 }
 
 // ahead reports whether waiters older than sequence seq have the claim on

@@ -230,7 +230,17 @@ func signalList(signals []workerenv.Signal) string {
 // it is called, so a build never uses facts older than its admission or its
 // report. A lead's own argv layers, such as --settings, come before managed
 // policy, which wins as it does in the agent.
+//
+// A launch without its home folder or platform, or a worker or peer without
+// the project root it runs in, has layers duolog cannot find. They count as
+// one unreadable layer, a paid signal, so the free variant is refused rather
+// than run with its settings unread.
 func ReadLayers(_ context.Context, in workerenv.ProcessInput) ([]workerenv.LayerFacts, error) {
+	loc := in.Locations
+	if loc.Home == "" || loc.GOOS == "" || loc.Root == "" && in.Shape != workerenv.Lead {
+		return []workerenv.LayerFacts{{Layer: "locations", Unreadable: true,
+			Signals: []workerenv.Signal{{Name: "unreadable", Layer: "locations"}}}}, nil
+	}
 	var endpoints map[string]string
 	if in.Agent == "claude" && in.Config != nil {
 		endpoints = in.Config.PaidRuns.Claude.SubscriptionEndpoints

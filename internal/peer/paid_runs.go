@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,6 +25,10 @@ import (
 var recordPeer = func(reg *session.Registry, e session.Entry, limit int) error {
 	return reg.RecordLimited(e, limit)
 }
+
+// openedEnvFile runs once rex answered an open, before its env file is
+// checked; tests replace it to stand for a launcher that took the file.
+var openedEnvFile = func(string) {}
 
 // accountTimeout bounds an account state write that must happen even after
 // the command was cancelled: a record of a pane or a task that exists.
@@ -76,8 +82,10 @@ func (h *hold) id() string { return h.permit.Reservation.ID }
 
 // launch marks the start before the pane exists or the task is typed, so a
 // command that dies in between leaves the hold, never a proof of no start.
-func (h *hold) launch(ctx context.Context) error {
-	return h.gate.Store.Launch(ctx, h.id())
+// token, when set, is the pane's env file: while it is there to take, the
+// launcher started nothing, which reconciliation can prove.
+func (h *hold) launch(ctx context.Context, token string) error {
+	return h.gate.Store.LaunchWithToken(ctx, h.id(), token)
 }
 
 // attach records the pane that holds the reservation, even after the command
@@ -113,7 +121,10 @@ func (e *env) admitPane(ctx context.Context, route router.Route, lead leadInfo, 
 	}
 	var refusals []string
 	for _, variant := range variants {
-		in := peerInput(e.cfg, route, variant, lead.id, role, id, run, filepath.Dir(e.dir), e.opts.ProtectedRoots, os.Environ())
+		in, err := e.paneInput(e.root, route, variant, lead.id, role, id, run)
+		if err != nil {
+			return nil, err
+		}
 		permit, err := g.Acquire(ctx, paidruns.Request{Input: in, Family: models.Normalize(route.Agent, route.Model), Role: role,
 			Owner: paidruns.ProcessOwner(os.Getpid()), OpenPeer: true})
 		var refusal *paidruns.Refusal
@@ -127,6 +138,25 @@ func (e *env) admitPane(ctx context.Context, route router.Route, lead leadInfo, 
 		return &hold{gate: g, permit: permit}, nil
 	}
 	return nil, fmt.Errorf("%s -> lead: %s", role, strings.Join(refusals, "; "))
+}
+
+// paneInput describes the pane of route in variant that runs in root, with
+// the places its settings layers come from: the home folder, the project
+// root, this platform and the environment the pane gets, so the gate reads
+// the layers the pane will. The pane's environment is the free build's: the
+// variables that move the layers, such as CLAUDE_CONFIG_DIR and CODEX_HOME,
+// are never route names, so both variants have the same.
+func (e *env) paneInput(root string, route router.Route, variant workerenv.Variant, leadID, role, id, run string) (workerenv.ProcessInput, error) {
+	in := peerInput(e.cfg, route, variant, leadID, role, id, run, filepath.Dir(e.dir), e.opts.ProtectedRoots, os.Environ())
+	free := in
+	free.Variant = workerenv.Free
+	built, err := agentEnv(free)
+	if err != nil {
+		return workerenv.ProcessInput{}, err
+	}
+	home, _ := os.UserHomeDir()
+	in.Locations = workerenv.Locations{Home: home, Root: root, GOOS: runtime.GOOS, Environ: built.Env}
+	return in, nil
 }
 
 // refusalLine says why a pane or a send was refused, and for a full slot how
@@ -168,11 +198,24 @@ func (e *env) admitSend(ctx context.Context, entry session.Entry) (*hold, error)
 	if !open.Session {
 		return nil, fmt.Errorf("peer %s holds no account session; close it with duolog peer close %s and open it again", entry.ID, entry.ID)
 	}
+	// The send is built as the pane was, so the gate can tell whether it is
+	// still on the pane's route; it is admitted on the pane's billing class.
 	route := router.Route{Target: config.Target{Agent: entry.Agent}, Context: e.cfg.Roles[entry.Role].Context}
-	in := peerInput(e.cfg, route, open.Variant, entry.Lead, entry.Role, entry.ID, entry.Run, filepath.Dir(e.dir), e.opts.ProtectedRoots, os.Environ())
+	root := entry.WorkRoot
+	if root == "" {
+		root = e.root
+	}
+	in, err := e.paneInput(root, route, open.Variant, entry.Lead, entry.Role, entry.ID, entry.Run)
+	if err != nil {
+		return nil, err
+	}
 	permit, err := g.Acquire(ctx, paidruns.Request{Input: in, Family: open.Family, Role: entry.Role,
 		Owner: paidruns.ProcessOwner(os.Getpid()), ExistingSession: entry.AccountSessionID})
 	var refusal *paidruns.Refusal
+	if errors.As(err, &refusal) && refusal.Reason == paidruns.ReasonPaneRoute {
+		return nil, fmt.Errorf("peer %s: nothing was sent: %s, such as an API key or a settings file that this command sees otherwise; close it with duolog peer close %s and open it again",
+			entry.ID, refusal.Reason, entry.ID)
+	}
 	if errors.As(err, &refusal) {
 		return nil, fmt.Errorf("peer %s: nothing was sent: %s", entry.ID, e.refusalLine(entry.Lead, refusal))
 	}
@@ -241,10 +284,33 @@ func paneAbsent(err error) bool {
 	return errors.As(err, &rexErr) || errors.Is(err, rex.ErrSocket)
 }
 
-// billingQuestion reports a question that chooses how the agent is billed,
-// such as Claude asking whether to use an API key it found. Only the lead
-// answers it, whatever auto_answers say.
+// billingTerms are the words that make a question one that may spend money,
+// in lower case.
+var billingTerms = []string{"api key", "bill", "credit", "gateway", "payment", "purchase", "overage",
+	"usage-based", "usage based", "pay-as-you-go", "pay as you go", "extra usage"}
+
+// billingQuestion reports a question that may lead to spending, such as
+// Claude asking whether to use an API key it found or to turn on extra
+// usage. Only the lead answers it, whatever auto_answers say. The question
+// decides, not the rest of the screen: its asking sentence or an option that
+// names an API key, billing, credits, a gateway, a payment or purchase,
+// overage, usage-based or pay-as-you-go pricing or extra usage, or a
+// credential variable shown with it. Output above the question that only
+// mentions one leaves the configured answers on.
 func billingQuestion(s Screen) bool {
-	text := strings.ToLower(s.Question + "\n" + s.Text)
-	return strings.Contains(text, "api key") || strings.Contains(text, "api_key")
+	q := strings.ToLower(s.Question)
+	if strings.Contains(q, "api_key") {
+		return true
+	}
+	ask := q
+	if i := strings.Index(q, "?"); i >= 0 {
+		ask = q[:i]
+		if j := strings.LastIndexAny(ask, ".!•"); j >= 0 {
+			ask = ask[j+1:]
+		}
+	}
+	for _, o := range s.Options {
+		ask += "\n" + strings.ToLower(o.Label)
+	}
+	return slices.ContainsFunc(billingTerms, func(term string) bool { return strings.Contains(ask, term) })
 }

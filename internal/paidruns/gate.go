@@ -3,7 +3,9 @@ package paidruns
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -21,7 +23,36 @@ import (
 const (
 	ReasonUnpriced    = "no valid price"
 	ReasonCalibration = "paid calibration is not allowed"
+	// ReasonPaneRoute refuses a peer send whose process, built by this
+	// command, is not on the route its pane was admitted with: the pane's
+	// route cannot be established, so it must be opened again.
+	ReasonPaneRoute = "the pane's route cannot be established"
 )
+
+// RouteKey is a digest of the route p runs on, by names only: its agent,
+// shape and variant, the names in its environment, the route names it
+// withholds, the matched endpoint entries, its signals, its fast-mode pin and
+// its provider env_key. Unlike CacheKey it holds no config or modification
+// time, so a lowered cap or a touched file does not move it.
+func RouteKey(p workerenv.Process) string {
+	names := make([]string, 0, len(p.Env))
+	for _, pair := range p.Env {
+		name, _, _ := strings.Cut(pair, "=")
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	data, _ := json.Marshal(struct {
+		Agent                   string
+		Shape                   workerenv.Shape
+		Variant                 workerenv.Variant
+		EnvNames, Dropped, Ends []string
+		Signals                 []workerenv.Signal
+		FastPinned              bool
+		ProviderEnvKey          string
+	}{p.Agent, p.Shape, p.Variant, names, p.Dropped, p.EndpointEntries, p.Signals, p.FastPinned, p.ProviderEnvKey})
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
 
 const (
 	// pollInterval is how often a waiter checks whether its turn came. A
@@ -302,6 +333,19 @@ func (g *Gate) attempt(ctx context.Context, req Request, id string, l *line, fre
 	if e, ok := view.runEvidence(agent, s.ReadAt); ok {
 		a = Evaluate(p, s, readErr, e, g.Config, g.now())
 	}
+	if req.ExistingSession != "" {
+		// A send runs in its pane, on the route and billing class the pane
+		// was admitted with, whatever this command's environment says.
+		if open, ok := view.openSession(agent, req.ExistingSession); ok {
+			if open.Route == "" || open.Route != RouteKey(p) || open.Workspace && a.Account != "workspace" {
+				return Permit{}, Admission{}, refuse(a, ReasonPaneRoute, "close the pane and open it again"), nil
+			}
+			if open.Paid && a.Verdict != Paid {
+				a.Verdict = Paid
+				a.Signals = append(a.Signals, workerenv.Signal{Name: "pane:paid", Layer: "pane admission"})
+			}
+		}
+	}
 	switch {
 	case a.Verdict == Paid && p.Variant != workerenv.Paid:
 		return Permit{}, Admission{}, refuse(a, ReasonFreeVariantPaid, ""), nil
@@ -347,7 +391,7 @@ func (g *Gate) attempt(ctx context.Context, req Request, id string, l *line, fre
 	in := Admission{
 		Reservation: Reservation{ID: id, SessionID: req.ExistingSession, Agent: agent, Role: req.Role, Class: req.Class,
 			Family: family, Shape: p.Shape, Variant: p.Variant, Supervisor: req.Owner, Estimate: est,
-			Session: req.Input.Shape == workerenv.Worker || req.OpenPeer, Task: true, Step: step},
+			Session: req.Input.Shape == workerenv.Worker || req.OpenPeer, Task: true, Step: step, Route: RouteKey(p)},
 		Assessment: a,
 		TotalLimit: g.totalLimit(),
 		AgentLimit: tier.Limit,
@@ -455,6 +499,16 @@ func (g *Gate) CloseSession(ctx context.Context, sessionID string) error {
 		}
 		return nil
 	})
+}
+
+// openSession returns the reservation that holds agent's session id.
+func (st *State) openSession(agent, id string) (Reservation, bool) {
+	for _, r := range st.Reservations {
+		if r.Session && r.Agent == agent && sessionKey(r) == id {
+			return r, true
+		}
+	}
+	return Reservation{}, false
 }
 
 // runEvidence merges the run evidence of agent's settlements that ended
