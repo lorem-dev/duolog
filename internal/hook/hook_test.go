@@ -361,14 +361,14 @@ func TestSilentWhenNotInitialized(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-func TestDeliversExactLines(t *testing.T) {
+func TestDeliversShortLines(t *testing.T) {
 	for _, agent := range []string{"claude", "codex"} {
 		e, r, _ := setup(t, agent)
 		SessionStart(context.Background(), e)
 		raw := fmt.Sprintf("{ \"n\":1, \"from\":\"other\", \"to\":%q, \"s\":\"<exact>  bytes\" }\n", session.Address(lead(t, r, e)))
 		write(t, filepath.Join(r.Dir, "bus.ndjson"), raw)
-		if c := content(t, PostTool(context.Background(), e), "PostToolUse"); c != raw {
-			t.Fatalf("%q != %q", c, raw)
+		if c := content(t, PostTool(context.Background(), e), "PostToolUse"); c != "msg 1 other: <exact> bytes\n" {
+			t.Fatalf("%q", c)
 		}
 	}
 }
@@ -380,11 +380,11 @@ func TestDeliveryCapped(t *testing.T) {
 		send(t, b, a, fmt.Sprintf("message-%03d", i))
 	}
 	c := content(t, Prompt(context.Background(), e), "UserPromptSubmit")
-	if strings.Count(c, `"n":`) != 10 || !strings.Contains(c, "message-009") || strings.Contains(c, "message-010") || !strings.Contains(c, "duolog inbox") {
+	if strings.Count(c, "\n") != 4 || !strings.Contains(c, "message-099") || strings.Contains(c, "message-096") || !strings.HasSuffix(c, "and 97 more: duolog inbox\n") {
 		t.Fatal(c)
 	}
 	lines, err := b.Inbox(a)
-	if err != nil || len(lines) != 90 {
+	if err != nil || len(lines) != 97 {
 		t.Fatal(len(lines), err)
 	}
 }

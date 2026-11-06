@@ -121,6 +121,42 @@ func TestInboxReturnsOnlyNew(t *testing.T) {
 	}
 }
 
+func TestConsumeKeepsHeldLinesForInbox(t *testing.T) {
+	b, dir := openTestBus(t)
+	for _, s := range []string{"one", "two", "three"} {
+		sendTestMessage(t, b, Message{From: "writer", To: "reader", S: s})
+	}
+	err := b.Consume("reader", func(unread [][]byte) [][]byte {
+		if len(unread) != 3 {
+			t.Fatalf("unread = %d lines", len(unread))
+		}
+		return unread[:2]
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	if err := b.Consume("reader", func([][]byte) [][]byte { called = true; return nil }); err != nil || called {
+		t.Fatalf("second Consume: called %v, %v", called, err)
+	}
+	sendTestMessage(t, b, Message{From: "writer", To: "reader", S: "four"})
+	lines, err := b.Inbox("reader")
+	if err != nil || len(lines) != 3 {
+		t.Fatalf("Inbox = %q, %v", lines, err)
+	}
+	for i, want := range []string{"one", "two", "four"} {
+		if !bytes.Contains(lines[i], []byte(`"s":"`+want+`"`)) {
+			t.Fatalf("line %d = %q, want %s", i, lines[i], want)
+		}
+	}
+	if lines, err := b.Inbox("reader"); err != nil || len(lines) != 0 {
+		t.Fatalf("held lines came back: %q, %v", lines, err)
+	}
+	if n := bytes.Count(readBusFile(t, dir), []byte("\n")); n != 4 {
+		t.Fatalf("bus has %d lines, want 4", n)
+	}
+}
+
 func TestInboxFiltersByAddressee(t *testing.T) {
 	b, dir := openTestBus(t)
 	reader := "codex/lead.3fa9c1"
