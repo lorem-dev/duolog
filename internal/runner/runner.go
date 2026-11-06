@@ -51,8 +51,10 @@ func Launch(s Spec) []string {
 }
 
 // permissionArgs returns the native permission flags for a worker. It falls
-// back to mode.Args when Native is empty, unknown, above Mode, or not
-// plan/read-only under a read-only sandbox. A Codex workspace-write launch
+// back to mode.Args when Native is empty, unknown, above Mode, or not the
+// read-only sandbox's own default (Claude default, Codex read-only) under a
+// read-only sandbox. A Claude worker never gets plan: mode.Flags gives it
+// default, and the gate keeps level plan read-only. A Codex workspace-write launch
 // always pins network_access and writable_roots, so that Codex's own config
 // files cannot widen the worker; the extras apply only on a resolved
 // workspace-write at edits or full.
@@ -61,7 +63,7 @@ func permissionArgs(agent string, s Spec) []string {
 	_, known := mode.Rank(agent, s.Native)
 	switch {
 	case s.Native == "" || !known || mode.Lower(mode.Parse(agent, s.Native), s.Mode) != mode.Parse(agent, s.Native):
-	case s.Route.Sandbox == "read-only" && s.Native != "plan" && s.Native != "read-only":
+	case s.Route.Sandbox == "read-only" && s.Native != mode.Default(agent, mode.Plan, "read-only"):
 	default:
 		args = mode.Flags(agent, s.Native)
 		extras = agent == "codex" && s.Native == "workspace-write" && (s.Mode == mode.Edits || s.Mode == mode.Full)

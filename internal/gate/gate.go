@@ -201,11 +201,8 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	if a.Kind == "unknown" && (strings.HasPrefix(a.Target, "request_user_input") || a.Target == "AskUserQuestion") {
 		return decision(Deny, "a worker cannot ask the user; return done false with the question in needs", "ask user")
 	}
-	if a.Kind == "mcp" {
-		return mcpDecision(p, a, decision)
-	}
-	if a.Kind != "read" && a.Kind != "write" && a.Kind != "exec" && a.Kind != "net" {
-		return decision(Ask, "unknown tool requires approval", "unknown tool")
+	if d, ok := unjudged(p, a, heldReadOnly(m, lead), decision); ok {
+		return d
 	}
 	if a.Kind == "write" {
 		if lead.RoleSandbox == "read-only" || !roleCanWrite(p, a) {
@@ -304,16 +301,24 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 
 // mcpDecision allows an MCP tool only by a rule that names it. duolog cannot
 // tell whether a tool reads or writes, so no mode or role allows one by
-// itself, and full mode does not turn the ask into an allow. Denies were
-// checked before.
-func mcpDecision(p config.Policy, a Action, decision func(kind, reason, rule string) Decision) Decision {
+// itself, and full mode does not turn the ask into an allow. held, from
+// heldReadOnly, admits only a tool that a rule marks read_only or one of the
+// default read-only tools, and denies the rest. Denies were checked before.
+func mcpDecision(p config.Policy, a Action, held string, decision func(kind, reason, rule string) Decision) Decision {
 	for _, rule := range p.Rules {
-		if rule.Decision != Deny && mcpRuleAllows(rule, a) {
-			if rule.Decision == Allow {
-				return decision(Allow, "matched project policy", rule.Action+" "+rule.Match)
-			}
-			break
+		if rule.Decision == Deny || !mcpRuleAllows(rule, a) {
+			continue
 		}
+		if held != "" && !rule.ReadOnly && !defaultReadOnlyMCP(a) {
+			continue
+		}
+		if rule.Decision == Allow {
+			return decision(Allow, "matched project policy", rule.Action+" "+rule.Match)
+		}
+		break
+	}
+	if held != "" {
+		return decision(Deny, "only reads are permitted here, and no rule marks this MCP tool read_only", held)
 	}
 	if p.OnUnmatched == Deny {
 		return decision(Deny, "no matching policy rule", "on_unmatched")
@@ -372,6 +377,9 @@ func matches(r config.Rule, a Action) bool {
 func validateRule(r config.Rule) error {
 	if r.Match == "" {
 		return fmt.Errorf("empty %s permission pattern", r.Action)
+	}
+	if r.ReadOnly && (r.Action != "mcp" || r.Decision != Allow) {
+		return fmt.Errorf("read_only marks an mcp allow rule only, not %s %s %q", r.Decision, r.Action, r.Match)
 	}
 	switch r.Action {
 	case "read", "write":

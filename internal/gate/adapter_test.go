@@ -66,11 +66,14 @@ func TestNormalizeRejectsMalformed(t *testing.T) {
 	}
 }
 
+// An unknown tool asks in every mode above plan. At plan, where only the gate
+// keeps the worker read-only, it is denied (TestPlanDeniesToolsTheGateCannotJudge).
 func TestUnknownToolsAskInEveryMode(t *testing.T) {
 	p := policy(t)
-	for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
+	for _, m := range []mode.Mode{mode.Ask, mode.Edits, mode.Full} {
 		check(t, p, LeadRules{}, m, Action{Kind: "unknown", Target: "unverified-tool", Role: "implement"}, Ask)
 	}
+	check(t, p, LeadRules{}, mode.Plan, Action{Kind: "unknown", Target: "unverified-tool", Role: "implement"}, Deny)
 }
 func TestRenderMatchesEachAgentFormat(t *testing.T) {
 	data, err := os.ReadFile("testdata/hook-output-honored.json")

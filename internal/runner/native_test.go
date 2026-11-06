@@ -30,7 +30,7 @@ func TestArgvRefusesNativeAboveMode(t *testing.T) {
 		want                   string
 	}{
 		{"claude", "bypassPermissions", "workspace-write", mode.Edits, "acceptEdits"},
-		{"claude", "auto", "read-only", mode.Full, "plan"},
+		{"claude", "auto", "read-only", mode.Full, "default"},
 		{"claude", "dontAsk", "workspace-write", mode.Full, "acceptEdits"},
 		{"codex", "danger-full-access", "workspace-write", mode.Full, "workspace-write"},
 		{"codex", "workspace-write", "workspace-write", mode.Plan, "read-only"},
@@ -42,6 +42,26 @@ func TestArgvRefusesNativeAboveMode(t *testing.T) {
 			t.Errorf("%+v: %s", tc, line)
 		}
 	}
+}
+
+// A read-only role's Claude worker starts in Claude's default mode, never in
+// plan, whatever native name or level it is given; the gate keeps it
+// read-only. A Codex worker keeps its read-only sandbox.
+func TestReadOnlyClaudeWorkerNeverLaunchesInPlan(t *testing.T) {
+	for _, native := range []string{"", "plan", "default", "acceptEdits"} {
+		for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Full} {
+			s := spec(t, "claude")
+			s.Route.Sandbox, s.Mode, s.Native = "read-only", m, native
+			args := launched(t, s)
+			containsArgs(t, args, "--permission-mode", "default")
+			if slices.Contains(args, "plan") || slices.Contains(Launch(s), "plan") {
+				t.Errorf("%q at %s: %v", native, m, args)
+			}
+		}
+	}
+	c := spec(t, "codex")
+	c.Route.Sandbox, c.Mode, c.Native = "read-only", mode.Plan, "read-only"
+	containsArgs(t, launched(t, c), "-s", "read-only")
 }
 
 func TestCodexExtrasArgv(t *testing.T) {
@@ -149,6 +169,41 @@ func TestArgvTakesLaunchWordsFromTheProcess(t *testing.T) {
 	containsArgs(t, Argv(moved), "sandbox_workspace_write.network_access=true")
 	if slices.Contains(Argv(moved), "sandbox_workspace_write.network_access=false") {
 		t.Errorf("the runner added words after admission: %v", Argv(moved))
+	}
+}
+
+// Claude review 3: a Claude worker that only the gate holds read-only, at
+// level plan or in a read-only role, starts without the built-in tools that
+// are not read-only, as a second wall; Write and Edit included, as a worker
+// has no report to write. One --disallowedTools value carries them all.
+func TestHeldClaudeWorkerDisallowsWriteTools(t *testing.T) {
+	for _, tc := range []struct {
+		sandbox string
+		m       mode.Mode
+		held    bool
+	}{
+		{"read-only", mode.Full, true},
+		{"workspace-write", mode.Plan, true},
+		{"workspace-write", mode.Edits, false},
+	} {
+		s := spec(t, "claude")
+		s.Route.Sandbox, s.Mode = tc.sandbox, tc.m
+		args := launched(t, s)
+		var values []string
+		for _, a := range args {
+			if v, ok := strings.CutPrefix(a, "--disallowedTools="); ok {
+				values = append(values, v)
+			}
+		}
+		if len(values) != 1 {
+			t.Fatalf("%+v: %v", tc, args)
+		}
+		got := strings.Split(values[0], ",")
+		for _, tool := range append([]string{"Agent", "Task"}, mode.HeldDisallowedTools(false)...) {
+			if want := tool == "Agent" || tool == "Task" || tc.held; slices.Contains(got, tool) != want {
+				t.Errorf("%+v: %s in %v", tc, tool, got)
+			}
+		}
 	}
 }
 

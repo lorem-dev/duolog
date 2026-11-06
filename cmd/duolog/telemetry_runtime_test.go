@@ -39,6 +39,8 @@ func init() {
 func telemetryHome(t *testing.T) string {
 	t.Helper()
 	isolatedRouteConfig(t)
+	// Delegations here run read-only Claude workers, which need their gate.
+	claudeGateRuns(t)
 	home := os.Getenv("HOME")
 	t.Setenv("XDG_STATE_HOME", "")
 	t.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))

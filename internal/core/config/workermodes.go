@@ -40,7 +40,7 @@ const DefaultCap = 2
 
 // WorkerMode is one role or family entry.
 type WorkerMode struct {
-	Claude        string   `yaml:"claude" jsonschema_description:"Native Claude permission mode a worker starts in; it never exceeds the lead's mode. Absent means duolog's default." jsonschema:"enum=plan,enum=default,enum=acceptEdits,enum=auto,enum=bypassPermissions"`
+	Claude        string   `yaml:"claude" jsonschema_description:"Native Claude permission mode a worker starts in; it never exceeds the lead's mode. plan sets the worker's level to plan: it starts in default, and the gate keeps it read-only. Absent means duolog's default." jsonschema:"enum=plan,enum=default,enum=acceptEdits,enum=auto,enum=bypassPermissions"`
 	Codex         string   `yaml:"codex" jsonschema_description:"Native Codex sandbox a worker starts in; danger-full-access is not offered. Absent means duolog's default." jsonschema:"enum=read-only,enum=workspace-write"`
 	Network       bool     `yaml:"network" jsonschema_description:"Codex workspace-write only, role entries only: lets the worker's commands reach the network; defaults to false."`
 	WritableRoots []string `yaml:"writable_roots" jsonschema_description:"Codex workspace-write only, role entries only: absolute or ~/ folders the worker's commands may write besides the project; defaults to none."`

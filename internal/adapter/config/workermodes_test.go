@@ -339,7 +339,8 @@ func TestWorkerModesProjectRolesAndModelsCannotRaise(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if r := resolve(cfg, "implement", "haiku"); r.Native != "plan" {
+		// Level plan; a Claude worker starts in default, which the gate holds.
+		if r := resolve(cfg, "implement", "haiku"); r.Level != mode.Plan || r.Native != "default" {
 			t.Errorf("%+v", r)
 		}
 	})
@@ -354,7 +355,7 @@ func TestWorkerModesProjectRolesAndModelsCannotRaise(t *testing.T) {
 		}
 		// A ladder step, routing.learned.yaml or --use on opus or a haiku pin.
 		for _, model := range []string{"opus", "claude-3-5-haiku-20241022", "claude-opus-5-5"} {
-			if r := resolve(cfg, "implement", model); r.Native != "plan" {
+			if r := resolve(cfg, "implement", model); r.Level != mode.Plan || r.Native != "default" {
 				t.Errorf("implement on %s: %+v", model, r)
 			}
 		}

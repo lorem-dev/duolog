@@ -18,6 +18,7 @@ import (
 
 func TestDelegateCommandOnlyPrintsAnswer(t *testing.T) {
 	isolatedRouteConfig(t)
+	claudeGateRuns(t)
 	t.Setenv("DUOLOG_DEPTH", "")
 	t.Setenv("DUOLOG_LEAD", "")
 	root := t.TempDir()
