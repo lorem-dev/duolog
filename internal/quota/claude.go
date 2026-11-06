@@ -81,19 +81,20 @@ func (b *BillingFacts) mergeClaudeUsage(from BillingFacts) {
 	}
 }
 
-// claudeAuthTimeout bounds auth status. A cold Node start, the npm shim on
-// Windows or a busy machine can take seconds, so it leaves room for one
-// inside the read's own timeout, which still wins.
+// claudeAuthTimeout bounds auth status in a first read. A cold Node start,
+// the npm shim on Windows or a busy machine can take seconds, so it leaves
+// room for one inside the read's own timeout, which still wins. auth status
+// starts only after /usage has ended, so the two starts share that timeout.
 var claudeAuthTimeout = 10 * time.Second
 
 // readClaudeAuth adds the plan and route evidence of auth status to s. The
-// read is bounded separately so it stays cheap; a failed read is missing
-// route evidence, and one that times out is an unknown route,
+// read is bounded by run.authTimeout so it stays cheap; a failed read is
+// missing route evidence, and one that times out is an unknown route,
 // auth:timeout. Both are paid. It reports false only for an explicit
 // logged-out reply. The account and org of a read reply go to the identity
 // sink, whose error it returns; a failed read hands it nothing.
 func readClaudeAuth(ctx context.Context, run runner, s *Snapshot) (bool, error) {
-	authCtx, cancel := context.WithTimeout(ctx, claudeAuthTimeout)
+	authCtx, cancel := context.WithTimeout(ctx, run.authTimeout)
 	defer cancel()
 	auth := run.command(authCtx, "auth", "status", "--json")
 	pipe, err := auth.StdoutPipe()

@@ -92,6 +92,9 @@ type Reader struct {
 	// has none. Nothing else keeps them. A read whose reply never arrived
 	// calls no sink, and a sink error fails the read. Nil skips identity.
 	IdentitySink func(agent, kind string, raw []byte) error
+	// Once reads without the retry of a timed-out read, for a caller that can
+	// do without the answer and should not wait twice for it.
+	Once bool
 }
 
 // Identity kinds handed to Reader.IdentitySink: the login's account, and the
@@ -103,6 +106,10 @@ const (
 
 // errIdentity hides the sink's error, which may quote the identity.
 var errIdentity = errors.New("account identity not recorded")
+
+// ErrTimedOut is the error of a read that did not end in its budget, or
+// whose caller gave up on it.
+var ErrTimedOut = errors.New("read timed out or canceled")
 
 // Read returns the agent's quota as a free worker sees it: the process that
 // workerenv.Build makes from duolog's environment and the default
@@ -117,15 +124,35 @@ func (r Reader) Read(ctx context.Context, agent string) (Snapshot, error) {
 	return r.ReadProcess(ctx, p)
 }
 
+// retryFactor lengthens the budget of the one retry of a timed-out read.
+const retryFactor = 2
+
 // ReadProcess returns the quota that process p sees. Every read runs p's
 // argv, its prefix and settings included, with exactly p's environment, and
 // finds the CLI in that environment's PATH. On an error the snapshot holds
 // only the billing evidence the read saw, such as a reply without windows.
+//
+// A read that runs past its own budget, or whose Claude auth status runs
+// past its bound, is read once more with both budgets retryFactor times as
+// long: on a loaded machine each cold start of the CLI can take seconds,
+// and a Claude read starts it twice in a row. A caller that ends ctx, or a
+// Reader with Once set, gets no retry. A retry that fails again is a failed
+// read, as the first one was.
 func (r Reader) ReadProcess(ctx context.Context, p workerenv.Process) (Snapshot, error) {
 	timeout := r.Timeout
 	if timeout <= 0 {
 		timeout = 15 * time.Second
 	}
+	s, err := r.readOnce(ctx, p, timeout, claudeAuthTimeout)
+	if !r.Once && ctx.Err() == nil && (errors.Is(err, ErrTimedOut) || err == nil && s.Billing.timedOut()) {
+		s, err = r.readOnce(ctx, p, retryFactor*timeout, retryFactor*claudeAuthTimeout)
+	}
+	return s, err
+}
+
+// readOnce is one read of p, bounded by timeout, with auth status bounded by
+// authTimeout.
+func (r Reader) readOnce(ctx context.Context, p workerenv.Process, timeout, authTimeout time.Duration) (Snapshot, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	if len(p.Prefix) == 0 {
@@ -140,7 +167,7 @@ func (r Reader) ReadProcess(ctx context.Context, p workerenv.Process) (Snapshot,
 		return Snapshot{}, errors.New("cannot create temporary folder")
 	}
 	defer os.RemoveAll(dir)
-	run := runner{p: p, bin: bin, dir: dir}
+	run := runner{p: p, bin: bin, dir: dir, authTimeout: authTimeout}
 	if sink := r.IdentitySink; sink != nil {
 		run.identity = func(kind string, raw []byte) error { return sink(p.Agent, kind, raw) }
 	}
@@ -154,7 +181,7 @@ func (r Reader) ReadProcess(ctx context.Context, p workerenv.Process) (Snapshot,
 		err = errors.New("unknown agent")
 	}
 	if ctx.Err() != nil {
-		return Snapshot{}, errors.New("read timed out or canceled")
+		return Snapshot{}, ErrTimedOut
 	}
 	if err != nil {
 		return Snapshot{Billing: s.Billing}, err
@@ -188,11 +215,12 @@ func lookPath(name string, env []string) (string, error) {
 }
 
 // runner starts the read subprocesses of one process from its executable, in
-// a temporary folder.
+// a temporary folder. authTimeout bounds Claude's auth status.
 type runner struct {
-	p        workerenv.Process
-	bin, dir string
-	identity func(kind string, raw []byte) error
+	p           workerenv.Process
+	bin, dir    string
+	identity    func(kind string, raw []byte) error
+	authTimeout time.Duration
 }
 
 // identify hands one reply's identity fields to the sink, account first.

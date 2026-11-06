@@ -5,11 +5,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/quota"
+	"github.com/lorem-dev/duolog/internal/testbin"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -138,6 +140,35 @@ func TestPaceBalanceReadsBothAgentsAndKeepsState(t *testing.T) {
 		return quota.Snapshot{}, nil
 	}, build, dir, now); b != nil {
 		t.Errorf("off balance = %+v, want nil", b)
+	}
+}
+
+// TestPaceReadDoesNotRetry: a pace read that times out is not read again,
+// as the account gate's read is; the agent is only left out of the balance,
+// so a loaded machine waits one budget per agent on the way to a route.
+func TestPaceReadDoesNotRetry(t *testing.T) {
+	defer func(r quota.Reader) { paceReader = r }(paceReader)
+	paceReader.Timeout = time.Second
+	identityHomes(t)
+	claude := testbin.Install(t, "claude", testbin.Scenario{SleepMS: 60000})
+	cfg := testConfig()
+	cfg.Routing = config.Routing{Balance: "pace"}
+	build := func(agent string) (workerenv.Process, error) {
+		if agent != "claude" {
+			return workerenv.Process{}, errors.New("claude only")
+		}
+		return freeWorker(agent)()
+	}
+	b := PaceBalance(context.Background(), cfg, PaceRead, build, t.TempDir(), time.Now())
+	if b == nil || b.Pace["claude"].Subscription {
+		t.Fatalf("balance after a timed-out read = %+v", b)
+	}
+	calls, err := os.ReadFile(claude + ".calls.ndjson")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(strings.TrimSpace(string(calls)), "\n") + 1; n != 1 {
+		t.Fatalf("%d claude starts for one pace read, want 1:\n%s", n, calls)
 	}
 }
 

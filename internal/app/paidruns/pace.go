@@ -88,9 +88,18 @@ func PaceBalance(ctx context.Context, cfg *config.Config,
 
 // PaceRead reads the quota a process sees for DefaultPaceBalance. Tests of
 // callers replace it, so that no test runs a real agent.
-var PaceRead = func(ctx context.Context, p workerenv.Process) (quota.Snapshot, error) {
-	return quota.Reader{}.ReadProcess(ctx, p)
+var PaceRead = paceRead
+
+// paceRead is one read without the retry of a timed-out read: the balance
+// reads both agents one after the other on the way to a route, and an agent
+// whose read fails is only left out, so a loaded machine waits one budget
+// per agent. Only the account gate's read retries.
+func paceRead(ctx context.Context, p workerenv.Process) (quota.Snapshot, error) {
+	return paceReader.ReadProcess(ctx, p)
 }
+
+// paceReader is the reader of paceRead; tests shorten its timeout.
+var paceReader = quota.Reader{Once: true}
 
 // DefaultPaceBalance is PaceBalance for the agents as a free worker sees
 // them, in the user's account state folder. The worker is built from the
