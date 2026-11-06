@@ -1,0 +1,4 @@
+fits 512 bytes: true
+line: role implement: worker exploded; codex workers no longer get OPENAI_API_KEY. To let them use it, set paid_runs.codex.allow: true with a daily_cap_usd above 0 and list the key in paid_runs.codex.env.
+needs: []
+error: worker exploded

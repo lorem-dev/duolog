@@ -1,0 +1,4 @@
+posix:
+if command -v duolog >/dev/null 2>&1; then exec duolog gate --agent codex --event PermissionRequest; elif [ "${DUOLOG_DEPTH:-0}" -ge 1 ] 2>/dev/null; then exit 2; fi
+windows:
+powershell -NoProfile -NonInteractive -Command "& ([Environment]::SystemDirectory + '\where.exe') /Q ([char]36 + 'PATH:duolog'); if ([int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] -eq 0) { duolog gate --agent codex --event PermissionRequest; exit [int][scriptblock]::Create('' + [char]36 + 'LASTEXITCODE').Invoke()[0] }; if ([Environment]::GetEnvironmentVariable('DUOLOG_DEPTH') -match '^0*[1-9][0-9]*$') { exit 2 }; exit 0"

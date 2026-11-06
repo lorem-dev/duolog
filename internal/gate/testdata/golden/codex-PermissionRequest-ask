@@ -1,0 +1,1 @@
+{"hookSpecificOutput":{"decision":{"behavior":"deny","message":"duolog: needs the person's answer"},"hookEventName":"PermissionRequest"}}

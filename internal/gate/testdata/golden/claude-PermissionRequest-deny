@@ -1,0 +1,1 @@
+{"hookSpecificOutput":{"decision":{"behavior":"deny","message":"duolog: \"rm -rf\" is denied by \u003crule\u003e \u0026 policy"},"hookEventName":"PermissionRequest"}}

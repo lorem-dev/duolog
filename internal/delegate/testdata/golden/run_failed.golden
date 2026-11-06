@@ -1,0 +1,4 @@
+fits 512 bytes: true
+line: role implement: worker exploded: exit status 2
+needs: []
+error: worker exploded: exit status 2

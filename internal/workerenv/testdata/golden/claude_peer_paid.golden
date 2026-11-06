@@ -1,0 +1,65 @@
+agent: claude
+shape: peer
+variant: paid
+
+env (in order; a value only where it is fixed):
+  HOME
+  ANTHROPIC_API_KEY
+  ANTHROPIC_AUTH_TOKEN
+  ANTHROPIC_BASE_URL
+  CORP_LLM_KEY
+  GOLDEN_KEEP=kept
+  CLAUDE_PAID_EXTRA
+  PATH=<EXE_DIR><PATHSEP>/usr/bin
+  DUOLOG_DEPTH=1
+  DUOLOG_LEAD=lead-1
+  DUOLOG_ROLE=implement
+  DUOLOG_PEER=peer-1
+  DISABLE_AUTOUPDATER=1
+  CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
+
+argv prefix:
+  claude
+  --settings
+  <SETTINGS>
+
+launch words:
+
+launch argv with run flags [--run-flag value]:
+  claude
+  --settings
+  <SETTINGS>
+  --run-flag
+  value
+
+claude settings (--settings):
+  {
+    "autoMemoryEnabled": false,
+    "sandbox": {
+      "filesystem": {
+        "denyRead": [
+          "<TMP>/project/.duolog/decisions.ndjson",
+          "<TMP>/project/.duolog/requests.ndjson",
+          "<TMP>/project/.duolog/bus.ndjson",
+          "<TMP>/project/.duolog/usage.ndjson",
+          "<TMP>/project/.duolog/coauthors.ndjson",
+          "<TMP>/project/.duolog/sessions.json",
+          "<TMP>/project/.duolog/cursors",
+          "<TMP>/project/.duolog/journal",
+          "<TMP>/project/.duolog/routing.learned.yaml"
+        ]
+      }
+    }
+  }
+
+signals (name@layer):
+  env:ANTHROPIC_API_KEY@env
+  env:ANTHROPIC_API_KEY@user
+  env:ANTHROPIC_AUTH_TOKEN@env
+  fastMode@user
+
+dropped: []
+endpoint entries: [corp-gateway]
+fast pinned: false
+provider env key: ""
+cache key: 64 hex digits

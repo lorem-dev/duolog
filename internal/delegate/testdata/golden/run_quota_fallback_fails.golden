@@ -1,0 +1,5 @@
+fits 512 bytes: true
+line: role implement: codex: quota exceeded claude/implement: fallback exploded
+needs: []
+error: codex: quota exceeded
+claude/implement: fallback exploded

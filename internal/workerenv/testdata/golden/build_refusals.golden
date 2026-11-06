@@ -1,0 +1,5 @@
+paid without opt-in: process: paid_runs.claude.allow is false, so claude has no paid variant
+unknown agent: process: unknown agent "gemini"
+unknown shape: process: unknown shape "daemon"
+unknown variant: process: unknown variant "cheap"
+no config: process: no config

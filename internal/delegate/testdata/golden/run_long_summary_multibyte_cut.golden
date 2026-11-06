@@ -1,0 +1,4 @@
+fits 512 bytes: true
+line: done=true summary=é€üé€üé€ü<cut text> ... [cut; task=.duolog/tasks/<TASK>] files=a.go
+needs: []
+error: none

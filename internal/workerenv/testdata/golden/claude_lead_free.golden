@@ -1,0 +1,45 @@
+agent: claude
+shape: lead
+variant: free
+
+env (in order; a value only where it is fixed):
+  PATH=/usr/bin
+  HOME
+  ANTHROPIC_API_KEY
+  ANTHROPIC_AUTH_TOKEN
+  ANTHROPIC_BASE_URL
+  OPENAI_API_KEY
+  CODEX_API_KEY
+  CORP_LLM_KEY
+  CLAUDE_PAID_EXTRA
+  CODEX_PAID_EXTRA
+  GOLDEN_KEEP=kept
+  GOLDEN_UNLISTED
+  DUOLOG_LEAD=old-lead
+  REX_SESSION
+  DISABLE_AUTOUPDATER=0
+
+argv prefix:
+  claude
+
+launch words:
+
+launch argv with run flags [--run-flag value]:
+  claude
+  --run-flag
+  value
+
+claude settings (--settings):
+  none
+
+signals (name@layer):
+  env:ANTHROPIC_API_KEY@env
+  env:ANTHROPIC_API_KEY@user
+  env:ANTHROPIC_AUTH_TOKEN@env
+  fastMode@user
+
+dropped: []
+endpoint entries: [corp-gateway]
+fast pinned: false
+provider env key: ""
+cache key: 64 hex digits

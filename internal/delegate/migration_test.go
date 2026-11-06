@@ -22,6 +22,32 @@ func unsetEnv(t *testing.T, name string) {
 	}
 }
 
+// clearRoutes removes every variable that workerenv reads as a route for
+// either agent, so that a test does not depend on the developer's shell. A
+// test sets what it needs afterwards.
+func clearRoutes(t *testing.T) {
+	t.Helper()
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		if name == "CLAUDE_CODE_OAUTH_TOKEN" || workerenv.RouteName("claude", name, "") || workerenv.RouteName("codex", name, "") {
+			unsetEnv(t, name)
+		}
+	}
+}
+
+// The goldens must not inherit route variables from the shell.
+func TestClearRoutes(t *testing.T) {
+	for _, name := range []string{"OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK"} {
+		t.Setenv(name, "x")
+	}
+	clearRoutes(t)
+	for _, name := range []string{"OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK"} {
+		if _, set := os.LookupEnv(name); set {
+			t.Errorf("%s is still set", name)
+		}
+	}
+}
+
 // A dropped key that was the worker's only login fails the login check. duolog
 // starts no login, since a browser login would switch the person's billing,
 // and the task goes to the lead with the migration line. A server that refuses

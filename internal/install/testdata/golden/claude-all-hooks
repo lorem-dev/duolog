@@ -1,0 +1,119 @@
+{
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "duolog",
+            "args": [
+              "gate",
+              "--agent",
+              "claude",
+              "--event",
+              "PermissionRequest"
+            ],
+            "timeout": 150
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "duolog",
+            "args": [
+              "hook",
+              "PostToolUse",
+              "--agent",
+              "claude"
+            ]
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "duolog",
+            "args": [
+              "gate",
+              "--agent",
+              "claude",
+              "--event",
+              "PreToolUse"
+            ],
+            "timeout": 150
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "duolog",
+            "args": [
+              "hook",
+              "SessionEnd",
+              "--agent",
+              "claude"
+            ]
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "duolog",
+            "args": [
+              "hook",
+              "SessionStart",
+              "--agent",
+              "claude"
+            ]
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "duolog",
+            "args": [
+              "hook",
+              "wake",
+              "--agent",
+              "claude"
+            ],
+            "asyncRewake": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "duolog",
+            "args": [
+              "hook",
+              "UserPromptSubmit",
+              "--agent",
+              "claude"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

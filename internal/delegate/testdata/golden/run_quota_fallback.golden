@@ -1,0 +1,4 @@
+fits 512 bytes: true
+line: done=true summary=Completed by the other agent. files=a.go; Claude has no duolog hooks: rules are off; sandbox only
+needs: []
+error: none

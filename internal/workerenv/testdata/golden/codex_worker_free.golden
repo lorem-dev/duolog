@@ -1,0 +1,38 @@
+agent: codex
+shape: worker
+variant: free
+
+env (in order; a value only where it is fixed):
+  HOME
+  GOLDEN_KEEP=kept
+  PATH=<EXE_DIR><PATHSEP>/usr/bin
+  DUOLOG_DEPTH=1
+  DUOLOG_LEAD=lead-1
+  DUOLOG_ROLE=implement
+
+argv prefix:
+  codex
+  -c
+  check_for_update_on_startup=false
+
+launch words:
+
+launch argv with run flags [--run-flag value]:
+  codex
+  -c
+  check_for_update_on_startup=false
+  --run-flag
+  value
+
+claude settings (--settings):
+  none
+
+signals (name@layer):
+  model_provider@user
+  route:unknown-speed@user
+
+dropped: [CODEX_API_KEY CORP_LLM_KEY OPENAI_API_KEY]
+endpoint entries: []
+fast pinned: false
+provider env key: "CORP_LLM_KEY"
+cache key: 64 hex digits
