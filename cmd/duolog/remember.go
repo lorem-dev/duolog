@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/mode"
@@ -151,7 +153,19 @@ func writerRoles(cfg *config.Config) []string {
 	return roles
 }
 
+// addLearnedRule adds rule to learned.yaml once. The read, change and write hold
+// one lock, so two remember runs at once keep both rules, and the file is
+// replaced through a rename, so the gate never reads a half-written policy.
 func addLearnedRule(path string, rule config.Rule) (bool, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, err
+	}
+	lock := flock.New(filepath.Join(filepath.Dir(path), "learned.lock"))
+	if err := lock.Lock(); err != nil {
+		_ = lock.Close()
+		return false, err
+	}
+	defer func() { _ = lock.Unlock(); _ = lock.Close() }()
 	var file struct {
 		Rules []config.Rule `yaml:"rules"`
 	}
@@ -175,10 +189,24 @@ func addLearnedRule(path string, rule config.Rule) (bool, error) {
 		return false, err
 	}
 	header := "# Commands a person allowed for workers with `duolog remember`. Deny rules still win.\n"
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return false, err
+	return true, replaceFile(path, append([]byte(header), out...), 0o644)
+}
+
+// replaceFile writes data to a temporary file beside path and renames it over
+// path, so a reader sees the old file or the new one, never part of it.
+func replaceFile(path string, data []byte, perm os.FileMode) error {
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*")
+	if err != nil {
+		return err
 	}
-	return true, os.WriteFile(path, append([]byte(header), out...), 0o644)
+	defer os.Remove(f.Name())
+	_, writeErr := f.Write(data)
+	chmodErr := f.Chmod(perm)
+	closeErr := f.Close()
+	if err := errors.Join(writeErr, chmodErr, closeErr); err != nil {
+		return err
+	}
+	return store.Rename(f.Name(), path)
 }
 
 // nativePrefix turns a remembered glob into the command prefix the agents match:
