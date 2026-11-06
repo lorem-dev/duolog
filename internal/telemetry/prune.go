@@ -133,8 +133,13 @@ func (s *Store) stampDue(every time.Duration) bool {
 	return due(info.ModTime(), s.o.Now().UTC(), every)
 }
 
-// linkStamp links the dated temporary stamp in at its name; tests replace it
-// to act as a file system without hard links.
+// renameStamp moves the dated temporary stamp to its name and fails with
+// fs.ErrExist when a stamp is there already; tests replace it to act as a
+// system or file system that cannot rename without replacing.
+var renameStamp = renameNoReplace
+
+// linkStamp links the dated temporary stamp in at its name where renameStamp
+// fails; tests replace it to act as a file system without hard links.
 var linkStamp = func(r *os.Root, oldname, newname string) error { return r.Link(oldname, newname) }
 
 // stampTemp is a temporary stamp: its name holds the Unix second it was made
@@ -143,11 +148,16 @@ var stampTemp = regexp.MustCompile(`^` + regexp.QuoteMeta(stampName) + `\.new\.(
 
 // newStamp creates a missing stamp dated at the Unix epoch, so it records no
 // completed prune. The stamp appears at its name already dated: it is made
-// under a temporary name and linked in, so no one can lock it, or read it
-// as due, between its creation and its date. A file system without hard
-// links, such as exFAT, FAT32 or some SMB shares, refuses the link; there the
-// stamp is created in place and then dated, and the checks under the lock
-// decide.
+// under a temporary name and moved there, so no one can lock it, or read it
+// as due, between its creation and its date. The move is a rename that
+// refuses to replace a stamp, so the stamp never has a second name, and a
+// process that loses the race to another creator drops its temporary and
+// uses the stamp that won. Where the system or file system cannot rename
+// that way, the temporary is linked in and then removed, and for that moment
+// the stamp has two links, which openRetried waits out. A file system
+// without hard links either, such as exFAT, FAT32 or some SMB shares, refuses
+// the link too; there the stamp is created in place and then dated, and the
+// checks under the lock decide.
 func (s *Store) newStamp() error {
 	if _, err := s.root.Lstat(stampName); !errors.Is(err, fs.ErrNotExist) {
 		return nil // lockFile checks what is there
@@ -162,10 +172,17 @@ func (s *Store) newStamp() error {
 		return scrub(err)
 	}
 	f.Close()
-	defer func() { _ = s.root.Remove(tmp) }() // best effort: removeStaleStamps clears a leftover
+	// Best effort, and a no-op once renamed: removeStaleStamps clears a
+	// leftover. Windows refuses to remove a linked-in name while the stamp is
+	// open anywhere, so the removal is retried there.
+	defer func() { _ = retried(func() error { return s.root.Remove(tmp) }) }()
 	epoch := time.Unix(0, 0)
 	if err := s.root.Chtimes(tmp, epoch, epoch); err != nil {
 		return scrub(err)
+	}
+	err = renameStamp(s.root, tmp, stampName)
+	if err == nil || errors.Is(err, fs.ErrExist) {
+		return nil
 	}
 	err = linkStamp(s.root, tmp, stampName)
 	if err == nil || errors.Is(err, fs.ErrExist) {
