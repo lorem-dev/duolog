@@ -85,6 +85,9 @@ type Runner struct {
 	// interrupt or a resume after a crash removes what the cell left; ""
 	// records none.
 	Tree string
+	// Billing is each agent's budget for this run, Plan.LimitBilling of the
+	// account gate's report now; nil means the approved plan's.
+	Billing map[string]BillingBudget
 
 	rates map[string]Rate
 	// judging says Judge admits the calls, so a pause names the judge step.
@@ -489,7 +492,11 @@ func (r *Runner) admit(ctx context.Context, agent, family string, cost CellCost,
 	r.Run.Spend.Track(agent, ws)
 	// Steps run one at a time: one still open now ended without a settle.
 	r.Run.Spend.End(agent, ws)
-	d := Admit(agent, ws, cost, r.Run.Spend, r.Cfg.Calibration, held, r.Now())
+	billing := r.Billing
+	if billing == nil {
+		billing = r.Plan.Billing
+	}
+	d := AdmitBilled(agent, billing[agent], ws, cost, r.Run.Spend, r.Cfg.Calibration, held, r.Now())
 	switch {
 	case d.Admit:
 		return ws, Outcome{}, false, nil

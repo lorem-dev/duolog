@@ -119,6 +119,21 @@ func (g *Gate) Report(ctx context.Context, in workerenv.ProcessInput) (Report, e
 	return r, readErr
 }
 
+// Read reads the free quota of the worker or peer that in describes through
+// the route-aware cache: afresh when fresh is set, else a read no older than
+// the quota age limit. It returns the read and its assessment, the paid one
+// of a failed read with its error, and admits nothing.
+func (g *Gate) Read(ctx context.Context, in workerenv.ProcessInput, fresh bool) (quota.Snapshot, Assessment, error) {
+	if g.Cache == nil || g.Config == nil {
+		return quota.Snapshot{}, Assessment{}, errors.New("paid runs: the gate needs a cache and a config")
+	}
+	if in.Shape != workerenv.Worker && in.Shape != workerenv.Peer {
+		return quota.Snapshot{}, Assessment{}, fmt.Errorf("paid runs: a %s is never read", in.Shape)
+	}
+	_, s, a, err := g.Cache.Get(ctx, g.build(ctx, Request{Input: in}), g.Config, quota.RunEvidence{}, fresh)
+	return s, a, err
+}
+
 // Lines says the report in short lines. The worker's lines also carry what
 // belongs to the agent: its spend, its sessions and those of all agents, and
 // the ignored config keys.

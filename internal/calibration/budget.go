@@ -178,6 +178,15 @@ func JudgeCost(rate *Rate, cellTokens int64) CellCost {
 // part of the approved cap kept for judging: a step must leave it, and once
 // the spend alone leaves too little of it the run stops for a new approval.
 func Admit(agent string, ws []Window, cost CellCost, spend Spend, cfg config.Calibration, held float64, now time.Time) Decision {
+	return admitShare(agent, ws, cost, spend, cfg, held, now, 1)
+}
+
+// admitShare is Admit on an account of which duolog may use the share u of
+// each window. Readings, costs and spend stay in real percentage points of
+// the whole window, as the agents report them; only the limits scale: the
+// calibration caps are u of the configured ones, and the lead reserves are
+// kept of the usable part, so a window's ceiling is (100 - reserve) * u.
+func admitShare(agent string, ws []Window, cost CellCost, spend Spend, cfg config.Calibration, held float64, now time.Time, u float64) Decision {
 	five := accountWindow(ws, KindFiveHour)
 	if accountWindow(ws, KindWeekly) == nil {
 		return Decision{Stop: "quota unavailable"}
@@ -189,12 +198,12 @@ func Admit(agent string, ws []Window, cost CellCost, spend Spend, cfg config.Cal
 	}
 	for _, w := range ws {
 		used := w.UsedPercent + spend.outstanding(agent, w)
-		if w.Kind == KindWeekly && used+cost.WeeklyPct+ReserveWeekly > 100 ||
-			w.Kind == KindFiveHour && used+cost.WindowPct+ReserveWindow > 100 {
+		if w.Kind == KindWeekly && used+cost.WeeklyPct > (100-ReserveWeekly)*u ||
+			w.Kind == KindFiveHour && used+cost.WindowPct > (100-ReserveWindow)*u {
 			return Decision{Stop: "lead reserve"}
 		}
 	}
-	capWeekly := cfg.MaxWeeklyShare * 100
+	capWeekly := cfg.MaxWeeklyShare * 100 * u
 	if held > 0 && spend.WeeklyPct[agent]+held > capWeekly {
 		return Decision{Stop: "re-approve"}
 	}
@@ -202,7 +211,7 @@ func Admit(agent string, ws []Window, cost CellCost, spend Spend, cfg config.Cal
 		return Decision{Stop: "approved cap"}
 	}
 	if five != nil {
-		if spend.Own(agent, now)+cost.WindowPct > cfg.MaxWindowShare*100 {
+		if spend.Own(agent, now)+cost.WindowPct > cfg.MaxWindowShare*100*u {
 			wait := five.ResetsAt
 			if wait.IsZero() {
 				wait = now.Add(fiveHours)
@@ -433,9 +442,14 @@ func (s *Spend) End(agent string, ws []Window) {
 // QuotaCache keeps each agent's last reading for QuotaCacheTTL. A failed
 // read is not cached, and it drops the agent's earlier reading: that one no
 // longer says how much is left.
+//
+// With Shared set it keeps nothing itself: the account gate's route-aware
+// cache is the one authority on how old a reading may be, and Get passes
+// fresh on to it. Read is then unused.
 type QuotaCache struct {
-	Read QuotaReader
-	Now  func() time.Time
+	Read   QuotaReader
+	Shared func(ctx context.Context, agent string, fresh bool) ([]Window, error)
+	Now    func() time.Time
 
 	mu      sync.Mutex
 	entries map[string]quotaEntry
@@ -449,6 +463,9 @@ type quotaEntry struct {
 // Get returns the agent's windows, reading them again when fresh is set or
 // the cached reading is older than QuotaCacheTTL.
 func (q *QuotaCache) Get(ctx context.Context, agent string, fresh bool) ([]Window, error) {
+	if q.Shared != nil {
+		return q.Shared(ctx, agent, fresh)
+	}
 	now := time.Now
 	if q.Now != nil {
 		now = q.Now
