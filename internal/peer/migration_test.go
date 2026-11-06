@@ -116,7 +116,7 @@ func TestMigrationSurvivesQuestionAndError(t *testing.T) {
 			return s, err
 		}
 		_, err := Open(r.ctx, "implement")
-		if err == nil || !strings.Contains(err.Error(), "codex worker is paid") || strings.Count(err.Error(), line) != 1 || !strings.HasSuffix(err.Error(), "; "+line) {
+		if err == nil || !strings.Contains(err.Error(), "codex peer is paid") || strings.Count(err.Error(), line) != 1 || !strings.HasSuffix(err.Error(), "; "+line) {
 			t.Fatalf("%v", err)
 		}
 		if len(r.spawns()) != 0 {

@@ -131,7 +131,8 @@ func (s *Store) Reconcile(ctx context.Context, in ReconcileInput) error {
 				delete(st.Reservations, id)
 			case end:
 				if _, settled := st.Settled[id]; r.Task && !settled {
-					recovered := Settlement{ID: id, Agent: r.Agent, AccountKey: r.AccountKey, Started: true, Ended: now}
+					recovered := Settlement{ID: id, Agent: r.Agent, AccountKey: r.AccountKey, Started: true, Ended: now,
+						Windows: r.Estimate.Windows}
 					recovered.ChargedUSD = charge(r, recovered)
 					st.Settled[id] = recovered
 				}

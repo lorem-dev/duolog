@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -18,6 +20,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/delegate"
 	"github.com/lorem-dev/duolog/internal/models"
+	"github.com/lorem-dev/duolog/internal/paidruns"
 	"github.com/lorem-dev/duolog/internal/router"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
@@ -327,18 +330,50 @@ func keepRunLog(runErr error, tempLog, logPath string) error {
 	return errors.New(strings.ReplaceAll(runErr.Error(), tempLog, logPath))
 }
 
-func askSkill(cmd *cobra.Command, cfg *config.Config, root, work, prompt string, target config.Target) (runner.Result, router.Route, error) {
-	route := router.Route{Target: target}
+func askSkill(cmd *cobra.Command, cfg *config.Config, root, work, prompt string, target config.Target) (result runner.Result, route router.Route, err error) {
+	route = router.Route{Target: target}
 	model, err := models.Resolve(cmd.Context(), cfg, filepath.Join(root, ".duolog", "cache"), target)
 	if err != nil {
 		return runner.Result{}, route, err
 	}
 	route.Model = model
 	// The free worker process: no API key, fast mode pinned off, minimal
-	// context and no state folder, as a skill test needs.
-	p, err := workerenv.Build(workerenv.ProcessInput{Agent: target.Agent, Shape: workerenv.Worker, Variant: workerenv.Free,
-		Config: cfg, Environ: os.Environ(), Role: "skill_test", Minimal: true})
+	// context and no state folder, as a skill test needs. The account gate
+	// admits it like any worker, in the free variant only: a skill test never
+	// spends money, so a paid route is refused before any model call.
+	ctx := cmd.Context()
+	g, err := delegate.NewGate(cfg)
 	if err != nil {
+		return runner.Result{}, route, err
+	}
+	home, _ := os.UserHomeDir()
+	environ := os.Environ()
+	in := workerenv.ProcessInput{Agent: target.Agent, Shape: workerenv.Worker, Variant: workerenv.Free,
+		Config: cfg, Environ: environ, Role: "skill_test", Minimal: true,
+		Locations: workerenv.Locations{Home: home, Root: work, GOOS: runtime.GOOS, Environ: environ}}
+	permit, err := g.Acquire(ctx, paidruns.Request{Input: in, Family: models.Normalize(target.Agent, model),
+		Role: "skill_test", Owner: paidruns.ProcessOwner(os.Getpid()), Wait: paidruns.SessionWait(cfg)})
+	var refusal *paidruns.Refusal
+	if errors.As(err, &refusal) {
+		return runner.Result{}, route, fmt.Errorf("refused, no model call made; a skill test runs only free: %s", delegate.RefusalLine(refusal))
+	}
+	if err != nil {
+		return runner.Result{}, route, err
+	}
+	started := false
+	defer func() {
+		// One settlement of what the run measured, also when it failed or
+		// was cancelled; a run that never started gives its hold back.
+		settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), skillSettleTimeout)
+		defer cancel()
+		s := paidruns.Settlement{Input: result.Usage.Input, Cached: result.Usage.Cached, Output: result.Usage.Output,
+			ReportedUSD: result.ReportedUSD, Evidence: result.Billing, Started: started, CompleteUsage: started && result.UsageComplete}
+		if priced, ok := usage.Cost(cfg, route.Agent, route.Model, result.Usage); ok && priced >= 0 {
+			s.PricedUSD = priced
+		}
+		err = errors.Join(err, g.Finish(settleCtx, permit, s))
+	}()
+	if err = g.Store.Launch(ctx, permit.Reservation.ID); err != nil {
 		return runner.Result{}, route, err
 	}
 	// A fresh cwd removes project instructions. Explicit overrides disable every
@@ -347,6 +382,17 @@ func askSkill(cmd *cobra.Command, cfg *config.Config, root, work, prompt string,
 	if target.Agent == "codex" {
 		bridge.CodexArgs = capability.CodexOff(work)
 	}
-	result, err := runner.Run(cmd.Context(), runner.Spec{Route: route, SkillTest: true, TaskDir: work, Cwd: work, Stdin: []byte(prompt), Process: &p, MCP: bridge, Timeout: 10 * time.Minute})
+	spec := runner.Spec{Route: route, SkillTest: true, TaskDir: work, Cwd: work, Stdin: []byte(prompt), Process: &permit.Process, MCP: bridge, Timeout: 10 * time.Minute}
+	spec.Started = func(pid int) error {
+		started = true
+		attachCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), skillSettleTimeout)
+		defer cancel()
+		return g.Store.Attach(attachCtx, permit.Reservation.ID, paidruns.ProcessOwner(pid))
+	}
+	result, err = runner.Run(ctx, spec)
 	return result, route, err
 }
+
+// skillSettleTimeout bounds recording and settling a skill test run, also
+// after the command was cancelled.
+const skillSettleTimeout = 10 * time.Second

@@ -66,6 +66,12 @@ type Permit struct {
 	Process     workerenv.Process
 	Assessment  Assessment
 	Reservation Reservation
+	// Snapshot is the quota read the admission used. Finish learns window
+	// rates from it and a read after an ordinary worker's run.
+	Snapshot quota.Snapshot
+	// calibration marks a calibration cell, whose steps feed the rate
+	// learner themselves.
+	calibration bool
 }
 
 // Gate is the one admission path of every worker run, calibration cell and
@@ -104,6 +110,9 @@ type Refusal struct {
 	Live, Limit           int
 	TotalLive, TotalLimit int
 	Waited                time.Duration
+	// OptedIn says the agent already has paid_runs allow with a cap, so the
+	// advice to set it does not apply.
+	OptedIn bool
 }
 
 // Slot reports whether a slot or the one-task rule refused the request:
@@ -273,14 +282,24 @@ func (g *Gate) check(req Request) error {
 // a build and an assessment, the estimate and tier, and the locked entry.
 // fresh reads the quota again whatever the cache holds. It returns the
 // permit, or the refusal, and the admission it tried, which a waiter checks
-// its turn with.
+// its turn with. An account that changed between the read and the entry is
+// read again once, so its rates and tier are its own; a second change is
+// refused.
 func (g *Gate) attempt(ctx context.Context, req Request, id string, l *line, fresh bool) (Permit, Admission, *Refusal, error) {
+	permit, in, refusal, err := g.attemptOnce(ctx, req, id, l, fresh)
+	if err == nil && refusal != nil && refusal.Reason == ReasonAccountChanged {
+		return g.attemptOnce(ctx, req, id, l, true)
+	}
+	return permit, in, refusal, err
+}
+
+func (g *Gate) attemptOnce(ctx context.Context, req Request, id string, l *line, fresh bool) (Permit, Admission, *Refusal, error) {
 	agent := req.Input.Agent
 	family := models.Normalize(agent, req.Family)
 	paid := g.Config.PaidRuns.Agent(agent)
 	refuse := func(a Assessment, reason, detail string) *Refusal {
 		return &Refusal{Agent: agent, Shape: req.Input.Shape, Variant: req.Input.Variant, Reason: reason, Detail: detail,
-			Verdict: a.Verdict, Signals: a.Signals}
+			Verdict: a.Verdict, Signals: a.Signals, OptedIn: optedIn(g.Config.PaidRuns, agent)}
 	}
 	if req.Input.Variant == workerenv.Paid && !optedIn(g.Config.PaidRuns, agent) {
 		return Permit{}, Admission{}, refuse(Assessment{}, ReasonNotAllowed,
@@ -289,16 +308,18 @@ func (g *Gate) attempt(ctx context.Context, req Request, id string, l *line, fre
 	if err := g.reconcile(ctx); err != nil {
 		return Permit{}, Admission{}, nil, err
 	}
+	p, s, a, readErr := g.Cache.Get(ctx, g.build(ctx, req), g.Config, quota.RunEvidence{}, fresh)
+	if a.Agent == "" {
+		return Permit{}, Admission{}, nil, readErr
+	}
+	// The state after the read: an identity the read found has already
+	// dropped the old account's rates and tier.
 	var view State
 	if err := g.Store.Update(ctx, func(st *State) error { view = *st; return nil }); err != nil {
 		return Permit{}, Admission{}, nil, err
 	}
 	gone := goneWaiters(view.Tickets, l.ticket, g.probe())
-
-	p, s, a, readErr := g.Cache.Get(ctx, g.build(ctx, req), g.Config, quota.RunEvidence{}, fresh)
-	if a.Agent == "" {
-		return Permit{}, Admission{}, nil, readErr
-	}
+	accountKey := view.AccountKeys[agent+"/"+quota.IdentityAccount]
 	if e, ok := view.runEvidence(agent, s.ReadAt); ok {
 		a = Evaluate(p, s, readErr, e, g.Config, g.now())
 	}
@@ -318,7 +339,7 @@ func (g *Gate) attempt(ctx context.Context, req Request, id string, l *line, fre
 	case err != nil && !errors.Is(err, ErrUnpriced):
 		return Permit{}, Admission{}, nil, err
 	}
-	fingerprint := Fingerprint(agent, view.AccountKeys[agent+"/"+quota.IdentityAccount], s)
+	fingerprint := Fingerprint(agent, accountKey, s)
 	samples := slices.DeleteFunc(slices.Clone(view.Samples), func(r RateSample) bool {
 		return r.Agent != agent || r.Fingerprint != fingerprint
 	})
@@ -351,6 +372,8 @@ func (g *Gate) attempt(ctx context.Context, req Request, id string, l *line, fre
 		Assessment: a,
 		TotalLimit: g.totalLimit(),
 		AgentLimit: tier.Limit,
+		ReadAt:     s.ReadAt,
+		accountKey: &accountKey,
 	}
 	if p.Variant == workerenv.Paid {
 		in.DailyCapUSD = paid.DailyCapUSD
@@ -360,7 +383,8 @@ func (g *Gate) attempt(ctx context.Context, req Request, id string, l *line, fre
 		return Permit{}, Admission{}, nil, err
 	}
 	if e.Admitted {
-		return Permit{Process: p, Assessment: a, Reservation: e.Reservation}, in, nil, nil
+		return Permit{Process: p, Assessment: a, Reservation: e.Reservation, Snapshot: s,
+			calibration: req.Calibration}, in, nil, nil
 	}
 	r := refuse(a, e.Reason, "")
 	r.EstimateUSD, r.EstimateSource = est.USD, est.Source
@@ -385,7 +409,9 @@ func (g *Gate) turn(ctx context.Context, last Admission, l *line) (entry, error)
 
 // build returns the builder of req's process: the gate's config, the
 // provider env_key an earlier read found, and the settings layers read
-// again when the gate has a reader.
+// again when the gate has a reader. The layers are found with the
+// environment the process gets, not duolog's: a CLAUDE_CONFIG_DIR or
+// CODEX_HOME that env_passthrough does not pass moves no layer.
 func (g *Gate) build(ctx context.Context, req Request) func() (workerenv.Process, error) {
 	return func() (workerenv.Process, error) {
 		in := req.Input
@@ -394,6 +420,11 @@ func (g *Gate) build(ctx context.Context, req Request) func() (workerenv.Process
 			in.ProviderEnvKey = g.Cache.ProviderEnvKey(in.Agent)
 		}
 		if g.Layers != nil {
+			own, err := workerenv.Build(in)
+			if err != nil {
+				return workerenv.Process{}, err
+			}
+			in.Locations.Environ = own.Env
 			layers, err := g.Layers(ctx, in)
 			if err != nil {
 				return workerenv.Process{}, err
@@ -408,8 +439,53 @@ func (g *Gate) build(ctx context.Context, req Request) func() (workerenv.Process
 // never started releases its reservation, uncharged; a started one, or one
 // the state shows started, settles once, as Store.Settle charges it. A
 // worker's session ends with its task; a pane keeps its session until
-// CloseSession.
+// CloseSession. After an ordinary worker's run, Finish learns window rates
+// from it, as learn says.
 func (g *Gate) Finish(ctx context.Context, p Permit, s Settlement) error {
+	if err := g.settle(ctx, p, s); err != nil {
+		return err
+	}
+	g.learn(ctx, p, s)
+	return nil
+}
+
+// learnTimeout bounds the quota read after a run that learn makes.
+const learnTimeout = 20 * time.Second
+
+// learn feeds the rate learner one ordinary worker run: the movement of the
+// windows between its admission's read and a read made now, over the run's
+// tokens, in real units. Only a started run with complete usage, of a
+// verdict that is not paid and on the account it was admitted for, counts;
+// a pane, a calibration cell, whose steps observe themselves, and a run
+// whose context ended learn nothing. The read runs no model and spends no
+// tokens. A failed read or observation learns nothing, which leaves the
+// rates and the tier as they are.
+func (g *Gate) learn(ctx context.Context, p Permit, s Settlement) {
+	r := p.Reservation
+	if p.calibration || r.Shape != workerenv.Worker || p.Assessment.Verdict == Paid || !s.Started || !s.CompleteUsage ||
+		p.Snapshot.ReadAt.IsZero() || r.Family == "" || g.Cache == nil || g.Cache.Read == nil || ctx.Err() != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), learnTimeout)
+	defer cancel()
+	after, err := g.Cache.Read(ctx, p.Process)
+	if err != nil {
+		return
+	}
+	key := ""
+	if g.Store.View(ctx, func(st State) error {
+		key = st.AccountKeys[r.Agent+"/"+quota.IdentityAccount]
+		return nil
+	}) != nil || key != r.AccountKey {
+		return
+	}
+	_ = g.Store.Observe(ctx, g.Config, Interval{Agent: r.Agent, Family: r.Family,
+		Fingerprint: Fingerprint(r.Agent, key, after), Before: p.Snapshot, After: after,
+		Input: s.Input, Cached: s.Cached, Output: s.Output})
+}
+
+// settle is Finish's settlement.
+func (g *Gate) settle(ctx context.Context, p Permit, s Settlement) error {
 	s.ID, s.Agent = p.Reservation.ID, p.Reservation.Agent
 	if !s.Started {
 		var started bool
@@ -446,7 +522,8 @@ func (g *Gate) CloseSession(ctx context.Context, sessionID string) error {
 			}
 			if r.Task && !r.Session && (r.Started || r.Launching || r.Child != Owner{}) {
 				if _, ok := st.Settled[id]; !ok {
-					ended := Settlement{ID: id, Agent: r.Agent, AccountKey: r.AccountKey, Started: true, Ended: now}
+					ended := Settlement{ID: id, Agent: r.Agent, AccountKey: r.AccountKey, Started: true, Ended: now,
+						Windows: r.Estimate.Windows}
 					ended.ChargedUSD = charge(r, ended)
 					st.Settled[id] = ended
 				}

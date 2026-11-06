@@ -113,7 +113,7 @@ func TestAttemptSettlementOnCancelRetryAndFallback(t *testing.T) {
 		h := newHarness(t)
 		reported := 0.25
 		h.results = []runner.Result{{AuthFailed: true, Usage: runner.Usage{Input: 100, Cached: 40, Output: 10}, UsageKnown: true,
-			ReportedUSD: &reported, Billing: quota.RunEvidence{Expected: true, Seen: true, UsingOverage: true}}}
+			UsageComplete: true, ReportedUSD: &reported, Billing: quota.RunEvidence{Expected: true, Seen: true, UsingOverage: true}}}
 		h.auth.login = auth.LoggedIn
 		o, err := h.run("implement")
 		if err != nil || !strings.HasPrefix(o.Line, "done=true") {

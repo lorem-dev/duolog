@@ -95,6 +95,10 @@ type Settlement struct {
 	Started       bool              `json:"started,omitempty"`
 	CompleteUsage bool              `json:"complete_usage,omitempty"`
 	Ended         time.Time         `json:"ended"`
+	// Windows are the window costs the task held, kept so that an admission
+	// whose quota read predates the end still counts them. The Store sets
+	// them; a caller's are ignored.
+	Windows []WindowCost `json:"windows,omitempty"`
 }
 
 // RateSample is a learned window rate of one agent, family and account

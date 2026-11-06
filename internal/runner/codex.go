@@ -68,7 +68,7 @@ func codexEvent(data []byte, result *Result) {
 		result.Usage.Input += event.Usage.Input
 		result.Usage.Cached += event.Usage.Cached
 		result.Usage.Output += event.Usage.Output
-		result.UsageKnown = true
+		result.UsageKnown, result.UsageComplete = true, true
 	}
 }
 
