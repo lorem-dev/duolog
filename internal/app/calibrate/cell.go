@@ -133,7 +133,7 @@ func RunCell(ctx context.Context, env CellEnv, c Cell, t TaskRecord, start Start
 	if err != nil {
 		return r, err
 	}
-	cleanup, err := NewTreeAt(ctx, env.Root, t.Parent, tree, claudeEnv)
+	cleanup, err := env.NewTreeAt(ctx, env.Root, t.Parent, tree, claudeEnv)
 	if err != nil {
 		return r, err
 	}
@@ -142,7 +142,7 @@ func RunCell(ctx context.Context, env CellEnv, c Cell, t TaskRecord, start Start
 		r.State, r.Reason = CellLeakage, err.Error()
 		return r, saveCell(dir, r, false)
 	}
-	if err := CheckTreeTrust(entry.Agent, tree, workerEnv); err != nil {
+	if err := env.CheckTreeTrust(entry.Agent, tree, workerEnv); err != nil {
 		return r, fmt.Errorf("calibration cell %s: %w", c.ID, err)
 	}
 	taskPath := filepath.Join(dir, "task.md")

@@ -22,6 +22,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/coauthor"
+	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
@@ -32,8 +33,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
-	"github.com/lorem-dev/duolog/internal/trust"
-	"github.com/lorem-dev/duolog/internal/trusthome"
 )
 
 type Outcome struct {
@@ -469,8 +468,9 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		// The hooks, approvals and folder trust the worker loads are those its
 		// own environment selects, not duolog's.
 		protected := append(slices.Clone(opts.ProtectedRoots), filepath.Join(root, ".duolog"), s.Dir)
-		state, folder, trustErr := gateState(route.Agent, root, pre.Env)
-		noHome := errors.Is(trustErr, trusthome.ErrNoHome)
+		agentTrust := d.Agents[route.Agent].Trust
+		state, folder, trustErr := gateState(agentTrust, root, pre.Env)
+		noHome := errors.Is(trustErr, coreagent.ErrNoHome)
 		switch {
 		case noHome && wm.needsPreflight():
 			// Nothing the worker's agent loads can be read, so nothing shows
@@ -480,14 +480,14 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 			// The worker runs as one without duolog's hooks would, and the lead
 			// learns why. Claude needs no hook approval or folder trust.
 			claude := route.Agent == "claude"
-			state, folder, trustErr = trust.State{Trusted: claude}, claude, nil
+			state, folder, trustErr = coreagent.TrustState{Trusted: claude}, claude, nil
 		}
 		if trustErr != nil {
 			return out, trustErr
 		}
 		// A calibration cell's promise is that none runs without the gate.
 		if opts.Calibration {
-			if err = calibrationGate(route.Agent, root, pre.Env); err != nil {
+			if err = calibrationGate(agentTrust, route.Agent, root, pre.Env); err != nil {
 				return out, err
 			}
 		}
@@ -616,7 +616,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 					}
 				}
 				if opts.Calibration {
-					if err := calibrationGate(route.Agent, root, a.permit.Process.Env); err != nil {
+					if err := calibrationGate(agentTrust, route.Agent, root, a.permit.Process.Env); err != nil {
 						return nil, nil, errors.Join(err, a.release(ctx))
 					}
 				}

@@ -6,11 +6,10 @@ import (
 	"os"
 	"sort"
 
+	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/trust"
-	"github.com/lorem-dev/duolog/internal/trusthome"
 )
 
 // workerModeFindings reports the worker_modes entries: one info line per agent
@@ -134,18 +133,22 @@ func gateProblem(d Deps, cfg *config.Config, agent, root string) string {
 
 // envGateProblem is gateProblem for the worker environment env.
 func envGateProblem(d Deps, agent, root string, env []string) string {
-	state, err := trust.HooksEnv(agent, root, env)
+	t := d.Agents[agent].Trust
+	if t == nil {
+		return "the hook trust of " + agent + " cannot be read, so its gate cannot be shown to run"
+	}
+	state, err := t.Hooks(root, env)
 	if err != nil {
 		return workerEnvError(err)
 	}
-	folder, err := trust.FolderEnv(agent, root, env)
+	folder, err := t.Folder(root, env)
 	if err != nil {
 		return workerEnvError(err)
 	}
-	if problem := trust.GateProblem(agent, state, folder); problem != "" {
+	if problem := t.GateProblem(state, folder); problem != "" {
 		return problem
 	}
-	if _, err := d.GateBinary("PATH=" + trusthome.Getenv(env, "PATH")); err != nil {
+	if _, err := d.GateBinary("PATH=" + corelaunch.Getenv(env, "PATH")); err != nil {
 		return err.Error()
 	}
 	return ""
@@ -154,7 +157,7 @@ func envGateProblem(d Deps, agent, root string, env []string) string {
 // workerEnvError words a read error, and names the passthrough when the
 // worker's environment has no home folder.
 func workerEnvError(err error) string {
-	if errors.Is(err, trusthome.ErrNoHome) {
+	if errors.Is(err, coreagent.ErrNoHome) {
 		return err.Error() + " for the worker, so the settings its agent loads cannot be read; add it to env_passthrough"
 	}
 	return err.Error()

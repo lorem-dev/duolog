@@ -19,7 +19,6 @@ import (
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/gate"
-	"github.com/lorem-dev/duolog/internal/trusthome"
 )
 
 // workerModes writes a user-level worker_modes section and reloads the config.
@@ -523,7 +522,7 @@ func TestWorkerKeepsPlanWhenItsLeadLoosens(t *testing.T) {
 			t.Fatal("the lead did not move:", live, err)
 		}
 		env := h.calls[len(h.calls)-1].Process.Env
-		m := gate.WorkerMode(live, trusthome.Getenv(env, "DUOLOG_MODE"))
+		m := gate.WorkerMode(live, corelaunch.Getenv(env, "DUOLOG_MODE"))
 		lead := gate.LeadRules{RoleSandbox: h.cfg.Roles["review_final"].Sandbox}
 		for _, a := range []gate.Action{
 			{Kind: "exec", Target: "touch marker.txt", Role: "review_final"},

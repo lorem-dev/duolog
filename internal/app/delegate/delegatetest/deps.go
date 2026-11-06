@@ -12,6 +12,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/workertest"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	leadio "github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/lead/leadtest"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
@@ -53,13 +54,19 @@ func Deps(t *testing.T) delegate.Deps {
 
 // Deps returns the fakes as delegate.Deps.
 func (f *Fake) Deps() delegate.Deps {
+	// The fake workers start nothing but give the launch words of the real
+	// agents, so the process the gate admits is the one a real run builds.
+	// Trust is the real reader, from Agents.
+	agents := Agents()
+	for _, name := range []string{"claude", "codex"} {
+		a := agents[name]
+		a.Worker = &Worker{f: f, launch: workertest.For(name).Launch}
+		a.Models = models{}
+		a.Login = Login{Agent: name}
+		agents[name] = a
+	}
 	return delegate.Deps{
-		// The fake workers start nothing but give the launch words of the real
-		// agents, so the process the gate admits is the one a real run builds.
-		Agents: map[string]delegate.Agent{
-			"claude": {Worker: &Worker{f: f, launch: workertest.For("claude").Launch}, Models: models{}, Login: Login{Agent: "claude"}},
-			"codex":  {Worker: &Worker{f: f, launch: workertest.For("codex").Launch}, Models: models{}, Login: Login{Agent: "codex"}},
-		},
+		Agents:   agents,
 		RunLogin: declineLogins,
 		Lead:     map[string]leadio.Lead{"claude": &leadtest.Fake{}, "codex": &leadtest.Fake{}},
 		ScanCapabilities: func(_ context.Context, agent, _ string, _ []string) (capability.Inventory, error) {
@@ -78,6 +85,17 @@ func (f *Fake) Deps() delegate.Deps {
 		GateBinary: func(string) (string, error) { return filepath.Join(string(filepath.Separator), "duolog"), nil },
 		Canonical:  filepath.Clean,
 	}
+}
+
+// Agents are the registered agents with their real trust readers, which read
+// the home folder the test sets: trust is a file read, not a process or an
+// account, so it needs no fake here. Use Trust for a scripted one.
+func Agents() map[string]delegate.Agent {
+	out := map[string]delegate.Agent{}
+	for name, t := range launchtest.Trusts() {
+		out[name] = delegate.Agent{Trust: t}
+	}
+	return out
 }
 
 // models resolves every target to its own model name, with no catalog.

@@ -3,12 +3,13 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
+	"github.com/lorem-dev/duolog/internal/adapter/codex"
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/app/sync"
 	"github.com/lorem-dev/duolog/internal/store"
-	"github.com/lorem-dev/duolog/internal/trust"
 	"github.com/spf13/cobra"
 )
 
@@ -61,7 +62,7 @@ func newSyncCommand(d *cmdDeps) *cobra.Command {
 			fmt.Fprintln(errOut, "refused: "+c)
 		}
 		if !o.DryRun && !o.Check && wroteCodexAgent(rep.Written) {
-			if ok, err := trust.Folder("codex", root); err == nil && !ok {
+			if ok, err := (codex.Trust{}).Folder(root, os.Environ()); err == nil && !ok {
 				fmt.Fprintln(errOut, "note: Codex loads project agent files only in a trusted folder; trust this folder in Codex to use them.")
 			}
 		}

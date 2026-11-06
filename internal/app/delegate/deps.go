@@ -9,6 +9,7 @@ import (
 	leadio "github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/capability"
+	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/run"
@@ -28,10 +29,12 @@ type ModelResolver interface {
 }
 
 // Agent is what Run reaches of one agent. Later ports add their fields here.
+// A nil Trust fails closed: an agent with no Trust reads as untrusted.
 type Agent struct {
 	Worker Worker
 	Models ModelResolver
 	Login  Login
+	Trust  Trust
 }
 
 // checker returns the checker of the worker process p: the real one over the
@@ -62,6 +65,19 @@ type Request struct {
 	StateDir               string // the project's .duolog folder
 	Role, TaskPath, Thread string
 	Options                Options
+}
+
+// Trust reads what an agent's settings and approvals say about duolog's
+// hooks. Hooks and Folder read the state of a process whose environment is
+// environ; an environment without a home folder is an error that wraps
+// agent.ErrNoHome. GateProblem words why the gate cannot be shown to run
+// from that state, and HeldGateProblem why a launch that only the gate keeps
+// read-only cannot be shown to run it; both are empty when it can.
+type Trust interface {
+	Hooks(root string, environ []string) (coreagent.TrustState, error)
+	Folder(root string, environ []string) (bool, error)
+	GateProblem(s coreagent.TrustState, folder bool) string
+	HeldGateProblem(root string, environ []string, gate string) string
 }
 
 // Deps is what Run reaches outside the package: the worker's process, the

@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/claude"
 	"github.com/lorem-dev/duolog/internal/adapter/kit"
 	"github.com/lorem-dev/duolog/internal/adapter/mcpauth"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
@@ -141,11 +142,13 @@ func ProfileDeps(d delegate.Deps) profile.Deps {
 // DoctorDeps fills every field of doctor.Deps with the real function.
 func DoctorDeps(d delegate.Deps) doctor.Deps {
 	return doctor.Deps{
-		PaidGate:    func(cfg *config.Config) (*paidruns.Gate, error) { return d.PaidGate(cfg) },
-		GateBinary:  workerenv.GateBinary,
-		Build:       workerenv.Build,
-		LookPath:    workerenv.LookPath,
-		DroppedKeys: workerenv.DroppedKeys,
+		PaidGate:     func(cfg *config.Config) (*paidruns.Gate, error) { return d.PaidGate(cfg) },
+		GateBinary:   workerenv.GateBinary,
+		Build:        workerenv.Build,
+		LookPath:     workerenv.LookPath,
+		DroppedKeys:  workerenv.DroppedKeys,
+		Agents:       doctorAgents(),
+		ClaudeFolder: claude.ClaudeFolder,
 	}
 }
 

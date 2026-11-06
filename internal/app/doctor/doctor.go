@@ -18,11 +18,11 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/capability"
+	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/install"
-	"github.com/lorem-dev/duolog/internal/trust"
 )
 
 // FixtureVersions is the single source of versions used to collect the fixtures.
@@ -81,18 +81,21 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 		}
 		add("info", fmt.Sprintf("duolog install offer in %s: present=%t", path, present))
 	}
-	folder, err := trust.Folder("codex", root)
-	if err != nil {
-		add("warning", "Codex folder trust: "+err.Error())
-	}
-	hooks, err := trust.Hooks("codex", root)
-	if err != nil {
-		add("warning", "Codex hook trust: "+err.Error())
+	var folder bool
+	var hooks coreagent.TrustState
+	if t := d.Agents["codex"].Trust; t != nil {
+		var err error
+		if folder, err = t.Folder(root, os.Environ()); err != nil {
+			add("warning", "Codex folder trust: "+err.Error())
+		}
+		if hooks, err = t.Hooks(root, os.Environ()); err != nil {
+			add("warning", "Codex hook trust: "+err.Error())
+		}
 	}
 	add("info", fmt.Sprintf("Codex hooks approved=%t folder trusted=%t", hooks.Trusted, folder))
 	if home, err := os.UserHomeDir(); err != nil {
 		add("info", "Claude folder trust: unknown")
-	} else if trusted, known := trust.ClaudeFolder(home, root); !known {
+	} else if trusted, known := d.ClaudeFolder(home, root); !known {
 		add("info", "Claude folder trust: unknown (Claude's user state could not be read)")
 	} else if trusted {
 		add("info", "Claude folder trust: trusted")

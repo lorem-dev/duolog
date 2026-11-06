@@ -106,10 +106,19 @@ func (w funcWorker) Launch(s run.Spec) []string                              { r
 
 // setWorker makes fn the worker of both agents.
 func (h *harness) setWorker(fn func(context.Context, run.Spec) (run.Result, error)) {
-	h.deps.Agents = map[string]Agent{
-		"claude": {Worker: funcWorker{fn, workertest.For("claude").Launch}, Models: h.models(), Login: workertest.LoginFor("claude")},
-		"codex":  {Worker: funcWorker{fn, workertest.For("codex").Launch}, Models: h.models(), Login: workertest.LoginFor("codex")},
+	h.setAgent("claude", funcWorker{fn, workertest.For("claude").Launch})
+	h.setAgent("codex", funcWorker{fn, workertest.For("codex").Launch})
+}
+
+// setAgent gives agent name worker w, the harness's models and the real
+// Login; its Trust stays as it was.
+func (h *harness) setAgent(name string, w Worker) {
+	if h.deps.Agents == nil {
+		h.deps.Agents = map[string]Agent{}
 	}
+	a := h.deps.Agents[name]
+	a.Worker, a.Models, a.Login = w, h.models(), workertest.LoginFor(name)
+	h.deps.Agents[name] = a
 }
 
 // worker is the function setWorker last installed.
@@ -119,7 +128,8 @@ func (h *harness) worker() func(context.Context, run.Spec) (run.Result, error) {
 
 // realWorkers makes the real Workers of both agents the harness's.
 func (h *harness) realWorkers() {
-	h.deps.Agents = map[string]Agent{"claude": {Worker: workertest.For("claude"), Models: h.models(), Login: workertest.LoginFor("claude")}, "codex": {Worker: workertest.For("codex"), Models: h.models(), Login: workertest.LoginFor("codex")}}
+	h.setAgent("claude", workertest.For("claude"))
+	h.setAgent("codex", workertest.For("codex"))
 }
 
 // argvOf is the argv a real Worker gives s.
@@ -194,6 +204,7 @@ func newHarness(t *testing.T) *harness {
 		Canonical:        filepath.Clean,
 		Build:            launchtest.Build,
 		DroppedKeys:      launchtest.DroppedKeys,
+		Agents:           testAgents(),
 	}
 	// A duolog on the worker PATH, as where it is installed; set after Deps
 	// is built, which would replace it.

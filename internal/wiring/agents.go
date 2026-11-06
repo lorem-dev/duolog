@@ -7,11 +7,32 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/claude"
 	"github.com/lorem-dev/duolog/internal/adapter/codex"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
+	"github.com/lorem-dev/duolog/internal/app/doctor"
 	"github.com/lorem-dev/duolog/internal/app/hook"
 	"github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/core/agent"
 )
+
+// doctorAgents gives doctor the ports of each registered agent by name.
+func doctorAgents() map[string]doctor.Agent {
+	out := map[string]doctor.Agent{}
+	for _, a := range Agents() {
+		out[a.Facts.Name] = doctor.Agent{Trust: a.Trust}
+	}
+	return out
+}
+
+// CalibrationTrusts gives calibrate the Trust of each registered agent by
+// name. Calibrate is not imported here: its tests import wiring, so cmd/duolog
+// builds calibrate's Agent values from these.
+func CalibrationTrusts() map[string]delegate.Trust {
+	out := map[string]delegate.Trust{}
+	for _, a := range Agents() {
+		out[a.Facts.Name] = a.Trust
+	}
+	return out
+}
 
 // Agent is one registered agent. Later ports add their fields here.
 type Agent struct {
@@ -27,13 +48,16 @@ type Agent struct {
 	Models delegate.ModelResolver
 	// Login checks this agent's logins and gives its login commands.
 	Login delegate.Login
+	// Trust reads the agent's hook and folder trust. The app packages that
+	// need less of it declare smaller interfaces that this one satisfies.
+	Trust delegate.Trust
 }
 
 // Agents returns the registered agents in order: claude, then codex.
 func Agents() []Agent {
 	return []Agent{
-		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}, Login: claude.Login{}},
-		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}, Login: codex.Login{}},
+		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}, Login: claude.Login{}, Trust: claude.Trust{}},
+		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}, Login: codex.Login{}, Trust: codex.Trust{}},
 	}
 }
 
@@ -70,7 +94,7 @@ func Names() []string {
 func delegateAgents() map[string]delegate.Agent {
 	out := map[string]delegate.Agent{}
 	for _, a := range Agents() {
-		out[a.Facts.Name] = delegate.Agent{Worker: a.Worker, Models: a.Models, Login: a.Login}
+		out[a.Facts.Name] = delegate.Agent{Worker: a.Worker, Models: a.Models, Login: a.Login, Trust: a.Trust}
 	}
 	return out
 }

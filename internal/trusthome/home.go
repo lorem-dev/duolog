@@ -3,17 +3,18 @@
 package trusthome
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/lorem-dev/duolog/internal/core/agent"
 )
 
 // ErrNoHome is the error of HomeIn for an environment that names no home
 // folder: HOME, or USERPROFILE on Windows.
-var ErrNoHome = errors.New("the environment names no home folder")
+var ErrNoHome = agent.ErrNoHome
 
 func Codex(home string) string {
 	return CodexIn(home, os.Environ())

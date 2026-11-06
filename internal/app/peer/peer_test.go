@@ -18,6 +18,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/adapter/workertest"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
+	"github.com/lorem-dev/duolog/internal/app/delegate/delegatetest"
 	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
@@ -172,7 +173,7 @@ func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
 		DroppedKeys: launchtest.DroppedKeys,
 		// The held-gate check is the real one, on the real gate binary lookup.
 		HeldGate: func(agent, root string, env []string) error {
-			return delegate.HeldGate(delegate.Deps{GateBinary: launchtest.GateBinary}, agent, root, env)
+			return delegate.HeldGate(delegate.Deps{GateBinary: launchtest.GateBinary, Agents: delegatetest.Agents()}, agent, root, env)
 		},
 	}
 	r.useDeps(func(*Deps) {})

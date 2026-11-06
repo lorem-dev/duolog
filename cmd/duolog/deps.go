@@ -74,7 +74,17 @@ func (d *cmdDeps) calibrateDeps() calibration.Deps {
 		Verify:   calibration.VerifyIsolated,
 		Rand:     coin,
 		Environ:  workerenv.Environ,
+		Agents:   calibrationAgents(),
 	}
+}
+
+// calibrationAgents gives calibration the ports of each registered agent.
+func calibrationAgents() map[string]calibration.Agent {
+	out := map[string]calibration.Agent{}
+	for name, t := range wiring.CalibrationTrusts() {
+		out[name] = calibration.Agent{Trust: t}
+	}
+	return out
 }
 
 // coin is true or false with equal chance.

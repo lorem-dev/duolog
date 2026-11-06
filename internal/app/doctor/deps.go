@@ -3,6 +3,7 @@ package doctor
 import (
 	"github.com/lorem-dev/duolog/internal/app/launch"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
@@ -22,4 +23,24 @@ type Deps struct {
 	// DroppedKeys lists the route names an agent's workers no longer get:
 	// workerenv.DroppedKeys.
 	DroppedKeys launch.DroppedKeys
+	// Agents holds each registered agent's ports by name.
+	Agents map[string]Agent
+	// ClaudeFolder reports whether Claude Code trusts the folder root, from
+	// its user state under home; known is false when that state cannot be
+	// read. It reads a file that only Claude has, so it is no Trust method.
+	ClaudeFolder func(home, root string) (trusted, known bool)
+}
+
+// Trust reads what an agent's settings and approvals say about duolog's
+// hooks, as delegate.Trust does; doctor needs no HeldGateProblem.
+type Trust interface {
+	Hooks(root string, environ []string) (coreagent.TrustState, error)
+	Folder(root string, environ []string) (bool, error)
+	GateProblem(s coreagent.TrustState, folder bool) string
+}
+
+// Agent holds what doctor asks of one registered agent. A nil port fails
+// closed: an agent with no Trust reads as untrusted.
+type Agent struct {
+	Trust Trust
 }

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/app/delegate"
+	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
@@ -26,6 +27,21 @@ type Deps struct {
 	// environ, as Build makes it without settings layers, extras or a lead:
 	// workerenv.Environ is the real one.
 	Environ func(cfg *config.Config, agent string, environ []string) ([]string, error)
+	// Agents holds each registered agent's ports by name.
+	Agents map[string]Agent
+}
+
+// Trust reads what an agent's settings and approvals say about duolog's
+// hooks for a process whose environment is environ, as delegate.Trust does.
+type Trust interface {
+	Hooks(root string, environ []string) (coreagent.TrustState, error)
+	Folder(root string, environ []string) (bool, error)
+}
+
+// Agent holds what calibration asks of one registered agent. A nil port fails
+// closed: a tree of an agent with no Trust is refused.
+type Agent struct {
+	Trust Trust
 }
 
 // cellLimit is the time cap of one cell.

@@ -105,6 +105,7 @@ func newCellFixtureWith(t *testing.T, parentFiles map[string]string) *cellFixtur
 			},
 			Verify:  VerifyIsolated,
 			Environ: launchtest.Environ,
+			Agents:  trustDeps().Agents,
 		},
 		Checks: func(_ context.Context, dir string, commands []string) []journal.Check {
 			f.checkCalls++

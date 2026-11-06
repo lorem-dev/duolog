@@ -562,7 +562,7 @@ func writeJudgeSlot(ctx context.Context, out io.Writer, deps calibration.Deps, c
 	if err != nil {
 		return err
 	}
-	if _, err := calibration.NewJudgeSlot(ctx, root, slot, nil, claudeEnv); err != nil {
+	if _, err := deps.NewJudgeSlot(ctx, root, slot, nil, claudeEnv); err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(out, "judge folder: %s (open Codex in this folder once, trust it and approve its hooks in /hooks; judge calls and rewrites run there)\n", slot)
@@ -728,12 +728,12 @@ func rewriteStatement(d *cmdDeps, root string, cfg *config.Config, s *store.Stor
 		if err != nil {
 			return "", 0, err
 		}
-		cleanup, err := calibration.NewJudgeSlot(ctx, root, work, map[string][]byte{"reference.patch": reference, "subject.txt": []byte(t.Subject + "\n")}, claudeEnv)
+		cleanup, err := d.calibrateDeps().NewJudgeSlot(ctx, root, work, map[string][]byte{"reference.patch": reference, "subject.txt": []byte(t.Subject + "\n")}, claudeEnv)
 		if err != nil {
 			return "", 0, err
 		}
 		defer func() { err = errors.Join(err, cleanup()) }()
-		if err := calibration.CheckTreeTrust(target.Agent, work, workerEnv); err != nil {
+		if err := d.calibrateDeps().CheckTreeTrust(target.Agent, work, workerEnv); err != nil {
 			return "", 0, err
 		}
 		dir := filepath.Join(runDir, "rewrites", t.ID)

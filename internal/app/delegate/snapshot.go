@@ -6,9 +6,9 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	leadio "github.com/lorem-dev/duolog/internal/app/lead"
+	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
-	"github.com/lorem-dev/duolog/internal/trust"
 )
 
 // observedLead brings the registered lead up to date with its transcript, and
@@ -43,7 +43,7 @@ func observedLead(d Deps, reg *session.Registry, lead session.Lead, started time
 
 // trustWarning says what the lead must know about the worker's rules. A write role
 // with untrusted Codex hooks would run with no gate, so it does not start.
-func trustWarning(route coreroute.Route, role string, state trust.State, folder bool) (string, error) {
+func trustWarning(route coreroute.Route, role string, state coreagent.TrustState, folder bool) (string, error) {
 	warning := ""
 	if route.Agent == "claude" && !state.Installed {
 		warning = "; Claude has no duolog hooks: rules are off; sandbox only"

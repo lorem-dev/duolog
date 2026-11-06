@@ -11,11 +11,11 @@ import (
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
-	"github.com/lorem-dev/duolog/internal/trust"
-	"github.com/lorem-dev/duolog/internal/trusthome"
 )
 
 // workerMode is the native permission mode one delegate worker starts in.
@@ -106,13 +106,28 @@ func (w workerMode) needsPreflight() bool {
 // gateState reads the hook state and folder trust of an agent process whose
 // environment is env: the settings, plugins, approvals and trusted folders
 // that environment's CLAUDE_CONFIG_DIR or CODEX_HOME select.
-func gateState(agent, root string, env []string) (trust.State, bool, error) {
-	state, err := trust.HooksEnv(agent, root, env)
-	if err != nil {
-		return trust.State{}, false, err
+//
+// An agent with no Trust reads as untrusted: no hooks approved, no folder
+// trusted, so a write role does not start and a read-only role runs.
+func gateState(t Trust, root string, env []string) (coreagent.TrustState, bool, error) {
+	if t == nil {
+		return coreagent.TrustState{}, false, nil
 	}
-	folder, err := trust.FolderEnv(agent, root, env)
+	state, err := t.Hooks(root, env)
+	if err != nil {
+		return coreagent.TrustState{}, false, err
+	}
+	folder, err := t.Folder(root, env)
 	return state, folder, err
+}
+
+// trustProblem says why the gate of agent cannot be shown to run from its
+// trust state; an agent with no Trust cannot be shown to run it at all.
+func trustProblem(t Trust, agent string, state coreagent.TrustState, folder bool) string {
+	if t == nil {
+		return "the hook trust of " + agent + " cannot be read, so its gate cannot be shown to run"
+	}
+	return t.GateProblem(state, folder)
 }
 
 // gatePreflight refuses a looser or held worker (needsPreflight) when the gate cannot be shown to run
@@ -121,27 +136,28 @@ func gateState(agent, root string, env []string) (trust.State, bool, error) {
 // protected agent folders all come from env, the environment that process
 // runs with, never from duolog's own.
 func (w workerMode) gatePreflight(d Deps, agent, root string, env, protected []string) error {
-	state, folder, err := gateState(agent, root, env)
+	t := d.Agents[agent].Trust
+	state, folder, err := gateState(t, root, env)
 	var problem string
 	switch {
-	case errors.Is(err, trusthome.ErrNoHome):
+	case errors.Is(err, coreagent.ErrNoHome):
 		// The agent falls back to a home env does not name, so its settings
 		// cannot be read and its gate cannot be shown.
 		problem = noHomeProblem()
 	case err != nil:
 		return err
 	default:
-		problem = trust.GateProblem(agent, state, folder)
+		problem = trustProblem(t, agent, state, folder)
 	}
-	pathEnv := "PATH=" + trusthome.Getenv(env, "PATH")
+	pathEnv := "PATH=" + corelaunch.Getenv(env, "PATH")
 	gate, err := d.GateBinary(pathEnv)
 	if problem == "" && err != nil {
 		problem = err.Error()
 	}
 	// Only the gate keeps a held worker read-only, so its hook must be the
 	// gate itself, not a hook that names it.
-	if problem == "" && w.Held && agent == "claude" {
-		problem = trust.HeldGateProblem(root, env, gate)
+	if problem == "" && w.Held && t != nil {
+		problem = t.HeldGateProblem(root, env, gate)
 	}
 	if problem == "" && len(w.WritableRoots) > 0 {
 		protected = append(slices.Clone(protected), programFolders(pathEnv, gate)...)
@@ -177,16 +193,16 @@ func noHomeProblem() string {
 // calibrationGate refuses a calibration cell or rewrite whose gate cannot be
 // shown to run for the process whose environment is env, whatever its worker
 // mode: calibration promises that no cell runs without the gate.
-func calibrationGate(agent, root string, env []string) error {
-	state, folder, err := gateState(agent, root, env)
+func calibrationGate(t Trust, agent, root string, env []string) error {
+	state, folder, err := gateState(t, root, env)
 	var problem string
 	switch {
-	case errors.Is(err, trusthome.ErrNoHome):
+	case errors.Is(err, coreagent.ErrNoHome):
 		problem = noHomeProblem()
 	case err != nil:
 		return err
 	default:
-		problem = trust.GateProblem(agent, state, folder)
+		problem = trustProblem(t, agent, state, folder)
 	}
 	if problem == "" {
 		return nil

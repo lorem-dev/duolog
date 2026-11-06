@@ -78,19 +78,13 @@ var knownViolations = map[string]string{
 	"internal/app/calibrate (test) -> internal/wiring":          "PR 29: the cell tests run real delegations on wiring.DelegateDeps",
 	"internal/app/calibrate -> github.com/pelletier/go-toml/v2": "PR 45",
 	"internal/app/calibrate -> internal/install":                "PR 45",
-	"internal/app/calibrate -> internal/trust":                  "PR 36",
-	"internal/app/calibrate -> internal/trusthome":              "PR 36",
 	"internal/app/delegate -> internal/capability":              "PR 40",
 	"internal/app/delegate -> internal/adapter/config":          "after PR 10: RefuseRootEnv checks writable roots at launch",
 	"internal/app/delegate (test) -> internal/quota":            "PR 39",
-	"internal/app/delegate -> internal/trust":                   "PR 36",
-	"internal/app/delegate -> internal/trusthome":               "PR 36",
 	"internal/app/doctor (test) -> internal/adapter/config":     "after PR 10: its tests load the config files",
 	"internal/app/doctor (test) -> internal/quota":              "PR 39",
 	"internal/app/doctor -> internal/capability":                "PR 40",
 	"internal/app/doctor -> internal/install":                   "PR 37",
-	"internal/app/doctor -> internal/trust":                     "PR 36",
-	"internal/app/doctor -> internal/trusthome":                 "PR 36",
 	"internal/app/doctor -> os/exec":                            "PR 44",
 	"internal/gate -> github.com/gofrs/flock":                   "PR 20, boundary",
 	"internal/gate -> github.com/pelletier/go-toml/v2":          "PR 20, boundary",
@@ -128,7 +122,7 @@ var knownViolations = map[string]string{
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 55
+const maxKnownViolations = 49
 
 // Reasons of the allowed edges, one per target.
 const (
