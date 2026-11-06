@@ -2,8 +2,8 @@ package hook
 
 import (
 	"context"
-	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -67,19 +67,72 @@ func TestPromptLoadLineAdvisesFreeSessionsOfAnEmptyQueue(t *testing.T) {
 	var calls int
 	var seen string
 	e = withLoad(e, &calls, &seen)
+	queued := 0
 	e.Load = func(context.Context, string) load.Summary {
-		return load.Summary{Agents: []load.Agent{{Name: "claude", Running: 3, Limit: 12, Live: 3}}}
+		return load.Summary{Agents: []load.Agent{{Name: "claude", Running: 3, Limit: 12, Live: 3}}, Queued: queued}
 	}
 	got := content(t, Prompt(context.Background(), e), "UserPromptSubmit")
 	if !strings.Contains(got, " - 9 claude sessions free: start independent work") {
 		t.Fatalf("got %q", got)
 	}
-	queue := filepath.Join(e.Root, ".duolog", "peer-queue.ndjson")
-	if err := os.WriteFile(queue, []byte(`{"id":"q1","state":"queued"}`+"\n"), 0o600); err != nil {
+	queued = 2
+	got = content(t, Prompt(context.Background(), e), "UserPromptSubmit")
+	if strings.Contains(got, "start independent work") || !strings.Contains(got, "queue 2 - 9 claude sessions free: duolog peer queue run") {
+		t.Fatalf("queued items take the free sessions: %q", got)
+	}
+}
+
+// The lead's prompt starts its queue run; the run itself checks the queue and
+// the free sessions. Workers, peers and a session that is no lead start none.
+func TestPromptStartsTheLeadsQueueRun(t *testing.T) {
+	e, _ := registered(t, "claude")
+	var leads []string
+	e.QueueRun = func(_ context.Context, leadID string) { leads = append(leads, leadID) }
+	silent(t, Prompt(context.Background(), e))
+	if len(leads) != 1 || leads[0] != id(e) {
+		t.Fatalf("QueueRun calls %v, want one for %q", leads, id(e))
+	}
+	silent(t, PostTool(context.Background(), e))
+	if len(leads) != 1 {
+		t.Fatalf("a tool call without a peer-idle message started a run: %v", leads)
+	}
+	for _, extra := range []string{"DUOLOG_DEPTH=1", "DUOLOG_PEER=peer-ab12cd"} {
+		other := e
+		other.Environ = append(slices.Clone(e.Environ), extra)
+		Prompt(context.Background(), other)
+	}
+	stranger, _, _ := setup(t, "claude")
+	stranger.QueueRun = e.QueueRun
+	Prompt(context.Background(), stranger)
+	if len(leads) != 1 {
+		t.Fatalf("QueueRun calls %v, want none for a worker, a peer or no lead", leads)
+	}
+}
+
+// A peer-idle message that reaches the lead calls PeerIdle once, with the lead
+// and the peer; other messages do not.
+func TestLeadDeliveryOfPeerIdleCallsPeerIdle(t *testing.T) {
+	e, b := registered(t, "claude")
+	var calls []string
+	e.PeerIdle = func(_ context.Context, leadID, peerID string) { calls = append(calls, leadID+" "+peerID) }
+	tellLead(t, b, e)
+	content(t, PostTool(context.Background(), e), "PostToolUse")
+	if len(calls) != 0 {
+		t.Fatalf("PeerIdle calls %v for a done message", calls)
+	}
+	to := session.Address(session.Lead{ID: id(e), Target: config.Target{Agent: e.Agent}})
+	if _, err := b.Send(bus.Message{From: "codex/implement", To: to, K: "peer-idle", Ref: "peer-ab12cd", S: "peer-ab12cd idle in ."}); err != nil {
 		t.Fatal(err)
 	}
-	if got := content(t, Prompt(context.Background(), e), "UserPromptSubmit"); strings.Contains(got, "free:") {
-		t.Fatalf("a queued item takes the free sessions: %q", got)
+	if got := content(t, PostTool(context.Background(), e), "PostToolUse"); !strings.Contains(got, "peer-idle peer-ab12cd") {
+		t.Fatalf("got %q", got)
+	}
+	if want := id(e) + " peer-ab12cd"; len(calls) != 1 || calls[0] != want {
+		t.Fatalf("PeerIdle calls %v, want %q once", calls, want)
+	}
+	silent(t, PostTool(context.Background(), e))
+	if len(calls) != 1 {
+		t.Fatalf("a delivered peer-idle called PeerIdle again: %v", calls)
 	}
 }
 

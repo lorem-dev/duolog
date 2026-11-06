@@ -195,7 +195,10 @@ project itself. The `Stop` hook sends one `peer-idle` per turn: it remembers
 the transcript length, so a hook that runs again for the same turn sends
 nothing. The lead's next prompt or tool hook sends `peer-exit`, once per peer;
 a peer you closed with `peer close` sends none. Both show as one short line,
-like other bus messages.
+like other bus messages. When the lead's hooks deliver a `peer-idle`, they
+start the lead's queue run (see
+[How to queue peers](#how-to-queue-peers-that-open-when-a-session-is-free)).
+The peer's own `Stop` hook runs as a worker and opens nothing.
 
 The `Stop` hook runs only where duolog's hooks run in the peer. An older
 install gets it when you update the plugin or run `duolog install` again.
@@ -220,11 +223,13 @@ duolog peers: claude 3 running (1 idle) of 12; codex 0 of 3; 5h 41%
   sessions of all leads. duolog counts them once, from the same account state.
 - An agent with no session limit is left out. So is a window that duolog does
   not know.
+- `queue 2`, after the agents, counts the items of the lead's ready queue
+  that wait to open. While items wait and a session is free, the line ends
+  with `- <n> <agent> sessions free: duolog peer queue run`.
 - When an agent has at least half of its sessions free, the window is under
   70% and the lead's ready queue is empty, the line ends with
   `- <n> <agent> sessions free: start independent work or stack it on open
-  pull request branches (duolog peer queue add)`. The queue file is
-  `.duolog/peer-queue.ndjson`; a missing file is an empty queue.
+  pull request branches (duolog peer queue add)`.
 
 The `UserPromptSubmit` hook adds the line to every prompt. The `PostToolUse`
 hook adds it only to a bus delivery, and at most once in 5 minutes unless a
@@ -269,11 +274,17 @@ marked `failed`, and the run goes on. Each opened peer gets its task as
 `queue: opened <peer-id> (<role>) in <cwd> for <task>`. An item with `--after`
 waits until that peer is idle or closed; the items behind it do not wait.
 
-`duolog peer close` starts a run in a separate process after it closes the
-peer, and its line then ends with `; queue run started`. A lock in `.duolog`
-lets one run per lead go at a time, and a second run exits at once. The items
-are in `.duolog/peer-queue.ndjson`, and the output of the last run started
-this way is in `.duolog/peer-queue-run.log`.
+duolog starts a run in a separate process when the lead has queued items:
+
+- after `duolog peer close` closes a peer. Its line then ends with
+  `; queue run started`.
+- at each of the lead's prompts.
+- when the lead's hooks deliver a `peer-idle` message, so a peer that
+  finished lets the next item start.
+
+A lock in `.duolog` lets one run per lead go at a time, and a second run exits
+at once. The items are in `.duolog/peer-queue.ndjson`, and the output of the
+last run started this way is in `.duolog/peer-queue-run.log`.
 
 ## How to see what a peer shows
 

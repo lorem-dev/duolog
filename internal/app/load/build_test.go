@@ -36,7 +36,7 @@ func TestBuildLeavesOutAgentsWithoutALimit(t *testing.T) {
 	if len(got.Agents) != 1 || got.Agents[0].Name != "codex" || got.WindowKnown || len(got.Idle) != 0 {
 		t.Fatalf("got %+v", got)
 	}
-	if got.Line(true) != "duolog peers: codex 0 of 3 - 3 codex sessions free: start independent work or stack it on open pull request branches (duolog peer queue add)" {
-		t.Fatalf("line %q", got.Line(true))
+	if got.Line() != "duolog peers: codex 0 of 3 - 3 codex sessions free: start independent work or stack it on open pull request branches (duolog peer queue add)" {
+		t.Fatalf("line %q", got.Line())
 	}
 }

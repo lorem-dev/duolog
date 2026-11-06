@@ -111,13 +111,24 @@ func TestPeerListEndsWithTheLoadLine(t *testing.T) {
 			t.Fatalf("load line %q lacks %q", line, want)
 		}
 	}
-	// A queued item takes the free sessions the advice names.
+	// Another lead's item is not this lead's queue.
 	queue := filepath.Join(root, ".duolog", "peer-queue.ndjson")
-	if err := os.WriteFile(queue, []byte(`{"id":"q1","state":"queued"}`+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(queue, []byte(`{"id":"q-other","lead":"other-lead","state":"queued"}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	out, err = executeBusCommand(t, "peer", "list")
-	if _, line = listBody(t, out); err != nil || strings.Contains(line, "free:") {
+	if _, line = listBody(t, out); err != nil || strings.Contains(line, "queue") && !strings.Contains(line, "queue add") {
+		t.Fatalf("another lead's item counted: %q %v", out, err)
+	}
+	// This lead's queued item is counted, and the free sessions go to a run.
+	if err := os.WriteFile(filepath.Join(root, "task.md"), []byte("## Goal\nx\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := executeBusCommand(t, "peer", "queue", "add", "implement", "--cwd", root, "--task", "task.md"); err != nil {
+		t.Fatalf("%q %v", out, err)
+	}
+	out, err = executeBusCommand(t, "peer", "list")
+	if _, line = listBody(t, out); err != nil || !strings.Contains(line, "; queue 1;") || !strings.Contains(line, "sessions free: duolog peer queue run") || strings.Contains(line, "start independent work") {
 		t.Fatalf("%q %v", out, err)
 	}
 	// JSON stays a plain list.

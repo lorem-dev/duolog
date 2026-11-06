@@ -7,6 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/app/peer"
+	"github.com/lorem-dev/duolog/internal/bus"
+	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -36,6 +41,55 @@ func TestPeerQueueAddListRemove(t *testing.T) {
 	}
 	if calls := rexCalls(t, rex); len(calls) != 0 {
 		t.Fatalf("the queue commands reached rex: %v", calls)
+	}
+}
+
+// The lead's prompt hook starts its queue run, and so does a peer-idle message
+// that the lead's tool hook delivers. One hook starts one run at most, and the
+// run gets the lead's options.
+func TestLeadHooksStartTheQueueRun(t *testing.T) {
+	root := compactProject(t)
+	// A peer's pane starts no run; the test may itself run in one.
+	t.Setenv("DUOLOG_PEER", "")
+	started := 0
+	old := startQueueRun
+	startQueueRun = func(ctx context.Context) (bool, error) {
+		if _, err := peer.QueueList(ctx); err != nil {
+			t.Errorf("the run's context names no lead: %v", err)
+		}
+		started++
+		return true, nil
+	}
+	t.Cleanup(func() { startQueueRun = old })
+	runHook(t, "UserPromptSubmit", `{"session_id":"lead-1","hook_event_name":"UserPromptSubmit"}`)
+	if started != 1 {
+		t.Fatalf("prompt started %d runs, want 1", started)
+	}
+	post := `{"session_id":"lead-1","hook_event_name":"PostToolUse"}`
+	runHook(t, "PostToolUse", post)
+	if started != 1 {
+		t.Fatalf("a tool call without a peer-idle message started a run (%d)", started)
+	}
+	cfg, err := configfile.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := bus.Open(filepath.Join(root, ".duolog"), cfg.Wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := session.Address(session.Lead{ID: "lead-1", Target: config.Target{Agent: "claude"}})
+	for _, id := range []string{"peer-aa1111", "peer-bb2222"} {
+		if _, err := b.Send(bus.Message{From: "claude/plan", To: to, K: "peer-idle", Ref: id, S: id + " idle in ."}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out := runHook(t, "PostToolUse", post); !strings.Contains(out, "peer-idle peer-bb2222") || started != 2 {
+		t.Fatalf("two peer-idle messages started %d runs in all, want 2: %q", started, out)
+	}
+	runHook(t, "PostToolUse", post)
+	if started != 2 {
+		t.Fatalf("a delivered peer-idle started another run (%d)", started)
 	}
 }
 

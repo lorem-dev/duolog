@@ -4,7 +4,6 @@
 package load
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -22,10 +21,12 @@ type Agent struct {
 	Running, Idle, Limit, Live int
 }
 
-// Summary is what the line says. Idle names the idle peers of this lead.
+// Summary is what the line says. Idle names the idle peers of this lead, and
+// Queued counts the items that wait in its ready queue.
 type Summary struct {
 	Agents      []Agent
 	Idle        []string
+	Queued      int
 	Window      float64
 	WindowKnown bool
 }
@@ -35,28 +36,21 @@ type Summary struct {
 const windowCeiling = 70
 
 // Line says the summary in one line, or "" when there is nothing to say.
-// queueEmpty is whether no ready item waits in the lead's queue.
-func (s Summary) Line(queueEmpty bool) string {
+// While items wait in the queue and a session is free, it advises a queue run;
+// with an empty queue, half of an agent's sessions free and the window under
+// its ceiling, it advises more work.
+func (s Summary) Line() string {
 	var parts []string
-	advice, most := "", 0
 	for _, a := range s.Agents {
-		if a.Limit <= 0 {
-			continue
-		}
-		part := fmt.Sprintf("%s %d", a.Name, a.Running)
-		if a.Running > 0 {
-			part += " running"
-			if a.Idle > 0 {
-				part += fmt.Sprintf(" (%d idle)", a.Idle)
-			}
-		}
-		parts = append(parts, part+fmt.Sprintf(" of %d", a.Limit))
-		if free := a.Limit - a.Live; free*2 >= a.Limit && free > most {
-			advice, most = a.Name, free
+		if a.Limit > 0 {
+			parts = append(parts, a.part())
 		}
 	}
 	if len(parts) == 0 {
 		return ""
+	}
+	if s.Queued > 0 {
+		parts = append(parts, fmt.Sprintf("queue %d", s.Queued))
 	}
 	if s.WindowKnown {
 		parts = append(parts, fmt.Sprintf("5h %g%%", s.Window))
@@ -64,33 +58,51 @@ func (s Summary) Line(queueEmpty bool) string {
 	if len(s.Idle) > 0 {
 		parts = append(parts, "idle: "+strings.Join(s.Idle, ", "))
 	}
-	line := "duolog peers: " + strings.Join(parts, "; ")
-	if advice != "" && queueEmpty && !(s.WindowKnown && s.Window >= windowCeiling) {
-		line += fmt.Sprintf(" - %d %s sessions free: start independent work or stack it on open pull request branches (duolog peer queue add)", most, advice)
-	}
-	return line
+	return "duolog peers: " + strings.Join(parts, "; ") + s.advice()
 }
 
-// QueueEmpty reports that no item waits in the lead's ready queue: the queue
-// file in the state folder holds no item in the "queued" state. A missing or
-// unreadable file counts as empty.
-func QueueEmpty(dir string) bool {
-	f, err := os.Open(filepath.Join(dir, "peer-queue.ndjson"))
-	if err != nil {
-		return true
-	}
-	defer f.Close()
-	scan := bufio.NewScanner(f)
-	scan.Buffer(make([]byte, 64*1024), 16*1024*1024)
-	for scan.Scan() {
-		var item struct {
-			State string `json:"state"`
-		}
-		if json.Unmarshal(scan.Bytes(), &item) == nil && item.State == "queued" {
-			return false
+// part says one agent's peers: "claude 3 running (1 idle) of 12".
+func (a Agent) part() string {
+	part := fmt.Sprintf("%s %d", a.Name, a.Running)
+	if a.Running > 0 {
+		part += " running"
+		if a.Idle > 0 {
+			part += fmt.Sprintf(" (%d idle)", a.Idle)
 		}
 	}
-	return true
+	return part + fmt.Sprintf(" of %d", a.Limit)
+}
+
+// advice is the end of the line that tells the lead what to do with free
+// sessions, or "". It names the agent with the most free sessions.
+func (s Summary) advice() string {
+	if s.Queued > 0 {
+		if name, free := s.mostFree(false); name != "" {
+			return fmt.Sprintf(" - %d %s sessions free: duolog peer queue run", free, name)
+		}
+		return ""
+	}
+	if s.WindowKnown && s.Window >= windowCeiling {
+		return ""
+	}
+	if name, free := s.mostFree(true); name != "" {
+		return fmt.Sprintf(" - %d %s sessions free: start independent work or stack it on open pull request branches (duolog peer queue add)", free, name)
+	}
+	return ""
+}
+
+// mostFree is the limited agent with the most free sessions, at least one;
+// with half, only agents with at least half of their sessions free count.
+func (s Summary) mostFree(half bool) (name string, most int) {
+	for _, a := range s.Agents {
+		if a.Limit <= 0 {
+			continue
+		}
+		if free := a.Limit - a.Live; free > most && (!half || free*2 >= a.Limit) {
+			name, most = a.Name, free
+		}
+	}
+	return name, most
 }
 
 // every is how long the same line stays quiet on a bus delivery.

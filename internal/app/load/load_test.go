@@ -1,8 +1,6 @@
 package load
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -10,28 +8,28 @@ import (
 func TestLineShowsAgentsWindowAndIdle(t *testing.T) {
 	s := Summary{
 		Agents: []Agent{
-			{Name: "claude", Running: 3, Idle: 1, Limit: 12, Live: 3},
-			{Name: "codex", Running: 0, Limit: 3, Live: 0},
+			{Name: "claude", Running: 3, Idle: 1, Limit: 12, Live: 7},
+			{Name: "codex", Running: 0, Limit: 3, Live: 3},
 		},
 		Idle:   []string{"peer-ab12cd"},
 		Window: 41, WindowKnown: true,
 	}
 	want := "duolog peers: claude 3 running (1 idle) of 12; codex 0 of 3; 5h 41%; idle: peer-ab12cd"
-	if got := s.Line(false); got != want {
+	if got := s.Line(); got != want {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}
 }
 
 func TestLineLeavesOutAgentsWithoutLimitAndUnknownWindow(t *testing.T) {
-	s := Summary{Agents: []Agent{{Name: "claude", Running: 2, Limit: 0}, {Name: "codex", Running: 1, Limit: 3, Live: 1}}}
+	s := Summary{Agents: []Agent{{Name: "claude", Running: 2, Limit: 0}, {Name: "codex", Running: 1, Limit: 3, Live: 3}}}
 	want := "duolog peers: codex 1 running of 3"
-	if got := s.Line(false); got != want {
+	if got := s.Line(); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
-	if got := (Summary{Agents: []Agent{{Name: "claude", Limit: 12}}}).Line(false); got != "duolog peers: claude 0 of 12" {
+	if got := (Summary{Agents: []Agent{{Name: "claude", Limit: 12, Live: 12}}}).Line(); got != "duolog peers: claude 0 of 12" {
 		t.Fatalf("idle agent with a limit: %q", got)
 	}
-	if got := (Summary{}).Line(false); got != "" {
+	if got := (Summary{}).Line(); got != "" {
 		t.Fatalf("nothing to say gave %q", got)
 	}
 }
@@ -39,7 +37,7 @@ func TestLineLeavesOutAgentsWithoutLimitAndUnknownWindow(t *testing.T) {
 func TestLineCountsPeersOfThisLeadAgainstAllLiveSessions(t *testing.T) {
 	// Another lead holds 5 of the 12 sessions: free is 12 - 8 = 4, under half.
 	s := Summary{Agents: []Agent{{Name: "claude", Running: 3, Limit: 12, Live: 8}}, Window: 10, WindowKnown: true}
-	if got := s.Line(true); got != "duolog peers: claude 3 running of 12; 5h 10%" {
+	if got := s.Line(); got != "duolog peers: claude 3 running of 12; 5h 10%" {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -47,30 +45,32 @@ func TestLineCountsPeersOfThisLeadAgainstAllLiveSessions(t *testing.T) {
 func TestFreeAdviceNeedsHalfFreeLowWindowAndEmptyQueue(t *testing.T) {
 	base := Summary{Agents: []Agent{{Name: "claude", Running: 3, Limit: 12, Live: 3}}, Window: 41, WindowKnown: true}
 	advice := " - 9 claude sessions free: start independent work or stack it on open pull request branches (duolog peer queue add)"
-	if got, want := base.Line(true), "duolog peers: claude 3 running of 12; 5h 41%"+advice; got != want {
+	if got, want := base.Line(), "duolog peers: claude 3 running of 12; 5h 41%"+advice; got != want {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}
-	if got := base.Line(false); contains(got, "free:") {
+	queued := base
+	queued.Queued = 1
+	if got := queued.Line(); contains(got, "start independent work") {
 		t.Fatalf("a ready queue still has work for the free sessions: %q", got)
 	}
 	hot := base
 	hot.Window = 70
-	if got := hot.Line(true); contains(got, "free:") {
+	if got := hot.Line(); contains(got, "free:") {
 		t.Fatalf("a window at 70%% gets no advice: %q", got)
 	}
 	full := Summary{Agents: []Agent{{Name: "claude", Running: 6, Limit: 12, Live: 7}}}
-	if got := full.Line(true); contains(got, "free:") {
+	if got := full.Line(); contains(got, "free:") {
 		t.Fatalf("5 free of 12 is under half: %q", got)
 	}
 	edge := Summary{Agents: []Agent{{Name: "claude", Running: 6, Limit: 12, Live: 6}}, Window: 69, WindowKnown: true}
-	if got := edge.Line(true); !contains(got, " - 6 claude sessions free:") {
+	if got := edge.Line(); !contains(got, " - 6 claude sessions free:") {
 		t.Fatalf("half free and 69%% is advised: %q", got)
 	}
 }
 
 func TestFreeAdviceWithUnknownWindow(t *testing.T) {
 	s := Summary{Agents: []Agent{{Name: "codex", Limit: 3, Live: 0}}}
-	if got := s.Line(true); !contains(got, " - 3 codex sessions free:") {
+	if got := s.Line(); !contains(got, " - 3 codex sessions free:") {
 		t.Fatalf("an unknown window does not block the advice: %q", got)
 	}
 }
@@ -84,29 +84,27 @@ func contains(s, sub string) bool {
 	return false
 }
 
-func TestQueueEmpty(t *testing.T) {
-	dir := t.TempDir()
-	if !QueueEmpty(dir) {
-		t.Fatal("a missing file is an empty queue")
+// Queued items show as "queue N" after the agents. While items wait and a
+// session is free, the advice is to run the queue, not to add work.
+func TestLineCountsTheQueueAndAdvisesARun(t *testing.T) {
+	s := Summary{
+		Agents: []Agent{
+			{Name: "claude", Running: 3, Limit: 12, Live: 11},
+			{Name: "codex", Running: 0, Limit: 3, Live: 1},
+		},
+		Queued: 2, Window: 41, WindowKnown: true,
 	}
-	path := filepath.Join(dir, "peer-queue.ndjson")
-	write := func(text string) {
-		t.Helper()
-		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	want := "duolog peers: claude 3 running of 12; codex 0 of 3; queue 2; 5h 41% - 2 codex sessions free: duolog peer queue run"
+	if got := s.Line(); got != want {
+		t.Fatalf("got %q\nwant %q", got, want)
 	}
-	write("")
-	if !QueueEmpty(dir) {
-		t.Fatal("an empty file is an empty queue")
+	full := s
+	full.Agents = []Agent{{Name: "claude", Running: 3, Limit: 12, Live: 12}}
+	if got := full.Line(); got != "duolog peers: claude 3 running of 12; queue 2; 5h 41%" {
+		t.Fatalf("no free session gets no advice: %q", got)
 	}
-	write(`{"id":"q1","state":"opened peer-ab"}` + "\n" + `{"id":"q2","state":"failed: no"}` + "\n" + "not json\n")
-	if !QueueEmpty(dir) {
-		t.Fatal("opened and failed items are not ready")
-	}
-	write(`{"id":"q1","state":"opened peer-ab"}` + "\n" + `{"id":"q2","state":"queued"}` + "\n")
-	if QueueEmpty(dir) {
-		t.Fatal("a queued item is ready")
+	if got := (Summary{Agents: []Agent{{Name: "claude", Limit: 12}}}).Line(); contains(got, "; queue ") || contains(got, "queue run") {
+		t.Fatalf("an empty queue is not named: %q", got)
 	}
 }
 

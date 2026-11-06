@@ -38,7 +38,11 @@ func newHookCommand() *cobra.Command {
 		if err != nil || len(data) > 4*1024*1024 {
 			return nil
 		}
-		env := hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ(), Stderr: cmd.ErrOrStderr(), Peers: peerLines(cmd), Load: leadLoad(cmd)}
+		// A prompt and a peer-idle message start the lead's queue run, at
+		// most one per hook.
+		startQueue := queueStarter(cmd)
+		env := hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ(), Stderr: cmd.ErrOrStderr(), Peers: peerLines(cmd), Load: leadLoad(cmd),
+			QueueRun: startQueue, PeerIdle: func(ctx context.Context, leadID, _ string) { startQueue(ctx, leadID) }}
 		var out hook.Output
 		switch args[0] {
 		case "SessionStart", "session-start":
