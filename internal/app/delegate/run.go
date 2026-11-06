@@ -273,21 +273,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		if out.Line == "" && err != nil {
 			out.Line = oneLine(fmt.Sprintf("role %s: %v", role, err))
 		}
-		extra := joinNotices(absentFrom(out.Line, notices))
-		if len(out.Line)+len(extra) > maxLine {
-			// A claimed notice does not come again in this lead, so it leaves
-			// the text that is cut and follows it whole.
-			for _, n := range notices {
-				out.Line = withoutNotice(out.Line, n)
-			}
-			extra = joinNotices(notices)
-			tail := " ... [cut; " + answerPointer(dir) + "]"
-			out.Line = short(out.Line, max(0, maxLine-len(tail)-len(extra))) + tail
-		}
-		if out.Line == "" {
-			extra = strings.TrimPrefix(extra, "; ")
-		}
-		out.Line += extra
+		out.Line = finalLine(out.Line, notices, dir)
 	}()
 	unavailable, err := reg.Unavailable()
 	if err != nil {
@@ -441,28 +427,13 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					return out, scanErr
 				}
 			}
-			var notes, lacking []string
-			reroute := false
-			bridge = nil
-			for _, r := range capability.Resolve(target, lead, opts.Needs, cfg.Capabilities) {
-				switch r.Action {
-				case capability.ActionBridge:
-					bridge = append(bridge, strings.TrimPrefix(r.Need, capability.KindMCP+":"))
-				case capability.ActionRefuse:
-					out.Line = oneLine("role " + role + ": " + r.Hint)
-					return out, fmt.Errorf("capability %s missing: %s", r.Need, r.Hint)
-				case capability.ActionLeadFirst:
-					lacking = append(lacking, r.Need)
-					notes = append(notes, r.Hint)
-				case capability.ActionReroute:
-					reroute = true
-					notes = append(notes, r.Hint)
-				default:
-					if r.Hint != "" {
-						notes = append(notes, r.Hint)
-					}
-				}
+			plan := capabilityPlan(capability.Resolve(target, lead, opts.Needs, cfg.Capabilities))
+			if r := plan.Refuse; r != nil {
+				out.Line = oneLine("role " + role + ": " + r.Hint)
+				return out, fmt.Errorf("capability %s missing: %s", r.Need, r.Hint)
 			}
+			notes, lacking, reroute := plan.Notes, plan.Lacking, plan.Reroute
+			bridge = plan.Bridge
 			bridged = nil
 			if len(bridge) > 0 {
 				var failed map[string]string
@@ -574,9 +545,9 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 		// The brief and the worker lines count against the inline limit, so a large
 		// brief leaves less room for Read files instead of growing every handoff.
 		brief := workerBrief(root)
-		budget := cfg.Wire.InlineMaxBytes - len(brief) - len(workerLines)
-		if budget <= 0 {
-			return out, fmt.Errorf(".duolog/brief.md and the worker lines take %d of wire.inline_max_bytes (%d); shorten the brief", len(brief)+len(workerLines), cfg.Wire.InlineMaxBytes)
+		budget, budgetErr := inlineBudget(cfg.Wire.InlineMaxBytes, len(brief), len(workerLines))
+		if budgetErr != nil {
+			return out, budgetErr
 		}
 		readRules := leadRules
 		readRules.RoleSandbox = route.Sandbox
@@ -639,9 +610,7 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					return out, err
 				}
 				if entry != nil {
-					over := entry.Input > int64(cfg.Sessions.ResumeMaxInputTokens)
-					idle := cfg.Sessions.IdleCloseMinutes > 0 && time.Since(entry.UpdatedAt) > time.Duration(cfg.Sessions.IdleCloseMinutes)*time.Minute
-					if over || idle {
+					if !keepThread(entry, cfg.Sessions, time.Now()) {
 						if err = reg.Close(entry.ID); err != nil {
 							return out, err
 						}
@@ -904,6 +873,25 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 	out.RunHere = &p
 	out.Line = leadLine(role, append(failures, refusals...), shownTask(p, quotaEnded))
 	return out, nil
+}
+
+// keepThread reports whether the live thread of a session entry may take
+// another turn: it stays under the input token limit and has not idled past
+// the close time. An idle close time of 0 never closes a thread.
+func keepThread(entry *session.Entry, limits config.Sessions, now time.Time) bool {
+	over := entry.Input > int64(limits.ResumeMaxInputTokens)
+	idle := limits.IdleCloseMinutes > 0 && now.Sub(entry.UpdatedAt) > time.Duration(limits.IdleCloseMinutes)*time.Minute
+	return !over && !idle
+}
+
+// inlineBudget is the bytes left for inlined task text once the brief and the
+// worker lines are taken from wire.inline_max_bytes.
+func inlineBudget(maxBytes, briefBytes, linesBytes int) (int, error) {
+	budget := maxBytes - briefBytes - linesBytes
+	if budget <= 0 {
+		return 0, fmt.Errorf(".duolog/brief.md and the worker lines take %d of wire.inline_max_bytes (%d); shorten the brief", briefBytes+linesBytes, maxBytes)
+	}
+	return budget, nil
 }
 
 func missingBinary(err error) bool {

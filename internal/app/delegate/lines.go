@@ -55,6 +55,25 @@ func relativeTask(path string) string {
 	return filepath.ToSlash(path)
 }
 
+// finalLine is the line that ends a run: line with each notice it lacks after
+// it. A claimed notice does not come again in this lead, so when the result is
+// over maxLine the notices leave the text that is cut and follow it whole.
+func finalLine(line string, notices []string, dir string) string {
+	extra := joinNotices(absentFrom(line, notices))
+	if len(line)+len(extra) > maxLine {
+		for _, n := range notices {
+			line = withoutNotice(line, n)
+		}
+		extra = joinNotices(notices)
+		tail := " ... [cut; " + answerPointer(dir) + "]"
+		line = short(line, max(0, maxLine-len(tail)-len(extra))) + tail
+	}
+	if line == "" {
+		extra = strings.TrimPrefix(extra, "; ")
+	}
+	return line + extra
+}
+
 // withoutNotice takes the last copy of notice out of line, with the "; " that
 // leads it.
 func withoutNotice(line, notice string) string {
