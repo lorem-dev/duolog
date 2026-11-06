@@ -16,6 +16,7 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/adapter/workertest"
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	leadio "github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/lead/leadtest"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
@@ -23,6 +24,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	corelead "github.com/lorem-dev/duolog/internal/core/lead"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/route"
@@ -30,7 +32,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/taskspec"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/testbin"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // transcriptLead reads a transcript as the real adapters do and then runs
@@ -69,7 +70,7 @@ type harness struct {
 	// beforeStart runs inside a run just before its child is recorded.
 	beforeStart func()
 	// checked lists the processes the login checks were made for.
-	checked []workerenv.Process
+	checked []corelaunch.Process
 	// leadAt is the time of the harness's last lead observation.
 	leadAt time.Time
 	// deps is what the harness passes to Run; a test may replace a field.
@@ -191,11 +192,13 @@ func newHarness(t *testing.T) *harness {
 		ScanCapabilities: capability.ScanEnv,
 		BridgeMCP:        capability.Bridge,
 		Canonical:        filepath.Clean,
+		Build:            launchtest.Build,
+		DroppedKeys:      launchtest.DroppedKeys,
 	}
 	// A duolog on the worker PATH, as where it is installed; set after Deps
 	// is built, which would replace it.
 	h.gateOnPath(true)
-	h.deps.NewChecker = func(_ string, p workerenv.Process) Checker {
+	h.deps.NewChecker = func(_ string, p corelaunch.Process) Checker {
 		h.checked = append(h.checked, p)
 		return h.auth
 	}

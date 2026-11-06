@@ -19,6 +19,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/run"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // Fake holds the fakes of one test and what they were called with.
@@ -67,6 +68,8 @@ func (f *Fake) Deps() delegate.Deps {
 		BridgeMCP: func(_, _, _ string, _ []string, _ map[string][]string, _ []string) (*run.MCP, map[string]string) {
 			return nil, nil
 		},
+		Build:       workerenv.Build,
+		DroppedKeys: workerenv.DroppedKeys,
 		PaidGate: func(cfg *config.Config) (*paidruns.Gate, error) {
 			g := *f.Gate
 			g.Config = cfg

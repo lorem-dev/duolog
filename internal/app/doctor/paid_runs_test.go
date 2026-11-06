@@ -11,8 +11,8 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // Values that must never reach a report: keys, a lead's key, an endpoint URL.
@@ -24,7 +24,7 @@ const (
 
 // reportGate makes delegate.NewGate return one gate over a temporary account
 // state, whose reads answer as read does.
-func reportGate(t *testing.T, cfg *config.Config, read func(context.Context, workerenv.Process) (quota.Snapshot, error)) *paidruns.Gate {
+func reportGate(t *testing.T, cfg *config.Config, read func(context.Context, corelaunch.Process) (quota.Snapshot, error)) *paidruns.Gate {
 	t.Helper()
 	g, err := paidrunstest.Gate(t.TempDir(), cfg)
 	if err != nil {
@@ -41,13 +41,13 @@ func reportGate(t *testing.T, cfg *config.Config, read func(context.Context, wor
 
 // shapeReads answers Claude as a first-party subscription with paid overage
 // on, and Codex with an API key route.
-func shapeReads(ctx context.Context, p workerenv.Process) (quota.Snapshot, error) {
+func shapeReads(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
 	s, err := paidrunstest.Subscription(ctx, p)
 	switch p.Agent {
 	case "claude":
 		s.Billing.OverageEnabled = true
 	case "codex":
-		s.Billing.RouteSignals = []workerenv.Signal{{Name: "auth:apiKey", Layer: "account/read"}}
+		s.Billing.RouteSignals = []corelaunch.Signal{{Name: "auth:apiKey", Layer: "account/read"}}
 	}
 	return s, err
 }
@@ -57,10 +57,10 @@ func seed(t *testing.T, g *paidruns.Gate) {
 	t.Helper()
 	later := time.Now().Add(time.Minute)
 	err := g.Store.Update(context.Background(), func(st *paidruns.State) error {
-		st.Reservations["claude-live"] = paidruns.Reservation{ID: "claude-live", Agent: "claude", Shape: workerenv.Worker,
-			Variant: workerenv.Free, Session: true, Task: true, Created: time.Now()}
-		st.Reservations["codex-paid"] = paidruns.Reservation{ID: "codex-paid", Agent: "codex", Shape: workerenv.Worker,
-			Variant: workerenv.Paid, Paid: true, Session: true, Task: true, Created: time.Now(),
+		st.Reservations["claude-live"] = paidruns.Reservation{ID: "claude-live", Agent: "claude", Shape: corelaunch.Worker,
+			Variant: corelaunch.Free, Session: true, Task: true, Created: time.Now()}
+		st.Reservations["codex-paid"] = paidruns.Reservation{ID: "codex-paid", Agent: "codex", Shape: corelaunch.Worker,
+			Variant: corelaunch.Paid, Paid: true, Session: true, Task: true, Created: time.Now(),
 			Estimate: paidruns.Estimate{USD: 0.75, Source: "test"}}
 		st.Settled["codex-run"] = paidruns.Settlement{ID: "codex-run", Agent: "codex", ChargedUSD: 1.5,
 			Started: true, CompleteUsage: true, Ended: time.Now()}
@@ -92,7 +92,7 @@ func TestDoctorWarnsOfRetainedHolds(t *testing.T) {
 	cfg, opts, _ := setup(t)
 	g := reportGate(t, cfg, shapeReads)
 	if err := g.Store.Update(context.Background(), func(st *paidruns.State) error {
-		st.Reservations["pane"] = paidruns.Reservation{ID: "pane", Agent: "claude", Shape: workerenv.Peer, Peer: "p1",
+		st.Reservations["pane"] = paidruns.Reservation{ID: "pane", Agent: "claude", Shape: corelaunch.Peer, Peer: "p1",
 			Session: true, Task: true, Created: time.Now(), Retained: "its supervisor ended during the launch; a child may run unrecorded"}
 		return nil
 	}); err != nil {
@@ -178,9 +178,9 @@ func TestQuotaAndDoctorShapeReports(t *testing.T) {
 
 	t.Run("a failed read keeps its evidence", func(t *testing.T) {
 		cfg, opts, _ := setup(t)
-		reportGate(t, cfg, func(ctx context.Context, p workerenv.Process) (quota.Snapshot, error) {
+		reportGate(t, cfg, func(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
 			s, _ := paidrunstest.Subscription(ctx, p)
-			s.Billing.RouteSignals = []workerenv.Signal{{Name: "auth:apiKey", Layer: "auth status"}}
+			s.Billing.RouteSignals = []corelaunch.Signal{{Name: "auth:apiKey", Layer: "auth status"}}
 			return quota.Snapshot{Billing: s.Billing}, errors.New("usage read failed")
 		})
 		text := joined(Run(context.Background(), testDeps, cfg, opts))

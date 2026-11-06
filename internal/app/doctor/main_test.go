@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // testDeps is what the tests pass to Run; a test that needs another gate or
@@ -25,7 +25,8 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	testDeps = Deps{PaidGate: paidrunstest.Factory(accounts), GateBinary: workerenv.GateBinary}
+	testDeps = Deps{PaidGate: paidrunstest.Factory(accounts), GateBinary: launchtest.GateBinary,
+		Build: launchtest.Build, LookPath: launchtest.LookPath, DroppedKeys: launchtest.DroppedKeys}
 	code := m.Run()
 	_ = os.RemoveAll(accounts)
 	os.Exit(code)

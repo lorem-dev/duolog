@@ -12,12 +12,13 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/adapter/workertest"
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/testbin"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // An ask the lead or the person settled is logged with rule "ask lead" and
@@ -228,7 +229,7 @@ func TestAttemptRunnerCodes(t *testing.T) {
 			}
 			testbin.Install(t, c.agent, c.scenario)
 			worker := workertest.For(c.agent)
-			p, buildErr := workerEnv(workerenv.ProcessInput{Agent: c.agent, Variant: workerenv.Free, Config: &config.Config{}, Environ: os.Environ(), Launch: worker.Launch(s)})
+			p, buildErr := workerEnv(launchtest.Build, corelaunch.ProcessInput{Agent: c.agent, Variant: corelaunch.Free, Config: &config.Config{}, Environ: os.Environ(), Launch: worker.Launch(s)})
 			if buildErr != nil {
 				t.Fatal(buildErr)
 			}

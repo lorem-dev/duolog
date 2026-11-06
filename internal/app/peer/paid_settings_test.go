@@ -6,22 +6,23 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // peerProcess builds the process of a peer pane for route.
-func peerProcess(t *testing.T, cfg *config.Config, route coreroute.Route, variant workerenv.Variant, stateDir string, roots ...string) workerenv.Process {
+func peerProcess(t *testing.T, cfg *config.Config, route coreroute.Route, variant corelaunch.Variant, stateDir string, roots ...string) corelaunch.Process {
 	t.Helper()
 	return peerProcessIn(t, cfg, route, mode.Ask, variant, stateDir, roots...)
 }
 
 // peerProcessIn builds the pane of route under a lead in mode m.
-func peerProcessIn(t *testing.T, cfg *config.Config, route coreroute.Route, m mode.Mode, variant workerenv.Variant, stateDir string, roots ...string) workerenv.Process {
+func peerProcessIn(t *testing.T, cfg *config.Config, route coreroute.Route, m mode.Mode, variant corelaunch.Variant, stateDir string, roots ...string) corelaunch.Process {
 	t.Helper()
-	p, err := agentEnv(peerInput(cfg, route, m, variant, "lead", "plan", "peer-test", "", stateDir, roots, os.Environ()))
+	p, err := agentEnv(launchtest.Build, peerInput(cfg, route, m, variant, "lead", "plan", "peer-test", "", stateDir, roots, os.Environ()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +37,7 @@ func TestPeerFastModePinned(t *testing.T) {
 	root := t.TempDir()
 	paid := &config.Config{}
 	paid.PaidRuns.Claude.Allow, paid.PaidRuns.Claude.DailyCapUSD = true, 5
-	for _, variant := range []workerenv.Variant{workerenv.Free, workerenv.Paid} {
+	for _, variant := range []corelaunch.Variant{corelaunch.Free, corelaunch.Paid} {
 		for _, context := range []string{"minimal", "project"} {
 			route := coreroute.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Context: context}
 			args := agentArgv(route, mode.Ask, peerProcess(t, paid, route, variant, root))
@@ -56,7 +57,7 @@ func TestPeerFastModePinned(t *testing.T) {
 			if err := json.Unmarshal([]byte(args[i+1]), &settings); err != nil {
 				t.Fatal(err)
 			}
-			if variant == workerenv.Free && (settings.FastMode == nil || *settings.FastMode) || variant == workerenv.Paid && settings.FastMode != nil {
+			if variant == corelaunch.Free && (settings.FastMode == nil || *settings.FastMode) || variant == corelaunch.Paid && settings.FastMode != nil {
 				t.Fatal(variant, context, args[i+1])
 			}
 			if settings.PreferredNotifChannel != "notifications_disabled" || len(settings.Sandbox.Filesystem.DenyRead) == 0 {

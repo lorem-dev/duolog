@@ -6,6 +6,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
+	"github.com/lorem-dev/duolog/internal/app/launch"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/core/config"
 )
@@ -59,4 +60,9 @@ type Deps struct {
 	// HeldGate shows that the gate of a pane that only it keeps read-only runs,
 	// as delegate.HeldGate does.
 	HeldGate func(agent, root string, env []string) error
+	// Build makes a pane's process: workerenv.Build, the one Build.
+	Build launch.Build
+	// DroppedKeys lists the route names an agent's panes no longer get:
+	// workerenv.DroppedKeys.
+	DroppedKeys launch.DroppedKeys
 }

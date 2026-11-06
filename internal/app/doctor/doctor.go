@@ -19,10 +19,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/trust"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // FixtureVersions is the single source of versions used to collect the fixtures.
@@ -146,7 +146,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 	// not let through, so the change is never silent. Names only, never
 	// values. An explicit list replaces the default, so the example keeps the
 	// agent's paid env, and its cap when it has one.
-	dropped := workerenv.DroppedKeys(cfg, os.Environ())
+	dropped := d.DroppedKeys(cfg, os.Environ())
 	for _, agent := range []string{"claude", "codex"} {
 		paid := cfg.PaidRuns.Agent(agent)
 		limit := "5"
@@ -158,7 +158,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 			if !slices.Contains(env, name) {
 				env = append(env, name)
 			}
-			add("warning", workerenv.MigrationLine(agent, name)+" Example config: paid_runs: {"+agent+": {allow: true, daily_cap_usd: "+limit+", env: ["+strings.Join(env, ", ")+"]}}")
+			add("warning", corelaunch.MigrationLine(agent, name)+" Example config: paid_runs: {"+agent+": {allow: true, daily_cap_usd: "+limit+", env: ["+strings.Join(env, ", ")+"]}}")
 		}
 	}
 	var entries []catalogEntry
@@ -246,16 +246,16 @@ func billing(ctx context.Context, d Deps, cfg *config.Config, root string, avail
 			continue
 		}
 		var worker paidruns.Report
-		for _, shape := range []workerenv.Shape{workerenv.Worker, workerenv.Peer} {
-			in := workerenv.ProcessInput{Agent: agent, Shape: shape, Variant: workerenv.Free, Config: cfg, Environ: environ,
-				Locations: workerenv.Locations{Home: home, Root: root, GOOS: runtime.GOOS, Environ: environ}}
+		for _, shape := range []corelaunch.Shape{corelaunch.Worker, corelaunch.Peer} {
+			in := corelaunch.ProcessInput{Agent: agent, Shape: shape, Variant: corelaunch.Free, Config: cfg, Environ: environ,
+				Locations: corelaunch.Locations{Home: home, Root: root, GOOS: runtime.GOOS, Environ: environ}}
 			r, err := g.Report(ctx, in)
 			if r.Assessment.Agent == "" {
 				out = append(out, Finding{"warning", fmt.Sprintf("%s %s billing: %v", agent, shape, err)})
 				continue
 			}
 			report(r)
-			if shape == workerenv.Worker {
+			if shape == corelaunch.Worker {
 				worker = r
 				if account == nil {
 					account = r.AccountLines()

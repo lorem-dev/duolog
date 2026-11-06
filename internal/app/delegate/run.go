@@ -17,11 +17,13 @@ import (
 	"crypto/sha256"
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/launch"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/coauthor"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
@@ -32,7 +34,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/trust"
 	"github.com/lorem-dev/duolog/internal/trusthome"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 type Outcome struct {
@@ -137,7 +138,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 			out.Line = oneLine(fmt.Sprintf("role %s: %v", role, err))
 		}
 	}()
-	if workerenv.IsWorker() {
+	if launch.IsWorker() {
 		return out, fmt.Errorf("nested delegation refused (DUOLOG_DEPTH=%s)", os.Getenv("DUOLOG_DEPTH"))
 	}
 	for _, need := range opts.Needs {
@@ -375,8 +376,8 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		// go through the build with the run id, so the account gate admits the
 		// environment the worker runs with.
 		runEnv := append([]string{"DUOLOG_RUN=" + att.run}, wm.env()...)
-		var base workerenv.Process
-		if base, err = workerEnv(workerInput(cfg, route, variant, leadID, role, root, opts.ProtectedRoots, runEnv, opts.Needs)); err != nil {
+		var base corelaunch.Process
+		if base, err = workerEnv(d.Build, workerInput(cfg, route, variant, leadID, role, root, opts.ProtectedRoots, runEnv, opts.Needs)); err != nil {
 			return out, err
 		}
 		env := base.Env
@@ -461,8 +462,8 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 				return out, err
 			}
 		}
-		var pre workerenv.Process
-		if pre, err = workerEnv(in); err != nil {
+		var pre corelaunch.Process
+		if pre, err = workerEnv(d.Build, in); err != nil {
 			return out, err
 		}
 		// The hooks, approvals and folder trust the worker loads are those its
@@ -534,7 +535,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		if inlineErr != nil {
 			return out, inlineErr
 		}
-		claimed, noticeErr := ClaimMigration(reg, cfg, leadID, route.Agent)
+		claimed, noticeErr := ClaimMigration(d.DroppedKeys, reg, cfg, leadID, route.Agent)
 		if noticeErr != nil {
 			return out, noticeErr
 		}
@@ -873,9 +874,9 @@ func missingBinary(err error) bool {
 // Delegate and peer open share the claim, so the lead reads each line once.
 // Without a lead there is nothing to remember it by, and the lines come every
 // time.
-func ClaimMigration(reg *session.Registry, cfg *config.Config, leadID, agent string) ([]string, error) {
+func ClaimMigration(dropped launch.DroppedKeys, reg *session.Registry, cfg *config.Config, leadID, agent string) ([]string, error) {
 	var lines []string
-	for _, name := range workerenv.DroppedKeys(cfg, os.Environ())[agent] {
+	for _, name := range dropped(cfg, os.Environ())[agent] {
 		claimed := true
 		if leadID != "" {
 			var err error
@@ -884,20 +885,20 @@ func ClaimMigration(reg *session.Registry, cfg *config.Config, leadID, agent str
 			}
 		}
 		if claimed {
-			lines = append(lines, workerenv.MigrationLine(agent, name))
+			lines = append(lines, corelaunch.MigrationLine(agent, name))
 		}
 	}
 	return lines, nil
 }
 
 // migrationLines names the billing keys a refused agent login may have lost.
-func migrationLines(cfg *config.Config, p Problem) []string {
+func migrationLines(dropped launch.DroppedKeys, cfg *config.Config, p Problem) []string {
 	if p.Server != "" {
 		return nil
 	}
 	var lines []string
-	for _, name := range workerenv.DroppedKeys(cfg, os.Environ())[p.Agent] {
-		lines = append(lines, workerenv.MigrationLine(p.Agent, name))
+	for _, name := range dropped(cfg, os.Environ())[p.Agent] {
+		lines = append(lines, corelaunch.MigrationLine(p.Agent, name))
 	}
 	return lines
 }
@@ -1135,7 +1136,7 @@ func settleAuth(ctx context.Context, d Deps, cfg *config.Config, reg *session.Re
 	// An agent login refused while a dropped key is in use most likely relied
 	// on that key. A browser login would switch the person's billing without
 	// asking, so none runs and the lead gets the migration line.
-	if migration := strings.Join(migrationLines(cfg, p), " "); migration != "" {
+	if migration := strings.Join(migrationLines(d.DroppedKeys, cfg, p), " "); migration != "" {
 		if action == AuthFail {
 			return false, fmt.Errorf("%s; %s", reason, migration)
 		}

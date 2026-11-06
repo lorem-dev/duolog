@@ -13,7 +13,6 @@ import (
 	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/store"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // Actions for capabilities.on_auth_failure.
@@ -79,14 +78,14 @@ type Checker interface {
 // and exactly p's environment, so a login that only duolog's environment has
 // cannot pass it. A passed check counts for p's route alone, by its cache key,
 // never for the agent. cacheDir is .duolog/cache, or empty for none.
-func NewChecker(d Deps, cacheDir string, p workerenv.Process) Checker {
+func NewChecker(d Deps, cacheDir string, p corelaunch.Process) Checker {
 	return &loginChecker{d: d, dir: cacheDir, proc: p, now: time.Now}
 }
 
 type loginChecker struct {
 	d    Deps
 	dir  string
-	proc workerenv.Process
+	proc corelaunch.Process
 	now  func() time.Time
 	mu   sync.Mutex
 }

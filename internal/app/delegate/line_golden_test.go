@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // The result line is the contract with the lead: it is all the lead reads of
@@ -230,5 +230,5 @@ func TestRunLineGolden(t *testing.T) {
 // The migration line is a fixed text the notice cases above quote; pin it so
 // that a change to its words shows in this file as well as in theirs.
 func TestMigrationLineGolden(t *testing.T) {
-	checkGolden(t, "migration_line_codex", workerenv.MigrationLine("codex", "OPENAI_API_KEY"))
+	checkGolden(t, "migration_line_codex", corelaunch.MigrationLine("codex", "OPENAI_API_KEY"))
 }

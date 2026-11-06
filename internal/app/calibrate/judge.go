@@ -497,11 +497,11 @@ func judgeOnce(ctx context.Context, env JudgeEnv, c config.Class, dir string, n 
 	if err != nil {
 		return Call{}, 0, err
 	}
-	claudeEnv, err := WorkerEnviron(env.Cfg, "claude")
+	claudeEnv, err := env.WorkerEnviron(env.Cfg, "claude")
 	if err != nil {
 		return Call{}, 0, err
 	}
-	workerEnv, err := WorkerEnviron(env.Cfg, target.Agent)
+	workerEnv, err := env.WorkerEnviron(env.Cfg, target.Agent)
 	if err != nil {
 		return Call{}, 0, err
 	}

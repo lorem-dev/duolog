@@ -11,10 +11,10 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // accounts is the account state of the harness's gate.
@@ -41,10 +41,10 @@ func (h *harness) settled() []paidruns.Settlement {
 // paidReads makes the quota reads of agents show an API key route.
 func (h *harness) paidReads(agents ...string) {
 	read := h.gate.Cache.Read
-	h.gate.Cache.Read = func(ctx context.Context, p workerenv.Process) (quota.Snapshot, error) {
+	h.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
 		s, err := read(ctx, p)
 		if slices.Contains(agents, p.Agent) {
-			s.Billing.RouteSignals = []workerenv.Signal{{Name: "auth:apiKey", Layer: "auth status"}}
+			s.Billing.RouteSignals = []corelaunch.Signal{{Name: "auth:apiKey", Layer: "auth status"}}
 		}
 		return s, err
 	}
@@ -238,7 +238,7 @@ func TestAttemptSettlementOnCancelRetryAndFallback(t *testing.T) {
 		if o.RunHere == nil || !strings.HasPrefix(o.Line, "implement -> lead: ") || !strings.Contains(o.Line, "daily cap") {
 			t.Fatalf("the retry was not refused at the cap: %q", o.Line)
 		}
-		if h.calls[0].Process.Variant != workerenv.Paid || h.calls[0].Process.Agent != "codex" {
+		if h.calls[0].Process.Variant != corelaunch.Paid || h.calls[0].Process.Agent != "codex" {
 			t.Fatalf("paid run: %+v", h.calls[0].Process)
 		}
 		if settled := h.settled(); len(settled) != 1 || settled[0].ChargedUSD <= 0 {
@@ -289,7 +289,7 @@ func TestInLeadFallbackKeepsPaidPassAndRefusals(t *testing.T) {
 			t.Fatalf("the task went to the lead before the paid pass: %q", o.Line)
 		}
 		h.requireCalls(1)
-		if p := h.calls[0].Process; p.Agent != "codex" || p.Variant != workerenv.Paid {
+		if p := h.calls[0].Process; p.Agent != "codex" || p.Variant != corelaunch.Paid {
 			t.Fatalf("run: %+v", p)
 		}
 	})
@@ -355,7 +355,7 @@ func TestWorkerBuildGatesExplicitPassthroughInDelegate(t *testing.T) {
 	}
 	for i, s := range h.calls {
 		p := s.Process
-		if p == nil || p.Agent != s.Route.Agent || p.Variant != workerenv.Free || p.Shape != workerenv.Worker {
+		if p == nil || p.Agent != s.Route.Agent || p.Variant != corelaunch.Free || p.Shape != corelaunch.Worker {
 			t.Fatalf("run %d: %+v", i, p)
 		}
 		if slices.ContainsFunc(p.Env, func(pair string) bool { return strings.HasPrefix(pair, "OPENAI_API_KEY=") }) {

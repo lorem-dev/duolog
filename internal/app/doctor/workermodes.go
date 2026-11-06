@@ -7,10 +7,10 @@ import (
 	"sort"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/trust"
 	"github.com/lorem-dev/duolog/internal/trusthome"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // workerModeFindings reports the worker_modes entries: one info line per agent
@@ -113,17 +113,17 @@ func describeWorkerMode(agent string, e config.WorkerMode) (native, extras strin
 // the hooks, folder trust and gate binary of the environment a worker gets,
 // env_passthrough applied, in each variant that may run, never duolog's own.
 func gateProblem(d Deps, cfg *config.Config, agent, root string) string {
-	variants := []workerenv.Variant{workerenv.Free}
+	variants := []corelaunch.Variant{corelaunch.Free}
 	if cfg.PaidRuns.Agent(agent).Allow {
-		variants = append(variants, workerenv.Paid)
+		variants = append(variants, corelaunch.Paid)
 	}
 	for _, variant := range variants {
-		p, err := workerenv.Build(workerenv.ProcessInput{Agent: agent, Shape: workerenv.Worker, Variant: variant, Config: cfg, Environ: os.Environ()})
+		p, err := d.Build(corelaunch.ProcessInput{Agent: agent, Shape: corelaunch.Worker, Variant: variant, Config: cfg, Environ: os.Environ()})
 		if err != nil {
 			return err.Error()
 		}
 		if problem := envGateProblem(d, agent, root, p.Env); problem != "" {
-			if variant == workerenv.Paid {
+			if variant == corelaunch.Paid {
 				problem = "in the paid variant: " + problem
 			}
 			return problem

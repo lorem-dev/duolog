@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/app/launch"
 	leadio "github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/run"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // Worker runs one agent's workers. Launch gives the words the account gate
@@ -35,7 +36,7 @@ type Agent struct {
 
 // checker returns the checker of the worker process p: the real one over the
 // logins of d, or the one NewChecker of d gives when a test replaced it.
-func (d Deps) checker(cacheDir string, p workerenv.Process) Checker {
+func (d Deps) checker(cacheDir string, p corelaunch.Process) Checker {
 	if d.NewChecker != nil {
 		return d.NewChecker(cacheDir, p)
 	}
@@ -77,12 +78,17 @@ type Deps struct {
 	BridgeMCP        func(from, to, root string, names []string, tools map[string][]string, workerEnv []string) (*run.MCP, map[string]string)
 	// NewChecker, when set, replaces the checker that Run builds over the
 	// logins of Agents; a test sets it to script the answers.
-	NewChecker func(cacheDir string, p workerenv.Process) Checker
+	NewChecker func(cacheDir string, p corelaunch.Process) Checker
 	// OAuth checks a static HTTP server with the credentials the worker gets.
 	OAuth ServerOAuth
 	// RunLogin runs an agent's login command once, within the timeout, and says
 	// how it ended. A timeout that is not positive means the default.
 	RunLogin func(ctx context.Context, argv []string, timeout time.Duration) LoginResult
+	// Build makes a worker's process: workerenv.Build, the one Build.
+	Build launch.Build
+	// DroppedKeys lists, per agent, the route names that the agent's workers
+	// no longer get: workerenv.DroppedKeys.
+	DroppedKeys launch.DroppedKeys
 	// PaidGate opens the account admission gate of one delegation: the user's
 	// account state, reads of the quota each built process sees, and the
 	// settings layers each build reads.

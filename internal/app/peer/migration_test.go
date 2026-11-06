@@ -8,12 +8,13 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/testbin"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // The migration line comes once per agent and lead, whichever of delegate
@@ -27,7 +28,7 @@ func TestMigrationOnceAcrossDelegateAndPeer(t *testing.T) {
 	if err := os.Unsetenv("OPENAI_API_KEY"); err != nil {
 		t.Fatal(err)
 	}
-	line := workerenv.MigrationLine("claude", "ANTHROPIC_API_KEY")
+	line := corelaunch.MigrationLine("claude", "ANTHROPIC_API_KEY")
 
 	// Peer first: the pane opens without the key and the reply names it.
 	e := r.open("plan")
@@ -39,7 +40,7 @@ func TestMigrationOnceAcrossDelegateAndPeer(t *testing.T) {
 			t.Fatal("the pane got the key", w)
 		}
 	}
-	if got, err := delegate.ClaimMigration(r.reg, r.cfg, "lead-1", "claude"); err != nil || len(got) != 0 {
+	if got, err := delegate.ClaimMigration(launchtest.DroppedKeys, r.reg, r.cfg, "lead-1", "claude"); err != nil || len(got) != 0 {
 		t.Fatal("delegate repeated the notice", got, err)
 	}
 	// The live pane is returned, not launched again: no line.
@@ -47,7 +48,7 @@ func TestMigrationOnceAcrossDelegateAndPeer(t *testing.T) {
 		t.Fatalf("%+v", e)
 	}
 	// Codex has no dropped key here.
-	if got, err := delegate.ClaimMigration(r.reg, r.cfg, "lead-1", "codex"); err != nil || len(got) != 0 {
+	if got, err := delegate.ClaimMigration(launchtest.DroppedKeys, r.reg, r.cfg, "lead-1", "codex"); err != nil || len(got) != 0 {
 		t.Fatal(got, err)
 	}
 
@@ -55,7 +56,7 @@ func TestMigrationOnceAcrossDelegateAndPeer(t *testing.T) {
 	if err := r.reg.RegisterLead(session.Lead{ID: "lead-2", Target: config.Target{Agent: "codex", Model: "sol", Effort: "high"}, Mode: mode.Ask, PID: os.Getpid()}); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := delegate.ClaimMigration(r.reg, r.cfg, "lead-2", "claude"); err != nil || len(got) != 1 || got[0] != line {
+	if got, err := delegate.ClaimMigration(launchtest.DroppedKeys, r.reg, r.cfg, "lead-2", "claude"); err != nil || len(got) != 1 || got[0] != line {
 		t.Fatal(got, err)
 	}
 	r.ctx = WithOptions(context.Background(), Options{Deps: r.deps, Root: r.root, Config: r.cfg, Lead: "lead-2"})
@@ -67,7 +68,7 @@ func TestMigrationOnceAcrossDelegateAndPeer(t *testing.T) {
 // The claimed line comes whole after a question, which is cut before it, and
 // after an error, since peer open claims it before the pane exists.
 func TestMigrationSurvivesQuestionAndError(t *testing.T) {
-	line := workerenv.MigrationLine("codex", "OPENAI_API_KEY")
+	line := corelaunch.MigrationLine("codex", "OPENAI_API_KEY")
 	keys := func(t *testing.T) {
 		t.Setenv("OPENAI_API_KEY", "sk-test-value")
 		t.Setenv("ANTHROPIC_API_KEY", "")
@@ -108,10 +109,10 @@ func TestMigrationSurvivesQuestionAndError(t *testing.T) {
 		keys(t)
 		read := r.gate.Cache.Read
 		paid := true
-		r.gate.Cache.Read = func(ctx context.Context, p workerenv.Process) (quota.Snapshot, error) {
+		r.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
 			s, err := read(ctx, p)
 			if paid {
-				s.Billing.RouteSignals = []workerenv.Signal{{Name: "auth:apiKey", Layer: "account/read"}}
+				s.Billing.RouteSignals = []corelaunch.Signal{{Name: "auth:apiKey", Layer: "account/read"}}
 			}
 			return s, err
 		}

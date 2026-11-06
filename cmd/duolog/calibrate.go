@@ -523,7 +523,7 @@ func newCalibratePlanCommand(d *cmdDeps) *cobra.Command {
 		if err := writePlanTree(ctx, out, root, p); err != nil {
 			return err
 		}
-		return writeJudgeSlot(ctx, out, cfg, root, p)
+		return writeJudgeSlot(ctx, out, d.calibrateDeps(), cfg, root, p)
 	}}
 	cmd.Flags().StringVar(&approve, "approve", "", "Approve the saved plan with this hash and create its cells")
 	return cmd
@@ -550,7 +550,7 @@ func writePlanTree(ctx context.Context, out io.Writer, root string, p calibratio
 // writeJudgeSlot readies the judge slot of a plan with a Codex judge call or
 // rewrite, with the project's hooks in it, and names it, so the person can
 // trust the folder and approve its hooks in Codex before the run.
-func writeJudgeSlot(ctx context.Context, out io.Writer, cfg *config.Config, root string, p calibration.Plan) error {
+func writeJudgeSlot(ctx context.Context, out io.Writer, deps calibration.Deps, cfg *config.Config, root string, p calibration.Plan) error {
 	if !p.HasJudge("codex") {
 		return nil
 	}
@@ -558,7 +558,7 @@ func writeJudgeSlot(ctx context.Context, out io.Writer, cfg *config.Config, root
 	if err != nil {
 		return err
 	}
-	claudeEnv, err := calibration.WorkerEnviron(cfg, "claude")
+	claudeEnv, err := deps.WorkerEnviron(cfg, "claude")
 	if err != nil {
 		return err
 	}
@@ -720,11 +720,11 @@ func rewriteStatement(d *cmdDeps, root string, cfg *config.Config, s *store.Stor
 			return "", 0, err
 		}
 		target := cfg.Learning.Judges[0].Target()
-		claudeEnv, err := calibration.WorkerEnviron(cfg, "claude")
+		claudeEnv, err := d.calibrateDeps().WorkerEnviron(cfg, "claude")
 		if err != nil {
 			return "", 0, err
 		}
-		workerEnv, err := calibration.WorkerEnviron(cfg, target.Agent)
+		workerEnv, err := d.calibrateDeps().WorkerEnviron(cfg, target.Agent)
 		if err != nil {
 			return "", 0, err
 		}

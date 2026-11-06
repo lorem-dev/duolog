@@ -15,11 +15,12 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/app/delegate"
+	"github.com/lorem-dev/duolog/internal/app/launch"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/usage"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // probeSettleTimeout bounds the settlement of a probe that ended, also after
@@ -59,7 +60,7 @@ func probe(ctx context.Context, d Deps, agent string, cfg *config.Config, entrie
 	if err != nil {
 		return err
 	}
-	permit, err := admitProbe(ctx, g, cfg, agent, route.Normalize(agent, model), dir)
+	permit, err := admitProbe(ctx, d.Build, g, cfg, agent, route.Normalize(agent, model), dir)
 	if err != nil {
 		return err
 	}
@@ -82,7 +83,7 @@ func probe(ctx context.Context, d Deps, agent string, cfg *config.Config, entrie
 	if err := g.Store.Launch(ctx, permit.Reservation.ID); err != nil {
 		return err
 	}
-	bin, err := workerenv.LookPath(p.Prefix[0], p.Env)
+	bin, err := d.LookPath(p.Prefix[0], p.Env)
 	if err != nil {
 		return err
 	}
@@ -141,23 +142,23 @@ func probe(ctx context.Context, d Deps, agent string, cfg *config.Config, entrie
 // layers are found where the probe looks: the home folder, dir, this platform
 // and the probe's own environment. It never waits; a refusal is the error,
 // worded as delegate words it, and nothing is run.
-func admitProbe(ctx context.Context, g *paidruns.Gate, cfg *config.Config, agent, family, dir string) (paidruns.Permit, error) {
+func admitProbe(ctx context.Context, build launch.Build, g *paidruns.Gate, cfg *config.Config, agent, family, dir string) (paidruns.Permit, error) {
 	home, _ := os.UserHomeDir()
-	free, err := workerenv.Build(workerenv.ProcessInput{Agent: agent, Shape: workerenv.Worker, Variant: workerenv.Free,
+	free, err := build(corelaunch.ProcessInput{Agent: agent, Shape: corelaunch.Worker, Variant: corelaunch.Free,
 		Config: cfg, Environ: os.Environ(), Role: "probe", Minimal: true})
 	if err != nil {
 		return paidruns.Permit{}, err
 	}
-	loc := workerenv.Locations{Home: home, Root: dir, GOOS: runtime.GOOS, Environ: free.Env}
-	variants := []workerenv.Variant{workerenv.Free}
+	loc := corelaunch.Locations{Home: home, Root: dir, GOOS: runtime.GOOS, Environ: free.Env}
+	variants := []corelaunch.Variant{corelaunch.Free}
 	for _, c := range paidruns.Candidates([]config.Target{{Agent: agent}}, true, cfg.PaidRuns) {
-		if c.Variant == workerenv.Paid {
-			variants = append(variants, workerenv.Paid)
+		if c.Variant == corelaunch.Paid {
+			variants = append(variants, corelaunch.Paid)
 		}
 	}
 	var refusals []string
 	for _, variant := range variants {
-		in := workerenv.ProcessInput{Agent: agent, Shape: workerenv.Worker, Variant: variant, Config: cfg,
+		in := corelaunch.ProcessInput{Agent: agent, Shape: corelaunch.Worker, Variant: variant, Config: cfg,
 			Environ: os.Environ(), Role: "probe", Minimal: true, Locations: loc}
 		permit, err := g.Acquire(ctx, paidruns.Request{Input: in, Family: family, Role: "probe",
 			Owner: paidruns.ProcessOwner(os.Getpid())})

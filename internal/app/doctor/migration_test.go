@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/workerenv"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 )
 
 // Doctor warns every time while a dropped key is set or listed and paid runs
@@ -22,8 +22,8 @@ func TestDoctorRepeatsMigrationWhileKeyDropped(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.PaidRuns.Claude.Env = []string{"CLAUDE_PAID_EXTRA"}
-	claude := workerenv.MigrationLine("claude", "ANTHROPIC_API_KEY")
-	codex := workerenv.MigrationLine("codex", "OPENAI_API_KEY")
+	claude := corelaunch.MigrationLine("claude", "ANTHROPIC_API_KEY")
+	codex := corelaunch.MigrationLine("codex", "OPENAI_API_KEY")
 	// An explicit list replaces the default, so the example keeps the paid env.
 	example := "Example config: paid_runs: {claude: {allow: true, daily_cap_usd: 5, env: [CLAUDE_PAID_EXTRA, ANTHROPIC_API_KEY]}}"
 	warned := func(got []Finding, line string) bool {

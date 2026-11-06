@@ -33,6 +33,8 @@ func DelegateDeps() delegate.Deps {
 		BridgeMCP:        capability.Bridge,
 		OAuth:            mcpauth.New(),
 		RunLogin:         kit.RunLogin,
+		Build:            workerenv.Build,
+		DroppedKeys:      workerenv.DroppedKeys,
 		PaidGate:         paidGate,
 		GateBinary:       workerenv.GateBinary,
 		Canonical:        kit.Canonical,
@@ -116,6 +118,8 @@ func PeerDeps(d delegate.Deps) peer.Deps {
 		HeldGate: func(agent, root string, env []string) error {
 			return delegate.HeldGate(d, agent, root, env)
 		},
+		Build:       workerenv.Build,
+		DroppedKeys: workerenv.DroppedKeys,
 	}
 }
 
@@ -137,8 +141,11 @@ func ProfileDeps(d delegate.Deps) profile.Deps {
 // DoctorDeps fills every field of doctor.Deps with the real function.
 func DoctorDeps(d delegate.Deps) doctor.Deps {
 	return doctor.Deps{
-		PaidGate:   func(cfg *config.Config) (*paidruns.Gate, error) { return d.PaidGate(cfg) },
-		GateBinary: workerenv.GateBinary,
+		PaidGate:    func(cfg *config.Config) (*paidruns.Gate, error) { return d.PaidGate(cfg) },
+		GateBinary:  workerenv.GateBinary,
+		Build:       workerenv.Build,
+		LookPath:    workerenv.LookPath,
+		DroppedKeys: workerenv.DroppedKeys,
 	}
 }
 

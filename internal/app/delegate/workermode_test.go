@@ -16,10 +16,10 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/trusthome"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // workerModes writes a user-level worker_modes section and reloads the config.
@@ -783,7 +783,7 @@ func TestAdmittedArgvIsLaunchedArgv(t *testing.T) {
 		}
 		h.requireCalls(1)
 		c := h.calls[0]
-		if paid != (c.Process.Variant == workerenv.Paid) {
+		if paid != (c.Process.Variant == corelaunch.Paid) {
 			t.Fatalf("paid %t: variant %s", paid, c.Process.Variant)
 		}
 		// A TOML basic string escapes backslashes, as on Windows: the JSON

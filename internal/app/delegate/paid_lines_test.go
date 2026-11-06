@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // A Claude run cancelled or timed out mid-request knows only its finished
@@ -29,18 +29,18 @@ func TestInterruptedRunSettlesAsIncomplete(t *testing.T) {
 // The refusal line gives the paid_runs advice only to an agent that has not
 // opted in, and names a pane as a peer.
 func TestRefusalLineWording(t *testing.T) {
-	signals := []workerenv.Signal{{Name: "env:ANTHROPIC_BASE_URL", Layer: "user"}}
-	refusal := func(shape workerenv.Shape, optedIn bool) *paidruns.Refusal {
-		return &paidruns.Refusal{Agent: "claude", Shape: shape, Variant: workerenv.Free,
+	signals := []corelaunch.Signal{{Name: "env:ANTHROPIC_BASE_URL", Layer: "user"}}
+	refusal := func(shape corelaunch.Shape, optedIn bool) *paidruns.Refusal {
+		return &paidruns.Refusal{Agent: "claude", Shape: shape, Variant: corelaunch.Free,
 			Reason: paidruns.ReasonFreeVariantPaid, Verdict: paidruns.Paid, Signals: signals, OptedIn: optedIn}
 	}
-	if got := RefusalLine(refusal(workerenv.Worker, false)); got != "claude worker is paid (env:ANTHROPIC_BASE_URL in user); set paid_runs.claude to allow" {
+	if got := RefusalLine(refusal(corelaunch.Worker, false)); got != "claude worker is paid (env:ANTHROPIC_BASE_URL in user); set paid_runs.claude to allow" {
 		t.Fatalf("not opted in: %q", got)
 	}
-	if got := RefusalLine(refusal(workerenv.Worker, true)); got != "claude worker is paid (env:ANTHROPIC_BASE_URL in user)" {
+	if got := RefusalLine(refusal(corelaunch.Worker, true)); got != "claude worker is paid (env:ANTHROPIC_BASE_URL in user)" {
 		t.Fatalf("opted in: %q", got)
 	}
-	if got := RefusalLine(refusal(workerenv.Peer, false)); !strings.HasPrefix(got, "claude peer is paid") {
+	if got := RefusalLine(refusal(corelaunch.Peer, false)); !strings.HasPrefix(got, "claude peer is paid") {
 		t.Fatalf("pane: %q", got)
 	}
 }

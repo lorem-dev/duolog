@@ -7,9 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/capability"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/run"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // unsetEnv removes name for one test and restores it afterwards.
@@ -28,7 +29,7 @@ func clearRoutes(t *testing.T) {
 	t.Helper()
 	for _, entry := range os.Environ() {
 		name, _, _ := strings.Cut(entry, "=")
-		if name == "CLAUDE_CODE_OAUTH_TOKEN" || workerenv.RouteName("claude", name, "") || workerenv.RouteName("codex", name, "") {
+		if name == "CLAUDE_CODE_OAUTH_TOKEN" || launchtest.RouteName("claude", name, "") || launchtest.RouteName("codex", name, "") {
 			unsetEnv(t, name)
 		}
 	}
@@ -53,7 +54,7 @@ func TestClearRoutes(t *testing.T) {
 // its credentials still follows capabilities.on_auth_failure.
 func TestDroppedOnlyLoginGoesToLeadWithoutLogin(t *testing.T) {
 	const secret = "sk-test-value"
-	line := workerenv.MigrationLine("codex", "OPENAI_API_KEY")
+	line := corelaunch.MigrationLine("codex", "OPENAI_API_KEY")
 	keys := func(t *testing.T) *harness {
 		h := authHarness(t)
 		t.Setenv("OPENAI_API_KEY", secret)
@@ -141,7 +142,7 @@ func TestDroppedOnlyLoginGoesToLeadWithoutLogin(t *testing.T) {
 // Notices follow the line with "; ", except after one that ends in a full
 // stop, which the next notice follows with a space: ".;" never appears.
 func TestJoinNotices(t *testing.T) {
-	migration := workerenv.MigrationLine("codex", "OPENAI_API_KEY")
+	migration := corelaunch.MigrationLine("codex", "OPENAI_API_KEY")
 	overage := "codex worker ran on paid overage; duolog stopped further runs"
 	if !strings.HasSuffix(migration, ".") {
 		t.Fatalf("the migration line no longer ends in a full stop: %q", migration)
@@ -167,7 +168,7 @@ func TestJoinNotices(t *testing.T) {
 // is too long is cut before it and the line follows whole, however the run
 // ends.
 func TestClaimedNoticeSurvivesALongLine(t *testing.T) {
-	line := workerenv.MigrationLine("codex", "OPENAI_API_KEY")
+	line := corelaunch.MigrationLine("codex", "OPENAI_API_KEY")
 	keys := func(t *testing.T) *harness {
 		h := authHarness(t)
 		t.Setenv("OPENAI_API_KEY", "sk-test-value")

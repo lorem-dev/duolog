@@ -18,6 +18,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/adapter/workertest"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/bus"
@@ -29,7 +30,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/rex"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/testbin"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 const splitReply = `{"session_id":"session:peers","anchor_id":"block:lead","block_ids":["block:peer"],"split_ids":["split:s"],"revision":4}`
@@ -163,14 +163,16 @@ func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
 			}
 			return route.Normalize(target.Agent, target.Model), nil
 		}),
-		ResetTime:  workertest.ResetTime,
-		Notify:     func(string, string) {},
-		RecordPeer: func(reg *session.Registry, e session.Entry, limit int) error { return reg.RecordLimited(e, limit) },
-		OnEnvFile:  func(string) {},
-		PaidGate:   func(*config.Config) (*paidruns.Gate, error) { return r.gate, nil },
+		ResetTime:   workertest.ResetTime,
+		Notify:      func(string, string) {},
+		RecordPeer:  func(reg *session.Registry, e session.Entry, limit int) error { return reg.RecordLimited(e, limit) },
+		OnEnvFile:   func(string) {},
+		PaidGate:    func(*config.Config) (*paidruns.Gate, error) { return r.gate, nil },
+		Build:       launchtest.Build,
+		DroppedKeys: launchtest.DroppedKeys,
 		// The held-gate check is the real one, on the real gate binary lookup.
 		HeldGate: func(agent, root string, env []string) error {
-			return delegate.HeldGate(delegate.Deps{GateBinary: workerenv.GateBinary}, agent, root, env)
+			return delegate.HeldGate(delegate.Deps{GateBinary: launchtest.GateBinary}, agent, root, env)
 		},
 	}
 	r.useDeps(func(*Deps) {})

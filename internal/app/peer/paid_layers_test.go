@@ -11,10 +11,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // writeFile writes data at path, making its folder.
@@ -108,16 +108,16 @@ func TestPeerSendKeepsPaneRoute(t *testing.T) {
 			r.cfg.PaidRuns.Codex.Allow, r.cfg.PaidRuns.Codex.DailyCapUSD = true, 100
 			r.cfg.PaidRuns.Codex.Env = []string{"OPENAI_API_KEY"}
 			paid := true
-			r.gate.Cache.Read = func(ctx context.Context, p workerenv.Process) (quota.Snapshot, error) {
+			r.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
 				s, err := paidrunstest.Subscription(ctx, p)
 				if paid {
-					s.Billing.RouteSignals = []workerenv.Signal{{Name: "auth:apiKey", Layer: "account/read"}}
+					s.Billing.RouteSignals = []corelaunch.Signal{{Name: "auth:apiKey", Layer: "account/read"}}
 				}
 				return s, err
 			}
 			e := r.ready()
 			entry := r.entry(e.ID)
-			if open := r.accounts().Reservations[entry.AccountSessionID]; open.Variant != workerenv.Paid || !open.Paid {
+			if open := r.accounts().Reservations[entry.AccountSessionID]; open.Variant != corelaunch.Paid || !open.Paid {
 				t.Fatalf("pane: %+v", open)
 			}
 			path := r.task()
@@ -164,7 +164,7 @@ func TestPeerInputLocations(t *testing.T) {
 		t.Fatal(err)
 	}
 	route := coreroute.Route{Target: config.Target{Agent: "claude", Model: "opus"}}
-	in, err := e.paneInput(r.root, route, mode.Ask, workerenv.Free, "lead-1", "plan", "peer-x", "")
+	in, err := e.paneInput(r.root, route, mode.Ask, corelaunch.Free, "lead-1", "plan", "peer-x", "")
 	if err != nil {
 		t.Fatal(err)
 	}

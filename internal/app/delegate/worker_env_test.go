@@ -6,8 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/workerenv"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 )
 
 func TestWorkerEnvPinsExecutableDirectory(t *testing.T) {
@@ -18,7 +19,7 @@ func TestWorkerEnvPinsExecutableDirectory(t *testing.T) {
 	for _, parent := range []string{"", t.TempDir()} {
 		t.Setenv("PATH", parent)
 		for _, names := range [][]string{nil, {"PATH", "Path"}} {
-			p, err := workerEnv(workerenv.ProcessInput{Agent: "codex", Variant: workerenv.Free,
+			p, err := workerEnv(launchtest.Build, corelaunch.ProcessInput{Agent: "codex", Variant: corelaunch.Free,
 				Config: &config.Config{EnvPassthrough: names}, Environ: os.Environ(), LeadID: "lead", Role: "docs"})
 			if err != nil {
 				t.Fatal(err)
@@ -36,7 +37,7 @@ func TestWorkerEnvPinsExecutableDirectory(t *testing.T) {
 					}
 				}
 			}
-			if count != 1 || p.Shape != workerenv.Worker {
+			if count != 1 || p.Shape != corelaunch.Worker {
 				t.Fatal("expected one pinned PATH in a worker", p.Env)
 			}
 		}

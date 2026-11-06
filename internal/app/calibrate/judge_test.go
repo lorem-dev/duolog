@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/app/delegate"
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/app/profile"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corerun "github.com/lorem-dev/duolog/internal/core/run"
@@ -193,7 +194,7 @@ func newJudgeFixture(t *testing.T, a, b string, score scoreFunc) *judgeFixture {
 	f := &judgeFixture{runDir: runDir, run: run, task: task, pair: Pair{Task: "k-1", Class: "implement", A: a, B: b}, slot: slot, home: home}
 	f.env = JudgeEnv{
 		CellEnv: CellEnv{Root: root, StateDir: stateDir, RunDir: runDir, Lead: "lead-1", Cfg: cfg,
-			Deps: Deps{Delegate: func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+			Deps: Deps{Environ: launchtest.Environ, Delegate: func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
 				role, taskPath, opts := r.Role, r.TaskPath, r.Options
 				// Calibration keeps the task copy in the work root's state,
 				// where task.Inline reads it.

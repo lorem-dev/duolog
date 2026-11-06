@@ -24,7 +24,6 @@ import (
 	projectroot "github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/trust"
 	"github.com/lorem-dev/duolog/internal/trusthome"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // The single commit of an exported tree carries no person and no real date,
@@ -150,11 +149,11 @@ func PrepareTree(ctx context.Context, repo, dir string) error {
 }
 
 // WorkerEnviron is the environment a free worker of agent gets under cfg
-// from duolog's own (workerenv.Environ), for NewTreeAt, NewJudgeSlot and
+// from duolog's own (Deps.Environ), for NewTreeAt, NewJudgeSlot and
 // CheckTreeTrust. delegate checks the gate once more on the process it
 // admits, the paid variant's included.
-func WorkerEnviron(cfg *config.Config, agent string) ([]string, error) {
-	return workerenv.Environ(cfg, agent, os.Environ())
+func (d Deps) WorkerEnviron(cfg *config.Config, agent string) ([]string, error) {
+	return d.Environ(cfg, agent, os.Environ())
 }
 
 // addClaudeGate writes duolog's Claude hooks into dir's local settings

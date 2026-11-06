@@ -14,9 +14,9 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/testbin"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // sharedGate makes every delegation of the test admit through one gate, as
@@ -215,8 +215,8 @@ func TestCalibrationSessionWaitAndCapPause(t *testing.T) {
 			t.Fatal(err)
 		}
 		err = g.Store.Update(context.Background(), func(st *paidruns.State) error {
-			st.Reservations["other"] = paidruns.Reservation{ID: "other", Agent: "codex", Shape: workerenv.Worker,
-				Variant: workerenv.Free, Session: true, Task: true, Created: time.Now()}
+			st.Reservations["other"] = paidruns.Reservation{ID: "other", Agent: "codex", Shape: corelaunch.Worker,
+				Variant: corelaunch.Free, Session: true, Task: true, Created: time.Now()}
 			return nil
 		})
 		if err != nil {
@@ -243,7 +243,7 @@ func TestCalibrationSessionWaitAndCapPause(t *testing.T) {
 				return CellResult{}, err
 			}
 			budget, waiting := StepOptions(ctx)
-			in := workerenv.ProcessInput{Agent: "codex", Shape: workerenv.Worker, Variant: workerenv.Free, Config: cfg, Environ: os.Environ()}
+			in := corelaunch.ProcessInput{Agent: "codex", Shape: corelaunch.Worker, Variant: corelaunch.Free, Config: cfg, Environ: os.Environ()}
 			_, err := g.Acquire(ctx, paidruns.Request{Input: in, Family: "sol", Role: "implement", Calibration: true,
 				Budget: budget, Waiting: waiting, Owner: paidruns.Owner{PID: os.Getpid(), Birth: "test"}})
 			return CellResult{}, err
@@ -299,7 +299,7 @@ func TestCalibrationSessionWaitAndCapPause(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		in := workerenv.ProcessInput{Agent: "codex", Shape: workerenv.Worker, Variant: workerenv.Paid, Config: cfg, Environ: os.Environ()}
+		in := corelaunch.ProcessInput{Agent: "codex", Shape: corelaunch.Worker, Variant: corelaunch.Paid, Config: cfg, Environ: os.Environ()}
 		budget := &paidruns.StepBudget{PlanHash: "h", StepID: "c001.1", USDRemaining: 100, WeeklyRemaining: 1, WindowRemaining: 1}
 		_, err = g.Acquire(context.Background(), paidruns.Request{Input: in, Family: "sol", Role: "implement", Calibration: true, Budget: budget})
 		var r *paidruns.Refusal
@@ -331,9 +331,9 @@ func TestCalibrationSessionWaitAndCapPause(t *testing.T) {
 }
 
 // paidRoute reads a route billed per token.
-func paidRoute(ctx context.Context, p workerenv.Process) (quota.Snapshot, error) {
+func paidRoute(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
 	s, err := paidrunstest.Subscription(ctx, p)
-	s.Billing.RouteSignals = []workerenv.Signal{{Name: "auth:apiKey", Layer: "account/read"}}
+	s.Billing.RouteSignals = []corelaunch.Signal{{Name: "auth:apiKey", Layer: "account/read"}}
 	return s, err
 }
 

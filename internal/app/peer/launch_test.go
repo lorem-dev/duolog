@@ -8,19 +8,19 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // A peer cannot delegate, so a Claude peer starts without the subagent tools.
 func TestClaudePeerDisallowsSubagents(t *testing.T) {
 	route := coreroute.Route{Target: config.Target{Agent: "claude", Model: "opus"}}
-	if args := agentArgv(route, mode.Ask, peerProcess(t, &config.Config{}, route, workerenv.Free, t.TempDir())); !slices.Contains(args, "--disallowedTools=Agent,Task") {
+	if args := agentArgv(route, mode.Ask, peerProcess(t, &config.Config{}, route, corelaunch.Free, t.TempDir())); !slices.Contains(args, "--disallowedTools=Agent,Task") {
 		t.Fatal(args)
 	}
 	route.Agent, route.Model = "codex", "sol"
-	for _, a := range agentArgv(route, mode.Plan, peerProcess(t, &config.Config{}, route, workerenv.Free, t.TempDir())) {
+	for _, a := range agentArgv(route, mode.Plan, peerProcess(t, &config.Config{}, route, corelaunch.Free, t.TempDir())) {
 		if strings.Contains(a, "disallowedTools") || strings.Contains(a, "Agent") {
 			t.Fatal(a)
 		}
@@ -34,7 +34,7 @@ func TestCodexPeerPinsSandboxExtras(t *testing.T) {
 	paid := &config.Config{}
 	paid.PaidRuns.Codex.Allow, paid.PaidRuns.Codex.DailyCapUSD = true, 5
 	pinned := 0
-	for _, variant := range []workerenv.Variant{workerenv.Free, workerenv.Paid} {
+	for _, variant := range []corelaunch.Variant{corelaunch.Free, corelaunch.Paid} {
 		for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
 			for _, sandbox := range []string{"read-only", "workspace-write"} {
 				route := coreroute.Route{Target: config.Target{Agent: "codex", Model: "sol"}, Sandbox: sandbox}
@@ -59,7 +59,7 @@ func TestPeerAdmittedArgvIsLaunchedArgv(t *testing.T) {
 	paid := &config.Config{}
 	paid.PaidRuns.Codex.Allow, paid.PaidRuns.Codex.DailyCapUSD = true, 5
 	paid.PaidRuns.Claude.Allow, paid.PaidRuns.Claude.DailyCapUSD = true, 5
-	for _, variant := range []workerenv.Variant{workerenv.Free, workerenv.Paid} {
+	for _, variant := range []corelaunch.Variant{corelaunch.Free, corelaunch.Paid} {
 		for _, tc := range []struct {
 			agent, model, sandbox string
 			m                     mode.Mode
@@ -92,7 +92,7 @@ func TestClaudePeerNeverLaunchesInPlan(t *testing.T) {
 	for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Full} {
 		for _, sandbox := range []string{"read-only", "workspace-write"} {
 			route := coreroute.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Sandbox: sandbox}
-			p := peerProcessIn(t, &config.Config{}, route, m, workerenv.Free, t.TempDir())
+			p := peerProcessIn(t, &config.Config{}, route, m, corelaunch.Free, t.TempDir())
 			args := agentArgv(route, m, p)
 			if slices.Contains(args, "plan") || strings.Contains(p.Settings, `"plan"`) {
 				t.Errorf("%s %s: %v", m, sandbox, args)
@@ -112,7 +112,7 @@ func TestHeldClaudePeerDisallowsWriteTools(t *testing.T) {
 	for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Full} {
 		for _, sandbox := range []string{"read-only", "workspace-write"} {
 			route := coreroute.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Sandbox: sandbox}
-			args := agentArgv(route, m, peerProcessIn(t, &config.Config{}, route, m, workerenv.Free, t.TempDir()))
+			args := agentArgv(route, m, peerProcessIn(t, &config.Config{}, route, m, corelaunch.Free, t.TempDir()))
 			var values []string
 			for _, a := range args {
 				if v, ok := strings.CutPrefix(a, "--disallowedTools="); ok {
@@ -146,7 +146,7 @@ func TestPeerUnderPlanLeadPinsPlan(t *testing.T) {
 		for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
 			for _, sandbox := range []string{"read-only", "workspace-write"} {
 				route := coreroute.Route{Target: config.Target{Agent: agent, Model: map[string]string{"claude": "opus", "codex": "sol"}[agent]}, Sandbox: sandbox}
-				env := peerProcessIn(t, &config.Config{}, route, m, workerenv.Free, t.TempDir()).Env
+				env := peerProcessIn(t, &config.Config{}, route, m, corelaunch.Free, t.TempDir()).Env
 				if got, want := slices.Contains(env, "DUOLOG_MODE=plan"), m == mode.Plan; got != want {
 					t.Errorf("%s %s %s: DUOLOG_MODE=plan %t", agent, m, sandbox, got)
 				}
@@ -177,7 +177,7 @@ func TestClaudePeerSettingsDenyStateAndKeepNotifications(t *testing.T) {
 	root := t.TempDir()
 	for _, context := range []string{"minimal", "project"} {
 		route := coreroute.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Context: context}
-		args := agentArgv(route, mode.Ask, peerProcess(t, &config.Config{}, route, workerenv.Free, root))
+		args := agentArgv(route, mode.Ask, peerProcess(t, &config.Config{}, route, corelaunch.Free, root))
 		i := slices.Index(args, "--settings")
 		if i < 0 || i+1 == len(args) {
 			t.Fatal(args)

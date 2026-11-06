@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 func fakePace(t *testing.T, week map[string]float64) {
@@ -17,7 +17,7 @@ func fakePace(t *testing.T, week map[string]float64) {
 	old := paidruns.PaceRead
 	t.Cleanup(func() { paidruns.PaceRead = old })
 	yes := func() *bool { v := true; return &v }
-	paidruns.PaceRead = func(_ context.Context, p workerenv.Process) (quota.Snapshot, error) {
+	paidruns.PaceRead = func(_ context.Context, p corelaunch.Process) (quota.Snapshot, error) {
 		used, ok := week[p.Agent]
 		if !ok {
 			return quota.Snapshot{}, context.DeadlineExceeded

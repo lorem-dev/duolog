@@ -80,20 +80,17 @@ var knownViolations = map[string]string{
 	"internal/app/calibrate -> internal/install":                "PR 45",
 	"internal/app/calibrate -> internal/trust":                  "PR 36",
 	"internal/app/calibrate -> internal/trusthome":              "PR 36",
-	"internal/app/calibrate -> internal/workerenv":              "PR 35",
 	"internal/app/delegate -> internal/capability":              "PR 40",
 	"internal/app/delegate -> internal/adapter/config":          "after PR 10: RefuseRootEnv checks writable roots at launch",
 	"internal/app/delegate (test) -> internal/quota":            "PR 39",
 	"internal/app/delegate -> internal/trust":                   "PR 36",
 	"internal/app/delegate -> internal/trusthome":               "PR 36",
-	"internal/app/delegate -> internal/workerenv":               "PR 35",
 	"internal/app/doctor (test) -> internal/adapter/config":     "after PR 10: its tests load the config files",
 	"internal/app/doctor (test) -> internal/quota":              "PR 39",
 	"internal/app/doctor -> internal/capability":                "PR 40",
 	"internal/app/doctor -> internal/install":                   "PR 37",
 	"internal/app/doctor -> internal/trust":                     "PR 36",
 	"internal/app/doctor -> internal/trusthome":                 "PR 36",
-	"internal/app/doctor -> internal/workerenv":                 "PR 35",
 	"internal/app/doctor -> os/exec":                            "PR 44",
 	"internal/gate -> github.com/gofrs/flock":                   "PR 20, boundary",
 	"internal/gate -> github.com/pelletier/go-toml/v2":          "PR 20, boundary",
@@ -123,7 +120,6 @@ var knownViolations = map[string]string{
 	"internal/app/peer -> internal/capability":                  "PR 40",
 	"internal/app/peer -> internal/adapter/config":              "after PR 10: a peer loads the config files",
 	"internal/app/peer -> internal/rex":                         "the Pane port, moved out of PR 29 to a later task",
-	"internal/app/peer -> internal/workerenv":                   "PR 35",
 	"internal/app/profile (test) -> internal/adapter/config":    "after PR 10: its tests load the config files",
 	"internal/app/roster -> internal/capability":                "PR 40",
 	"internal/app/roster -> internal/adapter/config":            "after PR 10: roster loads the config files",
@@ -132,7 +128,7 @@ var knownViolations = map[string]string{
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 59
+const maxKnownViolations = 55
 
 // Reasons of the allowed edges, one per target.
 const (

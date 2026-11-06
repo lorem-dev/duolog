@@ -15,6 +15,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
@@ -102,7 +103,8 @@ func newCellFixtureWith(t *testing.T, parentFiles map[string]string) *cellFixtur
 				t.Fatal("delegate called")
 				return delegate.Outcome{}, nil
 			},
-			Verify: VerifyIsolated,
+			Verify:  VerifyIsolated,
+			Environ: launchtest.Environ,
 		},
 		Checks: func(_ context.Context, dir string, commands []string) []journal.Check {
 			f.checkCalls++

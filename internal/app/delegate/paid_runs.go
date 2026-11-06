@@ -10,36 +10,37 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/app/launch"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/usage"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/project"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // workerEnv builds a worker's process: its environment, its argv prefix and
 // its settings, from one launch description. The login check, the quota read
 // and the run all use what it builds; nothing else makes a worker's
 // environment.
-func workerEnv(in workerenv.ProcessInput) (workerenv.Process, error) {
-	in.Shape = workerenv.Worker
-	return workerenv.Build(in)
+func workerEnv(build launch.Build, in corelaunch.ProcessInput) (corelaunch.Process, error) {
+	in.Shape = corelaunch.Worker
+	return build(in)
 }
 
 // workerInput describes the worker launch of route in variant: duolog's own
 // environment, the route's context, the protected roots and the extra
 // variables, the run id and bridged servers' env, that pass Build's route
 // detection.
-func workerInput(cfg *config.Config, route coreroute.Route, variant workerenv.Variant, leadID, role, root string,
-	roots, extra, needs []string) workerenv.ProcessInput {
+func workerInput(cfg *config.Config, route coreroute.Route, variant corelaunch.Variant, leadID, role, root string,
+	roots, extra, needs []string) corelaunch.ProcessInput {
 	home, _ := os.UserHomeDir()
 	environ := os.Environ()
-	return workerenv.ProcessInput{Agent: route.Agent, Shape: workerenv.Worker, Variant: variant, Config: cfg,
-		Locations: workerenv.Locations{Home: home, Root: root, GOOS: runtime.GOOS, Environ: environ},
+	return corelaunch.ProcessInput{Agent: route.Agent, Shape: corelaunch.Worker, Variant: variant, Config: cfg,
+		Locations: corelaunch.Locations{Home: home, Root: root, GOOS: runtime.GOOS, Environ: environ},
 		Environ:   environ, LeadID: leadID, Role: role, StateDir: project.StateRoot(root),
 		Minimal: route.Context == "minimal", ProtectedRoots: roots, ExtraEnv: extra, PluginNeeds: pluginNeeds(needs)}
 }
@@ -60,7 +61,7 @@ func pluginNeeds(needs []string) []string {
 // candidate of the role before any paid one, and a paid pass only when the
 // role's candidates, by paidruns.Candidates, hold a paid variant. paid names
 // the agents that have one.
-func variants(cfg *config.Config, role string, opts Options) ([]workerenv.Variant, map[string]bool) {
+func variants(cfg *config.Config, role string, opts Options) ([]corelaunch.Variant, map[string]bool) {
 	var targets []config.Target
 	if opts.Entry != nil {
 		targets = []config.Target{*opts.Entry}
@@ -73,14 +74,14 @@ func variants(cfg *config.Config, role string, opts Options) ([]workerenv.Varian
 	}
 	paid := map[string]bool{}
 	for _, c := range paidruns.Candidates(targets, opts.Entry != nil, cfg.PaidRuns) {
-		if c.Variant == workerenv.Paid {
+		if c.Variant == corelaunch.Paid {
 			paid[c.Target.Agent] = true
 		}
 	}
 	if len(paid) == 0 {
-		return []workerenv.Variant{workerenv.Free}, paid
+		return []corelaunch.Variant{corelaunch.Free}, paid
 	}
-	return []workerenv.Variant{workerenv.Free, workerenv.Paid}, paid
+	return []corelaunch.Variant{corelaunch.Free, corelaunch.Paid}, paid
 }
 
 // permitRun is one actual worker invocation behind the gate: its permit, and
@@ -93,7 +94,7 @@ type permitRun struct {
 
 // admit acquires a permit for a worker of route described by in. A refusal
 // comes back as such, with no error.
-func admit(ctx context.Context, g *paidruns.Gate, cfg *config.Config, in workerenv.ProcessInput, route coreroute.Route,
+func admit(ctx context.Context, g *paidruns.Gate, cfg *config.Config, in corelaunch.ProcessInput, route coreroute.Route,
 	role, class string, records []journal.Delegation, opts Options) (*permitRun, *paidruns.Refusal, error) {
 	req := paidruns.Request{Input: in, Family: coreroute.Normalize(route.Agent, route.Model), Role: role, Class: class,
 		Records: records, Owner: paidruns.ProcessOwner(os.Getpid()), Calibration: opts.Calibration,
@@ -138,7 +139,7 @@ func (a *permitRun) release(ctx context.Context) error {
 // gate builds it again, so a settings edit or a newly found provider key in
 // between moves the route; the moved route then gets its own check, and a
 // failed check gives the permit back.
-func (a *permitRun) sameRoute(ctx context.Context, d Deps, checked workerenv.Process, cacheDir string) error {
+func (a *permitRun) sameRoute(ctx context.Context, d Deps, checked corelaunch.Process, cacheDir string) error {
 	if a.permit.Process.CacheKey == checked.CacheKey {
 		return nil
 	}
@@ -188,7 +189,7 @@ func RefusalLine(r *paidruns.Refusal) string {
 		}
 		shape := string(r.Shape)
 		if shape == "" {
-			shape = string(workerenv.Worker)
+			shape = string(corelaunch.Worker)
 		}
 		line := r.Agent + " " + shape + " is paid"
 		if len(signals) > 0 {

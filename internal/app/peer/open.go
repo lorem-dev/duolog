@@ -96,7 +96,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	}
 	// The first launch of the agent in this lead says which billing keys the
 	// pane no longer gets; delegate shares the claim.
-	notices, err := delegate.ClaimMigration(e.reg, e.cfg, lead.id, route.Agent)
+	notices, err := delegate.ClaimMigration(e.opts.Deps.DroppedKeys, e.reg, e.cfg, lead.id, route.Agent)
 	if err != nil {
 		return Entry{}, err
 	}

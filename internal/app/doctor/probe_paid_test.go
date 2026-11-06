@@ -13,10 +13,10 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/testbin"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 const (
@@ -78,10 +78,10 @@ func accountState(t *testing.T, g *paidruns.Gate) paidruns.State {
 	return st
 }
 
-func paidReads(used float64) func(context.Context, workerenv.Process) (quota.Snapshot, error) {
-	return func(ctx context.Context, p workerenv.Process) (quota.Snapshot, error) {
+func paidReads(used float64) func(context.Context, corelaunch.Process) (quota.Snapshot, error) {
+	return func(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
 		s, err := paidrunstest.Subscription(ctx, p)
-		s.Billing.RouteSignals = []workerenv.Signal{{Name: "auth:apiKey", Layer: "auth status"}}
+		s.Billing.RouteSignals = []corelaunch.Signal{{Name: "auth:apiKey", Layer: "auth status"}}
 		s.Windows[0].UsedPercent = used
 		return s, err
 	}
@@ -190,8 +190,8 @@ func TestProbeUsesGateAndBuild(t *testing.T) {
 		g := reportGate(t, cfg, nil)
 		claude, _ := exec.LookPath("claude")
 		err := g.Store.Update(ctx, func(st *paidruns.State) error {
-			st.Reservations["busy"] = paidruns.Reservation{ID: "busy", Agent: "claude", Shape: workerenv.Worker,
-				Variant: workerenv.Free, Session: true, Task: true, Created: time.Now()}
+			st.Reservations["busy"] = paidruns.Reservation{ID: "busy", Agent: "claude", Shape: corelaunch.Worker,
+				Variant: corelaunch.Free, Session: true, Task: true, Created: time.Now()}
 			return nil
 		})
 		if err != nil {
@@ -201,7 +201,7 @@ func TestProbeUsesGateAndBuild(t *testing.T) {
 			t.Fatalf("probe with no slot: %v", err)
 		}
 		cfg.Limits.SessionsByTier.Small = 3
-		g.Cache.Read = func(ctx context.Context, p workerenv.Process) (quota.Snapshot, error) {
+		g.Cache.Read = func(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
 			s, err := paidrunstest.Subscription(ctx, p)
 			s.Windows[0].UsedPercent = 95
 			return s, err

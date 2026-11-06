@@ -15,10 +15,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/rex"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // accountTimeout bounds an account state write that must happen even after
@@ -105,10 +105,10 @@ func (e *env) admitPane(ctx context.Context, route coreroute.Route, lead leadInf
 	if err != nil {
 		return nil, err
 	}
-	variants := []workerenv.Variant{workerenv.Free}
+	variants := []corelaunch.Variant{corelaunch.Free}
 	for _, c := range paidruns.Candidates([]config.Target{route.Target}, true, e.cfg.PaidRuns) {
-		if c.Variant == workerenv.Paid {
-			variants = append(variants, workerenv.Paid)
+		if c.Variant == corelaunch.Paid {
+			variants = append(variants, corelaunch.Paid)
 		}
 	}
 	var refusals []string
@@ -149,16 +149,16 @@ func (e *env) admitPane(ctx context.Context, route coreroute.Route, lead leadInf
 // variables that move the layers, such as CLAUDE_CONFIG_DIR and CODEX_HOME,
 // are never route names, so both variants have the same. m is the lead's
 // mode, which picks the pane's native permission flags.
-func (e *env) paneInput(root string, route coreroute.Route, m mode.Mode, variant workerenv.Variant, leadID, role, id, run string) (workerenv.ProcessInput, error) {
+func (e *env) paneInput(root string, route coreroute.Route, m mode.Mode, variant corelaunch.Variant, leadID, role, id, run string) (corelaunch.ProcessInput, error) {
 	in := peerInput(e.cfg, route, m, variant, leadID, role, id, run, filepath.Dir(e.dir), e.opts.ProtectedRoots, os.Environ())
 	free := in
-	free.Variant = workerenv.Free
-	built, err := agentEnv(free)
+	free.Variant = corelaunch.Free
+	built, err := agentEnv(e.opts.Deps.Build, free)
 	if err != nil {
-		return workerenv.ProcessInput{}, err
+		return corelaunch.ProcessInput{}, err
 	}
 	home, _ := os.UserHomeDir()
-	in.Locations = workerenv.Locations{Home: home, Root: root, GOOS: runtime.GOOS, Environ: built.Env}
+	in.Locations = corelaunch.Locations{Home: home, Root: root, GOOS: runtime.GOOS, Environ: built.Env}
 	return in, nil
 }
 
@@ -305,7 +305,7 @@ func Release(ctx context.Context, id string) (string, error) {
 	}
 	usd := 0.0
 	for _, r := range ended {
-		if r.Paid && (r.Shape != workerenv.Peer || !r.Session) {
+		if r.Paid && (r.Shape != corelaunch.Peer || !r.Session) {
 			usd += r.Estimate.USD
 		}
 	}

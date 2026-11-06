@@ -125,11 +125,11 @@ func RunCell(ctx context.Context, env CellEnv, c Cell, t TaskRecord, start Start
 	}
 	// The settings the worker's agent loads are those its own environment
 	// selects; Claude's decide whether the tree needs a local gate.
-	claudeEnv, err := WorkerEnviron(env.Cfg, "claude")
+	claudeEnv, err := env.WorkerEnviron(env.Cfg, "claude")
 	if err != nil {
 		return r, err
 	}
-	workerEnv, err := WorkerEnviron(env.Cfg, entry.Agent)
+	workerEnv, err := env.WorkerEnviron(env.Cfg, entry.Agent)
 	if err != nil {
 		return r, err
 	}

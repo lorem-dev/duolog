@@ -7,7 +7,6 @@ import (
 
 	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // countingLogin is a Login that counts its checks and says the agent is logged
@@ -37,7 +36,7 @@ func (*countingLogin) LoginArgv(server string) []string {
 func TestPassedCheckIsCached(t *testing.T) {
 	login := &countingLogin{loggedIn: true}
 	d := Deps{Agents: map[string]Agent{"codex": {Login: login}}}
-	c := NewChecker(d, t.TempDir(), workerenv.Process{}).(*loginChecker)
+	c := NewChecker(d, t.TempDir(), corelaunch.Process{}).(*loginChecker)
 	if p := c.Agent(context.Background(), "codex"); p != nil {
 		t.Fatal(p)
 	}
@@ -57,7 +56,7 @@ func TestPassedCheckIsCached(t *testing.T) {
 // needs do not, and the run fills it in from the agent's Login.
 func TestCheckerGivesTheLoginCommand(t *testing.T) {
 	d := Deps{Agents: map[string]Agent{"codex": {Login: &countingLogin{}}}}
-	p := NewChecker(d, "", workerenv.Process{}).Agent(context.Background(), "codex")
+	p := NewChecker(d, "", corelaunch.Process{}).Agent(context.Background(), "codex")
 	if p == nil || p.Command() != "codex login" {
 		t.Fatalf("%+v", p)
 	}

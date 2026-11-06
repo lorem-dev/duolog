@@ -22,6 +22,10 @@ type Deps struct {
 	// CellCap is the time cap of one cell, CheckCap the time cap of one run of
 	// a cell's checks. Zero is the cap the config gives, CellMaxMinutes.
 	CellCap, CheckCap time.Duration
+	// Environ is the environment a free worker of agent gets under cfg from
+	// environ, as Build makes it without settings layers, extras or a lead:
+	// workerenv.Environ is the real one.
+	Environ func(cfg *config.Config, agent string, environ []string) ([]string, error)
 }
 
 // cellLimit is the time cap of one cell.

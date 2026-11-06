@@ -11,9 +11,9 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/testbin"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // An open that fails after the launch began, in a way that does not show
@@ -194,7 +194,7 @@ func TestPeerFirstSendIsAdmittedAfresh(t *testing.T) {
 	t.Run("window filled since the open", func(t *testing.T) {
 		r := newRig(t, baseScript())
 		used := 10.0
-		r.gate.Cache.Read = func(ctx context.Context, p workerenv.Process) (quota.Snapshot, error) {
+		r.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
 			s, err := paidrunstest.Subscription(ctx, p)
 			s.Windows[0].UsedPercent = used
 			return s, err

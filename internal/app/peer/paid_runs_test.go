@@ -11,9 +11,9 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/testbin"
-	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // accounts is the account state behind the rig's gate.
@@ -51,10 +51,10 @@ func (r *rig) wantHeld(sessions, tasks int) {
 func (r *rig) paidCodex() {
 	r.cfg.PaidRuns.Codex.Allow, r.cfg.PaidRuns.Codex.DailyCapUSD = true, 100
 	read := r.gate.Cache.Read
-	r.gate.Cache.Read = func(ctx context.Context, p workerenv.Process) (quota.Snapshot, error) {
+	r.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
 		s, err := read(ctx, p)
 		if p.Agent == "codex" {
-			s.Billing.RouteSignals = []workerenv.Signal{{Name: "auth:apiKey", Layer: "account/read"}}
+			s.Billing.RouteSignals = []corelaunch.Signal{{Name: "auth:apiKey", Layer: "account/read"}}
 		}
 		return s, err
 	}
@@ -314,7 +314,7 @@ func TestPeerBuildAndPaidQuestion(t *testing.T) {
 			t.Fatal("a free pane got a listed key")
 		}
 		res := r.accounts().Reservations[r.entry(e.ID).AccountSessionID]
-		if res.Variant != workerenv.Free || res.Shape != workerenv.Peer {
+		if res.Variant != corelaunch.Free || res.Shape != corelaunch.Peer {
 			t.Fatalf("reservation: %+v", res)
 		}
 		argv := launched[slices.Index(launched, "claude"):]
@@ -337,9 +337,9 @@ func TestPeerBuildAndPaidQuestion(t *testing.T) {
 		r.cfg.PaidRuns.Claude.Allow, r.cfg.PaidRuns.Claude.DailyCapUSD = true, 100
 		r.cfg.PaidRuns.Claude.Env = []string{"ANTHROPIC_API_KEY"}
 		read := r.gate.Cache.Read
-		r.gate.Cache.Read = func(ctx context.Context, p workerenv.Process) (quota.Snapshot, error) {
+		r.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
 			s, err := read(ctx, p)
-			s.Billing.RouteSignals = []workerenv.Signal{{Name: "auth:apiKey", Layer: "auth status"}}
+			s.Billing.RouteSignals = []corelaunch.Signal{{Name: "auth:apiKey", Layer: "auth status"}}
 			return s, err
 		}
 		e := r.open("plan")
@@ -351,7 +351,7 @@ func TestPeerBuildAndPaidQuestion(t *testing.T) {
 		if strings.Contains(argv[2], "fastMode") {
 			t.Fatalf("a paid pane pinned fast mode: %s", argv[2])
 		}
-		if res := r.accounts().Reservations[r.entry(e.ID).AccountSessionID]; res.Variant != workerenv.Paid || !res.Paid {
+		if res := r.accounts().Reservations[r.entry(e.ID).AccountSessionID]; res.Variant != corelaunch.Paid || !res.Paid {
 			t.Fatalf("paid reservation: %+v", res)
 		}
 	})

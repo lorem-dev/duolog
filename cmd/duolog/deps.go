@@ -12,6 +12,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/profile"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/wiring"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/spf13/cobra"
 )
 
@@ -72,6 +73,7 @@ func (d *cmdDeps) calibrateDeps() calibration.Deps {
 		Delegate: d.runDelegate,
 		Verify:   calibration.VerifyIsolated,
 		Rand:     coin,
+		Environ:  workerenv.Environ,
 	}
 }
 
