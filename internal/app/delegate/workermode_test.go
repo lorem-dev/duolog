@@ -15,10 +15,11 @@ import (
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/gate"
+	corepolicy "github.com/lorem-dev/duolog/internal/core/policy"
 )
 
 // workerModes writes a user-level worker_modes section and reloads the config.
@@ -513,8 +514,8 @@ func TestWorkerKeepsPlanWhenItsLeadLoosens(t *testing.T) {
 	h.gateOnPath(true)
 	h.leadNative("claude", mode.Plan, "plan")
 	policy := h.cfg.Policy
-	policy.Rules = append([]config.Rule{{Action: "exec", Match: "touch *", Decision: gate.Allow}}, policy.Rules...)
-	var during []gate.Decision
+	policy.Rules = append([]config.Rule{{Action: "exec", Match: "touch *", Decision: corepolicy.Allow}}, policy.Rules...)
+	var during []corepolicy.Decision
 	h.beforeStart = func() {
 		h.leadNative("claude", mode.Edits, "acceptEdits")
 		_, live, err := gate.LeadMode(h.reg, "lead-123456", time.Now())
@@ -522,13 +523,13 @@ func TestWorkerKeepsPlanWhenItsLeadLoosens(t *testing.T) {
 			t.Fatal("the lead did not move:", live, err)
 		}
 		env := h.calls[len(h.calls)-1].Process.Env
-		m := gate.WorkerMode(live, corelaunch.Getenv(env, "DUOLOG_MODE"))
-		lead := gate.LeadRules{RoleSandbox: h.cfg.Roles["review_final"].Sandbox}
-		for _, a := range []gate.Action{
+		m := corepolicy.WorkerMode(live, corelaunch.Getenv(env, "DUOLOG_MODE"))
+		lead := corepolicy.LeadRules{RoleSandbox: h.cfg.Roles["review_final"].Sandbox}
+		for _, a := range []corepolicy.Action{
 			{Kind: "exec", Target: "touch marker.txt", Role: "review_final"},
 			{Kind: "net", Target: "https://example.com/", Role: "review_final"},
 		} {
-			during = append(during, gate.Evaluate(policy, lead, m, a))
+			during = append(during, corepolicy.Evaluate(policy, lead, m, a))
 		}
 	}
 	if out, err := h.runOn("review_final", "claude", "haiku"); err != nil {
@@ -538,7 +539,7 @@ func TestWorkerKeepsPlanWhenItsLeadLoosens(t *testing.T) {
 		t.Fatal("the worker did not run")
 	}
 	for _, d := range during {
-		if d.Kind != gate.Deny || d.Mode != mode.Plan {
+		if d.Kind != corepolicy.Deny || d.Mode != mode.Plan {
 			t.Errorf("after the lead loosened: %+v", d)
 		}
 	}

@@ -12,8 +12,8 @@ import (
 	claudeadapter "github.com/lorem-dev/duolog/internal/adapter/claude"
 	codexadapter "github.com/lorem-dev/duolog/internal/adapter/codex"
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/gate"
-	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 )
 
 func rememberIn(t *testing.T, args ...string) (string, error) {
@@ -39,10 +39,10 @@ func TestRememberAllowsWorkersOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d := gate.Evaluate(cfg.Policy, gate.LeadRules{}, mode.Edits, gate.Action{Kind: "exec", Target: "make generate_types", Role: "implement"}); d.Kind != gate.Allow {
+	if d := policy.Evaluate(cfg.Policy, policy.LeadRules{}, mode.Edits, policy.Action{Kind: "exec", Target: "make generate_types", Role: "implement"}); d.Kind != policy.Allow {
 		t.Fatalf("remembered command: %s (%s)", d.Kind, d.Reason)
 	}
-	if d := gate.Evaluate(cfg.Policy, gate.LeadRules{}, mode.Edits, gate.Action{Kind: "exec", Target: "make deploy", Role: "implement"}); d.Kind == gate.Allow {
+	if d := policy.Evaluate(cfg.Policy, policy.LeadRules{}, mode.Edits, policy.Action{Kind: "exec", Target: "make deploy", Role: "implement"}); d.Kind == policy.Allow {
 		t.Fatal("another make target was allowed")
 	}
 	for _, path := range []string{".claude", ".codex"} {
@@ -245,18 +245,18 @@ func TestRememberMCPTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d := gate.Evaluate(cfg.Policy, gate.LeadRules{}, mode.Ask, gate.Action{Kind: "mcp", Target: "jira/get_issue", Role: "implement"}); d.Kind != gate.Allow {
+	if d := policy.Evaluate(cfg.Policy, policy.LeadRules{}, mode.Ask, policy.Action{Kind: "mcp", Target: "jira/get_issue", Role: "implement"}); d.Kind != policy.Allow {
 		t.Fatal(d)
 	}
 	// A read-only role gets nothing it was not given by name.
-	if d := gate.Evaluate(cfg.Policy, gate.LeadRules{}, mode.Ask, gate.Action{Kind: "mcp", Target: "jira/get_issue", Role: "review_final"}); d.Kind != gate.Ask {
+	if d := policy.Evaluate(cfg.Policy, policy.LeadRules{}, mode.Ask, policy.Action{Kind: "mcp", Target: "jira/get_issue", Role: "review_final"}); d.Kind != policy.Ask {
 		t.Fatal(d)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".claude", "settings.local.json")); !os.IsNotExist(err) {
 		t.Fatal("native files changed without --native")
 	}
 	// The default rules are all still there: the learned rule adds to them.
-	if d := gate.Evaluate(cfg.Policy, gate.LeadRules{}, mode.Ask, gate.Action{Kind: "exec", Target: "git status", Role: "implement"}); d.Kind != gate.Allow {
+	if d := policy.Evaluate(cfg.Policy, policy.LeadRules{}, mode.Ask, policy.Action{Kind: "exec", Target: "git status", Role: "implement"}); d.Kind != policy.Allow {
 		t.Fatal(d)
 	}
 	out, err = rememberIn(t, "--native", "--role", "review_final", "mcp:my-wiki/*")
@@ -264,7 +264,7 @@ func TestRememberMCPTool(t *testing.T) {
 		t.Fatal(out, err)
 	}
 	cfg, _ = config.Load(root)
-	if d := gate.Evaluate(cfg.Policy, gate.LeadRules{}, mode.Ask, gate.Action{Kind: "mcp", Target: "my_wiki/search", Role: "review_final"}); d.Kind != gate.Allow {
+	if d := policy.Evaluate(cfg.Policy, policy.LeadRules{}, mode.Ask, policy.Action{Kind: "mcp", Target: "my_wiki/search", Role: "review_final"}); d.Kind != policy.Allow {
 		t.Fatal(d)
 	}
 	out, err = rememberIn(t, "--native", "mcp:jira/get_*")

@@ -17,7 +17,7 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/telemetry"
 	"github.com/spf13/cobra"
@@ -391,7 +391,7 @@ func yamlMapping(m *yaml.Node, key string) (*yaml.Node, error) {
 // lead's call is denied with a pointer to the person's terminal. duolog's
 // mode plays no part, full mode included; only a Claude lead whose own mode
 // is bypassPermissions or auto decides by itself (guardLeadCall).
-func telemetryLeadGuard(agent string, actions []gate.Action) (gate.Decision, bool) {
+func telemetryLeadGuard(agent string, actions []policy.Action) (policy.Decision, bool) {
 	roots, rootsErr := gateProtectedRoots()
 	for _, a := range actions {
 		if a.Kind != "read" && a.Kind != "write" && a.Kind != "exec" {
@@ -402,25 +402,25 @@ func telemetryLeadGuard(agent string, actions []gate.Action) (gate.Decision, boo
 		if rootsErr == nil && (a.Work != "" || a.Cwd != "") {
 			a.ProtectedRoots = roots
 		}
-		if gate.Evaluate(config.Policy{}, gate.LeadRules{}, mode.Full, a).Rule != gate.RuleProtected && !leadStoreCommand(a) {
+		if policy.Evaluate(config.Policy{}, policy.LeadRules{}, mode.Full, a).Rule != policy.RuleProtected && !leadStoreCommand(a) {
 			continue
 		}
 		if agent == "codex" {
-			return gate.Decision{Kind: gate.Deny, Rule: "person-only telemetry", Reason: "duolog telemetry and balance data are for the person only: run it in your terminal"}, true
+			return policy.Decision{Kind: policy.Deny, Rule: "person-only telemetry", Reason: "duolog telemetry and balance data are for the person only: run it in your terminal"}, true
 		}
-		return gate.Decision{Kind: gate.Ask, Rule: "person-only telemetry", Reason: "duolog telemetry and balance data are for the person only; the person confirms this call"}, true
+		return policy.Decision{Kind: policy.Ask, Rule: "person-only telemetry", Reason: "duolog telemetry and balance data are for the person only; the person confirms this call"}, true
 	}
-	return gate.Decision{}, false
+	return policy.Decision{}, false
 }
 
 // leadStoreCommand finds duolog telemetry or duolog balance behind duolog's
 // own flags, such as --lead L, with the lead guard's own parse; the worker
 // gate's check skips those flags too, so each one covers the other.
-func leadStoreCommand(a gate.Action) bool {
+func leadStoreCommand(a policy.Action) bool {
 	if a.Kind != "exec" {
 		return false
 	}
-	parts, uncertain := gate.ShellParts(a.Target, a.Shell)
+	parts, uncertain := policy.ShellParts(a.Target, a.Shell)
 	if uncertain {
 		parts = append(parts, a.Target)
 	}

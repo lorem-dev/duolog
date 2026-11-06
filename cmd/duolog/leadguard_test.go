@@ -9,9 +9,10 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 )
 
 func personOnlyBus(t *testing.T) string {
@@ -41,11 +42,11 @@ func TestLeadGuardAsksForPersonOnlyAllow(t *testing.T) {
 	dir := personOnlyBus(t) // ask 1 person-only, ask 2 a web ask
 	for _, cmd := range []string{"duolog allow 1", "cd x && duolog allow 1 --lead L", "scripts/dev/bin/duolog allow 1", "true; duolog --lead L allow 1"} {
 		d, ok := leadGuard(dir, "claude", bashInput("claude", cmd))
-		if !ok || d.Kind != gate.Ask || !strings.Contains(d.Reason, "only the person") {
+		if !ok || d.Kind != policy.Ask || !strings.Contains(d.Reason, "only the person") {
 			t.Fatal(cmd, d, ok)
 		}
 		d, ok = leadGuard(dir, "codex", bashInput("codex", cmd))
-		if !ok || d.Kind != gate.Deny || !strings.Contains(d.Reason, "own terminal") {
+		if !ok || d.Kind != policy.Deny || !strings.Contains(d.Reason, "own terminal") {
 			t.Fatal(cmd, d, ok)
 		}
 	}
@@ -58,14 +59,14 @@ func TestLeadGuardAsksForPersonOnlyAllow(t *testing.T) {
 
 func TestLeadGuardWithoutBusStillAsks(t *testing.T) {
 	d, ok := leadGuard(t.TempDir(), "claude", bashInput("claude", "duolog allow 1"))
-	if !ok || d.Kind != gate.Ask {
+	if !ok || d.Kind != policy.Ask {
 		t.Fatal(d, ok)
 	}
 }
 
 func TestLeadGuardUncertainShellNamingDuolog(t *testing.T) {
 	dir := personOnlyBus(t)
-	if d, ok := leadGuard(dir, "claude", bashInput("claude", `eval "duolog allow 1"`)); !ok || d.Kind != gate.Ask {
+	if d, ok := leadGuard(dir, "claude", bashInput("claude", `eval "duolog allow 1"`)); !ok || d.Kind != policy.Ask {
 		t.Fatal(d, ok)
 	}
 }
@@ -77,7 +78,7 @@ func TestLeadGuardReasonsAndFlags(t *testing.T) {
 		if agent == "codex" {
 			want += ": they run duolog allow 1 --lead claude/lead.test in their own terminal in " + filepath.Base(filepath.Dir(dir))
 		}
-		// The Windows launchers are named as the worker denies name them (gate.ProgramName).
+		// The Windows launchers are named as the worker denies name them (policy.ProgramName).
 		for _, command := range []string{"duolog --lead=L allow 1", "duolog allow --lead L 1", "duolog.exe allow 1", "duolog.cmd allow 1", "DUOLOG.EXE allow 1", "DUOLOG.BAT allow 1", "duolog.ps1 allow 1", `C:\bin\duolog.ps1 allow 1`, `C:\tools\duolog.cmd allow 1`, "true && duolog allow 1; echo done", `"duolog" allow 1`} {
 			if d, ok := leadGuard(dir, agent, bashInput(agent, command)); !ok || d.Reason != want {
 				t.Fatal(agent, command, d, ok)
@@ -111,9 +112,9 @@ func TestLeadGuardWrappedAllowAndSeparator(t *testing.T) {
 		} {
 			t.Run(agent+"/"+command, func(t *testing.T) {
 				want := "ask 1 reads or writes outside the project; only the person may allow it"
-				kind := gate.Ask
+				kind := policy.Ask
 				if agent == "codex" {
-					kind = gate.Deny
+					kind = policy.Deny
 					want += ": they run duolog allow 1 --lead claude/lead.test in their own terminal in " + filepath.Base(filepath.Dir(dir))
 				}
 				if d, ok := leadGuard(dir, agent, bashInput(agent, command)); !ok || d.Kind != kind || d.Reason != want {
@@ -168,9 +169,9 @@ func TestLeadGuardUnknownNumberNeedsPendingPersonAsk(t *testing.T) {
 						continue
 					}
 					want := "this command may allow an ask that reads or writes outside the project; only the person may allow it"
-					kind := gate.Ask
+					kind := policy.Ask
 					if agent == "codex" {
-						kind = gate.Deny
+						kind = policy.Deny
 						want += ": they run duolog allow N --lead <lead id> in their own terminal in " + filepath.Base(filepath.Dir(dir))
 					}
 					if d.Kind != kind || d.Reason != want {
@@ -188,7 +189,7 @@ func TestLeadGuardMalformedBusStillGuards(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, command := range []string{"duolog allow 1", `rg -F "duolog allow" docs`} {
-		if d, ok := leadGuard(dir, "claude", bashInput("claude", command)); !ok || d.Kind != gate.Ask {
+		if d, ok := leadGuard(dir, "claude", bashInput("claude", command)); !ok || d.Kind != policy.Ask {
 			t.Fatal(command, d, ok)
 		}
 	}
@@ -197,7 +198,7 @@ func TestLeadGuardMalformedBusStillGuards(t *testing.T) {
 func TestLeadGuardChecksOtherCommandTools(t *testing.T) {
 	dir := personOnlyBus(t)
 	data := []byte(`{"tool_name":"Monitor","tool_input":{"command":"duolog allow 1"}}`)
-	if d, ok := leadGuard(dir, "claude", data); !ok || d.Kind != gate.Ask {
+	if d, ok := leadGuard(dir, "claude", data); !ok || d.Kind != policy.Ask {
 		t.Fatal(d, ok)
 	}
 }
@@ -234,9 +235,9 @@ func TestLeadGuardKeepsOutsideRememberForPerson(t *testing.T) {
 			`env duolog remember 'tar czf x.tgz ~/notes'`,
 		} {
 			d, ok := leadGuard(dir, agent, bashInput(agent, command))
-			kind := gate.Ask
+			kind := policy.Ask
 			if agent == "codex" {
-				kind = gate.Deny
+				kind = policy.Deny
 			}
 			if !ok || d.Kind != kind || !strings.Contains(d.Reason, "only the person") || agent == "codex" && !strings.Contains(d.Reason, "own terminal") {
 				t.Errorf("%s %q: %+v, %v", agent, command, d, ok)

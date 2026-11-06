@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 )
 
 func TestOwnToolResults(t *testing.T) {
@@ -38,7 +38,7 @@ func TestOwnToolResults(t *testing.T) {
 }
 
 func TestOwnResultSkipsTheOutsideAsk(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	outsideRead := Action{Kind: "read", Target: "../../.claude/projects/-work-app/sess-1/tool-results/out.txt", Role: "worker"}
 	check(t, p, LeadRules{}, mode.Ask, outsideRead, Ask)
 	own := outsideRead

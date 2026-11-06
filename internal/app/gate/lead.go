@@ -11,6 +11,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/trust"
 	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/pelletier/go-toml/v2"
@@ -18,8 +19,8 @@ import (
 
 // ImportLead reads only the orchestrator's agent settings. Settings can narrow
 // the registry's live mode, but cannot raise it or remove an inherited deny.
-func ImportLead(root, agent string) (LeadRules, error) {
-	var rules LeadRules
+func ImportLead(root, agent string) (policy.LeadRules, error) {
+	var rules policy.LeadRules
 	if agent != "claude" && agent != "codex" {
 		return rules, fmt.Errorf("unknown lead agent %q", agent)
 	}
@@ -170,11 +171,11 @@ func claudeDeny(entry string) (config.Rule, error) {
 	// whose full name starts with it.
 	if server, ok := strings.CutPrefix(tool, "mcp__"); ok && !hasPattern {
 		match := server + "/*"
-		if target, ok := MCPTarget(tool); ok {
+		if target, ok := policy.MCPTarget(tool); ok {
 			match = "{" + target + "," + target + "__*}"
 		}
-		rule := config.Rule{Action: "mcp", Match: match, Decision: Deny}
-		return rule, validateRule(rule)
+		rule := config.Rule{Action: "mcp", Match: match, Decision: policy.Deny}
+		return rule, policy.ValidateRule(rule)
 	}
 	switch tool {
 	case "Bash", "PowerShell":
@@ -204,6 +205,6 @@ func claudeDeny(entry string) (config.Rule, error) {
 	if pattern == "" {
 		return config.Rule{}, fmt.Errorf("empty deny rule %q", entry)
 	}
-	rule := config.Rule{Action: kind, Match: strings.TrimPrefix(pattern, "./"), Decision: Deny}
-	return rule, validateRule(rule)
+	rule := config.Rule{Action: kind, Match: strings.TrimPrefix(pattern, "./"), Decision: policy.Deny}
+	return rule, policy.ValidateRule(rule)
 }

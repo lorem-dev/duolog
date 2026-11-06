@@ -12,12 +12,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/learn"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/usage"
-	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -493,10 +494,10 @@ func (lr *learnRun) gateCounts() (denials, asks int, err error) {
 		if json.Unmarshal(scan.Bytes(), &r) != nil || r.Action.Role != lr.role {
 			continue
 		}
-		if r.Kind == gate.Ask || r.Rule == "ask lead" {
+		if r.Kind == policy.Ask || r.Rule == "ask lead" {
 			asks++
 		}
-		if r.Kind == gate.Deny {
+		if r.Kind == policy.Deny {
 			denials++
 		}
 	}

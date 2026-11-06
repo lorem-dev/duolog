@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
-	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -31,8 +32,8 @@ func (e *env) autoAnswer(ctx context.Context, entry session.Entry, screen Screen
 		return false, nil
 	}
 	choice := ""
-	action := gate.Action{Kind: "answer", Role: entry.Role}
-	decision := gate.Decision{Kind: gate.Allow, Reason: "configured peer answer", Rule: "rex.auto_answers"}
+	action := policy.Action{Kind: "answer", Role: entry.Role}
+	decision := policy.Decision{Kind: policy.Allow, Reason: "configured peer answer", Rule: "rex.auto_answers"}
 	if ask := pane.Facts.CommandQuestion; ask != "" && strings.Contains(screen.Text, ask) {
 		command := corescreen.PromptCommand(screen.Text, ask)
 		if command == "" {
@@ -42,7 +43,7 @@ func (e *env) autoAnswer(ctx context.Context, entry session.Entry, screen Screen
 		if err != nil {
 			return false, err
 		}
-		rules := gate.LeadRules{}
+		rules := policy.LeadRules{}
 		if lead.target != nil {
 			rules, err = gate.ImportLead(e.root, lead.target.Agent)
 			if err != nil {
@@ -54,12 +55,12 @@ func (e *env) autoAnswer(ctx context.Context, entry session.Entry, screen Screen
 		} else {
 			rules.RoleSandbox = "read-only"
 		}
-		action = gate.Action{Kind: "exec", Target: stripAssignments(command), Role: entry.Role, Work: e.root, Cwd: e.root}
-		decision = gate.Evaluate(e.cfg.Policy, rules, mode.Lower(lead.mode, entry.Mode), action)
+		action = policy.Action{Kind: "exec", Target: stripAssignments(command), Role: entry.Role, Work: e.root, Cwd: e.root}
+		decision = policy.Evaluate(e.cfg.Policy, rules, mode.Lower(lead.mode, entry.Mode), action)
 		switch decision.Kind {
-		case gate.Allow:
+		case policy.Allow:
 			choice = answerFor(pane.Facts, "allow")
-		case gate.Deny:
+		case policy.Deny:
 			choice = answerFor(pane.Facts, "deny")
 		default:
 			if entry.Asked != screen.Question {

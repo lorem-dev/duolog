@@ -11,8 +11,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/bus"
-	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 )
 
 const (
@@ -37,7 +38,7 @@ func line(m bus.Message) string {
 	}
 	s := cut(m.S, summaryRunes)
 	switch m.K {
-	case gate.Ask:
+	case policy.Ask:
 		out := "ask " + strconv.FormatInt(m.N, 10) + " " + who + ": " + s
 		if m.P {
 			out += " (person)"
@@ -78,7 +79,7 @@ func answeredAsks(dir string) (map[string]bool, error) {
 		var m bus.Message
 		// A torn tail or a line of another shape holds no answer; the lines
 		// after it still count.
-		if json.Unmarshal(raw, &m) == nil && (m.K == gate.Allow || m.K == gate.Deny) {
+		if json.Unmarshal(raw, &m) == nil && (m.K == policy.Allow || m.K == policy.Deny) {
 			answered[m.Ref] = true
 		}
 		if err == io.EOF {
@@ -103,7 +104,7 @@ func entries(lines [][]byte) (out []entry, asks bool) {
 		if json.Unmarshal(raw, &m) != nil {
 			m = bus.Message{S: string(bytes.TrimSpace(raw))}
 		}
-		asks = asks || m.K == gate.Ask
+		asks = asks || m.K == policy.Ask
 		out = append(out, entry{raw, m})
 	}
 	return out, asks
@@ -128,7 +129,7 @@ func present(dir string, held, unread [][]byte) (text []byte, keep [][]byte) {
 	var out bytes.Buffer
 	for _, e := range old {
 		switch {
-		case e.m.K != gate.Ask:
+		case e.m.K != policy.Ask:
 			keep = append(keep, e.raw)
 		case !closed(e.m):
 			out.WriteString(line(e.m) + "\n")
@@ -152,10 +153,10 @@ func present(dir string, held, unread [][]byte) (text []byte, keep [][]byte) {
 func capOthers(fresh []entry, closed func(bus.Message) bool) (shown []entry, held [][]byte) {
 	others := 0
 	for _, e := range fresh {
-		if e.m.K == gate.Ask && closed(e.m) {
+		if e.m.K == policy.Ask && closed(e.m) {
 			continue
 		}
-		if e.m.K != gate.Ask {
+		if e.m.K != policy.Ask {
 			others++
 		}
 		shown = append(shown, e)
@@ -167,7 +168,7 @@ func capOthers(fresh []entry, closed func(bus.Message) bool) (shown []entry, hel
 	all := shown
 	shown = nil
 	for _, e := range all {
-		if e.m.K != gate.Ask && hold > 0 {
+		if e.m.K != policy.Ask && hold > 0 {
 			hold--
 			held = append(held, e.raw)
 			continue

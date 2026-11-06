@@ -17,7 +17,7 @@ import (
 	agentsync "github.com/lorem-dev/duolog/internal/app/sync"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/wiring"
@@ -127,7 +127,7 @@ func TestLinkedWorktreeUsesOwnTaskCwdGateAndSync(t *testing.T) {
 	if !strings.HasPrefix(spec.TaskDir, s.Dir) {
 		t.Fatal("task state left shared project root")
 	}
-	path := gate.RelativeTarget(root, filepath.Join(work, "nested"), "../a.go")
+	path := policy.RelativeTarget(root, filepath.Join(work, "nested"), "../a.go")
 	if path != "a.go" {
 		t.Fatalf("gate used main checkout: %s", path)
 	}

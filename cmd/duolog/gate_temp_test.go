@@ -9,7 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/app/gate"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/mode"
 )
 
@@ -112,7 +113,7 @@ func TestLeadTelemetryGuardHoldsForReviewCommands(t *testing.T) {
 		`EDITOR='duolog telemetry show;:' git tag -a v1`,
 	} {
 		d, ok := leadGuard(stateDir, "claude", leadToolInput("claude", root, "Bash", map[string]string{"command": command}))
-		if !ok || d.Kind != gate.Ask {
+		if !ok || d.Kind != policy.Ask {
 			t.Errorf("%s: %+v %v", command, d, ok)
 		}
 	}

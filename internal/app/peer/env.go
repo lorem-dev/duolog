@@ -17,15 +17,16 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
+	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/coauthor"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
-	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/rex"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -186,12 +187,12 @@ func (e *env) reportLine(entry session.Entry) string {
 	if root == "" {
 		root = e.root
 	}
-	path := filepath.Join(root, filepath.FromSlash(gate.ReportPath(entry.ID)))
+	path := filepath.Join(root, filepath.FromSlash(policy.ReportPath(entry.ID)))
 	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
 		return ""
 	}
 	if sameWorkRoot(root, e.root) {
-		return gate.ReportPath(entry.ID)
+		return policy.ReportPath(entry.ID)
 	}
 	return path
 }
@@ -430,7 +431,7 @@ func (e *env) ask(entry session.Entry, question string) error {
 	}
 	text := question
 	for {
-		_, err := e.bus.Send(bus.Message{From: entry.Agent + "/" + entry.Role, To: e.address(entry.Lead), K: gate.Ask, Ref: entry.ID, S: text})
+		_, err := e.bus.Send(bus.Message{From: entry.Agent + "/" + entry.Role, To: e.address(entry.Lead), K: policy.Ask, Ref: entry.ID, S: text})
 		if errors.Is(err, bus.ErrTooLong) && len(text) > 20 {
 			text = corescreen.Cut(text, len(text)/2)
 			continue

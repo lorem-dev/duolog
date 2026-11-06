@@ -9,7 +9,7 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/app/sync"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 )
 
 // syncConfig returns the sync settings, or false when this hook must not sync:
@@ -86,7 +86,7 @@ func touchedPaths(input []byte) []string {
 	if s, ok := h.Tool.Command.(string); ok {
 		text += "\n" + s
 	}
-	paths = append(paths, gate.PatchPaths(text)...)
+	paths = append(paths, policy.PatchPaths(text)...)
 	return paths
 }
 

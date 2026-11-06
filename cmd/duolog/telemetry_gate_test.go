@@ -10,7 +10,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/app/calibrate"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -66,7 +66,7 @@ func TestProtectedRootsInWorkerHook(t *testing.T) {
 				t.Fatalf("an ask reached the bus: %s", bus)
 			}
 			decisions, err := os.ReadFile(filepath.Join(root, ".duolog", "decisions.ndjson"))
-			if err != nil || strings.Count(string(decisions), gate.RuleProtected) != 9 {
+			if err != nil || strings.Count(string(decisions), policy.RuleProtected) != 9 {
 				t.Fatalf("decisions: %s %v", decisions, err)
 			}
 			// The worker hook only resolved the roots: it created no store and no salt.

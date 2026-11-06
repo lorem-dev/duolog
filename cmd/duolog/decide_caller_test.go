@@ -11,7 +11,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 )
 
 // callerProject is a project whose registry holds lead-b, whose process is
@@ -180,7 +180,7 @@ func leadBAsk(t *testing.T, root string, person bool) int64 {
 		t.Fatal(err)
 	}
 	lead := session.Lead{ID: "lead-b", Target: config.Target{Agent: "claude"}}
-	n, err := b.Send(bus.Message{From: "duolog/ask.own", To: session.Address(lead), K: gate.Ask, S: "exec custom", P: person, W: 120})
+	n, err := b.Send(bus.Message{From: "duolog/ask.own", To: session.Address(lead), K: policy.Ask, S: "exec custom", P: person, W: 120})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -70,8 +71,8 @@ func AskKey(sessionID, toolUseID, question string, person bool) string {
 // unanswered ask through.
 //
 // ask returns the decision and whether a reply gave it; only a reply is shared.
-func EscalateOnce(ctx context.Context, dir, key string, wait time.Duration, ask func() (Decision, bool)) Decision {
-	own := func() Decision { d, _ := ask(); return d }
+func EscalateOnce(ctx context.Context, dir, key string, wait time.Duration, ask func() (policy.Decision, bool)) policy.Decision {
+	own := func() policy.Decision { d, _ := ask(); return d }
 	if key == "" {
 		return own()
 	}
@@ -100,7 +101,7 @@ func EscalateOnce(ctx context.Context, dir, key string, wait time.Duration, ask 
 		// wait that runs out denies.
 		select {
 		case <-waitCtx.Done():
-			return Decision{Kind: Deny, Reason: "ask timeout or cancellation", Rule: "ask lead"}
+			return policy.Decision{Kind: policy.Deny, Reason: "ask timeout or cancellation", Rule: "ask lead"}
 		case <-time.After(AskPoll):
 		}
 	}
@@ -130,7 +131,7 @@ func claim(path string, wait time.Duration) ([]byte, error) {
 // record that starts in the future is removed so that the caller can ask anew.
 // A once record is taken by the first hook that reuses it: it moves the file
 // aside, reads it again and removes it, so no other hook reuses it.
-func sharedDecision(path string, once bool) (Decision, bool) {
+func sharedDecision(path string, once bool) (policy.Decision, bool) {
 	m, ok := readMemo(path)
 	now := time.Now()
 	switch {
@@ -138,33 +139,33 @@ func sharedDecision(path string, once bool) (Decision, bool) {
 	case m.Start.After(now) || m.Wait < 0:
 		_ = os.Remove(path)
 	case reusable(m, now) && !once:
-		return Decision{Kind: m.Kind, Reason: m.Reason, Rule: m.Rule}, true
+		return policy.Decision{Kind: m.Kind, Reason: m.Reason, Rule: m.Rule}, true
 	case reusable(m, now):
 		taken := path + "." + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(now.UnixNano(), 36) + ".used"
 		if os.Rename(path, taken) != nil {
-			return Decision{}, false
+			return policy.Decision{}, false
 		}
 		defer os.Remove(taken)
 		if m, ok := readMemo(taken); ok && !m.Start.After(now) && m.Wait >= 0 && reusable(m, now) {
-			return Decision{Kind: m.Kind, Reason: m.Reason, Rule: m.Rule}, true
+			return policy.Decision{Kind: m.Kind, Reason: m.Reason, Rule: m.Rule}, true
 		}
 	case m.Done || now.After(m.until().Add(askGrace)):
 		_ = os.Remove(path)
 	}
-	return Decision{}, false
+	return policy.Decision{}, false
 }
 
 // reusable reports a reply that is still inside the wait of its ask.
 func reusable(m askMemo, now time.Time) bool {
-	return m.Done && now.Before(m.until()) && (m.Kind == Allow || m.Kind == Deny)
+	return m.Done && now.Before(m.until()) && (m.Kind == policy.Allow || m.Kind == policy.Deny)
 }
 
 // record stores the asker's decision for the hooks that wait on it. A timeout is
 // removed instead, so that the other hook asks for itself rather than inherit a
 // wait that has run out.
-func record(path string, d Decision, replied bool, pending []byte) {
+func record(path string, d policy.Decision, replied bool, pending []byte) {
 	var m askMemo
-	if json.Unmarshal(pending, &m) != nil || !replied || d.Kind != Allow && d.Kind != Deny {
+	if json.Unmarshal(pending, &m) != nil || !replied || d.Kind != policy.Allow && d.Kind != policy.Deny {
 		_ = os.Remove(path)
 		return
 	}

@@ -9,7 +9,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/telemetry"
 )
 
@@ -70,11 +70,11 @@ func TestTelemetryLeadAccess(t *testing.T) {
 			}
 			switch agent {
 			case "claude":
-				if d.Kind != gate.Ask || !strings.Contains(d.Reason, "the person") {
+				if d.Kind != policy.Ask || !strings.Contains(d.Reason, "the person") {
 					t.Errorf("claude %v: %+v", c.input, d)
 				}
 			case "codex":
-				if d.Kind != gate.Deny || !strings.Contains(d.Reason, "run it in your terminal") {
+				if d.Kind != policy.Deny || !strings.Contains(d.Reason, "run it in your terminal") {
 					t.Errorf("codex %v: %+v", c.input, d)
 				}
 			}
@@ -87,10 +87,10 @@ func TestTelemetryLeadAccess(t *testing.T) {
 	}
 
 	// telemetryLeadGuard takes the actions as the hook normalised them.
-	if d, ok := telemetryLeadGuard("codex", []gate.Action{{Kind: "exec", Target: "duolog telemetry prune", Work: root, Cwd: root}}); !ok || d.Kind != gate.Deny {
+	if d, ok := telemetryLeadGuard("codex", []policy.Action{{Kind: "exec", Target: "duolog telemetry prune", Work: root, Cwd: root}}); !ok || d.Kind != policy.Deny {
 		t.Fatalf("%+v %v", d, ok)
 	}
-	if _, ok := telemetryLeadGuard("claude", []gate.Action{{Kind: "exec", Target: "go vet ./...", Work: root, Cwd: root}}); ok {
+	if _, ok := telemetryLeadGuard("claude", []policy.Action{{Kind: "exec", Target: "go vet ./...", Work: root, Cwd: root}}); ok {
 		t.Fatal("an ordinary command was guarded")
 	}
 

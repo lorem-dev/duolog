@@ -13,7 +13,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/mode"
 )
 
@@ -37,7 +37,7 @@ func answerAsks(t *testing.T, root, kind string, person bool) {
 			}
 			for _, line := range strings.Split(string(data), "\n") {
 				var m bus.Message
-				if json.Unmarshal([]byte(line), &m) != nil || m.K != gate.Ask || m.P && !person || answered[m.N] {
+				if json.Unmarshal([]byte(line), &m) != nil || m.K != policy.Ask || m.P && !person || answered[m.N] {
 					continue
 				}
 				answered[m.N] = true
@@ -67,7 +67,7 @@ func busAsks(t *testing.T, root string) []bus.Message {
 	var asks []bus.Message
 	for _, line := range strings.Split(string(data), "\n") {
 		var m bus.Message
-		if json.Unmarshal([]byte(line), &m) == nil && m.K == gate.Ask {
+		if json.Unmarshal([]byte(line), &m) == nil && m.K == policy.Ask {
 			asks = append(asks, m)
 		}
 	}
@@ -87,7 +87,7 @@ func claudeGate(t *testing.T, event, toolUseID, command string) string {
 // Claude runs PreToolUse and then PermissionRequest for one tool call. Both
 // reached the same ask, so the lead was asked twice for one command.
 func TestGateOneAskForPreToolUseAndPermissionRequest(t *testing.T) {
-	for _, kind := range []string{gate.Allow, gate.Deny} {
+	for _, kind := range []string{policy.Allow, policy.Deny} {
 		t.Run(kind, func(t *testing.T) {
 			_, root := gateSetup(t, mode.Ask)
 			t.Setenv("DUOLOG_LEAD", "lead-123456")
@@ -97,7 +97,7 @@ func TestGateOneAskForPreToolUseAndPermissionRequest(t *testing.T) {
 			if n := len(busAsks(t, root)); n != 1 {
 				t.Fatalf("%d asks on the bus for one tool call", n)
 			}
-			if kind == gate.Allow {
+			if kind == policy.Allow {
 				if pre != "" || !strings.Contains(perm, `"behavior":"allow"`) {
 					t.Fatalf("pre %q, permission %q", pre, perm)
 				}
@@ -116,7 +116,7 @@ func TestGateOneAskForPreToolUseAndPermissionRequest(t *testing.T) {
 // reads the same. The lead's reply to the first answered the second.
 func TestGateLeadReplyDoesNotAnswerPersonAsk(t *testing.T) {
 	_, root := gateSetup(t, mode.Ask)
-	answerAsks(t, root, gate.Allow, false)
+	answerAsks(t, root, policy.Allow, false)
 	if out := codexPatch(t, root, "a ../x"); out != "" {
 		t.Fatalf("the lead allowed the file a ../x, got %q", out)
 	}
@@ -148,7 +148,7 @@ func codexPatch(t *testing.T, root string, files ...string) string {
 // never asked about.
 func TestGateAskKeyKeepsFileNamesApart(t *testing.T) {
 	_, root := gateSetup(t, mode.Ask)
-	answerAsks(t, root, gate.Allow, true)
+	answerAsks(t, root, policy.Allow, true)
 	codexPatch(t, root, "../a b")
 	codexPatch(t, root, "../a", "b")
 	asks := busAsks(t, root)

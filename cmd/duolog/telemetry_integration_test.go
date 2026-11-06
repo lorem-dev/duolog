@@ -21,8 +21,8 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/core/record"
-	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/telemetry"
 	"github.com/lorem-dev/duolog/internal/testbin"
@@ -332,7 +332,7 @@ func TestTelemetryEndToEnd(t *testing.T) {
 		t.Setenv("DUOLOG_DEPTH", "1")
 		t.Setenv("DUOLOG_LEAD", e2eLead)
 		t.Setenv("DUOLOG_ROLE", "implement")
-		answerGateAsks(t, reg, checkout, gate.Allow)
+		answerGateAsks(t, reg, checkout, policy.Allow)
 		if out := gateHook(t, "claude", "Read", map[string]string{"file_path": filepath.Join(checkout, "a.go")}, checkout); out != "" {
 			t.Fatalf("read: %s", out)
 		}

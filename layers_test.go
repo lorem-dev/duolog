@@ -34,12 +34,9 @@ type legacyTier struct {
 // path after the migration. A row goes when its package moves.
 var legacyTiers = map[string]legacyTier{
 	"internal/mode":     {tier: tierCore},
-	"internal/pathutil": {tier: tierCore},
 	"internal/router":   {tier: tierCore},
 	"internal/usage":    {tier: tierCore},
 	"internal/learning": {tier: tierCore},
-
-	"internal/gate": {tier: tierApp, app: "gate"},
 
 	"internal/config":     {tier: tierKit},
 	"internal/models":     {tier: tierKit},
@@ -81,14 +78,6 @@ var knownViolations = map[string]string{
 	"internal/app/doctor (test) -> internal/adapter/config":     "after PR 10: its tests load the config files",
 	"internal/app/doctor (test) -> internal/quota":              "PR 39",
 	"internal/app/doctor -> internal/capability":                "PR 40",
-	"internal/gate -> github.com/gofrs/flock":                   "PR 20, boundary",
-	"internal/gate -> github.com/pelletier/go-toml/v2":          "PR 20, boundary",
-	"internal/gate -> internal/bus":                             "PR 20, boundary",
-	"internal/gate (test) -> internal/config":                   "PR 20, boundary",
-	"internal/gate -> internal/adapter/session":                 "PR 20, boundary",
-	"internal/gate -> internal/store":                           "PR 20, boundary",
-	"internal/gate -> internal/trust":                           "PR 20, boundary",
-	"internal/gate -> internal/trusthome":                       "PR 20, boundary",
 	"internal/app/hook -> internal/capability":                  "PR 40",
 	"internal/app/hook -> internal/adapter/config":              "after PR 10: hooks load the config files",
 	"internal/app/learn -> internal/adapter/config":             "after PR 10: learn loads the config files",
@@ -117,7 +106,7 @@ var knownViolations = map[string]string{
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 44
+const maxKnownViolations = 36
 
 // Reasons of the allowed edges, one per target.
 const (
@@ -202,6 +191,15 @@ var boundaryExceptions = map[string]string{
 	"internal/core/policy -> os": "security boundary: moves only; protected.go and execcheck.go import os for the decision (state.go reads through RelativeTarget)",
 	// The policy's tests load the default policy through the config file reader.
 	"internal/core/policy (test) -> internal/adapter/config": "security boundary: moves only; helpers_test.go and nested_agent_test.go load the default config",
+
+	"internal/app/gate -> github.com/gofrs/flock":          "security boundary: moves only; decisions.go",
+	"internal/app/gate -> github.com/pelletier/go-toml/v2": "security boundary: moves only; lead.go",
+	"internal/app/gate -> internal/bus":                    "security boundary: moves only; ask.go",
+	"internal/app/gate -> internal/adapter/session":        "security boundary: moves only; ask.go, leadmode.go, toolresults.go, claudetemp.go",
+	"internal/app/gate -> internal/store":                  "security boundary: moves only; decisions.go, ask.go, askonce.go",
+	"internal/app/gate -> internal/trust":                  "security boundary: moves only; lead.go",
+	"internal/app/gate -> internal/trusthome":              "security boundary: moves only; lead.go",
+	"internal/app/gate (test) -> internal/config":          "security boundary: moves only; gate_test.go and other tests load the default config",
 }
 
 // boundaryPackages are the packages whose imports boundaryExceptions may hold.

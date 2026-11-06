@@ -14,13 +14,14 @@ import (
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/usage"
-	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/journal"
 )
 
@@ -354,13 +355,13 @@ func TestLearningCountsGateDenials(t *testing.T) {
 	h := newHarness(t)
 	h.learning(true)
 	// A decision from before the run does not count.
-	if err := gate.Log(h.s, gate.Action{Kind: "exec", Target: "old", Role: "implement"}, gate.Decision{Kind: gate.Deny}); err != nil {
+	if err := gate.Log(h.s, policy.Action{Kind: "exec", Target: "old", Role: "implement"}, policy.Decision{Kind: policy.Deny}); err != nil {
 		t.Fatal(err)
 	}
 	inner := h.worker()
 	h.setWorker(func(ctx context.Context, s run.Spec) (run.Result, error) {
-		for _, d := range []struct{ role, kind string }{{"implement", gate.Deny}, {"tests", gate.Deny}, {"implement", gate.Allow}, {"implement", gate.Ask}} {
-			if err := gate.Log(h.s, gate.Action{Kind: "exec", Target: "rm -rf x", Role: d.role}, gate.Decision{Kind: d.kind}); err != nil {
+		for _, d := range []struct{ role, kind string }{{"implement", policy.Deny}, {"tests", policy.Deny}, {"implement", policy.Allow}, {"implement", policy.Ask}} {
+			if err := gate.Log(h.s, policy.Action{Kind: "exec", Target: "rm -rf x", Role: d.role}, policy.Decision{Kind: d.kind}); err != nil {
 				t.Fatal(err)
 			}
 		}

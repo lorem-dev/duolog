@@ -12,7 +12,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 )
 
 // leadTrustProject is a project whose bus holds ask 1, person-only, and
@@ -29,7 +29,7 @@ func leadTrustProject(t *testing.T, agent, native string) (stateDir, root string
 		t.Fatal(err)
 	}
 	lead := session.Lead{ID: "lead-" + agent, Target: config.Target{Agent: agent}}
-	if _, err := b.Send(bus.Message{From: "duolog/ask.person", To: session.Address(lead), K: gate.Ask, S: "read ../notes.txt", P: true, T: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
+	if _, err := b.Send(bus.Message{From: "duolog/ask.person", To: session.Address(lead), K: policy.Ask, S: "read ../notes.txt", P: true, T: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
 		t.Fatal(err)
 	}
 	reg, err := session.Open(stateDir)
@@ -155,7 +155,7 @@ func TestOtherLeadModesAreStillAsked(t *testing.T) {
 		stateDir, root := leadTrustProject(t, "claude", native)
 		for guard, command := range personGuarded {
 			d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, native, command))
-			if !ok || d.Kind != gate.Ask || !strings.Contains(d.Reason, "person") {
+			if !ok || d.Kind != policy.Ask || !strings.Contains(d.Reason, "person") {
 				t.Errorf("%q lead, %s (%s): %+v, %v", native, guard, command, d, ok)
 			}
 		}
@@ -174,7 +174,7 @@ func TestPayloadAndRecordMustAgree(t *testing.T) {
 	} {
 		stateDir, root := leadTrustProject(t, "claude", c.record)
 		for guard, command := range personGuarded {
-			if d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, c.payload, command)); !ok || d.Kind != gate.Ask {
+			if d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, c.payload, command)); !ok || d.Kind != policy.Ask {
 				t.Errorf("record %q payload %q, %s: %+v, %v", c.record, c.payload, guard, d, ok)
 			}
 		}
@@ -188,7 +188,7 @@ func TestWorkerAndPeerCannotUseLeadMode(t *testing.T) {
 	stateDir, root := leadTrustProject(t, "claude", "bypassPermissions")
 	for guard, command := range personGuarded {
 		// A peer's or worker's own session is not a registered lead.
-		if d, ok := guardLeadCall(stateDir, "claude", modeInput("peer-session", root, "bypassPermissions", command)); !ok || d.Kind != gate.Ask {
+		if d, ok := guardLeadCall(stateDir, "claude", modeInput("peer-session", root, "bypassPermissions", command)); !ok || d.Kind != policy.Ask {
 			t.Errorf("unregistered session, %s: %+v, %v", guard, d, ok)
 		}
 	}
@@ -196,7 +196,7 @@ func TestWorkerAndPeerCannotUseLeadMode(t *testing.T) {
 		t.Run(env.name, func(t *testing.T) {
 			t.Setenv(env.name, env.value)
 			for guard, command := range personGuarded {
-				if d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, "bypassPermissions", command)); !ok || d.Kind != gate.Ask {
+				if d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, "bypassPermissions", command)); !ok || d.Kind != policy.Ask {
 					t.Errorf("%s=%s, %s: %+v, %v", env.name, env.value, guard, d, ok)
 				}
 			}
@@ -204,7 +204,7 @@ func TestWorkerAndPeerCannotUseLeadMode(t *testing.T) {
 	}
 	// No record at all: a state folder without the lead.
 	other := t.TempDir()
-	if d, ok := guardLeadCall(other, "claude", modeInput("lead-claude", root, "bypassPermissions", "duolog peer show peer-x")); !ok || d.Kind != gate.Ask {
+	if d, ok := guardLeadCall(other, "claude", modeInput("lead-claude", root, "bypassPermissions", "duolog peer show peer-x")); !ok || d.Kind != policy.Ask {
 		t.Errorf("no record: %+v, %v", d, ok)
 	}
 }
@@ -226,7 +226,7 @@ func otherLeadAsk(t *testing.T, stateDir, native string) int64 {
 		t.Fatal(err)
 	}
 	a := session.Lead{ID: "lead-a", Target: config.Target{Agent: "claude"}}
-	n, err := b.Send(bus.Message{From: "duolog/ask.other", To: session.Address(a), K: gate.Ask, S: "read ../secret.txt", P: true, W: 120})
+	n, err := b.Send(bus.Message{From: "duolog/ask.other", To: session.Address(a), K: policy.Ask, S: "read ../secret.txt", P: true, W: 120})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestSelfDecidingLeadCannotAllowAnotherLeadsAsk(t *testing.T) {
 		`env X=1 duolog allow ` + other + ` --lead lead-a`,
 	} {
 		d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, "bypassPermissions", command))
-		if !ok || d.Kind != gate.Ask {
+		if !ok || d.Kind != policy.Ask {
 			t.Errorf("%s: %+v, %v", command, d, ok)
 		}
 	}
@@ -275,7 +275,7 @@ func TestSubagentOfSelfDecidingLeadIsAsked(t *testing.T) {
 	for _, native := range []string{"bypassPermissions", "auto"} {
 		stateDir, root := leadTrustProject(t, "claude", native)
 		for guard, command := range personGuarded {
-			if d, ok := guardLeadCall(stateDir, "claude", subagentInput("lead-claude", root, native, command)); !ok || d.Kind != gate.Ask {
+			if d, ok := guardLeadCall(stateDir, "claude", subagentInput("lead-claude", root, native, command)); !ok || d.Kind != policy.Ask {
 				t.Errorf("%s lead, subagent %s: %+v, %v", native, guard, d, ok)
 			}
 		}
@@ -313,7 +313,7 @@ func TestSubagentModeIsNotRecordedForTheLead(t *testing.T) {
 func TestCodexLeadInFullAccessIsStillDenied(t *testing.T) {
 	stateDir, root := leadTrustProject(t, "codex", "danger-full-access")
 	for guard, command := range personGuarded {
-		if d, ok := guardLeadCall(stateDir, "codex", modeInput("lead-codex", root, "bypassPermissions", command)); !ok || d.Kind != gate.Deny {
+		if d, ok := guardLeadCall(stateDir, "codex", modeInput("lead-codex", root, "bypassPermissions", command)); !ok || d.Kind != policy.Deny {
 			t.Errorf("codex, %s: %+v, %v", guard, d, ok)
 		}
 	}

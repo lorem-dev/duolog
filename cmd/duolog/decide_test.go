@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/app/gate"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -143,9 +144,9 @@ func TestAskHookLogsFinalOutcome(t *testing.T) {
 			if err := json.Unmarshal(bytes.TrimSpace(data), &record); err != nil {
 				t.Fatal(err)
 			}
-			want := gate.Deny
+			want := policy.Deny
 			if outcome == "allow" {
-				want = gate.Allow
+				want = policy.Allow
 			}
 			if record.Kind != want || record.Mode != mode.Ask || record.Action.Target != "custom-command" || record.Reason == "" || record.Rule == "" {
 				t.Fatalf("record: %+v", record)

@@ -17,6 +17,7 @@ import (
 	"crypto/sha256"
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/app/launch"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/bus"
@@ -27,10 +28,10 @@ import (
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/taskspec"
-	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 )
@@ -529,8 +530,8 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 			}
 			// The same work root and store roots the worker's gate hook gets, so a
 			// Read reference cannot hand a private store over before that hook runs.
-			read := gate.Action{Kind: "read", Target: pathutil.Clean(path), Role: role, Work: root, ProtectedRoots: opts.ProtectedRoots}
-			return gate.Evaluate(cfg.Policy, readRules, leadMode, read).Kind == gate.Allow
+			read := policy.Action{Kind: "read", Target: pathutil.Clean(path), Role: role, Work: root, ProtectedRoots: opts.ProtectedRoots}
+			return policy.Evaluate(cfg.Policy, readRules, leadMode, read).Kind == policy.Allow
 		})
 		if inlineErr != nil {
 			return out, inlineErr

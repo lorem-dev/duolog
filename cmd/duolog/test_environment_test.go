@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
-	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/wiring/wiringtest"
 )
 

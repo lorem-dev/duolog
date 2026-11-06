@@ -12,12 +12,13 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/adapter/workertest"
+	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/core/run"
-	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -27,11 +28,11 @@ func TestTelemetryAskLeadCountsAsAsk(t *testing.T) {
 	dir := t.TempDir()
 	var lines []byte
 	for _, r := range []gate.Record{
-		{Action: gate.Action{Kind: "read", Role: "implement"}, Decision: gate.Decision{Kind: gate.Allow, Rule: "ask lead"}},
-		{Action: gate.Action{Kind: "exec", Role: "implement"}, Decision: gate.Decision{Kind: gate.Deny, Rule: "ask lead"}},
-		{Action: gate.Action{Kind: "exec", Role: "implement"}, Decision: gate.Decision{Kind: gate.Deny, Rule: "worker depth"}},
-		{Action: gate.Action{Kind: "read", Role: "implement"}, Decision: gate.Decision{Kind: gate.Allow, Rule: "role sandbox"}},
-		{Action: gate.Action{Kind: "read", Role: "review"}, Decision: gate.Decision{Kind: gate.Allow, Rule: "ask lead"}},
+		{Action: policy.Action{Kind: "read", Role: "implement"}, Decision: policy.Decision{Kind: policy.Allow, Rule: "ask lead"}},
+		{Action: policy.Action{Kind: "exec", Role: "implement"}, Decision: policy.Decision{Kind: policy.Deny, Rule: "ask lead"}},
+		{Action: policy.Action{Kind: "exec", Role: "implement"}, Decision: policy.Decision{Kind: policy.Deny, Rule: "worker depth"}},
+		{Action: policy.Action{Kind: "read", Role: "implement"}, Decision: policy.Decision{Kind: policy.Allow, Rule: "role sandbox"}},
+		{Action: policy.Action{Kind: "read", Role: "review"}, Decision: policy.Decision{Kind: policy.Allow, Rule: "ask lead"}},
 	} {
 		line, _ := json.Marshal(r)
 		lines = append(append(lines, line...), '\n')

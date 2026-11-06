@@ -8,6 +8,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/doctor"
+	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/app/install"
 	"github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
@@ -15,7 +16,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/profile"
 	agentsync "github.com/lorem-dev/duolog/internal/app/sync"
 	"github.com/lorem-dev/duolog/internal/core/budget"
-	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/rex"
 )
 

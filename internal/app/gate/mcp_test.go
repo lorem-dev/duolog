@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 )
 
 // The hook inputs below have the shape each agent sent for an MCP call in the
@@ -64,7 +64,7 @@ func TestMCPRules(t *testing.T) {
 
 func TestLeadMCPDenies(t *testing.T) {
 	root := t.TempDir()
-	policy(t)
+	testPolicy(t)
 	path := filepath.Join(root, ".claude", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func TestLeadMCPDenies(t *testing.T) {
 // in it, and a server-wide deny covers such a server's tools too.
 func TestMCPDenyWithDoubleUnderscore(t *testing.T) {
 	root := t.TempDir()
-	policy(t)
+	testPolicy(t)
 	path := filepath.Join(root, ".claude", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		t.Fatal(err)

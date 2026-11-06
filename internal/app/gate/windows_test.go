@@ -3,13 +3,13 @@ package gate
 import (
 	"encoding/json"
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 	"path/filepath"
 	"testing"
 )
 
 func TestPowerShellPolicyOnEveryHost(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	for _, tc := range []struct{ command, role, want string }{
 		{"Get-Content src/file.txt", "review_final", Allow},
 		{"GET-CHILDITEM src", "review_final", Allow},
@@ -82,7 +82,7 @@ func TestWindowsHookTargetsAndDenies(t *testing.T) {
 }
 
 func TestClaudeConfigOverride(t *testing.T) {
-	_ = policy(t)
+	_ = testPolicy(t)
 	root := t.TempDir()
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)

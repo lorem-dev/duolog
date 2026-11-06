@@ -6,8 +6,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/pathutil"
+	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/pathutil"
 )
 
 // On a POSIX shell a backslash is part of a word, never a path separator: a
@@ -66,7 +66,7 @@ func TestRegexBackslashesNoLongerAskThePerson(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("a Windows host reads a backslash as a separator")
 	}
-	p := policy(t)
+	p := testPolicy(t)
 	work := t.TempDir()
 	for _, command := range []string{
 		`cat internal/config/defaults.go | head -40; grep -n "^func \|cfg\." internal/doctor/doctor.go | head -60; grep -n "yaml" go.mod`,
@@ -188,7 +188,7 @@ func TestInClaudeTemp(t *testing.T) {
 // other use of the folder, and every other folder, still asks the person.
 func TestReadCommandOfOwnClaudeTemp(t *testing.T) {
 	f := newClaudeTempFixture(t)
-	p := policy(t)
+	p := testPolicy(t)
 	work := t.TempDir()
 	action := func(command string) Action {
 		return Action{Kind: "exec", Target: command, Role: "implement", Work: work, Cwd: work, State: work, Temp: []string{f.own}}

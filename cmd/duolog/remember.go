@@ -13,8 +13,8 @@ import (
 	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/app/remember"
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/gate"
-	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/core/mode"
+	corepolicy "github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
@@ -48,12 +48,12 @@ func newRememberCommand() *cobra.Command {
 			return rememberMCP(cmd, root, cfg, tool, roles, native)
 		}
 		if match == "" {
-			match = gate.RememberPattern(command)
+			match = corepolicy.RememberPattern(command)
 		}
 		if len(roles) == 0 {
 			roles = writerRoles(cfg)
 		}
-		rule := config.Rule{Action: "exec", Match: match, Decision: gate.Allow, Roles: roles}
+		rule := config.Rule{Action: "exec", Match: match, Decision: corepolicy.Allow, Roles: roles}
 		// The rule must make this command allowed. A deny always wins, and
 		// syntax the gate cannot read (pipes to a shell, substitutions, globs)
 		// asks whatever the rules say, so saving a rule for it would mislead.
@@ -63,7 +63,7 @@ func newRememberCommand() *cobra.Command {
 			if _, ok := cfg.Roles[role]; !ok {
 				return fmt.Errorf("unknown role %q", role)
 			}
-			if d := gate.Evaluate(policy, gate.LeadRules{}, mode.Edits, gate.Action{Kind: "exec", Target: command, Role: role}); d.Kind != gate.Allow {
+			if d := corepolicy.Evaluate(policy, corepolicy.LeadRules{}, mode.Edits, corepolicy.Action{Kind: "exec", Target: command, Role: role}); d.Kind != corepolicy.Allow {
 				return fmt.Errorf("a rule cannot allow %q for %s: %s (%s)", command, role, d.Reason, d.Rule)
 			}
 		}
@@ -176,14 +176,14 @@ func rememberMCP(cmd *cobra.Command, root string, cfg *config.Config, tool strin
 	if len(roles) == 0 {
 		roles = writerRoles(cfg)
 	}
-	rule := config.Rule{Action: "mcp", Match: tool, Decision: gate.Allow, Roles: roles}
+	rule := config.Rule{Action: "mcp", Match: tool, Decision: corepolicy.Allow, Roles: roles}
 	policy := cfg.Policy
 	policy.Rules = append(slices.Clone(policy.Rules), rule)
 	for _, role := range roles {
 		if _, ok := cfg.Roles[role]; !ok {
 			return fmt.Errorf("unknown role %q", role)
 		}
-		if d := gate.Evaluate(policy, gate.LeadRules{}, mode.Edits, gate.Action{Kind: "mcp", Target: sampleTool(tool), Role: role, MCPExact: true}); d.Kind != gate.Allow {
+		if d := corepolicy.Evaluate(policy, corepolicy.LeadRules{}, mode.Edits, corepolicy.Action{Kind: "mcp", Target: sampleTool(tool), Role: role, MCPExact: true}); d.Kind != corepolicy.Allow {
 			return fmt.Errorf("a rule cannot allow mcp:%s for %s: %s (%s)", tool, role, d.Reason, d.Rule)
 		}
 	}

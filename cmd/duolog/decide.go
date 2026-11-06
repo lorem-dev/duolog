@@ -10,8 +10,9 @@ import (
 	"strconv"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/bus"
-	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/spf13/cobra"
 )
 
@@ -62,7 +63,7 @@ func openRequest(d *cmdDeps, reg *session.Registry, dir string, n int64) (bus.Me
 	if err != nil {
 		return bus.Message{}, err
 	}
-	if request.K != gate.Ask || request.From == "" {
+	if request.K != policy.Ask || request.From == "" {
 		return bus.Message{}, fmt.Errorf("request %d is not a permission request", n)
 	}
 	if request.P {
@@ -158,7 +159,7 @@ func alreadyAnswered(dir string, n int64) (string, error) {
 			return "", err
 		}
 		var m bus.Message
-		if json.Unmarshal(line, &m) == nil && m.Ref == ref && (m.K == gate.Allow || m.K == gate.Deny) {
+		if json.Unmarshal(line, &m) == nil && m.Ref == ref && (m.K == policy.Allow || m.K == policy.Deny) {
 			return m.K, nil
 		}
 	}

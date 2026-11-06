@@ -13,8 +13,9 @@ import (
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/bus"
-	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/project"
 )
 
@@ -23,13 +24,13 @@ import (
 // every person-only ask the command can allow is its own. A command that
 // may allow another lead's ask, with --lead or without, still asks the
 // person: --lead names a lead and proves nothing about who runs the command.
-func guardLeadCall(stateDir, agent string, input []byte) (gate.Decision, bool) {
+func guardLeadCall(stateDir, agent string, input []byte) (policy.Decision, bool) {
 	d, ok := leadGuard(stateDir, agent, input)
 	if !ok {
 		return d, false
 	}
 	if lead, decides := leadDecides(stateDir, agent, input); decides && staysInProject(stateDir, agent, input) && ownsAll(lead, leadAllowAsks(stateDir, agent, input)) {
-		return gate.Decision{}, false
+		return policy.Decision{}, false
 	}
 	return d, true
 }
@@ -79,7 +80,7 @@ const quoteMark = "\x01"
 // stays one literal word. ok is false when the line still does not read for
 // sure, such as one with an expansion, a backslash or an open quote.
 func leadWords(command, shell string) (parts []string, words [][]string, ok bool) {
-	parts, uncertain := gate.ShellParts(command, shell)
+	parts, uncertain := policy.ShellParts(command, shell)
 	unmask := strings.NewReplacer()
 	if uncertain {
 		if shell == "powershell" || strings.Contains(command, quoteMark) {
@@ -89,7 +90,7 @@ func leadWords(command, shell string) (parts []string, words [][]string, ok bool
 		if !literal {
 			return nil, nil, false
 		}
-		if parts, uncertain = gate.ShellParts(masked, shell); uncertain {
+		if parts, uncertain = policy.ShellParts(masked, shell); uncertain {
 			return nil, nil, false
 		}
 		pairs := make([]string, 0, 2*len(runs))
@@ -168,7 +169,7 @@ func plainPart(part string, words []string) bool {
 	if !strings.Contains(strings.ToLower(strings.Join(words, " ")), "duolog") {
 		return true
 	}
-	if gate.ProgramName(words[0]) != "duolog" {
+	if policy.ProgramName(words[0]) != "duolog" {
 		return false
 	}
 	for _, verb := range []string{"allow", "deny", "answer"} {
@@ -268,10 +269,10 @@ func leadDecides(stateDir, agent string, input []byte) (session.Lead, bool) {
 // duolog peer show, and telemetry and balance data. A Claude lead's call is
 // asked; a Codex lead's call is denied with a pointer to the person's
 // terminal. The hook runs it through guardLeadCall.
-func leadGuard(stateDir, agent string, input []byte) (gate.Decision, bool) {
+func leadGuard(stateDir, agent string, input []byte) (policy.Decision, bool) {
 	actions, hookCwd, err := leadActions(agent, input)
 	if err != nil {
-		return gate.Decision{}, false
+		return policy.Decision{}, false
 	}
 	// Telemetry and balance are the person's: the paths are placed as the
 	// worker gate places them, against the work root and the hook's cwd.
@@ -281,11 +282,11 @@ func leadGuard(stateDir, agent string, input []byte) (gate.Decision, bool) {
 		cwd = root
 	}
 	work := project.WorkRoot(cwd, root)
-	placed := make([]gate.Action, len(actions))
+	placed := make([]policy.Action, len(actions))
 	for i, action := range actions {
 		action.Work, action.Cwd = work, cwd
 		if (action.Kind == "read" || action.Kind == "write") && action.Target != "" {
-			action.Target = gate.RelativeTarget(work, hookCwd, action.Target)
+			action.Target = policy.RelativeTarget(work, hookCwd, action.Target)
 		}
 		placed[i] = action
 	}
@@ -295,14 +296,14 @@ func leadGuard(stateDir, agent string, input []byte) (gate.Decision, bool) {
 	if d, ok := peerShowLeadGuard(agent, placed); ok {
 		return d, true
 	}
-	decision := func(number string, request bus.Message) gate.Decision {
-		kind := gate.Ask
+	decision := func(number string, request bus.Message) policy.Decision {
+		kind := policy.Ask
 		reason := "this command may allow an ask that reads or writes outside the project; only the person may allow it"
 		if number != "" {
 			reason = fmt.Sprintf("ask %s reads or writes outside the project; only the person may allow it", number)
 		}
 		if agent == "codex" {
-			kind = gate.Deny
+			kind = policy.Deny
 			if number == "" {
 				number = "N"
 			}
@@ -319,13 +320,13 @@ func leadGuard(stateDir, agent string, input []byte) (gate.Decision, bool) {
 			}
 			reason += fmt.Sprintf(": they run duolog allow %s --lead %s in their own terminal in %s", number, owner, filepath.Base(filepath.Dir(stateDir)))
 		}
-		return gate.Decision{Kind: kind, Reason: reason, Rule: "person-only ask"}
+		return policy.Decision{Kind: kind, Reason: reason, Rule: "person-only ask"}
 	}
 	for _, action := range actions {
 		if action.Kind != "exec" {
 			continue
 		}
-		parts, uncertain := gate.ShellParts(action.Target, action.Shell)
+		parts, uncertain := policy.ShellParts(action.Target, action.Shell)
 		if uncertain {
 			// ShellParts can omit wrappers such as env; inspect their tokens too.
 			parts = append(parts, action.Target)
@@ -333,10 +334,10 @@ func leadGuard(stateDir, agent string, input []byte) (gate.Decision, bool) {
 		unknownNumber := false
 		for _, part := range parts {
 			if args, ok := leadCommandArgs(part, "remember"); ok {
-				if gate.ExecOutside(gate.Action{Kind: "exec", Target: strings.Join(args, " "), Work: work, Cwd: cwd, Shell: action.Shell}) {
-					d := gate.Decision{Kind: gate.Ask, Rule: "person-only ask", Reason: "this command may approve a rule outside the project; only the person may allow it"}
+				if policy.ExecOutside(policy.Action{Kind: "exec", Target: strings.Join(args, " "), Work: work, Cwd: cwd, Shell: action.Shell}) {
+					d := policy.Decision{Kind: policy.Ask, Rule: "person-only ask", Reason: "this command may approve a rule outside the project; only the person may allow it"}
 					if agent == "codex" {
-						d.Kind = gate.Deny
+						d.Kind = policy.Deny
 						d.Reason += ": they run duolog remember with the approved rule in their own terminal in " + filepath.Base(root)
 					}
 					return d, true
@@ -359,14 +360,14 @@ func leadGuard(stateDir, agent string, input []byte) (gate.Decision, bool) {
 			}
 		}
 	}
-	return gate.Decision{}, false
+	return policy.Decision{}, false
 }
 
 // leadActions is the lead call's actions, with the Bash command as one
 // exec action when the tool input names one and no action is an exec, and
 // the hook's cwd.
-func leadActions(agent string, input []byte) ([]gate.Action, string, error) {
-	actions, err := gate.NormalizeAll(agent, input)
+func leadActions(agent string, input []byte) ([]policy.Action, string, error) {
+	actions, err := policy.NormalizeAll(agent, input)
 	if err != nil {
 		return nil, "", err
 	}
@@ -378,8 +379,8 @@ func leadActions(agent string, input []byte) ([]gate.Action, string, error) {
 	}
 	var command string
 	if json.Unmarshal(input, &envelope) == nil && json.Unmarshal(envelope.Input.Command, &command) == nil && command != "" &&
-		!slices.ContainsFunc(actions, func(a gate.Action) bool { return a.Kind == "exec" }) {
-		actions = append(actions, gate.Action{Kind: "exec", Target: command})
+		!slices.ContainsFunc(actions, func(a policy.Action) bool { return a.Kind == "exec" }) {
+		actions = append(actions, policy.Action{Kind: "exec", Target: command})
 	}
 	return actions, envelope.Cwd, nil
 }
@@ -406,7 +407,7 @@ func leadAllowAsks(stateDir, agent string, input []byte) []bus.Message {
 		if action.Kind != "exec" {
 			continue
 		}
-		parts, uncertain := gate.ShellParts(action.Target, action.Shell)
+		parts, uncertain := policy.ShellParts(action.Target, action.Shell)
 		if uncertain {
 			parts = append(parts, action.Target)
 		}
@@ -450,23 +451,23 @@ func personAsk(stateDir string, n int64) []bus.Message {
 // person, unless the lead runs in bypass or auto (guardLeadCall); a Codex
 // lead's call is denied. It guards against accidents: no
 // check can prove that a terminal is the person's.
-func peerShowLeadGuard(agent string, actions []gate.Action) (gate.Decision, bool) {
+func peerShowLeadGuard(agent string, actions []policy.Action) (policy.Decision, bool) {
 	for _, a := range actions {
 		if a.Kind != "exec" {
 			continue
 		}
 		// ShellParts splits lists and pipelines; the whole text also counts,
 		// because ShellParts does not open every wrapper.
-		parts, _ := gate.ShellParts(a.Target, a.Shell)
+		parts, _ := policy.ShellParts(a.Target, a.Shell)
 		if !slices.ContainsFunc(append(parts, a.Target), namesPeerShow) {
 			continue
 		}
 		if agent == "codex" {
-			return gate.Decision{Kind: gate.Deny, Rule: "person-only peer show", Reason: "duolog peer show prints a peer's screen for the person only: they run it in their own terminal; use duolog peer view <id> or peer list --long"}, true
+			return policy.Decision{Kind: policy.Deny, Rule: "person-only peer show", Reason: "duolog peer show prints a peer's screen for the person only: they run it in their own terminal; use duolog peer view <id> or peer list --long"}, true
 		}
-		return gate.Decision{Kind: gate.Ask, Rule: "person-only peer show", Reason: "duolog peer show prints a peer's screen for the person only; the person confirms this call"}, true
+		return policy.Decision{Kind: policy.Ask, Rule: "person-only peer show", Reason: "duolog peer show prints a peer's screen for the person only; the person confirms this call"}, true
 	}
-	return gate.Decision{}, false
+	return policy.Decision{}, false
 }
 
 // peerShowWords splits command text into words, with quotes removed and
@@ -488,7 +489,7 @@ func namesPeerShow(text string) bool {
 		return j
 	}
 	for i, w := range words {
-		if gate.ProgramName(w) != "duolog" {
+		if policy.ProgramName(w) != "duolog" {
 			continue
 		}
 		j := skip(i + 1)
@@ -531,7 +532,7 @@ func leadCommandArgs(part, verb string) ([]string, bool) {
 func commandArgs(words []string, verb string) ([]string, bool) {
 	duolog := false
 	for i := 0; i < len(words); i++ {
-		if gate.ProgramName(words[i]) == "duolog" {
+		if policy.ProgramName(words[i]) == "duolog" {
 			duolog = true
 			continue
 		}
@@ -575,10 +576,10 @@ func pendingPersonAsks(stateDir string) ([]bus.Message, error) {
 		} else if err != nil {
 			return nil, err
 		}
-		if m.K == gate.Ask && m.P && !gate.AskExpired(m) {
+		if m.K == policy.Ask && m.P && !gate.AskExpired(m) {
 			pending[strconv.FormatInt(m.N, 10)] = m
 		}
-		if m.K == gate.Allow || m.K == gate.Deny {
+		if m.K == policy.Allow || m.K == policy.Deny {
 			delete(pending, m.Ref)
 		}
 	}

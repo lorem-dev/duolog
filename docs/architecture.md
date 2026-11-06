@@ -80,7 +80,7 @@ import one direction. It matches the imports of today's code: `hook` imports
 Most packages have not moved yet. The `legacyTiers` table in `layers_test.go`
 gives each one the tier of the part that stays at its path after the
 migration, so the rules apply now. For example, `internal/task` is core,
-`internal/gate` is the app `gate`, `internal/rex` is kit and
+`internal/rex` is kit and
 `internal/config/schemagen` is wiring.
 
 Some code has moved already. The core packages `internal/core/mode`,
@@ -110,7 +110,7 @@ after the importing package:
 
 ```text
 internal/app/delegate -> os/exec
-internal/adapter/config (test) -> internal/gate
+internal/core/learn (test) -> internal/adapter/config
 ```
 
 `knownViolations` lists the imports that break a rule today, each with the

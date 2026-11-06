@@ -8,10 +8,11 @@ import (
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
-	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -49,8 +50,8 @@ func (e *env) declinePlugin(ctx context.Context, entry session.Entry, screen Scr
 	if err := e.selectOption(ctx, entry, screen, label); err != nil {
 		return false, err
 	}
-	action := gate.Action{Kind: "answer", Role: entry.Role, Target: screen.Question + " => " + label}
-	decision := gate.Decision{Kind: gate.Allow, Reason: "a worker never installs a plugin", Rule: "capabilities.on_missing.plugin"}
+	action := policy.Action{Kind: "answer", Role: entry.Role, Target: screen.Question + " => " + label}
+	decision := policy.Decision{Kind: policy.Allow, Reason: "a worker never installs a plugin", Rule: "capabilities.on_missing.plugin"}
 	if err := gate.Log(&store.Store{Dir: e.dir}, action, decision); err != nil {
 		return false, err
 	}

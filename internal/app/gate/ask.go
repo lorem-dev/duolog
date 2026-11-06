@@ -15,6 +15,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/bus"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -59,22 +60,24 @@ var AskPoll = 500 * time.Millisecond
 // Escalate waits for a reply from the worker's spawning lead. Each request has
 // its own inbox so simultaneous hook processes cannot consume each other's reply.
 // The hook caller preserves the evaluated mode and logs the final decision.
-func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout time.Duration, person bool) Decision {
+func Escalate(ctx context.Context, b *bus.Bus, lead string, a policy.Action, timeout time.Duration, person bool) policy.Decision {
 	started := time.Now()
 	asked := "lead"
 	if person {
 		asked = "person"
 	}
 	// Each way out reports who settled the ask; nothing reads the reason back.
-	settle := func(d Decision, answer, by string) Decision {
+	settle := func(d policy.Decision, answer, by string) policy.Decision {
 		observeAsk(ctx, AskResult{Answer: answer, By: by, Wait: time.Since(started)})
 		return d
 	}
-	decision := func(kind, reason string) Decision {
-		return Decision{Kind: kind, Reason: reason, Rule: "ask lead"}
+	decision := func(kind, reason string) policy.Decision {
+		return policy.Decision{Kind: kind, Reason: reason, Rule: "ask lead"}
 	}
-	deny := func(reason string) Decision { return settle(decision(Deny, reason), Deny, "auto") }
-	timedOut := func() Decision { return settle(decision(Deny, "ask timeout or cancellation"), "timeout", asked) }
+	deny := func(reason string) policy.Decision { return settle(decision(policy.Deny, reason), policy.Deny, "auto") }
+	timedOut := func() policy.Decision {
+		return settle(decision(policy.Deny, "ask timeout or cancellation"), "timeout", asked)
+	}
 	if lead == "" || session.CurrentLead(os.Environ()) != lead {
 		return deny("ask requires the spawning DUOLOG_LEAD")
 	}
@@ -107,7 +110,7 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a Action, timeout ti
 	peer := os.Getenv("DUOLOG_PEER")
 	// The wait, rounded up, tells readers when this hook has given up.
 	wait := int((timeout + time.Second - 1) / time.Second)
-	n, err := sendCut(b, bus.Message{From: from, To: address, K: Ask, Ref: peer, P: person, W: wait}, "", fullSummary)
+	n, err := sendCut(b, bus.Message{From: from, To: address, K: policy.Ask, Ref: peer, P: person, W: wait}, "", fullSummary)
 	if err != nil {
 		return deny("cannot send ask: " + err.Error())
 	}
@@ -166,7 +169,7 @@ func (p askPoll) answer() (string, error) {
 		if json.Unmarshal(line, &m) != nil || m.From != p.address || m.To != p.from || m.Ref != ref || m.N <= p.n {
 			continue
 		}
-		if m.K == Allow || m.K == Deny {
+		if m.K == policy.Allow || m.K == policy.Deny {
 			return m.K, nil
 		}
 	}
@@ -190,7 +193,7 @@ func sendCut(b *bus.Bus, m bus.Message, prefix, text string) (int64, error) {
 // cannot be sent. A wait that ctx cancelled did not expire, so it sends none.
 // The line waits for the bus lock at most store.NoticeWait, and less when ctx
 // ends first; it is dropped then, so the deny is never held back.
-func expire(ctx context.Context, b *bus.Bus, ask bus.Message, n int64, action string, d Decision) Decision {
+func expire(ctx context.Context, b *bus.Bus, ask bus.Message, n int64, action string, d policy.Decision) policy.Decision {
 	if ctx.Err() != nil {
 		return d
 	}

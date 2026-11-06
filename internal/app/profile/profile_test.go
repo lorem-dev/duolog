@@ -16,8 +16,8 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/core/run"
-	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -509,9 +509,9 @@ func TestReplayWorkerMayWriteInsideWorktree(t *testing.T) {
 	f.fake(t, func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
 		wt := optionsFrom(ctx).WorkRoot
 		work := project.WorkRoot(wt, f.root)
-		for _, item := range []struct{ path, want string }{{"y.txt", gate.Allow}, {".duolog/task.md", gate.Deny}} {
-			a := gate.Action{Kind: "write", Target: gate.RelativeTarget(work, wt, filepath.Join(wt, item.path)), Role: "implement_complex"}
-			if d := gate.Evaluate(f.cfg.Policy, gate.LeadRules{}, mode.Full, a); d.Kind != item.want {
+		for _, item := range []struct{ path, want string }{{"y.txt", policy.Allow}, {".duolog/task.md", policy.Deny}} {
+			a := policy.Action{Kind: "write", Target: policy.RelativeTarget(work, wt, filepath.Join(wt, item.path)), Role: "implement_complex"}
+			if d := policy.Evaluate(f.cfg.Policy, policy.LeadRules{}, mode.Full, a); d.Kind != item.want {
 				t.Fatalf("%+v: %+v", a, d)
 			}
 		}

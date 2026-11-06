@@ -7,21 +7,26 @@ import (
 	"path/filepath"
 
 	"github.com/gofrs/flock"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
 // Record keeps the final permission outcome independently of its hook rendering.
 type Record struct {
-	Action Action `json:"action"`
-	Decision
+	Action policy.Action `json:"action"`
+	policy.Decision
 }
 
-func Log(s *store.Store, a Action, d Decision) error { return logAt(s, a, d, "decisions.ndjson") }
+func Log(s *store.Store, a policy.Action, d policy.Decision) error {
+	return logAt(s, a, d, "decisions.ndjson")
+}
 
 // LogRequest preserves the full pending action before waiting for a decision.
-func LogRequest(s *store.Store, a Action, d Decision) error { return logAt(s, a, d, "requests.ndjson") }
+func LogRequest(s *store.Store, a policy.Action, d policy.Decision) error {
+	return logAt(s, a, d, "requests.ndjson")
+}
 
-func logAt(s *store.Store, a Action, d Decision, name string) error {
+func logAt(s *store.Store, a policy.Action, d policy.Decision, name string) error {
 	lock := flock.New(filepath.Join(s.Dir, "decisions.lock"))
 	if err := lock.Lock(); err != nil {
 		_ = lock.Close()

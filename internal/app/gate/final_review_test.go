@@ -12,11 +12,11 @@ import (
 	"unicode/utf8"
 
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 )
 
 func TestReviewRoleExecBeforeEveryMode(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
 		lead := LeadRules{RoleSandbox: "read-only"}
 		for _, command := range []string{"rm foo.txt", "sed -i x foo", "git commit -am x", "rm -r -f build", "git -C . push origin HEAD", "make run", "npm run test", "uv run app", "go fmt ./...", "/tmp/evil/make test", "git diff --output=out.txt", "find . -delete", "rg --pre=evil x"} {
@@ -33,7 +33,7 @@ func TestReviewRoleExecBeforeEveryMode(t *testing.T) {
 }
 
 func TestEquivalentDenyCommands(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	for _, command := range []string{`git push "origin" main`, `git -C . push`, `git --no-pager push`, `git -c a=b --git-dir=.git push`, `git -C. push`, `rm -r -f x`, `rm -fr x`, `rm -R --force x`, `rm --recursive --force x`, `git "push" origin main`} {
 		for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
 			check(t, p, LeadRules{}, m, Action{Kind: "exec", Target: command, Role: "implement"}, Deny)
@@ -42,7 +42,7 @@ func TestEquivalentDenyCommands(t *testing.T) {
 }
 
 func TestOutsidePathsBeatCatchAllAndFull(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
 		for _, kind := range []string{"read", "write"} {
 			want := Ask
@@ -65,7 +65,7 @@ func TestOutsidePathsBeatCatchAllAndFull(t *testing.T) {
 }
 
 func TestOrdinaryToolsAndPatchTargets(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	for _, name := range []string{"Grep", "Glob", "LS", "TodoWrite", "Skill", "NotebookEdit"} {
 		a, err := Normalize("claude", []byte(`{"tool_name":"`+name+`","tool_input":{"path":"src","notebook_path":"src/notebook.ipynb"}}`))
 		if err != nil {
@@ -97,7 +97,7 @@ func TestTaskOutputAllowed(t *testing.T) {
 
 func testSessionTool(t *testing.T, name, input string) {
 	t.Helper()
-	p := policy(t)
+	p := testPolicy(t)
 	a, err := Normalize("claude", []byte(`{"tool_name":"`+name+`","tool_input":`+input+`}`))
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +113,7 @@ func testSessionTool(t *testing.T, name, input string) {
 
 func TestBareToolDenyDoesNotBreakOtherTools(t *testing.T) {
 	root := t.TempDir()
-	policy(t)
+	testPolicy(t)
 	path := filepath.Join(root, ".claude", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		t.Fatal(err)

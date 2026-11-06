@@ -15,11 +15,12 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/app/hook"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/gate"
-	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/telemetry"
 	"github.com/lorem-dev/duolog/internal/trusthome"
@@ -52,7 +53,7 @@ func newGateCommand(deps *cmdDeps) *cobra.Command {
 				if readErr == nil && len(data) <= 4*1024*1024 {
 					if event == "PreToolUse" {
 						if d, ok := guardLeadCall(filepath.Join(root, ".duolog"), agent, data); ok {
-							_, _ = cmd.OutOrStdout().Write(gate.RenderLead(agent, d))
+							_, _ = cmd.OutOrStdout().Write(policy.RenderLead(agent, d))
 						}
 					}
 					hook.Observe(cmd.Context(), wiring.HookEnv(hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ()}))
@@ -60,8 +61,8 @@ func newGateCommand(deps *cmdDeps) *cobra.Command {
 			}
 			return nil
 		}
-		a := gate.Action{Kind: "unknown", Role: os.Getenv("DUOLOG_ROLE")}
-		d := gate.Decision{Kind: gate.Deny, Mode: mode.Ask, Rule: "gate setup"}
+		a := policy.Action{Kind: "unknown", Role: os.Getenv("DUOLOG_ROLE")}
+		d := policy.Decision{Kind: policy.Deny, Mode: mode.Ask, Rule: "gate setup"}
 		root, err := projectRoot()
 		var s *store.Store
 		if err == nil {
@@ -76,18 +77,18 @@ func newGateCommand(deps *cmdDeps) *cobra.Command {
 			a, d, err = evaluateHook(deps, cmd, root, agent, event, started)
 		}
 		if err != nil {
-			d.Kind, d.Reason, d.Rule = gate.Deny, "gate failed closed: "+err.Error(), "gate setup"
+			d.Kind, d.Reason, d.Rule = policy.Deny, "gate failed closed: "+err.Error(), "gate setup"
 		}
 		d.Native = os.Getenv("DUOLOG_NATIVE")
 		if s != nil {
 			if logErr := gate.Log(s, a, d); logErr != nil {
-				d.Kind, d.Reason, d.Rule = gate.Deny, "cannot log gate decision: "+logErr.Error(), "decision log"
+				d.Kind, d.Reason, d.Rule = policy.Deny, "cannot log gate decision: "+logErr.Error(), "decision log"
 			}
 		}
 		if event != "PreToolUse" && event != "PermissionRequest" {
 			event = "PreToolUse"
 		}
-		_, err = cmd.OutOrStdout().Write(gate.Render(agent, event, d))
+		_, err = cmd.OutOrStdout().Write(policy.Render(agent, event, d))
 		return err
 	}}
 	cmd.Flags().StringVar(&agent, "agent", "", "Agent receiving this hook")
@@ -95,9 +96,9 @@ func newGateCommand(deps *cmdDeps) *cobra.Command {
 	return cmd
 }
 
-func evaluateHook(deps *cmdDeps, cmd *cobra.Command, root, agent, event string, started time.Time) (gate.Action, gate.Decision, error) {
-	a := gate.Action{Kind: "unknown", Role: os.Getenv("DUOLOG_ROLE")}
-	d := gate.Decision{Mode: mode.Ask}
+func evaluateHook(deps *cmdDeps, cmd *cobra.Command, root, agent, event string, started time.Time) (policy.Action, policy.Decision, error) {
+	a := policy.Action{Kind: "unknown", Role: os.Getenv("DUOLOG_ROLE")}
+	d := policy.Decision{Mode: mode.Ask}
 	if event != "PreToolUse" && event != "PermissionRequest" {
 		return a, d, fmt.Errorf("unsupported gate event %q", event)
 	}
@@ -108,7 +109,7 @@ func evaluateHook(deps *cmdDeps, cmd *cobra.Command, root, agent, event string, 
 	if len(data) > 4*1024*1024 {
 		return a, d, fmt.Errorf("hook input exceeds 4 MiB")
 	}
-	actions, err := gate.NormalizeAll(agent, data)
+	actions, err := policy.NormalizeAll(agent, data)
 	if err != nil {
 		return a, d, err
 	}
@@ -131,7 +132,7 @@ func evaluateHook(deps *cmdDeps, cmd *cobra.Command, root, agent, event string, 
 		action.Work = work
 		ownClaudeFiles(action, i == 0, agent, work, envelope)
 		if (action.Kind == "read" || action.Kind == "write") && action.Target != "" {
-			action.Target = gate.RelativeTarget(work, envelope.Cwd, action.Target)
+			action.Target = policy.RelativeTarget(work, envelope.Cwd, action.Target)
 		}
 		if action.Kind == "exec" || action.Search {
 			action.Work, action.Cwd = work, envelope.Cwd
@@ -152,7 +153,7 @@ func evaluateHook(deps *cmdDeps, cmd *cobra.Command, root, agent, event string, 
 		return a, d, err
 	}
 	// A delegate names its worker's level; the gate takes it only to lower.
-	m = gate.WorkerMode(m, os.Getenv("DUOLOG_MODE"))
+	m = policy.WorkerMode(m, os.Getenv("DUOLOG_MODE"))
 	d.Mode = m
 	rules, err := gate.ImportLead(work, lead.Agent)
 	if err != nil {
@@ -184,33 +185,33 @@ func evaluateHook(deps *cmdDeps, cmd *cobra.Command, root, agent, event string, 
 	// Bare native-tool denies remain enforceable even for normalized tools.
 	for _, rule := range rules.Deny {
 		if rule.Action == "unknown" && rule.Match == envelope.Tool {
-			return a, gate.Decision{Kind: gate.Deny, Mode: m, Reason: "denied by lead settings", Rule: "lead tool: " + envelope.Tool}, nil
+			return a, policy.Decision{Kind: policy.Deny, Mode: m, Reason: "denied by lead settings", Rule: "lead tool: " + envelope.Tool}, nil
 		}
 	}
-	d = gate.Decision{Kind: gate.Allow, Mode: m}
+	d = policy.Decision{Kind: policy.Allow, Mode: m}
 	var asked []string
 	person := false
 	// initial is the rule that asked, kept for telemetry: the person's rule
 	// when one action needs the person, since the person then answers.
-	var initial gate.Decision
+	var initial policy.Decision
 	for _, action := range actions {
 		action.Role = a.Role
-		next := gate.Evaluate(cfg.Policy, rules, m, action)
-		person = person || gate.PersonOnly(next)
-		if next.Kind == gate.Deny {
+		next := policy.Evaluate(cfg.Policy, rules, m, action)
+		person = person || policy.PersonOnly(next)
+		if next.Kind == policy.Deny {
 			return action, next, nil
 		}
-		if next.Kind == gate.Ask {
+		if next.Kind == policy.Ask {
 			asked = append(asked, action.Target)
-			if initial.Kind != gate.Ask || gate.PersonOnly(next) && !gate.PersonOnly(initial) {
+			if initial.Kind != policy.Ask || policy.PersonOnly(next) && !policy.PersonOnly(initial) {
 				initial = next
 			}
 		}
-		if d.Kind != gate.Ask {
+		if d.Kind != policy.Ask {
 			a, d = action, next
 		}
 	}
-	if d.Kind == gate.Ask {
+	if d.Kind == policy.Ask {
 		// One answer covers the whole tool call, so the question names every path.
 		a.Target = strings.Join(asked, " ")
 		key := gate.AskKey(envelope.SessionID, envelope.ToolUseID, askQuestion(a.Kind, asked, envelope.Cwd), person)
@@ -238,7 +239,7 @@ func askQuestion(kind string, asked []string, cwd string) string {
 // askLead sends the ask of one tool call to the lead. PreToolUse and
 // PermissionRequest both reach it for one Claude tool call: the first asks and
 // the other takes its answer. Only a reply is shared.
-func askLead(ctx context.Context, askWait func(int) time.Duration, cfg *config.Config, root, stateDir, leadID, key string, a gate.Action, d, initial gate.Decision, person bool) (gate.Decision, error) {
+func askLead(ctx context.Context, askWait func(int) time.Duration, cfg *config.Config, root, stateDir, leadID, key string, a policy.Action, d, initial policy.Decision, person bool) (policy.Decision, error) {
 	b, err := bus.Open(stateDir, cfg.Wire)
 	if err != nil {
 		return d, err
@@ -247,12 +248,12 @@ func askLead(ctx context.Context, askWait func(int) time.Duration, cfg *config.C
 		return d, err
 	}
 	wait := askWait(cfg.Policy.AskTimeoutSeconds)
-	resolved := gate.EscalateOnce(ctx, stateDir, key, wait, func() (gate.Decision, bool) {
+	resolved := gate.EscalateOnce(ctx, stateDir, key, wait, func() (policy.Decision, bool) {
 		var replied bool
 		// The store opens only once an ask has ended: allows and denies never
 		// reach telemetry.
 		observed := gate.WithAskObserver(ctx, func(r gate.AskResult) {
-			replied = r.By != "auto" && (r.Answer == gate.Allow || r.Answer == gate.Deny)
+			replied = r.By != "auto" && (r.Answer == policy.Allow || r.Answer == policy.Deny)
 			if tel := openTelemetry(cfg, root); tel != nil {
 				defer tel.Close()
 				recordGate(tel, a, initial, r)
@@ -302,7 +303,7 @@ type hookEnvelope struct {
 // temp folder by the tool's path, which is the first action (a Glob or Grep
 // pattern follows it); and, for an exec action, that temp folder, whose files
 // its named read commands may read.
-func ownClaudeFiles(action *gate.Action, first bool, agent, work string, e hookEnvelope) {
+func ownClaudeFiles(action *policy.Action, first bool, agent, work string, e hookEnvelope) {
 	if agent != "claude" {
 		return
 	}
@@ -347,7 +348,7 @@ func ownTempPath(temps []string, cwd, file, path string) bool {
 		// A plain join keeps every .. for InClaudeTemp to refuse.
 		target = cwd + "/" + target
 	}
-	return gate.InClaudeTemp(temps, target)
+	return policy.InClaudeTemp(temps, target)
 }
 
 // gateProtectedRoots names the telemetry and balance roots for the worker
@@ -390,7 +391,7 @@ func newDecisionsCommand() *cobra.Command {
 				} else if err != nil {
 					return err
 				}
-				label := map[string]string{gate.Allow: "Allow", gate.Deny: "Deny", gate.Ask: "Ask"}[row.Kind]
+				label := map[string]string{policy.Allow: "Allow", policy.Deny: "Deny", policy.Ask: "Ask"}[row.Kind]
 				modeText := string(row.Mode)
 				if row.Native != "" {
 					modeText += "; native " + row.Native

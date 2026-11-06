@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
-	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -112,7 +112,7 @@ func TestPeerShowLeadGuard(t *testing.T) {
 				t.Errorf("%s %q passed the lead guard", agent, command)
 				continue
 			}
-			want := map[string]string{"claude": gate.Ask, "codex": gate.Deny}[agent]
+			want := map[string]string{"claude": policy.Ask, "codex": policy.Deny}[agent]
 			if d.Kind != want || !strings.Contains(d.Reason, "peer show") {
 				t.Errorf("%s %q: %+v", agent, command, d)
 			}

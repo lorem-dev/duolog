@@ -4,7 +4,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/app/gate"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/telemetry"
 )
 
@@ -14,7 +15,7 @@ import (
 // passed as DUOLOG_RUN. The target, the reasons and any error stay out. An
 // append that fails is counted in the store's health and otherwise ignored,
 // so it cannot change the decision.
-func recordGate(s *telemetry.Store, a gate.Action, initial gate.Decision, result gate.AskResult) {
+func recordGate(s *telemetry.Store, a policy.Action, initial policy.Decision, result gate.AskResult) {
 	if s == nil {
 		return
 	}
@@ -41,7 +42,7 @@ func gateKind(kind string) string {
 // closed names; a project's own ask rule, which names its match, is other.
 func gateRuleClass(rule string) string {
 	switch rule {
-	case gate.RuleOutside:
+	case policy.RuleOutside:
 		return "outside"
 	case "on_unmatched":
 		return "on_unmatched"
@@ -58,7 +59,7 @@ func gateRuleClass(rule string) string {
 
 func gateAnswer(answer string) string {
 	switch answer {
-	case gate.Allow, gate.Deny, "timeout":
+	case policy.Allow, policy.Deny, "timeout":
 		return answer
 	}
 	return "other"

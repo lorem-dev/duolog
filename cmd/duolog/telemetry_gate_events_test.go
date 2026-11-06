@@ -13,10 +13,11 @@ import (
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/core/record"
-	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/telemetry"
 )
 
@@ -78,7 +79,7 @@ func answerGateAsks(t *testing.T, reg *session.Registry, root, answer string) {
 			data, _ := os.ReadFile(filepath.Join(reg.Dir, "bus.ndjson"))
 			for _, line := range bytes.Split(data, []byte("\n")) {
 				var m bus.Message
-				if json.Unmarshal(line, &m) != nil || m.K != gate.Ask || answered[m.N] {
+				if json.Unmarshal(line, &m) != nil || m.K != policy.Ask || answered[m.N] {
 					continue
 				}
 				answered[m.N] = true
@@ -170,22 +171,22 @@ func TestTelemetryGateAsks(t *testing.T) {
 		prepare           func(t *testing.T, reg *session.Registry)
 		want              telemetry.Gate
 	}{
-		{name: "outside by person", agent: "claude", tool: "Read", input: map[string]string{"file_path": outside}, m: mode.Edits, answer: gate.Allow,
+		{name: "outside by person", agent: "claude", tool: "Read", input: map[string]string{"file_path": outside}, m: mode.Edits, answer: policy.Allow,
 			want: telemetry.Gate{Kind: "read", RuleClass: "outside", Answer: "allow", By: "person"}},
-		{name: "on_unmatched denied by lead", agent: "codex", tool: "Bash", input: map[string]string{"command": "custom-command --token=" + gateSentinel}, m: mode.Ask, answer: gate.Deny,
+		{name: "on_unmatched denied by lead", agent: "codex", tool: "Bash", input: map[string]string{"command": "custom-command --token=" + gateSentinel}, m: mode.Ask, answer: policy.Deny,
 			want: telemetry.Gate{Kind: "exec", RuleClass: "on_unmatched", Answer: "deny", By: "lead"}},
-		{name: "mode", agent: "claude", tool: "Write", input: map[string]string{"file_path": gateSentinel + ".go", "content": gateSentinel}, m: mode.Ask, answer: gate.Allow,
+		{name: "mode", agent: "claude", tool: "Write", input: map[string]string{"file_path": gateSentinel + ".go", "content": gateSentinel}, m: mode.Ask, answer: policy.Allow,
 			want: telemetry.Gate{Kind: "write", RuleClass: "mode", Answer: "allow", By: "lead"}},
-		{name: "mcp", agent: "claude", tool: "mcp__" + gateSentinel + "__fetch", input: map[string]string{"url": gateSentinel}, m: mode.Full, answer: gate.Allow,
+		{name: "mcp", agent: "claude", tool: "mcp__" + gateSentinel + "__fetch", input: map[string]string{"url": gateSentinel}, m: mode.Full, answer: policy.Allow,
 			want: telemetry.Gate{Kind: "mcp", RuleClass: "mcp", Answer: "allow", By: "lead"}},
 		{name: "unverified times out", agent: "codex", tool: "Bash", input: map[string]string{"command": "echo $(" + gateSentinel + ")"}, m: mode.Edits,
 			want: telemetry.Gate{Kind: "exec", RuleClass: "unverified", Answer: "timeout", By: "lead", WaitSecs: 1}},
-		{name: "unknown tool", agent: "claude", tool: "Tool" + gateSentinel, input: map[string]string{"x": gateSentinel}, m: mode.Edits, answer: gate.Allow,
+		{name: "unknown tool", agent: "claude", tool: "Tool" + gateSentinel, input: map[string]string{"x": gateSentinel}, m: mode.Edits, answer: policy.Allow,
 			want: telemetry.Gate{Kind: "unknown", RuleClass: "unverified", Answer: "allow", By: "lead"}},
-		{name: "explicit ask rule", agent: "codex", tool: "Bash", input: map[string]string{"command": "deploy-site " + gateSentinel}, m: mode.Edits, answer: gate.Allow,
+		{name: "explicit ask rule", agent: "codex", tool: "Bash", input: map[string]string{"command": "deploy-site " + gateSentinel}, m: mode.Edits, answer: policy.Allow,
 			policy: "  rules:\n    - {action: exec, match: \"deploy-site *\", decision: ask}\n",
 			want:   telemetry.Gate{Kind: "exec", RuleClass: "other", Answer: "allow", By: "lead"}},
-		{name: "auto while the lead waits", agent: "codex", tool: "Bash", input: map[string]string{"command": "custom-command " + gateSentinel}, m: mode.Ask, answer: gate.Allow,
+		{name: "auto while the lead waits", agent: "codex", tool: "Bash", input: map[string]string{"command": "custom-command " + gateSentinel}, m: mode.Ask, answer: policy.Allow,
 			prepare: func(t *testing.T, reg *session.Registry) {
 				if err := reg.SetWaiting("lead-123456", "foreground", os.Getpid()); err != nil {
 					t.Fatal(err)
@@ -193,7 +194,7 @@ func TestTelemetryGateAsks(t *testing.T) {
 			},
 			want: telemetry.Gate{Kind: "exec", RuleClass: "on_unmatched", Answer: "deny", By: "auto"}},
 		// Two paths of one patch are one question and one answer.
-		{name: "several actions are one ask", agent: "codex", tool: "apply_patch", m: mode.Ask, answer: gate.Allow,
+		{name: "several actions are one ask", agent: "codex", tool: "apply_patch", m: mode.Ask, answer: policy.Allow,
 			input: map[string]string{"patch": "*** Begin Patch\n*** Update File: a.go\n*** Update File: ../" + gateSentinel + ".txt\n*** End Patch"},
 			want:  telemetry.Gate{Kind: "write", RuleClass: "outside", Answer: "allow", By: "person"}},
 	} {
@@ -240,9 +241,9 @@ func TestTelemetryGateAsks(t *testing.T) {
 	}
 	t.Run("hook reentry", func(t *testing.T) {
 		reg, root, _ := gateTelemetrySetup(t, mode.Ask, "")
-		answerGateAsks(t, reg, root, gate.Allow)
-		a := gate.Action{Kind: "exec", Target: "custom-command", Role: "implement"}
-		initial := gate.Decision{Kind: gate.Ask, Rule: "on_unmatched", Mode: mode.Ask}
+		answerGateAsks(t, reg, root, policy.Allow)
+		a := policy.Action{Kind: "exec", Target: "custom-command", Role: "implement"}
+		initial := policy.Decision{Kind: policy.Ask, Rule: "on_unmatched", Mode: mode.Ask}
 		cfg, err := configfile.Load(root)
 		if err != nil {
 			t.Fatal(err)
@@ -257,7 +258,7 @@ func TestTelemetryGateAsks(t *testing.T) {
 		defer s.Close()
 		ctx := gate.WithAskObserver(t.Context(), func(r gate.AskResult) { recordGate(s, a, initial, r) })
 		for range 2 {
-			if d := gate.Escalate(ctx, b, "lead-123456", a, time.Second, false); d.Kind != gate.Allow {
+			if d := gate.Escalate(ctx, b, "lead-123456", a, time.Second, false); d.Kind != policy.Allow {
 				t.Fatal(d)
 			}
 		}
@@ -274,7 +275,7 @@ func TestTelemetryGateEventsCarryRun(t *testing.T) {
 	for _, tc := range []struct{ env, want string }{{run, `"` + run + `"`}, {"vendor-session-" + gateSentinel, ""}, {"", ""}} {
 		reg, root, telemetryRoot := gateTelemetrySetup(t, mode.Ask, "")
 		t.Setenv("DUOLOG_RUN", tc.env)
-		answerGateAsks(t, reg, root, gate.Allow)
+		answerGateAsks(t, reg, root, policy.Allow)
 		gateHook(t, "codex", "Bash", map[string]string{"command": "custom-command"}, root)
 		events := gateEvents(t, root)
 		if len(events) != 1 {
@@ -385,7 +386,7 @@ func TestTelemetryGateFailure(t *testing.T) {
 			}
 		},
 	}
-	for _, answer := range []string{gate.Allow, gate.Deny, ""} {
+	for _, answer := range []string{policy.Allow, policy.Deny, ""} {
 		want := run(t, answer, off)
 		for name, sink := range sinks {
 			t.Run(name+"/"+answer, func(t *testing.T) {
@@ -408,6 +409,6 @@ func TestTelemetryGateFailure(t *testing.T) {
 	}
 	_ = closed.Close()
 	for _, s := range []*telemetry.Store{nil, closed} {
-		recordGate(s, gate.Action{Kind: "exec", Target: gateSentinel}, gate.Decision{Kind: gate.Ask, Rule: "on_unmatched"}, gate.AskResult{Answer: "allow", By: "lead", Wait: time.Second})
+		recordGate(s, policy.Action{Kind: "exec", Target: gateSentinel}, policy.Decision{Kind: policy.Ask, Rule: "on_unmatched"}, gate.AskResult{Answer: "allow", By: "lead", Wait: time.Second})
 	}
 }

@@ -10,11 +10,11 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
-func policy(t testing.TB) config.Policy {
+func testPolicy(t testing.TB) config.Policy {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
@@ -39,7 +39,7 @@ func check(t *testing.T, p config.Policy, lead LeadRules, m mode.Mode, a Action,
 }
 
 func TestRulesFirstMatchByTable(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	for _, tc := range []struct{ kind, target, want string }{
 		{"read", "src/a.go", Allow}, {"read", ".env", Deny},
 		{"write", ".duolog/bus.ndjson", Deny}, {"exec", "git push", Deny},
@@ -55,46 +55,46 @@ func TestRulesFirstMatchByTable(t *testing.T) {
 }
 
 func TestDenyBeatsAllow(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	check(t, p, LeadRules{Deny: []config.Rule{{Action: "write", Match: "src/**"}}}, mode.Edits, Action{Kind: "write", Target: "src/a.go", Role: "implement"}, Deny)
 }
 func TestLeadDenyCannotBeRelaxed(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	check(t, p, LeadRules{Deny: []config.Rule{{Action: "exec", Match: "go *"}}}, mode.Full, Action{Kind: "exec", Target: "go test ./...", Role: "implement"}, Deny)
 }
 func TestFullModeConfirmsUnmatched(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	for _, kind := range []string{"exec", "net"} {
 		check(t, p, LeadRules{}, mode.Full, Action{Kind: kind, Target: "example.com", Role: "implement"}, Allow)
 	}
 }
 func TestFullModeKeepsDenies(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	for _, a := range []Action{{Kind: "exec", Target: "git push", Role: "implement"}, {Kind: "read", Target: ".env", Role: "implement"}, {Kind: "write", Target: ".duolog/x", Role: "implement"}, {Kind: "write", Target: "src/a.go", Role: "implement"}} {
 		check(t, p, LeadRules{Deny: []config.Rule{{Action: "write", Match: "src/**"}}}, mode.Full, a, Deny)
 	}
 }
 func TestFullModeKeepsRoleLimit(t *testing.T) {
-	check(t, policy(t), LeadRules{}, mode.Full, Action{Kind: "write", Target: "src/a.go", Role: "review_final"}, Deny)
+	check(t, testPolicy(t), LeadRules{}, mode.Full, Action{Kind: "write", Target: "src/a.go", Role: "review_final"}, Deny)
 }
 func TestPlanModeOnlyReads(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	check(t, p, LeadRules{}, mode.Plan, Action{Kind: "read", Target: "src/a.go", Role: "implement"}, Allow)
 	for _, a := range []Action{{Kind: "write", Target: "src/a.go", Role: "implement"}, {Kind: "exec", Target: "go test ./...", Role: "implement"}} {
 		check(t, p, LeadRules{}, mode.Plan, a, Deny)
 	}
 }
 func TestEditsModeAllowsWrite(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "write", Target: "src/a.go", Role: "implement"}, Allow)
 	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: "custom-command", Role: "implement"}, Ask)
 	check(t, p, LeadRules{}, mode.Ask, Action{Kind: "write", Target: "src/a.go", Role: "implement"}, Ask)
 }
 func TestRoleScopedWrite(t *testing.T) {
-	check(t, policy(t), LeadRules{}, mode.Edits, Action{Kind: "write", Target: "src/a.go", Role: "review_final"}, Deny)
+	check(t, testPolicy(t), LeadRules{}, mode.Edits, Action{Kind: "write", Target: "src/a.go", Role: "review_final"}, Deny)
 }
 func TestPathTraversalNormalized(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	for _, target := range []string{"src/../.duolog/x", ".duolog", "./.duolog/x", `src\..\.duolog\x`} {
 		check(t, p, LeadRules{}, mode.Full, Action{Kind: "write", Target: target, Role: "implement"}, Deny)
 	}
@@ -103,7 +103,7 @@ func TestPathTraversalNormalized(t *testing.T) {
 	}
 }
 func TestCompoundShellCommand(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	for _, separator := range []string{" && ", " || ", "; ", " | ", "\n"} {
 		check(t, p, LeadRules{}, mode.Full, Action{Kind: "exec", Target: "go test ./..." + separator + "git push", Role: "implement"}, Deny)
 	}
@@ -118,7 +118,7 @@ func TestCompoundShellCommand(t *testing.T) {
 }
 
 func TestShellDenyBypasses(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	for _, inherited := range []bool{false, true} {
 		shellPolicy := p
 		lead := LeadRules{}
@@ -201,7 +201,7 @@ func TestPathSpecificCommandDenies(t *testing.T) {
 }
 
 func TestPlainDefaultShellAllows(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	for _, m := range []mode.Mode{mode.Ask, mode.Edits, mode.Full} {
 		for _, command := range []string{
 			"go test ./...", "cargo test", "npm run test", "pnpm lint", "uv run pytest",
@@ -213,7 +213,7 @@ func TestPlainDefaultShellAllows(t *testing.T) {
 	}
 }
 func TestEveryAutoDecisionLogged(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	s, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -248,7 +248,7 @@ func TestEveryAutoDecisionLogged(t *testing.T) {
 	}
 }
 func TestImportLeadFollowsLeadAgent(t *testing.T) {
-	policy(t)
+	testPolicy(t)
 	root := t.TempDir()
 	writeSetting(t, filepath.Join(root, ".claude/settings.json"), `broken`)
 	writeSetting(t, filepath.Join(root, ".codex/config.toml"), "sandbox_mode = 'read-only'\napproval_policy = 'never'\n")
@@ -256,7 +256,7 @@ func TestImportLeadFollowsLeadAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := Evaluate(policy(t), lead, mode.Full, Action{Kind: "write", Target: "src/a.go", Role: "implement"})
+	d := Evaluate(testPolicy(t), lead, mode.Full, Action{Kind: "write", Target: "src/a.go", Role: "implement"})
 	if d.Kind != Deny {
 		t.Fatal(d)
 	}
@@ -271,7 +271,7 @@ func writeSetting(t *testing.T, path, data string) {
 	}
 }
 func TestImportClaudeProjectAndUserDenies(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	root := t.TempDir()
 	writeSetting(t, filepath.Join(os.Getenv("HOME"), ".claude/settings.json"), `{"permissions":{"deny":["Bash(git push:*)", "Read(./private/**)"]}}`)
 	writeSetting(t, filepath.Join(root, ".claude/settings.json"), `{"permissions":{"deny":["Write(./src/**)"]}}`)
@@ -289,7 +289,7 @@ func TestImportClaudeProjectAndUserDenies(t *testing.T) {
 }
 
 func TestImportClaudePathSelectorBases(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	home := os.Getenv("HOME")
 	root := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "restricted")
@@ -342,7 +342,7 @@ func TestImportClaudePathSelectorBases(t *testing.T) {
 	}
 }
 func TestImportCodexLimits(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	root := t.TempDir()
 	writeSetting(t, filepath.Join(os.Getenv("HOME"), ".codex/config.toml"), "sandbox_mode = 'read-only'\n")
 	writeSetting(t, filepath.Join(root, ".codex/config.toml"), "sandbox_mode = 'workspace-write'\napproval_policy = 'never'\n")
@@ -362,7 +362,7 @@ func TestImportCodexLimits(t *testing.T) {
 // Codex edits the project without asking under on-request, so a write role may
 // edit too; untrusted asks first.
 func TestImportCodexApproval(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	root := t.TempDir()
 	for approval, want := range map[string]string{"on-request": Allow, "on-failure": Allow, "never": Allow, "untrusted": Ask} {
 		writeSetting(t, filepath.Join(root, ".codex/config.toml"), "sandbox_mode = 'workspace-write'\napproval_policy = '"+approval+"'\n")
@@ -377,7 +377,7 @@ func TestImportCodexApproval(t *testing.T) {
 }
 
 func TestMalformedLeadDeniesFailClosed(t *testing.T) {
-	policy(t)
+	testPolicy(t)
 	root := t.TempDir()
 	for _, data := range []string{
 		`null`, `{"permissions":null}`, `{"permissions":{"deny":null}}`,
@@ -391,13 +391,13 @@ func TestMalformedLeadDeniesFailClosed(t *testing.T) {
 }
 
 func TestMalformedPolicyFailsClosed(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	p.Rules = append(p.Rules, config.Rule{Action: "read", Match: "[", Decision: Deny})
 	check(t, p, LeadRules{}, mode.Full, Action{Kind: "read", Target: "src/a.go", Role: "implement"}, Deny)
 }
 
 func TestUnverifiedShellSyntaxNeedsApproval(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	for _, command := range []string{`go test ./... && g\it push`, "go test ./... && git\tpush", "go test ./... && git  push"} {
 		if d := Evaluate(p, LeadRules{}, mode.Full, Action{Kind: "exec", Target: command, Role: "implement"}); d.Kind == Allow {
 			t.Errorf("allowed %q: %+v", command, d)
@@ -439,7 +439,7 @@ func TestClaudeAbsoluteDriveSelectors(t *testing.T) {
 // A Codex lead in workspace-write with on-request gives edits. The worker then
 // edits inside the project, asks outside it, and never writes protected paths.
 func TestCodexEditsLeadKeepsProtectedPaths(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	root := t.TempDir()
 	writeSetting(t, filepath.Join(root, ".codex/config.toml"), "sandbox_mode = 'workspace-write'\napproval_policy = 'on-request'\n")
 	lead, err := ImportLead(root, "codex")

@@ -14,13 +14,13 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/capability"
 	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
-	"github.com/lorem-dev/duolog/internal/gate"
 )
 
 // FixtureVersions is the single source of versions used to collect the fixtures.

@@ -5,12 +5,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
 func TestImportedDenyWithShortRoot(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	root := t.TempDir()
 	long, err := filepath.EvalSymlinks(root)
 	if err != nil {

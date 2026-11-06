@@ -11,10 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/gate"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 )
 
 // allowEveryAsk answers each ask on the project's bus with allow from the
@@ -49,7 +50,7 @@ func allowEveryAsk(t *testing.T, root string) {
 				if err != nil {
 					continue
 				}
-				if _, err := b.Send(bus.Message{From: "codex/lead.lead-1", To: m.From, K: gate.Allow, Ref: strconv.FormatInt(m.N, 10), S: gate.Allow}); err == nil {
+				if _, err := b.Send(bus.Message{From: "codex/lead.lead-1", To: m.From, K: policy.Allow, Ref: strconv.FormatInt(m.N, 10), S: policy.Allow}); err == nil {
 					answered[m.N] = true
 				}
 			}

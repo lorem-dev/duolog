@@ -25,8 +25,8 @@ import (
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/core/route"
-	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/rex"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/testbin"
@@ -2075,7 +2075,7 @@ func TestDenyReasonWaitsForSlowMenu(t *testing.T) {
 	typed := reasonPrefix + reason
 	r := newRig(t, withScreens(claudeIdle("")))
 	e := r.open("plan")
-	asks := len(r.messages(gate.Ask))
+	asks := len(r.messages(policy.Ask))
 	r.rex(withScreens(prompt, onNo, onNo, onNo, claudeInterrupted(), claudeTyped(typed), claudeWorking()))
 	if err := AnswerWithReason(r.ctx, e.ID, "No", reason); err != nil {
 		t.Fatal(err)
@@ -2083,14 +2083,14 @@ func TestDenyReasonWaitsForSlowMenu(t *testing.T) {
 	if sent := r.named("send"); len(sent) != 1 || sent[0][len(sent[0])-1] != typed {
 		t.Fatalf("%v", sent)
 	}
-	if got := len(r.messages(gate.Ask)); got != asks {
+	if got := len(r.messages(policy.Ask)); got != asks {
 		t.Fatalf("%d asks to the lead, want %d", got, asks)
 	}
 
 	// A question that stays past the wait is an error, still not an ask.
 	r.rex(withScreens(prompt, onNo, onNo))
 	err := AnswerWithReason(r.ctx, e.ID, "No", reason)
-	if err == nil || !strings.Contains(err.Error(), "still shows") || len(r.named("send")) != 0 || len(r.messages(gate.Ask)) != asks {
+	if err == nil || !strings.Contains(err.Error(), "still shows") || len(r.named("send")) != 0 || len(r.messages(policy.Ask)) != asks {
 		t.Fatalf("%v after %d sends", err, len(r.named("send")))
 	}
 
@@ -2101,8 +2101,8 @@ func TestDenyReasonWaitsForSlowMenu(t *testing.T) {
 	}
 	r.rex(withScreens(prompt, onNo, other))
 	err = AnswerWithReason(r.ctx, e.ID, "No", reason)
-	if err == nil || !strings.Contains(err.Error(), "another question") || len(r.named("send")) != 0 || len(r.messages(gate.Ask)) != asks+1 {
-		t.Fatalf("%v after %d sends, %d asks", err, len(r.named("send")), len(r.messages(gate.Ask)))
+	if err == nil || !strings.Contains(err.Error(), "another question") || len(r.named("send")) != 0 || len(r.messages(policy.Ask)) != asks+1 {
+		t.Fatalf("%v after %d sends, %d asks", err, len(r.named("send")), len(r.messages(policy.Ask)))
 	}
 }
 

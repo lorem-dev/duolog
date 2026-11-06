@@ -14,7 +14,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
-	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 )
 
 func askSetup(t *testing.T) (*bus.Bus, *session.Registry, string) {
@@ -126,7 +126,7 @@ func TestAskSendsOneLine(t *testing.T) {
 }
 
 func TestOutsideAskIsPersonOnly(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	d := Evaluate(p, LeadRules{}, mode.Edits, Action{Kind: "read", Target: "/elsewhere/notes.txt", Role: "implement"})
 	if !PersonOnly(d) {
 		t.Fatal(d)
@@ -146,7 +146,7 @@ func TestOutsideAskIsPersonOnly(t *testing.T) {
 }
 
 func TestPersonOnlyReadCommandsKeepOutsideRule(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	for _, command := range []string{
 		"cat *.go; cat /elsewhere/notes.txt",
 		"cat $(pwd)/notes.txt; cat /elsewhere/notes.txt",
@@ -159,7 +159,7 @@ func TestPersonOnlyReadCommandsKeepOutsideRule(t *testing.T) {
 }
 
 func TestPersonOnlyAskCannotBypassRoleOrPlanDeny(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	for _, tc := range []struct {
 		name, command, role, rule string
 		lead                      LeadRules
@@ -180,7 +180,7 @@ func TestPersonOnlyAskCannotBypassRoleOrPlanDeny(t *testing.T) {
 }
 
 func TestExplicitOutsideApprovalIsNotPersonOnly(t *testing.T) {
-	p := policy(t)
+	p := testPolicy(t)
 	p.Rules = append([]config.Rule{{Action: "read", Match: "/elsewhere/**", Decision: Allow}}, p.Rules...)
 	d := Evaluate(p, LeadRules{}, mode.Edits, Action{Kind: "read", Target: "/elsewhere/notes.txt", Role: "implement"})
 	if d.Kind != Allow || PersonOnly(d) {
