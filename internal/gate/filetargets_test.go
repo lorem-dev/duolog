@@ -59,6 +59,26 @@ func wantPersonInFull(t *testing.T, p config.Policy, root string, commands ...st
 	}
 }
 
+// wantPersonOrWindowsDeny is wantPersonInFull, but on Windows a script word
+// such as wC:/tmp/out also reads as a Windows stream name, which is denied:
+// there a deny passes too, since it keeps the file from the lead as well.
+func wantPersonOrWindowsDeny(t *testing.T, p config.Policy, root string, commands ...string) {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		wantPersonInFull(t, p, root, commands...)
+		return
+	}
+	for _, command := range commands {
+		command = onVolume(root, command)
+		a := Action{Kind: "exec", Target: command, Role: "implement", Work: root, Cwd: root}
+		for _, m := range []mode.Mode{mode.Ask, mode.Edits, mode.Full} {
+			if d := Evaluate(p, LeadRules{}, m, a); d.Kind != Deny && !PersonOnly(d) {
+				t.Errorf("%s: %q: %+v, want a deny or the person's ask", m, command, d)
+			}
+		}
+	}
+}
+
 // wantDeny checks that a command is denied in every mode, with the rule given.
 func wantDeny(t *testing.T, p config.Policy, root, rule string, commands ...string) {
 	t.Helper()
@@ -214,7 +234,7 @@ func TestSedBackupSuffixInItsOwnWord(t *testing.T) {
 		`sed -i bak w.git/hooks/pre-commit README.md`,
 		`sed -I p 'w .git/config' README.md`,
 	)
-	wantPersonInFull(t, p, root,
+	wantPersonOrWindowsDeny(t, p, root,
 		`sed -i x 1r/etc/passwd README.md`,
 		`sed -i x w/tmp/out README.md`,
 		`sed -i d 's/a/b/w ../out' README.md`,
@@ -236,7 +256,7 @@ func TestSedBackupSuffixInItsOwnWord(t *testing.T) {
 func TestSedBracketExpressionsHoldTheDelimiter(t *testing.T) {
 	p := policy(t)
 	root := t.TempDir()
-	wantPersonInFull(t, p, root,
+	wantPersonOrWindowsDeny(t, p, root,
 		`sed -i x s/[/]/x/w/tmp/out README.md`,
 		`sed -i x 's/[/]/x/w /tmp/out' README.md`,
 		`sed -i x '/[/]/w /tmp/out' README.md`,
