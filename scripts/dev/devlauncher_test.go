@@ -3,6 +3,7 @@ package dev_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,16 @@ import (
 )
 
 const fakeBuild = "#!/bin/sh\necho \"$1 from $0\"\n"
+
+// TestMain lets the test binary stand in for a duolog build: the Windows
+// launcher tests have a fake go copy it as the build, then run it.
+func TestMain(m *testing.M) {
+	if os.Getenv("DUOLOG_TEST_FAKE_BUILD") == "1" {
+		fmt.Println(strings.Join(append([]string{"fake build"}, os.Args[1:]...), " "))
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
 
 func run(t *testing.T, dir string, env []string, name string, args ...string) (string, string, int) {
 	t.Helper()
@@ -44,10 +55,19 @@ func run(t *testing.T, dir string, env []string, name string, args ...string) (s
 // duolog installed on the host, or the hooks' PATH entry for this checkout,
 // cannot answer for the fallback under test.
 func pathWithoutDuolog() string {
+	names := []string{"duolog"}
+	if runtime.GOOS == "windows" {
+		for _, ext := range filepath.SplitList(os.Getenv("PATHEXT")) {
+			names = append(names, "duolog"+strings.ToLower(ext))
+		}
+	}
 	var keep []string
+dirs:
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
-		if _, err := os.Stat(filepath.Join(dir, "duolog")); err == nil {
-			continue
+		for _, name := range names {
+			if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+				continue dirs
+			}
 		}
 		keep = append(keep, dir)
 	}
@@ -234,5 +254,116 @@ func TestLauncherPrefersEarlierWorktreeBuild(t *testing.T) {
 	stdout, _, code := run(t, wt, env, launcher(wt), "version")
 	if code != 0 || strings.TrimSpace(stdout) != "worktree build" {
 		t.Errorf("exit %d, stdout = %q, want the worktree build", code, stdout)
+	}
+}
+
+// A fake go that prints a download line on stderr, as a real first build
+// does, then succeeds by copying the test binary as the build or fails.
+const (
+	fakeGoBuilds = "@echo off\r\n" +
+		"1>&2 echo go: downloading example.test/dep v1.0.0\r\n" +
+		"copy /y \"%DUOLOG_TEST_EXE%\" \"%~3\" >nul\r\n" +
+		"exit /b %errorlevel%\r\n"
+	fakeGoFails = "@echo off\r\n" +
+		"1>&2 echo go: downloading example.test/dep v1.0.0\r\n" +
+		"1>&2 echo cmd\\duolog\\main.go:3:15: syntax error\r\n" +
+		"exit /b 1\r\n"
+	// git outside a repository fails with a line on stderr.
+	fakeGit = "@echo off\r\n" +
+		"1>&2 echo fatal: not a git repository (or any of the parent directories): .git\r\n" +
+		"exit /b 128\r\n"
+)
+
+// windowsFixture lays out a checkout with the PowerShell launcher, puts a
+// fake go and git first on PATH and no duolog anywhere on it, and returns the
+// checkout, the environment and Windows PowerShell 5.1, which Codex runs.
+func windowsFixture(t *testing.T, fakeGo string) (string, []string, string) {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Skip("the PowerShell launcher is tested on Windows")
+	}
+	shell, err := exec.LookPath("powershell")
+	if err != nil {
+		if os.Getenv("CI") == "" {
+			t.Skip("Windows PowerShell is not installed")
+		}
+		t.Fatal("CI must provide Windows PowerShell 5.1:", err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := os.ReadFile(filepath.Join("bin", "duolog.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := t.TempDir()
+	root := filepath.Join(base, "root")
+	fake := filepath.Join(base, "fake")
+	write(t, filepath.Join(root, "scripts", "dev", "bin", "duolog.ps1"), string(script), 0o644)
+	write(t, filepath.Join(fake, "go.cmd"), fakeGo, 0o755)
+	write(t, filepath.Join(fake, "git.cmd"), fakeGit, 0o755)
+	env := append(os.Environ(),
+		"PATH="+fake+string(os.PathListSeparator)+pathWithoutDuolog(),
+		"DUOLOG_DEV_TRIED=",
+		"DUOLOG_TEST_EXE="+exe,
+		"DUOLOG_TEST_FAKE_BUILD=1",
+	)
+	return root, env, shell
+}
+
+func runPowerShellLauncher(t *testing.T, root string, env []string, shell, depth string) (string, string, int) {
+	t.Helper()
+	script := filepath.Join(root, "scripts", "dev", "bin", "duolog.ps1")
+	return run(t, root, append(env, "DUOLOG_DEPTH="+depth), shell,
+		"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "version")
+}
+
+// Windows PowerShell 5.1 with 'Stop' turns a redirected stderr line into a
+// terminating error. A build that only says "go: downloading" must still be
+// installed and run, and its output must stay off the hook's stdout.
+func TestPowerShellLauncherBuildsDespiteStderr(t *testing.T) {
+	root, env, shell := windowsFixture(t, fakeGoBuilds)
+
+	stdout, stderr, code := runPowerShellLauncher(t, root, env, shell, "1")
+	if code != 0 {
+		t.Fatalf("exit %d, stdout: %s, stderr: %s", code, stdout, stderr)
+	}
+	if strings.TrimSpace(stdout) != "fake build version" {
+		t.Errorf("stdout = %q, want only the build's output", stdout)
+	}
+	if !strings.Contains(stderr, "go: downloading") {
+		t.Errorf("stderr = %q, want the build output", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".cache", "dev", "duolog.exe")); err != nil {
+		t.Errorf("the build was not kept: %v", err)
+	}
+}
+
+// A failed build whose stderr has lines, and a git that fails with stderr,
+// reach the fallback: a worker stops with exit 2, anyone else with 1.
+func TestPowerShellLauncherFailsClosedWithoutFallback(t *testing.T) {
+	root, env, shell := windowsFixture(t, fakeGoFails)
+	for _, tc := range []struct {
+		depth string
+		want  int
+	}{{"1", 2}, {"0", 1}} {
+		stdout, stderr, code := runPowerShellLauncher(t, root, env, shell, tc.depth)
+		if code != tc.want {
+			t.Errorf("depth %s: exit %d, want %d, stderr: %s", tc.depth, code, tc.want, stderr)
+		}
+		if !strings.Contains(stderr, "there is no earlier build") {
+			t.Errorf("depth %s: stderr = %q, want the fallback to run", tc.depth, stderr)
+		}
+		if strings.Contains(stderr, "NativeCommandError") || strings.Contains(stderr, "fatal: not a git repository") {
+			t.Errorf("depth %s: stderr = %q, a native command's stderr escaped", tc.depth, stderr)
+		}
+		if stdout != "" {
+			t.Errorf("depth %s: stdout = %q, want none", tc.depth, stdout)
+		}
+	}
+	matches, err := filepath.Glob(filepath.Join(root, ".cache", "dev", "*"))
+	if err != nil || len(matches) != 0 {
+		t.Errorf("left behind %v (%v)", matches, err)
 	}
 }
