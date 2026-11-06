@@ -116,9 +116,18 @@ worktree that is the worktree's own `.duolog`, not the main checkout's. The
 gate allows that write for that peer only, even in plan mode or a read-only
 role; every other path under `.duolog` and every other peer's report stay
 denied. `peer wait` and `peer status` add `report <path>` to their line once
-the file exists. The agent can still refuse the write before the gate sees it:
-Claude in its own plan mode, and Codex in a read-only role, whose
-`-s read-only` sandbox allows no writes.
+the file exists. A Codex peer in a read-only role can still refuse the write
+before the gate sees it, because its `-s read-only` sandbox allows no writes.
+
+A Claude peer never starts in Claude's own plan mode, even in a read-only
+role or under a lead in `plan`. Plan mode shows its own `Exit plan mode?`
+prompt and waits for a person, while `peer status` says `ready`. The peer
+starts in Claude's `default` mode instead, and the gate keeps it read-only:
+it denies every write but its report, and every tool it cannot judge. So
+`duolog peer open` first checks that the gate runs for the pane, and opens
+nothing when it does not. A peer opened under a lead in `plan` stays at
+`plan` when the lead moves to a looser mode. See
+[Permissions](permissions.md#a-workers-native-mode).
 
 ## What to do when a peer is interrupted
 

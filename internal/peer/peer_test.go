@@ -141,6 +141,10 @@ func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
 	}
 	r.lead("codex", mode.Ask)
 	r.rex(script)
+	// The Claude gate runs, as where duolog is installed: a Claude peer at
+	// level plan or in a read-only role opens only then.
+	r.claudeGate(true)
+	testbin.Install(t, "duolog", testbin.Scenario{})
 	r.ctx = WithOptions(context.Background(), Options{Root: r.root, Config: r.cfg, Lead: "lead-1"})
 	// One account state for the whole test, as for one user: open, send and
 	// close are separate commands. Its quota reads start no binary.
@@ -565,10 +569,12 @@ func TestPeerStartsInLeadMode(t *testing.T) {
 		want        string
 		screen      string
 	}{
-		{"claude", "plan", mode.Plan, "--permission-mode plan", claudeIdle("")},
+		// The read-only plan role starts in Claude's default, never Claude's
+		// plan, whose own prompt waits for a person; the gate keeps it read-only.
+		{"claude", "plan", mode.Plan, "--permission-mode default", claudeIdle("")},
 		{"codex", "implement", mode.Ask, "-s workspace-write", codexIdle("")},
 		{"codex", "implement", mode.Full, "-s workspace-write", codexIdle("")},
-		{"claude", "plan", mode.Ask, "--permission-mode plan", claudeIdle("")},
+		{"claude", "plan", mode.Ask, "--permission-mode default", claudeIdle("")},
 		{"claude", "debug_hard", mode.Edits, "--permission-mode acceptEdits", claudeIdle("")},
 	} {
 		r := newRig(t, withScreens(tc.screen))
@@ -578,7 +584,7 @@ func TestPeerStartsInLeadMode(t *testing.T) {
 		if !strings.Contains(argv, tc.want) {
 			t.Fatalf("%s %s in %s: %s", tc.agent, tc.role, tc.mode, argv)
 		}
-		if strings.Contains(argv, "dangerously") || strings.Contains(argv, "bypass") {
+		if strings.Contains(argv, "dangerously") || strings.Contains(argv, "bypass") || strings.Contains(argv, "--permission-mode plan") {
 			t.Fatalf("dangerous flag: %s", argv)
 		}
 	}

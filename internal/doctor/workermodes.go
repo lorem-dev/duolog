@@ -43,8 +43,9 @@ func workerModeFindings(cfg *config.Config, root string) []Finding {
 				when := "it applies " + applies
 				switch {
 				case kind == "role" && cfg.Roles[name].Sandbox == "read-only" && rank > 0:
-					// mode.Resolve gives a read-only role plan or read-only.
-					when, looser = "it never applies: role "+name+" is read-only, so its workers start in plan", false
+					// mode.Resolve gives a read-only role level plan: Claude
+					// default held read-only by the gate, or Codex read-only.
+					when, looser = "it never applies: role "+name+" is read-only, so its workers start at level plan", false
 				case kind == "family" && rank > 2:
 					// WorkerModes.Request: a family entry only lowers, and
 					// alone one above the default is skipped.

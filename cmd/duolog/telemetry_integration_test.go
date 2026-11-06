@@ -220,6 +220,8 @@ func TestTelemetryEndToEnd(t *testing.T) {
 	testbin.Install(t, "e2e-build", testbin.Scenario{})
 	gitDir := gitOnlyDir(t)
 	t.Setenv("PATH", gitDir)
+	// The read-only Claude worker starts only with its gate command on PATH.
+	testbin.Install(t, "duolog", testbin.Scenario{})
 	for _, name := range []string{"claude", "codex", "rex"} {
 		if found, err := exec.LookPath(name); err == nil {
 			t.Fatalf("%s found at %s", name, found)
@@ -393,6 +395,9 @@ func TestTelemetryEndToEnd(t *testing.T) {
 	chdir(t, checkout)
 	restoreGate := installQuotaFakes(t, `{"loggedIn":true,"subscriptionType":"max","email":"`+e2eSentinel+`@example.com"}`, codexQuota)
 	t.Setenv("PATH", os.Getenv("PATH")+string(os.PathListSeparator)+gitDir)
+	// installQuotaFakes set PATH anew; the read-only Claude worker below
+	// needs its gate command on it again.
+	testbin.Install(t, "duolog", testbin.Scenario{})
 	for range 2 {
 		if out, err := executeBusCommand(t, "quota"); err != nil {
 			t.Fatal(out, err)

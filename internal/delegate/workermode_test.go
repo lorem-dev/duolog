@@ -284,6 +284,90 @@ func TestDuologModeOnlyWithAnEntry(t *testing.T) {
 	}
 }
 
+// A read-only role's Claude worker, under any lead or with an entry asking
+// plan, and a write role whose entry asks plan, all start in Claude's
+// default mode, never in plan; the level stays plan, so the gate keeps the
+// worker read-only.
+func TestClaudeWorkerNeverLaunchesInPlan(t *testing.T) {
+	for _, tc := range []struct {
+		name, role, entry string
+		lead              mode.Mode
+	}{
+		{"read-only role", "review_final", "", mode.Full},
+		{"lead in plan", "review_final", "", mode.Plan},
+		{"read-only role entry asks plan", "review_final", "  roles:\n    review_final: {claude: plan}\n", mode.Full},
+		{"write role entry asks plan", "implement", "  roles:\n    implement: {claude: plan}\n", mode.Full},
+	} {
+		h := newHarness(t)
+		if tc.entry != "" {
+			h.workerModes(tc.entry)
+		}
+		h.lead("claude", tc.lead, "high")
+		if _, err := h.runOn(tc.role, "claude", "haiku"); err != nil {
+			t.Fatal(tc.name, err)
+		}
+		c := h.calls[0]
+		launch := strings.Join(c.Process.Launch, " ")
+		if c.Native != "default" || c.Mode != mode.Plan || launch != "-p --permission-mode default" || strings.Contains(c.Process.Settings, `"plan"`) {
+			t.Errorf("%s: native %s mode %s launch %q", tc.name, c.Native, c.Mode, launch)
+		}
+		if slices.Contains(c.Process.Env, "DUOLOG_NATIVE=plan") || !slices.Contains(c.Process.Env, "DUOLOG_NATIVE=default") {
+			t.Errorf("%s: the gate's log would not name native default", tc.name)
+		}
+	}
+}
+
+// Codex review 2: a Claude worker at level plan or in a read-only role starts
+// in Claude's default mode, so only duolog's gate keeps it read-only. It
+// starts only after a gate preflight in its own environment, though it asks
+// nothing looser than duolog's default. Hooks that are missing, or turned off
+// while the settings allow Write, Edit and Bash, start no process at all.
+func TestGateHeldClaudeWorkerNeedsItsGate(t *testing.T) {
+	inherited := `{"disableAllHooks":true,"permissions":{"allow":["Write","Edit","Bash(*)"]}}`
+	for _, tc := range []struct {
+		name, role, entry string
+		lead              mode.Mode
+		setup             func(h *harness)
+	}{
+		{"read-only role, hooks missing", "review_final", "", mode.Full, func(h *harness) { h.claudeGate(false); h.gateOnPath(true) }},
+		{"read-only role, hooks off with inherited allows", "review_final", "", mode.Full, func(h *harness) {
+			h.claudeGate(true)
+			h.gateOnPath(true)
+			put(h.t, filepath.Join(h.root, ".claude", "settings.json"), inherited)
+		}},
+		{"user settings turn hooks off", "review_final", "", mode.Edits, func(h *harness) {
+			h.claudeGate(true)
+			h.gateOnPath(true)
+			put(h.t, filepath.Join(os.Getenv("HOME"), ".claude", "settings.json"), inherited)
+		}},
+		{"lead in plan, hooks off", "review_final", "", mode.Plan, func(h *harness) { h.claudeGate(true); h.hooksOff(); h.gateOnPath(true) }},
+		{"entry asks plan, hooks missing", "implement", "  roles:\n    implement: {claude: plan}\n", mode.Full, func(h *harness) { h.claudeGate(false); h.gateOnPath(true) }},
+		{"gate command not on the worker PATH", "review_final", "", mode.Full, func(h *harness) { h.claudeGate(true); h.gateOnPath(false) }},
+	} {
+		h := newHarness(t)
+		tc.setup(h)
+		if tc.entry != "" {
+			h.workerModes(tc.entry)
+		}
+		h.lead("claude", tc.lead, "high")
+		out, err := h.runOn(tc.role, "claude", "haiku")
+		h.requireCalls(0) // neither the worker nor a fallback agent ran
+		var notStarted *NotStartedError
+		if err == nil || !errors.As(err, &notStarted) || !strings.Contains(out.Line, "gate preflight failed") || !strings.Contains(out.Line, "nothing ran") {
+			t.Errorf("%s: %v %q", tc.name, err, out.Line)
+		}
+	}
+	// With its gate shown, the same worker runs.
+	h := newHarness(t)
+	h.claudeGate(true)
+	h.gateOnPath(true)
+	h.lead("claude", mode.Full, "high")
+	if out, err := h.runOn("review_final", "claude", "haiku"); err != nil {
+		t.Fatal(out.Line, err)
+	}
+	h.requireCalls(1)
+}
+
 // Re-review m1 and m2: a family entry that asks above duolog's default does
 // not lower the level below the default's, and a family entry does not set
 // the gate of a read-only role to plan.
@@ -402,8 +486,9 @@ func TestRouteChangeCannotEscapeFamilyLowering(t *testing.T) {
 			t.Fatal(tc.name, out, err)
 		}
 		h.requireCalls(1)
-		if c := h.calls[0]; c.Native != "plan" {
-			t.Errorf("%s: %s on %s, want plan (%s)", tc.name, c.Native, c.Route.Model, out.Line)
+		// Level plan, in Claude's default mode: the gate keeps it read-only.
+		if c := h.calls[0]; c.Native != "default" || c.Mode != mode.Plan {
+			t.Errorf("%s: %s at %s on %s, want default at plan (%s)", tc.name, c.Native, c.Mode, c.Route.Model, out.Line)
 		}
 	}
 }

@@ -170,7 +170,7 @@ func TestWorkerBuildGatesExplicitPassthrough(t *testing.T) {
 							t.Errorf("%s %s: minimal context lost: %s", variant, path, settings)
 						}
 						if path != "skill" {
-							checkOnce("--disallowedTools=Agent,Task,mcp__jira__delete")
+							checkOnce(heldDisallowed + ",mcp__jira__delete")
 							checkOnce("--allowedTools=mcp__jira__get")
 							checkOnce("--strict-mcp-config")
 							checkOnce("--disable-slash-commands")
@@ -250,10 +250,12 @@ func TestWorkerBuildGatesExplicitPassthrough(t *testing.T) {
 	})
 }
 
-// modeArgs are the sandbox flags of spec's plan mode.
+// modeArgs are the sandbox flags of spec's plan mode: Codex's read-only
+// sandbox, and Claude's default mode, as a Claude worker never starts in
+// Claude's plan.
 func modeArgs(agent string) []string {
 	if agent == "codex" {
 		return []string{"-s", "read-only"}
 	}
-	return []string{"--permission-mode", "plan"}
+	return []string{"--permission-mode", "default"}
 }

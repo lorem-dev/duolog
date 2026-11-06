@@ -16,11 +16,11 @@ import (
 // A peer cannot delegate, so a Claude peer starts without the subagent tools.
 func TestClaudePeerDisallowsSubagents(t *testing.T) {
 	route := router.Route{Target: config.Target{Agent: "claude", Model: "opus"}}
-	if args := agentArgv(route, peerProcess(t, &config.Config{}, route, workerenv.Free, t.TempDir())); !slices.Contains(args, "--disallowedTools=Agent,Task") {
+	if args := agentArgv(route, mode.Ask, peerProcess(t, &config.Config{}, route, workerenv.Free, t.TempDir())); !slices.Contains(args, "--disallowedTools=Agent,Task") {
 		t.Fatal(args)
 	}
 	route.Agent, route.Model = "codex", "sol"
-	for _, a := range agentArgv(route, peerProcess(t, &config.Config{}, route, workerenv.Free, t.TempDir())) {
+	for _, a := range agentArgv(route, mode.Plan, peerProcess(t, &config.Config{}, route, workerenv.Free, t.TempDir())) {
 		if strings.Contains(a, "disallowedTools") || strings.Contains(a, "Agent") {
 			t.Fatal(a)
 		}
@@ -39,7 +39,7 @@ func TestCodexPeerPinsSandboxExtras(t *testing.T) {
 			for _, sandbox := range []string{"read-only", "workspace-write"} {
 				route := router.Route{Target: config.Target{Agent: "codex", Model: "sol"}, Sandbox: sandbox}
 				p := peerProcessIn(t, paid, route, m, variant, t.TempDir())
-				args := agentArgv(route, p)
+				args := agentArgv(route, m, p)
 				if !slices.Equal(args[:len(p.Prefix)], p.Prefix) {
 					t.Fatalf("%s %s %s: argv does not start with the built prefix: %v", variant, m, sandbox, args)
 				}
@@ -69,15 +69,90 @@ func TestPeerAdmittedArgvIsLaunchedArgv(t *testing.T) {
 			{"codex", "sol", "workspace-write", mode.Edits, []string{"-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=false", "-c", "sandbox_workspace_write.writable_roots=[]"}, "-s"},
 			{"codex", "sol", "read-only", mode.Full, []string{"-s", "read-only"}, "-s"},
 			{"claude", "opus", "workspace-write", mode.Edits, []string{"--permission-mode", "acceptEdits"}, "--permission-mode"},
+			{"claude", "opus", "read-only", mode.Full, []string{"--permission-mode", "default"}, "--permission-mode"},
 		} {
 			route := router.Route{Target: config.Target{Agent: tc.agent, Model: tc.model}, Sandbox: tc.sandbox}
 			p := peerProcessIn(t, paid, route, tc.m, variant, t.TempDir())
 			if !slices.Equal(p.Launch, tc.want) {
 				t.Errorf("%s %s: admitted launch %v, want %v", variant, tc.agent, p.Launch, tc.want)
 			}
-			args, admitted := agentArgv(route, p), p.LaunchArgv()
+			args, admitted := agentArgv(route, tc.m, p), p.LaunchArgv()
 			if len(args) < len(admitted) || !slices.Equal(args[:len(admitted)], admitted) || slices.Contains(args[len(admitted):], tc.flag) {
 				t.Errorf("%s %s: launched %v, admitted %v", variant, tc.agent, args, admitted)
+			}
+		}
+	}
+}
+
+// A Claude peer never starts in Claude's plan mode: plan's own "Exit plan
+// mode?" prompt waits for a person the pane does not have. A read-only role
+// or a lead in plan gives the pane Claude's default mode, and the gate keeps
+// it read-only.
+func TestClaudePeerNeverLaunchesInPlan(t *testing.T) {
+	for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Full} {
+		for _, sandbox := range []string{"read-only", "workspace-write"} {
+			route := router.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Sandbox: sandbox}
+			p := peerProcessIn(t, &config.Config{}, route, m, workerenv.Free, t.TempDir())
+			args := agentArgv(route, m, p)
+			if slices.Contains(args, "plan") || strings.Contains(p.Settings, `"plan"`) {
+				t.Errorf("%s %s: %v", m, sandbox, args)
+			}
+			if (m == mode.Plan || sandbox == "read-only") && !slices.Equal(p.Launch, []string{"--permission-mode", "default"}) {
+				t.Errorf("%s %s: launch %v", m, sandbox, p.Launch)
+			}
+		}
+	}
+}
+
+// Claude review 3: a Claude peer that only the gate holds read-only, under a
+// lead in plan or in a read-only role, starts without the built-in tools that
+// are not read-only, beside Agent and Task. It keeps Write and Edit for its
+// own report, which the gate allows. One --disallowedTools value holds them.
+func TestHeldClaudePeerDisallowsWriteTools(t *testing.T) {
+	for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Full} {
+		for _, sandbox := range []string{"read-only", "workspace-write"} {
+			route := router.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Sandbox: sandbox}
+			args := agentArgv(route, m, peerProcessIn(t, &config.Config{}, route, m, workerenv.Free, t.TempDir()))
+			var values []string
+			for _, a := range args {
+				if v, ok := strings.CutPrefix(a, "--disallowedTools="); ok {
+					values = append(values, v)
+				}
+			}
+			if len(values) != 1 {
+				t.Fatalf("%s %s: %v", m, sandbox, args)
+			}
+			got := strings.Split(values[0], ",")
+			held := m == mode.Plan || sandbox == "read-only"
+			for _, tool := range mode.HeldDisallowedTools(true) {
+				if slices.Contains(got, tool) != held {
+					t.Errorf("%s %s: %s in %v", m, sandbox, tool, got)
+				}
+			}
+			if !slices.Contains(got, "Agent") || !slices.Contains(got, "Task") || slices.Contains(got, "Write") || slices.Contains(got, "Edit") {
+				t.Errorf("%s %s: %v", m, sandbox, got)
+			}
+		}
+	}
+}
+
+// Claude review 4: a peer opened under a lead in plan keeps level plan when
+// the lead later moves to a looser mode. Its pane gets DUOLOG_MODE=plan, which
+// the gate takes only to lower. Under any other lead it gets none, and a
+// read-only role stays read-only through its role sandbox, not through
+// DUOLOG_MODE, so that it may still read the web.
+func TestPeerUnderPlanLeadPinsPlan(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
+			for _, sandbox := range []string{"read-only", "workspace-write"} {
+				route := router.Route{Target: config.Target{Agent: agent, Model: map[string]string{"claude": "opus", "codex": "sol"}[agent]}, Sandbox: sandbox}
+				env := peerProcessIn(t, &config.Config{}, route, m, workerenv.Free, t.TempDir()).Env
+				if got, want := slices.Contains(env, "DUOLOG_MODE=plan"), m == mode.Plan; got != want {
+					t.Errorf("%s %s %s: DUOLOG_MODE=plan %t", agent, m, sandbox, got)
+				}
+				if slices.ContainsFunc(env, func(v string) bool { return strings.HasPrefix(v, "DUOLOG_MODE=") && v != "DUOLOG_MODE=plan" }) {
+					t.Errorf("%s %s %s: %v", agent, m, sandbox, env)
+				}
 			}
 		}
 	}
@@ -102,7 +177,7 @@ func TestClaudePeerSettingsDenyStateAndKeepNotifications(t *testing.T) {
 	root := t.TempDir()
 	for _, context := range []string{"minimal", "project"} {
 		route := router.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Context: context}
-		args := agentArgv(route, peerProcess(t, &config.Config{}, route, workerenv.Free, root))
+		args := agentArgv(route, mode.Ask, peerProcess(t, &config.Config{}, route, workerenv.Free, root))
 		i := slices.Index(args, "--settings")
 		if i < 0 || i+1 == len(args) {
 			t.Fatal(args)

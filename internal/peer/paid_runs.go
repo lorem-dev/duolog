@@ -108,7 +108,8 @@ func (h *hold) release(ctx context.Context) error {
 // admitPane admits a new pane of route before it exists: one live slot and
 // one task's estimate in one reservation, the free variant first and the
 // paid one when the agent opted in. A pane never waits for a slot: a refusal
-// names the counts and the close command.
+// names the counts and the close command. A pane that only the gate keeps
+// read-only is refused when that gate cannot be shown to run.
 func (e *env) admitPane(ctx context.Context, route router.Route, lead leadInfo, role, id, run string) (*hold, error) {
 	g, err := e.accounts()
 	if err != nil {
@@ -136,7 +137,17 @@ func (e *env) admitPane(ctx context.Context, route router.Route, lead leadInfo, 
 		if err != nil {
 			return nil, err
 		}
-		return &hold{gate: g, permit: permit}, nil
+		h := &hold{gate: g, permit: permit}
+		// A Claude pane at level plan or in a read-only role starts in
+		// Claude's default mode, so only the gate keeps it read-only: it opens
+		// only where that gate is shown to run, from the pane's own
+		// environment. Nothing has started, so the hold goes back.
+		if mode.GateHeld(route.Agent, lead.mode, route.Sandbox) {
+			if err := delegate.HeldGate(route.Agent, e.root, permit.Process.Env); err != nil {
+				return nil, errors.Join(err, h.release(ctx))
+			}
+		}
+		return h, nil
 	}
 	return nil, fmt.Errorf("%s -> lead: %s", role, strings.Join(refusals, "; "))
 }

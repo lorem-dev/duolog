@@ -39,7 +39,7 @@ func TestPeerFastModePinned(t *testing.T) {
 	for _, variant := range []workerenv.Variant{workerenv.Free, workerenv.Paid} {
 		for _, context := range []string{"minimal", "project"} {
 			route := router.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Context: context}
-			args := agentArgv(route, peerProcess(t, paid, route, variant, root))
+			args := agentArgv(route, mode.Ask, peerProcess(t, paid, route, variant, root))
 			i := slices.Index(args, "--settings")
 			if i != 1 || slices.Index(args[i+1:], "--settings") >= 0 {
 				t.Fatal(args)

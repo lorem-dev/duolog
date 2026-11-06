@@ -25,6 +25,11 @@ type workerMode struct {
 	Request       string // the requested native name, for the line
 	Network       bool
 	WritableRoots []string
+	// Held reports a worker that only duolog's gate keeps read-only
+	// (mode.GateHeld): Claude at level plan or in a read-only role, which
+	// starts in Claude's default mode. It needs its gate shown to run, though
+	// nothing it asks is looser than duolog's default.
+	Held bool
 }
 
 // gateBinary finds the duolog a worker's hooks run; tests replace it.
@@ -39,6 +44,7 @@ func resolveWorkerMode(cfg *config.Config, role string, route router.Route, lead
 	req := cfg.WorkerModes.Request(role, config.RouteFamilies(cfg, role, route.Model, route.Sandbox), route.Agent)
 	ceiling := mode.NewCeiling(lead.Agent, lead.Native, lead.Mode, effective)
 	w := workerMode{Resolved: mode.Resolve(route.Agent, req, ceiling, route.Sandbox), Request: req.Native}
+	w.Held = mode.GateHeld(route.Agent, w.Level, route.Sandbox)
 	if route.Agent == "codex" && w.Native == "workspace-write" && (w.Level == mode.Edits || w.Level == mode.Full) && route.Sandbox == "workspace-write" {
 		w.Network, w.WritableRoots = cfg.WorkerModes.Extras(role)
 		if (w.Network || len(w.WritableRoots) > 0) && w.Source == "default" {
@@ -89,6 +95,13 @@ func (w workerMode) needsGate() bool {
 	return w.Looser || w.Network || len(w.WritableRoots) > 0
 }
 
+// needsPreflight reports a worker that may start only after gatePreflight
+// shows its gate runs: a looser one (needsGate), or one that only the gate
+// keeps read-only (Held).
+func (w workerMode) needsPreflight() bool {
+	return w.needsGate() || w.Held
+}
+
 // gateState reads the hook state and folder trust of an agent process whose
 // environment is env: the settings, plugins, approvals and trusted folders
 // that environment's CLAUDE_CONFIG_DIR or CODEX_HOME select.
@@ -101,7 +114,7 @@ func gateState(agent, root string, env []string) (trust.State, bool, error) {
 	return state, folder, err
 }
 
-// gatePreflight refuses a looser worker when the gate cannot be shown to run
+// gatePreflight refuses a looser or held worker (needsPreflight) when the gate cannot be shown to run
 // for the process whose environment is env, or when a writable root overlaps
 // a protected folder. Hooks, folder trust, the gate binary on PATH and the
 // protected agent folders all come from env, the environment that process
@@ -131,7 +144,18 @@ func (w workerMode) gatePreflight(agent, root string, env, protected []string) e
 	if problem == "" {
 		return nil
 	}
+	if w.Held && !w.needsGate() {
+		return fmt.Errorf("gate preflight failed for %s at level plan (native %s; only the duolog gate keeps it read-only): %s; nothing ran", agent, w.Native, problem)
+	}
 	return fmt.Errorf("gate preflight failed for %s %s (%s): %s; nothing ran", agent, w.Native, w.Source, problem)
+}
+
+// HeldGate refuses a peer pane that only the gate keeps read-only
+// (mode.GateHeld) when its gate cannot be shown to run for the process whose
+// environment is env, as gatePreflight refuses such a worker.
+func HeldGate(agent, root string, env []string) error {
+	w := workerMode{Resolved: mode.Resolved{Level: mode.Plan, Native: mode.Default(agent, mode.Plan, "read-only")}, Held: true}
+	return w.gatePreflight(agent, root, env, nil)
 }
 
 // noHomeProblem says why nothing a worker's agent loads can be read from an

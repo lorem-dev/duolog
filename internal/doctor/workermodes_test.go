@@ -59,7 +59,7 @@ func TestDoctorSaysWhenAnEntryNeverApplies(t *testing.T) {
 	}
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
-		"info: worker_modes: role review_final asks claude bypassPermissions; it never applies: role review_final is read-only, so its workers start in plan",
+		"info: worker_modes: role review_final asks claude bypassPermissions; it never applies: role review_final is read-only, so its workers start at level plan",
 		"info: worker_modes: role review_final asks codex read-only; it applies always",
 		"info: worker_modes: role implement asks codex workspace-write with network; it applies when the lead is in edits or full",
 		"info: worker_modes: family haiku asks claude bypassPermissions; a family entry only lowers: it lowers a role entry above it, and alone it changes nothing",

@@ -8,7 +8,9 @@ import (
 
 // Rank orders the native names duolog offers a worker. Claude: plan 0,
 // default 1, acceptEdits 2, auto 3, bypassPermissions 4. Codex: read-only 0,
-// workspace-write 2. Every other name is not offered: (-1, false).
+// workspace-write 2. Every other name is not offered: (-1, false). Claude
+// plan stays ranked so that a config entry can lower to it; a worker asking
+// it starts in default (launchNative).
 func Rank(agent, native string) (int, bool) {
 	switch agent {
 	case "claude":
@@ -36,7 +38,9 @@ func Rank(agent, native string) (int, bool) {
 }
 
 // Default is the native value Args passes: the role sandbox narrows the
-// mode, and full uses the same value as edits.
+// mode, and full uses the same value as edits. A Claude worker or peer at
+// level plan gets Claude's default mode, never Claude's plan (see
+// launchNative).
 func Default(agent string, m Mode, sandbox string) string {
 	if sandbox == "read-only" {
 		m = Plan
@@ -49,8 +53,6 @@ func Default(agent string, m Mode, sandbox string) string {
 		return "workspace-write"
 	case "claude":
 		switch m {
-		case Plan:
-			return "plan"
 		case Edits, Full:
 			return "acceptEdits"
 		}
@@ -59,13 +61,70 @@ func Default(agent string, m Mode, sandbox string) string {
 	return ""
 }
 
-// Flags turns a native name into the agent's command-line flags.
+// launchNative is the native name a worker or peer starts with for the name
+// duolog resolved. A Claude worker or peer never starts in Claude's plan
+// mode: plan is an interactive mode, and leaving it, or a plan the agent
+// wants to write, waits on an "Exit plan mode?" prompt for a person that a
+// worker or peer does not have, so it deadlocks. It starts in Claude's
+// default mode instead, one rank above plan.
+//
+// Claude's plan refused every tool that is not read-only before it ran. In
+// default, duolog's gate is what does that, so such a worker or peer is held
+// by the gate (GateHeld), and three things stand in for plan:
+//
+//   - The gate, at level plan or in a read-only role, denies every write and
+//     every command that is not a named read-only one, except a peer's own
+//     report. It also denies an MCP tool that no rule marks read_only and is
+//     not a default read-only tool, and every tool it cannot judge as a read
+//     or a write (EnterPlanMode included), where it would otherwise ask.
+//   - The worker or peer starts without the built-in tools that are not
+//     read-only and that the gate cannot judge (HeldDisallowedTools).
+//   - It starts only after a gate preflight in its own environment shows the
+//     gate runs: hooks present, not turned off, the gate command on PATH.
+//
+// The ceilings compare levels and the ranks of requested names, never this
+// launch name. Codex's read-only is a real OS sandbox, not a prompt, and
+// stays.
+func launchNative(agent, native string) string {
+	if agent == "claude" && native == "plan" {
+		return "default"
+	}
+	return native
+}
+
+// GateHeld reports a worker or peer that only duolog's gate keeps read-only:
+// Claude at level plan or with a read-only role sandbox, which starts in
+// Claude's default mode (launchNative). It may start only where its gate is
+// shown to run. This holds apart from Resolved.Looser: such a worker runs
+// duolog's own default for its level.
+func GateHeld(agent string, level Mode, sandbox string) bool {
+	return agent == "claude" && (level == Plan || sandbox == "read-only")
+}
+
+// HeldDisallowedTools are Claude's built-in tools that a held worker or peer
+// (GateHeld) starts without, beside Agent and Task: those that are not
+// read-only and that the gate cannot judge as a read or a write, which it
+// denies there, and the edit tools a held agent has no use for. A worker
+// also starts without Write and Edit; a peer keeps them for its own report,
+// which the gate allows and judges like any write. This is a second wall
+// behind the gate, so a tool missing here is still denied by it.
+func HeldDisallowedTools(peer bool) []string {
+	tools := []string{"CronCreate", "CronDelete", "EnterPlanMode", "ExitPlanMode", "EnterWorktree", "ExitWorktree",
+		"Monitor", "MultiEdit", "NotebookEdit", "PushNotification", "RemoteTrigger", "ScheduleWakeup", "SendMessage", "Workflow"}
+	if !peer {
+		tools = append(tools, "Edit", "Write")
+	}
+	return tools
+}
+
+// Flags turns a native name into the agent's command-line flags. A Claude
+// plan becomes default (launchNative), whichever caller names it.
 func Flags(agent, native string) []string {
 	switch agent {
 	case "codex":
 		return []string{"-s", native}
 	case "claude":
-		return []string{"--permission-mode", native}
+		return []string{"--permission-mode", launchNative(agent, native)}
 	}
 	return nil
 }
@@ -146,7 +205,9 @@ func loosestRank(agent string, level Mode, auto bool) int {
 }
 
 // Resolve picks the level and native name for one worker. The level is never
-// above the effective lead mode and the native name never above the level.
+// above the effective lead mode and the native name never above the level,
+// except that a Claude worker at level plan starts in default, which the
+// gate holds to plan (launchNative).
 func Resolve(agent string, r Request, c Ceiling, sandbox string) Resolved {
 	level := c.Effective
 	if sandbox == "read-only" {
@@ -173,6 +234,10 @@ func Resolve(agent string, r Request, c Ceiling, sandbox string) Resolved {
 			by = "lead " + string(c.Lead)
 		}
 	}
+	// An entry may still name Claude plan to lower a worker to level plan;
+	// the worker then starts in default (launchNative), which is also
+	// Default's name for plan, so it is never looser.
+	native = launchNative(agent, native)
 	nativeRank, _ := Rank(agent, native)
 	defaultRank, _ := Rank(agent, Default(agent, level, sandbox))
 	return Resolved{Level: level, Native: native, Source: r.Source, LoweredBy: by, Looser: nativeRank > defaultRank}

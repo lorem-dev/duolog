@@ -108,6 +108,11 @@ func newHarness(t *testing.T) *harness {
 	h.task("- a.go")
 	put(t, filepath.Join(h.root, "a.go"), strings.Repeat("line\n", 50))
 	h.trust(true)
+	// The Claude gate runs, as where duolog is installed: a Claude worker at
+	// level plan or in a read-only role starts only then. Tests of a missing
+	// gate remove it.
+	h.claudeGate(true)
+	h.gateOnPath(true)
 	if err := h.reg.RegisterLead(session.Lead{ID: "lead-123456", Target: config.Target{Agent: "codex", Model: "lead-model"}, Mode: mode.Ask}); err != nil {
 		t.Fatal(err)
 	}

@@ -143,12 +143,17 @@ func TestInlineKeepsProtectedStoreOut(t *testing.T) {
 	}
 }
 
+// A Claude write role without the gate runs with a warning; a read-only role,
+// which only the gate keeps read-only, does not start
+// (TestGateHeldClaudeWorkerNeedsItsGate).
 func TestDelegateWarnsAboutMissingClaudeHooks(t *testing.T) {
 	h := newHarness(t)
-	out, err := h.run("review_final")
+	h.claudeGate(false)
+	out, err := h.runOn("implement", "claude", "sonnet")
 	if err != nil || !strings.Contains(out.Line, "Claude has no duolog hooks") {
 		t.Fatal(out, err)
 	}
+	h.requireCalls(1)
 }
 
 func TestWorkerWaitMarkerExistsOnlyDuringRun(t *testing.T) {

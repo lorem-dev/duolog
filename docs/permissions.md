@@ -47,6 +47,36 @@ the flag that matches the lead's mode, never above `acceptEdits` for Claude or
 changes it for one role or one model family. Without the section nothing
 changes.
 
+A Claude worker or peer never starts in Claude's own plan mode. Plan mode
+asks a person before it lets the agent leave it, and a worker or peer has no
+person to answer, so it stops and waits. A worker or peer at level `plan`
+starts in Claude's `default` mode instead: a read-only role, a lead in
+`plan`, `duolog mode plan`, or an entry that asks `plan`. Its level stays
+`plan`. A Codex worker keeps its `read-only` sandbox, which the OS enforces.
+The lead keeps its own mode; duolog does not change it.
+
+Claude's plan mode refused every tool that is not read-only before it ran.
+In `default`, duolog's gate is all that does, so for such a Claude worker or
+peer:
+
+- The gate denies every write and every command that is not a named
+  read-only command. It allows only a peer's own report.
+- The gate denies an MCP tool unless an allow rule marks it `read_only` or
+  it is one of the default CodeGraph read tools. It denies every tool it
+  cannot judge as a read or a write, such as `EnterPlanMode`, `CronCreate`
+  or `SendMessage`. Above `plan` and outside a read-only role, these ask.
+  A denied tool cannot be allowed with `duolog allow`.
+- The agent starts without Claude's built-in tools that are not read-only
+  and that the gate cannot judge, a second wall behind the gate. A worker
+  also starts without `Write` and `Edit`; a peer keeps them for its report.
+- `duolog delegate` and `duolog peer open` start it only after the gate
+  checks below, under "Why a looser mode needs proof that the gate runs",
+  pass in its own environment. Otherwise nothing starts.
+
+A peer opened under a lead in `plan` gets `DUOLOG_MODE=plan`, so its level
+stays `plan` when the lead later moves to a looser mode. A peer in a
+read-only role needs none: its role keeps it read-only.
+
 An entry names a native value, such as `acceptEdits` or `read-only`. duolog
 resolves it for each worker:
 
@@ -84,8 +114,15 @@ does not run, a Claude tool call still meets a prompt that nobody answers in
 is gone, and a missing gate lets the tool run. Codex `workspace-write` keeps
 its OS sandbox, but network and extra writable roots widen it.
 
-So before a worker starts in a looser mode, or with Codex network or extra
-roots, `duolog delegate` checks that the gate can run for that agent here:
+A Claude worker or peer at level `plan` or in a read-only role starts in
+`default`, but a `permissions.allow` entry in the settings it inherits, such
+as `Write` or `Bash(*)`, lets that tool run without a prompt. Claude's plan
+mode no longer stops it, so only the gate does.
+
+So before a worker starts in a looser mode, with Codex network or extra
+roots, or as such a Claude worker, `duolog delegate` checks that the gate
+can run for that agent here. `duolog peer open` checks the same for such a
+Claude peer:
 
 - Claude: the duolog gate hooks are in a settings file, or the duolog plugin
   is enabled and installed for the user or for this project, and
@@ -101,8 +138,11 @@ roots, `duolog delegate` checks that the gate can run for that agent here:
 If a check fails, delegate refuses the run. No worker starts and the other
 agent does not run in its place. The message reads
 `gate preflight failed for <agent> <native> (<source>): <reason>; nothing
-ran`. Fix the reason, or remove the entry. A run with no looser entry is not
-checked this way and behaves as before.
+ran`. Fix the reason, or remove the entry. For a Claude worker or peer at
+level `plan` it reads `gate preflight failed for claude at level plan
+(native default; only the duolog gate keeps it read-only): <reason>;
+nothing ran`, and `peer open` opens no pane. Fix the reason. Any other run
+with no looser entry is not checked this way and behaves as before.
 
 `duolog route <role>` shows the result, such as
 `codex sol medium mode=edits native=workspace-write (role implement)`. Its
@@ -139,7 +179,8 @@ repository's `.codex/config.toml` cannot widen it either.
 
 The rules are in the `policy` section of the config. A rule has an action
 (`read`, `write`, `exec`, `net` or `mcp`), a glob, a decision and optional
-roles.
+roles. An `mcp` allow rule may also say `read_only: true`; see "How a
+worker's MCP tool calls are checked" below.
 
 | Action | Match | Decision |
 |---|---|---|
@@ -344,7 +385,13 @@ past a deny of `mcp__my__wiki__delete`. A 1.1.0 rule such as
 
 duolog cannot tell whether a tool reads or writes. So an MCP tool runs only
 when a rule names it. No mode or role allows one by itself, and `full` mode
-does not turn the question into an allow. An unlisted tool asks the lead, and
+does not turn the question into an allow. At level `plan` and in a read-only
+role, the rule must also mark the tool `read_only: true`, as in
+`{action: mcp, match: "tracker/get_*", decision: allow, read_only: true}`;
+the default CodeGraph read tools need no mark. Any other MCP tool is denied
+there, not asked. `read_only` belongs on an `mcp` allow rule only; on any
+other rule it makes the policy invalid, and the gate denies everything.
+Elsewhere, an unlisted tool asks the lead, and
 a lead that waits for its foreground `delegate` denies it at once. The worker
 then stops with `mcp:<server>/<tool>` in `needs`. A deny in the lead's own
 Claude settings, such as `mcp__tracker__create_issue` or `mcp__tracker`,
