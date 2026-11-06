@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/config"
@@ -102,6 +104,65 @@ func TestRememberRefusedForWorkers(t *testing.T) {
 	cmd.SetErr(&bytes.Buffer{})
 	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "workers cannot") {
 		t.Fatal(err)
+	}
+}
+
+// Concurrent remember runs keep every rule, and a reader of learned.yaml never
+// sees a half-written file: the whole read, change and write holds a lock, and
+// the file is replaced through a rename.
+func TestRememberConcurrentRunsKeepEveryRule(t *testing.T) {
+	root := t.TempDir()
+	learned := filepath.Join(root, ".duolog", config.LearnedFile)
+	const writers = 24
+	done := make(chan struct{})
+	readErr := make(chan error, 1)
+	go func() {
+		defer close(readErr)
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			if _, err := config.LearnedRules(root); err != nil {
+				readErr <- err
+				return
+			}
+		}
+	}()
+	var wg sync.WaitGroup
+	errs := make(chan error, writers)
+	for i := range writers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rule := config.Rule{Action: "exec", Match: fmt.Sprintf("tool-%02d check %s *", i, strings.Repeat("x", 200)), Decision: "allow", Roles: []string{"implement"}}
+			if _, err := addLearnedRule(learned, rule); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(done)
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+	if err := <-readErr; err != nil {
+		t.Errorf("a reader saw a partial learned.yaml: %v", err)
+	}
+	rules, err := config.LearnedRules(root)
+	if err != nil || len(rules) != writers {
+		t.Fatalf("learned rules: %d of %d, %v", len(rules), writers, err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(learned))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "."+config.LearnedFile) {
+			t.Errorf("temporary file left behind: %s", e.Name())
+		}
 	}
 }
 
