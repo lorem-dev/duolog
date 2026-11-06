@@ -2,11 +2,48 @@ package delegate
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/task"
 )
+
+// capPlan is what the capability check asks of a run: the MCP servers to
+// bridge, the needs the worker lacks, the notes for the task copy, whether to
+// try the other agent, and the first resolution that refuses the task.
+type capPlan struct {
+	Bridge, Lacking, Notes []string
+	Reroute                bool
+	Refuse                 *capability.Resolution
+}
+
+// capabilityPlan sorts the resolutions of a task's needs by their action. Only
+// the first refusal is kept: a refusal ends the run.
+func capabilityPlan(res []capability.Resolution) capPlan {
+	var p capPlan
+	for _, r := range res {
+		switch r.Action {
+		case capability.ActionBridge:
+			p.Bridge = append(p.Bridge, strings.TrimPrefix(r.Need, capability.KindMCP+":"))
+		case capability.ActionRefuse:
+			if p.Refuse == nil {
+				p.Refuse = &r
+			}
+		case capability.ActionLeadFirst:
+			p.Lacking = append(p.Lacking, r.Need)
+			p.Notes = append(p.Notes, r.Hint)
+		case capability.ActionReroute:
+			p.Reroute = true
+			p.Notes = append(p.Notes, r.Hint)
+		default:
+			if r.Hint != "" {
+				p.Notes = append(p.Notes, r.Hint)
+			}
+		}
+	}
+	return p
+}
 
 // annotate puts lines at the start of the Limits section.
 func annotate(text, lines string) string {
