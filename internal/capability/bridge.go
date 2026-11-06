@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -236,11 +237,9 @@ func allowed(s Server, tools map[string][]string) []string {
 	return s.EnabledTools
 }
 
-var claudeNameChars = regexp.MustCompile(`[^A-Za-z0-9_-]`)
-
 // claudeTool is the name Claude gives an MCP tool in permission rules.
 func claudeTool(server, tool string) string {
-	return "mcp__" + claudeNameChars.ReplaceAllString(server, "_") + "__" + claudeNameChars.ReplaceAllString(tool, "_")
+	return "mcp__" + caps.ClaudeName(server) + "__" + caps.ClaudeName(tool)
 }
 
 type builder struct {

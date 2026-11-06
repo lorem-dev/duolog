@@ -3,9 +3,9 @@ package gate
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/pathutil"
 )
 
@@ -222,7 +222,7 @@ func NormalizeAll(agent string, input []byte) ([]Action, error) {
 	return actions, nil
 }
 
-var claudeNameChars = regexp.MustCompile(`[^A-Za-z0-9_-]`)
+var claudeNameChars = caps.ClaudeNameChars
 
 // MCPTarget turns mcp__<server>__<tool> into <server>/<tool>. The server is
 // what comes before the first __ after the prefix.

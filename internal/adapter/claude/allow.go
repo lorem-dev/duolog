@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
+
+	"github.com/lorem-dev/duolog/internal/core/caps"
 )
 
 // NativeAllow writes Claude's "don't ask again" rules into the project's
@@ -32,13 +33,13 @@ func (NativeAllow) Allow(root, match string) (string, error) {
 // mcp__<server>__<tool>; a rule of mcp__<server> covers every tool of the
 // server. Other globs have no Claude form.
 func (NativeAllow) AllowMCP(root, server, tool string) (string, error) {
-	entry := "mcp__" + claudeName(server)
+	entry := "mcp__" + caps.ClaudeName(server)
 	switch {
 	case strings.ContainsAny(server, "*?[{"):
 		entry = ""
 	case tool == "*":
 	case !strings.ContainsAny(tool, "*?[{"):
-		entry += "__" + claudeName(tool)
+		entry += "__" + caps.ClaudeName(tool)
 	default:
 		entry = ""
 	}
@@ -47,10 +48,6 @@ func (NativeAllow) AllowMCP(root, server, tool string) (string, error) {
 	}
 	return addEntry(settingsPath(root), entry)
 }
-
-var claudeNameChars = regexp.MustCompile(`[^A-Za-z0-9_-]`)
-
-func claudeName(s string) string { return claudeNameChars.ReplaceAllString(s, "_") }
 
 // addEntry adds entry to permissions.allow, keeping every other setting.
 func addEntry(path, entry string) (string, error) {
