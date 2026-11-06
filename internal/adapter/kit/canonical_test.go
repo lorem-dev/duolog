@@ -1,4 +1,4 @@
-package pathutil
+package kit
 
 import (
 	"os"
@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/lorem-dev/duolog/internal/core/pathutil"
 )
 
 // The macOS data volume's firmlinks: /System/Volumes/Data/Users is /Users.
@@ -28,7 +30,7 @@ func TestCanonicalMapsFirmlinks(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		return
 	}
-	home := Resolved(t.TempDir())
+	home := pathutil.Resolved(t.TempDir())
 	if err := os.Mkdir(filepath.Join(home, ".ssh"), 0o700); err != nil {
 		t.Fatal(err)
 	}

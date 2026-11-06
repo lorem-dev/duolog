@@ -11,9 +11,9 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/lorem-dev/duolog/internal/adapter/kit"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/trusthome"
 )
 
@@ -389,21 +389,21 @@ func RefuseRootEnv(root string, environ []string) string {
 	return refuseRoot(filepath.Clean(root), filepath.Clean(home), getenv)
 }
 
-// refuseRoot compares canonical paths (pathutil.Canonical): symlinks in the
+// refuseRoot compares canonical paths (kit.Canonical): symlinks in the
 // existing prefix resolved, case folded where the volume ignores it.
 func refuseRoot(root, home string, getenv func(string) string) string {
-	canonical := pathutil.Canonical(root)
+	canonical := kit.Canonical(root)
 	if canonical == filepath.VolumeName(canonical)+string(filepath.Separator) {
 		return "a volume root is too wide"
 	}
-	if pathutil.Within(canonical, pathutil.Canonical(home)) {
+	if kit.Within(canonical, kit.Canonical(home)) {
 		return "the home folder and its ancestors are too wide"
 	}
 	if info, err := os.Stat(root); err == nil && !info.IsDir() {
 		return "a writable root must be a folder, not a file"
 	}
 	for _, p := range protectedFolders(runtime.GOOS, home, getenv) {
-		if pathutil.Overlap(p, root) {
+		if kit.Overlap(p, root) {
 			return "protected: it holds credentials or duolog's own settings"
 		}
 	}

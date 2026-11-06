@@ -10,9 +10,9 @@ import (
 	"strings"
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/adapter/kit"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/trust"
@@ -201,7 +201,7 @@ func calibrationGate(agent, root string, env []string) error {
 
 // protectedRoot names the first writable root that config refuses now, at
 // launch, or that equals, lies inside or holds a protected folder; empty when
-// none does. Paths compare canonically (pathutil.Canonical). env is the
+// none does. Paths compare canonically (kit.Canonical). env is the
 // worker's environment, whose agent folders are protected too.
 func protectedRoot(roots, protected, env []string) string {
 	for _, root := range roots {
@@ -209,7 +209,7 @@ func protectedRoot(roots, protected, env []string) string {
 			return "writable root " + root + ": " + reason
 		}
 		for _, p := range protected {
-			if p != "" && pathutil.Overlap(p, root) {
+			if p != "" && kit.Overlap(p, root) {
 				return "writable root " + root + " overlaps protected " + p
 			}
 		}
