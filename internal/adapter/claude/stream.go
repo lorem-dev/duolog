@@ -1,4 +1,4 @@
-package runner
+package claude
 
 import (
 	"bufio"
@@ -7,12 +7,19 @@ import (
 	"errors"
 	"io"
 	"math"
-	"os"
 	"strconv"
 	"strings"
 
+	"github.com/lorem-dev/duolog/internal/adapter/kit"
+	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/quota"
+	"github.com/lorem-dev/duolog/internal/core/run"
+)
+
+// The launch types of core/run.
+type (
+	runSpec  = run.Spec
+	runUsage = run.Usage
 )
 
 // claudeArgv is the process prefix, which carries the worker's one --settings
@@ -21,7 +28,7 @@ import (
 // variant), then the admitted launch words, -p and the permission flags,
 // then the run's own flags. --setting-sources would do more, but it also
 // drops the user settings that enable the duolog plugin and its gate.
-func claudeArgv(s Spec) []string {
+func claudeArgv(s runSpec) []string {
 	args := s.Process.LaunchArgv("--model", s.Route.Model)
 	if s.Route.Effort != "" {
 		args = append(args, "--effort", s.Route.Effort)
@@ -72,7 +79,7 @@ func claudeArgv(s Spec) []string {
 	} else {
 		args = append(args, "--resume", s.ThreadID)
 	}
-	return append(args, "--", taskInstruction)
+	return append(args, "--", kit.TaskInstruction)
 }
 
 // claudeOutput is Claude's final result: the result event of stream-json, or
@@ -103,8 +110,8 @@ type claudeUsage struct {
 // tokens makes Input the total input for both vendors, with Cached and Write
 // the included read and write subsets. Writes without a split count as
 // five-minute writes.
-func (u claudeUsage) tokens() Usage {
-	t := Usage{Input: u.Input + u.Creation + u.Cached, Cached: u.Cached, Write: u.Creation, Output: u.Output}
+func (u claudeUsage) tokens() runUsage {
+	t := runUsage{Input: u.Input + u.Creation + u.Cached, Cached: u.Cached, Write: u.Creation, Output: u.Output}
 	if u.Split != nil {
 		t.WriteHour = min(max(u.Split.Hour, 0), max(u.Creation, 0))
 	}
@@ -116,11 +123,11 @@ type claudeStream struct {
 	// result is the last result event; legacy the first untyped object that
 	// looks like a final result, from the json output format.
 	result, legacy *claudeOutput
-	evidence       quota.RunEvidence
+	evidence       account.RunEvidence
 	// messages holds the latest usage of each assistant message: stream-json
 	// repeats a message's usage for each of its content blocks.
-	messages map[string]Usage
-	unnamed  Usage
+	messages map[string]runUsage
+	unnamed  runUsage
 	// known means an assistant message reported its usage, so the messages'
 	// sum is a count even when it is zero.
 	known bool
@@ -168,7 +175,7 @@ func (s *claudeStream) add(object []byte) {
 			return
 		}
 		if s.messages == nil {
-			s.messages = map[string]Usage{}
+			s.messages = map[string]runUsage{}
 		}
 		s.messages[message.ID] = message.Usage.tokens()
 	}
@@ -176,7 +183,7 @@ func (s *claudeStream) add(object []byte) {
 
 // usage is what the assistant messages so far used, cache writes included,
 // for a run that ended before its result.
-func (s *claudeStream) usage() Usage {
+func (s *claudeStream) usage() runUsage {
 	total := s.unnamed
 	for _, u := range s.messages {
 		total.Add(u)
@@ -184,20 +191,17 @@ func (s *claudeStream) usage() Usage {
 	return total
 }
 
-// readClaudeStream folds Claude's stdout capture at path into result: the
+// readClaudeStream folds Claude's stdout capture into result: the
 // session, usage, reported cost and billing evidence, whatever the run's exit,
 // so a failed or cancelled run keeps what it measured. It returns the
-// structured answer, ErrTurnCap with TurnsEnded for a run stopped at
+// structured answer, run.ErrTurnCap with TurnsEnded for a run stopped at
 // --max-turns, or an error when the capture holds no answer.
-func readClaudeStream(path string, result *Result) (json.RawMessage, error) {
+func readClaudeStream(stdout []byte, result *run.Result) (json.RawMessage, error) {
 	// A stream-json run reports its rate limits. Seen stays false when it sent
 	// none, and the run counts as charged.
 	result.Billing.Expected = true
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
+	file := bytes.NewReader(stdout)
+	var err error
 	// Only stdout is decoded; stderr is retained separately in stdout.log.
 	// Try each object-starting line independently so malformed diagnostics do
 	// not hide the rest, while multiline JSON remains decodable.
@@ -252,7 +256,7 @@ func readClaudeStream(path string, result *Result) (json.RawMessage, error) {
 	result.ReportedUSD = reportedUSD(output.Cost)
 	if output.Subtype == "error_max_turns" {
 		result.TurnsEnded = true
-		return nil, ErrTurnCap
+		return nil, run.ErrTurnCap
 	}
 	if len(output.Structured) == 0 || bytes.Equal(output.Structured, []byte("null")) {
 		return nil, io.ErrUnexpectedEOF

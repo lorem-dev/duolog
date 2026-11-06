@@ -43,7 +43,6 @@ var legacyTiers = map[string]legacyTier{
 
 	"internal/config":     {tier: tierKit},
 	"internal/models":     {tier: tierKit},
-	"internal/runner":     {tier: tierKit},
 	"internal/rex":        {tier: tierKit},
 	"internal/bus":        {tier: tierKit},
 	"internal/journal":    {tier: tierKit},
@@ -77,7 +76,6 @@ var knownViolations = map[string]string{
 	"internal/app/sync -> internal/adapter/models":              "PR 33",
 	"internal/app/calibrate (test) -> internal/adapter/config":  "after PR 10: its tests load the config files",
 	"internal/app/calibrate (test) -> internal/quota":           "PR 29",
-	"internal/app/calibrate (test) -> internal/runner":          "PR 29",
 	"internal/app/calibrate (test) -> internal/adapter/session": "PR 29",
 	"internal/app/calibrate (test) -> internal/wiring":          "PR 29: the cell tests run real delegations on wiring.DelegateDeps",
 	"internal/app/calibrate -> github.com/pelletier/go-toml/v2": "PR 45",
@@ -90,11 +88,9 @@ var knownViolations = map[string]string{
 	"internal/app/delegate -> internal/adapter/config":          "after PR 10: RefuseRootEnv checks writable roots at launch",
 	"internal/app/delegate (test) -> internal/adapter/models":   "PR 33",
 	"internal/app/delegate (test) -> internal/quota":            "PR 39",
-	"internal/app/delegate -> internal/runner":                  "PR 32",
 	"internal/app/delegate -> internal/trust":                   "PR 36",
 	"internal/app/delegate -> internal/trusthome":               "PR 36",
 	"internal/app/delegate -> internal/workerenv":               "PR 35",
-	"internal/app/delegate -> os/exec":                          "PR 32",
 	"internal/app/doctor (test) -> internal/adapter/config":     "after PR 10: its tests load the config files",
 	"internal/app/doctor (test) -> internal/quota":              "PR 39",
 	"internal/app/doctor -> internal/capability":                "PR 40",
@@ -131,10 +127,8 @@ var knownViolations = map[string]string{
 	"internal/app/peer -> internal/capability":                  "PR 40",
 	"internal/app/peer -> internal/adapter/config":              "after PR 10: a peer loads the config files",
 	"internal/app/peer -> internal/rex":                         "the Pane port, moved out of PR 29 to a later task",
-	"internal/app/peer -> internal/runner":                      "PR 41",
 	"internal/app/peer -> internal/workerenv":                   "PR 35",
 	"internal/app/profile (test) -> internal/adapter/config":    "after PR 10: its tests load the config files",
-	"internal/app/profile (test) -> internal/runner":            "PR 29",
 	"internal/app/roster -> internal/capability":                "PR 40",
 	"internal/app/roster -> internal/adapter/config":            "after PR 10: roster loads the config files",
 	"internal/core/route (test) -> internal/adapter/config":     "after PR 10: its tests load the default config",
@@ -142,7 +136,7 @@ var knownViolations = map[string]string{
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 67
+const maxKnownViolations = 62
 
 // Reasons of the allowed edges, one per target.
 const (
@@ -255,7 +249,7 @@ func TestLayers(t *testing.T) {
 			{"internal/cores/route", "fmt", false, "unknown-tier"},
 			{"internal/app/delegate", m + "internal/newthing", false, "unknown-tier"},
 			{"internal/app/hook", m + "internal/telemetry", false, ""},
-			{"internal/app/delegate", m + "internal/runner", false, "app-imports-adapter"},
+			{"internal/app/delegate", m + "internal/rex", false, "app-imports-adapter"},
 			{"internal/router", m + "internal/models", false, "core-imports-outer"},
 		}
 		for _, c := range cases {
@@ -398,6 +392,8 @@ func tierOf(rel string) (t tier, app string, ok bool) {
 			return 0, "", false
 		}
 		return tierApp, parts[2], true
+	case under(rel, "internal/adapter/workertest"):
+		return tierTest, "", true
 	case under(rel, "internal/adapter/claude"), under(rel, "internal/adapter/codex"):
 		return tierAgent, "", true
 	case strings.HasPrefix(rel, "internal/adapter/"):

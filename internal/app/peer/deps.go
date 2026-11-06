@@ -36,6 +36,9 @@ type Deps struct {
 	Pauses Pauses
 	// ResolveModel gives the concrete model of a route's target.
 	ResolveModel func(ctx context.Context, cfg *config.Config, cacheDir string, t config.Target) (string, error)
+	// ResetTime parses the time a provider limit on a pane's screen says the
+	// quota returns, by the pane's agent; without one it gives a fallback.
+	ResetTime func(agent, text string, now time.Time) time.Time
 	// Notify shows the person a notification; it must not block or fail a wait.
 	Notify func(title, message string)
 	// RecordPeer records a new pane's entry; tests replace it to fail.

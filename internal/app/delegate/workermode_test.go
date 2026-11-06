@@ -18,7 +18,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/gate"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -798,7 +797,7 @@ func TestAdmittedArgvIsLaunchedArgv(t *testing.T) {
 		if !slices.Equal(c.Process.Launch, want) {
 			t.Errorf("paid %t: admitted launch %v, want %v", paid, c.Process.Launch, want)
 		}
-		argv, admitted := runner.Argv(c), c.Process.LaunchArgv()
+		argv, admitted := argvOf(c), c.Process.LaunchArgv()
 		if len(argv) < len(admitted) || !slices.Equal(argv[:len(admitted)], admitted) || slices.Index(argv[len(admitted):], "-s") >= 0 {
 			t.Errorf("paid %t: launched %v, admitted %v", paid, argv, admitted)
 		}
@@ -815,7 +814,7 @@ func TestAdmittedArgvIsLaunchedArgv(t *testing.T) {
 	if want := []string{"-p", "--permission-mode", "bypassPermissions"}; !slices.Equal(c.Process.Launch, want) {
 		t.Errorf("claude: admitted launch %v", c.Process.Launch)
 	}
-	if argv, admitted := runner.Argv(c), c.Process.LaunchArgv(); !slices.Equal(argv[:len(admitted)], admitted) || slices.Contains(argv[len(admitted):], "--permission-mode") {
+	if argv, admitted := argvOf(c), c.Process.LaunchArgv(); !slices.Equal(argv[:len(admitted)], admitted) || slices.Contains(argv[len(admitted):], "--permission-mode") {
 		t.Errorf("claude: launched %v, admitted %v", argv, admitted)
 	}
 }

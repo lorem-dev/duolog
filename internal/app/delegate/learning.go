@@ -15,11 +15,11 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/learn"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/usage"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/project"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -48,7 +48,7 @@ type learnRun struct {
 	started   time.Time
 	before    string
 	decisions int64
-	usage     runner.Usage
+	usage     run.Usage
 	quota     bool
 }
 
@@ -290,7 +290,7 @@ func (lr *learnRun) resolved(route coreroute.Route) {
 			lr.cur.entry = entry.Key()
 		}
 	}
-	lr.ran, lr.usage, lr.quota, lr.before = false, runner.Usage{}, false, ""
+	lr.ran, lr.usage, lr.quota, lr.before = false, run.Usage{}, false, ""
 }
 
 // start takes what finish compares against and marks the worker as run.
@@ -311,7 +311,7 @@ func (lr *learnRun) start(root string) error {
 }
 
 // add counts one runWorker call; a login retry runs the worker twice.
-func (lr *learnRun) add(r runner.Result) {
+func (lr *learnRun) add(r run.Result) {
 	if lr == nil {
 		return
 	}

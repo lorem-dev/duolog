@@ -1,4 +1,4 @@
-package runner
+package wiring
 
 import (
 	"context"
@@ -826,7 +826,8 @@ func TestAnswerKeepsDecisions(t *testing.T) {
 	if r, err = codexAnswer([]byte(goodAnswer), path, Result{}); err != nil || r.Decisions != nil || string(read(t, path)) != goodAnswer {
 		t.Fatal(r, err)
 	}
-	if !strings.Contains(answerSchema, `"decisions"`) || !strings.Contains(codexAnswerInstruction, "decisions") {
+	// Claude's schema carries decisions too: TestAnswerSchemaKeepsDecisions.
+	if !strings.Contains(codexAnswerInstruction, "decisions") {
 		t.Fatal("the answer format misses decisions")
 	}
 }

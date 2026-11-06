@@ -23,11 +23,11 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/rex"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -204,7 +204,7 @@ func (e *env) attempt(entry session.Entry, outcome, code string) {
 		return
 	}
 	a := delegate.Attempt{Number: 1, Role: entry.Role, Agent: entry.Agent, Run: entry.Run, Placement: "peer", Outcome: outcome, ErrorCode: code, Reason: "none"}
-	if code == runner.CodeQuota {
+	if code == run.CodeQuota {
 		a.Reason = "quota"
 	}
 	if lead, err := e.lead(time.Now()); err == nil {
@@ -384,7 +384,7 @@ func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Ent
 					if err != nil {
 						return Entry{ID: entry.ID, State: Ready}, err
 					}
-					e.attempt(entry, "done", runner.CodeNone)
+					e.attempt(entry, "done", run.CodeNone)
 					if note != "" {
 						note = "; " + note
 					}
@@ -462,7 +462,7 @@ func (e *env) markEnded(entry session.Entry, state State) (string, error) {
 		return line, errors.Join(err, serr)
 	}
 	// The pane ended under the task: that run failed, and only this first time.
-	e.attempt(entry, "failed", runner.CodeExit)
+	e.attempt(entry, "failed", run.CodeExit)
 	msg := bus.Message{From: entry.Agent + "/" + entry.Role, To: e.address(entry.Lead), K: "status", Ref: entry.ID, S: corescreen.Cut(line, e.cfg.Wire.MaxSummaryBytes)}
 	if _, serr := e.bus.Send(msg); serr != nil {
 		return line, errors.Join(err, serr)
@@ -532,7 +532,7 @@ func (e *env) runHere(entry session.Entry, taskPath, screenText string) (string,
 	}
 	if !unavailable[entry.Agent] {
 		// A zero time ends with the lead when the screen names no reset.
-		if err := e.reg.MarkUnavailable(entry.Agent, runner.ResetTime(screenText, time.Now())); err != nil {
+		if err := e.reg.MarkUnavailable(entry.Agent, e.opts.Deps.ResetTime(entry.Agent, screenText, time.Now())); err != nil {
 			return "", err
 		}
 		unavailable[entry.Agent] = true

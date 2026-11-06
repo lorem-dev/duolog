@@ -89,7 +89,7 @@ linters:
       # .duolog/, the config and the files duolog writes into a project are meant
       # to be read by the person and by Git (0755 and 0644). Telemetry and the
       # calibration trees are not in this list, so their modes stay checked.
-      - path: ^(cmd|scripts)/|^internal/(adapter/models|app/delegate|app/learn|app/peer|app/sync|adapter/session|artifact|auth|bus|capability|install|journal|learning|models|runner|store|testbin)/
+      - path: ^(cmd|scripts)/|^internal/(adapter/models|app/delegate|app/learn|app/peer|app/sync|adapter/session|artifact|auth|bus|capability|install|journal|learning|models|store|testbin)/|^internal/adapter/kit/process/
         text: G30[126]
         linters: [gosec]
       # PowerShell accepts any prefix of -recurse; the arguments are in that order on purpose.
@@ -250,7 +250,7 @@ linters:
       - {path: '^internal/app/delegate/learning\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .beginLearning. has too many statements \(59 > |complexity 51 of func .(?:\(\*?\w+\)\.)?beginLearning. is|function (?:\(\*?\w+\)\.)?beginLearning is 35,'} # beginLearning: cyclomatic 35, statements 59, cognitive 51
       - {path: '^internal/app/delegate/learning\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?finish is 18,'} # finish: cyclomatic 18
       - {path: '^internal/app/delegate/learning\.go$', linters: [nestif], text: '.if\ opts\.ReplayOf\ !=\ "". has complex nested blocks \(complexity: 11\)'} # if if opts.ReplayOf != "": nesting 11
-      - {path: '^internal/app/delegate/run\.go$', linters: [revive], text: 'file length is 1017 lines'} # internal/app/delegate/run.go: code lines 1017
+      - {path: '^internal/app/delegate/run\.go$', linters: [revive], text: 'file length is 1016 lines'} # internal/app/delegate/run.go: code lines 1016
       - {path: '^internal/app/delegate/run\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Run. has too many statements \(297 > |complexity 493 of func .(?:\(\*?\w+\)\.)?Run. is|function (?:\(\*?\w+\)\.)?Run is 190,'} # Run: cyclomatic 190, statements 297, cognitive 493
       - {path: '^internal/app/delegate/run\.go$', linters: [cyclop, gocognit], text: 'complexity 21 of func .(?:\(\*?\w+\)\.)?runProblems. is|function (?:\(\*?\w+\)\.)?runProblems is 18,'} # runProblems: cyclomatic 18, cognitive 21
       - {path: '^internal/app/delegate/run\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .settleAuth. has too many statements \(52 > |complexity 25 of func .(?:\(\*?\w+\)\.)?settleAuth. is|function (?:\(\*?\w+\)\.)?settleAuth is 20,'} # settleAuth: cyclomatic 20, statements 52, cognitive 25
@@ -351,12 +351,11 @@ linters:
       - {path: '^internal/quota/quota\.go$', linters: [funlen], text: 'Function .readCodex. has too many statements \(45 > '} # readCodex: statements 45
       - {path: '^internal/rex/session\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .NewSession. is too long \(62 > |complexity 26 of func .(?:\(\*?\w+\)\.)?NewSession. is|function (?:\(\*?\w+\)\.)?NewSession is 19,'} # NewSession: cyclomatic 19, lines 62, cognitive 26
       - {path: '^internal/rex/session\.go$', linters: [nestif], text: '.if\ block\ ==\ "". has complex nested blocks \(complexity: 9\)'} # if if block == "": nesting 9
-      - {path: '^internal/runner/claude\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?add is 18,'} # add: cyclomatic 18
-      - {path: '^internal/runner/claude\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .readClaudeStream. has too many statements \(47 > |complexity 28 of func .(?:\(\*?\w+\)\.)?readClaudeStream. is|function (?:\(\*?\w+\)\.)?readClaudeStream is 16,'} # readClaudeStream: cyclomatic 16, statements 47, cognitive 28
-      - {path: '^internal/runner/claude\.go$', linters: [nestif], text: '.if\ bytes\.HasPrefix\(bytes\.TrimSpace\(line\),\ \[\]byte\("\{"\)\). has complex nested blocks \(complexity: 6\)'} # if if bytes.HasPrefix(bytes.TrimSpace(line), []byte("{")): nesting 6
-      - {path: '^internal/runner/runner\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Run. has too many statements \(139 > |complexity 62 of func .(?:\(\*?\w+\)\.)?Run. is|function (?:\(\*?\w+\)\.)?Run is 58,'} # Run: cyclomatic 58, statements 139, cognitive 62
-      - {path: '^internal/runner/runner\.go$', linters: [cyclop, gocognit], text: 'complexity 28 of func .(?:\(\*?\w+\)\.)?readLog. is|function (?:\(\*?\w+\)\.)?readLog is 21,'} # readLog: cyclomatic 21, cognitive 28
-      - {path: '^internal/runner/runner\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?resetTime is 17,'} # resetTime: cyclomatic 17
+      - {path: '^internal/adapter/claude/stream\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?add is 18,'} # add: cyclomatic 18
+      - {path: '^internal/adapter/claude/stream\.go$', linters: [funlen, gocognit], text: 'Function .readClaudeStream. has too many statements \(45 > |complexity 27 of func .(?:\(\*?\w+\)\.)?readClaudeStream. is'} # readClaudeStream: statements 45, cognitive 27
+      - {path: '^internal/adapter/claude/stream\.go$', linters: [nestif], text: '.if\ bytes\.HasPrefix\(bytes\.TrimSpace\(line\),\ \[\]byte\("\{"\)\). has complex nested blocks \(complexity: 6\)'} # if if bytes.HasPrefix(bytes.TrimSpace(line), []byte("{")): nesting 6
+      - {path: '^internal/adapter/kit/process/run\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Run. has too many statements \(120 > |complexity 52 of func .(?:\(\*?\w+\)\.)?Run. is|function (?:\(\*?\w+\)\.)?Run is 46,'} # Run: cyclomatic 46, statements 120, cognitive 52
+      - {path: '^internal/adapter/claude/worker\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?resetTime is 17,'} # resetTime: cyclomatic 17
       - {path: '^internal/adapter/session/resolve\.go$', linters: [nestif], text: '.if\ id\ !=\ "". has complex nested blocks \(complexity: 7\)'} # if if id != "": nesting 7
       - {path: '^internal/adapter/session/session\.go$', linters: [cyclop, gocognit], text: 'complexity 35 of func .(?:\(\*?\w+\)\.)?RecordLimited. is|function (?:\(\*?\w+\)\.)?RecordLimited is 17,'} # RecordLimited: cyclomatic 17, cognitive 35
       - {path: '^internal/adapter/session/session\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?access is 17,'} # access: cyclomatic 17

@@ -16,10 +16,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/project"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -119,7 +119,7 @@ func newFixture(t *testing.T) *fixture {
 	f := &fixture{root: root, cfg: cfg, s: s, j: j, rec: r,
 		deps: Deps{Rand: func() bool { return true }, RunCheck: execCheck}}
 	f.fake(t, func(context.Context, *config.Config, *store.Store, string, string, string) (delegate.Outcome, error) {
-		return delegate.Outcome{Result: runner.Result{Done: true, Summary: "profile answer"}}, nil
+		return delegate.Outcome{Result: run.Result{Done: true, Summary: "profile answer"}}, nil
 	})
 	return f
 }
@@ -197,7 +197,7 @@ func TestReplayProfilePatchHoldsOnlyReplayChanges(t *testing.T) {
 	f := newFixture(t)
 	f.fake(t, func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
 		writeTest(t, filepath.Join(optionsFrom(ctx).WorkRoot, "y.txt"), []byte("replayed\n"))
-		return delegate.Outcome{Result: runner.Result{Done: true, Summary: "made y"}}, nil
+		return delegate.Outcome{Result: run.Result{Done: true, Summary: "made y"}}, nil
 	})
 	r := f.run(t, Options{})
 	if !bytes.Contains(r.Profile.Patch, []byte("y.txt")) || bytes.Contains(r.Profile.Patch, []byte("x.txt")) || r.Profile.Summary != "made y" || r.Original.Summary != "original answer" {
@@ -296,7 +296,7 @@ func TestChecksSeeReconstructedOriginalAndReplay(t *testing.T) {
 	f.cfg.Learning.Classes[f.rec.Class] = c
 	f.fake(t, func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
 		writeTest(t, filepath.Join(optionsFrom(ctx).WorkRoot, "y.txt"), []byte("profile only\n"))
-		return delegate.Outcome{Result: runner.Result{Summary: "replay"}}, nil
+		return delegate.Outcome{Result: run.Result{Summary: "replay"}}, nil
 	})
 	r := f.run(t, Options{})
 	if r.Profile.Checks[0].Exit != 0 || r.Original.Checks[0].Exit != 1 {
@@ -341,7 +341,7 @@ func TestProfileUsesDelegate(t *testing.T) {
 	var first []byte
 	f.fake(t, func(_ context.Context, _ *config.Config, _ *store.Store, _, path, _ string) (delegate.Outcome, error) {
 		first = readTest(t, filepath.Join(filepath.Dir(path), "a.patch"))
-		return delegate.Outcome{Result: runner.Result{Done: true, Summary: judgeSummary}}, nil
+		return delegate.Outcome{Result: run.Result{Done: true, Summary: judgeSummary}}, nil
 	})
 	if _, err := Judge(context.Background(), f.deps, f.cfg, f.s, r, delegate.Options{}); err != nil {
 		t.Fatal(err)
@@ -405,7 +405,7 @@ func TestChainReplaysFollowingSteps(t *testing.T) {
 		if err := f.j.Append("delegations.ndjson", r); err != nil {
 			t.Fatal(err)
 		}
-		return delegate.Outcome{Result: runner.Result{Summary: o.ReplayOf}}, nil
+		return delegate.Outcome{Result: run.Result{Summary: o.ReplayOf}}, nil
 	})
 	r := f.run(t, Options{Chain: true})
 	if !reflect.DeepEqual(calls, []string{"d1", "d2"}) || !reflect.DeepEqual(r.Delegations, calls) || r.Original.USD != 0.5 || r.Profile.USD != 0.2 || !strings.Contains(r.Profile.Summary, "d2") || !strings.Contains(r.Original.Summary, "second answer") {

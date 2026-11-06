@@ -20,8 +20,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/kit"
 	"github.com/lorem-dev/duolog/internal/capability"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -371,7 +371,7 @@ func (c *checker) Login(ctx context.Context, p Problem, timeout time.Duration) L
 	defer cancel()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	// A login may start a helper, such as a browser bridge; a timeout ends it too.
-	runner.ProcessTree(cmd)
+	kit.ProcessTree(cmd)
 	cmd.Stdin = strings.NewReader("")
 	// The output may hold a sign-in url; it is read for the terminal check only.
 	var out bytes.Buffer

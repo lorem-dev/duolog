@@ -6,12 +6,12 @@ package delegatetest
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/workertest"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	leadio "github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/lead/leadtest"
@@ -20,26 +20,26 @@ import (
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/runner"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // Fake holds the fakes of one test and what they were called with.
 type Fake struct {
 	mu sync.Mutex
-	// Calls are the specs RunWorker received, in order.
-	Calls []runner.Spec
+	// Calls are the specs the fake workers received, in order.
+	Calls []run.Spec
 	// Gate admits the runs, with fake quota reads in its own account state.
 	Gate *paidruns.Gate
-	// Result is what RunWorker returns for every run.
-	Result runner.Result
+	// Result is what the fake workers return for every run.
+	Result run.Result
 }
 
 // New returns the fakes for t. Its gate keeps its account state under the
 // test's temporary folder.
 func New(t *testing.T) *Fake {
 	t.Helper()
-	f := &Fake{Result: runner.Result{Done: true, Summary: "Completed.", Needs: []string{}, SessionID: "worker-id"}}
+	f := &Fake{Result: run.Result{Done: true, Summary: "Completed.", Needs: []string{}, SessionID: "worker-id"}}
 	var err error
 	if f.Gate, err = paidrunstest.Gate(filepath.Join(t.TempDir(), "accounts"), nil); err != nil {
 		t.Fatal(err)
@@ -56,16 +56,11 @@ func Deps(t *testing.T) delegate.Deps {
 // Deps returns the fakes as delegate.Deps.
 func (f *Fake) Deps() delegate.Deps {
 	return delegate.Deps{
-		RunWorker: func(_ context.Context, s runner.Spec) (runner.Result, error) {
-			f.mu.Lock()
-			f.Calls = append(f.Calls, s)
-			f.mu.Unlock()
-			if s.Started != nil {
-				if err := s.Started(os.Getpid()); err != nil {
-					return runner.Result{}, err
-				}
-			}
-			return f.Result, nil
+		// The fake workers start nothing but give the launch words of the real
+		// agents, so the process the gate admits is the one a real run builds.
+		Agents: map[string]delegate.Agent{
+			"claude": {Worker: &Worker{f: f, launch: workertest.For("claude").Launch}},
+			"codex":  {Worker: &Worker{f: f, launch: workertest.For("codex").Launch}},
 		},
 		ResolveModel: func(_ context.Context, _ *config.Config, _ string, t config.Target) (string, error) {
 			return t.Model, nil
@@ -74,7 +69,7 @@ func (f *Fake) Deps() delegate.Deps {
 		ScanCapabilities: func(_ context.Context, agent, _ string, _ []string) (capability.Inventory, error) {
 			return capability.Inventory{Agent: agent, Unknown: true}, nil
 		},
-		BridgeMCP: func(_, _, _ string, _ []string, _ map[string][]string, _ []string) (*runner.MCP, map[string]string) {
+		BridgeMCP: func(_, _, _ string, _ []string, _ map[string][]string, _ []string) (*run.MCP, map[string]string) {
 			return nil, nil
 		},
 		NewChecker: func(string, workerenv.Process) auth.Checker { return checker{} },

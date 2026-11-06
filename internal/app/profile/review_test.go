@@ -11,8 +11,8 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -47,7 +47,7 @@ func TestReviewReplayLabelsUseTheEffortThatRan(t *testing.T) {
 		if err := f.j.Append("delegations.ndjson", r); err != nil {
 			t.Fatal(err)
 		}
-		return delegate.Outcome{Result: runner.Result{Done: true}}, nil
+		return delegate.Outcome{Result: run.Result{Done: true}}, nil
 	})
 	r := f.run(t, Options{})
 	if r.Original.Entry != "codex/terra/medium" || r.Profile.Entry != "codex/sol/medium" {
@@ -192,7 +192,7 @@ func TestReviewChainReplaysLeadDeltaAndLastOriginalTree(t *testing.T) {
 			writeTest(t, filepath.Join(wt, "work.txt"), []byte("profile result\n"))
 			writeTest(t, filepath.Join(wt, "base.txt"), []byte("profile final base\n"))
 		}
-		return delegate.Outcome{Result: runner.Result{Done: true, Summary: "profile step"}}, nil
+		return delegate.Outcome{Result: run.Result{Done: true, Summary: "profile step"}}, nil
 	})
 	r := f.run(t, Options{Chain: true})
 	want, err := journal.Diff(f.root, f.rec.BeforeTree, second.AfterTree)

@@ -13,8 +13,8 @@ import (
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -99,7 +99,7 @@ func TestAttemptSettlementOnCancelRetryAndFallback(t *testing.T) {
 
 	t.Run("cancelled", func(t *testing.T) {
 		h := newHarness(t)
-		h.results = []runner.Result{{Interrupted: true, Usage: runner.Usage{Input: 50, Output: 5}}}
+		h.results = []run.Result{{Interrupted: true, Usage: run.Usage{Input: 50, Output: 5}}}
 		h.errs = []error{context.Canceled}
 		if _, err := h.run("implement"); err == nil {
 			t.Fatal("a cancelled run succeeded")
@@ -113,7 +113,7 @@ func TestAttemptSettlementOnCancelRetryAndFallback(t *testing.T) {
 	t.Run("login retry keeps the first run's measurements", func(t *testing.T) {
 		h := newHarness(t)
 		reported := 0.25
-		h.results = []runner.Result{{AuthFailed: true, Usage: runner.Usage{Input: 100, Cached: 40, Output: 10}, UsageKnown: true,
+		h.results = []run.Result{{AuthFailed: true, Usage: run.Usage{Input: 100, Cached: 40, Output: 10}, UsageKnown: true,
 			UsageComplete: true, ReportedUSD: &reported, Billing: quota.RunEvidence{Expected: true, Seen: true, UsingOverage: true}}}
 		h.auth.login = auth.LoggedIn
 		o, err := h.run("implement")
@@ -133,7 +133,7 @@ func TestAttemptSettlementOnCancelRetryAndFallback(t *testing.T) {
 
 	t.Run("quota fallback", func(t *testing.T) {
 		h := newHarness(t)
-		h.results = []runner.Result{{QuotaEnded: true, Usage: runner.Usage{Input: 30, Output: 3}, UsageKnown: true}}
+		h.results = []run.Result{{QuotaEnded: true, Usage: run.Usage{Input: 30, Output: 3}, UsageKnown: true}}
 		if _, err := h.run("implement"); err != nil {
 			t.Fatal(err)
 		}
@@ -145,14 +145,14 @@ func TestAttemptSettlementOnCancelRetryAndFallback(t *testing.T) {
 
 	t.Run("failed answer and turn cap", func(t *testing.T) {
 		for _, c := range []struct {
-			result runner.Result
+			result run.Result
 			err    error
 		}{
-			{runner.Result{Usage: runner.Usage{Input: 70, Output: 7}, UsageKnown: true}, errors.New("invalid answer.json")},
-			{runner.Result{TurnsEnded: true, Usage: runner.Usage{Input: 80, Output: 8}, UsageKnown: true}, runner.ErrTurnCap},
+			{run.Result{Usage: run.Usage{Input: 70, Output: 7}, UsageKnown: true}, errors.New("invalid answer.json")},
+			{run.Result{TurnsEnded: true, Usage: run.Usage{Input: 80, Output: 8}, UsageKnown: true}, run.ErrTurnCap},
 		} {
 			h := newHarness(t)
-			h.results, h.errs = []runner.Result{c.result}, []error{c.err}
+			h.results, h.errs = []run.Result{c.result}, []error{c.err}
 			if _, err := h.run("implement"); err == nil {
 				t.Fatal("a failed run succeeded")
 			}
@@ -227,7 +227,7 @@ func TestAttemptSettlementOnCancelRetryAndFallback(t *testing.T) {
 			for _, r := range h.accounts().Reservations {
 				h.cfg.PaidRuns.Codex.DailyCapUSD = 1.5 * r.Estimate.USD
 				usd := r.Estimate.USD
-				h.results = []runner.Result{{AuthFailed: true, ReportedUSD: &usd, Usage: runner.Usage{Input: 10, Output: 1}, UsageKnown: true}}
+				h.results = []run.Result{{AuthFailed: true, ReportedUSD: &usd, Usage: run.Usage{Input: 10, Output: 1}, UsageKnown: true}}
 			}
 			h.beforeStart = nil
 		}

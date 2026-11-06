@@ -2,8 +2,11 @@
 package wiring
 
 import (
+	"time"
+
 	"github.com/lorem-dev/duolog/internal/adapter/claude"
 	"github.com/lorem-dev/duolog/internal/adapter/codex"
+	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/hook"
 	"github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/core/agent"
@@ -14,13 +17,18 @@ type Agent struct {
 	Facts  agent.Descriptor
 	Lead   lead.Lead
 	Events hook.Events
+	// Worker runs this agent's workers.
+	Worker delegate.Worker
+	// ResetTime parses the time a limit message of this agent says the quota
+	// returns, or gives a fallback; never the zero time.
+	ResetTime func(text string, now time.Time) time.Time
 }
 
 // Agents returns the registered agents in order: claude, then codex.
 func Agents() []Agent {
 	return []Agent{
-		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}},
-		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}},
+		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime},
+		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime},
 	}
 }
 
@@ -51,4 +59,24 @@ func Names() []string {
 		names[i] = a.Facts.Name
 	}
 	return names
+}
+
+// delegateAgents builds the ports of delegate.Deps.Agents from the registry.
+func delegateAgents() map[string]delegate.Agent {
+	out := map[string]delegate.Agent{}
+	for _, a := range Agents() {
+		out[a.Facts.Name] = delegate.Agent{Worker: a.Worker}
+	}
+	return out
+}
+
+// resetTime parses a limit message of the named agent; an unknown agent gets
+// no parse.
+func resetTime(name, text string, now time.Time) time.Time {
+	for _, a := range Agents() {
+		if a.Facts.Name == name {
+			return a.ResetTime(text, now)
+		}
+	}
+	return now.Add(time.Hour)
 }

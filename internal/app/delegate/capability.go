@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/taskspec"
-	"github.com/lorem-dev/duolog/internal/runner"
 )
 
 // capPlan is what the capability check asks of a run: the MCP servers to
@@ -66,7 +66,7 @@ func needsKind(needs []string, kinds ...string) bool {
 // limitOwn adds capabilities.mcp_tools for the worker's own servers that the
 // task needs, so that the list filters them as it filters a bridged server.
 // The worker's servers are those of workerEnv, its environment.
-func limitOwn(spec runner.Spec, needs []string, tools map[string][]string, workerEnv []string) *runner.MCP {
+func limitOwn(spec run.Spec, needs []string, tools map[string][]string, workerEnv []string) *run.MCP {
 	var own []string
 	for _, need := range withoutBridged(needs, spec.MCP) {
 		if kind, name, err := capability.ParseNeed(need); err == nil && kind == capability.KindMCP {
@@ -85,7 +85,7 @@ func limitOwn(spec runner.Spec, needs []string, tools map[string][]string, worke
 		if len(codexArgs) == 0 && len(allowed) == 0 {
 			return nil
 		}
-		m = &runner.MCP{}
+		m = &run.MCP{}
 	} else {
 		copied := *m
 		m = &copied

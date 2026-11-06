@@ -11,7 +11,7 @@ import (
 
 	corerecord "github.com/lorem-dev/duolog/internal/core/record"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
-	"github.com/lorem-dev/duolog/internal/runner"
+	"github.com/lorem-dev/duolog/internal/core/run"
 )
 
 // Attempt and Observer live in core/record. These names keep delegate.go and
@@ -69,7 +69,7 @@ func (a *attempts) begin() workerRun {
 
 // worker reports a finished runWorker call. retry marks the run again after a
 // login that worked.
-func (a *attempts) worker(w workerRun, route coreroute.Route, retry bool, r runner.Result, err error) {
+func (a *attempts) worker(w workerRun, route coreroute.Route, retry bool, r run.Result, err error) {
 	if a.observe == nil {
 		return
 	}
@@ -78,8 +78,8 @@ func (a *attempts) worker(w workerRun, route coreroute.Route, retry bool, r runn
 	// that cannot be read counts nothing.
 	denials, asks, _ := (&learnRun{stateDir: a.stateDir, role: a.role, decisions: w.decisions}).gateCounts()
 	outcome, code := workerOutcome(r, err)
-	if code == runner.CodeNone && !r.Done && denials > 0 {
-		code = runner.CodeGate
+	if code == run.CodeNone && !r.Done && denials > 0 {
+		code = run.CodeGate
 	}
 	reason := "none"
 	switch {
@@ -100,22 +100,22 @@ func (a *attempts) worker(w workerRun, route coreroute.Route, retry bool, r runn
 // workerOutcome reads the outcome of one run and its error code. The runner
 // sets the code; a run that came back without one is read from its typed
 // flags and errors, never from an error's text.
-func workerOutcome(r runner.Result, err error) (outcome, code string) {
+func workerOutcome(r run.Result, err error) (outcome, code string) {
 	code = r.ErrorCode
 	if code == "" {
 		switch {
 		case errors.Is(err, context.DeadlineExceeded):
-			code = runner.CodeTimeout
+			code = run.CodeTimeout
 		case errors.Is(err, context.Canceled):
-			code = runner.CodeNone
+			code = run.CodeNone
 		case r.QuotaEnded:
-			code = runner.CodeQuota
+			code = run.CodeQuota
 		case r.AuthFailed:
-			code = runner.CodeAuth
+			code = run.CodeAuth
 		case err == nil:
-			code = runner.CodeNone
+			code = run.CodeNone
 		default:
-			code = runner.CodeExit
+			code = run.CodeExit
 		}
 	}
 	switch {
@@ -153,6 +153,6 @@ func ObserveHere(observe Observer, role, class string, route coreroute.Route, ou
 	observe(Attempt{
 		Number: 1, Role: role, Class: class,
 		Agent: route.Agent, Family: coreroute.Normalize(route.Agent, route.Model), Effort: route.Effort, Placement: placement,
-		Duration: d, Outcome: outcome, ErrorCode: runner.CodeNone, Reason: reason, Moved: route.IsFallback,
+		Duration: d, Outcome: outcome, ErrorCode: run.CodeNone, Reason: reason, Moved: route.IsFallback,
 	})
 }

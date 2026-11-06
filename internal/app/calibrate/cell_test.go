@@ -18,10 +18,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
+	corerun "github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/taskspec"
 	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
@@ -217,7 +217,7 @@ func TestRunCellIsolatedAndChecked(t *testing.T) {
 			t.Errorf("reference commit %s is reachable in the work tree", f.task.Ref)
 		}
 		write(t, tree, "parse.go", "package widget\n\nfunc Parse(line string) []string { return nil }\n")
-		return delegate.Outcome{Result: runner.Result{Done: true, Usage: runner.Usage{Input: 1000, Output: 200}}}, nil
+		return delegate.Outcome{Result: corerun.Result{Done: true, Usage: corerun.Usage{Input: 1000, Output: 200}}}, nil
 	}
 	r := f.run(t)
 	if r.State != CellDone || !r.Passed || r.Reason != "" {
@@ -315,7 +315,7 @@ func makeFixture(t *testing.T, refMakefile bool) *cellFixture {
 		if err := os.Remove(filepath.Join(tree, "tests", "check_test.sh")); err != nil {
 			t.Error(err)
 		}
-		return delegate.Outcome{Result: runner.Result{Done: true}}, nil
+		return delegate.Outcome{Result: corerun.Result{Done: true}}, nil
 	}
 	return f
 }
@@ -417,7 +417,7 @@ func TestRunCellKeepsDependencyChanges(t *testing.T) {
 		tree := r.Options.WorkRoot
 		write(t, tree, "package.json", manifest)
 		write(t, tree, "package-lock.json", lock)
-		return delegate.Outcome{Result: runner.Result{Done: true}}, nil
+		return delegate.Outcome{Result: corerun.Result{Done: true}}, nil
 	}
 	r := f.run(t)
 	if r.State != CellDone || !r.Passed || len(r.Restored) != 0 || len(r.SetupChanged) != 0 {
@@ -436,7 +436,7 @@ func TestRunCellMarksCheckScriptChange(t *testing.T) {
 	manifest := `{"scripts":{"test":"true","build":"tsc"},"dependencies":{}}` + "\n"
 	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
 		write(t, r.Options.WorkRoot, "package.json", manifest)
-		return delegate.Outcome{Result: runner.Result{Done: true}}, nil
+		return delegate.Outcome{Result: corerun.Result{Done: true}}, nil
 	}
 	r := f.run(t)
 	if r.State != CellSetupChanged || !slices.Equal(r.SetupChanged, []string{"package.json"}) || len(r.Restored) != 0 {
@@ -459,7 +459,7 @@ func TestRunCellMarksScriptAPackageScriptRuns(t *testing.T) {
 	f.env.Cfg.Learning.Classes["implement"] = class
 	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
 		write(t, r.Options.WorkRoot, "scripts/check.sh", "true\n")
-		return delegate.Outcome{Result: runner.Result{Done: true}}, nil
+		return delegate.Outcome{Result: corerun.Result{Done: true}}, nil
 	}
 	r := f.run(t)
 	if r.State != CellSetupChanged || !slices.Equal(r.SetupChanged, []string{"scripts/check.sh"}) {
@@ -479,7 +479,7 @@ func TestRunCellLeavesIgnoredFiles(t *testing.T) {
 			write(t, tree, name, "installed\n")
 		}
 		write(t, tree, "parse.go", "package widget\n\nfunc Parse(line string) []string { return nil }\n")
-		return delegate.Outcome{Result: runner.Result{Done: true}}, nil
+		return delegate.Outcome{Result: corerun.Result{Done: true}}, nil
 	}
 	checks := f.env.Checks
 	f.env.Checks = func(ctx context.Context, dir string, commands []string) []journal.Check {
@@ -566,7 +566,7 @@ func TestSetupChangedFindsCheckDefinitions(t *testing.T) {
 func worked(t *testing.T) delegate.Runner {
 	return func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
 		write(t, r.Options.WorkRoot, "parse.go", "package widget\n\nfunc Parse(line string) []string { return nil }\n")
-		return delegate.Outcome{Result: runner.Result{Done: true}}, nil
+		return delegate.Outcome{Result: corerun.Result{Done: true}}, nil
 	}
 }
 
@@ -661,7 +661,7 @@ func TestRunCellTokenCap(t *testing.T) {
 		f.env.Cfg.Calibration.CellMaxTokens = 1000
 		f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
 			write(t, r.Options.WorkRoot, "parse.go", "package widget\n\nfunc Parse(line string) []string { return nil }\n")
-			return delegate.Outcome{Result: runner.Result{Done: true, UsageKnown: true, Usage: runner.Usage{Input: tc.input, Output: tc.output}}}, nil
+			return delegate.Outcome{Result: corerun.Result{Done: true, UsageKnown: true, Usage: corerun.Usage{Input: tc.input, Output: tc.output}}}, nil
 		}
 		r := f.run(t)
 		if r.Tokens != tc.input+tc.output {
@@ -799,7 +799,7 @@ func TestRunCellProviderLimit(t *testing.T) {
 	var tree string
 	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
 		tree = r.Options.WorkRoot
-		return delegate.Outcome{Result: runner.Result{QuotaEnded: true, Usage: runner.Usage{Input: 10, Output: 5}}}, errors.New("usage limit reached")
+		return delegate.Outcome{Result: corerun.Result{QuotaEnded: true, Usage: corerun.Usage{Input: 10, Output: 5}}}, errors.New("usage limit reached")
 	}
 	r := f.run(t)
 	if r.State != CellFailedLimit || r.Passed || r.Reason != "provider limit" {
@@ -878,7 +878,7 @@ func TestRunCellTreeHasProjectHooks(t *testing.T) {
 		if body, err := os.ReadFile(filepath.Join(tree, ".codex", "hooks.json")); err != nil || string(body) != gateHooks {
 			t.Errorf("hooks.json in the work tree = %q, %v", body, err)
 		}
-		return delegate.Outcome{Result: runner.Result{Done: true}}, nil
+		return delegate.Outcome{Result: corerun.Result{Done: true}}, nil
 	}
 	f.run(t)
 }
@@ -895,7 +895,7 @@ func TestCellBriefDemotesStatementHeadings(t *testing.T) {
 			t.Fatal(err)
 		}
 		brief, invalid = string(data), taskspec.Validate(os.DirFS(filepath.Dir(taskPath)), filepath.Base(taskPath))
-		return delegate.Outcome{Result: runner.Result{Done: true}}, nil
+		return delegate.Outcome{Result: corerun.Result{Done: true}}, nil
 	}
 	f.run(t)
 	if invalid != nil {
@@ -917,7 +917,7 @@ func TestRunCellBriefHasNoSolution(t *testing.T) {
 			t.Fatal(err)
 		}
 		brief = string(data)
-		return delegate.Outcome{Result: runner.Result{Done: true}}, nil
+		return delegate.Outcome{Result: corerun.Result{Done: true}}, nil
 	}
 	f.run(t)
 	if !strings.Contains(brief, parseStatement) {

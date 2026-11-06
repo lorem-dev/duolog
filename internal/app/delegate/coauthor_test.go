@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/runner"
+	"github.com/lorem-dev/duolog/internal/core/run"
 )
 
 func TestWorkerCoauthors(t *testing.T) {
@@ -25,7 +25,7 @@ func TestWorkerCoauthors(t *testing.T) {
 			h := newHarness(t)
 			h.gitRepo()
 			h.cfg.Coauthors.Enabled = !tc.disabled
-			h.results = []runner.Result{{Done: !tc.failed}}
+			h.results = []run.Result{{Done: !tc.failed}}
 			if tc.reported {
 				h.results[0].Files = []string{"a.go"}
 			}

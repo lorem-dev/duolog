@@ -1,12 +1,13 @@
-// Package run holds the types of one worker launch: the spec runner.Run
-// starts, the MCP servers bridged into it, its token usage and its error
-// codes. It starts nothing; internal/runner runs a Spec.
+// Package run holds the types of one worker launch: the spec a worker
+// starts, the MCP servers bridged into it, its token usage, its result and its
+// error codes. It starts nothing; each agent's Worker runs a Spec.
 package run
 
 import (
 	"errors"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
@@ -15,6 +16,10 @@ import (
 
 // ErrTurnCap is Run's error for a worker that reached Spec.MaxTurns.
 var ErrTurnCap = errors.New("worker reached its turn cap")
+
+// ErrBinaryMissing is what a run's error matches with errors.Is when the
+// agent's program was not found on the process's PATH.
+var ErrBinaryMissing = errors.New("agent binary not found")
 
 // Spec is one worker launch. Process is the built worker process of the
 // route's agent: its environment, its argv prefix and its settings, the same
@@ -71,9 +76,56 @@ type MCP struct {
 	AllowedTools, DisallowedTools []string
 	// Env holds NAME=value pairs for the worker process.
 	Env []string
-	// ConfigPath is where Run wrote ClaudeConfig. It is set by runner.Run;
-	// callers leave it empty.
+	// ConfigPath is where Run wrote ClaudeConfig. A Worker sets it; callers
+	// leave it empty.
 	ConfigPath string
+}
+
+// Result is what one worker run reported.
+type Result struct {
+	RawAnswer string
+	Done      bool
+	Summary   string
+	Files     []string
+	Needs     []string
+	// Decisions are the choices the task left open that the worker made itself.
+	Decisions   []string
+	Interrupted bool
+	ResetAt     time.Time
+	SessionID   string
+	Usage       Usage
+	QuotaEnded  bool
+	// TurnsEnded means the worker reached Spec.MaxTurns and gave no answer.
+	TurnsEnded bool
+	ExitCode   int
+	// AuthFailed means an error said the worker's agent or a server refused
+	// its credentials. AuthServer names the server, when the error did.
+	AuthFailed bool
+	AuthServer string
+	// Billing is the run's own billing evidence, from the rate limit events of
+	// Claude's stream. Codex sends none, so it stays empty.
+	Billing account.RunEvidence
+	// ReportedUSD is the cost the CLI reported for the run, or nil when it
+	// reported none or a value that is not a finite cost of zero or more.
+	ReportedUSD *float64
+	// UsageKnown means the vendor reported the usage; zero usage is then a
+	// count, not a gap.
+	UsageKnown bool
+	// UsageComplete means the usage is the whole run's: Claude's result event
+	// carried it, or Codex's turn completed. A run cancelled or timed out
+	// mid-request has known usage of its finished messages only, and the
+	// request in flight is billed too.
+	UsageComplete bool
+	// ErrorCode is one of the Code constants; CodeNone after a run that did
+	// not fail.
+	ErrorCode string
+}
+
+// SetCode keeps the first code set: the place the run failed first.
+func (r *Result) SetCode(code string) {
+	if r.ErrorCode == "" {
+		r.ErrorCode = code
+	}
 }
 
 // Usage is total input with its cache reads and writes, and output.

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -17,6 +16,7 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/models"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/adapter/workertest"
 	leadio "github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/lead/leadtest"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
@@ -28,8 +28,8 @@ import (
 	corelead "github.com/lorem-dev/duolog/internal/core/lead"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/route"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/taskspec"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"github.com/lorem-dev/duolog/internal/workerenv"
@@ -57,8 +57,8 @@ type harness struct {
 	cfg        *config.Config
 	s          *store.Store
 	reg        *session.Registry
-	calls      []runner.Spec
-	results    []runner.Result
+	calls      []run.Spec
+	results    []run.Result
 	errs       []error
 	change     string
 	auth       *fakeChecker
@@ -77,6 +77,37 @@ type harness struct {
 	// deps is what the harness passes to Run; a test may replace a field.
 	deps Deps
 }
+
+// funcWorker is a Worker that runs fn. Its launch words are those of the real
+// agent, so the process the gate admits is the one a real run builds.
+type funcWorker struct {
+	fn     func(context.Context, run.Spec) (run.Result, error)
+	launch func(run.Spec) []string
+}
+
+func (w funcWorker) Run(ctx context.Context, s run.Spec) (run.Result, error) { return w.fn(ctx, s) }
+func (w funcWorker) Launch(s run.Spec) []string                              { return w.launch(s) }
+
+// setWorker makes fn the worker of both agents.
+func (h *harness) setWorker(fn func(context.Context, run.Spec) (run.Result, error)) {
+	h.deps.Agents = map[string]Agent{
+		"claude": {Worker: funcWorker{fn, workertest.For("claude").Launch}},
+		"codex":  {Worker: funcWorker{fn, workertest.For("codex").Launch}},
+	}
+}
+
+// worker is the function setWorker last installed.
+func (h *harness) worker() func(context.Context, run.Spec) (run.Result, error) {
+	return h.deps.Agents["codex"].Worker.(funcWorker).fn
+}
+
+// realWorkers makes the real Workers of both agents the harness's.
+func (h *harness) realWorkers() {
+	h.deps.Agents = map[string]Agent{"claude": {Worker: workertest.For("claude")}, "codex": {Worker: workertest.For("codex")}}
+}
+
+// argvOf is the argv a real Worker gives s.
+func argvOf(s run.Spec) []string { return workertest.Argv(s) }
 
 func put(t *testing.T, p, s string) {
 	t.Helper()
@@ -157,7 +188,7 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(e)
 	}
 	h.deps.PaidGate = func(*config.Config) (*paidruns.Gate, error) { return h.gate, nil }
-	h.deps.RunWorker = func(_ context.Context, s runner.Spec) (runner.Result, error) {
+	h.setWorker(func(_ context.Context, s run.Spec) (run.Result, error) {
 		i := len(h.calls)
 		h.calls = append(h.calls, s)
 		if h.beforeStart != nil {
@@ -165,7 +196,7 @@ func newHarness(t *testing.T) *harness {
 		}
 		if s.Started != nil && !h.skipStart[i] {
 			if err := s.Started(os.Getpid()); err != nil {
-				return runner.Result{}, err
+				return run.Result{}, err
 			}
 			var st paidruns.State
 			if err := h.gate.Store.Update(context.Background(), func(x *paidruns.State) error { st = *x; return nil }); err != nil {
@@ -180,7 +211,7 @@ func newHarness(t *testing.T) *harness {
 		if h.change != "" {
 			put(t, filepath.Join(h.root, h.change), "changed\n")
 		}
-		r := runner.Result{Done: true, Summary: "Completed.", Files: []string{"a.go"}, Needs: []string{}, SessionID: "worker-id", Usage: runner.Usage{Input: 12, Output: 3}}
+		r := run.Result{Done: true, Summary: "Completed.", Files: []string{"a.go"}, Needs: []string{}, SessionID: "worker-id", Usage: run.Usage{Input: 12, Output: 3}}
 		var e error
 		if i < len(h.results) {
 			r = h.results[i]
@@ -189,7 +220,7 @@ func newHarness(t *testing.T) *harness {
 			e = h.errs[i]
 		}
 		return r, e
-	}
+	})
 	h.deps.ResolveModel = func(ctx context.Context, cfg *config.Config, dir string, target config.Target) (string, error) {
 		return (models.Resolver{List: func(context.Context) ([]route.Entry, string, error) {
 			return catalog.Models, "fixture", nil
@@ -261,7 +292,7 @@ func TestMaxTurnsReachesWorker(t *testing.T) {
 	}
 }
 func (h *harness) limited() {
-	h.results = []runner.Result{{QuotaEnded: true}}
+	h.results = []run.Result{{QuotaEnded: true}}
 	h.errs = []error{errors.New("quota exceeded")}
 }
 func (h *harness) requireCalls(n int) {
@@ -325,7 +356,7 @@ func TestFreshRunsAreNotRegistered(t *testing.T) {
 	if x, ok, err := h.reg.Lookup("lead-123456", "codex", "implement", "topic"); err != nil || ok {
 		t.Fatal(x, err)
 	}
-	if !strings.Contains(strings.Join(runner.Argv(h.calls[0]), " "), "--ephemeral") {
+	if !strings.Contains(strings.Join(argvOf(h.calls[0]), " "), "--ephemeral") {
 		t.Fatal("fresh persisted")
 	}
 }
@@ -346,7 +377,7 @@ func TestResumeReusesThread(t *testing.T) {
 	if !strings.Contains(string(h.calls[0].Stdin), "BRIEF_RULE") || strings.Contains(string(h.calls[1].Stdin), "BRIEF_RULE") {
 		t.Fatalf("brief: first %q, resumed %q", h.calls[0].Stdin, h.calls[1].Stdin)
 	}
-	if strings.Contains(strings.Join(runner.Argv(h.calls[0]), " "), "--no-session-persistence") {
+	if strings.Contains(strings.Join(argvOf(h.calls[0]), " "), "--no-session-persistence") {
 		t.Fatal("initial resumable run cannot persist")
 	}
 }
@@ -509,7 +540,7 @@ func TestLimitOnBothAgents(t *testing.T) {
 }
 func TestMissingBinaryFallsBack(t *testing.T) {
 	h := newHarness(t)
-	h.errs = []error{fmt.Errorf("start: %w", exec.ErrNotFound)}
+	h.errs = []error{fmt.Errorf("start: %w", run.ErrBinaryMissing)}
 	o, e := h.run("implement")
 	h.requireCalls(2)
 	if e != nil || !o.Result.Done {
@@ -518,7 +549,7 @@ func TestMissingBinaryFallsBack(t *testing.T) {
 }
 func TestInterruptedRunNoFallback(t *testing.T) {
 	h := newHarness(t)
-	h.results = []runner.Result{{Interrupted: true}}
+	h.results = []run.Result{{Interrupted: true}}
 	h.errs = []error{context.Canceled}
 	o, e := h.run("implement")
 	h.requireCalls(1)
@@ -721,7 +752,7 @@ func TestFakeBinaryReceivesInlineAndEnv(t *testing.T) {
 	h := newHarness(t)
 	h.lead("codex", mode.Edits, "medium")
 	fake := testbin.Install(t, "claude", testbin.Scenario{Stdout: `{"session_id":"fake-worker","usage":{"input_tokens":17,"output_tokens":4},"structured_output":{"done":true,"summary":"Finished.","files":["a.go"],"needs":[]}}`})
-	h.deps.RunWorker = runner.Run
+	h.realWorkers()
 	o, e := h.run("review_final")
 	if e != nil || !o.Result.Done {
 		t.Fatal(o, e)
@@ -771,7 +802,7 @@ func TestCodexResumeFirstRunPersists(t *testing.T) {
 	if _, e := h.run("review_intermediate"); e != nil {
 		t.Fatal(e)
 	}
-	if strings.Contains(strings.Join(runner.Argv(h.calls[0]), " "), "--ephemeral") {
+	if strings.Contains(strings.Join(argvOf(h.calls[0]), " "), "--ephemeral") {
 		t.Fatal("initial resumable Codex run is ephemeral")
 	}
 }
@@ -802,7 +833,7 @@ func TestFallbackFailureNamesBothAgents(t *testing.T) {
 
 func TestResumeWithoutRepeatedSessionIDStillTracksUsage(t *testing.T) {
 	h := newHarness(t)
-	h.results = []runner.Result{{Done: true, SessionID: "worker-id", Usage: runner.Usage{Input: 9}}, {Done: true, Usage: runner.Usage{Input: 11}}}
+	h.results = []run.Result{{Done: true, SessionID: "worker-id", Usage: run.Usage{Input: 9}}, {Done: true, Usage: run.Usage{Input: 11}}}
 	for i := 0; i < 2; i++ {
 		if _, e := h.run("plan"); e != nil {
 			t.Fatal(e)
@@ -878,7 +909,7 @@ func TestQuotaHandOffNamesTaskRelatively(t *testing.T) {
 
 func TestAnswerFieldsStayOnOneLine(t *testing.T) {
 	h := newHarness(t)
-	h.results = []runner.Result{{Done: true, Summary: "Done\r\nnow", Files: []string{"a\nb.go", "c\rd.go"}, Needs: []string{"help\nplease"}}}
+	h.results = []run.Result{{Done: true, Summary: "Done\r\nnow", Files: []string{"a\nb.go", "c\rd.go"}, Needs: []string{"help\nplease"}}}
 	out, err := h.run("implement")
 	if err != nil || strings.ContainsAny(out.Line, "\r\n") {
 		t.Fatalf("line=%q err=%v", out.Line, err)
@@ -907,7 +938,9 @@ func (h *harness) fakeWorker(agent string) string {
 		scenario = testbin.Scenario{}
 	}
 	fake := testbin.Install(h.t, agent, scenario)
-	h.deps.RunWorker = func(ctx context.Context, spec runner.Spec) (runner.Result, error) {
+	h.realWorkers()
+	worker := h.deps.Agents[agent].Worker
+	h.setWorker(func(ctx context.Context, spec run.Spec) (run.Result, error) {
 		if agent == "codex" {
 			scenario.Writes = map[string]string{filepath.Join(spec.TaskDir, "answer.json"): answer}
 			data, err := json.Marshal(scenario)
@@ -916,8 +949,8 @@ func (h *harness) fakeWorker(agent string) string {
 			}
 			put(h.t, fake+".json", string(data))
 		}
-		return runner.Run(ctx, spec)
-	}
+		return worker.Run(ctx, spec)
+	})
 	return fake
 }
 func requireArgPair(t *testing.T, fake, flag, value string) {
@@ -1279,7 +1312,7 @@ func TestEveryPromptTellsHowToAskForATool(t *testing.T) {
 }
 func TestNeedsInAnswerReachLead(t *testing.T) {
 	h := newHarness(t)
-	h.results = []runner.Result{{Done: false, Summary: "Stopped.", Files: []string{}, Needs: []string{"figma", "codegraph"}}}
+	h.results = []run.Result{{Done: false, Summary: "Stopped.", Files: []string{}, Needs: []string{"figma", "codegraph"}}}
 	o, e := h.run("implement")
 	if e != nil || strings.Count(o.Line, "\n") != 0 || !strings.Contains(o.Line, "needs=figma,codegraph") || len(o.Needs) != 2 {
 		t.Fatal(o, e)
@@ -1396,7 +1429,7 @@ func TestOutsideWriteCoversFoldersAndGlobs(t *testing.T) {
 // answer.json.
 func TestResultLineCountsDecisions(t *testing.T) {
 	h := newHarness(t)
-	h.results = []runner.Result{{Done: true, Summary: "Done.", Files: []string{"a.go"}, Needs: []string{}, Decisions: []string{"used slog", "named it Limiter"}}}
+	h.results = []run.Result{{Done: true, Summary: "Done.", Files: []string{"a.go"}, Needs: []string{}, Decisions: []string{"used slog", "named it Limiter"}}}
 	out, e := h.run("implement")
 	if e != nil || !strings.Contains(out.Line, " decisions=2 ") {
 		t.Fatal(out.Line, e)

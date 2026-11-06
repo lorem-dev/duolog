@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
-	"github.com/lorem-dev/duolog/internal/runner"
+	corerun "github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"io/fs"
 	"os"
@@ -683,7 +683,7 @@ func fakeJudge(t *testing.T) *int {
 		}
 		summary := fmt.Sprintf(`{"scores":[{"criterion":"correct against the tests and the brief","a":%d,"b":%d,"reason":"tests"},`+
 			`{"criterion":"false claims (count)","a":%d,"b":%d,"count_a":%d,"count_b":%d,"reason":"claims"}]}`, a1, b1, a2, b2, ca, cb)
-		return delegate.Outcome{Result: runner.Result{Done: true, Summary: summary}}, nil
+		return delegate.Outcome{Result: corerun.Result{Done: true, Summary: summary}}, nil
 	}
 	return &calls
 }

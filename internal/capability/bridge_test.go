@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/runner"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -430,9 +430,9 @@ func TestBridgeOutputHasNoValues(t *testing.T) {
 	leadEnv(t, map[string]string{"T": secretB})
 	claudeState(t, home, root, `{"a":{"type":"http","url":"https://a.example.com","headers":{"Authorization":"Bearer `+secretA+`"}}}`, "")
 	put(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.b]\nurl = \"https://b.example.com/mcp?t=1\"\nbearer_token_env_var = \"T\"\n[mcp_servers.b.http_headers]\nX = \""+secretC+"\"\n")
-	for _, got := range []*runner.MCP{
-		func() *runner.MCP { m, _ := Bridge("claude", "codex", root, []string{"a"}, nil, nil); return m }(),
-		func() *runner.MCP { m, _ := Bridge("codex", "claude", root, []string{"b"}, nil, nil); return m }(),
+	for _, got := range []*run.MCP{
+		func() *run.MCP { m, _ := Bridge("claude", "codex", root, []string{"a"}, nil, nil); return m }(),
+		func() *run.MCP { m, _ := Bridge("codex", "claude", root, []string{"b"}, nil, nil); return m }(),
 	} {
 		if got == nil {
 			t.Fatal("not bridged")

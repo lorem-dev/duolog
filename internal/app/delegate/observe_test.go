@@ -6,17 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/adapter/workertest"
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/gate"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -104,19 +104,19 @@ func TestAttemptObserverLearningOff(t *testing.T) {
 		want    []step
 	}{
 		{"quota", func(h *harness) {
-			h.results = []runner.Result{{QuotaEnded: true, ErrorCode: runner.CodeQuota}}
+			h.results = []run.Result{{QuotaEnded: true, ErrorCode: run.CodeQuota}}
 			h.errs = []error{errors.New("worker failed")}
 		}, 1, []step{{"infra", "quota"}, {"done", "none"}}},
 		{"auth", func(h *harness) {
 			h.lead("claude", mode.Edits, "high")
-			h.results = []runner.Result{{AuthFailed: true, ErrorCode: runner.CodeAuth, Usage: runner.Usage{Input: 5, Output: 1}, UsageKnown: true}}
+			h.results = []run.Result{{AuthFailed: true, ErrorCode: run.CodeAuth, Usage: run.Usage{Input: 5, Output: 1}, UsageKnown: true}}
 			h.auth.login = auth.LoggedIn
 		}, 1, []step{{"failed", "auth"}, {"done", "none"}}},
 		{"exit", func(h *harness) {
-			h.errs = []error{fmt.Errorf("start: %w", exec.ErrNotFound)}
+			h.errs = []error{fmt.Errorf("start: %w", run.ErrBinaryMissing)}
 		}, 1, []step{{"failed", "exit"}, {"done", "none"}}},
 		{"parse", func(h *harness) {
-			h.results = []runner.Result{{ErrorCode: runner.CodeParse}}
+			h.results = []run.Result{{ErrorCode: run.CodeParse}}
 			h.errs = []error{errors.New("worker failed")}
 		}, 2, []step{{"failed", "parse"}, {"done", "none"}}},
 	}
@@ -168,7 +168,7 @@ func TestAttemptObserverLearningOff(t *testing.T) {
 // not counted: neither a login after the cancel nor a login that failed.
 func TestAttemptCancellation(t *testing.T) {
 	h := authHarness(t)
-	h.results = []runner.Result{{Interrupted: true, AuthFailed: true}}
+	h.results = []run.Result{{Interrupted: true, AuthFailed: true}}
 	h.errs = []error{context.Canceled}
 	h.auth.login = auth.LoggedIn
 	seen, opts := h.observed()
@@ -181,7 +181,7 @@ func TestAttemptCancellation(t *testing.T) {
 	}
 
 	h = authHarness(t)
-	h.results = []runner.Result{{AuthFailed: true, ErrorCode: runner.CodeAuth}}
+	h.results = []run.Result{{AuthFailed: true, ErrorCode: run.CodeAuth}}
 	h.auth.login = auth.Declined
 	seen, opts = h.observed()
 	_, _ = h.runWith("implement", opts)
@@ -191,7 +191,7 @@ func TestAttemptCancellation(t *testing.T) {
 	}
 
 	h = newHarness(t)
-	h.results = []runner.Result{{Interrupted: true}}
+	h.results = []run.Result{{Interrupted: true}}
 	h.errs = []error{fmt.Errorf("worker failed: %w", context.DeadlineExceeded)}
 	seen, opts = h.observed()
 	_, _ = h.runWith("implement", opts)
@@ -210,31 +210,32 @@ func TestAttemptRunnerCodes(t *testing.T) {
 		code        string
 		usageKnown  bool
 	}{
-		{"claude done", "claude", testbin.Scenario{Stdout: `{"structured_output":` + answer + `,"usage":{"input_tokens":0,"output_tokens":0}}`}, runner.CodeNone, true},
-		{"claude no usage", "claude", testbin.Scenario{Stdout: `{"structured_output":` + answer + `}`}, runner.CodeNone, false},
-		{"claude parse", "claude", testbin.Scenario{Stdout: `{"result":"no structured output"}`}, runner.CodeParse, false},
-		{"claude quota", "claude", testbin.Scenario{Exit: 1, Stderr: "usage limit"}, runner.CodeQuota, false},
-		{"claude auth", "claude", testbin.Scenario{Exit: 1, Stderr: "Not logged in. Please run /login"}, runner.CodeAuth, false},
-		{"claude exit", "claude", testbin.Scenario{Exit: 2, Stderr: "panic"}, runner.CodeExit, false},
-		{"codex parse", "codex", testbin.Scenario{Answer: "no JSON here", Stdout: `{"type":"turn.completed","usage":{"input_tokens":3,"cached_input_tokens":1,"output_tokens":1}}` + "\n"}, runner.CodeParse, true},
-		{"codex no answer", "codex", testbin.Scenario{}, runner.CodeParse, false},
-		{"codex done", "codex", testbin.Scenario{Answer: answer}, runner.CodeNone, false},
+		{"claude done", "claude", testbin.Scenario{Stdout: `{"structured_output":` + answer + `,"usage":{"input_tokens":0,"output_tokens":0}}`}, run.CodeNone, true},
+		{"claude no usage", "claude", testbin.Scenario{Stdout: `{"structured_output":` + answer + `}`}, run.CodeNone, false},
+		{"claude parse", "claude", testbin.Scenario{Stdout: `{"result":"no structured output"}`}, run.CodeParse, false},
+		{"claude quota", "claude", testbin.Scenario{Exit: 1, Stderr: "usage limit"}, run.CodeQuota, false},
+		{"claude auth", "claude", testbin.Scenario{Exit: 1, Stderr: "Not logged in. Please run /login"}, run.CodeAuth, false},
+		{"claude exit", "claude", testbin.Scenario{Exit: 2, Stderr: "panic"}, run.CodeExit, false},
+		{"codex parse", "codex", testbin.Scenario{Answer: "no JSON here", Stdout: `{"type":"turn.completed","usage":{"input_tokens":3,"cached_input_tokens":1,"output_tokens":1}}` + "\n"}, run.CodeParse, true},
+		{"codex no answer", "codex", testbin.Scenario{}, run.CodeParse, false},
+		{"codex done", "codex", testbin.Scenario{Answer: answer}, run.CodeNone, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			s := runner.Spec{TaskDir: t.TempDir(), Cwd: t.TempDir(), Stdin: []byte("task\n")}
+			s := run.Spec{TaskDir: t.TempDir(), Cwd: t.TempDir(), Stdin: []byte("task\n")}
 			s.Route.Agent, s.Route.Model, s.Route.Sandbox = c.agent, "sonnet", "read-only"
 			if c.agent == "codex" {
 				s.Route.Model = "luna"
 			}
 			testbin.Install(t, c.agent, c.scenario)
-			p, buildErr := workerEnv(workerenv.ProcessInput{Agent: c.agent, Variant: workerenv.Free, Config: &config.Config{}, Environ: os.Environ(), Launch: runner.Launch(s)})
+			worker := workertest.For(c.agent)
+			p, buildErr := workerEnv(workerenv.ProcessInput{Agent: c.agent, Variant: workerenv.Free, Config: &config.Config{}, Environ: os.Environ(), Launch: worker.Launch(s)})
 			if buildErr != nil {
 				t.Fatal(buildErr)
 			}
 			s.Process = &p
-			r, err := runner.Run(context.Background(), s)
-			if r.ErrorCode != c.code || r.UsageKnown != c.usageKnown || (c.code == runner.CodeNone) != (err == nil) {
+			r, err := worker.Run(context.Background(), s)
+			if r.ErrorCode != c.code || r.UsageKnown != c.usageKnown || (c.code == run.CodeNone) != (err == nil) {
 				t.Fatalf("%+v %v", r, err)
 			}
 		})

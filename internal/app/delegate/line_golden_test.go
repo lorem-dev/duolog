@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -143,13 +143,13 @@ func TestRunLineGolden(t *testing.T) {
 		set  func(t *testing.T, h *harness)
 	}{
 		{"run_done", func(t *testing.T, h *harness) {
-			h.results = []runner.Result{{Done: true, Summary: "Added the retry loop.", Files: []string{"a.go", "b/c.go"}, Needs: []string{}}}
+			h.results = []run.Result{{Done: true, Summary: "Added the retry loop.", Files: []string{"a.go", "b/c.go"}, Needs: []string{}}}
 		}},
 		{"run_done_with_decisions", func(t *testing.T, h *harness) {
-			h.results = []runner.Result{{Done: true, Summary: "Added the retry loop.", Files: []string{"a.go"}, Needs: []string{}, Decisions: []string{"the library", "the file layout"}}}
+			h.results = []run.Result{{Done: true, Summary: "Added the retry loop.", Files: []string{"a.go"}, Needs: []string{}, Decisions: []string{"the library", "the file layout"}}}
 		}},
 		{"run_needs", func(t *testing.T, h *harness) {
-			h.results = []runner.Result{{Done: false, Summary: "Stopped.", Files: []string{}, Needs: []string{"figma", "codegraph"}}}
+			h.results = []run.Result{{Done: false, Summary: "Stopped.", Files: []string{}, Needs: []string{"figma", "codegraph"}}}
 		}},
 		{"run_failed", func(t *testing.T, h *harness) {
 			h.errs = []error{errors.New("worker exploded: exit status 2")}
@@ -167,25 +167,25 @@ func TestRunLineGolden(t *testing.T) {
 		{"run_quota_fallback", func(t *testing.T, h *harness) {
 			h.claudeGate(false)
 			h.limited()
-			h.results = append(h.results, runner.Result{Done: true, Summary: "Completed by the other agent.", Files: []string{"a.go"}, Needs: []string{}})
+			h.results = append(h.results, run.Result{Done: true, Summary: "Completed by the other agent.", Files: []string{"a.go"}, Needs: []string{}})
 		}},
 		{"run_quota_fallback_fails", func(t *testing.T, h *harness) {
 			h.limited()
 			h.errs = append(h.errs, errors.New("fallback exploded"))
 		}},
 		{"run_interrupted", func(t *testing.T, h *harness) {
-			h.results = []runner.Result{{Interrupted: true}}
+			h.results = []run.Result{{Interrupted: true}}
 			h.errs = []error{errors.New("context canceled")}
 		}},
 		{"run_overage_notice", func(t *testing.T, h *harness) {
-			h.results = []runner.Result{{Done: true, Summary: "Completed.", Files: []string{}, Needs: []string{},
-				Usage: runner.Usage{Input: 12, Output: 3}, UsageKnown: true, UsageComplete: true,
+			h.results = []run.Result{{Done: true, Summary: "Completed.", Files: []string{}, Needs: []string{},
+				Usage: run.Usage{Input: 12, Output: 3}, UsageKnown: true, UsageComplete: true,
 				Billing: quota.RunEvidence{Expected: true, Seen: true, UsingOverage: true}}}
 		}},
 		{"run_migration_notice_joined", func(t *testing.T, h *harness) {
 			t.Setenv("OPENAI_API_KEY", "sk-test-value")
 			unsetEnv(t, "ANTHROPIC_API_KEY")
-			h.results = []runner.Result{{Done: true, Summary: "Completed.", Files: []string{"a.go"}, Needs: []string{}}}
+			h.results = []run.Result{{Done: true, Summary: "Completed.", Files: []string{"a.go"}, Needs: []string{}}}
 		}},
 		{"run_migration_notice_after_error", func(t *testing.T, h *harness) {
 			t.Setenv("OPENAI_API_KEY", "sk-test-value")
@@ -200,17 +200,17 @@ func TestRunLineGolden(t *testing.T) {
 		{"run_overage_and_migration_notices", func(t *testing.T, h *harness) {
 			t.Setenv("OPENAI_API_KEY", "sk-test-value")
 			unsetEnv(t, "ANTHROPIC_API_KEY")
-			h.results = []runner.Result{{Done: true, Summary: "Completed.", Files: []string{}, Needs: []string{},
-				Usage: runner.Usage{Input: 12, Output: 3}, UsageKnown: true, UsageComplete: true,
+			h.results = []run.Result{{Done: true, Summary: "Completed.", Files: []string{}, Needs: []string{},
+				Usage: run.Usage{Input: 12, Output: 3}, UsageKnown: true, UsageComplete: true,
 				Billing: quota.RunEvidence{Expected: true, Seen: true, UsingOverage: true}}}
 		}},
 		{"run_long_summary_multibyte_cut", func(t *testing.T, h *harness) {
-			h.results = []runner.Result{{Done: true, Summary: strings.Repeat("é€ü", 300), Files: []string{"a.go"}, Needs: []string{}}}
+			h.results = []run.Result{{Done: true, Summary: strings.Repeat("é€ü", 300), Files: []string{"a.go"}, Needs: []string{}}}
 		}},
 		{"run_long_summary_with_notice", func(t *testing.T, h *harness) {
 			t.Setenv("OPENAI_API_KEY", "sk-test-value")
 			unsetEnv(t, "ANTHROPIC_API_KEY")
-			h.results = []runner.Result{{Done: true, Summary: strings.Repeat("é€ü", 300), Files: []string{"a.go"}, Needs: []string{}}}
+			h.results = []run.Result{{Done: true, Summary: strings.Repeat("é€ü", 300), Files: []string{"a.go"}, Needs: []string{}}}
 		}},
 	}
 	for _, c := range cases {

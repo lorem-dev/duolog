@@ -22,14 +22,13 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // DelegateDeps fills every field of delegate.Deps with the real function.
 func DelegateDeps() delegate.Deps {
 	return delegate.Deps{
-		RunWorker:        runner.Run,
+		Agents:           delegateAgents(),
 		ResolveModel:     models.Resolve,
 		Lead:             Leads(),
 		ScanCapabilities: capability.ScanEnv,
@@ -107,6 +106,7 @@ func PeerDeps(d delegate.Deps) peer.Deps {
 		Clock:        systemClock{},
 		Pauses:       peer.Pauses{Poll: 2 * time.Second, Settle: time.Second, Send: 700 * time.Millisecond, Key: 150 * time.Millisecond, WorkGrace: 10 * time.Second},
 		ResolveModel: models.Resolve,
+		ResetTime:    resetTime,
 		Notify:       kit.Notify,
 		RecordPeer: func(reg *session.Registry, e session.Entry, limit int) error {
 			return reg.RecordLimited(e, limit)

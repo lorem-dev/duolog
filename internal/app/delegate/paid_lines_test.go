@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/quota"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -16,7 +16,7 @@ import (
 // least its estimate for the request in flight.
 func TestInterruptedRunSettlesAsIncomplete(t *testing.T) {
 	h := newHarness(t)
-	h.results = []runner.Result{{Interrupted: true, Usage: runner.Usage{Input: 50, Output: 5}, UsageKnown: true}}
+	h.results = []run.Result{{Interrupted: true, Usage: run.Usage{Input: 50, Output: 5}, UsageKnown: true}}
 	h.errs = []error{context.Canceled}
 	if _, err := h.run("implement"); err == nil {
 		t.Fatal("a cancelled run succeeded")
@@ -64,8 +64,8 @@ func TestLeadLineOmitsAllowAdviceWhenOptedIn(t *testing.T) {
 // A free run that spent paid overage says so in its line.
 func TestFreeRunOnOverageSaysSo(t *testing.T) {
 	h := newHarness(t)
-	h.results = []runner.Result{{Done: true, Summary: "Completed.", Files: []string{}, Needs: []string{},
-		Usage: runner.Usage{Input: 12, Output: 3}, UsageKnown: true, UsageComplete: true,
+	h.results = []run.Result{{Done: true, Summary: "Completed.", Files: []string{}, Needs: []string{},
+		Usage: run.Usage{Input: 12, Output: 3}, UsageKnown: true, UsageComplete: true,
 		Billing: quota.RunEvidence{Expected: true, Seen: true, UsingOverage: true}}}
 	o, err := h.run("implement")
 	if err != nil {

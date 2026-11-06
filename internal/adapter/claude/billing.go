@@ -1,20 +1,20 @@
-package runner
+package claude
 
 import (
 	"encoding/json"
 	"math"
 	"strconv"
 
-	"github.com/lorem-dev/duolog/internal/quota"
+	"github.com/lorem-dev/duolog/internal/core/account"
 )
 
 // claudeRateLimit reads the rate_limit_info of one rate_limit_event as run
 // evidence. It keeps flags and the workspace level of an overage disabled
 // reason only, never a raw value. A field of another type counts as absent.
-func claudeRateLimit(info json.RawMessage) (quota.RunEvidence, bool) {
+func claudeRateLimit(info json.RawMessage) (account.RunEvidence, bool) {
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(info, &fields) != nil || fields == nil {
-		return quota.RunEvidence{}, false
+		return account.RunEvidence{}, false
 	}
 	set := func(name string) bool { return string(fields[name]) == "true" }
 	is := func(name string, values ...string) bool {
@@ -29,7 +29,7 @@ func claudeRateLimit(info json.RawMessage) (quota.RunEvidence, bool) {
 		}
 		return false
 	}
-	e := quota.RunEvidence{
+	e := account.RunEvidence{
 		Expected: true,
 		Seen:     true,
 		// The run spends paid overage now.

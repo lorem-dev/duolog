@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"time"
 
+	corerun "github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/rex"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -66,9 +66,9 @@ func CloseNote(ctx context.Context, id string) (note string, err error) {
 	}
 	// A task still open ends with the pane. An ended pane reported its own.
 	if !entry.Closed {
-		outcome, code := "interrupted", runner.CodeNone
+		outcome, code := "interrupted", corerun.CodeNone
 		if unavailable, uerr := e.reg.Unavailable(); uerr == nil && unavailable[entry.Agent] {
-			outcome, code = "infra", runner.CodeQuota
+			outcome, code = "infra", corerun.CodeQuota
 		}
 		e.attempt(entry, outcome, code)
 	}

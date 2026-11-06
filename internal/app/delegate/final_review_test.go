@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/runner"
+	"github.com/lorem-dev/duolog/internal/core/run"
 )
 
 func TestDelegateRetainsKnownEffortAndBoundsOutput(t *testing.T) {
@@ -19,7 +19,7 @@ func TestDelegateRetainsKnownEffortAndBoundsOutput(t *testing.T) {
 	if err := h.reg.RegisterLead(l); err != nil {
 		t.Fatal(err)
 	}
-	h.results = []runner.Result{{Done: true, Summary: strings.Repeat("a", 6000), Files: []string{}, Needs: []string{}}}
+	h.results = []run.Result{{Done: true, Summary: strings.Repeat("a", 6000), Files: []string{}, Needs: []string{}}}
 	out, err := h.run("implement")
 	if err != nil || len(out.Line) > 512 || !strings.Contains(out.Line, "[cut; ") {
 		t.Fatal(len(out.Line), out.Line, err)
@@ -78,13 +78,13 @@ func TestDelegateWarnsAboutMissingClaudeHooks(t *testing.T) {
 
 func TestWorkerWaitMarkerExistsOnlyDuringRun(t *testing.T) {
 	h := newHarness(t)
-	previous := h.deps.RunWorker
-	h.deps.RunWorker = func(ctx context.Context, s runner.Spec) (runner.Result, error) {
+	previous := h.worker()
+	h.setWorker(func(ctx context.Context, s run.Spec) (run.Result, error) {
 		if waiting, err := h.reg.IsWaiting("lead-123456"); err != nil || !waiting {
 			t.Fatal("no waiting marker", err)
 		}
 		return previous(ctx, s)
-	}
+	})
 	if _, err := h.run("implement"); err != nil {
 		t.Fatal(err)
 	}

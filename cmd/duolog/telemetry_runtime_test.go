@@ -19,8 +19,8 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/record"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
+	corerun "github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/usage"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/telemetry"
 	"github.com/lorem-dev/duolog/internal/testbin"
@@ -232,34 +232,34 @@ func TestAttemptUsageAndCost(t *testing.T) {
 		family               string
 	}{
 		{"cached once", cfg, with(func(a *record.Attempt) {
-			a.Usage, a.UsageKnown = runner.Usage{Input: 1000, Cached: 400, Output: 100}, true
+			a.Usage, a.UsageKnown = corerun.Usage{Input: 1000, Cached: 400, Output: 100}, true
 		}), 1000, 400, 100, priced(1000, 400, 100), true, true, "opus"},
 		{"known zero", cfg, with(func(a *record.Attempt) { a.UsageKnown = true }), 0, 0, 0, 0, true, true, "opus"},
-		{"unknown", cfg, with(func(a *record.Attempt) { a.Usage = runner.Usage{Input: 1000, Output: 100} }), 0, 0, 0, 0, false, false, "opus"},
+		{"unknown", cfg, with(func(a *record.Attempt) { a.Usage = corerun.Usage{Input: 1000, Output: 100} }), 0, 0, 0, 0, false, false, "opus"},
 		{"unpriced", cfg, with(func(a *record.Attempt) {
-			a.Family, a.Usage, a.UsageKnown = "sol", runner.Usage{Input: 1000, Output: 100}, true
+			a.Family, a.Usage, a.UsageKnown = "sol", corerun.Usage{Input: 1000, Output: 100}, true
 		}), 1000, 0, 100, 0, true, false, "sol"},
 		{"codex family", cfg, with(func(a *record.Attempt) {
-			a.Agent, a.Family, a.Usage, a.UsageKnown = "codex", "sol", runner.Usage{Input: 1000, Cached: 400, Output: 100}, true
+			a.Agent, a.Family, a.Usage, a.UsageKnown = "codex", "sol", corerun.Usage{Input: 1000, Cached: 400, Output: 100}, true
 		}), 1000, 400, 100, func() int64 {
 			usd, _ := usage.Cost(cfg, "codex", "sol", usage.Tokens{Input: 1000, Cached: 400, Output: 100})
 			return int64(math.Round(usd * 1e6))
 		}(), true, true, "sol"},
 		// 300 five-minute writes at 1.25x and 200 one-hour writes at 2x input.
 		{"cache writes", cfg, with(func(a *record.Attempt) {
-			a.Usage, a.UsageKnown = runner.Usage{Input: 1000, Cached: 400, Write: 500, WriteHour: 200, Output: 100}, true
+			a.Usage, a.UsageKnown = corerun.Usage{Input: 1000, Cached: 400, Write: 500, WriteHour: 200, Output: 100}, true
 		}), 1000, 400, 100, int64(math.Round(100*opus.Input + 400*opus.Cached + 300*1.25*opus.Input + 200*2*opus.Input + 100*opus.Output)), true, true, "opus"},
 		{"writes over input", cfg, with(func(a *record.Attempt) {
-			a.Usage, a.UsageKnown = runner.Usage{Input: 1000, Cached: 400, Write: 900, WriteHour: 2000, Output: 100}, true
+			a.Usage, a.UsageKnown = corerun.Usage{Input: 1000, Cached: 400, Write: 900, WriteHour: 2000, Output: 100}, true
 		}), 1000, 400, 100, int64(math.Round(400*opus.Cached + 600*2*opus.Input + 100*opus.Output)), true, true, "opus"},
 		{"cached over input", cfg, with(func(a *record.Attempt) {
-			a.Usage, a.UsageKnown = runner.Usage{Input: 10, Cached: 50, Output: -3}, true
+			a.Usage, a.UsageKnown = corerun.Usage{Input: 10, Cached: 50, Output: -3}, true
 		}), 10, 10, 0, priced(10, 10, 0), true, true, "opus"},
 		{"out of range", &huge, with(func(a *record.Attempt) {
-			a.Usage, a.UsageKnown = runner.Usage{Input: 1 << 40}, true
+			a.Usage, a.UsageKnown = corerun.Usage{Input: 1 << 40}, true
 		}), 1 << 40, 0, 0, 0, true, false, "opus"},
 		{"not finite", &nan, with(func(a *record.Attempt) {
-			a.Usage, a.UsageKnown = runner.Usage{Input: 1000}, true
+			a.Usage, a.UsageKnown = corerun.Usage{Input: 1000}, true
 		}), 1000, 0, 0, 0, true, false, "opus"},
 	}
 	for _, c := range cases {

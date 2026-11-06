@@ -9,7 +9,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/capability"
-	"github.com/lorem-dev/duolog/internal/runner"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -90,7 +90,7 @@ func TestDroppedOnlyLoginGoesToLeadWithoutLogin(t *testing.T) {
 
 	t.Run("worker auth retry", func(t *testing.T) {
 		h := keys(t)
-		h.results = []runner.Result{{AuthFailed: true}}
+		h.results = []run.Result{{AuthFailed: true}}
 		o, e := h.run("implement")
 		check(t, h, o, e, 1)
 	})
@@ -189,7 +189,7 @@ func TestClaimedNoticeSurvivesALongLine(t *testing.T) {
 		for i := range 10 {
 			files = append(files, fmt.Sprintf("src/%d%s.go", i, strings.Repeat("x", 35)))
 		}
-		h.results = []runner.Result{{Done: true, Summary: "Completed.", Files: files}}
+		h.results = []run.Result{{Done: true, Summary: "Completed.", Files: files}}
 		o, e := h.run("implement")
 		h.requireCalls(1)
 		if e != nil || !strings.HasPrefix(o.Line, "done=true summary=") || !strings.Contains(o.Line, "files=src/0") {

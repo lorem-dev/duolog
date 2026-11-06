@@ -19,10 +19,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/route"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/usage"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/runner"
 )
 
 func gitIn(t *testing.T, dir string, args ...string) string {
@@ -258,11 +258,11 @@ func TestLearningRecordsReplayFiles(t *testing.T) {
 	h := newHarness(t)
 	h.learning(true)
 	h.change = "b.go"
-	inner := h.deps.RunWorker
-	h.deps.RunWorker = func(ctx context.Context, s runner.Spec) (runner.Result, error) {
+	inner := h.worker()
+	h.setWorker(func(ctx context.Context, s run.Spec) (run.Result, error) {
 		put(t, filepath.Join(s.TaskDir, "answer.json"), `{"done":true}`)
 		return inner(ctx, s)
-	}
+	})
 	if out, err := h.run("implement"); err != nil {
 		t.Fatal(out, err)
 	}
@@ -358,15 +358,15 @@ func TestLearningCountsGateDenials(t *testing.T) {
 	if err := gate.Log(h.s, gate.Action{Kind: "exec", Target: "old", Role: "implement"}, gate.Decision{Kind: gate.Deny}); err != nil {
 		t.Fatal(err)
 	}
-	inner := h.deps.RunWorker
-	h.deps.RunWorker = func(ctx context.Context, s runner.Spec) (runner.Result, error) {
+	inner := h.worker()
+	h.setWorker(func(ctx context.Context, s run.Spec) (run.Result, error) {
 		for _, d := range []struct{ role, kind string }{{"implement", gate.Deny}, {"tests", gate.Deny}, {"implement", gate.Allow}, {"implement", gate.Ask}} {
 			if err := gate.Log(h.s, gate.Action{Kind: "exec", Target: "rm -rf x", Role: d.role}, gate.Decision{Kind: d.kind}); err != nil {
 				t.Fatal(err)
 			}
 		}
 		return inner(ctx, s)
-	}
+	})
 	if out, err := h.run("implement"); err != nil {
 		t.Fatal(out, err)
 	}
@@ -549,11 +549,11 @@ func TestWorkRootOptionIsUsed(t *testing.T) {
 		trusted += fmt.Sprintf("[projects.%q]\ntrust_level = \"trusted\"\n[hooks.state.%q]\ntrusted_hash = \"fixture-hash\"\n", dir, filepath.Join(dir, ".codex", "hooks.json")+":PreToolUse:0:0")
 	}
 	put(t, filepath.Join(os.Getenv("HOME"), ".codex", "config.toml"), trusted)
-	h.deps.RunWorker = func(_ context.Context, s runner.Spec) (runner.Result, error) {
+	h.setWorker(func(_ context.Context, s run.Spec) (run.Result, error) {
 		h.calls = append(h.calls, s)
 		put(t, filepath.Join(s.Cwd, "made.go"), "made\n")
-		return runner.Result{Done: true, Summary: "ok", Files: []string{"made.go"}, Needs: []string{}}, nil
-	}
+		return run.Result{Done: true, Summary: "ok", Files: []string{"made.go"}, Needs: []string{}}, nil
+	})
 	if out, err := h.runWith("implement", Options{WorkRoot: other}); err != nil {
 		t.Fatal(out, err)
 	}
@@ -719,7 +719,7 @@ func TestLearningJournalsWaitsForLead(t *testing.T) {
 	h := newHarness(t)
 	h.learning(true)
 	h.change = "b.go"
-	h.results = []runner.Result{{Done: false, Summary: "need a decision", Files: []string{}, Needs: []string{"decision:api-name"}}}
+	h.results = []run.Result{{Done: false, Summary: "need a decision", Files: []string{}, Needs: []string{"decision:api-name"}}}
 	out, err := h.run("implement")
 	if err != nil || len(out.Needs) != 1 {
 		t.Fatal(out, err)
@@ -739,7 +739,7 @@ func TestLearningJournalsWaitsForLead(t *testing.T) {
 func TestLearningSumsUsageAcrossLoginRetry(t *testing.T) {
 	h := authHarness(t)
 	h.learning(true)
-	h.results = []runner.Result{{AuthFailed: true, Usage: runner.Usage{Input: 5, Write: 4, WriteHour: 1, Output: 1}}}
+	h.results = []run.Result{{AuthFailed: true, Usage: run.Usage{Input: 5, Write: 4, WriteHour: 1, Output: 1}}}
 	h.auth.login = auth.LoggedIn
 	out, err := h.run("implement")
 	h.requireCalls(2)
@@ -778,14 +778,14 @@ func TestLearningQuotaIsInfra(t *testing.T) {
 func TestLearningErrorKeepsAnswer(t *testing.T) {
 	h := newHarness(t)
 	h.learning(true)
-	inner := h.deps.RunWorker
-	h.deps.RunWorker = func(ctx context.Context, s runner.Spec) (runner.Result, error) {
+	inner := h.worker()
+	h.setWorker(func(ctx context.Context, s run.Spec) (run.Result, error) {
 		path := filepath.Join(h.s.Dir, "journal", "delegations.ndjson")
 		if err := os.MkdirAll(path, 0700); err != nil {
 			t.Fatal(err)
 		}
 		return inner(ctx, s)
-	}
+	})
 	out, err := h.run("implement")
 	if err == nil || !strings.HasPrefix(out.Line, "done=true") || !strings.Contains(err.Error(), "learning") {
 		t.Fatal(out, err)
@@ -820,7 +820,7 @@ func TestLearningRunHereAfterQuotaRecordsFinalAttempt(t *testing.T) {
 	h.lead("claude", mode.Edits, "high")
 	h.learning(true)
 	h.limited()
-	h.results[0].Usage = runner.Usage{Input: 100, Output: 10}
+	h.results[0].Usage = run.Usage{Input: 100, Output: 10}
 	out, err := h.run("implement")
 	if err != nil || out.RunHere == nil {
 		t.Fatal(out, err)
@@ -836,8 +836,8 @@ func TestLearningQuotaThenFallbackWorkerRecordsFallback(t *testing.T) {
 	h := newHarness(t)
 	h.learning(true)
 	h.limited()
-	h.results[0].Usage = runner.Usage{Input: 100, Output: 10}
-	h.results = append(h.results, runner.Result{Done: true, Summary: "Completed.", Files: []string{}, Needs: []string{}, Usage: runner.Usage{Input: 12, Output: 3}})
+	h.results[0].Usage = run.Usage{Input: 100, Output: 10}
+	h.results = append(h.results, run.Result{Done: true, Summary: "Completed.", Files: []string{}, Needs: []string{}, Usage: run.Usage{Input: 12, Output: 3}})
 	h.errs = append(h.errs, nil)
 	out, err := h.runWith("implement", Options{Features: map[string]string{"output": "code"}})
 	if err != nil {

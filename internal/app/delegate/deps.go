@@ -8,9 +8,21 @@ import (
 	"github.com/lorem-dev/duolog/internal/auth"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/runner"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
+
+// Worker runs one agent's workers. Launch gives the words the account gate
+// admits in the worker's process; Run refuses a process built with others.
+type Worker interface {
+	Run(ctx context.Context, s run.Spec) (run.Result, error)
+	Launch(s run.Spec) []string
+}
+
+// Agent is what Run reaches of one agent. Later ports add their fields here.
+type Agent struct {
+	Worker Worker
+}
 
 // Runner runs one delegation. Run, bound to its Deps, is the real one.
 type Runner func(ctx context.Context, r Request) (Outcome, error)
@@ -29,13 +41,14 @@ type Request struct {
 // and the path check. The wiring package fills every field with the real
 // function; app tests fill them with fakes.
 type Deps struct {
-	RunWorker    func(ctx context.Context, s runner.Spec) (runner.Result, error)
+	// Agents holds the ports of each registered agent, by name.
+	Agents       map[string]Agent
 	ResolveModel func(ctx context.Context, cfg *config.Config, cacheDir string, t config.Target) (string, error)
 	// Lead holds each agent's Lead, keyed by agent name; the transcript of
 	// the lead is read through it.
 	Lead             map[string]leadio.Lead
 	ScanCapabilities func(ctx context.Context, agent, root string, environ []string) (capability.Inventory, error)
-	BridgeMCP        func(from, to, root string, names []string, tools map[string][]string, workerEnv []string) (*runner.MCP, map[string]string)
+	BridgeMCP        func(from, to, root string, names []string, tools map[string][]string, workerEnv []string) (*run.MCP, map[string]string)
 	// NewChecker checks a worker's logins on the worker's own built process.
 	NewChecker func(cacheDir string, p workerenv.Process) auth.Checker
 	// PaidGate opens the account admission gate of one delegation: the user's

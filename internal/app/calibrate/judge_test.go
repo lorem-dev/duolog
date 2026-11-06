@@ -18,8 +18,8 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/profile"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	corerun "github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/runner"
 )
 
 const (
@@ -227,7 +227,7 @@ func newJudgeFixture(t *testing.T, a, b string, score scoreFunc) *judgeFixture {
 				}
 				summary := fmt.Sprintf(`Done. {"scores":[{"criterion":%q,"a":%d,"b":%d,"reason":"tests"},{"criterion":%q,"a":%d,"b":%d,"count_a":0,"count_b":1,"reason":"claims"}]}`,
 					implementRubric[0], a1, b1, implementRubric[1], a2, b2)
-				return delegate.Outcome{Result: runner.Result{Done: true, Summary: summary}}, nil
+				return delegate.Outcome{Result: corerun.Result{Done: true, Summary: summary}}, nil
 			}}},
 		Journal: &journal.Journal{Dir: t.TempDir()},
 	}
@@ -637,7 +637,7 @@ func TestJudgeRecordsRateFromCallRise(t *testing.T) {
 	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
 		out, err := inner(ctx, r)
 		q.weekly, q.window = q.weekly+0.2, q.window+1
-		out.Result.Usage = runner.Usage{Input: 80000, Output: 20000}
+		out.Result.Usage = corerun.Usage{Input: 80000, Output: 20000}
 		return out, err
 	}
 	if _, _, err := f.runner(q, &bytes.Buffer{}).Judge(context.Background(), f.env, []Pair{f.pair}, nil); err != nil {
@@ -663,7 +663,7 @@ func TestJudgeSetsNoRateWithoutWeeklyRise(t *testing.T) {
 	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
 		out, err := inner(ctx, r)
 		q.weekly, q.window = q.weekly+weekly, q.window+1
-		out.Result.Usage = runner.Usage{Input: 80000, Output: 20000}
+		out.Result.Usage = corerun.Usage{Input: 80000, Output: 20000}
 		return out, err
 	}
 	if _, _, err := f.runner(q, &bytes.Buffer{}).Judge(context.Background(), f.env, []Pair{f.pair}, nil); err != nil {

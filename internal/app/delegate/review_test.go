@@ -7,8 +7,8 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/route"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/runner"
 )
 
 func TestReviewNonQualityOutcomeRecorded(t *testing.T) {
@@ -24,10 +24,10 @@ func TestReviewNonQualityOutcomeRecorded(t *testing.T) {
 				h.cfg.Models["opus"] = h.cfg.Models["haiku"]
 			}
 			if kind == "interrupted" {
-				h.results = []runner.Result{{Interrupted: true}}
+				h.results = []run.Result{{Interrupted: true}}
 			}
 			if kind == "needs" {
-				h.results = []runner.Result{{Done: false, Needs: []string{"clarify"}}}
+				h.results = []run.Result{{Done: false, Needs: []string{"clarify"}}}
 			}
 			role := "implement"
 			opts := Options{Class: "implement"}
@@ -56,7 +56,7 @@ func TestReviewForcedEntryNeverFallsBack(t *testing.T) {
 			case "judge":
 				o.Judge = true
 			case "quota":
-				h.results = []runner.Result{{QuotaEnded: true}}
+				h.results = []run.Result{{QuotaEnded: true}}
 			}
 			if kind != "quota" {
 				h.unavailable("codex")

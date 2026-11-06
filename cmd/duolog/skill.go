@@ -25,8 +25,8 @@ import (
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
+	corerun "github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/usage"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/spf13/cobra"
@@ -237,7 +237,7 @@ func runSkillTests(d *cmdDeps, cmd *cobra.Command, root, stateRoot, name string,
 			return err
 		}
 		selected := plan.ForAgent(target.Agent)
-		var result runner.Result
+		var result corerun.Result
 		route := coreroute.Route{Target: target}
 		var runErr error
 		if len(selected.Situations) > 0 {
@@ -331,12 +331,13 @@ func keepRunLog(runErr error, tempLog, logPath string) error {
 	return errors.New(strings.ReplaceAll(runErr.Error(), tempLog, logPath))
 }
 
-func askSkill(d *cmdDeps, cmd *cobra.Command, cfg *config.Config, root, work, prompt string, target config.Target) (result runner.Result, route coreroute.Route, err error) {
+func askSkill(d *cmdDeps, cmd *cobra.Command, cfg *config.Config, root, work, prompt string, target config.Target) (result corerun.Result, route coreroute.Route, err error) {
 	route = coreroute.Route{Target: target}
 	model, err := models.Resolve(cmd.Context(), cfg, filepath.Join(root, ".duolog", "cache"), target)
 	if err != nil {
-		return runner.Result{}, route, err
+		return corerun.Result{}, route, err
 	}
+	worker := d.Delegate.Agents[target.Agent].Worker
 	route.Model = model
 	// The free worker process: no API key, fast mode pinned off, minimal
 	// context and no state folder, as a skill test needs. The account gate
@@ -345,7 +346,7 @@ func askSkill(d *cmdDeps, cmd *cobra.Command, cfg *config.Config, root, work, pr
 	ctx := cmd.Context()
 	g, err := d.Delegate.PaidGate(cfg)
 	if err != nil {
-		return runner.Result{}, route, err
+		return corerun.Result{}, route, err
 	}
 	home, _ := os.UserHomeDir()
 	environ := os.Environ()
@@ -353,15 +354,15 @@ func askSkill(d *cmdDeps, cmd *cobra.Command, cfg *config.Config, root, work, pr
 		Config: cfg, Environ: environ, Role: "skill_test", Minimal: true,
 		Locations: workerenv.Locations{Home: home, Root: work, GOOS: runtime.GOOS, Environ: environ},
 		// Codex's exec with its read-only sandbox is admitted with the rest.
-		Launch: runner.Launch(runner.Spec{Route: route, SkillTest: true})}
+		Launch: worker.Launch(corerun.Spec{Route: route, SkillTest: true})}
 	permit, err := g.Acquire(ctx, paidruns.Request{Input: in, Family: coreroute.Normalize(target.Agent, model),
 		Role: "skill_test", Owner: paidruns.ProcessOwner(os.Getpid()), Wait: paidruns.SessionWait(cfg)})
 	var refusal *paidruns.Refusal
 	if errors.As(err, &refusal) {
-		return runner.Result{}, route, fmt.Errorf("refused, no model call made; a skill test runs only free: %s", delegate.RefusalLine(refusal))
+		return corerun.Result{}, route, fmt.Errorf("refused, no model call made; a skill test runs only free: %s", delegate.RefusalLine(refusal))
 	}
 	if err != nil {
-		return runner.Result{}, route, err
+		return corerun.Result{}, route, err
 	}
 	started := false
 	defer func() {
@@ -377,22 +378,22 @@ func askSkill(d *cmdDeps, cmd *cobra.Command, cfg *config.Config, root, work, pr
 		err = errors.Join(err, g.Finish(settleCtx, permit, s))
 	}()
 	if err = g.Store.Launch(ctx, permit.Reservation.ID); err != nil {
-		return runner.Result{}, route, err
+		return corerun.Result{}, route, err
 	}
 	// A fresh cwd removes project instructions. Explicit overrides disable every
 	// MCP server inherited from the user's Codex configuration.
-	bridge := &runner.MCP{}
+	bridge := &corerun.MCP{}
 	if target.Agent == "codex" {
 		bridge.CodexArgs = capability.CodexOffEnv(work, permit.Process.Env)
 	}
-	spec := runner.Spec{Route: route, SkillTest: true, TaskDir: work, Cwd: work, Stdin: []byte(prompt), Process: &permit.Process, MCP: bridge, Timeout: 10 * time.Minute}
+	spec := corerun.Spec{Route: route, SkillTest: true, TaskDir: work, Cwd: work, Stdin: []byte(prompt), Process: &permit.Process, MCP: bridge, Timeout: 10 * time.Minute}
 	spec.Started = func(pid int) error {
 		started = true
 		attachCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), skillSettleTimeout)
 		defer cancel()
 		return g.Store.Attach(attachCtx, permit.Reservation.ID, paidruns.ProcessOwner(pid))
 	}
-	result, err = runner.Run(ctx, spec)
+	result, err = worker.Run(ctx, spec)
 	return result, route, err
 }
 

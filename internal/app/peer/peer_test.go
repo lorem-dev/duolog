@@ -16,6 +16,7 @@ import (
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/adapter/workertest"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
@@ -162,6 +163,7 @@ func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
 			}
 			return route.Normalize(target.Agent, target.Model), nil
 		},
+		ResetTime:  workertest.ResetTime,
 		Notify:     func(string, string) {},
 		RecordPeer: func(reg *session.Registry, e session.Entry, limit int) error { return reg.RecordLimited(e, limit) },
 		OnEnvFile:  func(string) {},

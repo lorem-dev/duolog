@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/lorem-dev/duolog/internal/runner"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -145,7 +145,7 @@ func expand(text string) (string, error) {
 // the worker already gets; a name that would replace one of its values fails,
 // and the worker's own Codex config is the one that environment selects.
 // A server that cannot be bridged is left out, with the reason in failed.
-func Bridge(from, to, root string, names []string, tools map[string][]string, workerEnv []string) (*runner.MCP, map[string]string) {
+func Bridge(from, to, root string, names []string, tools map[string][]string, workerEnv []string) (*run.MCP, map[string]string) {
 	failed := map[string]string{}
 	servers := Servers(from, root)
 	worker, workerErr := foldersIn(workerEnv)
@@ -154,7 +154,7 @@ func Bridge(from, to, root string, names []string, tools map[string][]string, wo
 		k, v, _ := strings.Cut(kv, "=")
 		taken[k] = v
 	}
-	out := &runner.MCP{}
+	out := &run.MCP{}
 	claudeServers := map[string]any{}
 	sorted := append([]string(nil), names...)
 	sort.Strings(sorted)

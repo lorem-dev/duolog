@@ -14,10 +14,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/usage"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/project"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -113,7 +113,7 @@ func admit(ctx context.Context, g *paidruns.Gate, cfg *config.Config, in workere
 // hook that records the child before the run goes on. A child whose record
 // fails is stopped by the runner and still counts as started, so its hold
 // is never freed.
-func (a *permitRun) launch(ctx context.Context, spec *runner.Spec) error {
+func (a *permitRun) launch(ctx context.Context, spec *run.Spec) error {
 	if err := a.gate.Store.Launch(ctx, a.permit.Reservation.ID); err != nil {
 		return err
 	}
@@ -131,7 +131,7 @@ func (a *permitRun) launch(ctx context.Context, spec *runner.Spec) error {
 
 // release gives back a permit whose child never started, uncharged.
 func (a *permitRun) release(ctx context.Context) error {
-	return a.finish(ctx, nil, coreroute.Route{Target: config.Target{Agent: a.permit.Reservation.Agent}}, runner.Result{})
+	return a.finish(ctx, nil, coreroute.Route{Target: config.Target{Agent: a.permit.Reservation.Agent}}, run.Result{})
 }
 
 // sameRoute makes sure the login was checked on the admitted process. The
@@ -159,7 +159,7 @@ const settleTimeout = 10 * time.Second
 // counts at least its estimate when paid. A run whose child never started
 // releases its hold uncharged. It writes with a context that the
 // delegation's cancellation does not end.
-func (a *permitRun) finish(ctx context.Context, cfg *config.Config, route coreroute.Route, r runner.Result) error {
+func (a *permitRun) finish(ctx context.Context, cfg *config.Config, route coreroute.Route, r run.Result) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), settleTimeout)
 	defer cancel()
 	s := paidruns.Settlement{Input: r.Usage.Input, Cached: r.Usage.Cached, Output: r.Usage.Output,

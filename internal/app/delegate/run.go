@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -27,10 +26,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/taskspec"
 	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/project"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/trust"
 	"github.com/lorem-dev/duolog/internal/trusthome"
@@ -38,7 +37,7 @@ import (
 )
 
 type Outcome struct {
-	Result  runner.Result
+	Result  run.Result
 	RunHere *Placement
 	Line    string
 	// Needs names the tools the worker or the capability check asked the lead
@@ -383,7 +382,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		}
 		env := base.Env
 		var bridge []string
-		var bridged *runner.MCP
+		var bridged *run.MCP
 		if len(opts.Needs) > 0 {
 			// The worker's inventory is what its own environment's settings
 			// folders hold; the lead's is duolog's own.
@@ -456,7 +455,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		// The whole launch is admitted: Codex's exec with its sandbox flag
 		// and pins, Claude's -p with its permission flag. The runner adds
 		// none after it.
-		in.Launch = runner.Launch(runner.Spec{Route: route, Mode: wm.Level, Native: wm.Native, Network: wm.Network, WritableRoots: wm.WritableRoots})
+		in.Launch = d.Agents[route.Agent].Worker.Launch(run.Spec{Route: route, Mode: wm.Level, Native: wm.Native, Network: wm.Network, WritableRoots: wm.WritableRoots})
 		in.ProviderEnvKey = accounts.Cache.ProviderEnvKey(route.Agent)
 		if accounts.Layers != nil {
 			if in.Layers, err = accounts.Layers(ctx, in); err != nil {
@@ -571,7 +570,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 			// The admitted process (current.launch sets it) already holds the
 			// resolved native flags and the Codex sandbox pins; the runner
 			// refuses it if this spec asks for other ones.
-			spec := runner.Spec{Route: route, Mode: wm.Level, Native: wm.Native, Network: wm.Network, WritableRoots: wm.WritableRoots, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Persistent: route.Session == "resume", KeepMCP: needsKind(withoutBridged(opts.Needs, bridged), capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin), MCP: bridged, ProtectedRoots: opts.ProtectedRoots}
+			spec := run.Spec{Route: route, Mode: wm.Level, Native: wm.Native, Network: wm.Network, WritableRoots: wm.WritableRoots, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Persistent: route.Session == "resume", KeepMCP: needsKind(withoutBridged(opts.Needs, bridged), capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin), MCP: bridged, ProtectedRoots: opts.ProtectedRoots}
 			spec.MCP = limitOwn(spec, opts.Needs, cfg.Capabilities.MCPTools, pre.Env)
 			spec.MaxTurns = opts.MaxTurns
 			var entry *session.Entry
@@ -670,13 +669,13 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 					_ = reg.SetWaiting(leadID, token, 0)
 					return out, errors.Join(err, current.release(ctx))
 				}
-				run := att.begin()
+				started := att.begin()
 				workerStarted = true
-				out.Result, err = func() (runner.Result, error) {
+				out.Result, err = func() (run.Result, error) {
 					defer func() { _ = reg.SetWaiting(leadID, token, 0) }() // best effort: the entry is only a wait marker
-					return d.RunWorker(ctx, spec)
+					return d.Agents[route.Agent].Worker.Run(ctx, spec)
 				}()
-				att.worker(run, route, retry, out.Result, err)
+				att.worker(started, route, retry, out.Result, err)
 				// Settled once, with what this run measured, before a retry
 				// replaces the result.
 				if settleErr := current.finish(ctx, cfg, route, out.Result); settleErr != nil {
@@ -720,7 +719,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 				// tries one login per delegation, so this ends.
 				ok, authErr := settleAuth(ctx, cfg, reg, checker, leadID, role, problems[0], &loginTried, &out)
 				if authErr != nil || !ok {
-					out.Result = runner.Result{}
+					out.Result = run.Result{}
 					return out, authErr
 				}
 				if err = reg.SetWaiting(leadID, token, os.Getpid()); err != nil {
@@ -867,7 +866,7 @@ func inlineBudget(maxBytes, briefBytes, linesBytes int) (int, error) {
 
 func missingBinary(err error) bool {
 	var pathErr *os.PathError
-	return errors.Is(err, exec.ErrNotFound) || (errors.As(err, &pathErr) && pathErr.Op == "fork/exec" && errors.Is(err, os.ErrNotExist))
+	return errors.Is(err, run.ErrBinaryMissing) || (errors.As(err, &pathErr) && pathErr.Op == "fork/exec" && errors.Is(err, os.ErrNotExist))
 }
 
 // ClaimMigration returns a migration line for each billing key that agent's
@@ -912,15 +911,15 @@ type usageRecord struct {
 	EffortCapped bool   `json:"effort_capped"`
 	// Native is the native permission mode the worker started in.
 	Native string `json:"native,omitempty"`
-	runner.Usage
+	run.Usage
 }
 
 // RecordUsage appends the same locked usage record as a delegation.
-func RecordUsage(dir, role string, route coreroute.Route, result runner.Result) error {
+func RecordUsage(dir, role string, route coreroute.Route, result run.Result) error {
 	return appendUsage(dir, role, route, result, "")
 }
 
-func appendUsage(dir, role string, route coreroute.Route, result runner.Result, native string) error {
+func appendUsage(dir, role string, route coreroute.Route, result run.Result, native string) error {
 	unlock, err := store.LockFile(filepath.Join(dir, "usage.lock"))
 	if err != nil {
 		return err
@@ -1002,7 +1001,7 @@ const maxBriefBytes = 32 * 1024
 
 // withoutBridged drops the needs that bridged servers meet: a Claude worker
 // whose only MCP needs are bridged starts with those servers and no others.
-func withoutBridged(needs []string, bridged *runner.MCP) []string {
+func withoutBridged(needs []string, bridged *run.MCP) []string {
 	if bridged == nil {
 		return needs
 	}
@@ -1045,7 +1044,7 @@ func workerBrief(root string) []byte {
 // the lead's definition, which is what the worker gets; the worker's own
 // servers are those the settings folders of workerEnv, its environment,
 // define.
-func preflight(ctx context.Context, checker auth.Checker, agent, leadAgent, root string, needs []string, bridged *runner.MCP, workerEnv []string) []auth.Problem {
+func preflight(ctx context.Context, checker auth.Checker, agent, leadAgent, root string, needs []string, bridged *run.MCP, workerEnv []string) []auth.Problem {
 	var out []auth.Problem
 	if p := checker.Agent(ctx, agent); p != nil {
 		return append(out, *p)
@@ -1082,7 +1081,7 @@ func preflight(ctx context.Context, checker auth.Checker, agent, leadAgent, root
 // runProblems reads a refused login from a finished run: an error the runner
 // classified, or auth: entries the worker put in needs.
 // The worker's own servers are those of workerEnv, its environment.
-func runProblems(agent, leadAgent, root string, r runner.Result, bridged *runner.MCP, taskNeeds, workerEnv []string) []auth.Problem {
+func runProblems(agent, leadAgent, root string, r run.Result, bridged *run.MCP, taskNeeds, workerEnv []string) []auth.Problem {
 	// A finished run stays finished, whatever its log said about a login.
 	if r.Done {
 		return nil

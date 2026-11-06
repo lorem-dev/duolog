@@ -13,10 +13,10 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/taskspec"
 	"github.com/lorem-dev/duolog/internal/core/usage"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -39,7 +39,7 @@ func judgeFixture(t *testing.T) (*fixture, Replay) {
 		Original: Side{Entry: "codex/terra/medium", Patch: []byte("patch one"), Summary: "solution one", Checks: []journal.Check{{Command: "git --version", Exit: 0}}},
 		Profile:  Side{Entry: "codex/sol/high", Patch: []byte("patch two"), Summary: "solution two", USD: 0.4, Checks: []journal.Check{{Command: "missing", Exit: -1}}}}
 	f.fake(t, func(context.Context, *config.Config, *store.Store, string, string, string) (delegate.Outcome, error) {
-		return delegate.Outcome{Result: runner.Result{Done: true, Summary: judgeSummary, Usage: runner.Usage{Input: 1000, Cached: 200, Output: 300}}}, nil
+		return delegate.Outcome{Result: run.Result{Done: true, Summary: judgeSummary, Usage: run.Usage{Input: 1000, Cached: 200, Output: 300}}}, nil
 	})
 	return f, r
 }
@@ -114,7 +114,7 @@ func TestJudgeLabelsFollowShuffle(t *testing.T) {
 				if !bytes.Equal(readTest(t, filepath.Join(filepath.Dir(path), "a.patch")), a) || !bytes.Equal(readTest(t, filepath.Join(filepath.Dir(path), "b.patch")), b) {
 					t.Fatal("labels did not follow shuffle")
 				}
-				return delegate.Outcome{Result: runner.Result{Done: true, Summary: judgeSummary}}, nil
+				return delegate.Outcome{Result: run.Result{Done: true, Summary: judgeSummary}}, nil
 			})
 			v, err := Judge(context.Background(), f.deps, f.cfg, f.s, r, delegate.Options{Lead: "judge-lead", AllowManualModel: true})
 			if err != nil {
@@ -192,7 +192,7 @@ func TestBadJudgeAnswerRecordsNothing(t *testing.T) {
 	var dir string
 	f.fake(t, func(_ context.Context, _ *config.Config, _ *store.Store, _, path, _ string) (delegate.Outcome, error) {
 		dir = filepath.Dir(path)
-		return delegate.Outcome{Result: runner.Result{Done: true, Summary: "no scores"}}, nil
+		return delegate.Outcome{Result: run.Result{Done: true, Summary: "no scores"}}, nil
 	})
 	_, err := Judge(context.Background(), f.deps, f.cfg, f.s, r, delegate.Options{})
 	if err == nil || !strings.Contains(err.Error(), filepath.Join(dir, "answer.json")) {
