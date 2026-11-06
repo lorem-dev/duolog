@@ -325,9 +325,10 @@ func TestMoreReadCommands(t *testing.T) {
 		{"file src/a.go", Allow},
 		{"file -C -m src/magic", Ask},
 		// -m and -f read a file and print its lines in errors, also when attached.
-		{"file -m.env src/a.go", Ask},
-		{"file -f.env", Ask},
-		{"file -bm.env src/a.go", Ask},
+		// The attached file is judged by the read rules, which deny .env.
+		{"file -m.env src/a.go", Deny},
+		{"file -f.env", Deny},
+		{"file -bm.env src/a.go", Deny},
 		{"file --magic-file=src/m src/a.go", Ask},
 		{"file -bi src/a.go", Allow},
 		{"stat src/a.go", Allow},

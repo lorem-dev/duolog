@@ -1,11 +1,13 @@
 package gate
 
 import (
+	"runtime"
 	"slices"
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/pathutil"
 )
 
 // fileTargets are the files one command part reads or writes that its plain
@@ -14,6 +16,9 @@ import (
 // piece of one relative path.
 type fileTargets struct {
 	reads, writes []string
+	// paths are files that the part reads or writes; the gate cannot tell
+	// which, so they are judged both ways.
+	paths []string
 	// unknown means the part can reach a file or run a program that the gate
 	// cannot name, such as the command of sed's e.
 	unknown bool
@@ -22,6 +27,7 @@ type fileTargets struct {
 func (t *fileTargets) add(other fileTargets) {
 	t.reads = append(t.reads, other.reads...)
 	t.writes = append(t.writes, other.writes...)
+	t.paths = append(t.paths, other.paths...)
 	t.unknown = t.unknown || other.unknown
 }
 
@@ -29,7 +35,7 @@ func (t *fileTargets) add(other fileTargets) {
 // each file is listed once.
 func (t *fileTargets) union(other fileTargets) {
 	t.add(other)
-	for _, list := range []*[]string{&t.reads, &t.writes} {
+	for _, list := range []*[]string{&t.reads, &t.writes, &t.paths} {
 		var seen []string
 		for _, name := range *list {
 			if !slices.Contains(seen, name) {
@@ -69,11 +75,75 @@ func commandFileTargets(part string, depth int) fileTargets {
 		}
 		return t
 	}
-	switch programName(program) {
+	name := programName(program)
+	switch name {
 	case "sed", "gsed":
 		t.add(sedTargets(args))
+	default:
+		t.paths = attachedValues(name, args)
 	}
 	return t
+}
+
+// attachedTextShorts lists, per program, the short options whose value in the
+// same word is text, such as the separator of cut -d/ or the pattern of
+// grep -e/api/. Any other option's attached value that starts like a path is
+// judged as one: -o/tmp/out, -C../peer, -t~/bin, curl's -d@file.
+var attachedTextShorts = map[string]string{
+	"grep": "e", "egrep": "e", "fgrep": "e", "rg": "egr", "git": "eSG",
+	"cut": "d", "sort": "t", "paste": "d", "join": "t", "column": "s", "xargs": "dEI",
+	"awk": "Fv", "gawk": "Fv", "mawk": "Fv", "nawk": "Fv",
+}
+
+// attachedValues lists the values that a program's short options carry in
+// their own word and that look like paths.
+func attachedValues(program string, args []string) []string {
+	var values []string
+	for _, word := range args {
+		if word == "--" {
+			break
+		}
+		if value := attachedValue(program, word); value != "" {
+			values = append(values, value)
+		}
+	}
+	return values
+}
+
+// attachedValue returns the text after the option letters of a single-dash
+// word, after an optional @, when it looks like a path: it starts with /, ~,
+// . or a Windows drive, or it holds a / or a \ anywhere.
+func attachedValue(program, word string) string {
+	if !strings.HasPrefix(word, "-") || strings.HasPrefix(word, "--") {
+		return ""
+	}
+	end := 1
+	for end < len(word) && isOptionLetter(word[end]) {
+		end++
+	}
+	if end == 1 || strings.IndexByte(attachedTextShorts[program], word[end-1]) >= 0 {
+		return ""
+	}
+	if end > 2 && attachedDrive(word[end:]) {
+		// The last letter is a drive, as in -oC:/out or -oC:\out.
+		end--
+	}
+	value := strings.TrimPrefix(word[end:], "@")
+	if value == "" || strings.IndexByte("/~.", value[0]) < 0 && !pathutil.IsAbs(value) && !strings.ContainsAny(value, `/\`) {
+		return ""
+	}
+	return value
+}
+
+// attachedDrive reports whether the text after an option's letters makes
+// the last letter a drive: a colon and a slash or backslash, or on Windows
+// a colon alone, as in -oD:out, which names a path on drive D.
+func attachedDrive(rest string) bool {
+	return strings.HasPrefix(rest, ":/") || strings.HasPrefix(rest, `:\`) || runtime.GOOS == "windows" && strings.HasPrefix(rest, ":")
+}
+
+func isOptionLetter(c byte) bool {
+	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9'
 }
 
 // fileTargetsOutside reports whether a command line reads or writes a file
@@ -85,7 +155,7 @@ func fileTargetsOutside(a Action) bool {
 		if targets.unknown {
 			return true
 		}
-		for _, target := range append(targets.reads, targets.writes...) {
+		for _, target := range slices.Concat(targets.reads, targets.writes, targets.paths) {
 			if outsideOperand(a, target) {
 				return true
 			}
@@ -108,25 +178,29 @@ func rawPartDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, part st
 
 // fileTargetDeny holds the read rules, the state read rule among them, for
 // every file that partFileTargets finds a part reading, and the write denies
-// for every file it finds the part writing.
+// for every file it finds the part writing. A path that may be either is
+// judged as a write when the part can write, and as a read.
 func fileTargetDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, part string) (Decision, bool) {
 	shell := a.Shell
 	if shell == "powershell" {
 		shell = "windows"
 	}
 	targets := partFileTargets(part)
-	for _, target := range targets.reads {
+	if canWrite(part) {
+		targets.writes = append(targets.writes, targets.paths...)
+	}
+	for _, target := range targets.writes {
+		if d, ok := writeDeny(p, lead, m, a, target, "this command writes a path that"); ok {
+			return d, true
+		}
+	}
+	for _, target := range append(targets.reads, targets.paths...) {
 		if a.Work != "" {
 			target = RelativeTarget(a.Work, a.Cwd, expandHome(target))
 		}
 		d := Evaluate(p, lead, m, Action{Kind: "read", Target: target, Role: a.Role, Shell: shell})
 		if d.Kind == Deny {
 			d.Reason = "a file this command reads: " + d.Reason
-			return d, true
-		}
-	}
-	for _, target := range targets.writes {
-		if d, ok := writeDeny(p, lead, m, a, target, "this command writes a path that"); ok {
 			return d, true
 		}
 	}
