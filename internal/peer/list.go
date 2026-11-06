@@ -1,15 +1,91 @@
 package peer
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"time"
 
+	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/rex"
+	"github.com/lorem-dev/duolog/internal/session"
 )
 
+// LastEvent is the newest thing duolog knows about a peer.
+type LastEvent struct {
+	Kind string    `json:"kind"` // "task", "question" or "record"
+	At   time.Time `json:"at"`   // zero: a question with no recorded start
+}
+
 // ListedPeer is a snapshot of a lead's peer in this project's registry.
+// ID and State keep the values that scripts read; the rest is added data.
 type ListedPeer struct {
-	ID    string `json:"id"`
-	State State  `json:"state"`
+	ID       string     `json:"id"`
+	State    State      `json:"state"`
+	Working  bool       `json:"working"`
+	Role     string     `json:"role"`
+	Agent    string     `json:"agent"`
+	Task     string     `json:"task,omitempty"`
+	Tab      string     `json:"tab"`
+	WorkRoot string     `json:"work_root"`
+	Last     *LastEvent `json:"last,omitempty"`
+}
+
+// Display is the state a person reads: asking, working, or the state itself.
+func (p ListedPeer) Display() string {
+	switch {
+	case p.State == Question:
+		return "asking"
+	case p.Working:
+		return "working"
+	}
+	return string(p.State)
+}
+
+// tabLabel is the name of a peer's Rex tab. The entry stores no label.
+func tabLabel(agent, role string) string {
+	return "duolog | " + agent + "-" + role
+}
+
+// taskTimes reads the bus once and gives the newest task time per peer ref.
+// The bus can lose old lines, so a peer may have no time.
+func taskTimes(dir string) map[string]time.Time {
+	times := map[string]time.Time{}
+	f, err := os.Open(filepath.Join(dir, "bus.ndjson"))
+	if err != nil {
+		return times
+	}
+	defer f.Close()
+	scan := bufio.NewScanner(f)
+	scan.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for scan.Scan() {
+		var m bus.Message
+		if json.Unmarshal(scan.Bytes(), &m) != nil || m.K != "task" || m.Ref == "" {
+			continue
+		}
+		if t, err := time.Parse(time.RFC3339Nano, m.T); err == nil {
+			times[m.Ref] = t
+		}
+	}
+	return times
+}
+
+// lastEvent picks what to show as the newest event. A question shows its
+// recorded start, which may be unknown (zero). Otherwise the newer of the
+// task send time and the record's update time wins; nil when both are zero.
+func lastEvent(entry session.Entry, state State, sent time.Time) *LastEvent {
+	if state == Question {
+		return &LastEvent{Kind: "question", At: entry.QuestionSince}
+	}
+	switch {
+	case sent.IsZero() && entry.UpdatedAt.IsZero():
+		return nil
+	case entry.UpdatedAt.After(sent):
+		return &LastEvent{Kind: "record", At: entry.UpdatedAt}
+	}
+	return &LastEvent{Kind: "task", At: sent}
 }
 
 // List observes states without sending keys, answering questions or changing
@@ -23,6 +99,7 @@ func List(ctx context.Context) ([]ListedPeer, error) {
 	if err != nil {
 		return nil, err
 	}
+	sent := taskTimes(e.dir)
 	peers := []ListedPeer{}
 	for _, entry := range entries {
 		if entry.Block == "" || entry.Closed || entry.Lead != e.leadID {
@@ -33,6 +110,7 @@ func List(ctx context.Context) ([]ListedPeer, error) {
 			return nil, err
 		}
 		state := Closed
+		working := false
 		switch presence {
 		case rex.Exited:
 			state = Exited
@@ -44,9 +122,14 @@ func List(ctx context.Context) ([]ListedPeer, error) {
 			if err != nil {
 				return nil, err
 			}
-			state = screen.State
+			state, working = screen.State, screen.Working
 		}
-		peers = append(peers, ListedPeer{ID: entry.ID, State: state})
+		peers = append(peers, ListedPeer{
+			ID: entry.ID, State: state, Working: working,
+			Role: entry.Role, Agent: entry.Agent, Task: entry.Task,
+			Tab: tabLabel(entry.Agent, entry.Role), WorkRoot: entry.WorkRoot,
+			Last: lastEvent(entry, state, sent[entry.ID]),
+		})
 	}
 	return peers, nil
 }

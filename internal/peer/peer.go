@@ -211,24 +211,7 @@ func (e *env) attempt(entry session.Entry, outcome, code string) {
 
 // sentAt is when the lead last sent this peer a task, from the bus.
 func (e *env) sentAt(id string) time.Time {
-	f, err := os.Open(filepath.Join(e.dir, "bus.ndjson"))
-	if err != nil {
-		return time.Time{}
-	}
-	defer f.Close()
-	var at time.Time
-	scan := bufio.NewScanner(f)
-	scan.Buffer(make([]byte, 64*1024), 16*1024*1024)
-	for scan.Scan() {
-		var m bus.Message
-		if json.Unmarshal(scan.Bytes(), &m) != nil || m.K != "task" || m.Ref != id {
-			continue
-		}
-		if t, err := time.Parse(time.RFC3339Nano, m.T); err == nil {
-			at = t
-		}
-	}
-	return at
+	return taskTimes(e.dir)[id]
 }
 
 type optionsKey struct{}
@@ -452,7 +435,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	if err != nil {
 		return noted(Entry{}, err)
 	}
-	block, rexSession, err := e.openProjectPeer(ctx, route.Agent+"-"+role, launchArgv(exe, envFile, agentArgv(route, lead.mode, filepath.Dir(e.dir), e.opts.ProtectedRoots...)))
+	block, rexSession, err := e.openProjectPeer(ctx, tabLabel(route.Agent, role), launchArgv(exe, envFile, agentArgv(route, lead.mode, filepath.Dir(e.dir), e.opts.ProtectedRoots...)))
 	if err != nil {
 		_ = os.Remove(envFile)
 		return noted(Entry{}, err)
