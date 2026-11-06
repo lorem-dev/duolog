@@ -1450,58 +1450,6 @@ func pick(options []Option, choice string) (int, error) {
 	return 0, fmt.Errorf("no option %q; the options are: %s", choice, strings.Join(labels, " | "))
 }
 
-// Close closes the pane and the record. The id may be a pane ID, which is what
-// doctor prints. A pane that is already gone is not an error, and files stay.
-func Close(ctx context.Context, id string) (err error) {
-	started, agent, run := time.Now(), "", ""
-	defer func() { observeOperation(ctx, "close", agent, run, started, Ready, err) }()
-	e, err := setupFor(ctx, false)
-	if err != nil {
-		return err
-	}
-	closing := flock.New(filepath.Join(e.dir, "peer-open.lock"))
-	if err := closing.Lock(); err != nil {
-		_ = closing.Close()
-		return err
-	}
-	defer closing.Close()
-	entry, err := e.find(id)
-	if err != nil {
-		removed, lookupErr := e.reg.PeerRemoved(id)
-		if lookupErr != nil {
-			return lookupErr
-		}
-		if removed {
-			return e.cleanupProjectSession(ctx)
-		}
-		return err
-	}
-	agent, run = entry.Agent, entry.Run
-	if err := e.credit(entry); err != nil {
-		return err
-	}
-	if err := e.clientFor(entry).Close(ctx, entry.Block); err != nil {
-		return err
-	}
-	// The close is confirmed: the slot frees, a never-sent open is refunded
-	// and an unsettled sent task counts at least its estimate when paid.
-	if err := e.sessionEnded(ctx, entry); err != nil {
-		return err
-	}
-	if err := e.reg.RemovePeer(entry.ID); err != nil {
-		return err
-	}
-	// A task still open ends with the pane. An ended pane reported its own.
-	if !entry.Closed {
-		outcome, code := "interrupted", runner.CodeNone
-		if unavailable, uerr := e.reg.Unavailable(); uerr == nil && unavailable[entry.Agent] {
-			outcome, code = "infra", runner.CodeQuota
-		}
-		e.attempt(entry, outcome, code)
-	}
-	return e.cleanupProjectSession(ctx)
-}
-
 // pendingAsk never advances the delivery cursor; the lead hook still receives
 // the request. Replies are matched by ref so answered requests do not stop wait.
 // Only an ask whose ref names this peer stops its wait. An ask that names no

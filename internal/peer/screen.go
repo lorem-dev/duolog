@@ -23,6 +23,9 @@ const (
 	Limited     State = "limited"
 	Exited      State = "exited"
 	Closed      State = "closed"
+	// Gone is a pane that Rex no longer knows, as after a Rex restart. Only
+	// List reports it; its record stays until peer close frees it.
+	Gone State = "gone"
 )
 
 // Option is one choice of a question. Number is zero for an unnumbered list.

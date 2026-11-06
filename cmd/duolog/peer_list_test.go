@@ -2,11 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/peer"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/testbin"
@@ -75,6 +78,74 @@ func TestPeerListPlainIsTwoFields(t *testing.T) {
 				t.Fatalf("%s %v", out, err)
 			}
 		})
+	}
+}
+
+// restartRex installs the fake rex of a restarted server: the old session is
+// not listed and its panes are not found. The lead's process ended with it,
+// so its entries are closed, and it came back under the same id.
+func restartRex(t *testing.T, root string) {
+	t.Helper()
+	reg, err := session.Open(filepath.Join(root, ".duolog"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Close("lead-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.RegisterLead(session.Lead{ID: "lead-1", Target: config.Target{Agent: "codex", Model: "sol", Effort: "high"}, Mode: mode.Ask, PID: os.Getpid()}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("REX_SESSION", "sess-new")
+	notFound := testbin.Scenario{Exit: 3, Stderr: `block target "block:peer" not found`}
+	testbin.Install(t, "rex", testbin.Scenario{Exit: 99, Stderr: "unexpected rex command", Responses: map[string]testbin.Scenario{
+		"session list":  {Stdout: `{"sessions":[{"session_id":"sess-new","label":"lead"}]}`},
+		"block inspect": notFound,
+		"block close":   notFound,
+	}})
+}
+
+func TestPeerListAfterRexRestartShowsGonePeers(t *testing.T) {
+	clearModelMarkers(t)
+	asTerminal(t, true)
+	root, _ := peerProject(t, testbin.Scenario{Stdout: claudeIdleScreen()})
+	recordListPeer(t, root)
+	restartRex(t, root)
+	out, err := executeBusCommand(t, "peer", "list")
+	if err != nil || strings.TrimSpace(out) != "peer-list gone" {
+		t.Fatalf("%q %v", out, err)
+	}
+	out, err = executeBusCommand(t, "peer", "list", "--long")
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if err != nil || len(lines) != 2 || !strings.Contains(lines[1], "gone") {
+		t.Fatalf("%q %v", out, err)
+	}
+	out, err = executeBusCommand(t, "peer", "list", "--json")
+	var peers []struct{ ID, State string }
+	if err != nil || json.Unmarshal([]byte(out), &peers) != nil || len(peers) != 1 || peers[0].State != "gone" {
+		t.Fatalf("%s %v", out, err)
+	}
+}
+
+func TestPeerCloseGonePeerSaysSoAndAsksRexForNoClose(t *testing.T) {
+	clearModelMarkers(t)
+	asTerminal(t, true)
+	root, _ := peerProject(t, testbin.Scenario{Stdout: claudeIdleScreen()})
+	recordListPeer(t, root)
+	restartRex(t, root)
+	out, err := executeBusCommand(t, "peer", "close", "peer-list")
+	if err != nil || !strings.Contains(out, "peer-list closed; its pane was already gone") {
+		t.Fatalf("%q %v", out, err)
+	}
+	reg, err := session.Open(filepath.Join(root, ".duolog"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entries, _ := reg.Entries(); len(entries) != 0 {
+		t.Fatalf("record stays: %+v", entries)
+	}
+	if out, err = executeBusCommand(t, "peer", "list"); err != nil || strings.TrimSpace(out) != "" {
+		t.Fatalf("%q %v", out, err)
 	}
 }
 
