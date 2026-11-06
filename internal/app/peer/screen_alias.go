@@ -28,4 +28,4 @@ const (
 )
 
 // Parse reads a captured screen for the named agent.
-var Parse = corescreen.Parse
+func Parse(agent string, raw []byte) Screen { return corescreen.Parse(agent, raw) }

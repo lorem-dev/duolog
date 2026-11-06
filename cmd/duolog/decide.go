@@ -15,11 +15,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// agentAbove reports whether the caller runs in an agent session
-// (session.AgentAbove); tests replace it.
-var agentAbove = session.AgentAbove
-
-func newDecideCommand(kind string) *cobra.Command {
+func newDecideCommand(kind string, d *cmdDeps) *cobra.Command {
 	var leadFlag string
 	cmd := &cobra.Command{Use: kind + " <n>", Short: "Answer a worker permission request", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if isWorker() {
@@ -37,7 +33,7 @@ func newDecideCommand(kind string) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		request, err := openRequest(reg, b.Directory(), n)
+		request, err := openRequest(d, reg, b.Directory(), n)
 		if err != nil {
 			return err
 		}
@@ -48,7 +44,7 @@ func newDecideCommand(kind string) *cobra.Command {
 		if !ok {
 			return fmt.Errorf("lead is unavailable or has ended")
 		}
-		if err := checkCaller(reg, lead, n, leadFlag); err != nil {
+		if err := checkCaller(d, reg, lead, n, leadFlag); err != nil {
 			return err
 		}
 		_, err = b.Send(bus.Message{From: session.Address(lead), To: request.From, K: kind, Ref: strconv.FormatInt(n, 10), S: kind})
@@ -61,7 +57,7 @@ func newDecideCommand(kind string) *cobra.Command {
 // openRequest returns permission request n from the bus in dir when it may
 // still be answered by this caller: an ask that has neither expired nor been
 // answered, and, when it is person-only, a caller that checkPerson lets in.
-func openRequest(reg *session.Registry, dir string, n int64) (bus.Message, error) {
+func openRequest(d *cmdDeps, reg *session.Registry, dir string, n int64) (bus.Message, error) {
 	request, err := permissionRequest(dir, n)
 	if err != nil {
 		return bus.Message{}, err
@@ -70,7 +66,7 @@ func openRequest(reg *session.Registry, dir string, n int64) (bus.Message, error
 		return bus.Message{}, fmt.Errorf("request %d is not a permission request", n)
 	}
 	if request.P {
-		if err := checkPerson(reg, n); err != nil {
+		if err := checkPerson(d, reg, n); err != nil {
 			return bus.Message{}, err
 		}
 	}
@@ -100,7 +96,7 @@ func openRequest(reg *session.Registry, dir string, n int64) (bus.Message, error
 // that detaches, as with nohup, setsid, tmux new -d or a Rex pane, is
 // re-parented away from its lead, may drop CLAUDECODE, and then looks like
 // the person's terminal. No check within one user tells them apart.
-func checkCaller(reg *session.Registry, lead session.Lead, n int64, leadFlag string) error {
+func checkCaller(d *cmdDeps, reg *session.Registry, lead session.Lead, n int64, leadFlag string) error {
 	// Leads that share one process: the owner, or the one --lead names.
 	above, found, err := reg.AncestorLead(lead.ID, leadFlag)
 	switch {
@@ -110,7 +106,7 @@ func checkCaller(reg *session.Registry, lead session.Lead, n int64, leadFlag str
 		return fmt.Errorf("request %d belongs to another lead, not to lead %q, which runs this command; --lead does not change that", n, above.ID)
 	case found && leadFlag == "" && session.CurrentLead(os.Environ()) == "":
 		return nil
-	case !found && agentAbove(os.Environ()):
+	case !found && d.AgentAbove(os.Environ()):
 		return fmt.Errorf("request %d: this command runs in an agent session that is no lead of this project; the person answers it in their own terminal, or the lead runs duolog lead register in its own session", n)
 	}
 	caller, err := reg.ResolveLead(leadFlag)
@@ -130,9 +126,9 @@ func checkCaller(reg *session.Registry, lead session.Lead, n int64, leadFlag str
 // of this project among the parent processes refuses, as does any Claude or
 // Codex process or Claude's CLAUDECODE mark. It is best effort, as
 // checkCaller is.
-func checkPerson(reg *session.Registry, n int64) error {
+func checkPerson(d *cmdDeps, reg *session.Registry, n int64) error {
 	refused := fmt.Errorf("request %d is the person's to answer: it reaches outside the work root, and no lead, subagent, worker or peer answers it; the person runs duolog allow or deny in their own terminal", n)
-	if agentAbove(os.Environ()) {
+	if d.AgentAbove(os.Environ()) {
 		return refused
 	}
 	// A walk error refuses too: it found a lead above through an agent

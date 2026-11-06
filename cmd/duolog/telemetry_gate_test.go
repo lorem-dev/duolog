@@ -91,7 +91,7 @@ func TestCalibrationCellCannotWriteProtectedRoots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if env := cellEnv(root, s, "", "lead-123456", nil); !slices.Equal(env.ProtectedRoots, roots) {
+	if env := cellEnv(testDeps(t), root, s, "", "lead-123456", nil); !slices.Equal(env.ProtectedRoots, roots) {
 		t.Fatalf("calibration roots %q, want %q", env.ProtectedRoots, roots)
 	}
 	tree, err := calibration.TreeSlot(root, 0)

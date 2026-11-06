@@ -43,14 +43,12 @@ func gateSetup(t *testing.T, m mode.Mode) (*session.Registry, string) {
 // answer could come after the wait.
 func shortAskWait(t *testing.T) {
 	t.Helper()
-	old := askWait
-	askWait = func(int) time.Duration { return 50 * time.Millisecond }
-	t.Cleanup(func() { askWait = old })
+	testDeps(t).AskWait = func(int) time.Duration { return 50 * time.Millisecond }
 }
 
 func gateCommand(t *testing.T, input string, args ...string) (string, error) {
 	t.Helper()
-	cmd := newRootCommand()
+	cmd := newRootCommand(testDeps(t))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
@@ -221,7 +219,7 @@ func TestLeadGuardWritesBeforeObservation(t *testing.T) {
 			t.Error("observation ran before guard output", lead.Mode, err)
 		}
 	}}
-	cmd := newRootCommand()
+	cmd := newRootCommand(testDeps(t))
 	cmd.SetOut(w)
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetIn(strings.NewReader(`{"session_id":"lead-123456","permission_mode":"bypassPermissions","tool_name":"Bash","tool_input":{"command":"duolog allow 1"}}`))
@@ -247,7 +245,7 @@ func TestLeadGateIgnoresGuardWriteError(t *testing.T) {
 			t.Setenv("DUOLOG_DEPTH", "")
 			dir := personOnlyBus(t)
 			t.Chdir(filepath.Dir(dir))
-			cmd := newRootCommand()
+			cmd := newRootCommand(testDeps(t))
 			writer := &leadGuardErrorWriter{}
 			cmd.SetOut(writer)
 			cmd.SetErr(&bytes.Buffer{})

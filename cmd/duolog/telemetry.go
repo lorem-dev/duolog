@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -32,36 +31,11 @@ var errWorkerTelemetry = errors.New("only the person may run duolog telemetry; a
 // their tool calls start. Any of them means a model may read the output.
 var modelMarkers = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED", "CODEX_THREAD_ID"}
 
-// isTerminal reports whether v is a file open on a terminal; tests replace it.
-var isTerminal = func(v any) bool {
-	f, ok := v.(*os.File)
-	if !ok {
-		return false
-	}
-	info, err := f.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
-}
-
-// modelContext reports whether a model may read this command's output: a
-// worker, a lead's tool call, or output that does not go to a terminal. No
-// flag can claim the person's terminal.
-func modelContext(cmd *cobra.Command) bool {
-	if isWorker() {
-		return true
-	}
-	for _, name := range modelMarkers {
-		if os.Getenv(name) != "" {
-			return true
-		}
-	}
-	return !isTerminal(cmd.OutOrStdout())
-}
-
 // newTelemetryCommand holds the person's controls of local telemetry. Every
 // subcommand refuses a worker before it reads anything; a lead model's call
 // passes the lead hook, which asks the person (Claude) or points to the
 // person's terminal (Codex). There is no export and no root override.
-func newTelemetryCommand() *cobra.Command {
+func newTelemetryCommand(d *cmdDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "telemetry",
 		Short: "Show and manage local telemetry, which never leaves this machine; for the person only",
@@ -74,7 +48,7 @@ func newTelemetryCommand() *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 	}
-	cmd.AddCommand(newTelemetryStatusCommand(), newTelemetryShowCommand(), newTelemetryPruneCommand(), newTelemetryPurgeCommand(), newTelemetrySwitchCommand(true), newTelemetrySwitchCommand(false))
+	cmd.AddCommand(newTelemetryStatusCommand(), newTelemetryShowCommand(), newTelemetryPruneCommand(), newTelemetryPurgeCommand(d), newTelemetrySwitchCommand(true), newTelemetrySwitchCommand(false))
 	return cmd
 }
 
@@ -242,7 +216,7 @@ func newTelemetryPruneCommand() *cobra.Command {
 	}}
 }
 
-func newTelemetryPurgeCommand() *cobra.Command {
+func newTelemetryPurgeCommand(d *cmdDeps) *cobra.Command {
 	var scope string
 	var all, yes bool
 	cmd := &cobra.Command{Use: "purge", Short: "Delete telemetry history of this project, or with --all all of it and the salt", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -261,7 +235,7 @@ func newTelemetryPurgeCommand() *cobra.Command {
 			}
 			// Only the person's answer at a terminal confirms; a redirected
 			// stdin cannot.
-			if !isTerminal(cmd.InOrStdin()) {
+			if !d.IsTerminal(cmd.InOrStdin()) {
 				return fmt.Errorf("purge deletes %s: confirm in your terminal or pass --yes", what)
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "Delete %s? Type yes to confirm: ", what)
@@ -460,17 +434,14 @@ func leadStoreCommand(a gate.Action) bool {
 	return false
 }
 
-// doctorGOOS is the platform doctor describes; tests set others.
-var doctorGOOS = runtime.GOOS
-
 // telemetryDoctor renders doctor's telemetry lines, each "level: message".
 // A model reads only the coarse form: on and healthy, off, or unhealthy.
 // The person's terminal gets the full line, the warnings and which backup
 // exclusions are verified. Isolation is gate + sandbox only where a Claude
 // sandbox the person turned on adds the roots to denyRead; native Windows
 // has the gate only. The lost-event counters are this process's.
-func telemetryDoctor(s telemetry.Status, modelContext, sandboxActive bool, now time.Time) string {
-	warnings, backup := telemetryWarnings(s, now)
+func telemetryDoctor(goos string, s telemetry.Status, modelContext, sandboxActive bool, now time.Time) string {
+	warnings, backup := telemetryWarnings(goos, s, now)
 	if modelContext {
 		switch {
 		case !s.Enabled:
@@ -481,7 +452,7 @@ func telemetryDoctor(s telemetry.Status, modelContext, sandboxActive bool, now t
 		return "info: telemetry: on, healthy\n"
 	}
 	isolation := "gate only"
-	if sandboxActive && doctorGOOS != "windows" {
+	if sandboxActive && goos != "windows" {
 		isolation = "gate + sandbox"
 	}
 	state := "off"
@@ -510,7 +481,7 @@ func telemetryDoctor(s telemetry.Status, modelContext, sandboxActive bool, now t
 
 // telemetryWarnings returns the warnings that make the store unhealthy, and
 // the backup lines, which only describe the platform.
-func telemetryWarnings(s telemetry.Status, now time.Time) (warnings, backup []string) {
+func telemetryWarnings(goos string, s telemetry.Status, now time.Time) (warnings, backup []string) {
 	p := s.Protection
 	refusals := map[string]string{
 		"symlink": "root is a symlink", "owner": "root is owned by another user", "git": "root is inside a git work tree",
@@ -533,7 +504,7 @@ func telemetryWarnings(s telemetry.Status, now time.Time) (warnings, backup []st
 	if !s.Enabled {
 		return warnings, nil
 	}
-	switch doctorGOOS {
+	switch goos {
 	case "darwin":
 		var verified, unverified []string
 		for _, c := range []struct {

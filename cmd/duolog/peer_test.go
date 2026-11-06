@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/core/config"
@@ -61,12 +62,12 @@ func rexCalls(t *testing.T, bin string) [][]string {
 // pauses change nothing a test sees.
 func shortPeerPauses(t *testing.T) {
 	t.Helper()
-	old := peerDeps
-	t.Cleanup(func() { peerDeps = old })
-	peerDeps = func() peer.Deps {
-		d := old()
-		d.Pauses.Poll, d.Pauses.Settle, d.Pauses.Send, d.Pauses.Key = time.Millisecond, time.Millisecond, time.Millisecond, time.Millisecond
-		return d
+	d := testDeps(t)
+	build := d.PeerDeps
+	d.PeerDeps = func(dd delegate.Deps) peer.Deps {
+		p := build(dd)
+		p.Pauses.Poll, p.Pauses.Settle, p.Pauses.Send, p.Pauses.Key = time.Millisecond, time.Millisecond, time.Millisecond, time.Millisecond
+		return p
 	}
 }
 
@@ -197,7 +198,7 @@ func TestPeerOnPlainCLI(t *testing.T) {
 			t.Fatalf("text reached the pane: %v", c)
 		}
 	}
-	for _, sub := range newPeerCommand().Commands() {
+	for _, sub := range newPeerCommand(testDeps(t)).Commands() {
 		if strings.Contains(strings.ToLower(sub.Name()), "mcp") {
 			t.Fatal("peer depends on MCP")
 		}
@@ -376,9 +377,7 @@ func TestPeerLaunchRecordsItselfOnTheHold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	old := openLaunchState
-	t.Cleanup(func() { openLaunchState = old })
-	openLaunchState = func() (*paidruns.Store, error) { return st, nil }
+	testDeps(t).OpenLaunchState = func() (*paidruns.Store, error) { return st, nil }
 	ctx := context.Background()
 	if err := st.Update(ctx, func(s *paidruns.State) error {
 		s.Reservations["pane"] = paidruns.Reservation{ID: "pane", Agent: "claude", Peer: "p1", Session: true, Task: true, Launching: true}
@@ -401,7 +400,7 @@ func TestPeerLaunchRecordsItselfOnTheHold(t *testing.T) {
 		t.Fatalf("launcher not recorded: %+v", held)
 	}
 
-	openLaunchState = func() (*paidruns.Store, error) { return nil, errors.New("no account state") }
+	testDeps(t).OpenLaunchState = func() (*paidruns.Store, error) { return nil, errors.New("no account state") }
 	if err := os.WriteFile(file, []byte(`["DUOLOG_PEER=p1"]`), 0o600); err != nil {
 		t.Fatal(err)
 	}

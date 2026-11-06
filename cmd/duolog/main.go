@@ -7,26 +7,27 @@ import (
 	"os/signal"
 
 	"github.com/lorem-dev/duolog/internal/project"
+	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
 
 var version = "1.4.1"
 
-func newRootCommand() *cobra.Command {
+func newRootCommand(d *cmdDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "duolog",
 		Short:        "Coordinate Claude Code and Codex tasks",
 		SilenceUsage: true,
 	}
-	cmd.AddCommand(newCalibrateCommand())
+	cmd.AddCommand(newCalibrateCommand(d))
 	cmd.AddCommand(newCoauthorsCommand())
-	cmd.AddCommand(newQuotaCommand())
-	cmd.AddCommand(newSkillCommand())
+	cmd.AddCommand(newQuotaCommand(d))
+	cmd.AddCommand(newSkillCommand(d))
 	cmd.AddCommand(&cobra.Command{Use: "version", Short: "Print the duolog version", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		_, err := fmt.Fprintln(cmd.OutOrStdout(), version)
 		return err
 	}})
-	cmd.AddCommand(newConfigCommand(), newRouteCommand(), newSendCommand(), newInboxCommand(), newPutCommand(), newRefCommand(), newReadCommand(), newDelegateCommand(), newDoctorCommand(), newRosterCommand(), newStatsCommand(), newGateCommand(), newDecideCommand("allow"), newDecideCommand("deny"), newRememberCommand(), newModeCommand(), newLeadCommand(), newDecisionsCommand(), newHookCommand(), newSyncCommand(), newInstallCommand(), newUninstallCommand(), newPeerCommand(), newCapsCommand(), newTaskCommand(), newLearnCommand(), newProfileCommand(), newVerdictCommand(), newTelemetryCommand())
+	cmd.AddCommand(newConfigCommand(), newRouteCommand(), newSendCommand(), newInboxCommand(), newPutCommand(), newRefCommand(), newReadCommand(), newDelegateCommand(d), newDoctorCommand(d), newRosterCommand(), newStatsCommand(), newGateCommand(d), newDecideCommand("allow", d), newDecideCommand("deny", d), newRememberCommand(), newModeCommand(), newLeadCommand(d), newDecisionsCommand(), newHookCommand(d), newSyncCommand(), newInstallCommand(), newUninstallCommand(), newPeerCommand(d), newCapsCommand(), newTaskCommand(), newLearnCommand(), newProfileCommand(d), newVerdictCommand(), newTelemetryCommand(d))
 	return cmd
 }
 
@@ -47,7 +48,7 @@ func main() {
 func run() int {
 	ctx, cancel := signal.NotifyContext(context.Background(), terminationSignals()...)
 	defer cancel()
-	if err := newRootCommand().ExecuteContext(ctx); err != nil {
+	if err := newRootCommand(newCmdDeps(wiring.Cmd())).ExecuteContext(ctx); err != nil {
 		return exitCode(err)
 	}
 	return 0

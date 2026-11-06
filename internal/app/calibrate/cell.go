@@ -80,15 +80,11 @@ type cellChecks struct {
 	Class  []journal.Check `json:"class,omitempty"`
 }
 
-// Seams for tests: the cell's time cap and the time cap of one check run.
-var (
-	cellTimeout  = func(c config.Calibration) time.Duration { return time.Duration(c.CellMaxMinutes) * time.Minute }
-	checkTimeout = func(c config.Calibration) time.Duration { return time.Duration(c.CellMaxMinutes) * time.Minute }
-)
-
 // CheckLimit is how long one run of a class's checks may take: the cell's
 // time cap.
-func CheckLimit(c config.Calibration) time.Duration { return checkTimeout(c) }
+func CheckLimit(c config.Calibration) time.Duration {
+	return time.Duration(c.CellMaxMinutes) * time.Minute
+}
 
 // outputRoles gives a task the role Filter gave its candidate.
 var outputRoles = map[string]string{"code": "implement", "tests": "tests", "docs": "docs"}
@@ -161,7 +157,7 @@ func RunCell(ctx context.Context, env CellEnv, c Cell, t TaskRecord, start Start
 		return r, err
 	}
 
-	cellCtx, cancel := context.WithTimeout(ctx, cellTimeout(env.Cfg.Calibration))
+	cellCtx, cancel := context.WithTimeout(ctx, env.cellLimit(env.Cfg.Calibration))
 	defer cancel()
 	target := entry.Target()
 	// The turn cap binds a Claude worker; Codex has no flag for it, so there
@@ -238,7 +234,7 @@ func RunCell(ctx context.Context, env CellEnv, c Cell, t TaskRecord, start Start
 		}
 		return r, fmt.Errorf("calibration cell %s: hidden tests: %w", c.ID, err)
 	}
-	checks, timedOut := runChecks(ctx, env.Checks, checkTimeout(env.Cfg.Calibration), tree, classChecks)
+	checks, timedOut := runChecks(ctx, env.Checks, env.checkLimit(env.Cfg.Calibration), tree, classChecks)
 	if ctx.Err() != nil {
 		// An interrupt also makes the checks fail; that is no result.
 		return r, ctx.Err()

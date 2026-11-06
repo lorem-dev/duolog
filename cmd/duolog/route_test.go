@@ -27,7 +27,7 @@ func isolatedRouteConfig(t *testing.T) {
 func TestRouteJSON(t *testing.T) {
 	isolatedRouteConfig(t)
 	routeLead(t)
-	cmd := newRootCommand()
+	cmd := newRootCommand(testDeps(t))
 	var output bytes.Buffer
 	cmd.SetOut(&output)
 	cmd.SetArgs([]string{"route", "review_intermediate", "--json"})
@@ -57,7 +57,7 @@ func TestRouteTextAndErrors(t *testing.T) {
 		{[]string{"route"}, "", true},
 		{[]string{"route", "plan", "extra"}, "", true},
 	} {
-		cmd := newRootCommand()
+		cmd := newRootCommand(testDeps(t))
 		var output bytes.Buffer
 		cmd.SetOut(&output)
 		cmd.SetErr(&output)
@@ -90,7 +90,7 @@ func TestRouteManualModelFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, allow := range []bool{false, true} {
-		cmd := newRootCommand()
+		cmd := newRootCommand(testDeps(t))
 		var output bytes.Buffer
 		cmd.SetOut(&output)
 		cmd.SetErr(&output)
@@ -108,7 +108,7 @@ func TestRouteManualModelFlag(t *testing.T) {
 // runRoute runs newRootCommand with "route" and args and returns stdout.
 func runRoute(t *testing.T, args ...string) string {
 	t.Helper()
-	cmd := newRootCommand()
+	cmd := newRootCommand(testDeps(t))
 	var output bytes.Buffer
 	cmd.SetOut(&output)
 	cmd.SetArgs(append([]string{"route"}, args...))
@@ -175,7 +175,7 @@ func TestRouteWithoutLeadShowsRequest(t *testing.T) {
 		t.Fatal(out, err)
 	}
 	// An explicit lead that does not exist is still an error.
-	cmd := newRootCommand()
+	cmd := newRootCommand(testDeps(t))
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{"route", "implement", "--lead", "nosuchlead"})

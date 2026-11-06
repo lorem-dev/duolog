@@ -17,11 +17,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
-// quotaReader replaces calibration's quota reads in tests; nil reads them
-// through the account gate. This file is the only one of calibration that
-// imports internal/quota.
-var quotaReader calibration.QuotaReader
-
 // Window lengths in minutes that internal/quota reports.
 const (
 	fiveHourMinutes = 300
@@ -32,6 +27,7 @@ const (
 // account gate, opened on first use with the person's config, whose
 // route-aware cache holds every quota read of the command.
 type calibrationAccounts struct {
+	deps *cmdDeps
 	cfg  *config.Config
 	root string
 
@@ -47,12 +43,12 @@ type calibrationAccounts struct {
 	observedAt map[string]time.Time
 }
 
-func newCalibrationAccounts(cfg *config.Config, root string) *calibrationAccounts {
-	return &calibrationAccounts{cfg: cfg, root: root}
+func newCalibrationAccounts(d *cmdDeps, cfg *config.Config, root string) *calibrationAccounts {
+	return &calibrationAccounts{deps: d, cfg: cfg, root: root}
 }
 
 func (a *calibrationAccounts) open() (*paidruns.Gate, error) {
-	a.once.Do(func() { a.gate, a.err = delegateDeps.PaidGate(a.cfg) })
+	a.once.Do(func() { a.gate, a.err = a.deps.Delegate.PaidGate(a.cfg) })
 	return a.gate, a.err
 }
 
@@ -70,8 +66,8 @@ func (a *calibrationAccounts) worker(agent string) workerenv.ProcessInput {
 // reading or a reached spend control is an error, so the run never spends
 // blind.
 func (a *calibrationAccounts) Quota() *calibration.QuotaCache {
-	if quotaReader != nil {
-		return &calibration.QuotaCache{Read: quotaReader}
+	if a.deps.QuotaReader != nil {
+		return &calibration.QuotaCache{Read: a.deps.QuotaReader}
 	}
 	return &calibration.QuotaCache{Shared: func(ctx context.Context, agent string, fresh bool) ([]calibration.Window, error) {
 		g, err := a.open()

@@ -58,9 +58,7 @@ func TestPeerShowRefusedForModels(t *testing.T) {
 // agent when name is empty, so the suite reads the same inside an agent.
 func withAgentAncestor(t *testing.T, name string) {
 	t.Helper()
-	old := agentAncestor
-	agentAncestor = func() string { return name }
-	t.Cleanup(func() { agentAncestor = old })
+	testDeps(t).AgentAncestor = func() string { return name }
 }
 
 // A Claude or Codex process above peer show refuses it even when the

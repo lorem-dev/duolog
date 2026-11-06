@@ -21,7 +21,7 @@ type needsExit struct{}
 
 func (e *needsExit) Error() string { return "needs lead" }
 
-func newHookCommand() *cobra.Command {
+func newHookCommand(d *cmdDeps) *cobra.Command {
 	var agent string
 	cmd := &cobra.Command{Use: "hook <event>", Short: "Deliver messages to a lead hook", SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
 		defer func() { _ = recover() }()
@@ -38,7 +38,7 @@ func newHookCommand() *cobra.Command {
 		if err != nil || len(data) > 4*1024*1024 {
 			return nil
 		}
-		env := hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ(), Stderr: cmd.ErrOrStderr(), Peers: peerLines(cmd)}
+		env := hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ(), Stderr: cmd.ErrOrStderr(), Peers: peerLines(d, cmd)}
 		var out hook.Output
 		switch args[0] {
 		case "SessionStart", "session-start":
@@ -74,10 +74,10 @@ func newHookCommand() *cobra.Command {
 // peerLines gives the compaction hooks the lines `duolog peer list` prints for
 // the lead with the given session id. A failure gives none: a hook never
 // fails the session.
-func peerLines(cmd *cobra.Command) func(ctx context.Context, leadID string) []string {
+func peerLines(d *cmdDeps, cmd *cobra.Command) func(ctx context.Context, leadID string) []string {
 	return func(ctx context.Context, leadID string) []string {
 		cmd.SetContext(ctx)
-		ctx, cancel, err := peerContext(cmd, leadID, false, 0)
+		ctx, cancel, err := peerContext(d, cmd, leadID, false, 0)
 		if err != nil {
 			return nil
 		}

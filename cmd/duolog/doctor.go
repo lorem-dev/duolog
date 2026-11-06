@@ -25,10 +25,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// locateRex finds the rex doctor asks for the pane inventory; tests wrap it.
-var locateRex = func() (string, bool) { return rex.Locate(os.Getenv("REX_BIN_DIR"), rex.BundleGlobs()) }
-
-func newDoctorCommand() *cobra.Command {
+func newDoctorCommand(d *cmdDeps) *cobra.Command {
 	var probe bool
 	cmd := &cobra.Command{Use: "doctor", Short: "Report agent health, trust and availability", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		root, err := projectRoot()
@@ -46,7 +43,7 @@ func newDoctorCommand() *cobra.Command {
 		opts := doctor.Options{Root: root, Registry: reg, Probe: probe}
 		opts.RexShadow, _ = rex.Shadow()
 		var inventoryFindings []doctor.Finding
-		if bin, ok := locateRex(); ok && runtime.GOOS != "windows" {
+		if bin, ok := d.LocateRex(); ok && runtime.GOOS != "windows" {
 			opts.RexBin = bin
 			opts.Panes, err = doctorPanes(cmd.Context(), bin, os.Getenv("REX_SESSION"), reg)
 			if err != nil {
@@ -55,12 +52,12 @@ func newDoctorCommand() *cobra.Command {
 				inventoryFindings = append(inventoryFindings, doctor.Finding{Level: "info", Message: "Rex pane inventory checked"})
 			}
 		}
-		for _, finding := range append(inventoryFindings, doctor.Run(cmd.Context(), doctorDeps(), cfg, opts)...) {
+		for _, finding := range append(inventoryFindings, doctor.Run(cmd.Context(), d.doctorDeps(), cfg, opts)...) {
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", finding.Level, finding.Message); err != nil {
 				return err
 			}
 		}
-		_, err = fmt.Fprint(cmd.OutOrStdout(), doctorTelemetry(cmd, cfg, root))
+		_, err = fmt.Fprint(cmd.OutOrStdout(), doctorTelemetry(d, cmd, cfg, root))
 		return err
 	}}
 	cmd.Flags().BoolVar(&probe, "probe", false, "Make a minimal model call from an empty temporary folder")
@@ -80,7 +77,7 @@ func doctorConfigError(cmd *cobra.Command, err error) error {
 // doctorTelemetry checks the telemetry store for doctor. It creates no root
 // and no salt: a missing root reports the settings only. A model reading the
 // output gets the coarse line alone.
-func doctorTelemetry(cmd *cobra.Command, cfg *config.Config, root string) string {
+func doctorTelemetry(d *cmdDeps, cmd *cobra.Command, cfg *config.Config, root string) string {
 	o := telemetryOptions(cfg, root)
 	o.CanonicalStateRoot = ""
 	st := telemetry.Status{Enabled: cfg.Telemetry.Enabled, ProjectEnabled: cfg.Telemetry.ProjectEnabled, Protection: telemetry.Protection{Refusal: "none"}}
@@ -107,7 +104,7 @@ func doctorTelemetry(cmd *cobra.Command, cfg *config.Config, root string) string
 	}
 	roots, rootsErr := gateProtectedRoots()
 	sandbox := rootsErr == nil && claudeSandboxActive(root) && workerDenyReadCovers(roots)
-	return telemetryDoctor(st, modelContext(cmd), sandbox, time.Now())
+	return telemetryDoctor(d.GOOS, st, d.modelContext(cmd), sandbox, time.Now())
 }
 
 // claudeSandboxActive reports whether the person's Claude settings turn the

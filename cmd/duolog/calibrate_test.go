@@ -28,22 +28,20 @@ import (
 // fakeSurveyChecks keeps the survey from running a real build or test.
 func fakeSurveyChecks(t *testing.T) {
 	t.Helper()
-	old := surveyChecks
-	surveyChecks = func(_ context.Context, dir string, commands []string) []journal.Check {
+	testDeps(t).SurveyChecks = func(_ context.Context, dir string, commands []string) []journal.Check {
 		checks := make([]journal.Check, 0, len(commands))
 		for _, command := range commands {
 			checks = append(checks, journal.Check{Command: command, Seconds: 1})
 		}
 		return checks
 	}
-	t.Cleanup(func() { surveyChecks = old })
 }
 
 func TestCalibrateRefusesWorkers(t *testing.T) {
 	learningRepo(t, true)
 	fakeSurveyChecks(t)
 	t.Setenv("DUOLOG_DEPTH", "1")
-	subs := newCalibrateCommand().Commands()
+	subs := newCalibrateCommand(testDeps(t)).Commands()
 	if len(subs) == 0 {
 		t.Fatal("calibrate has no subcommands")
 	}
@@ -121,8 +119,8 @@ func TestCalibrateSurveyNeedsGit240(t *testing.T) {
 // beside it, as a hidden test does in the parent export, and passes the rest.
 func fakeMineChecks(t *testing.T) {
 	t.Helper()
-	oldChecks, oldGH := mineChecks, mineGH
-	mineChecks = func(_ context.Context, dir string, commands []string) []journal.Check {
+	d := testDeps(t)
+	d.MineChecks = func(_ context.Context, dir string, commands []string) []journal.Check {
 		exit := 0
 		_ = filepath.WalkDir(dir, func(name string, d fs.DirEntry, err error) error {
 			if err == nil && strings.HasSuffix(name, "_test.go") {
@@ -138,8 +136,7 @@ func fakeMineChecks(t *testing.T) {
 		}
 		return checks
 	}
-	mineGH = nil
-	t.Cleanup(func() { mineChecks, mineGH = oldChecks, oldGH })
+	d.MineGH = nil
 }
 
 func TestCalibrateMinePrintsCounts(t *testing.T) {
@@ -313,15 +310,13 @@ func TestCalibrateClassesNeedsSurvey(t *testing.T) {
 // fakeQuota gives every agent a weekly and a five-hour window at 20% used.
 func fakeQuota(t *testing.T) {
 	t.Helper()
-	old := quotaReader
-	quotaReader = func(ctx context.Context, agent string) ([]calibration.Window, error) {
+	testDeps(t).QuotaReader = func(ctx context.Context, agent string) ([]calibration.Window, error) {
 		reset := time.Now().Add(time.Hour)
 		return []calibration.Window{
 			{Kind: calibration.KindWeekly, UsedPercent: 20, ResetsAt: reset.Add(72 * time.Hour)},
 			{Kind: calibration.KindFiveHour, UsedPercent: 20, ResetsAt: reset},
 		}, nil
 	}
-	t.Cleanup(func() { quotaReader = old })
 }
 
 // minedRun saves a run at the mine step with three tests tasks.
@@ -523,7 +518,7 @@ func TestCalibrateRunKeepsApprovedLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got config.Calibration
-	err := withCalibrationRunner(newCalibrateRunCommand(), "", func(r *calibration.Runner) error {
+	err := withCalibrationRunner(testDeps(t), newCalibrateRunCommand(testDeps(t)), "", func(r *calibration.Runner) error {
 		got = r.Cfg.Calibration
 		return nil
 	})
@@ -554,7 +549,7 @@ func TestCalibrateListedKeyLeavesBillingToTheGate(t *testing.T) {
 			t.Fatal(err)
 		}
 		called := false
-		if err := withCalibrationRunner(newCalibrateRunCommand(), "", func(*calibration.Runner) error {
+		if err := withCalibrationRunner(testDeps(t), newCalibrateRunCommand(testDeps(t)), "", func(*calibration.Runner) error {
 			called = true
 			return nil
 		}); err != nil || !called {
@@ -576,7 +571,7 @@ func TestCalibrateFirstApprovalOfEmptyPlanRuns(t *testing.T) {
 	if len(run.Cells) != 0 || run.Step != "plan" {
 		t.Fatalf("step %s with %d cells, want step plan with no cells", run.Step, len(run.Cells))
 	}
-	if err := withCalibrationRunner(newCalibrateRunCommand(), "", func(*calibration.Runner) error { return nil }); err != nil {
+	if err := withCalibrationRunner(testDeps(t), newCalibrateRunCommand(testDeps(t)), "", func(*calibration.Runner) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -676,8 +671,7 @@ func fakeJudge(t *testing.T) *int {
 	tempCache(t)
 	trustJudgeSlot(t)
 	calls := 0
-	old := runDelegate
-	runDelegate = func(_ context.Context, r delegate.Request) (delegate.Outcome, error) {
+	testDeps(t).RunDelegate = func(_ context.Context, r delegate.Request) (delegate.Outcome, error) {
 		calls++
 		first, err := os.ReadFile(filepath.Join(r.Options.WorkRoot, "a.patch"))
 		if err != nil {
@@ -691,7 +685,6 @@ func fakeJudge(t *testing.T) *int {
 			`{"criterion":"false claims (count)","a":%d,"b":%d,"count_a":%d,"count_b":%d,"reason":"claims"}]}`, a1, b1, a2, b2, ca, cb)
 		return delegate.Outcome{Result: runner.Result{Done: true, Summary: summary}}, nil
 	}
-	t.Cleanup(func() { runDelegate = old })
 	return &calls
 }
 

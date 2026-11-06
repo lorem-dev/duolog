@@ -150,7 +150,7 @@ func TestSkillTestExplicitPlanAndConsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	testbin.Install(t, "claude", testbin.Scenario{Stdout: `{"result":"{\"s1\":\"yes\"}"}`})
-	cmd := newRootCommand()
+	cmd := newRootCommand(testDeps(t))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetIn(strings.NewReader("yes\n"))

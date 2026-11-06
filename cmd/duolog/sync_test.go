@@ -10,7 +10,7 @@ import (
 
 func runSync(t *testing.T, args ...string) (string, string, error) {
 	t.Helper()
-	cmd := newRootCommand()
+	cmd := newRootCommand(testDeps(t))
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)

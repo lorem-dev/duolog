@@ -51,7 +51,7 @@ func TestArtifactCommandsInLinkedWorktree(t *testing.T) {
 	}
 	run := func(t *testing.T, args ...string) (string, string) {
 		t.Helper()
-		cmd := newRootCommand()
+		cmd := newRootCommand(testDeps(t))
 		var out, stderr bytes.Buffer
 		cmd.SetOut(&out)
 		cmd.SetErr(&stderr)
