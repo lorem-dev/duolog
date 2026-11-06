@@ -19,7 +19,7 @@ const (
 
 // clientFixture is absolute because the rig changes the working folder.
 var clientFixture = func() string {
-	abs, err := filepath.Abs("../rex/testdata/client-ls.json")
+	abs, err := filepath.Abs("../../rex/testdata/client-ls.json")
 	if err != nil {
 		panic(err)
 	}

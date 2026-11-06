@@ -3,7 +3,7 @@ package main
 import (
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/peer"
+	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/telemetry"
 )
 

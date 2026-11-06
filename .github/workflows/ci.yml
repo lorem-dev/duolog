@@ -65,7 +65,7 @@ jobs:
           RACE: ${{ matrix.race }}
           PART: ${{ matrix.part }}
         run: |
-          slow='github.com/lorem-dev/duolog/cmd/duolog github.com/lorem-dev/duolog/internal/calibration github.com/lorem-dev/duolog/internal/app/delegate'
+          slow='github.com/lorem-dev/duolog/cmd/duolog github.com/lorem-dev/duolog/internal/app/calibrate github.com/lorem-dev/duolog/internal/app/delegate'
           if [ -n "$PART" ]; then
             pkgs=$slow
           elif [ "$RUNNER_OS" = Windows ]; then

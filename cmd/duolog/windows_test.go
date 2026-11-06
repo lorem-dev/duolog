@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/lorem-dev/duolog/internal/peer"
+	"github.com/lorem-dev/duolog/internal/app/peer"
 	"runtime"
 	"strings"
 	"testing"

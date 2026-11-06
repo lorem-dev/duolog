@@ -15,7 +15,7 @@ import (
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
-	"github.com/lorem-dev/duolog/internal/peer"
+	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/spf13/cobra"

@@ -6,7 +6,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/peer"
+	"github.com/lorem-dev/duolog/internal/app/peer"
 )
 
 // writeLongList prints the table of `peer list --long`. It holds duolog's

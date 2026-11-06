@@ -10,8 +10,8 @@ import (
 	"time"
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/app/calibrate"
 	learnio "github.com/lorem-dev/duolog/internal/app/learn"
-	"github.com/lorem-dev/duolog/internal/calibration"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"

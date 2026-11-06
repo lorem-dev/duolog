@@ -377,7 +377,7 @@ func dialogSelecting(second bool) string {
 
 func fixtureText(name string) string {
 	_, file, _, _ := runtime.Caller(0)
-	data, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "scripts", "bench", "fixtures", "startup", name))
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "..", "scripts", "bench", "fixtures", "startup", name))
 	if err != nil {
 		panic(err)
 	}
