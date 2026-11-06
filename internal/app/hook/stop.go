@@ -55,8 +55,9 @@ const idleSummaryRunes = 160
 // tellIdle sends the lead one peer-idle message for the turn that just ended:
 // "<peer> idle in <cwd>", then the first line of the turn's last assistant
 // message when the hook payload carries one. A Stop hook that runs again for
-// the same turn, with the same transcript length, sends nothing. After the
-// send it calls Env.PeerIdle, the hook point of the ready queue.
+// the same turn, with the same transcript length, sends nothing. The peer runs
+// as a worker, so the lead's hooks act on the message: they call Env.PeerIdle
+// when they deliver it.
 func tellIdle(ctx context.Context, e Env, dir, peer string) error {
 	var h struct {
 		TranscriptPath string `json:"transcript_path"`
@@ -102,9 +103,6 @@ func tellIdle(ctx context.Context, e Env, dir, peer string) error {
 		release, cancel := context.WithTimeout(context.WithoutCancel(ctx), store.NoticeWait)
 		defer cancel()
 		return errors.Join(err, reg.Within(release).ReleaseIdle(previous, turn))
-	}
-	if e.PeerIdle != nil {
-		e.PeerIdle(ctx, lead.ID, entry.ID)
 	}
 	return nil
 }

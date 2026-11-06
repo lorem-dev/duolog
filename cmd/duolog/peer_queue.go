@@ -10,9 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// startQueueRun starts a detached queue run; tests replace it.
-var startQueueRun = peer.StartQueueRun
-
 // newPeerQueueCommand keeps the lead's ready queue: peers to open once
 // admission allows.
 func newPeerQueueCommand(d *cmdDeps, lead *string) *cobra.Command {

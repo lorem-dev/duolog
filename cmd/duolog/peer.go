@@ -161,7 +161,7 @@ func newPeerCommand(d *cmdDeps) *cobra.Command {
 		return st.Line, err
 	})
 	answer.Flags().StringVar(&reason, "reason", "", "One line to type into the pane, after \"Reason: \", when the answer leaves it interrupted, such as why a permission was denied")
-	closeCmd := run("close <id>", "Close a session; changed files are left as they are", cobra.ExactArgs(1), peerClose)
+	closeCmd := run("close <id>", "Close a session; changed files are left as they are", cobra.ExactArgs(1), d.peerClose)
 	var listJSON, listLong bool
 	list := &cobra.Command{Use: "list", Short: "List this lead's peer states without answering questions", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		if listLong && listJSON {
@@ -192,16 +192,17 @@ func newPeerCommand(d *cmdDeps) *cobra.Command {
 
 // peerClose closes a peer and says so when its pane was already gone. The
 // freed session goes to the lead's queue: a detached run opens what it can.
-func peerClose(ctx context.Context, _ *cobra.Command, args []string) (string, error) {
-	note, err := peer.CloseNote(ctx, args[0])
+func (d *cmdDeps) peerClose(ctx context.Context, _ *cobra.Command, args []string) (string, error) {
+	id := args[0]
+	note, err := peer.CloseNote(ctx, id)
 	if err != nil {
 		return "", err
 	}
-	line := args[0] + " closed"
+	line := id + " closed"
 	if note != "" {
 		line += "; " + note
 	}
-	switch started, err := startQueueRun(ctx); {
+	switch started, err := d.StartQueueRun(ctx); {
 	case err != nil:
 		line += "; queue run not started: " + err.Error()
 	case started:

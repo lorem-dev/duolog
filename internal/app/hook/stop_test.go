@@ -100,6 +100,8 @@ func TestPeerStopPostsPeerIdle(t *testing.T) {
 		t.Fatal(err)
 	}
 	pane.Input = stopInput(t, transcript, "\n  "+strings.Repeat("x", 200)+"\nsecond line")
+	// A peer runs with a worker's environment, so the lead's hooks, not the
+	// peer's Stop, do the work that follows the message.
 	var called []string
 	pane.PeerIdle = func(_ context.Context, lead, peer string) { called = append(called, lead+" "+peer) }
 	silent(t, Stop(context.Background(), pane))
@@ -108,8 +110,8 @@ func TestPeerStopPostsPeerIdle(t *testing.T) {
 	if len(ms) != 1 || ms[0].S != want || ms[0].Ref != "peer-abc123" || ms[0].From != "codex/implement" {
 		t.Fatalf("peer-idle mail %+v, want one line %q", ms, want)
 	}
-	if len(called) != 1 || !strings.HasSuffix(called[0], " peer-abc123") {
-		t.Fatalf("PeerIdle calls %v, want one", called)
+	if len(called) != 0 {
+		t.Fatalf("the peer's Stop called PeerIdle: %v", called)
 	}
 }
 
@@ -122,20 +124,18 @@ func TestPeerStopPeerIdleOncePerTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	pane.Input = stopInput(t, transcript, "")
-	var calls int
-	pane.PeerIdle = func(context.Context, string, string) { calls++ }
 	silent(t, Stop(context.Background(), pane))
 	silent(t, Stop(context.Background(), pane))
 	ms := kindMail(t, b, address, "peer-idle")
-	if len(ms) != 1 || ms[0].S != "peer-abc123 idle in ." || calls != 1 {
-		t.Fatalf("peer-idle mail %+v, %d calls, want one line for one turn", ms, calls)
+	if len(ms) != 1 || ms[0].S != "peer-abc123 idle in ." {
+		t.Fatalf("peer-idle mail %+v, want one line for one turn", ms)
 	}
 	if err := os.WriteFile(transcript, []byte("one\ntwo\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	silent(t, Stop(context.Background(), pane))
-	if ms := kindMail(t, b, address, "peer-idle"); len(ms) != 1 || calls != 2 {
-		t.Fatalf("peer-idle mail %+v, %d calls, want one line for the next turn", ms, calls)
+	if ms := kindMail(t, b, address, "peer-idle"); len(ms) != 1 {
+		t.Fatalf("peer-idle mail %+v, want one line for the next turn", ms)
 	}
 }
 

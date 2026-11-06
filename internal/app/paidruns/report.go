@@ -91,42 +91,67 @@ func (st State) held() []Held {
 // the report comes back with the read's error. Run evidence that settled
 // after the read, such as a run on paid overage, counts as for admission.
 func (g *Gate) Report(ctx context.Context, in workerenv.ProcessInput) (Report, error) {
-	if g.Store == nil || g.Cache == nil || g.Config == nil {
-		return Report{}, errors.New("paid runs: the gate needs a store, a cache and a config")
-	}
-	in.Config = g.Config
+	return g.report(ctx, in, false)
+}
+
+// assess builds the process that in describes and judges it, as Report does:
+// a worker or a peer against a read through the cache, or with cached against
+// the agent's latest read there, and a lead against that latest read. readErr
+// is the read's failure, which still gives an assessment; err gives none.
+func (g *Gate) assess(ctx context.Context, in workerenv.ProcessInput, cached bool) (p workerenv.Process, s quota.Snapshot, a Assessment, readErr, err error) {
 	agent := in.Agent
-	var (
-		p       workerenv.Process
-		s       quota.Snapshot
-		a       Assessment
-		readErr error
-	)
 	switch in.Shape {
 	case workerenv.Worker, workerenv.Peer:
-		p, s, a, readErr = g.Cache.Get(ctx, g.build(ctx, Request{Input: in}), g.Config, quota.RunEvidence{}, false)
-		if a.Agent == "" {
-			return Report{}, readErr
+		if !cached {
+			p, s, a, readErr = g.Cache.Get(ctx, g.build(ctx, Request{Input: in}), g.Config, quota.RunEvidence{}, false)
+			if a.Agent == "" {
+				return p, s, a, readErr, readErr
+			}
+			return p, s, a, readErr, nil
+		}
+		if p, err = g.build(ctx, Request{Input: in})(); err != nil {
+			return p, s, a, nil, err
+		}
+		var ok bool
+		if s, ok = g.Cache.Latest(agent); !ok {
+			readErr = fmt.Errorf("no quota read of %s in the cache", agent)
 		}
 	case workerenv.Lead:
 		if g.Layers != nil {
-			layers, err := g.Layers(ctx, in)
-			if err != nil {
-				return Report{}, err
+			if in.Layers, err = g.Layers(ctx, in); err != nil {
+				return p, s, a, nil, err
 			}
-			in.Layers = layers
 		}
-		var err error
 		if p, err = workerenv.Build(in); err != nil {
-			return Report{}, err
+			return p, s, a, nil, err
 		}
 		var ok bool
 		if s, ok = g.Cache.Latest(agent); !ok {
 			readErr = fmt.Errorf("no free quota read of %s to judge the lead's route with", agent)
 		}
-		a = Evaluate(p, s, readErr, quota.RunEvidence{}, g.Config, g.now())
 	default:
-		return Report{}, fmt.Errorf("paid runs: unknown shape %q", in.Shape)
+		return p, s, a, nil, fmt.Errorf("paid runs: unknown shape %q", in.Shape)
+	}
+	return p, s, Evaluate(p, s, readErr, quota.RunEvidence{}, g.Config, g.now()), readErr, nil
+}
+
+// ReportCached is Report without a quota read: a worker or a peer is judged
+// against the agent's latest read in the cache, as a lead is, and the
+// verdict is paid when there is none. The lead's hooks use it, so that a
+// prompt never waits for a read.
+func (g *Gate) ReportCached(ctx context.Context, in workerenv.ProcessInput) (Report, error) {
+	return g.report(ctx, in, true)
+}
+
+func (g *Gate) report(ctx context.Context, in workerenv.ProcessInput, cached bool) (Report, error) {
+	if g.Store == nil || g.Cache == nil || g.Config == nil {
+		return Report{}, errors.New("paid runs: the gate needs a store, a cache and a config")
+	}
+	in.Config = g.Config
+	agent := in.Agent
+	p, s, a, readErr, err := g.assess(ctx, in, cached)
+	if err != nil {
+		return Report{}, err
 	}
 
 	var view State

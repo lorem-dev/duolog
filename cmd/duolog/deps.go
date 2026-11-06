@@ -35,11 +35,14 @@ type cmdDeps struct {
 	// the gh CLI for pull request texts.
 	MineChecks calibration.CheckRunner
 	MineGH     calibration.GH
+	// StartQueueRun starts the lead's queue run as a detached process, as
+	// peer.StartQueueRun does: peer close and the lead's hooks call it.
+	StartQueueRun func(ctx context.Context) (bool, error)
 }
 
 // newCmdDeps wraps the dependencies of the commands that wiring built.
 func newCmdDeps(w wiring.CmdDeps) *cmdDeps {
-	d := &cmdDeps{CmdDeps: w, MineGH: runGH}
+	d := &cmdDeps{CmdDeps: w, MineGH: runGH, StartQueueRun: peer.StartQueueRun}
 	d.SurveyChecks, d.CellChecks, d.MineChecks = d.profileChecks, d.profileChecks, d.profileChecks
 	return d
 }
