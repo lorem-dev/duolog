@@ -433,6 +433,18 @@ func rawExecParts(command string) []string {
 var execAssignment = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*=`)
 
 // execOperandStart skips assignments, wrappers and the executable they start.
+// wrapperValueOptions lists, per wrapper, the options written apart from
+// their value (sudo -u alice): the value is skipped with the option.
+var wrapperValueOptions = map[string][]string{
+	"sudo":    {"-u", "-g", "-h", "-p", "-C", "-U", "-r", "-t", "-D", "-T", "--user", "--group", "--host", "--prompt", "--close-from", "--other-user", "--role", "--type", "--chdir", "--command-timeout"},
+	"doas":    {"-u", "-C"},
+	"env":     {"-u", "-C", "-S", "--unset", "--chdir", "--split-string"},
+	"nice":    {"-n", "--adjustment"},
+	"ionice":  {"-c", "-n", "-p", "-P", "-u", "--class", "--classdata"},
+	"timeout": {"-s", "-k", "--signal", "--kill-after"},
+	"xargs":   {"-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s", "--arg-file", "--delimiter", "--max-args", "--max-procs", "--max-lines", "--max-chars"},
+}
+
 func execOperandStart(words []string) int {
 	for i := 0; i < len(words); {
 		word := strings.Trim(words[i], "'\"")
@@ -445,7 +457,13 @@ func execOperandStart(words []string) int {
 			"time", "nice", "ionice", "timeout", "nohup", "stdbuf", "setsid", "busybox", "doas", "watch", "parallel":
 			i++
 			for i < len(words) && strings.HasPrefix(words[i], "-") {
+				// An option such as sudo -u takes the next word as its value,
+				// so that word is not the program.
+				takesValue := slices.Contains(wrapperValueOptions[filepath.Base(word)], words[i])
 				i++
+				if takesValue && i < len(words) {
+					i++
+				}
 			}
 			if filepath.Base(word) == "timeout" && i < len(words) {
 				i++ // timeout's duration precedes the executable.
