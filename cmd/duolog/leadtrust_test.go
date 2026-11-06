@@ -75,27 +75,30 @@ var uncertainGuarded = map[string]bool{"allow without number": true}
 // duolog remember is one literal word.
 func TestSelfDecidingLeadReadsQuotedWords(t *testing.T) {
 	stateDir, root := leadTrustProject(t, "claude", "bypassPermissions")
+	// A folder outside the project on every system: on Windows, /elsewhere
+	// alone has no volume and is not an absolute path.
+	elsewhere := filepath.ToSlash(filepath.VolumeName(root)) + "/elsewhere"
 	for _, tc := range []struct {
 		command string
 		asked   bool
 	}{
-		{`duolog remember 'cat /elsewhere/notes.txt'`, false},
-		{`duolog remember "cat /elsewhere/notes.txt"`, false},
-		{`duolog remember 'Bash(cat /elsewhere/*)'`, false},
-		{`duolog remember 'cd /elsewhere && cat notes.txt'`, false},
+		{`duolog remember 'cat ` + elsewhere + `/notes.txt'`, false},
+		{`duolog remember "cat ` + elsewhere + `/notes.txt"`, false},
+		{`duolog remember 'Bash(cat ` + elsewhere + `/*)'`, false},
+		{`duolog remember 'cd ` + elsewhere + ` && cat notes.txt'`, false},
 		{`duolog allow '1'`, false},
-		{`'cd' /elsewhere && duolog allow 1`, true},
-		{`"cd" /elsewhere; duolog allow 1`, true},
-		{`duolog allow 1 '--project' /elsewhere`, true},
-		{`duolog allow 1 '--project=/elsewhere'`, true},
-		{`du'olog' allow 1 '-C' /elsewhere`, true},
+		{`'cd' ` + elsewhere + ` && duolog allow 1`, true},
+		{`"cd" ` + elsewhere + `; duolog allow 1`, true},
+		{`duolog allow 1 '--project' ` + elsewhere, true},
+		{`duolog allow 1 '--project=` + elsewhere + `'`, true},
+		{`du'olog' allow 1 '-C' ` + elsewhere, true},
 		{`'env' X=1 duolog allow 1`, true},
 		{`duolog allow "$N"`, true},
 		{`duolog allow 1 "$X"`, true},
 		{"duolog allow 1 \"`pwd`\"", true},
 		{`duolog allow 1 "a\b"`, true},
 		{`duolog allow 1 'x`, true},
-		{`duolog remember 'cat /elsewhere/notes.txt`, true},
+		{`duolog remember 'cat ` + elsewhere + `/notes.txt`, true},
 	} {
 		d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, "bypassPermissions", tc.command))
 		if ok != tc.asked {
