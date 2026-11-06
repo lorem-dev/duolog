@@ -538,6 +538,8 @@ func TestSetupChangedFindsCheckDefinitions(t *testing.T) {
 		{"source", []string{"make test"}, map[string]string{"widget.go": "package widget\n"}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// Each case has its own repository and touches no environment.
+			t.Parallel()
 			root := project(t)
 			for name, body := range parent {
 				write(t, root, name, body)
@@ -640,6 +642,44 @@ func TestRunCellTurnCapThroughClaude(t *testing.T) {
 	args := argv(t, fake)
 	if i := slices.Index(args, "--max-turns"); i < 0 || i+1 == len(args) || args[i+1] != "100" {
 		t.Fatalf("worker argv %q, want --max-turns 100", args)
+	}
+}
+
+// A worker whose reported usage grows past calibration.cell_max_tokens ends
+// the cell as failed_limit with reason "token cap", keeps what it used and
+// runs no checks; usage at the cap or below is not over it.
+func TestRunCellTokenCap(t *testing.T) {
+	for _, tc := range []struct {
+		input, output int64
+		over          bool
+	}{
+		{100, 50, false},
+		{900, 100, false},
+		{950, 50, false},
+		{950, 51, true},
+		{5000, 2000, true},
+	} {
+		f := newCellFixture(t)
+		f.env.Cfg.Calibration.CellMaxTokens = 1000
+		f.env.Delegate = func(ctx context.Context, _ *config.Config, _ *store.Store, _, _, _ string) (delegate.Outcome, error) {
+			write(t, delegate.OptionsFrom(ctx).WorkRoot, "parse.go", "package widget\n\nfunc Parse(line string) []string { return nil }\n")
+			return delegate.Outcome{Result: runner.Result{Done: true, UsageKnown: true, Usage: runner.Usage{Input: tc.input, Output: tc.output}}}, nil
+		}
+		r := f.run(t)
+		if r.Tokens != tc.input+tc.output {
+			t.Fatalf("usage %d+%d: Tokens = %d", tc.input, tc.output, r.Tokens)
+		}
+		if tc.over {
+			if r.State != CellFailedLimit || r.Passed || r.Reason != "token cap" {
+				t.Fatalf("usage %d+%d: result %+v, want failed_limit, not passed, token cap", tc.input, tc.output, r)
+			}
+			if f.checkCalls != 0 {
+				t.Fatalf("usage %d+%d: checks ran %d times after the token cap", tc.input, tc.output, f.checkCalls)
+			}
+		} else if r.State == CellFailedLimit || r.Reason == "token cap" {
+			t.Fatalf("usage %d+%d: result %+v, want a cell within the cap", tc.input, tc.output, r)
+		}
+		f.emptied(t, f.slot)
 	}
 }
 

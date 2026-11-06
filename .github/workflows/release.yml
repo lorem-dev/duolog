@@ -22,7 +22,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: The tag matches every stated version
         run: uv run scripts/version/version.py check --tag "$GITHUB_REF_NAME"
       - name: Test suite
@@ -32,7 +32,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       # GoReleaser includes both installers in release assets and checksums.
       - name: Render install scripts
-        run: make install-script
+        run: make install-script RELEASE_TAG="$GITHUB_REF_NAME"
       - name: Check install script
         run: shellcheck -S error .release/install.sh
       - name: Write the release body from CHANGES.md

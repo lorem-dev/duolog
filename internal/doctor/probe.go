@@ -71,7 +71,7 @@ func probe(ctx context.Context, agent string, cfg *config.Config, entries []cata
 		defer cancel()
 		s := paidruns.Settlement{Input: measured.input, Cached: measured.cached, Output: measured.output,
 			ReportedUSD: measured.cost, Started: started, CompleteUsage: started && measured.known}
-		if priced, ok := usage.Cost(cfg, agent, model, s.Input, s.Cached, s.Output); ok && priced >= 0 {
+		if priced, ok := usage.Cost(cfg, agent, model, usage.Tokens{Input: s.Input, Cached: s.Cached, Output: s.Output}); ok && priced >= 0 {
 			s.PricedUSD = priced
 		}
 		err = errors.Join(err, g.Finish(settleCtx, permit, s))

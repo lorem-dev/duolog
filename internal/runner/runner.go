@@ -22,6 +22,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/mode"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/router"
+	"github.com/lorem-dev/duolog/internal/usage"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -86,7 +87,8 @@ type MCP struct {
 	configPath string
 }
 
-type Usage struct{ Input, Cached, Output int64 }
+// Usage is total input with its cache reads and writes, and output.
+type Usage = usage.Tokens
 
 // Error codes say why a run failed. Run sets one where the run failed: the
 // process, the timeout, the logs it classified, the answer it parsed; never

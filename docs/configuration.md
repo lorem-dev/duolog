@@ -173,6 +173,8 @@ The lead's own settings are the ceiling:
 - A worker never gets a wider permission mode than the lead. See
   [Permissions](permissions.md).
 - A worker has `DUOLOG_DEPTH=1`, so it cannot delegate again.
+  Claude workers and live Claude peers also start without the Agent and Task
+  tools.
 
 `duolog` never passes `--dangerously-bypass-approvals-and-sandbox` or
 `bypassPermissions` to an agent.
@@ -185,7 +187,7 @@ The lead's own settings are the ceiling:
 | `skill_tests` | `ask` (default), `always` or `never` for cross-model skill tests. Save a local preference with `duolog skill test --remember`. See [Skill tests](skills.md) |
 | `limits` | Live sessions and the size of a task the lead may do itself. See [below](#how-many-sessions-run-at-once) |
 | `routing` | Pace balancing of subscriptions. See [above](#how-duolog-balances-subscriptions-by-pace) |
-| `models` | The agent and the prices for each alias. They drive admission of paid runs and the estimates of `duolog stats` and telemetry. Claude cache-write premiums are not modeled |
+| `models` | The agent and the prices for each alias. They drive admission of paid runs and the estimates of `duolog stats` and telemetry. Claude cache writes cost 1.25 times `input` for the five-minute cache and 2 times for the one-hour cache |
 | `paid_runs` | Paid runs per agent with a daily USD cap, and the usable share of a workspace account. See [below](#how-paid-runs-are-allowed-and-capped) |
 | `balance` | How old a quota read may be, and how learned window rates set the session tiers |
 | `sessions` | When a resumed thread closes |
@@ -636,7 +638,7 @@ while `learning.enabled` is `true`. The keys and their defaults:
 | `max_weekly_share` | `0.10` | Estimated weekly spend allowance per agent for the whole calibration. Admission checks it before each call; actual spend can exceed it |
 | `max_window_share` | `0.5` | Estimated five-hour spend allowance before the run pauses until the window resets; at most `0.5`. Actual spend can exceed it |
 | `cell_max_minutes` | `45` | Time cap for one cell and for one run of its checks; a task estimated above it is left out |
-| `cell_max_tokens` | `1500000` | The highest token estimate a task may have to be admitted. It does not stop a running cell at this token count |
+| `cell_max_tokens` | `1500000` | The highest token estimate a task may have to be admitted. The runners report usage when a worker ends, so a cell whose reported usage is above it is `failed_limit` with reason `token cap` and no checks: it records its usage, gives no result, and the run goes on |
 | `cell_max_turns` | `100` | Turn cap for one cell: `--max-turns` for a Claude worker, advice in the brief for Codex, which has no such option |
 | `history_days` | `90` | Days of history mined first, widened when a class has fewer than 3 tasks |
 | `filter.min_files`, `filter.max_files` | `1`, `20` | Changed files of a mined commit, without generated and vendored files |

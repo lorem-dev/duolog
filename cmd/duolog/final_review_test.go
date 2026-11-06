@@ -52,18 +52,8 @@ func generatedCommandForOS(t *testing.T, agent, goos, event string) testbin.Hook
 // This test drives install -> generated hook -> session -> delegate -> runner ->
 // fake agent -> the generated gate command. No model or terminal is started.
 func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
-	_, source, _, _ := runtime.Caller(0)
-	repo := filepath.Clean(filepath.Join(filepath.Dir(source), "../.."))
-	binDir := t.TempDir()
-	binary := filepath.Join(binDir, "duolog")
-	if runtime.GOOS == "windows" {
-		binary += ".exe"
-	}
-	build := exec.Command("go", "build", "-o", binary, "./cmd/duolog")
-	build.Dir = repo
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build: %s %v", output, err)
-	}
+	binary := duologBinary(t)
+	binDir := filepath.Dir(binary)
 	for _, leadAgent := range []string{"claude", "codex"} {
 		t.Run(leadAgent, func(t *testing.T) {
 			isolatedRouteConfig(t)
@@ -288,13 +278,7 @@ func TestDelegateInterruptReportsAndStopsDescendant(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("native Windows signal test pending")
 	}
-	_, source, _, _ := runtime.Caller(0)
-	binary := filepath.Join(t.TempDir(), "duolog")
-	build := exec.Command("go", "build", "-o", binary, "./cmd/duolog")
-	build.Dir = filepath.Clean(filepath.Join(filepath.Dir(source), "../.."))
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("%s %v", out, err)
-	}
+	binary := duologBinary(t)
 	isolatedRouteConfig(t)
 	routeLead(t)
 	root := mustGetwd(t)
@@ -321,7 +305,9 @@ func TestDelegateInterruptReportsAndStopsDescendant(t *testing.T) {
 	// The login check before the worker answers at once; the worker hangs.
 	fake := testbin.Install(t, "claude", subscriptionReads("claude", testbin.Scenario{SpawnChild: true, SleepMS: 60000}))
 	var output bytes.Buffer
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Hang guards only: the test interrupts the delegate as soon as the
+	// worker's descendant starts.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binary, "delegate", "docs", "--task", "task.md")
 	cmd.Stdout = &output
@@ -330,7 +316,7 @@ func TestDelegateInterruptReportsAndStopsDescendant(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = cmd.Process.Kill() }()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	for {
 		if _, err := os.Stat(fake + ".child-pid"); err == nil {
 			break

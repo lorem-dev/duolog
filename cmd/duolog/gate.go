@@ -19,11 +19,16 @@ import (
 	"github.com/lorem-dev/duolog/internal/session"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/telemetry"
+	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/spf13/cobra"
 )
 
 func isWorker() bool { return workerenv.IsWorker() }
+
+// askWait turns policy.ask_timeout_seconds into the wait for an answer. Tests
+// that only read the ask replace it, so they do not wait out a whole second.
+var askWait = gate.AskWait
 
 // readHookInput reads one hook's JSON, one byte over the limit so that callers can
 // refuse it. Windows PowerShell 5.1 can start a pipe with a byte order mark, which
@@ -106,8 +111,9 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 		return a, d, err
 	}
 	var envelope struct {
-		Cwd  string `json:"cwd"`
-		Tool string `json:"tool_name"`
+		Cwd       string `json:"cwd"`
+		Tool      string `json:"tool_name"`
+		SessionID string `json:"session_id"`
 	}
 	if err := json.Unmarshal(data, &envelope); err != nil {
 		return a, d, err
@@ -123,7 +129,11 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 		actions[i].Role = a.Role
 		action := &actions[i]
 		action.ProtectedRoots = roots
+		action.Peer = os.Getenv("DUOLOG_PEER")
 		action.Work = work
+		if agent == "claude" && action.Kind == "read" && action.Target != "" {
+			action.OwnResult = ownToolResult(envelope.SessionID, envelope.Cwd, action.Target)
+		}
 		if (action.Kind == "read" || action.Kind == "write") && action.Target != "" {
 			action.Target = gate.RelativeTarget(work, envelope.Cwd, action.Target)
 		}
@@ -212,7 +222,7 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 		if err := gate.LogRequest(&store.Store{Dir: reg.Dir}, a, d); err != nil {
 			return a, d, err
 		}
-		wait := gate.AskWait(cfg.Policy.AskTimeoutSeconds)
+		wait := askWait(cfg.Policy.AskTimeoutSeconds)
 		// The store opens only once an ask has ended: allows and denies never
 		// reach telemetry.
 		ctx := gate.WithAskObserver(cmd.Context(), func(r gate.AskResult) {
@@ -226,6 +236,21 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 		d = resolved
 	}
 	return a, d, nil
+}
+
+// ownToolResult says whether a Claude read targets the saved tool results of
+// the hook's own session. The session id comes from the hook input.
+func ownToolResult(sessionID, cwd, target string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	if rest, ok := strings.CutPrefix(target, "~/"); ok {
+		target = filepath.Join(home, rest)
+	} else if !filepath.IsAbs(target) {
+		target = filepath.Join(cwd, target)
+	}
+	return gate.OwnToolResults(trusthome.Claude(home), sessionID, target)
 }
 
 // gateProtectedRoots names the telemetry and balance roots for the worker

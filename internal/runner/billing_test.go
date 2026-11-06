@@ -35,8 +35,8 @@ func TestClaudeStreamFinalResultKeepsEarlierOverage(t *testing.T) {
 		t.Fatalf("%+v %v", r, err)
 	}
 	// The final aggregate replaces the per-message usage; it is not added to it.
-	if r.Usage != (Usage{Input: 2220, Cached: 2000, Output: 30}) {
-		t.Fatalf("usage %+v, want the final result's 2220 input, 2000 cached, 30 output", r.Usage)
+	if r.Usage != (Usage{Input: 2220, Cached: 2000, Write: 200, Output: 30}) {
+		t.Fatalf("usage %+v, want the final result's 2220 input, 2000 cached, 200 written, 30 output", r.Usage)
 	}
 	if r.ReportedUSD == nil || *r.ReportedUSD != 0.4321 {
 		t.Fatalf("reported cost %v, want 0.4321", r.ReportedUSD)
@@ -61,7 +61,8 @@ func TestClaudeStreamPartialCancelAndTurnCap(t *testing.T) {
 		t.Fatal("fixture changed: line 8 is not the overage event")
 	}
 	overage := quota.RunEvidence{Expected: true, Seen: true, UsingOverage: true, OverageEnabled: true}
-	partial := Usage{Input: 1110, Cached: 1000, Output: 8}
+	// The partial sum keeps the message's cache writes.
+	partial := Usage{Input: 1110, Cached: 1000, Write: 100, Output: 8}
 
 	t.Run("cancelled", func(t *testing.T) {
 		s := spec(t, "claude")

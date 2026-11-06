@@ -45,6 +45,7 @@ func peerTelemetryProject(t *testing.T) (root, taskPath, telemetryRoot string) {
 // peerRex installs a fake rex whose pane shows the screens in turn.
 func peerRex(t *testing.T, screens ...string) {
 	t.Helper()
+	shortPeerPauses(t)
 	testbin.Install(t, "rex", testbin.Scenario{Exit: 99, Stderr: "unexpected rex command", Responses: map[string]testbin.Scenario{
 		"new":           {Stdout: peerSplitReply},
 		"window new":    {Stdout: peerSplitReply},
@@ -161,6 +162,12 @@ func TestTelemetryPeerOperations(t *testing.T) {
 		// The task is one run, placed on the peer, apart from its lifecycle.
 		if len(runs) != 1 {
 			t.Fatalf("runs: %+v", runs)
+		}
+		// Every peer event and the peer's run carry the id the launch drew.
+		for _, p := range peers {
+			if p.Run == (telemetry.ID{}) || p.Run != runs[0].Run {
+				t.Fatalf("peer event run %v, run event %v", p.Run, runs[0].Run)
+			}
 		}
 		r := runs[0]
 		if r.Placement != "peer" || r.Agent != agent || r.Role != "plan" || r.Outcome != "done" || r.Err != "none" || r.Attempt != 1 || r.Run == (telemetry.ID{}) || r.UsageKnown || r.Secs > 60 {

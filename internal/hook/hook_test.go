@@ -263,7 +263,8 @@ func TestRewakeDoesNotRepeat(t *testing.T) {
 	send(t, b, session.Address(lead(t, r, e)), "once")
 	var stderr bytes.Buffer
 	e.Stderr = &stderr
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	// Only a hang guard: Wake reads the waiting line on its first pass.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if code := Wake(ctx, e); code != 2 || !strings.Contains(stderr.String(), "once") {
 		t.Fatal(code, stderr.String())
@@ -396,7 +397,9 @@ func TestSessionStartCarriesRoster(t *testing.T) {
 func TestWakeExitsTwoOnMessage(t *testing.T) {
 	e, r, b := setup(t, "claude")
 	SessionStart(context.Background(), e)
-	ctx, cancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
+	// Only a hang guard: Wake reads the bus once a second, and a slow runner
+	// may need a few passes; the test ends as soon as the message is read.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var stderr bytes.Buffer
 	e.Stderr = &stderr

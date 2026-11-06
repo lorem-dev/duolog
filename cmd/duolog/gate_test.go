@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/config"
@@ -36,6 +37,17 @@ func gateSetup(t *testing.T, m mode.Mode) (*session.Registry, string) {
 	}
 	return r, root
 }
+
+// shortAskWait makes an unanswered ask time out after 50 ms instead of the
+// configured second. Only a test that never answers the ask may use it: an
+// answer could come after the wait.
+func shortAskWait(t *testing.T) {
+	t.Helper()
+	old := askWait
+	askWait = func(int) time.Duration { return 50 * time.Millisecond }
+	t.Cleanup(func() { askWait = old })
+}
+
 func gateCommand(t *testing.T, input string, args ...string) (string, error) {
 	t.Helper()
 	cmd := newRootCommand()
@@ -66,6 +78,53 @@ func TestLoweredModeAppliesNextCall(t *testing.T) {
 	}
 	if out := runGate(t, "custom-command"); !strings.Contains(out, `"permissionDecision":"deny"`) || !strings.Contains(out, "ask") {
 		t.Fatal(out)
+	}
+}
+
+// A peer in a linked worktree writes its report under that worktree, the path
+// peer status reads. The state folder of the main checkout stays denied.
+func TestPeerReportWriteInLinkedWorktree(t *testing.T) {
+	_, root := gateSetup(t, mode.Full)
+	work := t.TempDir()
+	git := filepath.Join(root, ".git")
+	for _, dir := range []string{"objects", "refs/heads", "worktrees/feature"} {
+		if err := os.MkdirAll(filepath.Join(git, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, text := range map[string]string{
+		filepath.Join(git, "HEAD"):                        "ref: refs/heads/main\n",
+		filepath.Join(git, "config"):                      "[core]\nrepositoryformatversion=0\nbare=false\n",
+		filepath.Join(git, "worktrees/feature/HEAD"):      "ref: refs/heads/feature\n",
+		filepath.Join(git, "worktrees/feature/commondir"): "../..\n",
+		filepath.Join(git, "worktrees/feature/gitdir"):    filepath.Join(work, ".git") + "\n",
+		filepath.Join(work, ".git"):                       "gitdir: " + filepath.Join(git, "worktrees/feature") + "\n",
+	} {
+		if err := os.WriteFile(path, []byte(text), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(work)
+	t.Setenv("DUOLOG_PEER", "peer-abc123")
+	write := func(path string) string {
+		t.Helper()
+		data, _ := json.Marshal(map[string]any{"session_id": "worker", "cwd": work, "tool_name": "Write", "tool_input": map[string]string{"file_path": path, "content": "findings"}})
+		out, err := gateCommand(t, string(data), "gate", "--agent", "claude", "--event", "PreToolUse")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if out := write(filepath.Join(work, ".duolog", "tasks", "peer-abc123", "report.md")); strings.Contains(out, "deny") {
+		t.Fatal("own report in the worktree denied:", out)
+	}
+	for _, path := range []string{
+		filepath.Join(root, ".duolog", "tasks", "peer-abc123", "report.md"),
+		filepath.Join(work, ".duolog", "tasks", "peer-zzz999", "report.md"),
+	} {
+		if out := write(path); !strings.Contains(out, `"permissionDecision":"deny"`) {
+			t.Fatal(path, out)
+		}
 	}
 }
 
@@ -188,6 +247,7 @@ func TestWorkerAskPersonOnly(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, root := gateSetup(t, mode.Ask)
+			shortAskWait(t)
 			data, _ := json.Marshal(map[string]any{"tool_name": tc.tool, "cwd": root, "tool_input": tc.input})
 			if _, err := gateCommand(t, string(data), "gate", "--agent", "codex", "--event", "PreToolUse"); err != nil {
 				t.Fatal(err)

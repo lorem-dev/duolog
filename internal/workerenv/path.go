@@ -18,13 +18,20 @@ func IsWorker() bool {
 	return depth >= 1
 }
 
+// Reserved reports whether a variable name is one duolog keeps for itself: a
+// DUOLOG_ or REX_ name. It ignores case, as Windows environment names do.
+func Reserved(name string) bool {
+	upper := strings.ToUpper(name)
+	return strings.HasPrefix(upper, "DUOLOG_") || strings.HasPrefix(upper, "REX_")
+}
+
 // Passthrough lists the named variables that are set. PATH is set separately, and
-// DUOLOG_ and REX_ names never pass on: a worker that learns the Rex session could
+// reserved names never pass on: a worker that learns the Rex session could
 // rearrange the lead's terminal.
 func Passthrough(names []string) []string {
 	var pairs []string
 	for _, name := range names {
-		if strings.EqualFold(name, "PATH") || strings.HasPrefix(name, "DUOLOG_") || strings.HasPrefix(name, "REX_") {
+		if strings.EqualFold(name, "PATH") || Reserved(name) {
 			continue
 		}
 		if value, ok := os.LookupEnv(name); ok {

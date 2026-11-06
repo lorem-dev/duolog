@@ -101,7 +101,7 @@
         },
         "cell_max_tokens": {
           "type": "integer",
-          "description": "Token cap for one cell; a task estimated above it is excluded. Defaults to 1500000."
+          "description": "Token cap for one cell; a task estimated above it is excluded, and a cell whose reported usage is above it fails with reason token cap and gives no result. Defaults to 1500000."
         },
         "cell_max_turns": {
           "type": "integer",

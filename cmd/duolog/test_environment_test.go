@@ -1,13 +1,18 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/delegate"
+	"github.com/lorem-dev/duolog/internal/gate"
 	"github.com/lorem-dev/duolog/internal/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/pathutil"
 )
@@ -63,9 +68,56 @@ func TestMain(m *testing.M) {
 	}
 	// One state per test folder: a peer's open, send and close share it.
 	delegate.NewGate = paidrunstest.ByWorkingDir(accounts)
+	// A gate ask reads its reply every 10 ms instead of every half second; the
+	// answers in these tests come at once.
+	gate.AskPoll = 10 * time.Millisecond
 	code := m.Run()
 	_ = os.RemoveAll(accounts)
+	if duologBuild.dir != "" {
+		_ = os.RemoveAll(duologBuild.dir)
+	}
 	os.Exit(code)
+}
+
+// startEnv is the environment the test process started with, before any test
+// moved HOME or the cache folders, so a build finds the Go build cache.
+var startEnv = os.Environ()
+
+var duologBuild struct {
+	sync.Once
+	dir, binary string
+	err         error
+}
+
+// duologBinary builds cmd/duolog once per test process, alone in a folder of
+// its own, and returns its path. Tests run it and never change it.
+func duologBinary(t *testing.T) string {
+	t.Helper()
+	duologBuild.Do(func() {
+		dir, err := os.MkdirTemp("", "duolog-test-bin-")
+		if err != nil {
+			duologBuild.err = err
+			return
+		}
+		duologBuild.dir = dir
+		binary := filepath.Join(dir, "duolog")
+		if runtime.GOOS == "windows" {
+			binary += ".exe"
+		}
+		_, source, _, _ := runtime.Caller(0)
+		build := exec.Command("go", "build", "-o", binary, ".")
+		build.Dir = filepath.Dir(source)
+		build.Env = startEnv
+		if output, err := build.CombinedOutput(); err != nil {
+			duologBuild.err = fmt.Errorf("build: %s %w", output, err)
+			return
+		}
+		duologBuild.binary = binary
+	})
+	if duologBuild.err != nil {
+		t.Fatal(duologBuild.err)
+	}
+	return duologBuild.binary
 }
 
 // testRex wraps doctor's rex lookup for tests: a rex outside the temporary

@@ -169,6 +169,17 @@ the work tree, not a release. Nothing outside the repository changes.
   root.
 - The script builds `.cache/dev/duolog` only when it is missing, then runs it.
   The build stays pinned while the lead and workers edit the source.
+- If that build fails and the work tree has no earlier build, for example in a
+  worktree whose code does not compile during a merge with conflicts, the
+  script does not stop the session. It runs the build of the main checkout of
+  the same repository (`.cache/dev/duolog` there) if it exists, else an
+  installed `duolog` on `PATH`, and says on stderr which one it used. The
+  installed one is never a `scripts/dev/bin` launcher, this one or another
+  checkout's. The script passes the launchers that already failed in
+  `DUOLOG_DEV_TRIED`, and a launcher listed there runs no fallback again, so
+  two broken checkouts cannot hand the run to each other. Only when nothing
+  usable is left does it fail, with exit code 2 for a worker so that the
+  submit stays blocked, and 1 otherwise.
 - After verifying a batch, the lead runs `scripts/dev/rebuild`, or
   `scripts/dev/rebuild.ps1` on Windows. It runs vet and tests before replacing
   the build. A failed check or build leaves the earlier build in place. It

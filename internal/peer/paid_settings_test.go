@@ -15,7 +15,7 @@ import (
 // peerProcess builds the process of a peer pane for route.
 func peerProcess(t *testing.T, cfg *config.Config, route router.Route, variant workerenv.Variant, stateDir string, roots ...string) workerenv.Process {
 	t.Helper()
-	p, err := agentEnv(peerInput(cfg, route, variant, "lead", "plan", "peer-test", stateDir, roots, os.Environ()))
+	p, err := agentEnv(peerInput(cfg, route, variant, "lead", "plan", "peer-test", "", stateDir, roots, os.Environ()))
 	if err != nil {
 		t.Fatal(err)
 	}

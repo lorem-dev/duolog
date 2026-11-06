@@ -323,19 +323,31 @@ func (c Client) Capture(ctx context.Context, block string, lines int) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	return lastLines(out, lines), nil
+	return lastLines(out, lines, false), nil
 }
 
-func lastLines(text string, n int) []byte {
+// CaptureStyled is Capture that keeps the SGR sequences of the capture: the
+// colours and weights that tell an agent's dim suggestion from typed text.
+// Every other escape sequence and control character is dropped, and a line
+// that holds only styles counts as blank.
+func (c Client) CaptureStyled(ctx context.Context, block string, lines int) ([]byte, error) {
+	out, err := c.call(ctx, "capture", "-s", c.Session, "-b", block, "--trim", "--unwrap")
+	if err != nil {
+		return nil, err
+	}
+	return lastLines(out, lines, true), nil
+}
+
+func lastLines(text string, n int, styled bool) []byte {
 	if n <= 0 {
 		n = 20
 	}
 	var kept []string
 	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimRightFunc(clean(line), unicode.IsSpace)
-		if line != "" {
-			kept = append(kept, line)
+		if strings.TrimRightFunc(clean(line, false), unicode.IsSpace) == "" {
+			continue
 		}
+		kept = append(kept, strings.TrimRightFunc(clean(line, styled), unicode.IsSpace))
 	}
 	if len(kept) > n {
 		kept = kept[len(kept)-n:]
@@ -343,11 +355,30 @@ func lastLines(text string, n int) []byte {
 	return []byte(strings.Join(kept, "\n"))
 }
 
-// clean drops control characters, including escape sequences' escape byte.
-var ansiRe = regexp.MustCompile("\x1b\\[[0-?]*[ -/]*[@-~]")
+// escapeRe matches a CSI sequence, an OSC sequence such as a hyperlink, and a
+// two-byte escape such as a charset switch. sgrRe is the CSI that sets styles.
+var (
+	escapeRe = regexp.MustCompile("\x1b(?:\\[[0-?]*[ -/]*[@-~]|\\][^\x07\x1b]*(?:\x07|\x1b\\\\)?|[ -/]*[0-~])")
+	sgrRe    = regexp.MustCompile("^\x1b\\[[0-9;:]*m$")
+)
 
-func clean(s string) string {
-	s = ansiRe.ReplaceAllString(s, "")
+// clean drops escape sequences and control characters. keepSGR keeps the
+// sequences that set styles and nothing else.
+func clean(s string, keepSGR bool) string {
+	var b strings.Builder
+	last := 0
+	for _, at := range escapeRe.FindAllStringIndex(s, -1) {
+		b.WriteString(dropControls(s[last:at[0]]))
+		if seq := s[at[0]:at[1]]; keepSGR && sgrRe.MatchString(seq) {
+			b.WriteString(seq)
+		}
+		last = at[1]
+	}
+	b.WriteString(dropControls(s[last:]))
+	return b.String()
+}
+
+func dropControls(s string) string {
 	return strings.Map(func(r rune) rune {
 		if r == '\t' {
 			return ' '
@@ -360,7 +391,7 @@ func clean(s string) string {
 }
 
 func oneLine(s string) string {
-	s = strings.Join(strings.Fields(clean(s)), " ")
+	s = strings.Join(strings.Fields(clean(s, false)), " ")
 	if len(s) > 200 {
 		s = s[:200]
 	}

@@ -94,11 +94,15 @@ func TestAgentEnvPinsExecutableDirectory(t *testing.T) {
 		t.Setenv("PATH", parent)
 		for _, agent := range []string{"claude", "codex"} {
 			route := router.Route{Target: config.Target{Agent: agent, Model: "sol"}}
-			p, err := agentEnv(peerInput(&config.Config{EnvPassthrough: []string{"PATH", "Path"}}, route, workerenv.Free, "lead", "docs", "peer-test", "", nil, os.Environ()))
+			p, err := agentEnv(peerInput(&config.Config{EnvPassthrough: []string{"PATH", "Path"}}, route, workerenv.Free, "lead", "docs", "peer-test",
+				"0123456789abcdef0123456789abcdef", "", nil, os.Environ()))
 			if err != nil {
 				t.Fatal(err)
 			}
 			pairs := p.Env
+			if !slices.Contains(pairs, "DUOLOG_RUN=0123456789abcdef0123456789abcdef") {
+				t.Fatal("the pane's run id is missing", pairs)
+			}
 			count := 0
 			want := "PATH=" + filepath.Dir(exe)
 			if parent != "" {

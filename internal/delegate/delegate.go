@@ -136,7 +136,7 @@ func Place(cfg *config.Config, taskPath string, route router.Route) (Placement, 
 }
 func place(cfg *config.Config, taskPath, root string, route router.Route) (Placement, error) {
 	p := Placement{Where: "self", Model: route.Model, Effort: route.Effort, Task: taskPath}
-	refs, err := task.References(taskPath)
+	refs, err := task.References(taskPath, root)
 	if err != nil {
 		return p, err
 	}
@@ -539,7 +539,10 @@ func Run(ctx context.Context, cfg *config.Config, s *store.Store, role, taskPath
 					path = rel
 				}
 			}
-			return gate.Evaluate(cfg.Policy, readRules, leadMode, gate.Action{Kind: "read", Target: pathutil.Clean(path), Role: role}).Kind == gate.Allow
+			// The same work root and store roots the worker's gate hook gets, so a
+			// Read reference cannot hand a private store over before that hook runs.
+			read := gate.Action{Kind: "read", Target: pathutil.Clean(path), Role: role, Work: root, ProtectedRoots: opts.ProtectedRoots}
+			return gate.Evaluate(cfg.Policy, readRules, leadMode, read).Kind == gate.Allow
 		})
 		if inlineErr != nil {
 			return out, inlineErr
@@ -950,18 +953,29 @@ func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 const maxLine = 512
 
 // resultLine gives the summary only the room that needs, files and warnings leave.
-// A warning such as "rules are off" must reach the lead, and the summary is also
-// in answer.json.
+// A warning such as "rules are off" or "outside=" must reach the lead, so a line
+// that is still too long after the summary is cut gets its files list cut at a
+// comma, never a warning. The summary and the files are also in answer.json.
 func resultLine(done bool, needs, summary, files, warning, pointer string) string {
-	line := func(summary string) string {
+	line := func(summary, files string) string {
 		return oneLine(fmt.Sprintf("done=%t%s summary=%s files=%s%s", done, needs, summary, files, warning))
 	}
 	summary = oneLine(summary)
-	if over := len(line(summary)) - maxLine; over > 0 {
+	if over := len(line(summary, files)) - maxLine; over > 0 {
 		cut := " ... [cut; " + pointer + "]"
 		summary = short(summary, max(0, len(summary)-over-len(cut))) + cut
+		if over = len(line(summary, files)) - maxLine; over > 0 {
+			// A cut list ends in ... so that it does not read as the whole list.
+			const more = ",..."
+			files = short(files, max(0, len(files)-over-len(more)))
+			if i := strings.LastIndex(files, ","); i >= 0 {
+				files = files[:i] + more
+			} else {
+				files = more[1:]
+			}
+		}
 	}
-	return line(summary)
+	return line(summary, files)
 }
 
 // answerPointer names the answer as a path from the current folder, which differs
@@ -995,9 +1009,7 @@ type usageRecord struct {
 	Model        string `json:"model"`
 	Effort       string `json:"effort"`
 	EffortCapped bool   `json:"effort_capped"`
-	Input        int64  `json:"input"`
-	Cached       int64  `json:"cached"`
-	Output       int64  `json:"output"`
+	runner.Usage
 }
 
 // RecordUsage appends the same locked usage record as a delegation.
@@ -1016,7 +1028,7 @@ func appendUsage(dir, role string, route router.Route, result runner.Result) err
 	if err != nil {
 		return err
 	}
-	writeErr := json.NewEncoder(f).Encode(usageRecord{role, route.Agent, route.Model, route.Effort, route.EffortCapped, result.Usage.Input, result.Usage.Cached, result.Usage.Output})
+	writeErr := json.NewEncoder(f).Encode(usageRecord{role, route.Agent, route.Model, route.Effort, route.EffortCapped, result.Usage})
 	return errors.Join(writeErr, f.Close())
 }
 

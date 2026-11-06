@@ -75,9 +75,19 @@ func ReadLeadState(agent, transcriptPath string) (LeadState, error) {
 
 func readLeadState(agent string, f io.ReadSeeker) (LeadState, error) {
 	var state LeadState
+	readTail(f, func(complete []byte) bool {
+		state = parseLeadState(agent, complete)
+		return state.Model != "" || state.Mode != ""
+	})
+	return state, nil
+}
+
+// readTail passes the complete lines of a growing tail of f, from 64 KiB to at
+// most the final 4 MiB, to found until it reports a result.
+func readTail(f io.ReadSeeker, found func([]byte) bool) {
 	size, err := f.Seek(0, io.SeekEnd)
 	if err != nil {
-		return state, nil
+		return
 	}
 	var data []byte
 	var scanned int64
@@ -85,11 +95,11 @@ func readLeadState(agent string, f io.ReadSeeker) (LeadState, error) {
 		window = min(window, size, 4*1024*1024)
 		start := size - window
 		if _, err := f.Seek(start, io.SeekStart); err != nil {
-			return state, nil
+			return
 		}
 		prefix, err := io.ReadAll(io.LimitReader(f, window-scanned))
 		if err != nil {
-			return state, nil
+			return
 		}
 		data = append(prefix, data...)
 		scanned = window
@@ -101,11 +111,36 @@ func readLeadState(agent string, f io.ReadSeeker) (LeadState, error) {
 				complete = nil
 			}
 		}
-		state = parseLeadState(agent, complete)
-		if state.Model != "" || state.Mode != "" || window == size || window == 4*1024*1024 {
-			return state, nil
+		if found(complete) || window == size || window == 4*1024*1024 {
+			return
 		}
 	}
+}
+
+// ClaudeMode reads the permission mode that Claude last recorded in its
+// transcript. A missing file or record is no observation and returns "".
+func ClaudeMode(transcriptPath string) mode.Mode {
+	f, err := os.Open(transcriptPath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	var observed mode.Mode
+	readTail(f, func(complete []byte) bool {
+		for _, line := range bytes.SplitAfter(complete, []byte{'\n'}) {
+			if len(line) == 0 || line[len(line)-1] != '\n' {
+				continue
+			}
+			var record struct {
+				PermissionMode string `json:"permissionMode"`
+			}
+			if json.Unmarshal(line, &record) == nil && record.PermissionMode != "" {
+				observed = mode.Parse("claude", record.PermissionMode)
+			}
+		}
+		return observed != ""
+	})
+	return observed
 }
 
 func parseLeadState(agent string, data []byte) LeadState {

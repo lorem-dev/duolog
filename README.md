@@ -41,17 +41,24 @@ go install github.com/lorem-dev/duolog/cmd/duolog@latest
 
 Both installers verify SHA-256 and select amd64 or arm64. Run the same command
 again to update. The default folder is `~/.local/bin` on macOS/Linux and
-`$env:LOCALAPPDATA\Programs\duolog` on Windows. Add the printed directory to
-PATH and open a new terminal if needed. Neither installer edits PATH.
+`$env:LOCALAPPDATA\Programs\duolog` on Windows. The Windows installer adds that
+folder to your user PATH (not the machine PATH) when it is missing; set
+`DUOLOG_NO_PATH=1` to skip that. The macOS/Linux installer never edits PATH:
+add the printed directory yourself if needed. Open a new terminal afterwards.
 
-To pin a version on macOS/Linux, or on Windows:
+From the release after 1.4.0 on, the installer attached to a release installs
+that release: the `releases/download/v<version>/install.sh` and `install.ps1`
+files default to that version, and the `releases/latest/download` links give
+the newest release.
+
+To pin a different version on macOS/Linux, or on Windows:
 
 ```sh
-curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.4.0
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.4.1
 ```
 
 ```powershell
-$env:DUOLOG_VERSION = 'v1.4.0'
+$env:DUOLOG_VERSION = 'v1.4.1'
 irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
 ```
 

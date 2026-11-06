@@ -236,8 +236,7 @@ func Judge(ctx context.Context, cfg *config.Config, s *store.Store, r Replay) (j
 		}
 		v.Scores = append(v.Scores, score)
 	}
-	u := out.Result.Usage
-	v.JudgeUSD, _ = usage.Cost(cfg, target.Agent, target.Model, u.Input, u.Cached, u.Output)
+	v.JudgeUSD, _ = usage.Cost(cfg, target.Agent, target.Model, out.Result.Usage)
 	if err := j.Append("verdicts.ndjson", v); err != nil {
 		return journal.Verdict{}, err
 	}

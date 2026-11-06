@@ -5,14 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/gate"
-	"github.com/lorem-dev/duolog/internal/pathutil"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/session"
 )
@@ -158,8 +156,7 @@ func leadCommandArgs(part, verb string) ([]string, bool) {
 	words := strings.Fields(strings.NewReplacer("'", "", "\"", "", "`", "").Replace(part))
 	duolog := false
 	for i := 0; i < len(words); i++ {
-		name := strings.ToLower(path.Base(pathutil.Slashes(words[i])))
-		if name == "duolog" || name == "duolog.exe" {
+		if gate.ProgramName(words[i]) == "duolog" {
 			duolog = true
 			continue
 		}

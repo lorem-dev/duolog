@@ -29,11 +29,11 @@ func newStatsCommand() *cobra.Command {
 			return err
 		}
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-		if _, err := fmt.Fprintln(w, "ROLE\tAGENT\tMODEL\tINPUT\tCACHED\tOUTPUT\tUSD (estimated)"); err != nil {
+		if _, err := fmt.Fprintln(w, "ROLE\tAGENT\tMODEL\tINPUT\tCACHED\tCACHE WRITE\tOUTPUT\tUSD (estimated)"); err != nil {
 			return err
 		}
 		for _, row := range table.Rows {
-			if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%.6f\n", row.Role, row.Agent, row.Model, row.Input, row.Cached, row.Output, row.Cost); err != nil {
+			if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%d\t%.6f\n", row.Role, row.Agent, row.Model, row.Input, row.Cached, row.Write, row.Output, row.Cost); err != nil {
 				return err
 			}
 		}

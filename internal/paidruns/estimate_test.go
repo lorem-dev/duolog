@@ -30,6 +30,23 @@ func sized(agent, model, role, class string, n int64) journal.Delegation {
 
 func near(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
 
+// A recorded run's Claude cache writes cost 1.25 or 2 times input, so the
+// estimate prices them, not the plain input rate.
+func TestEstimatePricesCacheWrites(t *testing.T) {
+	cfg := pricedConfig()
+	d := sized("claude", "claude-sonnet-5-5", "implement", "small", 1)
+	d.CacheWrite, d.CacheWriteHour = 40000, 10000
+	e, err := EstimateTask(cfg, []journal.Delegation{d}, "claude", "sonnet", "implement", "small")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := usage.Cost(cfg, "claude", "sonnet", usage.Tokens{Input: 100000, Cached: 50000, Write: 40000, WriteHour: 10000, Output: 10000})
+	plain, _ := usage.Cost(cfg, "claude", "sonnet", usage.Tokens{Input: 100000, Cached: 50000, Output: 10000})
+	if !near(e.USD, want) || want <= plain {
+		t.Fatalf("usd = %v, want %v (plain %v)", e.USD, want, plain)
+	}
+}
+
 func TestEstimateP90ByTargetAndClass(t *testing.T) {
 	cfg := pricedConfig()
 
@@ -65,7 +82,7 @@ func TestEstimateP90ByTargetAndClass(t *testing.T) {
 		if e.Input != 900000 || e.Cached != 450000 || e.Output != 90000 {
 			t.Fatalf("tokens = %d/%d/%d, want the size 9 run", e.Input, e.Cached, e.Output)
 		}
-		want, ok := usage.Cost(cfg, "claude", "sonnet", 900000, 450000, 90000)
+		want, ok := usage.Cost(cfg, "claude", "sonnet", usage.Tokens{Input: 900000, Cached: 450000, Output: 90000})
 		if !ok || !near(e.USD, want) {
 			t.Fatalf("USD = %v, want usage.Cost %v", e.USD, want)
 		}

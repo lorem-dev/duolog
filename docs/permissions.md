@@ -48,7 +48,7 @@ roles.
 | read | everything | allow |
 | read | `.env`, `*.pem`, `*.key`, `secrets/` | deny |
 | read | duolog state in `.duolog`, except Markdown, the configs, `learned.yaml` and skill test plans | deny |
-| write | `.duolog` folders and `.git` files or folders, at any depth | deny |
+| write | `.duolog` folders and `.git` files or folders, at any depth; a command that cannot write, such as `echo` without a redirect or a listing, is not judged by this rule. The words of a `for` or `select` header are, when any command of the line can write, and so is a redirect into such a path after any command, loop or group | deny |
 | write | `.claude/settings*.json`, `.claude/hooks/**` and the `.codex` folder | deny |
 | write | everything, for the write roles | allow |
 | exec | `go test`, `make build`, `npm run test`, `uv run pytest` and the like, for write roles | allow |
@@ -98,8 +98,10 @@ same reason. Quoted `rg` glob options follow the glob check above.
 `file` pass only with options that change the output, so `jq -f`, `sort -o`,
 `uniq - out`, `file -m.env` and ugrep's `grep --filter` ask. A `jq` filter
 that names `env` or a `$` variable asks, because it can print the worker's
-API keys. `diff` and `yq` are not read commands, because `diff -r` prints
-denied files and `yq` can write them.
+API keys. The context options `-A`, `-B`, `-C`, `--after-context`,
+`--before-context` and `--context` of `rg` and `grep` read with a number, as in
+`rg -n -F X -A45 dir`; `rg --pre` still asks. `diff` and `yq` are not read
+commands, because `diff -r` prints denied files and `yq` can write them.
 
 A deny also holds inside any other command. `uv run git push` is denied like
 `git push`, and `sed -n p .env` is denied like `cat .env`. A directory change
@@ -111,6 +113,10 @@ by accident: `go test ./secrets/...` is denied by the `secrets/` rule.
 Secrets include nested `.env` and `.env.*` files. Paths outside the working
 tree ask in every mode, unless an explicit outside-path rule applies. A broad
 `**` allow does not cover them. On macOS and Windows, path rules ignore case.
+One exception: a Claude worker may read the large tool outputs Claude saved
+for its own session, under `projects/<project>/<its session id>/tool-results`
+in Claude's config folder. Another session's folder and every other path under
+`~/.claude` still ask, and denies still apply.
 
 A deny wins over an allow. When no rule matches, the decision is
 `on_unmatched`, which is `ask` by default. The default denies always apply: a

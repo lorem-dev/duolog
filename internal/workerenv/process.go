@@ -350,13 +350,14 @@ func (s *envSelection) report() {
 
 // skipped names never pass on: PATH is set separately, a DUOLOG_ or REX_ name
 // would let a worker act as the lead or rearrange the lead's terminal, and
-// duolog sets Claude's updater and memory switches itself.
+// duolog sets Claude's updater and memory switches itself. Reserved names are
+// refused in any case on every system, as Passthrough refuses them.
 func (s *envSelection) skipped(name string) bool {
 	upper := name
 	if s.goos == "windows" {
 		upper = strings.ToUpper(name)
 	}
-	return strings.EqualFold(name, "PATH") || strings.HasPrefix(upper, "DUOLOG_") || strings.HasPrefix(upper, "REX_") ||
+	return strings.EqualFold(name, "PATH") || Reserved(name) ||
 		s.agent == "claude" && (upper == "DISABLE_AUTOUPDATER" || upper == "CLAUDE_CODE_DISABLE_AUTO_MEMORY")
 }
 

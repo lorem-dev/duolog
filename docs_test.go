@@ -199,13 +199,15 @@ func TestDocsPaidKeyMigration(t *testing.T) {
 	if b, err := os.ReadFile("CHANGES.md"); err != nil {
 		t.Fatal(err)
 	} else {
-		// The note lives in Development until the release moves it under the
-		// newest version, so look at both.
-		dev, rest, _ := strings.Cut(string(b), "\n## 1.")
-		newest, _, _ := strings.Cut(rest, "\n## 1.")
-		if !strings.Contains(dev+newest, "`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`") {
-			t.Error("CHANGES.md Development and the newest version do not name the dropped keys")
+		// 1.4.0 dropped the keys, so its notes keep naming them however many
+		// releases follow.
+		_, rest, _ := strings.Cut(string(b), "\n## 1.4.0\n")
+		section, _, _ := strings.Cut(rest, "\n## ")
+		if !strings.Contains(section, "`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`") {
+			t.Error("CHANGES.md 1.4.0 does not name the dropped keys")
 		}
+		// Development is everything before the first version section.
+		dev, _, _ := strings.Cut(string(b), "\n## 1.")
 		for _, want := range []string{"`paid_runs.<agent>.allow`", "`daily_cap_usd`"} {
 			if !strings.Contains(dev, want) {
 				t.Errorf("CHANGES.md Development lacks %s", want)

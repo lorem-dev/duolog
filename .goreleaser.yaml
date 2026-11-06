@@ -4,11 +4,14 @@ version: 2
 
 project_name: duolog
 
+# Build output stays out of the repository root; .cache is git-ignored.
+dist: .cache/dist
+
 # Hooks run before GoReleaser checks that dist is empty, so the installers are
 # rendered to .release, which git ignores.
 before:
   hooks:
-    - make install-script
+    - make install-script RELEASE_TAG={{ .Tag }}
     - shellcheck -S error .release/install.sh
 
 builds:

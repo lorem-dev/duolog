@@ -122,7 +122,7 @@ func newSkillCommand() *cobra.Command {
 			}
 			runs++
 			prompt := selected.Prompt(string(skill))
-			cost, ok := usage.Cost(cfg, target.Agent, target.Model, int64((len(prompt)+3)/4), 0, int64(len(selected.Situations)*200))
+			cost, ok := usage.Cost(cfg, target.Agent, target.Model, usage.Tokens{Input: int64((len(prompt) + 3) / 4), Output: int64(len(selected.Situations) * 200)})
 			if !ok {
 				return fmt.Errorf("no configured price for %s", target.Model)
 			}
@@ -271,7 +271,7 @@ func runSkillTests(cmd *cobra.Command, root, stateRoot, name string, cfg *config
 				return err
 			}
 		}
-		cost, _ := usage.Cost(cfg, route.Agent, route.Model, result.Usage.Input, result.Usage.Cached, result.Usage.Output)
+		cost, _ := usage.Cost(cfg, route.Agent, route.Model, result.Usage)
 		total += cost
 		results = append(results, outcome{label, graded, cost})
 	}
@@ -345,9 +345,7 @@ func askSkill(cmd *cobra.Command, cfg *config.Config, root, work, prompt string,
 	// MCP server inherited from the user's Codex configuration.
 	bridge := &runner.MCP{}
 	if target.Agent == "codex" {
-		for name := range capability.Servers("codex", work) {
-			bridge.CodexArgs = append(bridge.CodexArgs, "-c", fmt.Sprintf("mcp_servers.%q.enabled=false", name))
-		}
+		bridge.CodexArgs = capability.CodexOff(work)
 	}
 	result, err := runner.Run(cmd.Context(), runner.Spec{Route: route, SkillTest: true, TaskDir: work, Cwd: work, Stdin: []byte(prompt), Process: &p, MCP: bridge, Timeout: 10 * time.Minute})
 	return result, route, err

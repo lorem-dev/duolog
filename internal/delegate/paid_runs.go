@@ -171,7 +171,8 @@ func (a *permitRun) finish(ctx context.Context, cfg *config.Config, route router
 	s := paidruns.Settlement{Input: r.Usage.Input, Cached: r.Usage.Cached, Output: r.Usage.Output,
 		ReportedUSD: r.ReportedUSD, Evidence: r.Billing, Started: a.started, CompleteUsage: a.started && r.UsageKnown}
 	if cfg != nil {
-		if priced, ok := usage.Cost(cfg, route.Agent, route.Model, s.Input, s.Cached, s.Output); ok && priced >= 0 {
+		// The run's own usage, so Claude's cache writes cost their premium.
+		if priced, ok := usage.Cost(cfg, route.Agent, route.Model, r.Usage); ok && priced >= 0 {
 			s.PricedUSD = priced
 		}
 	}

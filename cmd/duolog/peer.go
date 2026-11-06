@@ -71,6 +71,9 @@ func entryLine(e peer.Entry) string {
 	case e.Note != "":
 		line += ": " + e.Note
 	}
+	if e.Report != "" {
+		line += "; report " + e.Report
+	}
 	return strings.Join(strings.Fields(line), " ")
 }
 
@@ -146,13 +149,15 @@ func newPeerCommand() *cobra.Command {
 		st, err := peer.Status(ctx, args[0])
 		return st.Line, err
 	})
+	var reason string
 	answer := run("answer <id> <option>", "Answer the open question of a session by option label or number", cobra.ExactArgs(2), func(ctx context.Context, _ *cobra.Command, args []string) (string, error) {
-		if err := peer.Answer(ctx, args[0], args[1]); err != nil {
+		if err := peer.AnswerWithReason(ctx, args[0], args[1], reason); err != nil {
 			return "", err
 		}
 		st, err := peer.Status(ctx, args[0])
 		return st.Line, err
 	})
+	answer.Flags().StringVar(&reason, "reason", "", "One line to type into the pane, after \"Reason: \", when the answer leaves it interrupted, such as why a permission was denied")
 	closeCmd := run("close <id>", "Close a session; changed files are left as they are", cobra.ExactArgs(1), func(ctx context.Context, _ *cobra.Command, args []string) (string, error) {
 		if err := peer.Close(ctx, args[0]); err != nil {
 			return "", err

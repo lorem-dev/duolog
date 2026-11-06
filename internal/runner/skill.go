@@ -34,21 +34,16 @@ func skillResult(s Spec, stdoutPath, answerPath string, result Result) (Result, 
 		return result, err
 	}
 	var output struct {
-		Result  string `json:"result"`
-		IsError bool   `json:"is_error"`
-		Usage   struct {
-			Input    int64 `json:"input_tokens"`
-			Cached   int64 `json:"cache_read_input_tokens"`
-			Creation int64 `json:"cache_creation_input_tokens"`
-			Output   int64 `json:"output_tokens"`
-		} `json:"usage"`
+		Result  string      `json:"result"`
+		IsError bool        `json:"is_error"`
+		Usage   claudeUsage `json:"usage"`
 	}
 	if err := json.Unmarshal(data, &output); err != nil {
 		result.RawAnswer = string(data)
 		return result, err
 	}
 	result.RawAnswer = output.Result
-	result.Usage = Usage{Input: output.Usage.Input + output.Usage.Cached + output.Usage.Creation, Cached: output.Usage.Cached, Output: output.Usage.Output}
+	result.Usage = output.Usage.tokens()
 	if output.IsError {
 		return result, fmt.Errorf("Claude returned an error: %s", output.Result)
 	}

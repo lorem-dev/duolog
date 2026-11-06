@@ -71,7 +71,7 @@ func TestJudgeTaskIsBlind(t *testing.T) {
 	if err := task.Validate(path); err != nil {
 		t.Fatal(err)
 	}
-	refs, err := task.References(path)
+	refs, err := task.References(path, root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestVerdictRecordedInOriginalTerms(t *testing.T) {
 	if v.Kind != "verdict" || v.Task != r.Task || v.Delegation != f.rec.ID || v.Class != r.Class || v.Ladder != r.Ladder || v.Original != r.Original.Entry || v.Profile != r.Profile.Entry || v.Judge != "claude/opus/high" || v.ReplayUSD != 0.4 || v.Scores[0].Original != 1 || v.Scores[0].Profile != 3 || *v.Scores[1].OriginalCount != 4 || *v.Scores[1].ProfileCount != 1 {
 		t.Fatalf("%+v", v)
 	}
-	wantCost, _ := usage.Cost(f.cfg, "claude", "opus", 1000, 200, 300)
+	wantCost, _ := usage.Cost(f.cfg, "claude", "opus", usage.Tokens{Input: 1000, Cached: 200, Output: 300})
 	if v.JudgeUSD != wantCost || !reflect.DeepEqual(v.OriginalChecks, r.Original.Checks) || !reflect.DeepEqual(v.ProfileChecks, r.Profile.Checks) {
 		t.Fatal(v)
 	}

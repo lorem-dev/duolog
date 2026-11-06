@@ -106,6 +106,27 @@ func processSignals(p Process) []string {
 	return names
 }
 
+// DUOLOG_ and REX_ names stay out of a built process in any case and on every
+// system, as Passthrough keeps them out.
+func TestBuildRefusesReservedNamesInAnyCase(t *testing.T) {
+	for _, goos := range []string{"linux", "darwin", "windows"} {
+		in := buildInput("codex", Worker, Free)
+		in.Locations.GOOS = goos
+		in.Config.EnvPassthrough = append(in.Config.EnvPassthrough, "rex_session", "Duolog_Peer", "WORKERENV_TEST_KEEP")
+		in.Environ = append(in.Environ, "rex_session=lead-rex", "Duolog_Peer=peer-x", "WORKERENV_TEST_KEEP=kept")
+		p := mustBuild(t, in)
+		for _, pair := range p.Env {
+			name, _, _ := strings.Cut(pair, "=")
+			if Reserved(name) && name != strings.ToUpper(name) {
+				t.Errorf("%s: built env has %s", goos, pair)
+			}
+		}
+		if got, ok := envValue(p.Env, "WORKERENV_TEST_KEEP"); !ok || got != "kept" {
+			t.Errorf("%s: WORKERENV_TEST_KEEP = %q, want kept", goos, got)
+		}
+	}
+}
+
 // The free variant drops every route name, also one the person listed in
 // env_passthrough and also when paid runs are allowed; only a Claude base URL
 // that matches a named subscription endpoint passes. The paid variant adds

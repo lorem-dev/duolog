@@ -213,9 +213,11 @@ func TestStdinIsEmptyAndRunIsBounded(t *testing.T) {
 	old := CommandTimeout
 	CommandTimeout = 100 * time.Millisecond
 	t.Cleanup(func() { CommandTimeout = old })
-	c := install(t, testbin.Scenario{SleepMS: 3000})
+	// The fake hangs for a minute and the call must end at its 100 ms limit;
+	// 10 s leaves a slow runner room to end the process.
+	c := install(t, testbin.Scenario{SleepMS: 60000})
 	start := time.Now()
-	if err := c.Send(context.Background(), "b", "x"); err == nil || time.Since(start) > 2*time.Second {
+	if err := c.Send(context.Background(), "b", "x"); err == nil || time.Since(start) > 10*time.Second {
 		t.Fatalf("hung call returned %v after %v", err, time.Since(start))
 	}
 }
@@ -290,6 +292,23 @@ func TestCaptureRemovesANSIStyles(t *testing.T) {
 	out, err := c.Capture(context.Background(), "b", 20)
 	if err != nil || string(out) != "• Working (3s · esc to interrupt)\n›" {
 		t.Fatalf("%q %v", out, err)
+	}
+}
+
+// The styled capture keeps the colours and weights, which tell a dim
+// suggestion from typed text, and drops every other sequence. A line that
+// holds only styles is blank.
+func TestCaptureStyledKeepsOnlySGR(t *testing.T) {
+	raw := "\x1b]8;;https://example.com\x07link\x1b]8;;\x07 \x1b[2mdim\x1b[22m \x1b[38;2;153;153;153mgrey\x1b[39m\x1b[0K\x07\n\x1b[0m   \n\x1b(B\x1b[?25l❯ \x1b[7mT\x1b[27m\x1b[2mry \"x\"\x1b[0m"
+	c := install(t, testbin.Scenario{Stdout: raw})
+	out, err := c.CaptureStyled(context.Background(), "b", 20)
+	want := "link \x1b[2mdim\x1b[22m \x1b[38;2;153;153;153mgrey\x1b[39m\n❯ \x1b[7mT\x1b[27m\x1b[2mry \"x\"\x1b[0m"
+	if err != nil || string(out) != want {
+		t.Fatalf("%q %v", out, err)
+	}
+	plain, err := c.Capture(context.Background(), "b", 20)
+	if err != nil || string(plain) != "link dim grey\n❯ Try \"x\"" {
+		t.Fatalf("%q %v", plain, err)
 	}
 }
 

@@ -200,7 +200,7 @@ func TestAttemptUsageAndCost(t *testing.T) {
 	}
 	opus := cfg.Models["opus"]
 	priced := func(in, cached, out int64) int64 {
-		usd, ok := usage.Cost(cfg, "claude", "opus", in, cached, out)
+		usd, ok := usage.Cost(cfg, "claude", "opus", usage.Tokens{Input: in, Cached: cached, Output: out})
 		if !ok {
 			t.Fatal("opus unpriced")
 		}
@@ -238,9 +238,16 @@ func TestAttemptUsageAndCost(t *testing.T) {
 		{"codex family", cfg, with(func(a *delegate.Attempt) {
 			a.Agent, a.Family, a.Usage, a.UsageKnown = "codex", "sol", runner.Usage{Input: 1000, Cached: 400, Output: 100}, true
 		}), 1000, 400, 100, func() int64 {
-			usd, _ := usage.Cost(cfg, "codex", "sol", 1000, 400, 100)
+			usd, _ := usage.Cost(cfg, "codex", "sol", usage.Tokens{Input: 1000, Cached: 400, Output: 100})
 			return int64(math.Round(usd * 1e6))
 		}(), true, true, "sol"},
+		// 300 five-minute writes at 1.25x and 200 one-hour writes at 2x input.
+		{"cache writes", cfg, with(func(a *delegate.Attempt) {
+			a.Usage, a.UsageKnown = runner.Usage{Input: 1000, Cached: 400, Write: 500, WriteHour: 200, Output: 100}, true
+		}), 1000, 400, 100, int64(math.Round(100*opus.Input + 400*opus.Cached + 300*1.25*opus.Input + 200*2*opus.Input + 100*opus.Output)), true, true, "opus"},
+		{"writes over input", cfg, with(func(a *delegate.Attempt) {
+			a.Usage, a.UsageKnown = runner.Usage{Input: 1000, Cached: 400, Write: 900, WriteHour: 2000, Output: 100}, true
+		}), 1000, 400, 100, int64(math.Round(400*opus.Cached + 600*2*opus.Input + 100*opus.Output)), true, true, "opus"},
 		{"cached over input", cfg, with(func(a *delegate.Attempt) {
 			a.Usage, a.UsageKnown = runner.Usage{Input: 10, Cached: 50, Output: -3}, true
 		}), 10, 10, 0, priced(10, 10, 0), true, true, "opus"},

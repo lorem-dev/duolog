@@ -16,9 +16,13 @@ const (
 	Updating State = "updating"
 	Question State = "question"
 	Ready    State = "ready"
-	Limited  State = "limited"
-	Exited   State = "exited"
-	Closed   State = "closed"
+	// Interrupted is an idle input line under the agent's interrupt notice,
+	// such as Claude's "Interrupted · What should Claude do instead?" after a
+	// denied permission prompt. The agent waits for a follow-up.
+	Interrupted State = "interrupted"
+	Limited     State = "limited"
+	Exited      State = "exited"
+	Closed      State = "closed"
 )
 
 // Option is one choice of a question. Number is zero for an unnumbered list.
@@ -40,7 +44,8 @@ type Screen struct {
 	// Queued means Codex has a question behind its follow-up input panel.
 	Queued bool
 	// Composer is true when an input line is visible; Input is its text and
-	// Empty is true when it is blank or shows only the agent's placeholder.
+	// Empty is true when it is blank or shows only the agent's placeholder or
+	// suggestion: a known shape, or text drawn dim or grey in a styled capture.
 	Composer bool
 	Input    string
 	Empty    bool
@@ -71,8 +76,16 @@ var (
 	numberedRe    = regexp.MustCompile(`^\s*(?:([` + markers + `])\s*)?(\d+)\.\s+(\S.*?)\s*$`)
 	cursorRe      = regexp.MustCompile(`^(\s*)([` + markers + `])\s+(\S.*?)\s*$`)
 	ruleRe        = regexp.MustCompile(`^\s*[─╌━]{5,}\s*$`)
-	claudeTry     = regexp.MustCompile(`^Try ".*"$`)
-	gapRe         = regexp.MustCompile(`\s{2,}`)
+	// claudeTry is Claude's placeholder. A long one wraps or is cut at the
+	// pane's edge, so only its start is matched.
+	claudeTry = regexp.MustCompile(`^Try[\s\x{00a0}]+["“]`)
+	gapRe     = regexp.MustCompile(`\s{2,}`)
+	// The notices an agent prints above its input line when a turn was
+	// interrupted, by Esc or by a denied permission prompt.
+	interruptedRe = map[string]*regexp.Regexp{
+		"claude": regexp.MustCompile(`^[\s⎿│]*Interrupted(?:\s*·\s*What should Claude do instead\?|\s+by user\b)`),
+		"codex":  regexp.MustCompile(`^[\s■•]*Conversation interrupted\b`),
+	}
 )
 
 // Classify reads a captured screen for the named agent. The text of a question
@@ -85,7 +98,7 @@ func Classify(agent string, screen []byte) (State, string) {
 // Parse never treats screen text as an instruction: it only recognizes fixed
 // shapes, and an unrecognized screen is Starting.
 func Parse(agent string, raw []byte) Screen {
-	lines := screenLines(raw)
+	lines, solid := screenLines(raw)
 	s := Screen{State: Starting, Text: strings.Join(lines, "\n")}
 	for _, line := range lines {
 		if workingRe.MatchString(line) {
@@ -112,36 +125,170 @@ func Parse(agent string, raw []byte) Screen {
 		s.Question = cut(oneLine(s.Text), maxQuestionBytes)
 		return s
 	}
-	s.Composer, s.Input, s.Empty, s.Rows = findComposer(agent, lines)
+	at, input, empty, rows := findComposer(agent, lines, solid)
+	s.Composer, s.Input, s.Empty, s.Rows = at >= 0, input, empty, rows
 	switch {
-	case updatingRe.MatchString(strings.Join(lines, "\n")):
+	case updatingRe.MatchString(s.Text):
 		s.State = Updating
 	case s.Working || !s.Composer:
-	case limitRe.MatchString(strings.Join(lines, "\n")):
+	case limitRe.MatchString(s.Text):
 		s.State = Limited
+	case interrupted(agent, lines, at):
+		s.State = Interrupted
 	default:
 		s.State = Ready
 	}
 	return s
 }
 
-func screenLines(raw []byte) []string {
-	text := strings.Map(func(r rune) rune {
+// interrupted reports the agent's interrupt notice as the last line above its
+// input line: above Claude's box, or above Codex's marker. A follow-up that
+// the agent answered puts its own lines below the notice, so an old notice
+// does not count.
+func interrupted(agent string, lines []string, at int) bool {
+	re := interruptedRe[agent]
+	if re == nil || at < 0 {
+		return false
+	}
+	above := at
+	if agent == "claude" {
+		// The rule above the box; findComposer made sure it is there.
+		for above--; above >= 0 && !ruleRe.MatchString(lines[above]); above-- {
+		}
+	}
+	for j := above - 1; j >= 0; j-- {
+		if strings.TrimSpace(lines[j]) != "" {
+			return re.MatchString(lines[j])
+		}
+	}
+	return false
+}
+
+// screenLines returns the plain lines of a capture and, rune for rune, its
+// solid lines: the same text with every rune drawn dim or grey made a space.
+// SGR sequences set the styles, and each line starts unstyled, so a style
+// that a dropped line set is never carried into the next. Other control
+// characters are dropped. A plain capture has solid lines equal to its lines.
+func screenLines(raw []byte) (lines, solid []string) {
+	for _, line := range strings.Split(string(raw), "\n") {
+		plain, typed := styledLine(line)
+		lines = append(lines, strings.TrimRightFunc(plain, unicode.IsSpace))
+		solid = append(solid, strings.TrimRightFunc(typed, unicode.IsSpace))
+	}
+	return lines, solid
+}
+
+var sgrRe = regexp.MustCompile("^\x1b\\[([0-9;:]*)m")
+
+type cell struct {
+	r              rune
+	faint, inverse bool
+}
+
+func styledLine(line string) (string, string) {
+	var cells []cell
+	var st sgrState
+	for i := 0; i < len(line); {
+		if m := sgrRe.FindStringSubmatch(line[i:]); m != nil {
+			st.apply(m[1])
+			i += len(m[0])
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(line[i:])
+		i += size
 		switch {
 		case r == '\t':
-			return ' '
-		case r == '\n':
-			return r
+			r = ' '
 		case unicode.IsControl(r):
+			continue
+		}
+		cells = append(cells, cell{r: r, faint: st.dim || st.grey, inverse: st.inverse})
+	}
+	// The cursor is an inverse cell. On a suggestion it sits on the first
+	// cell, so it takes the look of the cell after it.
+	for i := range cells {
+		if cells[i].inverse && i+1 < len(cells) && !cells[i+1].inverse {
+			cells[i].faint = cells[i+1].faint
+		}
+	}
+	var plain, typed strings.Builder
+	for _, c := range cells {
+		plain.WriteRune(c.r)
+		if c.faint {
+			typed.WriteRune(' ')
+		} else {
+			typed.WriteRune(c.r)
+		}
+	}
+	return plain.String(), typed.String()
+}
+
+// sgrState is the part of the SGR state that tells a suggestion apart: dim,
+// a grey foreground and inverse video, which draws the cursor.
+type sgrState struct{ dim, grey, inverse bool }
+
+func (s *sgrState) apply(params string) {
+	if params == "" {
+		*s = sgrState{}
+		return
+	}
+	p := strings.FieldsFunc(params, func(r rune) bool { return r == ';' || r == ':' })
+	num := func(i int) int {
+		if i >= len(p) {
 			return -1
 		}
-		return r
-	}, string(raw))
-	lines := strings.Split(text, "\n")
-	for i, line := range lines {
-		lines[i] = strings.TrimRightFunc(line, unicode.IsSpace)
+		n, err := strconv.Atoi(p[i])
+		if err != nil {
+			return -1
+		}
+		return n
 	}
-	return lines
+	for i := 0; i < len(p); i++ {
+		switch n := num(i); {
+		case n == 0:
+			*s = sgrState{}
+		case n == 2:
+			s.dim = true
+		case n == 22:
+			s.dim = false
+		case n == 7:
+			s.inverse = true
+		case n == 27:
+			s.inverse = false
+		case n == 90:
+			s.grey = true
+		case n >= 30 && n <= 37 || n == 39 || n >= 91 && n <= 97:
+			s.grey = false
+		case n == 38 || n == 48:
+			// An extended colour: 5;index or 2;r;g;b. Only the foreground counts.
+			switch num(i + 1) {
+			case 5:
+				if n == 38 {
+					s.grey = greyIndex(num(i + 2))
+				}
+				i += 2
+			case 2:
+				if n == 38 {
+					s.grey = greyRGB(num(i+2), num(i+3), num(i+4))
+				}
+				i += 4
+			}
+		}
+	}
+}
+
+// greyIndex is the bright black of the 16 colours or a middle step of the
+// 256-colour grey ramp; the ramp's ends are near black and near white.
+func greyIndex(n int) bool { return n == 8 || n >= 238 && n <= 250 }
+
+// greyRGB is a colour with equal parts that is neither dark nor light, such
+// as the rgb(153,153,153) that Claude draws its suggestions in.
+func greyRGB(r, g, b int) bool {
+	if r < 0 || g < 0 || b < 0 {
+		return false
+	}
+	hi, lo := max(r, g, b), min(r, g, b)
+	return hi-lo <= 16 && lo >= 64 && hi <= 192
 }
 
 // findQuestion looks for a selection list or a yes or no prompt. It returns the
@@ -299,9 +446,12 @@ func cut(s string, n int) string {
 	return s[:n]
 }
 
-// findComposer returns the agent's input line. Codex marks it with ›. Claude
-// marks it with ❯ between two rules, which keeps it apart from a menu.
-func findComposer(agent string, lines []string) (found bool, input string, empty bool, rows []string) {
+// findComposer returns the row of the agent's input line, or -1. Codex marks
+// it with ›. Claude marks it with ❯ between two rules, which keeps it apart
+// from a menu. The input is read from the solid lines, so a dim suggestion
+// is no input; a placeholder of a known shape is none either, along with the
+// rows it wraps over.
+func findComposer(agent string, lines, solid []string) (at int, input string, empty bool, rows []string) {
 	marker := ""
 	switch agent {
 	case "codex":
@@ -309,7 +459,7 @@ func findComposer(agent string, lines []string) (found bool, input string, empty
 	case "claude":
 		marker = "❯"
 	default:
-		return false, "", false, nil
+		return -1, "", false, nil
 	}
 	for i := len(lines) - 1; i >= 0; i-- {
 		rest, ok := strings.CutPrefix(strings.TrimLeft(lines[i], " "), marker)
@@ -319,18 +469,22 @@ func findComposer(agent string, lines []string) (found bool, input string, empty
 		if agent == "claude" && !aboveIsRule(lines, i) {
 			continue
 		}
-		input = strings.TrimSpace(rest)
-		if input == "Ask Codex to do anything" || claudeTry.MatchString(input) {
-			input = ""
+		shown := strings.TrimSpace(rest)
+		if shown == "Ask Codex to do anything" || claudeTry.MatchString(shown) {
+			return i, "", true, []string{""}
 		}
+		// The solid line has the same runes in the same places, so the input
+		// starts after as many runes there.
+		skip := utf8.RuneCountInString(lines[i]) - utf8.RuneCountInString(rest)
+		input = strings.TrimSpace(string([]rune(solid[i])[min(skip, utf8.RuneCountInString(solid[i])):]))
 		rows = []string{input}
-		for _, row := range lines[i+1:] {
-			if agent == "claude" && ruleRe.MatchString(row) {
+		for j := i + 1; j < len(lines); j++ {
+			if agent == "claude" && ruleRe.MatchString(lines[j]) {
 				break
 			}
-			rows = append(rows, strings.TrimSpace(row))
+			rows = append(rows, strings.TrimSpace(solid[j]))
 		}
-		return true, input, input == "", rows
+		return i, input, input == "", rows
 	}
-	return false, "", false, nil
+	return -1, "", false, nil
 }

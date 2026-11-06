@@ -1,8 +1,10 @@
 // render-install renders the POSIX and PowerShell installer templates to dist.
-// Both release assets resolve versions at runtime. With -template and/or -o,
-// it renders a single custom file instead.
+// A release passes its tag with -version so each asset installs its own
+// release; without it the assets resolve the latest release. With -template and/or -o,
+// it renders a single custom file instead; with -o alone, its .sh or .ps1
+// extension picks the template.
 //
-// Usage: go run ./scripts/render-install [-template <path>] [-o <path>]
+// Usage: go run ./scripts/render-install [-version <tag>] [-template <path>] [-o <path>]
 package main
 
 import (
@@ -11,19 +13,31 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"text/template"
 )
 
 // templateData is what the template uses. Values are constant across
-// versions of duolog - the install script itself resolves the
-// version at runtime.
+// versions of duolog, except Version: the copy in the repository says
+// "latest", and a release copy names its own release tag.
 type templateData struct {
 	Owner              string
 	Repo               string
 	BinaryName         string
 	GoModulePath       string
 	SupportedPlatforms string
+	Version            string
+}
+
+var releaseVersion = regexp.MustCompile(`^v[0-9][0-9A-Za-z.+-]*$`)
+
+// checkVersion accepts "latest" or a release tag such as v1.4.0.
+func checkVersion(version string) error {
+	if version == "latest" || releaseVersion.MatchString(version) {
+		return nil
+	}
+	return fmt.Errorf("version %q is neither latest nor a release tag such as v1.4.0", version)
 }
 
 func defaultData() templateData {
@@ -34,6 +48,7 @@ func defaultData() templateData {
 		BinaryName:         "duolog",
 		GoModulePath:       "github.com/lorem-dev/duolog/cmd/duolog",
 		SupportedPlatforms: strings.Join(platforms, " "),
+		Version:            "latest",
 	}
 }
 
@@ -41,26 +56,59 @@ func main() {
 	var (
 		tmplFlag = flag.String("template", "", "path to template")
 		outFlag  = flag.String("o", "", "output path")
+		verFlag  = flag.String("version", "latest", "release tag the installers default to, or latest")
 	)
 	flag.Parse()
+	data := defaultData()
+	data.Version = *verFlag
+	if err := checkVersion(data.Version); err != nil {
+		fmt.Fprintf(os.Stderr, "render-install: %v\n", err)
+		os.Exit(1)
+	}
 
-	pairs := [][2]string{{"scripts/install-template/install.sh.tmpl", ".release/install.sh"}, {"scripts/install-template/install.ps1.tmpl", ".release/install.ps1"}}
-	if *tmplFlag != "" || *outFlag != "" {
-		if *tmplFlag == "" {
-			*tmplFlag = pairs[0][0]
-		}
-		if *outFlag == "" {
-			*outFlag = pairs[0][1]
-		}
-		pairs = [][2]string{{*tmplFlag, *outFlag}}
+	pairs, err := renderPairs(*tmplFlag, *outFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "render-install: %v\n", err)
+		os.Exit(1)
 	}
 	for _, pair := range pairs {
-		if err := renderTemplate(pair[0], pair[1], defaultData()); err != nil {
+		if err := renderTemplate(pair[0], pair[1], data); err != nil {
 			fmt.Fprintf(os.Stderr, "render-install: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Printf("rendered %s\n", pair[1])
 	}
+}
+
+const (
+	shTemplate  = "scripts/install-template/install.sh.tmpl"
+	ps1Template = "scripts/install-template/install.ps1.tmpl"
+)
+
+// renderPairs returns the template and output path of each file to render.
+// Without flags it is both installers. With -o alone the extension picks the
+// template, .sh or .ps1, and any other extension needs -template. With
+// -template alone the output is named after the template, without .tmpl, in
+// .release: install.ps1.tmpl renders .release/install.ps1.
+func renderPairs(tmpl, out string) ([][2]string, error) {
+	switch {
+	case tmpl == "" && out == "":
+		return [][2]string{{shTemplate, ".release/install.sh"}, {ps1Template, ".release/install.ps1"}}, nil
+	case out == "":
+		// The output keeps the template's own name in .release, so a
+		// PowerShell template never lands in install.sh.
+		out = filepath.Join(".release", strings.TrimSuffix(filepath.Base(tmpl), ".tmpl"))
+	case tmpl == "":
+		switch strings.ToLower(filepath.Ext(out)) {
+		case ".sh":
+			tmpl = shTemplate
+		case ".ps1":
+			tmpl = ps1Template
+		default:
+			return nil, fmt.Errorf("cannot tell the template from %q: name a .sh or .ps1 output, or pass -template", out)
+		}
+	}
+	return [][2]string{{tmpl, out}}, nil
 }
 
 // renderTemplate parses the template at tmplPath, executes it with
@@ -85,7 +133,7 @@ func renderTemplate(tmplPath, outPath string, data templateData) error {
 		return fmt.Errorf("execute template: %w", err)
 	}
 	result := rendered.Bytes()
-	if strings.HasSuffix(outPath, ".ps1") {
+	if strings.EqualFold(filepath.Ext(outPath), ".ps1") {
 		result = bytes.ReplaceAll(result, []byte("\n"), []byte("\r\n"))
 	}
 	return os.WriteFile(outPath, result, 0755)

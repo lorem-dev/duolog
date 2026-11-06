@@ -17,8 +17,9 @@ func parentProcess(pid int) (int, string) {
 	if err != nil {
 		return 0, ""
 	}
+	start := strings.IndexByte(string(data), '(')
 	end := strings.LastIndexByte(string(data), ')')
-	if end < 0 {
+	if start < 0 || end < start {
 		return 0, ""
 	}
 	fields := strings.Fields(string(data[end+1:]))
@@ -26,5 +27,5 @@ func parentProcess(pid int) (int, string) {
 		return 0, ""
 	}
 	parent, _ := strconv.Atoi(fields[1])
-	return parent, ""
+	return parent, string(data[start+1 : end])
 }

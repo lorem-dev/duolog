@@ -70,20 +70,6 @@ func claudeArgv(s Spec) []string {
 	return append(args, "--", taskInstruction)
 }
 
-type claudeUsage struct {
-	Input    int64 `json:"input_tokens"`
-	Creation int64 `json:"cache_creation_input_tokens"`
-	Cached   int64 `json:"cache_read_input_tokens"`
-	Output   int64 `json:"output_tokens"`
-}
-
-// usage counts cache creation as input. Claude reports uncached, cache
-// creation and cache reads separately; Input is total input for both vendors,
-// with Cached being the included read subset.
-func (u claudeUsage) usage() Usage {
-	return Usage{Input: u.Input + u.Creation + u.Cached, Cached: u.Cached, Output: u.Output}
-}
-
 // claudeOutput is Claude's final result: the result event of stream-json, or
 // the single object of the json output format.
 type claudeOutput struct {
@@ -94,6 +80,30 @@ type claudeOutput struct {
 	// A pointer, so that a result without usage is told from zero usage.
 	Usage *claudeUsage    `json:"usage"`
 	Cost  json.RawMessage `json:"total_cost_usd"`
+}
+
+// claudeUsage is the usage of a Claude result. Claude reports uncached input,
+// cache writes and cache reads separately, and splits the writes by how long
+// the cache keeps them.
+type claudeUsage struct {
+	Input    int64 `json:"input_tokens"`
+	Creation int64 `json:"cache_creation_input_tokens"`
+	Cached   int64 `json:"cache_read_input_tokens"`
+	Output   int64 `json:"output_tokens"`
+	Split    *struct {
+		Hour int64 `json:"ephemeral_1h_input_tokens"`
+	} `json:"cache_creation"`
+}
+
+// tokens makes Input the total input for both vendors, with Cached and Write
+// the included read and write subsets. Writes without a split count as
+// five-minute writes.
+func (u claudeUsage) tokens() Usage {
+	t := Usage{Input: u.Input + u.Creation + u.Cached, Cached: u.Cached, Write: u.Creation, Output: u.Output}
+	if u.Split != nil {
+		t.WriteHour = min(max(u.Split.Hour, 0), max(u.Creation, 0))
+	}
+	return t
 }
 
 // claudeStream folds the objects of Claude's stdout capture.
@@ -149,28 +159,24 @@ func (s *claudeStream) add(object []byte) {
 		}
 		s.known = true
 		if message.ID == "" {
-			s.unnamed = s.unnamed.add(message.Usage.usage())
+			s.unnamed.Add(message.Usage.tokens())
 			return
 		}
 		if s.messages == nil {
 			s.messages = map[string]Usage{}
 		}
-		s.messages[message.ID] = message.Usage.usage()
+		s.messages[message.ID] = message.Usage.tokens()
 	}
 }
 
-// usage is what the assistant messages so far used, for a run that ended
-// before its result.
+// usage is what the assistant messages so far used, cache writes included,
+// for a run that ended before its result.
 func (s *claudeStream) usage() Usage {
 	total := s.unnamed
 	for _, u := range s.messages {
-		total = total.add(u)
+		total.Add(u)
 	}
 	return total
-}
-
-func (u Usage) add(v Usage) Usage {
-	return Usage{Input: u.Input + v.Input, Cached: u.Cached + v.Cached, Output: u.Output + v.Output}
 }
 
 // readClaudeStream folds Claude's stdout capture at path into result: the
@@ -236,7 +242,7 @@ func readClaudeStream(path string, result *Result) (json.RawMessage, error) {
 	// The result's usage is the run's total; the messages' usage is part of it.
 	result.Usage, result.UsageKnown = stream.usage(), stream.known
 	if output.Usage != nil {
-		result.Usage, result.UsageKnown = output.Usage.usage(), true
+		result.Usage, result.UsageKnown = output.Usage.tokens(), true
 	}
 	result.ReportedUSD = reportedUSD(output.Cost)
 	if output.Subtype == "error_max_turns" {

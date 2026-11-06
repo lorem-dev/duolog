@@ -290,6 +290,7 @@ func TestNotBridgeable(t *testing.T) {
 		{"claude env of the agent", "claude", `{"command":"x","env":{"OPENAI_BASE_URL":"https://llm.example.net/v1"}}`, "agent reads too", nil},
 		{"claude env of duolog in other case", "claude", `{"command":"x","env":{"duolog_depth":"0"}}`, "duolog keeps", nil},
 		{"claude env of duolog", "claude", `{"command":"x","env":{"DUOLOG_DEPTH":"0"}}`, "duolog keeps", nil},
+		{"claude env of rex in mixed case", "claude", `{"command":"x","env":{"Rex_Session":"s"}}`, "duolog keeps", nil},
 		{"codex auth", "codex", "url = \"https://x.example.com\"\nauth = \"oauth\"\nbearer_token_env_var = \"T\"\n", "OAuth", map[string]string{"T": "t"}},
 		{"codex oauth table", "codex", "url = \"https://x.example.com\"\n[mcp_servers.svc.oauth]\nclient_id = \"c\"\n", "OAuth", nil},
 		{"codex scopes", "codex", "url = \"https://x.example.com\"\nscopes = [\"read\"]\n", "OAuth", nil},
@@ -299,6 +300,11 @@ func TestNotBridgeable(t *testing.T) {
 		{"codex remote env", "codex", "command = \"x\"\nenv_vars = [{name = \"A\", source = \"remote\"}]\n", "remote", nil},
 		{"codex unknown transport", "codex", "enabled = true\n", "unknown", nil},
 		{"codex cwd", "codex", "command = \"x\"\ncwd = \"/elsewhere\"\n", "working folder", nil},
+		{"codex env_vars of rex", "codex", "command = \"x\"\nenv_vars = [\"REX_SESSION\"]\n", "duolog keeps", map[string]string{"REX_SESSION": "s"}},
+		{"codex env_vars of rex in mixed case", "codex", "command = \"x\"\nenv_vars = [\"Rex_Session\"]\n", "duolog keeps", map[string]string{"Rex_Session": "s"}},
+		{"codex env_vars of rex unset", "codex", "command = \"x\"\nenv_vars = [\"rex_session\"]\n", "duolog keeps", nil},
+		{"codex env of duolog", "codex", "command = \"x\"\nenv = { DUOLOG_DEPTH = \"0\" }\n", "duolog keeps", nil},
+		{"codex env of duolog in other case", "codex", "command = \"x\"\nenv = { duolog_depth = \"0\" }\n", "duolog keeps", nil},
 		{"codex missing bearer", "codex", "url = \"https://x.example.com\"\nbearer_token_env_var = \"NOT_SET\"\n", "$NOT_SET", nil},
 	}
 	for _, c := range cases {
@@ -506,5 +512,20 @@ func TestBridgeRefusesNameTheWorkerHas(t *testing.T) {
 	put(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.svc]\ncommand = \"old\"\nenabled = false\n")
 	if got, failed := Bridge("claude", "codex", root, []string{"svc"}, nil, nil); got != nil || !strings.Contains(failed["svc"], "has a server of that name") {
 		t.Fatal(got, failed)
+	}
+}
+
+// Codex splits a -c key at each dot with no quoting, so a quoted name would
+// make a new server with no transport, and Codex would refuse its config. The
+// overrides name each enabled server bare and leave out a name that a bare key
+// cannot hold, a disabled server, and a server only Claude has.
+func TestCodexOffNamesServersBare(t *testing.T) {
+	home, root := env(t)
+	claudeState(t, home, root, `{"claude-only":{"command":"x"}}`, "")
+	put(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.codegraph]\ncommand = 'cg'\n[mcp_servers.private]\ncommand = 'p'\n[mcp_servers.parked]\ncommand = 'x'\nenabled = false\n[mcp_servers.\"a.b\"]\ncommand = 'd'\n")
+	got := strings.Join(CodexOff(root), "|")
+	want := "-c|mcp_servers.codegraph.enabled=false|-c|mcp_servers.private.enabled=false"
+	if got != want {
+		t.Fatalf("got %s, want %s", got, want)
 	}
 }

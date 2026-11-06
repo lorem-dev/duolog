@@ -1,7 +1,7 @@
 .PHONY: build test vet lint docs-lint schema schema-write third-party third-party-check version-check
 
 build:
-	go build ./cmd/duolog
+	go build -o .cache/bin/duolog ./cmd/duolog
 
 test:
 	go test -timeout 2m ./...
@@ -34,4 +34,4 @@ third-party-check:
 
 .PHONY: install-script
 install-script:
-	go run ./scripts/render-install
+	go run ./scripts/render-install -version $(or $(RELEASE_TAG),latest)

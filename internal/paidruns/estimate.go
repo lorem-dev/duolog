@@ -60,22 +60,33 @@ func EstimateTask(cfg *config.Config, records []journal.Delegation,
 	}
 
 	priceErr := checkPrice(cfg, agent, family)
-	cost := func(input, cached, output int64) float64 {
+	cost := func(t usage.Tokens) float64 {
 		if priceErr != nil {
 			return 0
 		}
-		usd, _ := usage.Cost(cfg, agent, family, input, cached, output)
+		usd, _ := usage.Cost(cfg, agent, family, t)
 		return usd
 	}
+	// A run's tokens with its Claude cache writes, which cost more than input.
+	// Counts that do not fit together are priced without the writes.
+	tokens := func(d journal.Delegation) usage.Tokens {
+		t := usage.Tokens{Input: d.Input, Cached: d.Cached, Write: d.CacheWrite, WriteHour: d.CacheWriteHour, Output: d.Output}
+		if !t.Valid() {
+			t.Write, t.WriteHour = 0, 0
+		}
+		return t
+	}
 	var e Estimate
+	var measured usage.Tokens
 	if len(runs) == 0 {
 		input := int64(math.Round(coldTokens * coldInputShare))
 		e = Estimate{Input: input, Output: coldTokens - input, Source: coldSource}
+		measured = usage.Tokens{Input: e.Input, Output: e.Output}
 	} else {
 		// Prices are the family's, so ranking by cost ranks by weighted
 		// tokens; unpriced runs rank by their tokens.
 		slices.SortStableFunc(runs, func(a, b journal.Delegation) int {
-			return cmp.Or(cmp.Compare(cost(a.Input, a.Cached, a.Output), cost(b.Input, b.Cached, b.Output)),
+			return cmp.Or(cmp.Compare(cost(tokens(a)), cost(tokens(b))),
 				cmp.Compare(a.Input+a.Output, b.Input+b.Output))
 		})
 		d := runs[int(math.Ceil(0.9*float64(len(runs))))-1]
@@ -85,12 +96,13 @@ func EstimateTask(cfg *config.Config, records []journal.Delegation,
 		}
 		e = Estimate{Input: d.Input, Cached: d.Cached, Output: d.Output,
 			Source: fmt.Sprintf("journal p90 of %d runs of %s %s, %s", len(runs), agent, family, scope)}
+		measured = tokens(d)
 	}
 	if priceErr != nil {
 		return e, fmt.Errorf("%w for %s model %s (estimate: %s); paid runs refuse it: %v",
 			ErrUnpriced, agent, family, e.Source, priceErr)
 	}
-	e.USD = cost(e.Input, e.Cached, e.Output)
+	e.USD = cost(measured)
 	return e, nil
 }
 

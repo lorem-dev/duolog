@@ -55,12 +55,17 @@ func agentEnv(in workerenv.ProcessInput) (workerenv.Process, error) {
 
 // peerInput describes the pane of route in variant: environ, the route's
 // context, the state folder and protected roots its Claude settings deny,
-// and Claude's notifications off.
-func peerInput(cfg *config.Config, route router.Route, variant workerenv.Variant, leadID, role, peerID, stateDir string,
+// and Claude's notifications off. run, when set, is the pane's DUOLOG_RUN:
+// the run id duolog drew for this launch, never a vendor id; the gate's
+// telemetry events and the peer's own carry it.
+func peerInput(cfg *config.Config, route router.Route, variant workerenv.Variant, leadID, role, peerID, run, stateDir string,
 	roots, environ []string) workerenv.ProcessInput {
 	in := workerenv.ProcessInput{Agent: route.Agent, Shape: workerenv.Peer, Variant: variant, Config: cfg,
 		Environ: environ, LeadID: leadID, Role: role, PeerID: peerID, StateDir: stateDir,
 		Minimal: route.Context == "minimal", ProtectedRoots: roots}
+	if run != "" {
+		in.ExtraEnv = []string{"DUOLOG_RUN=" + run}
+	}
 	if route.Agent == "claude" {
 		in.ExtraSettings = map[string]any{"preferredNotifChannel": "notifications_disabled"}
 	}

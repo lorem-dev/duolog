@@ -15,6 +15,19 @@ func Rename(oldpath, newpath string) error {
 	return renameRetry(func() error { return os.Rename(oldpath, newpath) }, runtime.GOOS == "windows")
 }
 
+// ReadFile reads a file that another process may replace with Rename. On
+// Windows the open fails with a sharing violation while that rename runs, so
+// it retries the same way Rename does; a missing file is reported at once.
+func ReadFile(path string) ([]byte, error) {
+	var data []byte
+	err := renameRetry(func() error {
+		var err error
+		data, err = os.ReadFile(path)
+		return err
+	}, runtime.GOOS == "windows")
+	return data, err
+}
+
 func renameRetry(rename func() error, windows bool) error {
 	for attempt := 0; ; attempt++ {
 		err := rename()

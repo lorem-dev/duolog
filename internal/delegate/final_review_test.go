@@ -123,6 +123,26 @@ func TestInlineRespectsLeadReadDeny(t *testing.T) {
 	}
 }
 
+// A private usage store inside the work root stays out of the inlined task:
+// inlining judges a Read reference with the same protected roots the worker's
+// gate hook gets, before any worker hook runs.
+func TestInlineKeepsProtectedStoreOut(t *testing.T) {
+	h := newHarness(t)
+	h.lead("claude", mode.Full, "high")
+	store := filepath.Join(h.root, "xdg-state", "duolog")
+	put(t, filepath.Join(store, "usage.jsonl"), "DO_NOT_SEND_PRIVATE_STORE")
+	h.task("- xdg-state/duolog/usage.jsonl")
+	ctx := WithOptions(context.Background(), Options{ProtectedRoots: []string{store}})
+	if _, err := Run(ctx, h.cfg, h.s, "implement", h.path, "topic"); err != nil {
+		t.Fatal(err)
+	}
+	h.requireCalls(1)
+	stdin := string(h.calls[0].Stdin)
+	if strings.Contains(stdin, "DO_NOT_SEND_PRIVATE_STORE") || !strings.Contains(stdin, "Not inlined by read policy") {
+		t.Fatal(stdin)
+	}
+}
+
 func TestDelegateWarnsAboutMissingClaudeHooks(t *testing.T) {
 	h := newHarness(t)
 	out, err := h.run("review_final")

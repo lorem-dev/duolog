@@ -1186,9 +1186,34 @@ func TestResultLineKeepsNeedsAndWarnings(t *testing.T) {
 			t.Fatalf("%q is missing from %s", want, line)
 		}
 	}
+	// A files list too long for the line is cut before any warning is.
+	var files []string
+	for i := range 40 {
+		files = append(files, fmt.Sprintf("src/%02d%s.go", i, strings.Repeat("x", 30)))
+	}
+	warning := "; rules are off; open /hooks; outside=other/b.go; some notice"
+	line = resultLine(true, " needs=approval", "Completed.", strings.Join(files, ","), warning, "answer=x/answer.json")
+	if len(line) > maxLine || !strings.HasSuffix(line, warning) || !strings.Contains(line, "[cut; answer=x/answer.json]") || !strings.Contains(line, "files=src/00") || strings.Contains(line, "src/39") {
+		t.Fatalf("%d bytes: %s", len(line), line)
+	}
+	// The cut list says so.
+	if !strings.Contains(line, ".go,..."+warning) {
+		t.Fatalf("cut files list has no marker: %s", line)
+	}
 	short := resultLine(true, "", "Done.", "", "", "answer=x")
 	if short != "done=true summary=Done. files=" {
 		t.Fatal(short)
+	}
+	// A warning longer than the line is kept whole, so the line runs past
+	// 512 bytes, as docs/getting-started.md says.
+	var outside []string
+	for i := range 40 {
+		outside = append(outside, fmt.Sprintf("other/%02d%s.go", i, strings.Repeat("y", 20)))
+	}
+	warning = "; outside=" + strings.Join(outside, ",")
+	line = resultLine(true, "", "Completed.", "a.go,b.go", warning, "answer=x/answer.json")
+	if len(line) <= maxLine || !strings.HasSuffix(line, warning) || !strings.Contains(line, "[cut; answer=x/answer.json]") || strings.Contains(line, "a.go") || !strings.Contains(line, " files=..."+warning) {
+		t.Fatalf("%d bytes: %s", len(line), line)
 	}
 }
 

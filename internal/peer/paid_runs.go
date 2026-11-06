@@ -100,7 +100,7 @@ func (h *hold) release(ctx context.Context) error {
 // one task's estimate in one reservation, the free variant first and the
 // paid one when the agent opted in. A pane never waits for a slot: a refusal
 // names the counts and the close command.
-func (e *env) admitPane(ctx context.Context, route router.Route, lead leadInfo, role, id string) (*hold, error) {
+func (e *env) admitPane(ctx context.Context, route router.Route, lead leadInfo, role, id, run string) (*hold, error) {
 	g, err := e.accounts()
 	if err != nil {
 		return nil, err
@@ -113,7 +113,7 @@ func (e *env) admitPane(ctx context.Context, route router.Route, lead leadInfo, 
 	}
 	var refusals []string
 	for _, variant := range variants {
-		in := peerInput(e.cfg, route, variant, lead.id, role, id, filepath.Dir(e.dir), e.opts.ProtectedRoots, os.Environ())
+		in := peerInput(e.cfg, route, variant, lead.id, role, id, run, filepath.Dir(e.dir), e.opts.ProtectedRoots, os.Environ())
 		permit, err := g.Acquire(ctx, paidruns.Request{Input: in, Family: models.Normalize(route.Agent, route.Model), Role: role,
 			Owner: paidruns.ProcessOwner(os.Getpid()), OpenPeer: true})
 		var refusal *paidruns.Refusal
@@ -169,7 +169,7 @@ func (e *env) admitSend(ctx context.Context, entry session.Entry) (*hold, error)
 		return nil, fmt.Errorf("peer %s holds no account session; close it with duolog peer close %s and open it again", entry.ID, entry.ID)
 	}
 	route := router.Route{Target: config.Target{Agent: entry.Agent}, Context: e.cfg.Roles[entry.Role].Context}
-	in := peerInput(e.cfg, route, open.Variant, entry.Lead, entry.Role, entry.ID, filepath.Dir(e.dir), e.opts.ProtectedRoots, os.Environ())
+	in := peerInput(e.cfg, route, open.Variant, entry.Lead, entry.Role, entry.ID, entry.Run, filepath.Dir(e.dir), e.opts.ProtectedRoots, os.Environ())
 	permit, err := g.Acquire(ctx, paidruns.Request{Input: in, Family: open.Family, Role: entry.Role,
 		Owner: paidruns.ProcessOwner(os.Getpid()), ExistingSession: entry.AccountSessionID})
 	var refusal *paidruns.Refusal

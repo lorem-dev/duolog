@@ -99,7 +99,7 @@ var outputRoles = map[string]string{"code": "implement", "tests": "tests", "docs
 // refused before then is not charged; one start refuses returns
 // ErrNotAdmitted. The time cap, a Claude worker's turn cap and a provider
 // limit end the cell without checks, the last two as failed_limit, which is
-// no result; a check run past the check time cap fails it. The checks run
+// no result; so does a worker whose reported usage passes the token cap; a check run past the check time cap fails it. The checks run
 // on the candidate's tree with the tests it deleted put back; when it
 // changed how a check is defined, the cell is check_setup_changed. An
 // interrupt, during the worker or the checks, returns ctx's error and saves
@@ -164,7 +164,7 @@ func RunCell(ctx context.Context, env CellEnv, c Cell, t TaskRecord, start Start
 	u := out.Result.Usage
 	r.Tokens = u.Input + u.Output
 	r.Input, r.Cached, r.Output = u.Input, u.Cached, u.Output
-	r.USD, _ = usage.Cost(env.Cfg, entry.Agent, entry.Model, u.Input, u.Cached, u.Output)
+	r.USD, _ = usage.Cost(env.Cfg, entry.Agent, entry.Model, u)
 	switch {
 	case ctx.Err() != nil:
 		return r, ctx.Err()
@@ -178,6 +178,12 @@ func RunCell(ctx context.Context, env CellEnv, c Cell, t TaskRecord, start Start
 		// Only a Claude worker has the cap, so it is no result, as a provider
 		// limit is: a failure would count against Claude entries only.
 		r.State, r.Reason = CellFailedLimit, "turn cap"
+		return r, saveCell(dir, r, false)
+	case r.Tokens > env.Cfg.Calibration.CellMaxTokens:
+		// The runners report usage when the worker ends, not while it runs, so
+		// the cap is enforced here: the cell is over it, no result, and the
+		// run goes on with the next cell.
+		r.State, r.Reason = CellFailedLimit, "token cap"
 		return r, saveCell(dir, r, false)
 	case runErr != nil:
 		return r, fmt.Errorf("calibration cell %s: %w", c.ID, runErr)

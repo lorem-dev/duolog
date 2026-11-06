@@ -21,6 +21,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/models"
 	"github.com/lorem-dev/duolog/internal/runner"
 	"github.com/lorem-dev/duolog/internal/session"
+	"github.com/lorem-dev/duolog/internal/usage"
 )
 
 func gitIn(t *testing.T, dir string, args ...string) string {
@@ -705,15 +706,22 @@ func TestLearningJournalsWaitsForLead(t *testing.T) {
 func TestLearningSumsUsageAcrossLoginRetry(t *testing.T) {
 	h := authHarness(t)
 	h.learning(true)
-	h.results = []runner.Result{{AuthFailed: true, Usage: runner.Usage{Input: 5, Output: 1}}}
+	h.results = []runner.Result{{AuthFailed: true, Usage: runner.Usage{Input: 5, Write: 4, WriteHour: 1, Output: 1}}}
 	h.auth.login = auth.LoggedIn
 	out, err := h.run("implement")
 	h.requireCalls(2)
 	if err != nil || !out.Result.Done {
 		t.Fatal(out, err)
 	}
-	if rec := h.record(); rec.Input != 17 || rec.Output != 4 || !rec.Done {
+	rec := h.record()
+	if rec.Input != 17 || rec.Output != 4 || rec.CacheWrite != 4 || rec.CacheWriteHour != 1 || !rec.Done {
 		t.Fatalf("%+v", rec)
+	}
+	// The journal's cost carries the cache-write premium.
+	want, priced := usage.Cost(h.cfg, rec.Agent, rec.Model, usage.Tokens{Input: 17, Write: 4, WriteHour: 1, Output: 4})
+	plain, _ := usage.Cost(h.cfg, rec.Agent, rec.Model, usage.Tokens{Input: 17, Output: 4})
+	if !priced || rec.USD != want || !(rec.USD > plain) {
+		t.Fatalf("usd %v, want %v above plain input %v", rec.USD, want, plain)
 	}
 }
 

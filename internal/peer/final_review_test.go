@@ -30,8 +30,10 @@ func TestPeerWaitReturnsPendingGateAskWithoutCapture(t *testing.T) {
 	before := len(r.calls())
 	started := time.Now()
 	got, err := Wait(r.ctx, opened.ID)
-	if err != nil || got.State != Question || !strings.Contains(got.Question, "approval required") || time.Since(started) > time.Second {
-		t.Fatal(got, err)
+	// The pending ask returns before any pane read; the bound has room for a
+	// slow runner, and the capture count below proves no read happened.
+	if took := time.Since(started); err != nil || got.State != Question || !strings.Contains(got.Question, "approval required") || took > 5*time.Second {
+		t.Fatal(got, err, took)
 	}
 	if len(r.calls()) != before {
 		t.Fatal("captured screen while gate question was pending")
