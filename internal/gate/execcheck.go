@@ -67,19 +67,28 @@ func hiddenDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, part str
 // command, a closing done, fi or esac, and a group alike.
 func redirectDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, part string) (Decision, bool) {
 	for _, target := range redirectTargets(part) {
-		if a.Work != "" {
-			target = RelativeTarget(a.Work, a.Cwd, expandHome(target))
+		if d, ok := writeDeny(p, lead, m, a, target, "this command redirects into a path that"); ok {
+			return d, true
 		}
-		write := Action{Kind: "write", Target: cleanPath(target), Role: a.Role, Shell: a.Shell}
-		for _, rule := range lead.Deny {
-			if rule.Action == "write" && matches(rule, write) {
-				return Decision{Kind: Deny, Reason: "this command redirects into a path that lead settings deny", Rule: "lead: " + rule.Action + " " + rule.Match, Mode: m}, true
-			}
+	}
+	return Decision{}, false
+}
+
+// writeDeny holds the write denies of the lead and the policy for one file
+// that a command writes. what starts the reason.
+func writeDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, target, what string) (Decision, bool) {
+	if a.Work != "" {
+		target = RelativeTarget(a.Work, a.Cwd, expandHome(target))
+	}
+	write := Action{Kind: "write", Target: cleanPath(target), Role: a.Role, Shell: a.Shell}
+	for _, rule := range lead.Deny {
+		if rule.Action == "write" && matches(rule, write) {
+			return Decision{Kind: Deny, Reason: what + " lead settings deny", Rule: "lead: " + rule.Action + " " + rule.Match, Mode: m}, true
 		}
-		for _, rule := range p.Rules {
-			if rule.Decision == Deny && rule.Action == "write" && matches(rule, write) {
-				return Decision{Kind: Deny, Reason: "this command redirects into a path that policy denies", Rule: rule.Action + " " + rule.Match, Mode: m}, true
-			}
+	}
+	for _, rule := range p.Rules {
+		if rule.Decision == Deny && rule.Action == "write" && matches(rule, write) {
+			return Decision{Kind: Deny, Reason: what + " policy denies", Rule: rule.Action + " " + rule.Match, Mode: m}, true
 		}
 	}
 	return Decision{}, false
@@ -297,6 +306,10 @@ var patternOptions = map[string][]string{
 
 // ExecOutside checks file operands, not executable names or stream devices.
 func ExecOutside(a Action) bool {
+	// A script or an option can name a file inside one word.
+	if fileTargetsOutside(a) {
+		return true
+	}
 	parts, uncertain := ShellParts(a.Target, a.Shell)
 	if uncertain || len(parts) == 0 {
 		// Uncertain syntax can omit wrapped commands; retain their operands, and
@@ -312,37 +325,45 @@ func ExecOutside(a Action) bool {
 				return true
 			}
 		}
-		words := withoutRedirects(strings.Fields(part))
-		start := execOperandStart(words)
-		var valued []string
-		if start > 0 && start <= len(words) {
-			valued = patternOptions[programName(words[start-1])]
+		if operandsOutside(a, withoutRedirects(strings.Fields(part))) {
+			return true
 		}
-		options := true
-		for i := start; i < len(words); i++ {
-			word := strings.Trim(words[i], "'\"")
-			if !options {
-				// Past --, every word is an operand, even one that looks like an
-				// option, so a leading - is part of the path.
-				if outsideOperand(a, strings.Trim(word, "<>&|;()")) {
-					return true
-				}
-				continue
-			}
-			if word == "--" {
-				options = false
-				continue
-			}
-			name, _, attached := strings.Cut(word, "=")
-			if slices.Contains(valued, name) {
-				if !attached {
-					i++
-				}
-				continue
-			}
-			if outsideOperand(a, pathWord(word)) {
+	}
+	return false
+}
+
+// operandsOutside reports whether the operands of one part's words name a
+// file outside the work root.
+func operandsOutside(a Action, words []string) bool {
+	start := execOperandStart(words)
+	var valued []string
+	if start > 0 && start <= len(words) {
+		valued = patternOptions[programName(words[start-1])]
+	}
+	options := true
+	for i := start; i < len(words); i++ {
+		word := strings.Trim(words[i], "'\"")
+		if !options {
+			// Past --, every word is an operand, even one that looks like an
+			// option, so a leading - is part of the path.
+			if outsideOperand(a, strings.Trim(word, "<>&|;()")) {
 				return true
 			}
+			continue
+		}
+		if word == "--" {
+			options = false
+			continue
+		}
+		name, _, attached := strings.Cut(word, "=")
+		if slices.Contains(valued, name) {
+			if !attached {
+				i++
+			}
+			continue
+		}
+		if outsideOperand(a, pathWord(word)) {
+			return true
 		}
 	}
 	return false

@@ -164,13 +164,11 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 		}
 	}
 	// The parser splits at a lone &, so >& file reaches the redirect checks
-	// only in the raw parts, which keep it whole.
+	// only in the raw parts, which keep it whole. They also keep a quoted
+	// script whole.
 	if a.Kind == "exec" {
 		for _, part := range rawExecParts(a.Target) {
-			if d, ok := redirectDeny(p, lead, m, a, part); ok {
-				return d
-			}
-			if d, ok := inputDeny(p, lead, m, a, part); ok {
+			if d, ok := rawPartDeny(p, lead, m, a, part); ok {
 				return d
 			}
 		}
