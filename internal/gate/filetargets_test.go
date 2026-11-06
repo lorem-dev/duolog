@@ -625,6 +625,52 @@ func TestAwkFilesAreJudged(t *testing.T) {
 	)
 }
 
+// gawk's @include and @load name a file the program reads code from. An
+// include read from standard input is code the gate never sees, and gawk looks
+// a name with no / up in each folder of AWKPATH, or of AWKLIBPATH for an
+// extension. The gate judged an include as a file in the working folder and
+// any @load as unknown.
+func TestAwkIncludeAndLoadFiles(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	// gawk splits AWKPATH by the platform's list separator, so each case
+	// joins its folders with that one, quoted for the shell.
+	sep := string(filepath.ListSeparator)
+	wantPersonInFull(t, p, root,
+		`gawk '@include "/dev/stdin"; BEGIN{}'`,
+		`gawk '@include "-"; BEGIN{}'`,
+		`gawk '@include "/dev/fd/0"; BEGIN{}'`,
+		`AWKPATH=/etc gawk '@include "x.awk"; BEGIN{}'`,
+		`env AWKPATH='lib`+sep+`../peer' gawk -f x.awk go.mod`,
+		`gawk '@load "../ext"; BEGIN{}'`,
+		`gawk '@load "/tmp/ext"; BEGIN{}'`,
+		`gawk --load=../ext 'BEGIN{}'`,
+		`AWKLIBPATH=/tmp gawk '@load "ext"; BEGIN{}'`,
+		// A bare extension name loads from the system's folder, and gawk's
+		// own extensions, such as inplace and rwarray, write files.
+		`gawk '@load "inplace"; BEGIN{}'`,
+		`gawk -l rwarray 'BEGIN{}'`,
+	)
+	wantDeny(t, p, root, RuleState,
+		`AWKPATH=.duolog gawk '@include "bus.ndjson"; BEGIN{}'`,
+		`export AWKPATH=.duolog; gawk -i bus.ndjson 'BEGIN{}'`,
+		`AWKLIBPATH=.duolog gawk -l ext 'BEGIN{}'`,
+	)
+	// The write rule for .duolog sees the word first.
+	wantDeny(t, p, root, "", `gawk '@load ".duolog/ext"; BEGIN{}'`)
+	wantDeny(t, p, root, "read",
+		`AWKPATH='lib`+sep+`secrets' gawk '@include "x.awk"; BEGIN{}'`,
+		`gawk -l secrets/ext 'BEGIN{}'`,
+	)
+	wantLead(t, p, root,
+		`gawk '@include "lib.awk"; BEGIN{}'`,
+		`AWKPATH=lib gawk '@include "x.awk"; BEGIN{}'`,
+		`gawk '@load "./ext"; BEGIN{}'`,
+		`AWKLIBPATH=lib gawk -l ext 'BEGIN{}'`,
+		`gawk -l build/ext 'BEGIN{}'`,
+	)
+}
+
 // An awk program can put any file in ARGV, which the main loop and a bare
 // getline then read. The gate judged only the files that the program names
 // after getline <, print > and @include.
@@ -673,6 +719,8 @@ func TestAwkEscapedFileNamesNeedThePerson(t *testing.T) {
 }
 
 func TestAwkTargets(t *testing.T) {
+	// gawk splits AWKPATH by the platform's list separator.
+	sep := string(filepath.ListSeparator)
 	for _, tc := range []struct {
 		command       string
 		reads, writes []string
@@ -700,6 +748,24 @@ func TestAwkTargets(t *testing.T) {
 		{command: `awk '{print > "\057tmp\057x"}' x`, reads: []string{"x"}, unknown: true},
 		{command: `gawk '@include "a\\b"'`, unknown: true},
 		{command: `awk`, unknown: true},
+		// An include read from standard input is code the gate never sees.
+		{command: `gawk '@include "/dev/stdin"'`, reads: []string{"/dev/stdin"}, unknown: true},
+		{command: `gawk '@include "-"'`, reads: []string{"-"}, unknown: true},
+		// gawk looks a code file with no / up in each folder of AWKPATH, and
+		// an extension with no / in each folder of AWKLIBPATH; an empty piece
+		// is the working folder.
+		{command: `AWKPATH='lib` + sep + `/usr/share/awk' gawk '@include "x.awk"'`, reads: []string{"lib" + sep + "/usr/share/awk", "lib", "/usr/share/awk", "x.awk", "lib/x.awk", "/usr/share/awk/x.awk"}},
+		{command: `AWKPATH='` + sep + `lib' gawk -f x.awk -i sub/y.awk f`, reads: []string{sep + "lib", "", "lib", "x.awk", "lib/x.awk", "sub/y.awk", "f"}},
+		{command: `env AWKPATH=lib gawk -i x 'BEGIN{}'`, reads: []string{"lib", "x", "lib/x"}},
+		{command: `AWKLIBPATH=lib gawk '@load "ext"'`, reads: []string{"lib", "lib/ext"}},
+		{command: `AWKLIBPATH=lib gawk -l ext 'BEGIN{}'`, reads: []string{"lib", "lib/ext"}},
+		// An extension with a / is a file the gate can judge. A bare name,
+		// with no AWKLIBPATH, loads from the system's folder of extensions,
+		// some of which read and write files.
+		{command: `gawk '@load "./ext"; BEGIN{}'`, reads: []string{"./ext"}},
+		{command: `gawk -l ./ext --load=lib/ext2 'BEGIN{}'`, reads: []string{"./ext", "lib/ext2"}},
+		{command: `gawk '@load "ext"'`, unknown: true},
+		{command: `gawk -l ext 'BEGIN{}'`, unknown: true},
 	} {
 		got := partFileTargets(tc.command)
 		if !slices.Equal(got.reads, tc.reads) || !slices.Equal(got.writes, tc.writes) || got.unknown != tc.unknown {

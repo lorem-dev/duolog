@@ -85,18 +85,47 @@ func (t *fileTargets) codeFile(name string) {
 // rawExecParts splits it. The program after keywords and wrappers counts, and
 // so does a command line that a shell runs, as in sh -c 'sed ...'.
 func partFileTargets(part string) fileTargets {
-	return commandFileTargets(part, 0)
+	return lineFileTargets(part, part)
+}
+
+// lineFileTargets is partFileTargets for a part of the shell line line. A
+// search path that the line sets anywhere, as export AWKPATH=x does, counts
+// for every part.
+func lineFileTargets(part, line string) fileTargets {
+	return commandFileTargets(part, searchPathAssignments(line), 0)
+}
+
+// searchPaths are the variables that tell a program where to look up a file
+// it is given by name only.
+var searchPaths = []string{"AWKPATH", "AWKLIBPATH"}
+
+// searchPathAssignments returns each assignment to a search path in a line,
+// in any command, wherever it stands: a path set for one command or exported
+// for the next is judged for all of them, which is the stricter reading.
+// The shell drops the quotes of a word, so AWKPATH='a;b' sets a;b.
+func searchPathAssignments(line string) []string {
+	var found []string
+	for _, field := range strings.Fields(line) {
+		word := strings.Trim(field, `'"&|;()`)
+		word = strings.NewReplacer(`'`, "", `"`, "").Replace(word)
+		name, _, ok := strings.Cut(word, "=")
+		if ok && execAssignment.MatchString(word) && slices.Contains(searchPaths, name) {
+			found = append(found, word)
+		}
+	}
+	return found
 }
 
 // maxScriptDepth limits how far sh -c inside sh -c is read.
 const maxScriptDepth = 3
 
-func commandFileTargets(part string, depth int) fileTargets {
-	return wordsFileTargets(scriptWords(commandAfterKeywords(part)), depth)
+func commandFileTargets(part string, env []string, depth int) fileTargets {
+	return wordsFileTargets(scriptWords(commandAfterKeywords(part)), env, depth)
 }
 
-// wordsFileTargets is commandFileTargets for a command split into words.
-func wordsFileTargets(split []scriptWord, depth int) fileTargets {
+// wordsFileTargets is commandFileTargets for a command split into words. env
+// holds the search path assignments of the whole line.
+func wordsFileTargets(split []scriptWord, env []string, depth int) fileTargets {
 	var t fileTargets
 	words := make([]string, len(split))
 	for i, word := range split {
@@ -125,7 +154,7 @@ func wordsFileTargets(split []scriptWord, depth int) fileTargets {
 			return t
 		}
 		for _, inner := range rawExecParts(program) {
-			t.add(commandFileTargets(inner, depth+1))
+			t.add(commandFileTargets(inner, env, depth+1))
 		}
 		return t
 	}
@@ -133,13 +162,14 @@ func wordsFileTargets(split []scriptWord, depth int) fileTargets {
 	if slices.Contains(ownOperandCheck, name) {
 		t.own = append(t.own, ownCommand(words[start-1:]))
 	}
-	t.add(programTargets(name, args, split[start:], depth))
+	t.add(programTargets(name, args, slices.Concat(env, words[:start-1]), split[start:], depth))
 	return t
 }
 
 // programTargets lists the file targets that a program's own words name;
-// split holds the same words as args.
-func programTargets(name string, args []string, split []scriptWord, depth int) fileTargets {
+// split holds the same words as args, and env the assignments that the
+// program sees: the line's search paths and the words in front of it.
+func programTargets(name string, args, env []string, split []scriptWord, depth int) fileTargets {
 	var t fileTargets
 	switch name {
 	case "export", "declare", "typeset", "readonly", "local":
@@ -148,10 +178,10 @@ func programTargets(name string, args []string, split []scriptWord, depth int) f
 	case "sed", "gsed":
 		t.add(sedTargets(args))
 	case "awk", "gawk", "mawk", "nawk":
-		t.add(awkTargets(args))
+		t.add(awkTargets(args, env))
 	case "find":
 		t.paths = attachedValues(name, args)
-		t.add(findExecTargets(split, depth))
+		t.add(findExecTargets(split, env, depth))
 	default:
 		t.paths = attachedValues(name, args)
 	}
@@ -160,7 +190,7 @@ func programTargets(name string, args []string, split []scriptWord, depth int) f
 
 // findExecTargets judges the commands that find runs with -exec, -execdir,
 // -ok and -okdir, each up to its ; or +.
-func findExecTargets(words []scriptWord, depth int) fileTargets {
+func findExecTargets(words []scriptWord, env []string, depth int) fileTargets {
 	var t fileTargets
 	for i := 0; i < len(words); i++ {
 		if !slices.Contains([]string{"-exec", "-execdir", "-ok", "-okdir"}, words[i].text) {
@@ -174,7 +204,7 @@ func findExecTargets(words []scriptWord, depth int) fileTargets {
 		for end < len(words) && words[end].text != ";" && words[end].text != "+" {
 			end++
 		}
-		t.add(wordsFileTargets(words[i+1:end], depth+1))
+		t.add(wordsFileTargets(words[i+1:end], env, depth+1))
 		i = end
 	}
 	return t
@@ -182,20 +212,21 @@ func findExecTargets(words []scriptWord, depth int) fileTargets {
 
 // fileVariables name a file or a folder that a program reads: git's config
 // and repository, the startup file of bash and sh, a library that the loader
-// preloads, a search path for code. Any name that ends in _FILE or _CONFIG
-// counts too.
+// preloads, a search path for code, such as gawk's AWKPATH. Any name that ends
+// in _FILE or _CONFIG counts too.
 var fileVariables = []string{
 	"GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
 	"GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_EXEC_PATH", "GIT_TEMPLATE_DIR", "GIT_SSH", "GIT_ASKPASS", "SSH_ASKPASS",
 	"BASH_ENV", "ENV", "ZDOTDIR", "INPUTRC", "HOME", "XDG_CONFIG_HOME",
 	"LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
-	"PYTHONSTARTUP", "PYTHONPATH", "PYTHONHOME", "PERL5LIB", "RUBYLIB", "NODE_PATH",
+	"PYTHONSTARTUP", "PYTHONPATH", "PYTHONHOME", "PERL5LIB", "RUBYLIB", "NODE_PATH", "AWKPATH", "AWKLIBPATH",
 	"KUBECONFIG", "DOCKER_CONFIG", "NETRC", "CURL_HOME", "GNUPGHOME",
 }
 
 // assignmentTargets judges the assignments in front of a program. The value
 // of a file variable is read, and any value is named. A value is judged whole
-// and split at : as PATH is; the whole keeps a Windows drive.
+// and split at : as PATH is, and on Windows also at ;, the list separator
+// there; the whole keeps a Windows drive.
 func assignmentTargets(words []string) fileTargets {
 	var t fileTargets
 	for _, word := range words {
@@ -204,8 +235,10 @@ func assignmentTargets(words []string) fileTargets {
 		}
 		name, value, _ := strings.Cut(word, "=")
 		pieces := []string{value}
-		if strings.Contains(value, ":") {
-			pieces = append(pieces, strings.Split(value, ":")...)
+		for _, sep := range valueSeparators() {
+			if strings.Contains(value, sep) {
+				pieces = append(pieces, strings.Split(value, sep)...)
+			}
 		}
 		t.named = append(t.named, pieces...)
 		if slices.Contains(fileVariables, name) || strings.HasSuffix(name, "_FILE") || strings.HasSuffix(name, "_CONFIG") {
@@ -213,6 +246,15 @@ func assignmentTargets(words []string) fileTargets {
 		}
 	}
 	return t
+}
+
+// valueSeparators are the separators an assigned list is split at: : as in
+// PATH, and the platform's own list separator when it differs.
+func valueSeparators() []string {
+	if sep := awkListSeparator(); sep != ":" {
+		return []string{":", sep}
+	}
+	return []string{":"}
 }
 
 // attachedTextShorts lists, per program, the short options whose value in the
@@ -281,7 +323,7 @@ func isOptionLetter(c byte) bool {
 func fileTargetsOutside(a Action) bool {
 	budget := newGlobBudget()
 	for _, part := range rawExecParts(a.Target) {
-		targets := partFileTargets(part)
+		targets := lineFileTargets(part, a.Target)
 		if targets.unknown || slices.ContainsFunc(targets.globs, func(glob string) bool { return globOutside(a, glob, budget) }) {
 			return true
 		}
@@ -408,7 +450,7 @@ func fileTargetDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, part
 	if shell == "powershell" {
 		shell = "windows"
 	}
-	targets := partFileTargets(part)
+	targets := lineFileTargets(part, a.Target)
 	if canWrite(part) {
 		targets.writes = append(targets.writes, targets.paths...)
 	}

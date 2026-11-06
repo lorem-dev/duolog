@@ -1,15 +1,100 @@
 package gate
 
-import "strings"
+import (
+	"path"
+	"runtime"
+	"slices"
+	"strings"
+)
+
+// awkListSeparator is the separator of a search path list. gawk splits
+// AWKPATH and AWKLIBPATH by the platform's list separator: ; on Windows and
+// : elsewhere. A : value on Windows stays one name with a colon, which the
+// gate refuses as a Windows stream name.
+func awkListSeparator() string {
+	if runtime.GOOS == "windows" {
+		return ";"
+	}
+	return ":"
+}
+
+// awkPaths holds gawk's search paths, from the assignments in front of the
+// command: AWKPATH for a code file and AWKLIBPATH for an extension.
+type awkPaths struct {
+	code, libraries []string
+	// librariesSet means AWKLIBPATH was given.
+	librariesSet bool
+}
+
+// newAwkPaths reads the search paths from assignments. Each folder of every
+// assignment counts, once, since the gate cannot tell which one is in force.
+func newAwkPaths(assignments []string) awkPaths {
+	var s awkPaths
+	for _, word := range assignments {
+		name, value, found := strings.Cut(word, "=")
+		switch {
+		case !found || !execAssignment.MatchString(word):
+		case name == "AWKPATH":
+			s.code = appendNew(s.code, strings.Split(value, awkListSeparator()))
+		case name == "AWKLIBPATH":
+			s.libraries, s.librariesSet = appendNew(s.libraries, strings.Split(value, awkListSeparator())), true
+		}
+	}
+	return s
+}
+
+// appendNew appends each name that list does not hold yet.
+func appendNew(list, names []string) []string {
+	for _, name := range names {
+		if !slices.Contains(list, name) {
+			list = append(list, name)
+		}
+	}
+	return list
+}
+
+// codeFile notes a file that gawk reads code from, with -f, -E, -i or
+// @include. A name with no / is also looked up in each folder of AWKPATH; an
+// empty folder is the working one, where the name as written already points.
+func (s awkPaths) codeFile(t *fileTargets, name string) {
+	t.codeFile(name)
+	if name == "-" || strings.Contains(name, "/") {
+		return
+	}
+	for _, folder := range s.code {
+		if folder != "" {
+			t.reads = append(t.reads, path.Join(folder, name))
+		}
+	}
+}
+
+// library notes an extension that gawk loads with -l, --load or @load. A
+// name with a / is that file. gawk looks a bare name up in each folder of
+// AWKLIBPATH, or else in the system's folder of extensions, whose own
+// extensions, such as inplace and rwarray, read and write files the program
+// names; the gate cannot judge those, so the name is unknown.
+func (s awkPaths) library(t *fileTargets, name string) {
+	switch {
+	case strings.Contains(name, "/"):
+		t.codeFile(name)
+	case s.librariesSet:
+		for _, folder := range s.libraries {
+			t.reads = append(t.reads, path.Join(folder, name))
+		}
+	default:
+		t.unknown = true
+	}
+}
 
 // awkTargets reads the options and the program of awk: POSIX awk, gawk, mawk
 // or BSD awk. -f, -E and --exec read the program from a file, and -i and
 // --include read an include file; all of them are reads, as are the input
 // files. -o, -p and -d with a file in the same word write it, and -D reads
-// it. -l and --load load a shared library, which runs code the gate cannot
-// see, as does an option it does not know.
-func awkTargets(args []string) fileTargets {
-	o := awkOptions{args: args}
+// it. -l and --load load an extension, which is read as code. An option the
+// gate does not know runs code it cannot see. assignments are the words in
+// front of the command, which may set AWKPATH and AWKLIBPATH.
+func awkTargets(args, assignments []string) fileTargets {
+	o := awkOptions{args: args, paths: newAwkPaths(assignments)}
 	for ; o.i < len(args); o.i++ {
 		word := args[o.i]
 		if word == "--" {
@@ -39,7 +124,7 @@ func awkTargets(args []string) fileTargets {
 		programs, operands = append(programs, operands[0]), operands[1:]
 	}
 	for _, program := range programs {
-		awkProgram(program, &t)
+		awkProgram(program, &t, o.paths)
 	}
 	for _, operand := range operands {
 		// An operand such as n=1 assigns a variable instead of naming a file.
@@ -56,6 +141,7 @@ type awkOptions struct {
 	i        int
 	programs []string
 	targets  fileTargets
+	paths    awkPaths
 	// given means a file or --source gave the program, so every operand is
 	// an input file.
 	given bool
@@ -79,10 +165,12 @@ func (o *awkOptions) long(word string) {
 	name, value, attached := strings.Cut(word, "=")
 	switch name {
 	case "--file", "--exec":
-		o.targets.codeFile(o.value(value, attached))
+		o.paths.codeFile(&o.targets, o.value(value, attached))
 		o.given = true
 	case "--include":
-		o.targets.codeFile(o.value(value, attached))
+		o.paths.codeFile(&o.targets, o.value(value, attached))
+	case "--load":
+		o.paths.library(&o.targets, o.value(value, attached))
 	case "--source":
 		o.programs = append(o.programs, o.value(value, attached))
 		o.given = true
@@ -100,7 +188,7 @@ func (o *awkOptions) long(word string) {
 		"--use-lc-numeric", "--non-decimal-data", "--optimize", "--no-optimize", "--posix", "--re-interval", "--sandbox",
 		"--version", "--csv", "--compat":
 	default:
-		// --load and any option the gate does not know.
+		// An option the gate does not know.
 		o.targets.unknown = true
 	}
 }
@@ -110,8 +198,11 @@ func (o *awkOptions) short(cluster string) {
 		letter, rest := cluster[j], cluster[j+1:]
 		switch {
 		case strings.IndexByte("fEi", letter) >= 0:
-			o.targets.codeFile(o.value(rest, rest != ""))
+			o.paths.codeFile(&o.targets, o.value(rest, rest != ""))
 			o.given = o.given || letter != 'i'
+			return
+		case letter == 'l':
+			o.paths.library(&o.targets, o.value(rest, rest != ""))
 			return
 		case letter == 'e':
 			o.programs = append(o.programs, o.value(rest, rest != ""))
@@ -127,8 +218,8 @@ func (o *awkOptions) short(cluster string) {
 			o.optionalFile(rest, false)
 			return
 		case strings.IndexByte("bcCghkLMnNOPrsStV", letter) < 0:
-			// -l loads a library, mawk's -W takes words the gate does not
-			// read, and any other letter is unknown.
+			// mawk's -W takes words the gate does not read, and any other
+			// letter is unknown.
 			o.targets.unknown = true
 			return
 		}
@@ -149,11 +240,11 @@ func (o *awkOptions) optionalFile(file string, write bool) {
 
 // awkProgram adds the files that an awk program reads and writes: the file
 // after getline <, the file after > or >> in a print or printf statement, and
-// the file of gawk's @include. A pipe, |&, system() and @load run code, and a
-// file that is not one string literal cannot be named; each of them makes the
-// targets unknown. A < or > elsewhere compares.
-func awkProgram(program string, t *fileTargets) {
-	p := awkParser{s: program, t: t, print: -1}
+// the files of gawk's @include and @load, looked up as paths says. A pipe, |&
+// and system() run code, and a file that is not one string literal cannot be
+// named; each of them makes the targets unknown. A < or > elsewhere compares.
+func awkProgram(program string, t *fileTargets, paths awkPaths) {
+	p := awkParser{s: program, t: t, paths: paths, print: -1}
 	for p.i < len(p.s) {
 		p.step()
 	}
@@ -164,6 +255,7 @@ type awkParser struct {
 	s     string
 	i     int
 	t     *fileTargets
+	paths awkPaths
 	depth int
 	// print is the parenthesis depth of the open print statement, or -1.
 	print int
@@ -301,7 +393,11 @@ func (p *awkParser) directive() {
 	switch p.name() {
 	case "include":
 		if file, ok := p.file(); ok {
-			p.t.reads = append(p.t.reads, file)
+			p.paths.codeFile(p.t, file)
+		}
+	case "load":
+		if file, ok := p.file(); ok {
+			p.paths.library(p.t, file)
 		}
 	case "namespace":
 	default:

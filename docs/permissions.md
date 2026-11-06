@@ -273,13 +273,19 @@ starts with `/`, as `sed '/TODO/d' x` does, is not a path, so `full` mode
 confirms it; the same holds for `awk '/re/' x` and the sets of `tr`.
 `awk` gets the same check. The gate judges the files of
 `getline <`, of `print >` and `>>`, of the `-f`, `-E`, `--exec`, `-i` and
-`--include` options and of gawk's `@include`. A pipe, `|&`, `system()`,
-`@load`, `-l`, a file name that is not one string and any use of `ARGV`,
-which names the input files, need the person. So does a file name string
-with a backslash, as in `getline x < "\056env"`, because awk decodes its
-escapes. So does a `sed` or `awk`
-script read from standard input, as with `-f -` or `-f /dev/stdin`, since
-the gate cannot see it. These checks also read a command that a wrapper or
+`--include` options and of gawk's `@include`, and the extension of `-l`,
+`--load` and `@load`. gawk looks a code file named with no `/` up in each
+folder of `AWKPATH` too, and an extension in each folder of `AWKLIBPATH`, so
+the gate judges each of those files, with the folders that any assignment or
+`export` on the line names. So `AWKPATH=.duolog gawk -i bus.ndjson` is
+denied. An extension with no `/` and no `AWKLIBPATH` loads from the system's
+folder, and some of gawk's own, such as `inplace`, write files, so it needs
+the person. A pipe, `|&`, `system()`, a file name that is not one string and
+any use of `ARGV`, which names the input files, need the person. So does a
+file name string with a backslash, as in `getline x < "\056env"`, because awk
+decodes its escapes. So does a `sed` or `awk` script read from standard
+input, as with `-f -`, `-f /dev/stdin` or `@include "/dev/stdin"`, since the
+gate cannot see it. These checks also read a command that a wrapper or
 another program runs, such as `sudo`, `caffeinate`, `sh -c`,
 `bash -o pipefail -c` and `find -exec`.
 
