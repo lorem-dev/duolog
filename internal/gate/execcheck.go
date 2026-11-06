@@ -474,6 +474,17 @@ var wrapperValueOptions = map[string][]string{
 	"ionice":  {"-c", "-n", "-p", "-P", "-u", "--class", "--classdata"},
 	"timeout": {"-s", "-k", "--signal", "--kill-after"},
 	"xargs":   {"-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s", "--arg-file", "--delimiter", "--max-args", "--max-procs", "--max-lines", "--max-chars"},
+	// A shell's -o and -O name an option, also when written +o and +O.
+	"sh":         {"-o", "-O", "+o", "+O"},
+	"bash":       {"-o", "-O", "+o", "+O"},
+	"zsh":        {"-o", "+o"},
+	"caffeinate": {"-t", "-w"},
+}
+
+// wrapperOption reports whether a word after a wrapper is one of its
+// options: it starts with -, or with + for a shell, as in sh +o noglob.
+func wrapperOption(wrapper, word string) bool {
+	return strings.HasPrefix(word, "-") || strings.HasPrefix(word, "+") && slices.Contains([]string{"sh", "bash", "zsh"}, wrapper)
 }
 
 func execOperandStart(words []string) int {
@@ -485,9 +496,9 @@ func execOperandStart(words []string) int {
 		}
 		switch filepath.Base(word) {
 		case "command", "builtin", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "powershell", "cmd",
-			"time", "nice", "ionice", "timeout", "nohup", "stdbuf", "setsid", "busybox", "doas", "watch", "parallel":
+			"time", "nice", "ionice", "timeout", "nohup", "stdbuf", "setsid", "busybox", "doas", "watch", "parallel", "caffeinate":
 			i++
-			for i < len(words) && strings.HasPrefix(words[i], "-") {
+			for i < len(words) && wrapperOption(filepath.Base(word), words[i]) {
 				// An option such as sudo -u takes the next word as its value,
 				// so that word is not the program.
 				takesValue := slices.Contains(wrapperValueOptions[filepath.Base(word)], words[i])

@@ -156,6 +156,46 @@ func TestSedScriptFilesAreJudged(t *testing.T) {
 	)
 }
 
+// A sed or awk script read from standard input is text the gate never sees,
+// and unlike a script file it needs no earlier write that the lead would
+// see. The gate counted -f /dev/stdin as a read of a stream, which is not a
+// file.
+func TestScriptsFromStandardInput(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	wantPersonInFull(t, p, root,
+		`echo w.git/hooks/pre-commit | sed -f /dev/stdin README.md`,
+		`sed -f - README.md`,
+		`sed --file=/dev/fd/0 README.md`,
+		`sed -n -f/dev/stdin README.md`,
+		`awk -f /dev/stdin README.md`,
+		`awk -f - README.md`,
+		`gawk --file=/dev/fd/3 README.md`,
+		`gawk -E /dev/stdin`,
+		`gawk -i /dev/stdin 'BEGIN{}'`,
+	)
+	wantLead(t, p, root, `sed -f fix.sed README.md`, `awk -f prog.awk README.md`)
+}
+
+// A shell option with a value, find -exec and caffeinate run a program that
+// the scan did not reach, so its sed or awk script went unparsed.
+func TestWrappedScriptsAreParsed(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	wantDeny(t, p, root, "write",
+		`bash -o pipefail -c 'sed -n w.git/hooks/pre-commit README.md'`,
+		`find . -name README.md -exec sed -n w.git/hooks/pre-commit {} +`,
+		`caffeinate -i sed -n w.git/hooks/pre-commit README.md`,
+	)
+	wantPersonInFull(t, p, root,
+		`bash -O extglob -c "sed 1r/etc/passwd x"`,
+		`sh +o noglob -c "sed 1r/etc/passwd x"`,
+		`find . -name x -execdir awk 'BEGIN{getline l < "/etc/passwd"}' {} \;`,
+		`caffeinate -t 5 sed 1r/etc/passwd x`,
+	)
+	wantLead(t, p, root, `find . -name '*.md' -exec sed -n 1p {} +`, `bash -o pipefail -c 'make x'`)
+}
+
 // BSD sed, as on macOS, takes the word after -i or -I as the backup suffix,
 // so the word after that is the script. The gate read the suffix as the
 // script, as GNU sed does, and the script as an input file. Both readings
@@ -491,6 +531,152 @@ func TestPartlyQuotedGlobWords(t *testing.T) {
 		a := Action{Kind: "exec", Target: command, Role: "implement", Work: root, Cwd: root}
 		if ExecOutside(a) {
 			t.Errorf("%q: ExecOutside true; every glob character is quoted", command)
+		}
+	}
+}
+
+// awk reads a file with getline < FILE and writes one with print > FILE, and
+// runs a command with system(), a pipe or |&. gawk reads a program file with
+// -f, -E and --exec and an include file with -i and --include. The gate took
+// such a file for the program text.
+func TestAwkFilesAreJudged(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	wantPerson(t, p, root,
+		// The reviews' commands.
+		`awk 'BEGIN{while((getline l<"/etc/passwd")>0)print l}'`,
+		`awk '{print >"/tmp/x"}' go.mod`,
+		`gawk -E /etc/passwd`,
+		`gawk --exec /etc/passwd`,
+		`gawk -i /etc/passwd 'BEGIN{exit}'`,
+		// The other file options, attached or apart.
+		`awk -f ../peer/x.awk go.mod`,
+		`awk -f/etc/x go.mod`,
+		`gawk --file=../x.awk go.mod`,
+		`gawk --include=../x.awk 'BEGIN{}'`,
+		`gawk -E../x.awk go.mod`,
+		`gawk '@include "../x.awk"; BEGIN{}'`,
+		`gawk -l ../ext 'BEGIN{}'`,
+		`gawk -o../out 'BEGIN{}'`,
+		// A file inside the program, with a relative path.
+		`awk '{print > "../out"}' go.mod`,
+		`awk '{print >> "../out"}' go.mod`,
+		`awk '{printf "%s", $0 > "../out"}' go.mod`,
+		`awk 'BEGIN{getline l < "../peer/go.mod"; print l}'`,
+		`awk 'BEGIN { while ((getline line < "../x") > 0) n++ }'`,
+		// A command, or a file the gate cannot name.
+		`awk 'BEGIN{system("cat go.mod")}'`,
+		`awk '{print | "sort"}' go.mod`,
+		`awk 'BEGIN{"date" | getline d; print d}'`,
+		`gawk 'BEGIN{print "x" |& "cat"}'`,
+		`awk '{print > $1}' go.mod`,
+		`awk '{print > "a" $1}' go.mod`,
+		`gawk '@load "ext"; BEGIN{}'`,
+		`awk --unknown-option 'BEGIN{}'`,
+	)
+	wantDeny(t, p, root, "write",
+		`awk '{print > ".git/config"}' go.mod`,
+		`awk -o.git/hooks/x 'BEGIN{}'`,
+	)
+	wantDeny(t, p, root, RuleState,
+		`awk 'BEGIN{getline l < ".duolog/bus.ndjson"; print l}'`,
+		`gawk -i.duolog/sessions.json 'BEGIN{}'`,
+	)
+	wantDeny(t, p, root, "read",
+		`awk -f.env go.mod`,
+		`gawk '@include "secrets/x"; BEGIN{}'`,
+	)
+	wantLead(t, p, root,
+		`awk '{print $1}' go.mod`,
+		`awk -F: '$3 > 100 {print $1}' go.mod`,
+		`awk '{print > "out.txt"}' go.mod`,
+		`awk -v n=1 'NR==n' go.mod`,
+		`awk 'BEGIN{x = 1 < 2; print (3 > 2), x || 0}'`,
+		`awk -F/ '{print $1/2}' go.mod`,
+		`awk -f prog.awk go.mod`,
+		`awk '{print "a|b>c<d"}' go.mod`,
+	)
+}
+
+// An awk program can put any file in ARGV, which the main loop and a bare
+// getline then read. The gate judged only the files that the program names
+// after getline <, print > and @include.
+func TestAwkArgvNamesUnseenFiles(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	wantPersonInFull(t, p, root,
+		`awk 'BEGIN{ARGV[1]="/etc/passwd";ARGC=2}1'`,
+		`awk 'BEGIN{ARGV[1]=".env";ARGC=2}1'`,
+		`awk 'BEGIN{split("/etc/passwd",ARGV);ARGC=2}1'`,
+		`awk 'BEGIN { ARGV [ ARGC++ ] = "../peer/x" } 1' go.mod`,
+	)
+	wantLead(t, p, root, `awk '{print FILENAME}' go.mod`, `awk '{n++} END{print n}' go.mod`)
+}
+
+// A / after n++ divides. The gate read it as the start of a regex, so the
+// rest of the program fell out of step and a print > f went unseen.
+func TestAwkDivisionAfterIncrement(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	wantPersonInFull(t, p, root,
+		`awk 'BEGIN{n++/1; f=".gi" "t/hooks/pre-commit"; print "x" > f}'`,
+		`awk 'BEGIN{n--/1; f="/tm" "p/out"; print "x" > f}'`,
+		`awk 'BEGIN{a[1]++/2; print "x" > "/tmp/out"}'`,
+	)
+}
+
+// awk decodes the escapes of a string, so "\057etc\057passwd" names
+// /etc/passwd and "\056env" names .env. The gate judged the text as written,
+// so the read went to the lead and the deny missed .env. A file name with any
+// backslash, in every form the parser reads, needs the person.
+func TestAwkEscapedFileNamesNeedThePerson(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	wantPersonInFull(t, p, root,
+		// The review's commands.
+		`awk 'BEGIN{getline x < "\057etc\057passwd"; print x}'`,
+		`awk 'BEGIN{getline x < "\056env"; print x}'`,
+		// The other forms that name a file.
+		`awk '{print > "\056git/config"}' go.mod`,
+		`awk '{print >> "\x2e\x2e/out"}' go.mod`,
+		`awk '{printf "%s", $0 > "o\ut"}' go.mod`,
+		`gawk '@include "\056\056/x.awk"; BEGIN{}'`,
+	)
+	wantLead(t, p, root, `awk '{print "a\tb" > "out.txt"}' go.mod`)
+}
+
+func TestAwkTargets(t *testing.T) {
+	for _, tc := range []struct {
+		command       string
+		reads, writes []string
+		unknown       bool
+	}{
+		{command: `awk 'BEGIN{while((getline l<"/etc/passwd")>0)print l}'`, reads: []string{"/etc/passwd"}},
+		{command: `awk '{print >"/tmp/x"}' go.mod`, reads: []string{"go.mod"}, writes: []string{"/tmp/x"}},
+		{command: `gawk -E /etc/passwd`, reads: []string{"/etc/passwd"}},
+		{command: `gawk -i /etc/passwd 'BEGIN{exit}'`, reads: []string{"/etc/passwd"}},
+		{command: `awk -f a.awk -f b.awk x n=1 y`, reads: []string{"a.awk", "b.awk", "x", "y"}},
+		{command: `awk -vfoo=1 -F, '{print}' x`, reads: []string{"x"}},
+		{command: `awk 'BEGIN { if (a > 1 && b < 2) print (a > b) }'`},
+		{command: `awk '$1 ~ /a>b|c/ {print $1 > "o" ; n = 4 / 2}' x`, reads: []string{"x"}, writes: []string{"o"}},
+		{command: `awk '# print > "/etc/x"` + "\n" + `{print}' x`, reads: []string{"x"}},
+		{command: `awk '{print > $1}' x`, reads: []string{"x"}, unknown: true},
+		{command: `awk 'BEGIN{system("id")}'`, unknown: true},
+		{command: `awk 'BEGIN{ARGV[1]="/etc/passwd";ARGC=2}1'`, unknown: true},
+		{command: `awk 'END{print ARGC}' x`, reads: []string{"x"}},
+		// ++ and -- end an operand after one and start one before one.
+		{command: `awk 'BEGIN{n++/1; f="a" "b"; print "x" > f}'`, unknown: true},
+		{command: `awk '{n++} /a"b/ {print > "o"}' x`, reads: []string{"x"}, writes: []string{"o"}},
+		{command: `awk 'BEGIN{x = ++n / 2; print > "o"}'`, writes: []string{"o"}},
+		// awk decodes a backslash in a file name, so the name is unknown.
+		{command: `awk 'BEGIN{getline x < "\056env"}'`, unknown: true},
+		{command: `awk '{print > "\057tmp\057x"}' x`, reads: []string{"x"}, unknown: true},
+		{command: `gawk '@include "a\\b"'`, unknown: true},
+		{command: `awk`, unknown: true},
+	} {
+		got := partFileTargets(tc.command)
+		if !slices.Equal(got.reads, tc.reads) || !slices.Equal(got.writes, tc.writes) || got.unknown != tc.unknown {
+			t.Errorf("%q: reads %q, writes %q, unknown %v; want %q, %q, %v", tc.command, got.reads, got.writes, got.unknown, tc.reads, tc.writes, tc.unknown)
 		}
 	}
 }
