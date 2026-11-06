@@ -90,9 +90,9 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 			a.Shell = "windows"
 		}
 		if usesWindowsNames(a) {
-			target, ok := windowsTarget(a.Target)
-			if !ok {
-				return decision(Deny, "a Windows stream name can reach a denied file", "windows name")
+			target, reason := windowsPath(a.Target)
+			if reason != "" {
+				return decision(Deny, reason, "windows name")
 			}
 			a.Target = target
 		}

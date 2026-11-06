@@ -539,6 +539,25 @@ func windowsTarget(target string) (string, bool) {
 	return drive + strings.Join(parts, "/"), true
 }
 
+// windowsShortName matches an NTFS 8.3 name, such as DUOLOG~1 for .duolog.
+var windowsShortName = regexp.MustCompile(`^[^~.]{1,6}~[0-9]{1,6}(\.[^.]{1,3})?$`)
+
+// windowsPath is windowsTarget for a read or write tool, with the reason to
+// deny a spelling no rule can judge: a stream name, or a segment of a relative
+// path that may be the 8.3 name of another file, which no rule on the long
+// name sees. An absolute path is left to the outside rules: the person who
+// answers it sees the spelling.
+func windowsPath(target string) (string, string) {
+	target, ok := windowsTarget(target)
+	if !ok {
+		return target, "a Windows stream name can reach a denied file"
+	}
+	if !pathutil.IsAbs(target) && slices.ContainsFunc(strings.Split(target, "/"), windowsShortName.MatchString) {
+		return target, "a Windows 8.3 name, such as DUOLOG~1, can reach a denied file; use the long name"
+	}
+	return target, ""
+}
+
 func usesWindowsNames(a Action) bool {
 	return runtime.GOOS == "windows" || a.Shell == "windows" || a.Shell == "powershell" || pathutil.Windows(a.Target)
 }

@@ -304,6 +304,25 @@ func TestWindowsSpellingsReachTheSameRules(t *testing.T) {
 	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "write", Target: ".git/hooks/x.", Role: "implement", Shell: "windows"}, Deny)
 }
 
+// NTFS can give .duolog the 8.3 name DUOLOG~1, and .git GIT~1. A rule that
+// names the long folder does not see that spelling, so a worker could write
+// the bus or its own rules through it.
+func TestWindowsShortNamesCannotReachDeniedFiles(t *testing.T) {
+	p := policy(t)
+	for _, a := range []Action{
+		{Kind: "write", Target: `DUOLOG~1\bus.ndjson`},
+		{Kind: "write", Target: "duolog~1/learned.yaml"},
+		{Kind: "write", Target: `sub\DUOLOG~2\asks\q.json`},
+		{Kind: "write", Target: `GIT~1\hooks\pre-commit`},
+		{Kind: "write", Target: `SECRET~1.PEM`},
+		{Kind: "read", Target: `DUOLOG~1\bus.ndjson`},
+	} {
+		a.Role, a.Shell = "implement", "windows"
+		check(t, p, LeadRules{}, mode.Full, a, Deny)
+	}
+	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "write", Target: `src\main~test.go`, Role: "implement", Shell: "windows"}, Allow)
+}
+
 func TestWorkersCannotChangeRulesOrHooks(t *testing.T) {
 	p := policy(t)
 	for _, target := range []string{
