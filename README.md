@@ -138,4 +138,5 @@ duolog uses the [Apache License 2.0](LICENSE).
   evidence behind the default rules
 - [Live verification](docs/research/2026-10-30-live-verification.md): which
   agent behavior is OBSERVED and which is VERIFIED
+- [Architecture](docs/architecture.md): the code tiers and the layers test
 - [How to write the documentation](docs/contributing.md): the writing rules
