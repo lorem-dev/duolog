@@ -32,6 +32,11 @@ launch argv with run flags [--run-flag value]:
 claude settings (--settings):
   {
     "autoMemoryEnabled": false,
+    "enabledPlugins": {
+      "alpha@market": false,
+      "beta@market": false,
+      "duolog@duolog": true
+    },
     "fastMode": false,
     "sandbox": {
       "filesystem": {

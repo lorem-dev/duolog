@@ -344,6 +344,10 @@
           "type": "array",
           "description": "Environment variables passed to workers; defaults include native OS login and agent config directories, not API keys. A free run drops names that bill per token even when listed; only paid_runs.\u003cagent\u003e.allow lets them through."
         },
+        "workers": {
+          "$ref": "#/$defs/Workers",
+          "description": "What Claude workers and peers inherit from the person's own settings."
+        },
         "rex": {
           "$ref": "#/$defs/Rex",
           "description": "Terminal capture and startup settings; defaults to 20 lines and 120 seconds."
@@ -1038,6 +1042,16 @@
           },
           "type": "object",
           "description": "Native mode per model family, such as luna or haiku; it only lowers: combined with the role entry by taking the lower; alone, a value above duolog's default changes nothing. Read-only roles ignore it."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Workers": {
+      "properties": {
+        "inherit_plugins": {
+          "type": "boolean",
+          "description": "Let Claude workers and peers load every plugin enabled in the user and project settings; defaults to false, which turns them off except duolog's own, since each adds tokens to every request."
         }
       },
       "additionalProperties": false,
