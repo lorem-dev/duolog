@@ -59,11 +59,8 @@ func (f *Fake) Deps() delegate.Deps {
 		// The fake workers start nothing but give the launch words of the real
 		// agents, so the process the gate admits is the one a real run builds.
 		Agents: map[string]delegate.Agent{
-			"claude": {Worker: &Worker{f: f, launch: workertest.For("claude").Launch}},
-			"codex":  {Worker: &Worker{f: f, launch: workertest.For("codex").Launch}},
-		},
-		ResolveModel: func(_ context.Context, _ *config.Config, _ string, t config.Target) (string, error) {
-			return t.Model, nil
+			"claude": {Worker: &Worker{f: f, launch: workertest.For("claude").Launch}, Models: models{}},
+			"codex":  {Worker: &Worker{f: f, launch: workertest.For("codex").Launch}, Models: models{}},
 		},
 		Lead: map[string]leadio.Lead{"claude": &leadtest.Fake{}, "codex": &leadtest.Fake{}},
 		ScanCapabilities: func(_ context.Context, agent, _ string, _ []string) (capability.Inventory, error) {
@@ -81,6 +78,13 @@ func (f *Fake) Deps() delegate.Deps {
 		GateBinary: func(string) (string, error) { return filepath.Join(string(filepath.Separator), "duolog"), nil },
 		Canonical:  filepath.Clean,
 	}
+}
+
+// models resolves every target to its own model name, with no catalog.
+type models struct{}
+
+func (models) Resolve(_ context.Context, _ *config.Config, _ string, t config.Target) (string, error) {
+	return t.Model, nil
 }
 
 // checker passes every login.

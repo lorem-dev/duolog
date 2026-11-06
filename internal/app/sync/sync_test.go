@@ -9,18 +9,38 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/workertest"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/route"
 )
 
+// testModels is the Codex resolver of the sync tests: a fixed catalog. A test
+// replaces it to change the catalog.
+var testModels ModelResolver
+
 func newProject(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	list := fixtureList(t)
-	CatalogList = func(context.Context) ([]route.Entry, string, error) { return list, "codex-test", nil }
-	t.Cleanup(func() { CatalogList = nil })
+	testModels = workertest.Models{List: catalogOf(fixtureList(t), "codex-test")}
 	return root
 }
+
+// catalogOf is a Codex catalog that names list as version.
+func catalogOf(list []route.Entry, version string) func(context.Context) ([]route.Entry, string, error) {
+	return func(context.Context) ([]route.Entry, string, error) { return list, version, nil }
+}
+
+// runWith is Run with the test catalog behind the Codex aliases.
+func runWith(root string, cfg config.Sync, o Options) (Report, error) {
+	o.Resolver = testModels
+	return Run(root, cfg, o)
+}
+
+func hookWith(root string, cfg config.Sync, path string) string {
+	return Hook(root, cfg, path, testModels)
+}
+
+func startWith(root string, cfg config.Sync) string { return SessionStart(root, cfg, testModels) }
 
 func syncCfg(t *testing.T) config.Sync {
 	return config.Sync{Auto: true, Agents: testOpts(t).Config}
@@ -70,7 +90,7 @@ func lockOf(t *testing.T, root string) Lock {
 func TestFirstRunNeedsFrom(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
-	if _, err := Run(root, syncCfg(t), Options{}); err == nil || !strings.Contains(err.Error(), "--from") {
+	if _, err := runWith(root, syncCfg(t), Options{}); err == nil || !strings.Contains(err.Error(), "--from") {
 		t.Fatalf("got %v", err)
 	}
 	if exists(root, ".codex") || exists(root, ".duolog/sync.lock.json") {
@@ -81,14 +101,14 @@ func TestFirstRunNeedsFrom(t *testing.T) {
 func TestLaterRunUsesLockDirection(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := lockOf(t, root).Direction; got != "claude" {
 		t.Fatal(got)
 	}
 	put(t, root, ".claude/agents/a.md", agentMD("a", "sonnet"), 0o644)
-	if _, err := Run(root, syncCfg(t), Options{}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := read(t, root, ".codex/agents/a.toml"); !strings.Contains(got, "gpt-6.1-terra") {
@@ -99,16 +119,16 @@ func TestLaterRunUsesLockDirection(t *testing.T) {
 func TestOppositeDirectionRefused(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Run(root, syncCfg(t), Options{From: "codex"}); err == nil || !strings.Contains(err.Error(), "--switch-direction") {
+	if _, err := runWith(root, syncCfg(t), Options{From: "codex"}); err == nil || !strings.Contains(err.Error(), "--switch-direction") {
 		t.Fatalf("got %v", err)
 	}
 	if lockOf(t, root).Direction != "claude" {
 		t.Fatal("lock changed")
 	}
-	if _, err := Run(root, syncCfg(t), Options{From: "codex", SwitchDirection: true}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "codex", SwitchDirection: true}); err != nil {
 		t.Fatal(err)
 	}
 	if lockOf(t, root).Direction != "codex" {
@@ -120,13 +140,13 @@ func TestSwitchDirectionKeepsOldSourcesWithNoGeneratedCopy(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/skills/foo/SKILL.md", "---\nname: foo\ndescription: Skill.\n---\nDo work.\n", 0o644)
 	put(t, root, ".claude/skills/foo/run.sh", "echo hi\n", 0o755)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.RemoveAll(filepath.Join(root, ".agents", "skills", "foo")); err != nil {
 		t.Fatal(err)
 	}
-	rep, err := Run(root, syncCfg(t), Options{From: "codex", SwitchDirection: true})
+	rep, err := runWith(root, syncCfg(t), Options{From: "codex", SwitchDirection: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,10 +160,10 @@ func TestSwitchDirectionKeepsOldSourcesWithNoGeneratedCopy(t *testing.T) {
 func TestSwitchDirectionKeepsOneGeneratedComment(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/skills/foo/SKILL.md", "---\nname: foo\ndescription: Skill.\n---\nDo work.\n", 0o644)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Run(root, syncCfg(t), Options{From: "codex", SwitchDirection: true}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "codex", SwitchDirection: true}); err != nil {
 		t.Fatal(err)
 	}
 	if got := read(t, root, ".claude/skills/foo/SKILL.md"); strings.Count(got, generatedComment) != 1 {
@@ -154,11 +174,11 @@ func TestSwitchDirectionKeepsOneGeneratedComment(t *testing.T) {
 func TestSwitchDirectionRebuildsOldSources(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	put(t, root, ".codex/agents/a.toml", strings.Replace(read(t, root, ".codex/agents/a.toml"), "Do the job.", "Do it better.", 1), 0o644)
-	rep, err := Run(root, syncCfg(t), Options{From: "codex", SwitchDirection: true})
+	rep, err := runWith(root, syncCfg(t), Options{From: "codex", SwitchDirection: true})
 	if err != nil || len(rep.Conflicts) != 0 {
 		t.Fatalf("%v %+v", err, rep)
 	}
@@ -179,7 +199,7 @@ func TestHandWrittenTargetNotOverwritten(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
 	put(t, root, ".codex/agents/a.toml", "name = \"a\"\ndescription = \"mine\"\ndeveloper_instructions = \"x\"\n", 0o644)
-	rep, err := Run(root, syncCfg(t), Options{From: "claude", Force: true})
+	rep, err := runWith(root, syncCfg(t), Options{From: "claude", Force: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +218,7 @@ func TestHandWrittenStaleFileNotDeleted(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
 	put(t, root, ".codex/agents/old.toml", "name = \"old\"\n", 0o644)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	if !exists(root, ".codex/agents/old.toml") {
@@ -209,11 +229,11 @@ func TestHandWrittenStaleFileNotDeleted(t *testing.T) {
 func TestOwnedStaleFileDeleted(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	os.Remove(filepath.Join(root, ".claude/agents/a.md"))
-	rep, err := Run(root, syncCfg(t), Options{})
+	rep, err := runWith(root, syncCfg(t), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,20 +245,20 @@ func TestOwnedStaleFileDeleted(t *testing.T) {
 func TestEditedGeneratedRefusedWithoutForce(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	edited := read(t, root, ".codex/agents/a.toml") + "# hand edit\n"
 	put(t, root, ".codex/agents/a.toml", edited, 0o644)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "sonnet"), 0o644)
-	rep, err := Run(root, syncCfg(t), Options{})
+	rep, err := runWith(root, syncCfg(t), Options{})
 	if err != nil || len(rep.Conflicts) != 1 {
 		t.Fatalf("%v %+v", err, rep)
 	}
 	if read(t, root, ".codex/agents/a.toml") != edited {
 		t.Fatal("overwritten")
 	}
-	rep, err = Run(root, syncCfg(t), Options{Force: true})
+	rep, err = runWith(root, syncCfg(t), Options{Force: true})
 	if err != nil || len(rep.Conflicts) != 0 || len(rep.Written) != 1 {
 		t.Fatalf("%v %+v", err, rep)
 	}
@@ -250,7 +270,7 @@ func TestEditedGeneratedRefusedWithoutForce(t *testing.T) {
 func TestCheckWritesNothingAndExitsOne(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
-	rep, err := Run(root, syncCfg(t), Options{From: "claude", Check: true})
+	rep, err := runWith(root, syncCfg(t), Options{From: "claude", Check: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,11 +285,11 @@ func TestCheckWritesNothingAndExitsOne(t *testing.T) {
 func TestCheckDetectsUnparsableTarget(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	put(t, root, ".codex/agents/a.toml", "name = [\n", 0o644)
-	rep, err := Run(root, syncCfg(t), Options{Check: true})
+	rep, err := runWith(root, syncCfg(t), Options{Check: true})
 	if err != nil || len(rep.Conflicts) != 1 || !strings.Contains(rep.Conflicts[0], "does not parse") {
 		t.Fatalf("%v %+v", err, rep)
 	}
@@ -278,7 +298,7 @@ func TestCheckDetectsUnparsableTarget(t *testing.T) {
 func TestDryRunWritesNothing(t *testing.T) {
 	root := skillProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
-	rep, err := Run(root, syncCfg(t), Options{From: "claude", DryRun: true})
+	rep, err := runWith(root, syncCfg(t), Options{From: "claude", DryRun: true})
 	if err != nil || len(rep.Written) != 4 {
 		t.Fatalf("%v %+v", err, rep)
 	}
@@ -290,7 +310,7 @@ func TestDryRunWritesNothing(t *testing.T) {
 func TestSecondRunIsNoOp(t *testing.T) {
 	root := skillProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	files := []string{".codex/agents/a.toml", ".agents/skills/probe/SKILL.md", ".agents/skills/probe/scripts/a.sh", ".duolog/sync.lock.json"}
@@ -300,7 +320,7 @@ func TestSecondRunIsNoOp(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	rep, err := Run(root, syncCfg(t), Options{})
+	rep, err := runWith(root, syncCfg(t), Options{})
 	if err != nil || len(rep.Written)+len(rep.Removed)+len(rep.Conflicts) != 0 {
 		t.Fatalf("%v %+v", err, rep)
 	}
@@ -316,7 +336,7 @@ func TestPartialFailureLeavesLockConsistent(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/agents/good.md", agentMD("good", "opus"), 0o644)
 	put(t, root, ".claude/agents/bad.md", agentMD("bad", "no-such-model"), 0o644)
-	rep, err := Run(root, syncCfg(t), Options{From: "claude"})
+	rep, err := runWith(root, syncCfg(t), Options{From: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +361,7 @@ func TestLockKeysSorted(t *testing.T) {
 	for _, n := range []string{"c", "a", "b"} {
 		put(t, root, ".claude/agents/"+n+".md", agentMD(n, "opus"), 0o644)
 	}
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	data := read(t, root, ".duolog/sync.lock.json")
@@ -353,12 +373,12 @@ func TestLockKeysSorted(t *testing.T) {
 func TestHookRebuildsOnlyTouchedSkill(t *testing.T) {
 	root := skillProject(t)
 	put(t, root, ".claude/skills/other/SKILL.md", "---\nname: other\ndescription: d\n---\nv1\n", 0o644)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	put(t, root, ".claude/skills/probe/references/b.md", "# B2\n", 0o644)
 	put(t, root, ".claude/skills/other/SKILL.md", "---\nname: other\ndescription: d\n---\nv2\n", 0o644)
-	if line := Hook(root, syncCfg(t), filepath.Join(root, ".claude/skills/probe/references/b.md")); line != "" {
+	if line := hookWith(root, syncCfg(t), filepath.Join(root, ".claude/skills/probe/references/b.md")); line != "" {
 		t.Fatalf("got %q", line)
 	}
 	if read(t, root, ".agents/skills/probe/references/b.md") != "# B2\n" {
@@ -371,24 +391,24 @@ func TestHookRebuildsOnlyTouchedSkill(t *testing.T) {
 
 func TestHookSilentForUnrelatedFile(t *testing.T) {
 	root := skillProject(t)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	put(t, root, "main.go", "package main\n", 0o644)
-	if line := Hook(root, syncCfg(t), filepath.Join(root, "main.go")); line != "" {
+	if line := hookWith(root, syncCfg(t), filepath.Join(root, "main.go")); line != "" {
 		t.Fatalf("got %q", line)
 	}
-	if line := Hook(root, syncCfg(t), "/elsewhere/x.md"); line != "" {
+	if line := hookWith(root, syncCfg(t), "/elsewhere/x.md"); line != "" {
 		t.Fatalf("got %q", line)
 	}
 }
 
 func TestHookSilentWithoutDirection(t *testing.T) {
 	root := skillProject(t)
-	if line := Hook(root, syncCfg(t), ".claude/skills/probe/SKILL.md"); line != "" {
+	if line := hookWith(root, syncCfg(t), ".claude/skills/probe/SKILL.md"); line != "" {
 		t.Fatalf("got %q", line)
 	}
-	if line := SessionStart(root, syncCfg(t)); line != "" {
+	if line := startWith(root, syncCfg(t)); line != "" {
 		t.Fatalf("got %q", line)
 	}
 	if exists(root, ".agents") || exists(root, ".duolog") {
@@ -398,13 +418,13 @@ func TestHookSilentWithoutDirection(t *testing.T) {
 
 func TestHookSilentWhenAutoOff(t *testing.T) {
 	root := skillProject(t)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	put(t, root, ".claude/skills/probe/references/b.md", "# B2\n", 0o644)
 	cfg := syncCfg(t)
 	cfg.Auto = false
-	if Hook(root, cfg, ".claude/skills/probe/references/b.md") != "" || SessionStart(root, cfg) != "" {
+	if hookWith(root, cfg, ".claude/skills/probe/references/b.md") != "" || startWith(root, cfg) != "" {
 		t.Fatal("not silent")
 	}
 	if read(t, root, ".agents/skills/probe/references/b.md") != "# B\n" {
@@ -415,12 +435,12 @@ func TestHookSilentWhenAutoOff(t *testing.T) {
 func TestHookNamesSourceWhenTargetEdited(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	edited := read(t, root, ".codex/agents/a.toml") + "# edit\n"
 	put(t, root, ".codex/agents/a.toml", edited, 0o644)
-	line := Hook(root, syncCfg(t), filepath.Join(root, ".codex/agents/a.toml"))
+	line := hookWith(root, syncCfg(t), filepath.Join(root, ".codex/agents/a.toml"))
 	if !strings.Contains(line, ".claude/agents/a.md") || strings.Contains(line, "\n") || line == "" {
 		t.Fatalf("got %q", line)
 	}
@@ -432,11 +452,11 @@ func TestHookNamesSourceWhenTargetEdited(t *testing.T) {
 func TestHookReportsRefusalInOneLine(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	put(t, root, ".claude/agents/a.md", agentMD("a", "no-such-model"), 0o644)
-	line := Hook(root, syncCfg(t), ".claude/agents/a.md")
+	line := hookWith(root, syncCfg(t), ".claude/agents/a.md")
 	if !strings.HasPrefix(line, "duolog sync: ") || !strings.Contains(line, "a.md") || strings.Contains(line, "\n") {
 		t.Fatalf("got %q", line)
 	}
@@ -447,20 +467,20 @@ func TestHookReportsRefusalInOneLine(t *testing.T) {
 
 func withNewSol(t *testing.T) {
 	list := append(fixtureList(t), route.Entry{Slug: "gpt-6.2-sol", Visibility: "list"})
-	CatalogList = func(context.Context) ([]route.Entry, string, error) { return list, "codex-test-2", nil }
+	testModels = workertest.Models{List: catalogOf(list, "codex-test-2")}
 }
 
 func TestNewModelVersionRebuildsAgents(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	if lockOf(t, root).Files[".codex/agents/a.toml"].ResolvedModel != "gpt-6.1-sol" {
 		t.Fatal("not recorded")
 	}
 	withNewSol(t)
-	if line := SessionStart(root, syncCfg(t)); line != "" {
+	if line := startWith(root, syncCfg(t)); line != "" {
 		t.Fatalf("got %q", line)
 	}
 	if !strings.Contains(read(t, root, ".codex/agents/a.toml"), "gpt-6.2-sol") {
@@ -474,7 +494,7 @@ func TestNewModelVersionRebuildsAgents(t *testing.T) {
 func TestSameModelVersionWritesNothing(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	old := time.Now().Add(-time.Hour)
@@ -483,7 +503,7 @@ func TestSameModelVersionWritesNothing(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if line := SessionStart(root, syncCfg(t)); line != "" {
+	if line := startWith(root, syncCfg(t)); line != "" {
 		t.Fatalf("got %q", line)
 	}
 	for _, f := range []string{".codex/agents/a.toml", ".duolog/sync.lock.json"} {
@@ -497,12 +517,12 @@ func TestSameModelVersionWritesNothing(t *testing.T) {
 func TestSessionStartCatchesShellEdits(t *testing.T) {
 	root := skillProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	put(t, root, ".claude/agents/a.md", agentMD("a", "sonnet"), 0o644)
 	put(t, root, ".claude/skills/probe/references/b.md", "# B3\n", 0o644)
-	if line := SessionStart(root, syncCfg(t)); line != "" {
+	if line := startWith(root, syncCfg(t)); line != "" {
 		t.Fatalf("got %q", line)
 	}
 	if !strings.Contains(read(t, root, ".codex/agents/a.toml"), "gpt-6.1-terra") || read(t, root, ".agents/skills/probe/references/b.md") != "# B3\n" {
@@ -514,7 +534,7 @@ func TestAgentNameWithPathIsRefused(t *testing.T) {
 	for _, name := range []string{"../../x", "a/b", ".hidden", `a\b`} {
 		root := newProject(t)
 		put(t, root, ".claude/agents/a.md", agentMD(name, "opus"), 0o644)
-		rep, err := Run(root, syncCfg(t), Options{From: "claude"})
+		rep, err := runWith(root, syncCfg(t), Options{From: "claude"})
 		if err != nil || len(rep.Conflicts) != 1 || !strings.Contains(rep.Conflicts[0], "plain file name") {
 			t.Fatalf("%q: %v %+v", name, err, rep)
 		}
@@ -538,12 +558,12 @@ func TestApplyRefusesTargetOutsideGeneratedFolder(t *testing.T) {
 func TestSwitchDirectionKeepsEditedOldSource(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	edited := agentMD("a", "opus") + "My own edit.\n"
 	put(t, root, ".claude/agents/a.md", edited, 0o644)
-	rep, err := Run(root, syncCfg(t), Options{From: "codex", SwitchDirection: true})
+	rep, err := runWith(root, syncCfg(t), Options{From: "codex", SwitchDirection: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -566,7 +586,7 @@ func TestOwnInstalledSkillIsNotSynced(t *testing.T) {
 	put(t, root, ".agents/skills/duolog-peers/SKILL.md", "---\nname: duolog-peers\ndescription: d\n---\ncodex copy\n", 0o644)
 	put(t, root, ".claude/skills/mine/SKILL.md", "---\nname: mine\ndescription: d\n---\nx\n", 0o644)
 	for _, from := range []string{"claude", "codex"} {
-		rep, err := Run(root, syncCfg(t), Options{From: from, SwitchDirection: true})
+		rep, err := runWith(root, syncCfg(t), Options{From: from, SwitchDirection: true})
 		if err != nil || len(rep.Conflicts) != 0 {
 			t.Fatalf("%s: %+v %v", from, rep, err)
 		}
@@ -587,7 +607,7 @@ func TestSyncSkipsCalibrateSkill(t *testing.T) {
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0o644)
 	put(t, root, ".claude/skills/duolog-calibrate/SKILL.md", "---\nname: duolog-calibrate\ndescription: d\ndisable-model-invocation: true\n---\nclaude copy\n", 0o644)
 	put(t, root, ".claude/skills/mine/SKILL.md", "---\nname: mine\ndescription: d\n---\nx\n", 0o644)
-	rep, err := Run(root, syncCfg(t), Options{From: "claude"})
+	rep, err := runWith(root, syncCfg(t), Options{From: "claude"})
 	if err != nil || len(rep.Conflicts) != 0 {
 		t.Fatalf("%+v %v", rep, err)
 	}

@@ -2,6 +2,7 @@ package delegate
 
 import (
 	"context"
+	"fmt"
 
 	leadio "github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
@@ -19,9 +20,25 @@ type Worker interface {
 	Launch(s run.Spec) []string
 }
 
+// ModelResolver turns a route's target into the concrete model of its agent.
+// cacheDir is the folder of the agent's catalog cache, or "" for none.
+type ModelResolver interface {
+	Resolve(ctx context.Context, cfg *config.Config, cacheDir string, t config.Target) (string, error)
+}
+
 // Agent is what Run reaches of one agent. Later ports add their fields here.
 type Agent struct {
 	Worker Worker
+	Models ModelResolver
+}
+
+// resolveModel gives the concrete model of t through its agent's resolver.
+func (d Deps) resolveModel(ctx context.Context, cfg *config.Config, cacheDir string, t config.Target) (string, error) {
+	a, ok := d.Agents[t.Agent]
+	if !ok || a.Models == nil {
+		return "", fmt.Errorf("unknown agent %q", t.Agent)
+	}
+	return a.Models.Resolve(ctx, cfg, cacheDir, t)
 }
 
 // Runner runs one delegation. Run, bound to its Deps, is the real one.
@@ -42,8 +59,7 @@ type Request struct {
 // function; app tests fill them with fakes.
 type Deps struct {
 	// Agents holds the ports of each registered agent, by name.
-	Agents       map[string]Agent
-	ResolveModel func(ctx context.Context, cfg *config.Config, cacheDir string, t config.Target) (string, error)
+	Agents map[string]Agent
 	// Lead holds each agent's Lead, keyed by agent name; the transcript of
 	// the lead is read through it.
 	Lead             map[string]leadio.Lead

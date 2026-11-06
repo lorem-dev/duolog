@@ -34,7 +34,7 @@ func syncStart(e Env) string {
 	if !ok {
 		return ""
 	}
-	return agentsync.SessionStart(workRoot(e), cfg)
+	return agentsync.SessionStart(workRoot(e), cfg, e.Models)
 }
 
 // syncTool rebuilds what the tool call touched. It reads the paths from a
@@ -46,7 +46,7 @@ func syncTool(e Env) string {
 	}
 	var lines []string
 	for _, path := range touchedPaths(e.Input) {
-		if line := agentsync.Hook(workRoot(e), cfg, path); line != "" && !contains(lines, line) {
+		if line := agentsync.Hook(workRoot(e), cfg, path, e.Models); line != "" && !contains(lines, line) {
 			lines = append(lines, line)
 		}
 	}

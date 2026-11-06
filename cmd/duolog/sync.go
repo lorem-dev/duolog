@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newSyncCommand() *cobra.Command {
+func newSyncCommand(d *cmdDeps) *cobra.Command {
 	var o agentsync.Options
 	var modelFlags []string
 	cmd := &cobra.Command{Use: "sync", Short: "Generate agent and skill files for the other agent", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -42,6 +42,7 @@ func newSyncCommand() *cobra.Command {
 				return err
 			}
 		}
+		o.Resolver = d.Delegate.Agents["codex"].Models
 		rep, err := agentsync.Run(workRoot(root), cfg.Sync, o)
 		if err != nil {
 			return err

@@ -17,6 +17,12 @@ type Clock interface {
 	Sleep(ctx context.Context, d time.Duration) error
 }
 
+// ModelResolver turns a route's target into the concrete model of its agent.
+// cacheDir is the folder of the agent's catalog cache, or "" for none.
+type ModelResolver interface {
+	Resolve(ctx context.Context, cfg *config.Config, cacheDir string, t config.Target) (string, error)
+}
+
 // Pauses are the waits between pane reads and keys. Send is the 0.7 s that the
 // recorded run needed between rex send and rex send-key.
 type Pauses struct {
@@ -34,8 +40,8 @@ type Pauses struct {
 type Deps struct {
 	Clock  Clock
 	Pauses Pauses
-	// ResolveModel gives the concrete model of a route's target.
-	ResolveModel func(ctx context.Context, cfg *config.Config, cacheDir string, t config.Target) (string, error)
+	// Models gives the concrete model of a route's target, by agent.
+	Models map[string]ModelResolver
 	// ResetTime parses the time a provider limit on a pane's screen says the
 	// quota returns, by the pane's agent; without one it gives a fallback.
 	ResetTime func(agent, text string, now time.Time) time.Time

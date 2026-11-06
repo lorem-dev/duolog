@@ -1,4 +1,4 @@
-package models
+package codex
 
 import (
 	"context"
@@ -69,18 +69,9 @@ func fixture(t *testing.T) []route.Entry {
 func modelConfig() *config.Config {
 	return &config.Config{Models: map[string]config.Model{"sol": {Agent: "codex", Family: "sol"}}}
 }
-func TestResolveClaudeAliasUnchanged(t *testing.T) {
-	r := Resolver{List: func(context.Context) ([]route.Entry, string, error) { t.Fatal("list called"); return nil, "", nil }}
-	for _, name := range []string{"opus", "claude-opus-5-5"} {
-		got, err := r.Resolve(context.Background(), modelConfig(), config.Target{Agent: "claude", Model: name})
-		if err != nil || got != name {
-			t.Fatalf("got %q, %v", got, err)
-		}
-	}
-}
 func TestResolvePinnedUnchanged(t *testing.T) {
 	r := Resolver{List: func(context.Context) ([]route.Entry, string, error) { t.Fatal("list called"); return nil, "", nil }}
-	got, err := r.Resolve(context.Background(), modelConfig(), config.Target{Agent: "codex", Model: "gpt-6-sol"})
+	got, err := r.Resolve(context.Background(), modelConfig(), "", config.Target{Agent: "codex", Model: "gpt-6-sol"})
 	if err != nil || got != "gpt-6-sol" {
 		t.Fatalf("got %q, %v", got, err)
 	}
@@ -116,9 +107,9 @@ func fakeCodex(t *testing.T) string {
 	t.Setenv("DUOLOG_FAKE_FAIL", "0")
 	return marker
 }
-func resolveSol(t *testing.T, r Resolver) string {
+func resolveSol(t *testing.T, r Resolver, cacheDir string) string {
 	t.Helper()
-	got, err := r.Resolve(context.Background(), modelConfig(), config.Target{Agent: "codex", Model: "sol"})
+	got, err := r.Resolve(context.Background(), modelConfig(), cacheDir, config.Target{Agent: "codex", Model: "sol"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,13 +118,13 @@ func resolveSol(t *testing.T, r Resolver) string {
 func TestResolveUsesCache(t *testing.T) {
 	marker := fakeCodex(t)
 	dir := t.TempDir()
-	if got, err := Resolve(context.Background(), modelConfig(), dir, config.Target{Agent: "codex", Model: "sol"}); err != nil || got != "gpt-6.1-sol" {
+	if got, err := (Resolver{}).Resolve(context.Background(), modelConfig(), dir, config.Target{Agent: "codex", Model: "sol"}); err != nil || got != "gpt-6.1-sol" {
 		t.Fatalf("got %s, %v", got, err)
 	}
 	if err := os.Remove(marker); err != nil {
 		t.Fatal(err)
 	}
-	if got := resolveSol(t, Resolver{CacheDir: dir}); got != "gpt-6.1-sol" {
+	if got := resolveSol(t, Resolver{}, dir); got != "gpt-6.1-sol" {
 		t.Fatal(got)
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
@@ -142,22 +133,22 @@ func TestResolveUsesCache(t *testing.T) {
 }
 func TestCacheRefreshesOnCodexVersion(t *testing.T) {
 	marker := fakeCodex(t)
-	r := Resolver{CacheDir: t.TempDir()}
-	resolveSol(t, r)
+	r, dir := Resolver{}, t.TempDir()
+	resolveSol(t, r, dir)
 	if err := os.Remove(marker); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("DUOLOG_FAKE_VERSION", "codex-cli test-2")
-	resolveSol(t, r)
+	resolveSol(t, r, dir)
 	if _, err := os.Stat(marker); err != nil {
 		t.Fatal("catalog was not refreshed:", err)
 	}
 }
 func TestCacheRefreshesAfter24Hours(t *testing.T) {
 	marker := fakeCodex(t)
-	r := Resolver{CacheDir: t.TempDir()}
-	resolveSol(t, r)
-	path := filepath.Join(r.CacheDir, "models.json")
+	r, dir := Resolver{}, t.TempDir()
+	resolveSol(t, r, dir)
+	path := filepath.Join(dir, "models.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -177,7 +168,7 @@ func TestCacheRefreshesAfter24Hours(t *testing.T) {
 	if err := os.Remove(marker); err != nil {
 		t.Fatal(err)
 	}
-	resolveSol(t, r)
+	resolveSol(t, r, dir)
 	if _, err := os.Stat(marker); err != nil {
 		t.Fatal("expired catalog was not refreshed:", err)
 	}
@@ -185,16 +176,16 @@ func TestCacheRefreshesAfter24Hours(t *testing.T) {
 func TestCacheUsedWhenCommandFails(t *testing.T) {
 	list := fixture(t)
 	dir := t.TempDir()
-	r := Resolver{CacheDir: dir, List: func(context.Context) ([]route.Entry, string, error) { return list, "v1", nil }}
-	resolveSol(t, r)
+	r := Resolver{List: func(context.Context) ([]route.Entry, string, error) { return list, "v1", nil }}
+	resolveSol(t, r, dir)
 	r.List = func(context.Context) ([]route.Entry, string, error) { return nil, "", errors.New("offline") }
-	if got := resolveSol(t, r); got != "gpt-6.1-sol" {
+	if got := resolveSol(t, r, dir); got != "gpt-6.1-sol" {
 		t.Fatal(got)
 	}
 }
 func TestNoListAndNoCacheIsError(t *testing.T) {
-	r := Resolver{CacheDir: t.TempDir(), List: func(context.Context) ([]route.Entry, string, error) { return nil, "", errors.New("offline") }}
-	if _, err := r.Resolve(context.Background(), modelConfig(), config.Target{Agent: "codex", Model: "sol"}); err == nil {
+	r := Resolver{List: func(context.Context) ([]route.Entry, string, error) { return nil, "", errors.New("offline") }}
+	if _, err := r.Resolve(context.Background(), modelConfig(), t.TempDir(), config.Target{Agent: "codex", Model: "sol"}); err == nil {
 		t.Fatal("missing error")
 	}
 }

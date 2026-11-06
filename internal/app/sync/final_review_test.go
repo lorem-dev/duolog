@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/workertest"
 	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
@@ -24,14 +25,14 @@ func TestConcurrentSyncKeepsOwnership(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			rep, err := Run(root, cfg, Options{From: "claude"})
+			rep, err := runWith(root, cfg, Options{From: "claude"})
 			if err != nil || len(rep.Conflicts) > 0 {
 				t.Errorf("%+v %v", rep, err)
 			}
 		}()
 	}
 	wg.Wait()
-	rep, err := Run(root, cfg, Options{Check: true})
+	rep, err := runWith(root, cfg, Options{Check: true})
 	if err != nil || len(rep.Conflicts)+len(rep.Written)+len(rep.Removed) > 0 {
 		t.Fatal(rep, err)
 	}
@@ -42,7 +43,7 @@ func TestScanErrorNeverRemovesOwnedFiles(t *testing.T) {
 	cfg := syncCfg(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0644)
 	put(t, root, ".claude/skills/s/SKILL.md", "---\nname: s\ndescription: Skill.\n---\nDo work.\n", 0644)
-	if rep, err := Run(root, cfg, Options{From: "claude"}); err != nil || len(rep.Conflicts) > 0 {
+	if rep, err := runWith(root, cfg, Options{From: "claude"}); err != nil || len(rep.Conflicts) > 0 {
 		t.Fatal(rep, err)
 	}
 	// ENOTDIR exercises real ReadDir failure even when tests run as root.
@@ -54,7 +55,7 @@ func TestScanErrorNeverRemovesOwnedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	put(t, root, ".claude/skills", "unreadable as a directory", 0644)
-	rep, err := Run(root, cfg, Options{})
+	rep, err := runWith(root, cfg, Options{})
 	if err != nil || len(rep.Conflicts) != 2 || len(rep.Removed) != 0 {
 		t.Fatal(rep, err)
 	}
@@ -84,7 +85,7 @@ func TestSameBytesHandPlacedFileNeverBecomesOwned(t *testing.T) {
 	put(t, root, ".claude/skills/s/SKILL.md", "---\nname: s\ndescription: Skill.\n---\nDo work.\n", 0644)
 	put(t, root, ".claude/skills/s/asset.txt", "same bytes", 0644)
 	put(t, root, ".agents/skills/s/asset.txt", "same bytes", 0644)
-	rep, err := Run(root, cfg, Options{From: "claude"})
+	rep, err := runWith(root, cfg, Options{From: "claude"})
 	if err != nil || len(rep.Conflicts) != 1 {
 		t.Fatal(rep, err)
 	}
@@ -95,7 +96,7 @@ func TestSameBytesHandPlacedFileNeverBecomesOwned(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, ".claude/skills/s/asset.txt")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Run(root, cfg, Options{}); err != nil {
+	if _, err := runWith(root, cfg, Options{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := read(t, root, ".agents/skills/s/asset.txt"); got != "same bytes" {
@@ -107,17 +108,17 @@ func TestHookCatalogHasDeadlineAndRecovers(t *testing.T) {
 	root := newProject(t)
 	cfg := syncCfg(t)
 	put(t, root, ".claude/agents/a.md", agentMD("a", "opus"), 0644)
-	if rep, err := Run(root, cfg, Options{From: "claude"}); err != nil || len(rep.Conflicts) > 0 {
+	if rep, err := runWith(root, cfg, Options{From: "claude"}); err != nil || len(rep.Conflicts) > 0 {
 		t.Fatal(rep, err)
 	}
 	put(t, root, ".claude/agents/a.md", agentMD("a", "sonnet"), 0644)
-	CatalogList = func(ctx context.Context) ([]route.Entry, string, error) {
+	testModels = workertest.Models{List: func(ctx context.Context) ([]route.Entry, string, error) {
 		deadline, ok := ctx.Deadline()
 		if !ok || time.Until(deadline) > 2100*time.Millisecond {
 			t.Error("unbounded hook metadata")
 		}
 		panic("metadata panic")
-	}
+	}}
 	// Command hook recovery is covered separately. The resolver's supplied
 	// context is checked through the actual SessionStart -> Run path here.
 	func() {
@@ -126,13 +127,13 @@ func TestHookCatalogHasDeadlineAndRecovers(t *testing.T) {
 				t.Error("catalog fixture was not used")
 			}
 		}()
-		SessionStart(root, cfg)
+		startWith(root, cfg)
 	}()
-	CatalogList = nil
+	testModels = workertest.Models{}
 	fake := testbin.Install(t, "codex", testbin.Scenario{SleepMS: 60000})
 	_ = fake
 	started := time.Now()
-	line := SessionStart(root, cfg)
+	line := startWith(root, cfg)
 	// The fake sleeps 60 s and the hook gives up after 2 s. Ending the process
 	// tree takes seconds on a busy Windows runner, so the bound only proves
 	// that the hook did not wait for the fake.
@@ -144,7 +145,7 @@ func TestHookCatalogHasDeadlineAndRecovers(t *testing.T) {
 func TestCheckDoesNotCreateMutexInUnsyncedProject(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".duolog/config.yaml", "version: 1\n", 0644)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude", Check: true}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude", Check: true}); err != nil {
 		t.Fatal(err)
 	}
 	if exists(root, ".duolog/sync.lock") || exists(root, ".duolog/sync.lock.json") {
@@ -165,7 +166,7 @@ func TestLinkedWorktreeKeepsCommittedGeneratedFiles(t *testing.T) {
 		}
 	}
 	put(t, main, ".claude/agents/a.md", agentMD("a", "opus"), 0644)
-	if rep, err := Run(main, cfg, Options{From: "claude"}); err != nil || len(rep.Conflicts) > 0 {
+	if rep, err := runWith(main, cfg, Options{From: "claude"}); err != nil || len(rep.Conflicts) > 0 {
 		t.Fatal(rep, err)
 	}
 	work := t.TempDir()
@@ -181,11 +182,11 @@ func TestLinkedWorktreeKeepsCommittedGeneratedFiles(t *testing.T) {
 		}
 		put(t, work, rel, string(data), 0644)
 	}
-	if rep, err := Run(work, cfg, Options{Check: true}); err != nil || len(rep.Conflicts) > 0 {
+	if rep, err := runWith(work, cfg, Options{Check: true}); err != nil || len(rep.Conflicts) > 0 {
 		t.Fatal(rep, err)
 	}
 	put(t, work, ".claude/agents/a.md", agentMD("a", "sonnet"), 0644)
-	rep, err := Run(work, cfg, Options{})
+	rep, err := runWith(work, cfg, Options{})
 	if err != nil || len(rep.Conflicts) > 0 || len(rep.Written) != 1 {
 		t.Fatal(rep, err)
 	}
@@ -212,13 +213,13 @@ func TestSessionStartDropsRecordsOfRemovedWorktrees(t *testing.T) {
 	put(t, main, ".claude/agents/a.md", agentMD("a", "opus"), 0644)
 	git(main, "add", "-A")
 	git(main, "commit", "-q", "-m", "start")
-	if rep, err := Run(main, cfg, Options{From: "claude"}); err != nil || len(rep.Conflicts) > 0 {
+	if rep, err := runWith(main, cfg, Options{From: "claude"}); err != nil || len(rep.Conflicts) > 0 {
 		t.Fatal(rep, err)
 	}
 	kept, gone := filepath.Join(t.TempDir(), "kept"), filepath.Join(t.TempDir(), "gone")
 	for _, dir := range []string{kept, gone} {
 		git(main, "worktree", "add", "-q", dir)
-		if rep, err := Run(dir, cfg, Options{From: "claude"}); err != nil || len(rep.Conflicts) > 0 {
+		if rep, err := runWith(dir, cfg, Options{From: "claude"}); err != nil || len(rep.Conflicts) > 0 {
 			t.Fatal(rep, err)
 		}
 	}
@@ -232,7 +233,7 @@ func TestSessionStartDropsRecordsOfRemovedWorktrees(t *testing.T) {
 	put(t, other, "sync.lock.json", "{}\n", 0644)
 	put(t, other, "notes.txt", "kept\n", 0644)
 	git(main, "worktree", "remove", "--force", gone)
-	SessionStart(main, cfg)
+	startWith(main, cfg)
 	if _, err := os.Stat(keptLock); err != nil {
 		t.Fatal("live worktree record removed:", err)
 	}

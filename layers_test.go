@@ -73,7 +73,6 @@ var appOrder = []string{"launch", "lead", "quota", "learn", "paidruns", "gate", 
 var knownViolations = map[string]string{
 	"internal/adapter/config (test) -> internal/gate":           "PR 19",
 	"internal/app/sync -> github.com/pelletier/go-toml/v2":      "PR 43",
-	"internal/app/sync -> internal/adapter/models":              "PR 33",
 	"internal/app/calibrate (test) -> internal/adapter/config":  "after PR 10: its tests load the config files",
 	"internal/app/calibrate (test) -> internal/quota":           "PR 29",
 	"internal/app/calibrate (test) -> internal/adapter/session": "PR 29",
@@ -86,7 +85,6 @@ var knownViolations = map[string]string{
 	"internal/app/delegate -> internal/auth":                    "PR 38",
 	"internal/app/delegate -> internal/capability":              "PR 40",
 	"internal/app/delegate -> internal/adapter/config":          "after PR 10: RefuseRootEnv checks writable roots at launch",
-	"internal/app/delegate (test) -> internal/adapter/models":   "PR 33",
 	"internal/app/delegate (test) -> internal/quota":            "PR 39",
 	"internal/app/delegate -> internal/trust":                   "PR 36",
 	"internal/app/delegate -> internal/trusthome":               "PR 36",
@@ -136,7 +134,7 @@ var knownViolations = map[string]string{
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 62
+const maxKnownViolations = 60
 
 // Reasons of the allowed edges, one per target.
 const (

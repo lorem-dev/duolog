@@ -81,7 +81,11 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	if limit := e.cfg.Limits.MaxLiveSessions; limit > 0 && len(here) >= limit {
 		return Entry{}, fmt.Errorf("max_live_sessions is %d and %s session %s is still open; close it with duolog peer close %s first", limit, route.Agent, here[0].ID, here[0].ID)
 	}
-	model, err := e.opts.Deps.ResolveModel(ctx, e.cfg, filepath.Join(e.dir, "cache"), route.Target)
+	resolver, ok := e.opts.Deps.Models[route.Agent]
+	if !ok {
+		return Entry{}, fmt.Errorf("unknown agent %q", route.Agent)
+	}
+	model, err := resolver.Resolve(ctx, e.cfg, filepath.Join(e.dir, "cache"), route.Target)
 	if err != nil {
 		return Entry{}, err
 	}

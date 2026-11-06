@@ -1,12 +1,10 @@
-// Package models resolves vendor model names without making model calls.
-package models
+package codex
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/lorem-dev/duolog/internal/store"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,13 +13,15 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/route"
+	"github.com/lorem-dev/duolog/internal/store"
 )
 
-// Resolver permits tests and callers to supply a catalog without running Codex.
-// List returns the catalog and the Codex version that supplied it.
+// Resolver resolves a Codex alias to the newest visible model without making a
+// model call. With the zero value it runs the standard Codex metadata commands;
+// List lets a test supply a catalog without running Codex. List returns the
+// catalog and the Codex version that supplied it.
 type Resolver struct {
-	CacheDir string
-	List     func(context.Context) ([]route.Entry, string, error)
+	List func(context.Context) ([]route.Entry, string, error)
 }
 
 type catalogCache struct {
@@ -30,18 +30,10 @@ type catalogCache struct {
 	UpdatedAt time.Time     `json:"updated_at"`
 }
 
-// Resolve uses the standard Codex metadata commands and a directory cache.
-func Resolve(ctx context.Context, cfg *config.Config, cacheDir string, target config.Target) (string, error) {
-	return (Resolver{CacheDir: cacheDir}).Resolve(ctx, cfg, target)
-}
-
-func (r Resolver) Resolve(ctx context.Context, cfg *config.Config, target config.Target) (string, error) {
-	if target.Agent == "claude" {
-		if strings.HasPrefix(target.Model, "claude-") {
-			return target.Model, nil
-		}
-		return route.Normalize(target.Agent, target.Model), nil
-	}
+// Resolve gives the model of target: a pinned gpt- name as it is, an alias as
+// the newest visible model of its family. cacheDir holds the catalog cache; ""
+// keeps none.
+func (r Resolver) Resolve(ctx context.Context, cfg *config.Config, cacheDir string, target config.Target) (string, error) {
 	if target.Agent != "codex" {
 		return "", fmt.Errorf("unknown agent %q", target.Agent)
 	}
@@ -52,7 +44,7 @@ func (r Resolver) Resolve(ctx context.Context, cfg *config.Config, target config
 	if !ok || model.Family == "" {
 		return "", fmt.Errorf("unknown Codex model family %q", target.Model)
 	}
-	cached := r.readCache()
+	cached := readCache(cacheDir)
 	var list []route.Entry
 	var version string
 	var err error
@@ -82,7 +74,7 @@ func (r Resolver) Resolve(ctx context.Context, cfg *config.Config, target config
 	if err != nil {
 		return "", err
 	}
-	if err := r.writeCache(catalogCache{Models: list, Version: version, UpdatedAt: time.Now().UTC()}); err != nil {
+	if err := writeCache(cacheDir, catalogCache{Models: list, Version: version, UpdatedAt: time.Now().UTC()}); err != nil {
 		return "", err
 	}
 	return name, nil
@@ -100,12 +92,12 @@ func fresh(c catalogCache, version string) bool {
 	return len(c.Models) > 0 && c.Version == version && age >= 0 && age < 24*time.Hour
 }
 
-func (r Resolver) readCache() catalogCache {
+func readCache(dir string) catalogCache {
 	var c catalogCache
-	if r.CacheDir == "" {
+	if dir == "" {
 		return c
 	}
-	data, err := os.ReadFile(filepath.Join(r.CacheDir, "models.json"))
+	data, err := os.ReadFile(filepath.Join(dir, "models.json"))
 	if err == nil {
 		if json.Unmarshal(data, &c) != nil {
 			return catalogCache{}
@@ -114,18 +106,18 @@ func (r Resolver) readCache() catalogCache {
 	return c
 }
 
-func (r Resolver) writeCache(c catalogCache) error {
-	if r.CacheDir == "" {
+func writeCache(dir string, c catalogCache) error {
+	if dir == "" {
 		return nil
 	}
-	if err := os.MkdirAll(r.CacheDir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("model cache: %w", err)
 	}
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
-	file, err := os.CreateTemp(r.CacheDir, "models-*.json")
+	file, err := os.CreateTemp(dir, "models-*.json")
 	if err != nil {
 		return fmt.Errorf("model cache: %w", err)
 	}
@@ -138,7 +130,7 @@ func (r Resolver) writeCache(c catalogCache) error {
 	if closeErr != nil {
 		return fmt.Errorf("model cache: %w", closeErr)
 	}
-	if err := store.Rename(file.Name(), filepath.Join(r.CacheDir, "models.json")); err != nil {
+	if err := store.Rename(file.Name(), filepath.Join(dir, "models.json")); err != nil {
 		return fmt.Errorf("model cache: %w", err)
 	}
 	return nil

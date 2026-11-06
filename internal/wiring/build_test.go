@@ -12,7 +12,7 @@ func TestPeerDepsDefaultPauses(t *testing.T) {
 	if d.Pauses.Send < 700*time.Millisecond {
 		t.Fatalf("the default pause between send and enter is %v, want at least 700 ms", d.Pauses.Send)
 	}
-	if d.Clock == nil || d.ResolveModel == nil || d.Notify == nil || d.RecordPeer == nil || d.OnEnvFile == nil || d.Delegate == nil || d.PaidGate == nil || d.HeldGate == nil {
+	if d.Clock == nil || len(d.Models) != len(Names()) || d.ResetTime == nil || d.Notify == nil || d.RecordPeer == nil || d.OnEnvFile == nil || d.Delegate == nil || d.PaidGate == nil || d.HeldGate == nil {
 		t.Fatalf("a field of peer.Deps is empty: %+v", d)
 	}
 	if p := ProfileDeps(DelegateDeps()); p.Delegate == nil || p.Rand == nil || p.RunCheck == nil {

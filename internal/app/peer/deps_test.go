@@ -23,11 +23,14 @@ func TestPeerOpenUsesDeps(t *testing.T) {
 			longest = max(longest, p)
 			return ctx.Err()
 		})
-		resolve := d.ResolveModel
-		d.ResolveModel = func(ctx context.Context, cfg *config.Config, dir string, target config.Target) (string, error) {
-			resolved++
-			return resolve(ctx, cfg, dir, target)
+		counted := map[string]ModelResolver{}
+		for agent, m := range d.Models {
+			counted[agent] = resolveFunc(func(ctx context.Context, cfg *config.Config, dir string, target config.Target) (string, error) {
+				resolved++
+				return m.Resolve(ctx, cfg, dir, target)
+			})
 		}
+		d.Models = counted
 		d.RecordPeer = func(reg *session.Registry, e session.Entry, limit int) error {
 			recorded++
 			return reg.RecordLimited(e, limit)

@@ -18,9 +18,7 @@ import (
 
 	toml "github.com/pelletier/go-toml/v2"
 
-	"github.com/lorem-dev/duolog/internal/adapter/models"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/plugin"
 )
 
@@ -39,6 +37,8 @@ type Options struct {
 	Models map[string]string
 	// Path limits the run to the agent file or skill that holds this path.
 	Path string
+	// Resolver resolves a Codex alias; without it an alias is an error.
+	Resolver ModelResolver
 }
 
 // Report lists what a run did. A run with Conflicts is a failed run.
@@ -46,9 +46,11 @@ type Report struct {
 	Written, Removed, Conflicts, Warnings []string
 }
 
-// CatalogList replaces the call to `codex debug models` when it is not nil.
-// Tests set it; the catalog is otherwise read through internal/models.
-var CatalogList func(context.Context) ([]route.Entry, string, error)
+// ModelResolver turns a Codex alias into the newest visible model. cacheDir is
+// the folder of the catalog cache, or "" for none.
+type ModelResolver interface {
+	Resolve(ctx context.Context, cfg *config.Config, cacheDir string, t config.Target) (string, error)
+}
 
 type dirs struct{ agents, skills string }
 
@@ -448,22 +450,25 @@ func originalName(md []byte) string {
 }
 
 // resolver turns a Codex alias into the newest visible model, through
-// internal/models and its cache. It asks once per alias.
+// the Codex resolver of the options and its cache. It asks once per alias.
 func (r *runner) resolver() func(string) (string, error) {
 	cache := map[string]string{}
 	cacheDir := filepath.Join(r.root, ".duolog", "cache")
 	if r.o.DryRun || r.o.Check {
 		cacheDir = "" // a run that must not write also leaves the model cache alone
 	}
-	resolver := models.Resolver{CacheDir: cacheDir, List: CatalogList}
+	resolver := r.o.Resolver
 	return func(alias string) (string, error) {
 		if name, ok := cache[alias]; ok {
 			return name, nil
 		}
+		if resolver == nil {
+			return "", fmt.Errorf("no model resolver to resolve %q", alias)
+		}
 		cfg := &config.Config{Models: map[string]config.Model{alias: {Family: alias}}}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		name, err := resolver.Resolve(ctx, cfg, config.Target{Agent: "codex", Model: alias})
+		name, err := resolver.Resolve(ctx, cfg, cacheDir, config.Target{Agent: "codex", Model: alias})
 		if err != nil {
 			return "", err
 		}
@@ -575,7 +580,7 @@ func relative(root, path string) string {
 // Hook brings the generated files up to date after an agent touched path.
 // It returns one line for the agent, or "" when there is nothing to act on:
 // the path is unrelated, no direction was chosen, or automatic sync is off.
-func Hook(root string, cfg config.Sync, path string) string {
+func Hook(root string, cfg config.Sync, path string, models ModelResolver) string {
 	if !cfg.Auto {
 		return ""
 	}
@@ -607,13 +612,13 @@ func Hook(root string, cfg config.Sync, path string) string {
 	if !strings.HasPrefix(rel, d.agents+"/") && !strings.HasPrefix(rel, d.skills+"/") {
 		return ""
 	}
-	return line(Run(root, cfg, Options{Path: rel}))
+	return line(Run(root, cfg, Options{Path: rel, Resolver: models}))
 }
 
 // SessionStart rebuilds everything that changed since the last run: edits made
 // by a shell, and a newer model behind an alias. It is silent unless a file
 // was refused.
-func SessionStart(root string, cfg config.Sync) string {
+func SessionStart(root string, cfg config.Sync, models ModelResolver) string {
 	pruneWorktreeLocks(root)
 	if !cfg.Auto {
 		return ""
@@ -622,7 +627,7 @@ func SessionStart(root string, cfg config.Sync) string {
 	if err != nil || lock.Direction == "" {
 		return ""
 	}
-	return line(Run(root, cfg, Options{}))
+	return line(Run(root, cfg, Options{Resolver: models}))
 }
 
 func line(rep Report, err error) string {

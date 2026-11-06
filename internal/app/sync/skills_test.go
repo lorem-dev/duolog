@@ -22,7 +22,7 @@ func skillProject(t *testing.T) string {
 
 func TestSkillCopiedWhole(t *testing.T) {
 	root := skillProject(t)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, rel := range []string{"SKILL.md", "scripts/a.sh", "references/b.md"} {
@@ -43,7 +43,7 @@ func TestSkillCopiedWhole(t *testing.T) {
 
 func TestNoSymlinksCreated(t *testing.T) {
 	root := skillProject(t)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	count := 0
@@ -68,7 +68,7 @@ func TestNoSymlinksCreated(t *testing.T) {
 
 func TestSkillBodyUnchanged(t *testing.T) {
 	root := skillProject(t)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	got := read(t, root, ".agents/skills/probe/SKILL.md")
@@ -90,7 +90,7 @@ func TestSkillDropKeys(t *testing.T) {
 	put(t, root, ".claude/skills/probe/SKILL.md", "---\nname: probe\ndescription: d\nallowed-tools: Bash\n---\nbody\n", 0o644)
 	cfg := syncCfg(t)
 	cfg.Skills = config.SkillSync{DropKeys: []string{"allowed-tools"}}
-	if _, err := Run(root, cfg, Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, cfg, Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	got := read(t, root, ".agents/skills/probe/SKILL.md")
@@ -102,7 +102,7 @@ func TestSkillDropKeys(t *testing.T) {
 func TestSkillUnknownKeyKeptSilently(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/skills/probe/SKILL.md", "---\nname: probe\ndescription: d\nmystery: 1\n---\nbody\n", 0o644)
-	rep, err := Run(root, syncCfg(t), Options{From: "claude"})
+	rep, err := runWith(root, syncCfg(t), Options{From: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestSkillUnknownKeyKeptSilently(t *testing.T) {
 func TestSkillDisableModelInvocationWarnsOnce(t *testing.T) {
 	root := newProject(t)
 	put(t, root, ".claude/skills/probe/SKILL.md", "---\nname: probe\ndescription: d\ndisable-model-invocation: true\n---\nbody\n", 0o644)
-	rep, err := Run(root, syncCfg(t), Options{From: "claude"})
+	rep, err := runWith(root, syncCfg(t), Options{From: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,13 +131,13 @@ func TestSkillDisableModelInvocationWarnsOnce(t *testing.T) {
 
 func TestSkillFileRemovedFromSource(t *testing.T) {
 	root := skillProject(t)
-	if _, err := Run(root, syncCfg(t), Options{From: "claude"}); err != nil {
+	if _, err := runWith(root, syncCfg(t), Options{From: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(root, ".claude/skills/probe/references/b.md")); err != nil {
 		t.Fatal(err)
 	}
-	rep, err := Run(root, syncCfg(t), Options{})
+	rep, err := runWith(root, syncCfg(t), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

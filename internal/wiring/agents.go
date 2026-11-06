@@ -9,6 +9,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/hook"
 	"github.com/lorem-dev/duolog/internal/app/lead"
+	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/core/agent"
 )
 
@@ -22,13 +23,15 @@ type Agent struct {
 	// ResetTime parses the time a limit message of this agent says the quota
 	// returns, or gives a fallback; never the zero time.
 	ResetTime func(text string, now time.Time) time.Time
+	// Models resolves this agent's model names.
+	Models delegate.ModelResolver
 }
 
 // Agents returns the registered agents in order: claude, then codex.
 func Agents() []Agent {
 	return []Agent{
-		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime},
-		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime},
+		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}},
+		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}},
 	}
 }
 
@@ -65,7 +68,16 @@ func Names() []string {
 func delegateAgents() map[string]delegate.Agent {
 	out := map[string]delegate.Agent{}
 	for _, a := range Agents() {
-		out[a.Facts.Name] = delegate.Agent{Worker: a.Worker}
+		out[a.Facts.Name] = delegate.Agent{Worker: a.Worker, Models: a.Models}
+	}
+	return out
+}
+
+// peerModels builds the model resolvers of peer.Deps from the registry.
+func peerModels() map[string]peer.ModelResolver {
+	out := map[string]peer.ModelResolver{}
+	for _, a := range Agents() {
+		out[a.Facts.Name] = a.Models
 	}
 	return out
 }

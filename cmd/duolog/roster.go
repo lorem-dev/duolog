@@ -6,7 +6,6 @@ import (
 	"sort"
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
-	"github.com/lorem-dev/duolog/internal/adapter/models"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/roster"
 	"github.com/lorem-dev/duolog/internal/capability"
@@ -14,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newRosterCommand() *cobra.Command {
+func newRosterCommand(d *cmdDeps) *cobra.Command {
 	var versions bool
 	var leadFlag string
 	cmd := &cobra.Command{Use: "roster", Short: "Show role model aliases", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -62,7 +61,7 @@ func newRosterCommand() *cobra.Command {
 			model := cfg.Models[alias]
 			var detail string
 			if model.Agent == "codex" {
-				resolved, err := models.Resolve(cmd.Context(), cfg, filepath.Join(reg.Dir, "cache"), config.Target{Agent: model.Agent, Model: alias})
+				resolved, err := d.Delegate.Agents[model.Agent].Models.Resolve(cmd.Context(), cfg, filepath.Join(reg.Dir, "cache"), config.Target{Agent: model.Agent, Model: alias})
 				if err != nil {
 					detail = "unavailable: " + err.Error()
 				} else {

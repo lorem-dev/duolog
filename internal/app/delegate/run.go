@@ -557,7 +557,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 				problems = problems[1:]
 			}
 		}
-		model, modelErr := d.ResolveModel(ctx, cfg, filepath.Join(s.Dir, "cache"), route.Target)
+		model, modelErr := d.resolveModel(ctx, cfg, filepath.Join(s.Dir, "cache"), route.Target)
 		if modelErr != nil {
 			if missingBinary(modelErr) {
 				err = modelErr

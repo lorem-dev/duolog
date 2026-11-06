@@ -14,6 +14,7 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/roster"
+	"github.com/lorem-dev/duolog/internal/app/sync"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
@@ -57,6 +58,9 @@ type Env struct {
 	// Peers returns the lines of `duolog peer list` for the lead with this
 	// session id. Nil means none; the command sets it.
 	Peers func(ctx context.Context, leadID string) []string
+	// Models resolves the Codex aliases of the sync that a hook runs. Nil means
+	// an alias is an error; the command sets it.
+	Models agentsync.ModelResolver
 }
 
 type Output struct {

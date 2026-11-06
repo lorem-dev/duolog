@@ -17,7 +17,6 @@ import (
 	"time"
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
-	"github.com/lorem-dev/duolog/internal/adapter/models"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
@@ -333,7 +332,7 @@ func keepRunLog(runErr error, tempLog, logPath string) error {
 
 func askSkill(d *cmdDeps, cmd *cobra.Command, cfg *config.Config, root, work, prompt string, target config.Target) (result corerun.Result, route coreroute.Route, err error) {
 	route = coreroute.Route{Target: target}
-	model, err := models.Resolve(cmd.Context(), cfg, filepath.Join(root, ".duolog", "cache"), target)
+	model, err := d.Delegate.Agents[target.Agent].Models.Resolve(cmd.Context(), cfg, filepath.Join(root, ".duolog", "cache"), target)
 	if err != nil {
 		return corerun.Result{}, route, err
 	}

@@ -14,7 +14,6 @@ import (
 	"time"
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
-	"github.com/lorem-dev/duolog/internal/adapter/models"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/adapter/workertest"
 	leadio "github.com/lorem-dev/duolog/internal/app/lead"
@@ -76,6 +75,23 @@ type harness struct {
 	leadAt time.Time
 	// deps is what the harness passes to Run; a test may replace a field.
 	deps Deps
+	// resolve is the model lookup of both agents; a test may replace it.
+	resolve resolveFunc
+}
+
+// resolveFunc is a ModelResolver that calls a function.
+type resolveFunc func(ctx context.Context, cfg *config.Config, cacheDir string, t config.Target) (string, error)
+
+func (f resolveFunc) Resolve(ctx context.Context, cfg *config.Config, cacheDir string, t config.Target) (string, error) {
+	return f(ctx, cfg, cacheDir, t)
+}
+
+// models is the lookup of the harness's agents: it calls h.resolve, which a
+// test may replace after the agents were set.
+func (h *harness) models() ModelResolver {
+	return resolveFunc(func(ctx context.Context, cfg *config.Config, cacheDir string, t config.Target) (string, error) {
+		return h.resolve(ctx, cfg, cacheDir, t)
+	})
 }
 
 // funcWorker is a Worker that runs fn. Its launch words are those of the real
@@ -91,8 +107,8 @@ func (w funcWorker) Launch(s run.Spec) []string                              { r
 // setWorker makes fn the worker of both agents.
 func (h *harness) setWorker(fn func(context.Context, run.Spec) (run.Result, error)) {
 	h.deps.Agents = map[string]Agent{
-		"claude": {Worker: funcWorker{fn, workertest.For("claude").Launch}},
-		"codex":  {Worker: funcWorker{fn, workertest.For("codex").Launch}},
+		"claude": {Worker: funcWorker{fn, workertest.For("claude").Launch}, Models: h.models()},
+		"codex":  {Worker: funcWorker{fn, workertest.For("codex").Launch}, Models: h.models()},
 	}
 }
 
@@ -103,7 +119,7 @@ func (h *harness) worker() func(context.Context, run.Spec) (run.Result, error) {
 
 // realWorkers makes the real Workers of both agents the harness's.
 func (h *harness) realWorkers() {
-	h.deps.Agents = map[string]Agent{"claude": {Worker: workertest.For("claude")}, "codex": {Worker: workertest.For("codex")}}
+	h.deps.Agents = map[string]Agent{"claude": {Worker: workertest.For("claude"), Models: h.models()}, "codex": {Worker: workertest.For("codex"), Models: h.models()}}
 }
 
 // argvOf is the argv a real Worker gives s.
@@ -221,11 +237,9 @@ func newHarness(t *testing.T) *harness {
 		}
 		return r, e
 	})
-	h.deps.ResolveModel = func(ctx context.Context, cfg *config.Config, dir string, target config.Target) (string, error) {
-		return (models.Resolver{List: func(context.Context) ([]route.Entry, string, error) {
-			return catalog.Models, "fixture", nil
-		}}).Resolve(ctx, cfg, target)
-	}
+	h.resolve = workertest.Models{List: func(context.Context) ([]route.Entry, string, error) {
+		return catalog.Models, "fixture", nil
+	}}.Resolve
 	return h
 }
 func (h *harness) task(refs string) {
@@ -818,7 +832,7 @@ func TestUnregisteredLeadRefusesWorker(t *testing.T) {
 func TestFallbackFailureNamesBothAgents(t *testing.T) {
 	h := newHarness(t)
 	h.limited()
-	h.deps.ResolveModel = func(_ context.Context, _ *config.Config, _ string, target config.Target) (string, error) {
+	h.resolve = func(_ context.Context, _ *config.Config, _ string, target config.Target) (string, error) {
 		if target.Agent == "claude" {
 			return "", errors.New("bad catalog")
 		}
@@ -988,8 +1002,8 @@ func TestRegistryDamageStopsDelegation(t *testing.T) {
 				r := h.cfg.Roles[role]
 				r.Session = "resume"
 				h.cfg.Roles[role] = r
-				old := h.deps.ResolveModel
-				h.deps.ResolveModel = func(ctx context.Context, cfg *config.Config, dir string, target config.Target) (string, error) {
+				old := h.resolve
+				h.resolve = func(ctx context.Context, cfg *config.Config, dir string, target config.Target) (string, error) {
 					put(t, filepath.Join(h.s.Dir, "sessions.json"), "{")
 					return old(ctx, cfg, dir, target)
 				}

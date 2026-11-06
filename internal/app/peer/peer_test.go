@@ -157,12 +157,12 @@ func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
 	r.deps = Deps{
 		Clock:  &rigClock{r: r},
 		Pauses: Pauses{Poll: time.Millisecond, Settle: time.Millisecond, Send: 3 * time.Millisecond, Key: time.Millisecond},
-		ResolveModel: func(_ context.Context, _ *config.Config, _ string, target config.Target) (string, error) {
+		Models: modelsOf(func(_ context.Context, _ *config.Config, _ string, target config.Target) (string, error) {
 			if target.Agent == "codex" {
 				return "gpt-6.1-" + target.Model, nil
 			}
 			return route.Normalize(target.Agent, target.Model), nil
-		},
+		}),
 		ResetTime:  workertest.ResetTime,
 		Notify:     func(string, string) {},
 		RecordPeer: func(reg *session.Registry, e session.Entry, limit int) error { return reg.RecordLimited(e, limit) },
@@ -175,6 +175,18 @@ func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
 	}
 	r.useDeps(func(*Deps) {})
 	return r
+}
+
+// resolveFunc is a ModelResolver that calls a function.
+type resolveFunc func(ctx context.Context, cfg *config.Config, cacheDir string, t config.Target) (string, error)
+
+func (f resolveFunc) Resolve(ctx context.Context, cfg *config.Config, cacheDir string, t config.Target) (string, error) {
+	return f(ctx, cfg, cacheDir, t)
+}
+
+// modelsOf gives both agents the lookup f.
+func modelsOf(f resolveFunc) map[string]ModelResolver {
+	return map[string]ModelResolver{"claude": f, "codex": f}
 }
 
 // rigClock is real time whose sleeps are recorded with the number of rex

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/kit"
-	"github.com/lorem-dev/duolog/internal/adapter/models"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/doctor"
@@ -29,7 +28,6 @@ import (
 func DelegateDeps() delegate.Deps {
 	return delegate.Deps{
 		Agents:           delegateAgents(),
-		ResolveModel:     models.Resolve,
 		Lead:             Leads(),
 		ScanCapabilities: capability.ScanEnv,
 		BridgeMCP:        capability.Bridge,
@@ -103,11 +101,11 @@ func (systemClock) Sleep(ctx context.Context, d time.Duration) error {
 // gates and the delegation are those of d.
 func PeerDeps(d delegate.Deps) peer.Deps {
 	return peer.Deps{
-		Clock:        systemClock{},
-		Pauses:       peer.Pauses{Poll: 2 * time.Second, Settle: time.Second, Send: 700 * time.Millisecond, Key: 150 * time.Millisecond, WorkGrace: 10 * time.Second},
-		ResolveModel: models.Resolve,
-		ResetTime:    resetTime,
-		Notify:       kit.Notify,
+		Clock:     systemClock{},
+		Pauses:    peer.Pauses{Poll: 2 * time.Second, Settle: time.Second, Send: 700 * time.Millisecond, Key: 150 * time.Millisecond, WorkGrace: 10 * time.Second},
+		Models:    peerModels(),
+		ResetTime: resetTime,
+		Notify:    kit.Notify,
 		RecordPeer: func(reg *session.Registry, e session.Entry, limit int) error {
 			return reg.RecordLimited(e, limit)
 		},
