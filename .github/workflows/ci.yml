@@ -152,11 +152,36 @@ jobs:
           if ($parseErrors.Count) { $parseErrors; exit 1 }
       # Errors only: the PowerShell installer and launcher are checked for
       # parse errors above, and for analyzer errors here.
+      # The module is saved to a folder that actions/cache restores, so a
+      # Gallery outage only matters on a cache miss.
+      - name: Cache PSScriptAnalyzer
+        if: runner.os == 'Windows' && matrix.part == ''
+        id: psa-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/psmodules
+          key: psscriptanalyzer-1.24.0-${{ runner.os }}-${{ runner.arch }}
+      - name: Install PSScriptAnalyzer (cache miss)
+        if: runner.os == 'Windows' && matrix.part == '' && steps.psa-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $attempts = 4
+          for ($i = 1; $i -le $attempts; $i++) {
+            try {
+              Save-Module PSScriptAnalyzer -RequiredVersion 1.24.0 -Path "$env:RUNNER_TEMP/psmodules" -Force -ErrorAction Stop
+              exit 0
+            } catch {
+              Write-Warning "Attempt $i of ${attempts}: $($_.Exception.Message)"
+              if ($i -lt $attempts) { Start-Sleep -Seconds (10 * $i) }
+            }
+          }
+          Write-Error "Could not download PSScriptAnalyzer 1.24.0 from the PowerShell Gallery after $attempts attempts."
+          exit 1
       - name: PSScriptAnalyzer (errors only)
         if: (runner.os == 'Windows') && matrix.part == ''
         shell: pwsh
         run: |
-          Install-Module PSScriptAnalyzer -RequiredVersion 1.24.0 -Scope CurrentUser -Force
+          Import-Module "$env:RUNNER_TEMP/psmodules/PSScriptAnalyzer/1.24.0/PSScriptAnalyzer.psd1" -ErrorAction Stop
           $failed = $false
           foreach ($path in @('scripts/dev/bin/duolog.ps1', '.release/install.ps1')) {
             $found = Invoke-ScriptAnalyzer -Path $path -Severity Error
