@@ -3,6 +3,7 @@ package calibration
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -136,20 +137,53 @@ func (r *Runner) judgeUSDLeft(agent string) float64 {
 
 // chargeUSD counts a step's cost toward the plan's approved USD when the
 // agent runs on a paid route; judge marks a judge call or planned rewrite.
+// A negative usd takes a charge back, never below 0.
 func (r *Runner) chargeUSD(agent string, usd float64, judge bool) {
-	if !r.billing()[agent].paid() || usd <= 0 {
+	if !r.billing()[agent].paid() || usd == 0 || math.IsNaN(usd) {
 		return
 	}
 	if r.Run.Spend.PaidUSD == nil {
 		r.Run.Spend.PaidUSD = map[string]float64{}
 	}
-	r.Run.Spend.PaidUSD[agent] += usd
+	r.Run.Spend.PaidUSD[agent] = max(0, r.Run.Spend.PaidUSD[agent]+usd)
 	if judge {
 		if r.Run.Spend.JudgeUSD == nil {
 			r.Run.Spend.JudgeUSD = map[string]float64{}
 		}
-		r.Run.Spend.JudgeUSD[agent] += usd
+		r.Run.Spend.JudgeUSD[agent] = max(0, r.Run.Spend.JudgeUSD[agent]+usd)
 	}
+}
+
+// holdUSD charges a paid step's high USD estimate when it starts, in the
+// save that marks it started, so an interrupt, a crash or an error after its
+// worker spent keeps it counted against the approved USD. It returns what it
+// charged, 0 on a route that is not paid, for settleUSD.
+func (r *Runner) holdUSD(agent string, high float64, judge bool) float64 {
+	if !r.billing()[agent].paid() || !(high > 0) {
+		return 0
+	}
+	r.chargeUSD(agent, high, judge)
+	return high
+}
+
+// entryModel is the model of an entry key, agent/model/effort.
+func entryModel(key string) string {
+	parts := strings.SplitN(key, "/", 3)
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[1]
+}
+
+// settleUSD corrects a step's held charge to its cost, the larger of the
+// token price and the CLI's reported cost. A step that ended without a
+// complete result keeps at least what was held: its cost may be unmeasured.
+func (r *Runner) settleUSD(agent string, held, cost float64, judge, complete bool) {
+	delta := cost - held
+	if !complete {
+		delta = max(0, delta)
+	}
+	r.chargeUSD(agent, delta, judge)
 }
 
 // waiting is the wait notice of a step of agent: the run says it waits for

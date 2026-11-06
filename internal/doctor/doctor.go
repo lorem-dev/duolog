@@ -241,6 +241,8 @@ func billing(ctx context.Context, cfg *config.Config, root string, available map
 			out = append(out, Finding{level, line})
 		}
 	}
+	// The account's lines come once, from the first worker report.
+	var account []string
 	for _, agent := range []string{"claude", "codex"} {
 		if !available[agent] {
 			continue
@@ -257,6 +259,9 @@ func billing(ctx context.Context, cfg *config.Config, root string, available map
 			report(r)
 			if shape == workerenv.Worker {
 				worker = r
+				if account == nil {
+					account = r.AccountLines()
+				}
 			}
 		}
 		in, ok := session.LeadInput(cfg, leads[agent], home, root)
@@ -275,6 +280,9 @@ func billing(ctx context.Context, cfg *config.Config, root string, available map
 				out = append(out, Finding{"warning", diff})
 			}
 		}
+	}
+	for _, line := range account {
+		out = append(out, Finding{"info", line})
 	}
 	return out
 }

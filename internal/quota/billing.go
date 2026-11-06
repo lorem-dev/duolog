@@ -92,6 +92,14 @@ func (b *BillingFacts) claudeRouteUnread() {
 	b.signal("auth:unread", claudeAuthLayer)
 }
 
+// claudeRouteTimedOut records an auth status read that did not end in time:
+// the route is unknown, which is paid like any unknown, and the signal says
+// so rather than that the login could not be read.
+func (b *BillingFacts) claudeRouteTimedOut() {
+	b.AuthMethod, b.APIProvider, b.RouteKnown = "", "", false
+	b.signal("auth:timeout", claudeAuthLayer)
+}
+
 // addClaudeWorkspaceReason keeps the level of an overage disabled reason set
 // at org, seat tier, group or member level. Other reasons are not workspace
 // evidence and are dropped.

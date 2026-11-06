@@ -344,6 +344,10 @@ func TestQuotaAndDoctorShapeReportsInQuota(t *testing.T) {
 			t.Errorf("missing %q in\n%s", want, out)
 		}
 	}
+	// Review finding M1: the total is one line for both agents.
+	if n := strings.Count(out, "in all"); n != 1 {
+		t.Errorf("the total line appears %d times, want once:\n%s", n, out)
+	}
 
 	old := observeLead
 	observeLead = func(agent string) (session.LeadRoute, bool) {

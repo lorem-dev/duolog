@@ -136,9 +136,17 @@ func TestClaudeBillingBothUsageLayouts(t *testing.T) {
 		{"wrong type", testbin.Scenario{Stdout: `{"loggedIn":true,"authMethod":7}`}, "", "", false, []workerenv.Signal{{Name: "auth:unread", Layer: "auth status"}}},
 		{"failed exit", testbin.Scenario{Stdout: `{"loggedIn":true,"authMethod":"claude.ai"}`, Exit: 2}, "", "", false, []workerenv.Signal{{Name: "auth:unread", Layer: "auth status"}}},
 		{"garbage", testbin.Scenario{Stdout: "not json"}, "", "", false, []workerenv.Signal{{Name: "auth:unread", Layer: "auth status"}}},
-		{"timeout", testbin.Scenario{SleepMS: 10000}, "", "", false, []workerenv.Signal{{Name: "auth:unread", Layer: "auth status"}}},
+		// Review finding I3: a slow start is a realistic reply, and a read
+		// that never ends is a timeout, an unknown route, not an unread one.
+		{"slow start", testbin.Scenario{Stdout: `{"loggedIn":true,"authMethod":"claude.ai"}`, SleepMS: 1500}, "claude.ai", "", true, nil},
+		{"timeout", testbin.Scenario{SleepMS: 10000}, "", "", false, []workerenv.Signal{{Name: "auth:timeout", Layer: "auth status"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.name == "timeout" {
+				// Inside the read's own 3 s, so the auth bound decides.
+				defer func(d time.Duration) { claudeAuthTimeout = d }(claudeAuthTimeout)
+				claudeAuthTimeout = time.Second
+			}
 			s, err := readClaudeBilling(t, claudeBilling(t, "sdk"), tc.auth)
 			if err != nil {
 				t.Fatal(err)
@@ -151,6 +159,24 @@ func TestClaudeBillingBothUsageLayouts(t *testing.T) {
 				t.Fatalf("%+v", b)
 			}
 		})
+	}
+}
+
+// TestClaudeLaterWindowlessReportKeepsEvidence is review finding M4: a
+// windowless report after one with windows still says windows are not
+// available and names a workspace reason; the read keeps both.
+func TestClaudeLaterWindowlessReportKeepsEvidence(t *testing.T) {
+	later := `{"usage_report":{"rate_limits_available":false,"rate_limits":{"extra_usage":` +
+		`{"is_enabled":true,"used_credits":0,"overage_disabled_reason":"org_level_disabled"}}}}`
+	s, err := readClaudeBilling(t, claudeBilling(t, "sdk")+"\n"+later,
+		testbin.Scenario{Stdout: `{"loggedIn":true,"authMethod":"claude.ai"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := s.Billing
+	if len(s.Windows) != 6 || b.WindowsAvailable == nil || *b.WindowsAvailable ||
+		!slices.Contains(b.WorkspaceReasons, "org") || !b.OverageEnabled {
+		t.Fatalf("windows %d billing %+v: later evidence lost", len(s.Windows), b)
 	}
 }
 

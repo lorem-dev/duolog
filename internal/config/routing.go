@@ -28,7 +28,7 @@ func DefaultRouting() Routing { return embeddedRouting().Routing }
 // restrictProjectRouting removes the project's routing.balance when it turns
 // balancing off under a layer that has it on. The margin is bounded with the
 // other account limits. The nodes are resolved mappings.
-func restrictProjectRouting(base, layer *yaml.Node) ([]ConfigNotice, error) {
+func restrictProjectRouting(base, layer *yaml.Node, projectFile string) ([]ConfigNotice, error) {
 	value, err := limitNode(layer, "routing.balance")
 	if err != nil || value == nil {
 		return nil, err

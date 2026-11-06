@@ -231,6 +231,15 @@ func printQuota(w io.Writer, results map[string]quotaResult, now time.Time) erro
 		}
 		printBilling(&b, agent, r)
 	}
+	// What belongs to the account comes once, after every agent.
+	for _, agent := range []string{"claude", "codex"} {
+		if report, ok := results[agent].Reports["worker"]; ok {
+			for _, line := range report.AccountLines() {
+				fmt.Fprintf(&b, "%s\n", line)
+			}
+			break
+		}
+	}
 	_, err := io.WriteString(w, b.String())
 	return err
 }

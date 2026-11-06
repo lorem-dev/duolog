@@ -31,9 +31,10 @@ type PaidRuns struct {
 	Codex       PaidAgent  `yaml:"codex" jsonschema_description:"Paid runs of Codex workers and peers; off by default."`
 }
 
-// ConfigNotice names a key that Load ignored or capped, and why: a key of the
-// shared .duolog/config.yaml that would widen a limit, or a session tier
-// above its default.
+// ConfigNotice names a key that Load ignored or capped, and why: a key of a
+// shared layer, .duolog/config.yaml or a .duolog/config.local.yaml that Git
+// tracks, that would widen a limit or lower a price, or a session tier above
+// its default.
 type ConfigNotice struct {
 	Key, Reason string
 }
@@ -80,7 +81,13 @@ func accountRank(account string) int {
 	return slices.Index([]string{"personal", "auto", "workspace"}, account)
 }
 
-const projectFile = ".duolog/config.yaml"
+const (
+	projectFile = ".duolog/config.yaml"
+	localFile   = ".duolog/config.local.yaml"
+	// trackedLocal names a local file that Git tracks in notices: it reaches
+	// everyone who clones the repository, like the project file.
+	trackedLocal = localFile + ", which Git tracks,"
+)
 
 // restrictProjectPaid removes from the project layer each paid_runs value
 // that would widen what the layers below allow, before the layer is merged.
@@ -91,8 +98,9 @@ const projectFile = ".duolog/config.yaml"
 // shrink to the common entries, and the env list replaces base's anyway.
 // Only keys the layer sets are compared, so an omitted key changes nothing.
 // Both nodes are resolved mappings; aliases and merge keys are already
-// expanded, so every value is compared where it applies.
-func restrictProjectPaid(base, layer *yaml.Node) ([]ConfigNotice, error) {
+// expanded, so every value is compared where it applies. projectFile names
+// the shared file in notices.
+func restrictProjectPaid(base, layer *yaml.Node, projectFile string) ([]ConfigNotice, error) {
 	paid := mappingValue(layer, "paid_runs")
 	if paid == nil {
 		return nil, nil

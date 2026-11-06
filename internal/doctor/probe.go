@@ -72,7 +72,8 @@ func probe(ctx context.Context, agent string, cfg *config.Config, entries []cata
 		defer cancel()
 		s := paidruns.Settlement{Input: measured.input, Cached: measured.cached, Output: measured.output,
 			ReportedUSD: measured.cost, Started: started, CompleteUsage: started && measured.known}
-		if priced, ok := usage.Cost(cfg, agent, model, usage.Tokens{Input: s.Input, Cached: s.Cached, Output: s.Output}); ok && priced >= 0 {
+		tokens := usage.Tokens{Input: s.Input, Cached: s.Cached, Write: measured.write, WriteHour: measured.writeHour, Output: s.Output}
+		if priced, ok := usage.Cost(cfg, agent, model, tokens); ok && priced >= 0 {
 			s.PricedUSD = priced
 		}
 		err = errors.Join(err, g.Finish(settleCtx, permit, s))
@@ -170,10 +171,12 @@ func admitProbe(ctx context.Context, g *paidruns.Gate, cfg *config.Config, agent
 	return paidruns.Permit{}, fmt.Errorf("refused, no model call made: %s", strings.Join(refusals, "; "))
 }
 
-// probeUsage is what a probe reported: tokens, Cached a subset of input,
-// and the CLI's cost when it gave one.
+// probeUsage is what a probe reported: tokens, Cached and write disjoint
+// subsets of input, writeHour the part of write kept for an hour, and the
+// CLI's cost when it gave one.
 type probeUsage struct {
 	input, cached, output int64
+	write, writeHour      int64
 	cost                  *float64
 	known                 bool
 }
@@ -189,6 +192,9 @@ func readProbeUsage(agent string, output []byte) probeUsage {
 				Cached   int64 `json:"cache_read_input_tokens"`
 				Creation int64 `json:"cache_creation_input_tokens"`
 				Output   int64 `json:"output_tokens"`
+				Split    *struct {
+					Hour int64 `json:"ephemeral_1h_input_tokens"`
+				} `json:"cache_creation"`
 			} `json:"usage"`
 			Cost *float64 `json:"total_cost_usd"`
 		}
@@ -199,7 +205,13 @@ func readProbeUsage(agent string, output []byte) probeUsage {
 		if x.Input < 0 || x.Cached < 0 || x.Creation < 0 || x.Output < 0 {
 			return u
 		}
-		u = probeUsage{input: x.Input + x.Cached + x.Creation, cached: x.Cached, output: x.Output, known: true}
+		// Writes without a split count as five-minute writes, as the runner
+		// counts them.
+		u = probeUsage{input: x.Input + x.Cached + x.Creation, cached: x.Cached, write: x.Creation,
+			output: x.Output, known: true}
+		if x.Split != nil {
+			u.writeHour = min(max(x.Split.Hour, 0), x.Creation)
+		}
 		if c := result.Cost; c != nil && *c >= 0 && *c <= 1e9 {
 			u.cost = c
 		}

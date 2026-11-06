@@ -184,7 +184,7 @@ func capSessionTiers(cfg *Config) []ConfigNotice {
 // are compared, so an omitted key keeps the value below it. Both nodes are
 // resolved mappings, so aliases and merge keys cannot hide a wider value.
 // Other limits, such as max_live_sessions, are left as they are.
-func restrictProjectSessionLimits(base, layer *yaml.Node) ([]ConfigNotice, error) {
+func restrictProjectSessionLimits(base, layer *yaml.Node, projectFile string) ([]ConfigNotice, error) {
 	var notices []ConfigNotice
 	for _, l := range accountLimits {
 		cut := strings.LastIndex(l.key, ".")

@@ -136,6 +136,12 @@ func TestQuotaAndDoctorShapeReports(t *testing.T) {
 				t.Errorf("missing %q in\n%s", want, text)
 			}
 		}
+		// Review finding M1: the account-wide lines come once, not per agent.
+		for _, once := range []string{"sessions 2 of 10 in all", "ignored config: "} {
+			if n := strings.Count(text, once); n != 1 {
+				t.Errorf("%q appears %d times, want once:\n%s", once, n, text)
+			}
+		}
 		for _, secret := range []string{reportEndpoint, reportKey, reportLeadKey, "fastMode", "autoMemoryEnabled"} {
 			if strings.Contains(text, secret) {
 				t.Errorf("report shows %q:\n%s", secret, text)

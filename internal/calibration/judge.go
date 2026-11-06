@@ -721,16 +721,20 @@ func (r *Runner) Judge(ctx context.Context, env JudgeEnv, pairs []Pair, judged m
 		step.waiting = r.waiting(agent)
 		r.Run.Spend.Raise(agent, before, cost)
 		r.Run.Spend.addJudge(agent, cost.WeeklyPct)
+		// The high USD is held in the same save, so an interrupted call
+		// keeps it counted against the approved USD.
+		heldUSD := r.holdUSD(agent, cellUSD(r.Cfg, agent, target.Model, judgeTokensHigh), true)
 		if err := r.Run.Save(r.StateDir); err != nil {
 			return true, err
 		}
 		tokens, callErr := call()
 		if notStarted(callErr) {
 			// Refused before its worker started: nothing ran to measure.
+			r.chargeUSD(agent, -heldUSD, true)
 			return true, errors.Join(callErr, r.release(agent, before, cost, true))
 		}
 		weekly, window, err := r.settle(ctx, agent, family, before, cost, true)
-		r.chargeUSD(agent, cellUSD(r.Cfg, agent, target.Model, tokens), true)
+		r.settleUSD(agent, heldUSD, cellUSD(r.Cfg, agent, target.Model, tokens), true, callErr == nil)
 		if err != nil {
 			quotaAgent, quotaErr = agent, err
 		} else if err := r.learnRate(agent, tokens, weekly, window); err != nil {

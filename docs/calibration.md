@@ -271,10 +271,11 @@ These limits apply to each agent:
 You can set either cap lower in `.duolog/config.yaml`, which you share in Git.
 A higher cap there is ignored, and `duolog calibrate status` says so: a
 teammate cannot raise what calibration spends for you. Only your own
-`.duolog/config.local.yaml` or user config can raise the weekly cap, up to
-`1`. The five-hour cap is at most `0.5`; a higher value is an error. The lead
-never raises the caps. The run and its judge calls keep to the caps and cell
-limits of the plan you approved. A stricter value in the config applies
+`.duolog/config.local.yaml`, while Git does not track it, or your user
+config can raise the weekly cap, up to `1`. The five-hour cap is at most
+`0.5`; a higher value is an error. The lead never raises the caps. The run
+and its judge calls keep to the caps and cell limits of the plan you
+approved. A stricter value in the config applies
 without a new approval, a looser one only after you plan and approve again.
 
 On a workspace account the caps and the lead reserve apply to the usable

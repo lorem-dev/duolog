@@ -208,6 +208,7 @@ func (r *Runner) runCell(ctx context.Context, i int) (Outcome, bool, error) {
 	cost := CostOf(r.rate(agent), r.Manifest.Estimates[c.Task].TokensHigh, r.measured(agent))
 	var before []Window
 	var refused *Outcome
+	var heldUSD float64
 	stepCtx, step := withStep(ctx)
 	start := func() (bool, error) {
 		ws, o, stop, err := r.admit(ctx, agent, family, cost, r.held(agent))
@@ -220,11 +221,13 @@ func (r *Runner) runCell(ctx context.Context, i int) (Outcome, bool, error) {
 		// cell's worker within that.
 		step.budget = r.stepBudget(agent, r.newReceipt(c.ID), false)
 		step.waiting = r.waiting(agent)
-		// The attempt is charged before the worker starts, in the same save
-		// that marks the cell running, so an interrupt or a crash keeps it
-		// counted once; a rerun is a new attempt.
+		// The attempt is charged before the worker starts, its window share
+		// and on a paid route its high USD, in the same save that marks the
+		// cell running, so an interrupt or a crash keeps it counted once; a
+		// rerun is a new attempt.
 		before = ws
 		r.Run.Spend.Raise(agent, before, cost)
+		heldUSD = r.holdUSD(agent, cellUSD(r.Cfg, agent, entryModel(c.Entry), r.Manifest.Estimates[c.Task].TokensHigh), false)
 		r.Run.Cells[i].State, r.Run.Cells[i].Tree = CellRunning, r.Tree
 		return true, r.Run.Save(r.StateDir)
 	}
@@ -242,9 +245,12 @@ func (r *Runner) runCell(ctx context.Context, i int) (Outcome, bool, error) {
 		// The delegation refused it after admission, before its worker: the
 		// charge is taken back and the cell waits again.
 		r.Run.Cells[i].State = CellPending
+		r.chargeUSD(agent, -heldUSD, false)
 		return Outcome{}, true, errors.Join(err, r.removeTree(i), r.release(agent, before, cost, false))
 	case err != nil:
 		// The cell stays running for a resume to run again, without its tree.
+		// Its USD stays held, raised to what it measured if that is more.
+		r.settleUSD(agent, heldUSD, res.USD, false, false)
 		return Outcome{}, true, errors.Join(err, r.removeTree(i), r.Run.Save(r.StateDir))
 	}
 	c = r.Run.Cells[i]
@@ -253,7 +259,7 @@ func (r *Runner) runCell(ctx context.Context, i int) (Outcome, bool, error) {
 	var quotaErr, observeErr error
 	if before != nil {
 		c.Weekly, c.Window, quotaErr = r.settle(ctx, agent, family, before, cost, false)
-		r.chargeUSD(agent, res.USD, false)
+		r.settleUSD(agent, heldUSD, res.USD, false, true)
 		if quotaErr == nil {
 			observeErr = r.observe(ctx, agent, family, res.Input, res.Cached, res.Output)
 		}
@@ -352,6 +358,7 @@ func (r *Runner) rewriteAll(ctx context.Context) (Outcome, bool, error) {
 		planned := r.planned(id)
 		var before []Window
 		var refused *Outcome
+		var heldUSD float64
 		stepCtx, step := withStep(ctx)
 		// The rewrite readies and checks the judge folder before it calls
 		// start; then it is charged before it starts, like a cell, so a
@@ -369,6 +376,7 @@ func (r *Runner) rewriteAll(ctx context.Context) (Outcome, bool, error) {
 			if planned {
 				r.Run.Spend.addJudge(agent, cost.WeeklyPct)
 			}
+			heldUSD = r.holdUSD(agent, cellUSD(r.Cfg, agent, judge.Model, judgeTokensHigh), planned)
 			return true, r.Run.Save(r.StateDir)
 		}
 		statement, tokens, err := r.Rewrite(stepCtx, task, start)
@@ -389,15 +397,21 @@ func (r *Runner) rewriteAll(ctx context.Context) (Outcome, bool, error) {
 		}
 		if err != nil {
 			err = fmt.Errorf("calibration task %s: rewrite: %w", id, err)
-			if before != nil && notStarted(err) {
+			switch {
+			case before != nil && notStarted(err):
+				r.chargeUSD(agent, -heldUSD, planned)
 				err = errors.Join(err, r.release(agent, before, cost, planned))
+			case before != nil:
+				// A rewrite that broke off keeps its held USD.
+				r.settleUSD(agent, heldUSD, cellUSD(r.Cfg, agent, judge.Model, tokens), planned, false)
+				err = errors.Join(err, r.Run.Save(r.StateDir))
 			}
 			return Outcome{}, true, err
 		}
 		if before != nil {
 			// A failed reading stops the run once this statement is kept.
 			_, _, quotaErr = r.settle(ctx, agent, family, before, cost, false)
-			r.chargeUSD(agent, cellUSD(r.Cfg, agent, judge.Model, tokens), planned)
+			r.settleUSD(agent, heldUSD, cellUSD(r.Cfg, agent, judge.Model, tokens), planned, true)
 			if quotaErr == nil {
 				// A rewrite reports its tokens only: they count as input.
 				if err := r.observe(ctx, agent, family, tokens, 0, 0); err != nil {

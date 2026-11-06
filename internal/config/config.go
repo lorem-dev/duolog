@@ -35,9 +35,10 @@ type Config struct {
 	PaidRuns       PaidRuns         `yaml:"paid_runs" jsonschema_description:"Paid runs per agent with a daily USD cap, and the share of each window used on workspace accounts; paid runs are off by default."`
 	Balance        Balance          `yaml:"balance" jsonschema_description:"How quota reads and learned window rates are trusted: read age, interval size and the margin of a tier step up. The shared project config may only make these stricter."`
 	Routing        Routing          `yaml:"routing" jsonschema_description:"How a new task picks between a role's agents beyond the ladder: balance subscriptions by pace, and the margin. The shared project config may only tighten these."`
-	// Notices names the keys that Load ignored or capped: values of the
-	// shared .duolog/config.yaml that would widen paid runs or session
-	// limits, and session tiers above their defaults.
+	// Notices names the keys that Load ignored or capped: values of a shared
+	// layer, .duolog/config.yaml or a .duolog/config.local.yaml that Git
+	// tracks, that would widen paid runs or session limits or lower model
+	// prices, and session tiers above their defaults.
 	Notices []ConfigNotice `yaml:"-" json:"-" jsonschema:"-"`
 }
 
@@ -177,6 +178,7 @@ func Load(root string) (*Config, error) {
 	projectTelemetryOff := false
 	layers := make([][]byte, len(paths))
 	var notices []ConfigNotice
+	localShared := false
 	for i, path := range paths {
 		if i == 1 {
 			// Telemetry is user level: keep the section as it stands before
@@ -196,13 +198,19 @@ func Load(root string) (*Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		// The project layer is committed: it may only tighten paid runs
-		// and the account session limits.
-		if i == 1 && node != nil {
-			for _, restrict := range []func(base, layer *yaml.Node) ([]ConfigNotice, error){
-				restrictProjectPaid, restrictProjectSessionLimits, restrictProjectRouting,
-			} {
-				found, err := restrict(merged.Content[0], node)
+		// The project layer is committed: it may only tighten paid runs,
+		// prices and the account session limits. So may a local layer that
+		// Git tracks, since it reaches everyone who clones the repository.
+		shared := ""
+		switch {
+		case i == 1:
+			shared = projectFile
+		case i == 2 && gitTracks(root, localFile):
+			shared, localShared = trackedLocal, true
+		}
+		if shared != "" && node != nil {
+			for _, restrict := range projectRestrictors {
+				found, err := restrict(merged.Content[0], node, shared)
 				if err != nil {
 					return nil, fmt.Errorf("%s: %w", path, err)
 				}
@@ -265,7 +273,7 @@ func Load(root string) (*Config, error) {
 	if err := validatePaidRuns(&cfg); err != nil {
 		return nil, err
 	}
-	if err := lowerSharedCaps(&cfg, layers[0], layers[1], layers[2]); err != nil {
+	if err := lowerSharedCaps(&cfg, layers[0], layers[1], layers[2], localShared); err != nil {
 		return nil, err
 	}
 	if cfg.Learning.Enabled {

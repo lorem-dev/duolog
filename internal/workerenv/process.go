@@ -143,11 +143,15 @@ func Build(in ProcessInput) (Process, error) {
 			p.Signals = append(p.Signals, Signal{Name: "fastMode", Layer: layer})
 		}
 	}
+	providerKeys := []string{in.ProviderEnvKey}
 	if in.Agent == "codex" {
 		p.Signals = append(p.Signals, codexArgvSpeed(in.Prefix, in.Locations)...)
+		signals, keys := resolveCodexProvider(in.Layers)
+		p.Signals = append(p.Signals, signals...)
+		providerKeys = append(providerKeys, keys...)
 	}
 
-	sel := envSelection{agent: in.Agent, goos: goos, environ: in.Environ, providerEnvKey: in.ProviderEnvKey,
+	sel := envSelection{agent: in.Agent, goos: goos, environ: in.Environ, providerEnvKeys: providerKeys,
 		endpoints: endpoints(in.Config, in.Agent)}
 	if in.Shape == Lead {
 		p.Env, p.Prefix = slices.Clone(in.Environ), prefix
@@ -237,22 +241,26 @@ func (p Process) Argv(args ...string) []string {
 // names withheld and the signals of the route names that pass. Values are
 // read to pass them on and to match a Claude base URL, and go nowhere else.
 type envSelection struct {
-	agent, goos, providerEnvKey string
-	environ                     []string
-	endpoints                   map[string]string
+	agent, goos     string
+	providerEnvKeys []string
+	environ         []string
+	endpoints       map[string]string
 
 	pairs, dropped, entries []string
 	signals                 []Signal
 }
 
 // route reports whether name is a route of this agent, and whether it is
-// one of either agent, which no free process gets.
+// one of either agent, which no free process gets. On Windows the provider
+// credential names fold case like the variable names do.
 func (s *envSelection) route(name string) (own, either bool) {
 	key := name
 	if s.goos == "windows" {
 		key = strings.ToUpper(name)
 	}
-	own = RouteName(s.agent, key, s.providerEnvKey)
+	own = RouteName(s.agent, key, "") || slices.ContainsFunc(s.providerEnvKeys, func(k string) bool {
+		return k != "" && s.same(k, name)
+	})
 	other := "codex"
 	if s.agent == "codex" {
 		other = "claude"

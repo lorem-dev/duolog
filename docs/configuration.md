@@ -17,6 +17,12 @@ one. The default deny rules stay in every case.
 | 3 | `.duolog/config.yaml` | The project rules. Commit this file |
 | 4 | `.duolog/config.local.yaml` | Your private changes. Git ignores it |
 
+A local file that Git tracks, for example one added with `git add -f`,
+reaches everyone who clones the repository. duolog then reads it with the
+rules of `.duolog/config.yaml`: it may only make paid runs, prices and the
+account limits stricter, and duolog names each value it ignores. When Git
+cannot say whether it tracks the file, duolog treats it as tracked.
+
 The user config folder is the one that Go's `os.UserConfigDir` returns. On
 macOS it is `~/Library/Application Support`. On Linux it is `~/.config`.
 
@@ -364,9 +370,11 @@ worker, peer and lead, with the signals, the account kind and a line such as
 You share `.duolog/config.yaml` in Git, so a cloned repository must not turn
 on spending. That file may only make these stricter: `allow: false`,
 `calibrate: false`, a lower cap, a lower `usable_share` or
-`account: workspace`. duolog ignores a looser value there, and `duolog quota`
-and `duolog doctor` name it. Turn paid runs on in `.duolog/config.local.yaml`
-or your user config.
+`account: workspace`. Its `models` may raise a price but not lower one, may
+not move an alias to another agent or family, and may not price a new alias,
+which paid runs then refuse. duolog ignores a looser value there, and
+`duolog quota` and `duolog doctor` name it. Turn paid runs on in an untracked
+`.duolog/config.local.yaml` or your user config.
 
 duolog reads managed settings files, but managed policy outside files is not
 checked. A device management profile on macOS or a Windows registry policy
