@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -113,12 +114,7 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 	if err != nil {
 		return a, d, err
 	}
-	var envelope struct {
-		Cwd       string `json:"cwd"`
-		Tool      string `json:"tool_name"`
-		SessionID string `json:"session_id"`
-		ToolUseID string `json:"tool_use_id"`
-	}
+	var envelope hookEnvelope
 	if err := json.Unmarshal(data, &envelope); err != nil {
 		return a, d, err
 	}
@@ -135,9 +131,7 @@ func evaluateHook(cmd *cobra.Command, root, agent, event string, started time.Ti
 		action.ProtectedRoots = roots
 		action.Peer = os.Getenv("DUOLOG_PEER")
 		action.Work = work
-		if agent == "claude" && action.Kind == "read" && action.Target != "" {
-			action.OwnResult = ownToolResult(envelope.SessionID, envelope.Cwd, action.Target)
-		}
+		ownClaudeFiles(action, i == 0, agent, work, envelope)
 		if (action.Kind == "read" || action.Kind == "write") && action.Target != "" {
 			action.Target = gate.RelativeTarget(work, envelope.Cwd, action.Target)
 		}
@@ -273,6 +267,77 @@ func ownToolResult(sessionID, cwd, target string) bool {
 		target = filepath.Join(cwd, target)
 	}
 	return gate.OwnToolResults(trusthome.Claude(home), sessionID, target)
+}
+
+// claudeTempBase is where Claude keeps its claude-<uid> temp folders on a
+// POSIX host; tests set another.
+var claudeTempBase = "/tmp"
+
+// hookEnvelope is what the gate reads of a hook's input besides the actions.
+type hookEnvelope struct {
+	Cwd       string `json:"cwd"`
+	Tool      string `json:"tool_name"`
+	SessionID string `json:"session_id"`
+	ToolUseID string `json:"tool_use_id"`
+	// The read tools' path as the worker wrote it, before Normalize cleans
+	// away its .. parts.
+	Input struct {
+		File string `json:"file_path"`
+		Path string `json:"path"`
+	} `json:"tool_input"`
+}
+
+// ownClaudeFiles marks what of a Claude worker's own an action reaches, from
+// the hook's session id: a read of its saved tool results, or of its session
+// temp folder by the tool's path, which is the first action (a Glob or Grep
+// pattern follows it); and, for an exec action, that temp folder, whose files
+// its named read commands may read.
+func ownClaudeFiles(action *gate.Action, first bool, agent, work string, e hookEnvelope) {
+	if agent != "claude" {
+		return
+	}
+	temps := claudeTemps(e.SessionID, work, e.Cwd)
+	if action.Kind == "read" && action.Target != "" {
+		action.OwnResult = ownToolResult(e.SessionID, e.Cwd, action.Target) || first && ownTempPath(temps, e.Cwd, e.Input.File, e.Input.Path)
+	}
+	if action.Kind == "exec" {
+		action.Temp = temps
+	}
+}
+
+// claudeTemps names the temp folder of a Claude worker's own session, from
+// the session id in the hook input, never from the worker. Claude names the
+// folder after the one the session started in: the work root, or the hook's
+// folder. Both candidates hold that one session id.
+func claudeTemps(sessionID string, folders ...string) []string {
+	var temps []string
+	for _, folder := range folders {
+		if temp := gate.ClaudeTemp(claudeTempBase, os.Getuid(), sessionID, folder); temp != "" && !slices.Contains(temps, temp) {
+			temps = append(temps, temp)
+		}
+	}
+	return temps
+}
+
+// ownTempPath reports whether a read tool's path, as the worker wrote it,
+// lies in the worker's own session temp folder. Read names it file_path; Grep,
+// Glob and LS name it path.
+func ownTempPath(temps []string, cwd, file, path string) bool {
+	target := file
+	if target == "" {
+		target = path
+	}
+	if target == "" || len(temps) == 0 {
+		return false
+	}
+	if !filepath.IsAbs(target) {
+		if cwd == "" {
+			return false
+		}
+		// A plain join keeps every .. for InClaudeTemp to refuse.
+		target = cwd + "/" + target
+	}
+	return gate.InClaudeTemp(temps, target)
 }
 
 // gateProtectedRoots names the telemetry and balance roots for the worker
