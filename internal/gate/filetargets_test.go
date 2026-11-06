@@ -1,6 +1,8 @@
 package gate
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -222,6 +224,48 @@ func TestAssignmentValuesAreJudged(t *testing.T) {
 		`GIT_CONFIG_GLOBAL=ci/gitconfig git log`,
 		`PATH=bin:$PATH make test`,
 	)
+}
+
+// A glob segment that starts with a dot can match .. in bash before 5.2 and
+// in dash, and a glob can match a symlink that leads out. The gate judged
+// the glob as a literal name inside the work root.
+func TestGlobsThatCanLeaveTheWorkRoot(t *testing.T) {
+	p := policy(t)
+	root := t.TempDir()
+	wantPerson(t, p, root,
+		// The reviews' commands.
+		`cat .?/peer-gone/go.mod`,
+		`cd .? && cat peer-gone/go.mod`,
+		`cat */../../x`,
+		// The other spellings of a segment that can match ..
+		`cat ..*/x`,
+		`cat .[.]/x`,
+		`cat sub/.?/.?/x`,
+		`cp .?/x out`,
+		`grep -n x .?/peer/go.mod`,
+	)
+	// .* can match .duolog, so the state rule denies it first.
+	wantDeny(t, p, root, RuleState, `cat .*/x`)
+	wantLead(t, p, root,
+		`cat *.go`,
+		`cat sub/.?/x`,
+		`grep -n x internal/*/gate.go`,
+		`find . -name '.*' -type f | make x`,
+	)
+
+	// A glob that matches a symlink out of the work root.
+	other := t.TempDir()
+	if err := os.WriteFile(filepath.Join(other, "a"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(other, filepath.Join(root, "sub", "link")); err != nil {
+		t.Skipf("no symlink: %v", err)
+	}
+	wantPerson(t, p, root, `cat sub/lin?/a`, `cat sub/*/a`, `cp sub/l*/a out`)
+	wantLead(t, p, root, `cat sub/*.go`)
 }
 
 func TestSedTargets(t *testing.T) {

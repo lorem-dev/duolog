@@ -941,7 +941,7 @@ func readCommandDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action,
 			asked = &Decision{Kind: Ask, Reason: "a search glob can read a file that policy denies; name the files", Rule: "read command", Mode: m}
 		}
 		if reason != "" && asked == nil {
-			asked = &Decision{Kind: Ask, Reason: reason, Rule: "read command", Mode: m}
+			asked = reasonAsk(a, m, reason)
 		}
 		for _, written := range targets {
 			target := workTarget(a, written)

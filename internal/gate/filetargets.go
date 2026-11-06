@@ -1,11 +1,14 @@
 package gate
 
 import (
+	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/config"
 	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/pathutil"
 )
 
 // fileTargets are the files one command part reads or writes that its plain
@@ -21,6 +24,8 @@ type fileTargets struct {
 	// as FOO=/etc/x does for a program that reads FOO. Only the outside
 	// check judges them.
 	named []string
+	// globs are the unquoted words that the shell expands; see globOutside.
+	globs []string
 	// unknown means the part can reach a file or run a program that the gate
 	// cannot name, such as the command of sed's e.
 	unknown bool
@@ -31,6 +36,7 @@ func (t *fileTargets) add(other fileTargets) {
 	t.writes = append(t.writes, other.writes...)
 	t.paths = append(t.paths, other.paths...)
 	t.named = append(t.named, other.named...)
+	t.globs = append(t.globs, other.globs...)
 	t.unknown = t.unknown || other.unknown
 }
 
@@ -46,13 +52,22 @@ const maxScriptDepth = 3
 
 func commandFileTargets(part string, depth int) fileTargets {
 	var t fileTargets
-	words := scriptWords(commandAfterKeywords(part))
+	split := scriptWords(commandAfterKeywords(part))
+	words := make([]string, len(split))
+	for i, word := range split {
+		words[i] = word.text
+	}
 	start := execOperandStart(words)
 	if start == 0 || start > len(words) {
 		return t
 	}
 	program, args := words[start-1], words[start:]
 	t.add(assignmentTargets(words[:start-1]))
+	for _, word := range split[start:] {
+		if !word.quoted && strings.ContainsAny(word.text, "*?[") {
+			t.globs = append(t.globs, word.text)
+		}
+	}
 	if strings.ContainsAny(program, " \t\r\n") {
 		// The wrapper runs a command line, as sh -c 'script' and eval 'script' do.
 		if depth >= maxScriptDepth {
@@ -168,7 +183,7 @@ func isOptionLetter(c byte) bool {
 func fileTargetsOutside(a Action) bool {
 	for _, part := range rawExecParts(a.Target) {
 		targets := partFileTargets(part)
-		if targets.unknown {
+		if targets.unknown || slices.ContainsFunc(targets.globs, func(glob string) bool { return globOutside(a, glob) }) {
 			return true
 		}
 		for _, target := range slices.Concat(targets.reads, targets.writes, targets.paths, targets.named) {
@@ -178,6 +193,51 @@ func fileTargetsOutside(a Action) bool {
 		}
 	}
 	return false
+}
+
+// globOutside reports whether an unquoted glob word can expand onto a path
+// outside the work root. A segment that starts with a dot and can match ..
+// counts as .., since bash before 5.2 and dash match .? and .* to it. Any
+// other glob is expanded from the working folder, and every match is judged,
+// so a symlink that leads out counts.
+func globOutside(a Action, word string) bool {
+	target := pathWord(word)
+	if target == "" {
+		return false
+	}
+	segments := strings.Split(pathutil.Slashes(target), "/")
+	for i, segment := range segments {
+		if ok, _ := path.Match(segment, ".."); ok && strings.HasPrefix(segment, ".") {
+			segments[i] = ".."
+		}
+	}
+	if outsideOperand(a, strings.Join(segments, "/")) {
+		return true
+	}
+	folder := a.Cwd
+	if folder == "" {
+		folder = a.Work
+	}
+	pattern := pathutil.Native(expandHome(target))
+	if folder == "" && !filepath.IsAbs(pattern) {
+		return false
+	}
+	if !filepath.IsAbs(pattern) {
+		pattern = filepath.Join(folder, pattern)
+	}
+	matches, _ := filepath.Glob(pattern)
+	return slices.ContainsFunc(matches, func(match string) bool { return outsideOperand(a, match) })
+}
+
+// reasonAsk is the ask of a read command whose paths the gate cannot list,
+// such as a glob's. It needs the person when the line can leave the work
+// root, as cat .?/x can.
+func reasonAsk(a Action, m mode.Mode, reason string) *Decision {
+	rule := "read command"
+	if ExecOutside(a) {
+		rule = RuleOutside
+	}
+	return &Decision{Kind: Ask, Reason: reason, Rule: rule, Mode: m}
 }
 
 // rawPartDeny holds the denies for the files that one raw part redirects
@@ -227,8 +287,8 @@ func fileTargetDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, part
 // text and go away, and a backslash keeps the next character. It expands
 // nothing. A redirect and the file it names are left out, since the redirect
 // checks judge that file.
-func scriptWords(part string) []string {
-	var words []string
+func scriptWords(part string) []scriptWord {
+	var words []scriptWord
 	drop := false
 	for _, word := range splitScriptWords(part) {
 		switch {
@@ -238,17 +298,18 @@ func scriptWords(part string) []string {
 			// The file is the next word when the operator stands alone.
 			drop = strings.Trim(word.text, "0123456789<>&|-") == ""
 		default:
-			words = append(words, word.text)
+			words = append(words, word)
 		}
 	}
 	return words
 }
 
 // scriptWord is one word of scriptWords. redirect means it starts with an
-// unquoted redirect operator.
+// unquoted redirect operator, and quoted that some of it was quoted or
+// escaped, so the shell does not expand it as a glob.
 type scriptWord struct {
-	text     string
-	redirect bool
+	text             string
+	redirect, quoted bool
 }
 
 func splitScriptWords(part string) []scriptWord {
@@ -264,7 +325,7 @@ func splitScriptWords(part string) []scriptWord {
 			b.WriteByte(c)
 			escaped = false
 		case c == '\\' && quote != '\'':
-			escaped, inWord = true, true
+			escaped, inWord, current.quoted = true, true, true
 		case quote != 0:
 			if c != quote {
 				b.WriteByte(c)
@@ -272,7 +333,7 @@ func splitScriptWords(part string) []scriptWord {
 				quote = 0
 			}
 		case c == '\'' || c == '"':
-			quote, inWord = c, true
+			quote, inWord, current.quoted = c, true, true
 		case strings.IndexByte(" \t\r\n", c) >= 0:
 			if inWord {
 				current.text = b.String()

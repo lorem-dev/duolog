@@ -214,6 +214,12 @@ ask in every mode, because the gate reads the command text and cannot see what
 they do. A path can match a deny
 by accident: `go test ./secrets/...` is denied by the `secrets/` rule.
 
+A shell glob that can leave the work root needs the person. A segment that
+starts with a dot, such as `.?` or `.*`, can match `..` in `dash` and in
+`bash` before 5.2, so `cat .?/peer/go.mod` needs the person. The gate also
+expands every other glob, so a match through a symlink that leads out needs
+the person too.
+
 An option value in the same word as a short option counts as a path when it
 starts with `/`, `~` or `.`, after an optional `@`. So `sort -o/tmp/out x`
 and `make -C../peer` need the person, and `file -m.env x` is denied. A value
