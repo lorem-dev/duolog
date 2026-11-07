@@ -903,7 +903,7 @@ func readCommandDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action,
 			asked = reasonAsk(a, m, reason)
 		}
 		for _, target := range targets {
-			d, counts := readTargetDecision(p, lead, m, a, shell, target, strings.TrimSuffix(strings.ToLower(words[0]), ".exe") == "git")
+			d, counts := readTargetDecision(p, lead, m, a, shell, target, words)
 			if d.Kind == Deny {
 				return d, true
 			}

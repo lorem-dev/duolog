@@ -257,6 +257,19 @@ func TestProtectedCommandForms(t *testing.T) {
 		// A value that names a store command fails closed, whatever cobra
 		// would make of it.
 		{"duolog --lead telemetry show", ""},
+		// Quoted text counts too, a commit message among it: git can hand it
+		// to an editor, a hook, gpg.program or an alias that runs it.
+		{`git commit -m "duolog telemetry"`, ""},
+		{`gh pr create --title x --body "duolog balance"`, ""},
+		{`git commit --allow-empty --edi -m "duolog balance"`, ""},
+		{`git commit --allow-empty -m "duolog balance"`, ""},
+		{`git commit -S -m "duolog balance"`, ""},
+		{`git commit --gpg-sign -m "duolog balance"`, ""},
+		{`git tag -s -m "duolog balance" v9`, ""},
+		{`GIT_EDITOR=sh git commit -e -m "duolog balance"`, ""},
+		{`git commit -q --allow-empty -m "duolog balance" && git log -1 --format=%B | git -c alias.l=!sh l`, ""},
+		{`git commit -m "duolog telemetry show" && git config alias.l !sh && git log -1 --format=%B | git l`, ""},
+		{`echo "duolog balance" | git commit -F - && git log -1 --format=%B | git -c alias.l=!sh l`, ""},
 	} {
 		if !protectedCommand(tc.command, tc.shell) {
 			t.Errorf("%q in %q: not protected", tc.command, tc.shell)

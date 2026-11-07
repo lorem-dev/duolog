@@ -207,6 +207,83 @@ func searchPatterns(words []string) (map[int]bool, []string) {
 	return nil, nil
 }
 
+// searchWords reads a grep or rg command of a POSIX line, its program at
+// command[0] and its words as written, for its search pattern, which is no
+// path. named is true when an option names a file outside the work root in
+// its own word, as -f../x does.
+func searchWords(a Action, command []string) (patterns map[int]bool, named bool) {
+	if !posixShell(a) || !slices.Contains([]string{"grep", "egrep", "fgrep", "rg"}, programName(command[0])) {
+		return nil, false
+	}
+	trimmed := make([]string, len(command))
+	for i, word := range command {
+		trimmed[i] = strings.Trim(withoutEscapes(a, word), "'\"")
+	}
+	patterns, files := searchPatterns(trimmed)
+	return patterns, slices.ContainsFunc(files, func(file string) bool { return outsideOperand(a, file) })
+}
+
+// expandsWords reports whether a word of a command, its program at
+// words[0] and its words as written, may expand to an option once the shell
+// reads it, so that no word can be known to be a search pattern or the value
+// of a pattern option: grep /x $P with P=-ex reads /x as a file. Such a word
+// holds a $ that starts an expansion outside single quotes, or a glob
+// character, *, ? or [, or a ~ outside quotes.
+func expandsWords(words []string) bool {
+	return len(words) > 1 && mayExpand(strings.Join(words[1:], " "))
+}
+
+// surePatterns returns program and patterns, the program of a command and
+// the words of it that are a search pattern, as the gate may use them: when a
+// word of the command, its words as written, may expand to an option
+// (expandsWords), no word is a pattern, and a program with pattern options
+// becomes "", so that the value of none is skipped.
+func surePatterns(words []string, program string, patterns map[int]bool) (string, map[int]bool) {
+	if !expandsWords(words) {
+		return program, patterns
+	}
+	if _, known := patternOptions[program]; known {
+		program = ""
+	}
+	return program, nil
+}
+
+// mayExpand reports whether text, as written, holds a $ that starts an
+// expansion outside single quotes, or a *, ?, [ or ~ outside quotes.
+func mayExpand(text string) bool {
+	quote := byte(0)
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		switch {
+		case quote == '\'':
+			if c == '\'' {
+				quote = 0
+			}
+		case c == '\\':
+			i++ // The next character is escaped.
+		case c == '$':
+			if i+1 < len(text) && (isNameByte(text[i+1]) || strings.IndexByte("{(@*#?!$-", text[i+1]) >= 0) {
+				return true
+			}
+		case quote == '"':
+			if c == '"' {
+				quote = 0
+			}
+		case c == '\'' || c == '"':
+			quote = c
+		case strings.IndexByte("*?[~", c) >= 0:
+			return true
+		}
+	}
+	return false
+}
+
+// isNameByte reports whether c may stand in a shell variable name, or be a
+// positional parameter.
+func isNameByte(c byte) bool {
+	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+}
+
 // gitPatterns finds the pattern of git grep, and the -G and -S values of the
 // commands that search the history.
 func gitPatterns(words []string) (map[int]bool, []string) {

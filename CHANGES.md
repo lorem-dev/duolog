@@ -55,11 +55,10 @@
   `status` print the report's start, or say that the task had none.
 - Claude workers and peers are told to batch their reads into one turn and to
   use no `node -e` or `python -c`, which cuts their turns and cost.
-- The gate judges `$(go env GOROOT)/bin/go` as `go`, and skips a here-document
-  that only `cat > /dev/null` or `:` reads, instead of asking.
+- The gate reads `$(go env GOROOT)/bin/go` as `go` and skips an inert
+  here-document; `go env -w` and `go env -u` ask the person in every mode.
 - The lead's hooks show each open ask again until it ends, with
   `duolog allow <n>` and the seconds left before it expires.
-- `go env -w` and `go env -u` ask the person in every mode.
 
 ### Fixed
 
@@ -73,6 +72,17 @@
   prune stamp at the same moment, and a failed prune now names its cause.
 - A Claude peer in your own project no longer stops at its folder-trust and new
   MCP server prompts; trust and servers follow what you already decided.
+- A worker's write, list or new folder in its own Claude temp folder no longer
+  asks the person, in a line without a substitution, `exec` or `eval`.
+- A path after `cd`, or a write through a dangling symlink, that leaves the
+  work root needs the person again, not the lead.
+
+### Security
+
+- `..` after a symlink (`cat link/../secret`) is judged where the kernel goes,
+  and a script that `sh` or `bash` runs from outside needs the person.
+- A path in `x=$(cat /x)`, a `grep` behind `xargs`, or a `grep` pattern next to
+  `$P`, `*` or `~` counts as a path; the gate allowed some of them before.
 
 ## 1.5.1
 

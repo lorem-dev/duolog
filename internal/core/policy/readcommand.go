@@ -331,9 +331,12 @@ func readCommandTargets(command string) (targets []string, reason string) {
 
 // readTargetDecision applies read rules to one path that a read command reads.
 // It returns a deny, or an ask with counts true, or counts false when the path
-// changes nothing. revision says that the command is Git's, whose operand may
-// be a revision such as HEAD~1.
-func readTargetDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action, shell, written string, revision bool) (Decision, bool) {
+// changes nothing. words are the read command's, its program at words[0]: a
+// Git operand may be a revision such as HEAD~1, and a path in the worker's
+// own Claude session temp folder that ls lists or that the line redirects
+// into is the worker's own (ownTempTarget).
+func readTargetDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action, shell, written string, words []string) (Decision, bool) {
+	revision := strings.TrimSuffix(strings.ToLower(words[0]), ".exe") == "git"
 	// A stream device holds no file, and a redirect such as > /dev/null can
 	// read here as a file the command reads: only a deny counts.
 	device := streamDevice(expandHome(written))
@@ -344,7 +347,8 @@ func readTargetDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action, 
 		}
 		return Decision{}, false
 	}
-	d := Evaluate(p, lead, m, Action{Kind: "read", Target: target, Role: a.Role, Shell: shell, OwnResult: ownTempRead(a, written), taskRead: taskReadWord(a, written, searchable(p, lead, a)), revision: revision})
+	own := ownTempRead(a, written) || ownTempTarget(a, words, written)
+	d := Evaluate(p, lead, m, Action{Kind: "read", Target: target, Role: a.Role, Shell: shell, OwnResult: own, taskRead: taskReadWord(a, written, searchable(p, lead, a)), revision: revision})
 	d.Reason = "read command: " + d.Reason
 	return d, d.Kind == Deny || d.Kind != Allow && !device
 }

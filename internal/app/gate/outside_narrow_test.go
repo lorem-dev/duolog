@@ -199,6 +199,9 @@ func TestReadCommandOfOwnClaudeTemp(t *testing.T) {
 		"head -5 " + own,
 		"ls " + filepath.Join(f.own, "scratchpad"),
 		"git status --short; ls " + filepath.Join(f.own, "scratchpad") + " 2>&1",
+		// ls lists names and follows no symlink below the folder.
+		"ls " + f.own,
+		"ls -la " + filepath.Join(f.own, "links"),
 	} {
 		check(t, p, LeadRules{}, mode.Edits, action(command), Allow)
 	}
@@ -208,7 +211,11 @@ func TestReadCommandOfOwnClaudeTemp(t *testing.T) {
 		"cat " + f.own + "/scratchpad/../scratchpad/out.txt",
 		"cat " + filepath.Join(f.own, "links", "esc", "secret"),
 		"rg --follow x " + filepath.Join(f.own, "links"),
-		"ls " + f.own,
+		// ls -R and -L can follow the symlink out.
+		"ls -R " + f.own,
+		"ls -L " + filepath.Join(f.own, "links"),
+		"ls --dereference " + filepath.Join(f.own, "links"),
+		"ls " + filepath.Join(f.own, "links", "esc"),
 		"cat " + own + " " + filepath.Join(f.outside, "secret"),
 		// Exec commands are unchanged: only reads count as the worker's own.
 		"cp " + own + " copy.txt",

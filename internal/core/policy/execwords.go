@@ -1,10 +1,75 @@
 package policy
 
 import (
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 )
+
+// lastWrapper returns the wrapper right in front of the program of a
+// command's words, or "" when the program stands first, after assignments.
+func lastWrapper(words []string) string {
+	last := ""
+	for i := 0; i < len(words); {
+		word := strings.Trim(words[i], "'\"")
+		if execAssignment.MatchString(word) {
+			i++
+			continue
+		}
+		wrapper := filepath.Base(word)
+		if !slices.Contains(wrapperNames, wrapper) {
+			return last
+		}
+		last = wrapper
+		i = skipWrapperOptions(wrapper, words, i+1, nil)
+		if wrapper == "timeout" && i < len(words) {
+			i++
+		}
+	}
+	return last
+}
+
+// assignedSubstitution returns the index of the first assignment among the
+// leading assignments of a part's words that holds a command substitution, as
+// x=$(cat /x) does, or -1. The substitution runs a command whose words follow
+// it, so wordsOutside judges every later word as a path.
+func assignedSubstitution(words []string) int {
+	for i := 0; i < len(words) && execAssignment.MatchString(words[i]); i++ {
+		if strings.Contains(words[i], "$(") || strings.Contains(words[i], "`") {
+			return i
+		}
+	}
+	return -1
+}
+
+// redirectsOutside reports whether a redirect of a part names a file outside
+// the work root. A redirect can stand anywhere, even between an option and
+// its value, so its file is judged on its own and the redirect leaves the
+// words before any of them is taken as an option's value. A file that an
+// output redirect writes in the worker's own Claude session temp folder is
+// the worker's own; a file that an input redirect reads may feed a program
+// that runs it, so it is not.
+func redirectsOutside(a Action, part string) bool {
+	writes := slices.ContainsFunc(redirectTargets(part), func(target string) bool {
+		return (outsideOperand(a, target) || outsideOperand(a, unquoted.Replace(target))) && !ownTempWord(a, target, tempRedirect)
+	})
+	return writes || slices.ContainsFunc(inputTargets(part), func(target string) bool {
+		return outsideOperand(a, target) || outsideOperand(a, unquoted.Replace(target))
+	})
+}
+
+// splitQuotes reports whether the words of a command, split at blanks, may
+// not be the words the shell passes on: a quote is left open in a word, a
+// word ends in a backslash that escapes the blank after it, or a quoted word
+// starts with -, which the program reads as an option.
+func splitQuotes(words []string) bool {
+	return slices.ContainsFunc(words, func(word string) bool {
+		quoted := strings.ContainsAny(word, `'"`)
+		return strings.Count(word, "'")%2 == 1 || strings.Count(word, `"`)%2 == 1 || strings.HasSuffix(word, `\`) ||
+			quoted && strings.HasPrefix(unquoted.Replace(word), "-")
+	})
+}
 
 // shellWord is one word of a command part as the shell passes it on, with
 // quotes and escapes removed. raw keeps the backslashes that escaped a
@@ -362,24 +427,23 @@ func unquotedSyntax(word shellWord) bool {
 
 // verbatimOutside judges a part whose program runs nothing it is given, word
 // by shell word. handled is false when the part needs the word-by-word
-// reading instead. The words of a command in own are left to its parser.
+// reading instead. The words of a command in own are left to its parser. When
+// a word may expand to an option (expandsWords), every word counts as a path.
 func verbatimOutside(a Action, part string, own []string) (handled, outside bool) {
 	words, files, ok := verbatimWords(part)
 	if !ok {
 		return false, false
 	}
 	patterns, named := searchPatterns(wordTexts(words))
-	if slices.ContainsFunc(append(files, named...), func(file string) bool { return outsideOperand(a, file) }) {
+	if verbatimFilesOutside(a, part, files, named) {
 		return true, true
 	}
-	texts := make([]string, len(words))
-	for i, word := range words {
-		texts[i] = word.text
-	}
+	texts := wordTexts(words)
 	if ownedCommand(texts, own) {
 		return true, false
 	}
-	program := programName(words[0].text)
+	fields := withoutRedirects(strings.Fields(part))
+	program, patterns := surePatterns(fields[max(execOperandStart(fields)-1, 0):], programName(words[0].text), patterns)
 	options := true
 	for i := 1; i < len(words); i++ {
 		word := words[i]
@@ -392,11 +456,22 @@ func verbatimOutside(a Action, part string, own []string) (handled, outside bool
 			if next {
 				i++
 			}
-		case operandOutside(a, word.text, options) || operandOutside(a, word.raw, options):
+		case (operandOutside(a, word.text, options) || operandOutside(a, word.raw, options)) &&
+			(word.raw != word.text || !tempOperand(a, part, texts, i, word.text, options)):
 			return true, true
 		}
 	}
 	return true, false
+}
+
+// verbatimFilesOutside reports whether a file that a redirect of a verbatim
+// part names, or that an option names in its own word (named), lies outside
+// the work root. A file that an output redirect writes in the worker's own
+// Claude session temp folder is the worker's own.
+func verbatimFilesOutside(a Action, part string, files, named []string) bool {
+	return slices.ContainsFunc(files, func(file string) bool {
+		return outsideOperand(a, file) && (!redirectsInto(part, file) || !ownTemp(a, file, tempRedirect))
+	}) || slices.ContainsFunc(named, func(file string) bool { return outsideOperand(a, file) })
 }
 
 // operandOutside reports whether a word names a file outside the work root.

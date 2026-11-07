@@ -326,8 +326,29 @@ var ownOperandCheck = []string{"sed", "gsed", "awk", "gawk", "mawk", "nawk", "tr
 // ExecOutside checks file operands, not executable names or stream devices.
 // A part whose program runs nothing it is given is read by shell words, so a
 // quoted argument is one word; any other part is read word by word, so a path
-// inside a quoted command, as in sh -c 'cat ../x', still counts.
+// inside a quoted command, as in sh -c 'cat ../x', still counts. A cd may
+// fail or not, so a relative path is judged from the folder the command
+// starts in and from each folder that a cd of the line can lead to.
 func ExecOutside(a Action) bool {
+	if execOutsideFrom(a) {
+		return true
+	}
+	if a.Shell == "powershell" {
+		return false
+	}
+	folders, ok := cdFolders(a)
+	if !ok {
+		return true
+	}
+	return slices.ContainsFunc(folders, func(folder string) bool {
+		from := a
+		from.Cwd = folder
+		return execOutsideFrom(from)
+	})
+}
+
+// execOutsideFrom is ExecOutside with relative paths judged from a.Cwd alone.
+func execOutsideFrom(a Action) bool {
 	// $'...' or a brace expansion can make any word name a file outside.
 	if unexpandedLine(a) {
 		return true
@@ -381,25 +402,59 @@ var unquoted = strings.NewReplacer("'", "", "\"", "", "\\", "")
 
 // wordsOutside reads a part word by word, with each word's quotes trimmed and
 // removed, and with redirects found even inside quotes. The operands of a
-// command in own are left to its parser.
+// command in own are left to its parser, and the pattern of grep or rg and
+// the value of a pattern option are no path, but only for the part's own
+// program: a wrapper such as xargs can add options after the words, as in
+// printf -- '-e\nx\n' | xargs grep /x, where -e gives the pattern and /x
+// becomes a file to read, so behind a wrapper every word counts as a path.
+// The script that a shell such as sh or bash runs is one too. A quoted word
+// that the blanks split, or one that starts with -, can make any later word
+// look like an option's value or a pattern, so then every word counts as a
+// path, and so it does when a word may expand to an option (expandsWords).
+// The operands of a program behind a wrapper are never the worker's own in
+// its Claude session temp folder.
 func wordsOutside(a Action, part string, own []string) bool {
 	if redirectsOutside(a, part) {
 		return true
 	}
 	words := withoutRedirects(strings.Fields(part))
-	start := execOperandStart(words)
-	program := ""
-	if start > 0 && start <= len(words) {
-		if ownedCommand(words[start-1:], own) {
-			return false
-		}
-		program = programName(words[start-1])
+	if at := assignedSubstitution(words); at >= 0 {
+		return commandWordsOutside(a, words, at+1, "", nil, nil)
 	}
+	start := execOperandStart(words)
+	if start < 1 || start > len(words) {
+		return commandWordsOutside(a, words, start, "", nil, nil)
+	}
+	command := words[start-1:]
+	if wrapper := lastWrapper(words); wrapper != "" {
+		script := slices.Contains([]string{"sh", "bash", "zsh"}, wrapper) && fieldOutside(a, unquoted.Replace(command[0]), false)
+		return script || commandWordsOutside(a, words, start, "", nil, nil)
+	}
+	if ownedCommand(command, own) {
+		return false
+	}
+	temp := func(i int, options bool) bool { return rawTempOperand(a, part, command, i, options) }
+	if splitQuotes(command) {
+		return commandWordsOutside(a, words, start, "", temp, nil)
+	}
+	patterns, named := searchWords(a, command)
+	program, patterns := surePatterns(command, programName(command[0]), patterns)
+	return named || commandWordsOutside(a, words, start, program, temp, patterns)
+}
+
+// commandWordsOutside is wordsOutside for the words of a part from start on.
+// program is the program at start-1, or "" when its option values and
+// patterns are not known; temp, when not nil, reports whether the word at an
+// index of the command, the program at 0, names a path in the worker's own
+// Claude session temp folder that counts as its own; patterns marks the words
+// of the command that are a search pattern.
+func commandWordsOutside(a Action, words []string, start int, program string, temp func(i int, options bool) bool, patterns map[int]bool) bool {
 	options := true
 	for i := start; i < len(words); i++ {
 		word := strings.Trim(withoutEscapes(a, words[i]), "'\"")
 		skip, next := skipsPatternValue(program, word)
 		switch {
+		case patterns[i-start+1]:
 		case options && word == "--":
 			options = false
 		case options && skip:
@@ -410,21 +465,11 @@ func wordsOutside(a Action, part string, own []string) bool {
 			// The command runs in each match's folder, so fileTargetsOutside
 			// judges its words from the search roots instead.
 			i = execdirEnd(a, words, i)
-		case fieldOutside(a, word, options) || fieldOutside(a, unquoted.Replace(words[i]), options):
+		case (fieldOutside(a, word, options) || fieldOutside(a, unquoted.Replace(words[i]), options)) && (temp == nil || !temp(i-start+1, options)):
 			return true
 		}
 	}
 	return false
-}
-
-// redirectsOutside reports whether a redirect of a part names a file outside
-// the work root. A redirect can stand anywhere, even between an option and
-// its value, so its file is judged on its own and the redirect leaves the
-// words before any of them is taken as an option's value.
-func redirectsOutside(a Action, part string) bool {
-	return slices.ContainsFunc(append(redirectTargets(part), inputTargets(part)...), func(target string) bool {
-		return outsideOperand(a, target) || outsideOperand(a, unquoted.Replace(target))
-	})
 }
 
 // execdirEnd returns the index of the last word of the command that find's
@@ -613,19 +658,21 @@ func walkWrappers(words []string, visit func(wrapper, option, value string)) int
 			continue
 		}
 		wrapper := filepath.Base(word)
-		switch wrapper {
-		case "command", "builtin", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "powershell", "cmd",
-			"time", "nice", "ionice", "timeout", "nohup", "stdbuf", "setsid", "busybox", "doas", "watch", "parallel", "caffeinate":
-			i = skipWrapperOptions(wrapper, words, i+1, visit)
-			if wrapper == "timeout" && i < len(words) {
-				i++ // timeout's duration precedes the executable.
-			}
-		default:
+		if !slices.Contains(wrapperNames, wrapper) {
 			return i + 1
+		}
+		i = skipWrapperOptions(wrapper, words, i+1, visit)
+		if wrapper == "timeout" && i < len(words) {
+			i++ // timeout's duration precedes the executable.
 		}
 	}
 	return len(words)
 }
+
+// wrapperNames are the programs that run the program after them, as
+// walkWrappers reads them.
+var wrapperNames = []string{"command", "builtin", "env", "sudo", "xargs", "eval", "exec", "sh", "bash", "zsh", "pwsh", "powershell", "cmd",
+	"time", "nice", "ionice", "timeout", "nohup", "stdbuf", "setsid", "busybox", "doas", "watch", "parallel", "caffeinate"}
 
 // skipWrapperOptions returns the index of the first word from i on that is
 // not an option of wrapper or the value of one, calling visit as

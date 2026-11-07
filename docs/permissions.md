@@ -438,6 +438,33 @@ for its own session, under `projects/<project>/<its session id>/tool-results`
 in Claude's config folder. Another session's folder and every other path under
 `~/.claude` still ask, and denies still apply.
 
+A Claude worker's own session temp folder, where Claude keeps its scratchpad,
+is the worker's own too. A read tool or a named read command may read it. A
+command may write a file there with a redirect, make a folder or file there
+with `mkdir` or `touch`, copy a file there with `cp`, list it with `ls`, and
+read it with a command such as `cat`, `tail` or `grep`, also inside a longer
+command line, as in `go test > $T/log; tail $T/log`, where `$T` stands for
+the folder. Such a line follows the
+mode as a line inside the work root does. A read or a listing counts only
+when what it prints stays on screen or in the folder: `cat $T/x | sh`,
+`cat $T/x > x.sh` and `ls $T | sh` need the person, also when the pipe
+continues on the next line. The worker names the files there, so a name that
+`ls` prints may be a command. A line that can turn what a command prints
+into code or send it into a file unseen gets no path in the folder as the
+worker's own: one with a command substitution, `$(...)` or backticks, or a
+process substitution, `<(...)` or `>(...)`, and a line of several commands
+with a here-document or with `exec`, `eval`, `source` or `.`. So
+`x=$(cat $T/x); $x` and `exec > x.sh; cat $T/x` need the person. A plain
+single command, such as `cat $T/x`, still counts. Running or copying a file
+out of the folder still needs the person, and so do `ls -R` and `ls -L`, a
+path with `..`, a symlink that leads out, a dangling symlink, and another
+session's folder. So do a `cp` with an option other than `-f`, `-i`, `-n`,
+`-p`, `-v` or `-L`, which can copy a symlink, and a command behind a wrapper
+such as `xargs`, which can add paths of its own. A new path also needs the
+person when a command of the line that can make a symlink names it or a folder
+above it, such as `ln`, `mv`, `tar`, `git` or a program the gate does not
+know, since that command may run before the write.
+
 A deny wins over an allow. When no rule matches, the decision is
 `on_unmatched`, which is `ask` by default. The default denies always apply: a
 project that sets its own `rules` replaces the allow rules, not the denies.
@@ -586,11 +613,27 @@ The sets of `tr` count as patterns, and so does an `awk` program without
 with the lead, while `grep x ../peer/f`, `grep -f ../x a.go` and
 `grep --exclude-from=/etc/x y a.go` need the person. An unknown option, or one
 whose value may or may not be the next word, makes every word count as a path.
+This holds only for a program the part runs itself: behind a wrapper such as
+`xargs`, `parallel`, `env`, `timeout` or `nice`, every word counts as a path,
+since `xargs` can add an `-e` that turns the pattern into a file to read. So
+`xargs grep /x` and `xargs sed -n '/a/p'` need the person. Nor does it hold
+when a word after the program holds a `$` outside single quotes, or a `*`,
+`?`, `[` or `~` outside quotes, since the shell can expand it to an option:
+`grep /x $P` and `grep /x *` need the person.
 In these commands, and in `cat`, `head`, `tail`, `sort`, `uniq`, `wc`, `cut`,
 `ls`, `go list` and a `sed` that only substitutes or prints, a quoted argument
 is one word. A `<` or `>` inside its quotes redirects nothing. Other commands
 are read word by word, so a path inside `sh -c 'cat ../x'` still needs the
 person. A stream such as `/dev/null` is not a path outside the work root.
+A `cd` may work or fail, so a relative path after it is judged both from the
+folder the line starts in and from the folder `cd` leads to: in
+`cd sub && cat link/a`, a symlink `sub/link` that leads out needs the person.
+A write through a dangling symlink goes where the symlink points, so
+`echo x > sub/dangling` needs the person when that place is outside. A `..`
+after a symlink goes up from where the symlink leads, so with `sub/link`
+leading out, `cat sub/link/../secret` and a read tool on that path need the
+person. The script that `sh`, `bash` or `zsh` runs is a path too:
+`bash /elsewhere/x.sh` needs the person.
 A line with bash's `$'...'` or `$"..."` quoting, or a brace expansion outside
 quotes such as `{..,.}` or `{a..c}`, needs the person in every mode, since
 the gate does not expand them: `cat $'.env'` and `cat {..,.}/peer/f` do.

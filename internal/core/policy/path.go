@@ -1,9 +1,12 @@
 package policy
 
 import (
+	"io/fs"
+	"os"
 	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
@@ -90,11 +93,7 @@ func literalOutside(a Action, target string) bool {
 		if pathutil.Windows(a.Work) || pathutil.Windows(cwd) {
 			return outside(RelativeTarget(a.Work, a.Cwd, target))
 		}
-		name := target
-		if !filepath.IsAbs(name) {
-			name = filepath.Join(cwd, name)
-		}
-		relative, err := filepath.Rel(pathutil.Resolved(a.Work), literalResolved(name))
+		relative, err := filepath.Rel(pathutil.Resolved(a.Work), literalResolved(physicalJoin(cwd, target)))
 		if err != nil {
 			return true
 		}
@@ -104,9 +103,30 @@ func literalOutside(a Action, target string) bool {
 	return strings.HasPrefix(target, "/") || len(target) >= 2 && target[1] == ':' || target == ".." || strings.HasPrefix(target, "../") || strings.HasPrefix(target, "~")
 }
 
-// literalResolved is pathutil.Resolved for a POSIX name, whose backslashes
-// are characters of a name rather than the mark of a foreign Windows path.
+// literalResolved is resolvedTarget for a POSIX name, whose backslashes are
+// characters of a name rather than the mark of a foreign Windows path.
 func literalResolved(name string) string {
+	return followLinks(name, maxLinkHops)
+}
+
+// maxLinkHops bounds how many dangling symlinks followLinks follows, as the
+// kernel bounds a chain of symlinks; a longer chain stays where it stands.
+const maxLinkHops = 40
+
+// resolvedTarget is pathutil.Resolved, except that a symlink whose target does
+// not exist yet leads to that target: a write through it, as echo x > link
+// does, creates the file there. Foreign Windows paths stay lexical on a POSIX
+// host.
+func resolvedTarget(name string) string {
+	if runtime.GOOS != "windows" && pathutil.Windows(name) {
+		return name
+	}
+	return followLinks(name, maxLinkHops)
+}
+
+// followLinks resolves the existing prefix of name, and follows a dangling
+// symlink in it to its target, at most hops times.
+func followLinks(name string, hops int) string {
 	if resolved, err := filepath.EvalSymlinks(name); err == nil {
 		return resolved
 	}
@@ -114,7 +134,72 @@ func literalResolved(name string) string {
 	if parent == name {
 		return name
 	}
-	return filepath.Join(literalResolved(parent), filepath.Base(name))
+	parent = followLinks(parent, hops)
+	if link, ok := danglingLink(name, parent); ok && hops > 0 {
+		return followLinks(link, hops-1)
+	}
+	return filepath.Join(parent, filepath.Base(name))
+}
+
+// danglingLink returns where name points when it is a symlink, with a
+// relative target placed in parent, the resolved folder of name.
+func danglingLink(name, parent string) (string, bool) {
+	info, err := os.Lstat(name)
+	if err != nil || info.Mode()&fs.ModeSymlink == 0 {
+		return "", false
+	}
+	link, err := os.Readlink(name)
+	if err != nil {
+		return "", false
+	}
+	return physicalJoin(parent, link), true
+}
+
+// physicalJoin places name, absolute or relative to dir, and returns it
+// without . or ..: a .. right after a component of name that is a symlink
+// goes up from the symlink's target, as the kernel goes, where filepath.Join
+// would drop the symlink as text. Every other .. drops the component before
+// it, as Join does: callers spell a relative path from dir as written, so a
+// .. that leaves dir itself stays as text.
+func physicalJoin(dir, name string) string {
+	native := filepath.FromSlash(name)
+	if !slices.Contains(strings.Split(filepath.ToSlash(native), "/"), "..") {
+		if filepath.IsAbs(native) {
+			return filepath.Clean(native)
+		}
+		return filepath.Join(dir, native)
+	}
+	current := dir
+	if filepath.IsAbs(native) {
+		volume := filepath.VolumeName(native)
+		current, native = volume+string(filepath.Separator), native[len(volume):]
+	}
+	if !filepath.IsAbs(current) {
+		// A relative folder has no place to walk from; .. stays as written.
+		return filepath.Join(dir, native)
+	}
+	// added counts the components of name that current ends in.
+	added := 0
+	for _, part := range strings.Split(filepath.ToSlash(native), "/") {
+		switch {
+		case part == "" || part == ".":
+		case part != "..":
+			current, added = filepath.Join(current, part), added+1
+		case added > 0 && isLink(current):
+			// From here on current is resolved, so text is where the kernel goes.
+			current, added = filepath.Dir(followLinks(current, maxLinkHops)), 0
+		default:
+			current, added = filepath.Dir(current), max(added-1, 0)
+		}
+	}
+	return current
+}
+
+// isLink reports whether name is a symlink, or on Windows a junction or other
+// reparse point, which Go reports as irregular.
+func isLink(name string) bool {
+	info, err := os.Lstat(name)
+	return err == nil && (info.Mode()&fs.ModeSymlink != 0 || runtime.GOOS == "windows" && info.Mode()&fs.ModeIrregular != 0)
 }
 
 // onCurrentDrive spells a rooted path without a drive, such as /etc/passwd or
@@ -158,11 +243,8 @@ func RelativeTarget(root, cwd, target string) string {
 		}
 		return rel
 	}
-	path := pathutil.Native(target)
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(cwd, path)
-	}
-	root, path = pathutil.Resolved(root), pathutil.Resolved(path)
+	path := physicalJoin(cwd, pathutil.Native(target))
+	root, path = pathutil.Resolved(root), resolvedTarget(path)
 	relative, err := filepath.Rel(root, path)
 	if err != nil {
 		return pathutil.Clean(path)
