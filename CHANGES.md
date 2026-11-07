@@ -46,6 +46,8 @@
 
 - `peer close` removes the peer's `coauthor-<id>.model` file, and `peer open`
   removes the ones that closed peers of older versions left behind.
+- `go test`, `ls` or `git add` on a path ending in `claude` or `codex` is no
+  longer denied as a start of the agent.
 
 ## 1.5.1
 

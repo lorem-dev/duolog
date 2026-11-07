@@ -64,6 +64,40 @@ func ruleDeny(p config.Policy, lead LeadRules, a Action, part string, report, ag
 	return Decision{}, false
 }
 
+// operandPrograms never run their operands, so a path after them names a file
+// or a package, not a start of an agent. A program with subcommands lists the
+// ones that never run an operand; nil means every use.
+var operandPrograms = map[string][]string{
+	"go":  {"test", "vet", "build", "list", "fmt", "doc", "mod", "env", "version"},
+	"git": {"add", "diff", "log", "status", "show", "blame", "rm", "mv", "restore", "ls-files", "grep", "checkout"},
+	"ls":  nil, "cat": nil, "grep": nil, "egrep": nil, "fgrep": nil, "rg": nil, "head": nil, "tail": nil,
+	"wc": nil, "stat": nil, "file": nil, "diff": nil, "du": nil, "tree": nil,
+}
+
+// runningOptions are options whose value is a program the command runs.
+var runningOptions = []string{"-exec", "-toolexec", "-vettool", "--pager", "-O", "--open-files-in-pager", "--ext-diff"}
+
+// operandOnly reports whether the words before a word are a program that never
+// runs its operands, with its subcommand, such as go test or git diff. An
+// option that runs a program (-exec, --pager) anywhere before, or an option
+// right before the word whose value it may be, keeps the word a candidate.
+func operandOnly(before []string) bool {
+	subs, ok := operandPrograms[ProgramName(strings.Trim(before[0], `"'`))]
+	if !ok {
+		return false
+	}
+	for _, w := range before[1:] {
+		name, _, _ := strings.Cut(strings.Trim(w, `"'`), "=")
+		if slices.Contains(runningOptions, name) {
+			return false
+		}
+	}
+	if len(before) > 1 && strings.HasPrefix(before[len(before)-1], "-") {
+		return false
+	}
+	return subs == nil || len(before) > 1 && slices.Contains(subs, before[1])
+}
+
 // innerCommandDeny holds the exec denies for every command that the words of
 // one command may start: each run of words up to the end, as in uv run git
 // push. A run may start inside a substitution or a subshell, as in $(git
@@ -74,6 +108,9 @@ func innerCommandDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, pa
 	words := strings.Fields(part)
 	for i := range words {
 		tail := strings.TrimLeft(strings.Join(words[i:], " "), "$(`<>")
+		if agent && i > 0 && tail == words[i] && operandOnly(words[:i]) {
+			continue // a plain operand of a program that never runs it, as in go test ./pkg
+		}
 		for _, rule := range denyRules(p, lead) {
 			if rule.Action == "exec" && agentRule(rule) == agent && roleApplies(rule, a.Role) && denyMatchesCommand(rule.Match, tail) {
 				return Decision{Kind: Deny, Reason: "denied command inside this command", Rule: rule.Action + " " + rule.Match, Mode: m}, true
