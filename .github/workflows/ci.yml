@@ -55,6 +55,11 @@ jobs:
       - name: Vet the end-to-end tests (do not run them)
         if: matrix.part == ''
         run: go vet -tags=e2e ./test/e2e/
+      - name: DEBUG prune race (never merged)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: bash
+        run: go test ./internal/telemetry -run TestStampCreatorsRace -count=20 -v 2>&1 | grep -E 'DEBUG|FAIL|^ok' || true
       - name: Unit and native generated-command tests
         timeout-minutes: 20
         # Most packages take under a minute; delegate and calibration, with
