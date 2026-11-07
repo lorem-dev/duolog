@@ -108,7 +108,7 @@ func (e *env) admitPane(ctx context.Context, route coreroute.Route, lead leadInf
 	}
 	variants := []corelaunch.Variant{corelaunch.Free}
 	for _, c := range paidrules.Candidates([]config.Target{route.Target}, true, e.cfg.PaidRuns) {
-		if c.Variant == corelaunch.Paid {
+		if c.Variant == corelaunch.Paid && e.opts.Deps.Quota[route.Agent] {
 			variants = append(variants, corelaunch.Paid)
 		}
 	}

@@ -65,7 +65,9 @@ type CmdDeps struct {
 	// SyncFormats holds the format of each agent that duolog sync converts.
 	SyncFormats agentsync.Formats
 	// Quota is what quota reads with: each agent's reader and, in tests, the
-	// reader that replaces calibration's reads.
+	// reader that replaces calibration's reads. The readers carry no identity
+	// sink, so only Calibration reads through them; they must never read an
+	// account.
 	Quota quota.Deps
 }
 

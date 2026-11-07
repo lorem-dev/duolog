@@ -70,6 +70,10 @@ type Deps struct {
 	// Panes gives the pane support of each agent, by agent. An agent that is
 	// not here, or has no Agent, cannot open a pane.
 	Panes map[string]Pane
+	// Quota names the agents that have a quota reader, by agent. An agent that
+	// is not here is never read, so its spend could not be judged: a pane of
+	// it gets no paid pass, as in delegate.
+	Quota map[string]bool
 	// ResetTime parses the time a provider limit on a pane's screen says the
 	// quota returns, by the pane's agent; without one it gives a fallback.
 	ResetTime func(agent, text string, now time.Time) time.Time

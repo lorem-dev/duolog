@@ -102,7 +102,12 @@ func (systemClock) Sleep(ctx context.Context, d time.Duration) error {
 // PeerDeps fills every field of peer.Deps with the real function. The account
 // gates and the delegation are those of d.
 func PeerDeps(d delegate.Deps) peer.Deps {
+	hasQuota := map[string]bool{}
+	for name, a := range d.Agents {
+		hasQuota[name] = a.Quota != nil
+	}
 	return peer.Deps{
+		Quota:     hasQuota,
 		Clock:     systemClock{},
 		Pauses:    peer.Pauses{Poll: 2 * time.Second, Settle: time.Second, Send: 700 * time.Millisecond, Key: 150 * time.Millisecond, WorkGrace: 10 * time.Second},
 		Models:    peerModels(),

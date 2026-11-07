@@ -164,6 +164,7 @@ func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
 			return route.Normalize(target.Agent, target.Model), nil
 		}),
 		Panes:       testPanes(),
+		Quota:       map[string]bool{"claude": true, "codex": true},
 		ResetTime:   workertest.ResetTime,
 		Notify:      func(string, string) {},
 		RecordPeer:  func(reg *session.Registry, e session.Entry, limit int) error { return reg.RecordLimited(e, limit) },

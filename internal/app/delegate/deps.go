@@ -40,8 +40,11 @@ type Agent struct {
 	Models ModelResolver
 	Login  Login
 	Trust  Trust
-	Quota  quota.Reader
-	Caps   Capabilities
+	// Quota only shows that the agent has a reader. wiring builds it without
+	// an identity sink, so it must never read: a read through it would not
+	// record the account's identity, and a switched login would go unseen.
+	Quota quota.Reader
+	Caps  Capabilities
 }
 
 // Capabilities reads one agent's skills, plugins and MCP servers, and takes

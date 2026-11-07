@@ -1,15 +1,14 @@
 package claude_test
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/claude"
 	"github.com/lorem-dev/duolog/internal/app/quota/quotatest"
+	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/launch"
-	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -27,9 +26,17 @@ func TestReaderContract(t *testing.T) {
 		}})
 		p := launch.Process{Agent: "claude", Prefix: []string{"claude"}, Env: []string{"PATH=" + filepath.Dir(bin)}}
 		r := claude.Quota{Version: "test", Timeout: 5 * time.Second}
-		want, err := quota.Reader{Version: r.Version, Timeout: r.Timeout}.ReadProcess(context.Background(), p)
-		if err != nil {
-			t.Fatal(err)
+		// Written out from claudeUsage and the auth status reply above, not
+		// read back through quota.Reader: the weekly window has no severity in
+		// the reply, so it reads as unknown.
+		want := account.Snapshot{
+			Plan: "pro",
+			Windows: []account.Window{
+				{Kind: "session", DurationMinutes: 300, UsedPercent: 15, ResetsAt: time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC), Severity: "normal"},
+				{Kind: "weekly_all", DurationMinutes: 10080, UsedPercent: 50, ResetsAt: time.Date(2099, 1, 8, 0, 0, 0, 0, time.UTC), Severity: "unknown"},
+			},
+			ExtraUsage: &account.ExtraUsage{},
+			Billing:    account.BillingFacts{AuthMethod: "claude.ai", RouteKnown: true},
 		}
 		failing := p
 		failing.Env = []string{"PATH=" + t.TempDir()}

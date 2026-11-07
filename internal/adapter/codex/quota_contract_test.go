@@ -1,15 +1,14 @@
 package codex_test
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/codex"
 	"github.com/lorem-dev/duolog/internal/app/quota/quotatest"
+	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/launch"
-	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -31,9 +30,19 @@ func TestReaderContract(t *testing.T) {
 		bin := testbin.Install(t, "codex", testbin.Scenario{SleepMS: 10000, RPCResponses: codexReplies})
 		p := launch.Process{Agent: "codex", Prefix: []string{"codex"}, Env: []string{"PATH=" + filepath.Dir(bin)}}
 		r := codex.Quota{Version: "test", Timeout: 5 * time.Second}
-		want, err := quota.Reader{Version: r.Version, Timeout: r.Timeout}.ReadProcess(context.Background(), p)
-		if err != nil {
-			t.Fatal(err)
+		// Written out from codexReplies, not read back through quota.Reader.
+		balance, allowed := "10", true
+		want := account.Snapshot{
+			Plan: "plus",
+			Windows: []account.Window{
+				{Kind: "session", DurationMinutes: 300, UsedPercent: 13, ResetsAt: time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)},
+				{Kind: "weekly_all", DurationMinutes: 10080, UsedPercent: 20, ResetsAt: time.Date(2099, 1, 8, 0, 0, 0, 0, time.UTC)},
+			},
+			ModelLimits: map[string][]account.Window{"sonnet": {
+				{Kind: "60m", DurationMinutes: 60, UsedPercent: 30, ResetsAt: time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)},
+			}},
+			Credits: &account.Credits{HasCredits: true, Balance: &balance},
+			Billing: account.BillingFacts{AuthMethod: "chatgpt", AccountType: "chatgpt", RouteKnown: true, OrdinaryUsageAllowed: &allowed, OverageEnabled: true},
 		}
 		failing := p
 		failing.Env = []string{"PATH=" + t.TempDir()}
