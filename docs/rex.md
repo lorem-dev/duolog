@@ -387,8 +387,38 @@ answers. A project list replaces the defaults; `auto_answers: []` turns it off.
 
 The default matches `Hooks need review` and selects `Continue without trusting`.
 The hooks stay off, and the peer keeps its sandbox. Validation refuses answers
-starting with `Trust`, `Yes, and don't ask` or `Always`, ignoring case and outer
-spaces. Duolog also checks the selected option before answering.
+starting with `Trust`, `Yes, and don't ask` or `Always`, or containing
+`trust this folder` or `without asking`, ignoring case and outer spaces.
+Duolog also checks the selected option before answering.
+
+A peer pane's startup folder-trust question (`Yes, I trust this folder` in
+Claude, `Trust and continue` in Codex) is answered by a built-in rule, not by
+`rex.auto_answers`, and recorded like other automatic answers. It applies only
+when the screen names the pane's folder and no folder outside the lead's
+project, and the pane's folder is the lead's own root (the folder above the
+`.duolog/` state folder), a folder below it or a linked worktree that the lead's
+repository lists in `git worktree list` (not a stale `prunable` entry, and its
+own git directory must be the lead's), and the agent already trusts the
+lead's root, not the pane's new checkout. A folder that only claims in its own
+`.git` to be a worktree does not count, and a lead root inside an outer
+repository does not make that repository or its worktrees the lead's. A long
+warning block can push the heading off the capture, so duolog reads a trust
+question again from up to 200 lines, and sends nothing if that capture no
+longer shows it. A folder path that wraps onto a second line is joined before
+it is compared. A marker word counts only at the start of a line near the
+options, and a command prompt counts only when its command is right above the
+menu, so earlier output that quotes a marker or an old prompt does not stop
+the gate. Output that starts a line with a marker within 30 lines above a
+question leaves that question to the lead. Any other folder, or a config that
+cannot be read, leaves the question to the lead, and no `rex.auto_answers` rule
+answers a trust question, whether or not duolog reads it in full: a question
+with a trust label or the text of a trust screen is the lead's. Hook
+trust and persistent approvals are never granted. For Claude, the pane also
+gets `enabledMcpjsonServers` and `disabledMcpjsonServers` from what the lead
+decided for its root, so the new MCP servers dialog never shows: every
+`.mcp.json` server the lead has not enabled is disabled, and so are all of them
+when the settings cannot be read. As in Claude, approval is by server name: a
+branch that changes the command of a server the lead enabled keeps it enabled.
 
 Codex command prompts go to the duolog permission gate with the peer's role.
 The gate judges the command after leading `NAME=value` assignments. An allow

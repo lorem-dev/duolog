@@ -66,6 +66,8 @@
   longer denied as a start of the agent.
 - On Windows a telemetry prune no longer fails when another duolog creates the
   prune stamp at the same moment, and a failed prune now names its cause.
+- A Claude peer in your own project no longer stops at its folder-trust and new
+  MCP server prompts; trust and servers follow what you already decided.
 
 ## 1.5.1
 

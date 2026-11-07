@@ -25,6 +25,16 @@ type AutoAnswer struct {
 	Label   string
 }
 
+// PaneStart says where a pane starts: the lead's work root, the folder the
+// pane runs in and the environment whose config folders the agent reads. The
+// agent derives what it carries into the pane from the lead's own decisions
+// there.
+type PaneStart struct {
+	LeadRoot string
+	Folder   string
+	Environ  []string
+}
+
 // PaneFacts holds the texts of an agent's terminal pane, as the screen reader
 // takes them. The zero value is an agent with no pane support.
 type PaneFacts struct {

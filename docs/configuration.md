@@ -232,7 +232,7 @@ The lead's own settings are the ceiling:
 | `lead.compact_notes` | `true` (default): the lead's compaction keeps the open peers, asks, branches and pull requests, and lists the live peers again afterwards. `false` turns both off. See [below](#how-the-lead-keeps-its-state-through-compaction) |
 | `rex` | Timeouts and capture settings for live sessions. See [Rex](rex.md) |
 | `rex.stuck_notify_minutes` | Minutes before `peer wait` sends one reminder for an unanswered question. Default: `5`; `0` disables reminders |
-| `rex.auto_answers` | Ordered `{match, answer}` rules for safe peer questions. Defaults to answering `Hooks need review` with `Continue without trusting`. A project list replaces the defaults; `[]` disables it. Trust and persistent approval grants are refused |
+| `rex.auto_answers` | Ordered `{match, answer}` rules for safe peer questions. Defaults to answering `Hooks need review` with `Continue without trusting`. A project list replaces the defaults; `[]` disables it. Trust and persistent approval grants are refused; a pane's startup folder-trust question is a [built-in answer](rex.md) for the lead's own project only |
 | `coauthors` | Enable worker credit and set commit co-author templates, one key per agent: `claude`, `codex`, ... See [Getting started](getting-started.md#how-to-credit-the-workers-in-commits) |
 | `worker_modes` | The native permission mode a `delegate` worker starts in, per role and per model family, one key per agent: `claude`, `codex`, ... See [below](#which-layers-may-change-worker-modes) and [Permissions](permissions.md#a-workers-native-mode) |
 | `telemetry` | The local history of runs, quota and routing. See [below](#which-layers-may-change-telemetry) and [Telemetry](telemetry.md) |

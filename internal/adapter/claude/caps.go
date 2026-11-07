@@ -3,7 +3,9 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -228,6 +230,14 @@ func claudeServers(root string, f kit.Folders) map[string]caps.Server {
 // claudeApproved reads the approval of a .mcp.json server. The settings files in
 // the project count only after the folder was trusted, as in Claude.
 func claudeApproved(name, root string, f kit.Folders, project claudeProject) bool {
+	approved, _ := claudeApproval(name, root, f, project)
+	return approved
+}
+
+// claudeApproval is claudeApproved that also reports a settings file that
+// exists but cannot be read or decoded, whose decisions are then unknown.
+func claudeApproval(name, root string, f kit.Folders, project claudeProject) (bool, error) {
+	var unreadable error
 	all := project.EnableAllMCPServer != nil && *project.EnableAllMCPServer
 	enabled := slices.Contains(project.Enabled, name)
 	disabled := slices.Contains(project.Disabled, name)
@@ -242,7 +252,14 @@ func claudeApproved(name, root string, f kit.Folders, project claudeProject) boo
 			Enabled  []string `json:"enabledMcpjsonServers"`
 			Disabled []string `json:"disabledMcpjsonServers"`
 		}
-		if !kit.ReadJSON(path, &s) {
+		// Only a file that is not there is missing. One that cannot be read,
+		// or whose folder cannot be entered, may hold a disable.
+		data, err := os.ReadFile(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil || json.Unmarshal(data, &s) != nil {
+			unreadable = fmt.Errorf("%s cannot be read", path)
 			continue
 		}
 		if s.All != nil {
@@ -251,7 +268,7 @@ func claudeApproved(name, root string, f kit.Folders, project claudeProject) boo
 		enabled = enabled || slices.Contains(s.Enabled, name)
 		disabled = disabled || slices.Contains(s.Disabled, name)
 	}
-	return !disabled && (all || enabled)
+	return !disabled && (all || enabled), unreadable
 }
 
 func parseClaude(name, scope, file string, raw json.RawMessage) caps.Server {

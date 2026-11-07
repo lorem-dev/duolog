@@ -1,14 +1,23 @@
 package claude
 
 import (
+	"encoding/json"
+	"errors"
+	"io/fs"
+	"maps"
+	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/adapter/kit"
+	"github.com/lorem-dev/duolog/internal/core/agent"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/screen"
+	"github.com/lorem-dev/duolog/internal/trusthome"
 )
 
 // Pane opens Claude Code in a peer pane.
@@ -35,9 +44,89 @@ func (Pane) Argv(r route.Route, m mode.Mode, p corelaunch.Process) []string {
 }
 
 // Settings are the extra settings of a pane's process: Claude's notifications
-// off.
-func (Pane) Settings() map[string]any {
-	return map[string]any{"preferredNotifChannel": "notifications_disabled"}
+// off, and the lead's own decisions on the .mcp.json servers of the pane's
+// folder, so that Claude's "new MCP servers found" dialog never shows. A
+// server the lead enabled in its work root stays enabled; every other one is
+// disabled, so the pane enables nothing new. Settings that cannot be read
+// disable all of them.
+func (Pane) Settings(start agent.PaneStart) map[string]any {
+	out := map[string]any{"preferredNotifChannel": "notifications_disabled"}
+	enabled, disabled := mcpDecisions(start)
+	if len(enabled)+len(disabled) > 0 {
+		out["enabledMcpjsonServers"] = enabled
+		out["disabledMcpjsonServers"] = disabled
+	}
+	return out
+}
+
+// mcpDecisions sorts the servers of the pane folder's .mcp.json by what Claude
+// decided for the lead's work root: its project entry in the user state and
+// the settings layers, as claudeServers reads them.
+func mcpDecisions(start agent.PaneStart) (enabled, disabled []string) {
+	enabled, disabled = []string{}, []string{}
+	folder := start.Folder
+	if folder == "" {
+		folder = start.LeadRoot
+	}
+	var file struct {
+		MCP map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if !kit.ReadJSON(filepath.Join(folder, ".mcp.json"), &file) {
+		return enabled, disabled
+	}
+	names := slices.Sorted(maps.Keys(file.MCP))
+	f, err := kit.FoldersIn("", start.Environ)
+	if err != nil {
+		return enabled, names
+	}
+	var state struct {
+		Projects map[string]claudeProject `json:"projects"`
+	}
+	data, err := os.ReadFile(f.ClaudeState())
+	if err == nil {
+		err = json.Unmarshal(data, &state)
+	}
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return enabled, names
+	}
+	project := state.Projects[start.LeadRoot]
+	if local, ok := state.Projects[filepath.ToSlash(start.LeadRoot)]; ok && project.MCP == nil {
+		project = local
+	}
+	for _, name := range names {
+		approved, err := claudeApproval(name, start.LeadRoot, f, project)
+		if err != nil {
+			return []string{}, names
+		}
+		if approved {
+			enabled = append(enabled, name)
+		} else {
+			disabled = append(disabled, name)
+		}
+	}
+	return enabled, disabled
+}
+
+// FolderTrust reads Claude's question whether to trust the folder it opened in
+// and gives the label that trusts it, with the folders the screen names.
+func (Pane) FolderTrust(s screen.Screen) (string, []string, bool) {
+	label, ok := screen.ClaudeFolderTrust(s)
+	if !ok {
+		return "", nil, false
+	}
+	return label, screen.ClaudeFolderPaths(s), true
+}
+
+// TrustsFolder reports whether Claude already trusts root, or a parent of it,
+// in the user state that environ selects. State that is missing or cannot be
+// read trusts nothing.
+func (Pane) TrustsFolder(root string, environ []string) bool {
+	home, err := trusthome.HomeIn(environ)
+	if err != nil {
+		return false
+	}
+	trusted, known := claudeFolderIn(trusthome.ClaudeStateIn(home, environ), root)
+	return trusted && known
 }
 
 var (

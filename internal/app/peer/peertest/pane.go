@@ -21,8 +21,10 @@ import (
 // without a cycle.
 type PaneAgent interface {
 	Argv(r route.Route, m mode.Mode, p corelaunch.Process) []string
-	Settings() map[string]any
+	Settings(start agent.PaneStart) map[string]any
 	Offer(s screen.Screen) (screen.Offer, bool)
+	FolderTrust(s screen.Screen) (string, []string, bool)
+	TrustsFolder(root string, environ []string) bool
 }
 
 // PaneSupport is peer.PaneSupport under the same cycle rule.
@@ -47,9 +49,18 @@ type Fake struct {
 	Has      bool
 	// Extra is what Settings returns.
 	Extra map[string]any
+	// TrustLabel is the label FolderTrust gives for a screen whose Question
+	// holds TrustMarker, and Trusted is what TrustsFolder says.
+	TrustMarker string
+	TrustLabel  string
+	// TrustFolders are the folders FolderTrust says the screen names.
+	TrustFolders []string
+	Trusted      bool
 
-	ArgvCalls  []ArgvCall
-	OfferCalls []screen.Screen
+	ArgvCalls     []ArgvCall
+	OfferCalls    []screen.Screen
+	StartCalls    []agent.PaneStart
+	TrustedChecks []string
 }
 
 func (f *Fake) Argv(r route.Route, m mode.Mode, p corelaunch.Process) []string {
@@ -61,7 +72,22 @@ func (f *Fake) Argv(r route.Route, m mode.Mode, p corelaunch.Process) []string {
 	return args
 }
 
-func (f *Fake) Settings() map[string]any { return f.Extra }
+func (f *Fake) Settings(start agent.PaneStart) map[string]any {
+	f.StartCalls = append(f.StartCalls, start)
+	return f.Extra
+}
+
+func (f *Fake) FolderTrust(s screen.Screen) (string, []string, bool) {
+	if f.TrustMarker == "" || !strings.Contains(s.Text, f.TrustMarker) {
+		return "", nil, false
+	}
+	return f.TrustLabel, f.TrustFolders, true
+}
+
+func (f *Fake) TrustsFolder(root string, _ []string) bool {
+	f.TrustedChecks = append(f.TrustedChecks, root)
+	return f.Trusted
+}
 
 func (f *Fake) Offer(s screen.Screen) (screen.Offer, bool) {
 	f.OfferCalls = append(f.OfferCalls, s)

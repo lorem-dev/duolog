@@ -225,7 +225,12 @@ func hooksOff(path string) bool {
 // kept. known is false when the state is missing, unreadable or not JSON,
 // and then trusted is false too.
 func ClaudeFolder(home, root string) (trusted, known bool) {
-	data, err := os.ReadFile(trusthome.ClaudeState(home))
+	return claudeFolderIn(trusthome.ClaudeState(home), root)
+}
+
+// claudeFolderIn is ClaudeFolder for the user state file at statePath.
+func claudeFolderIn(statePath, root string) (trusted, known bool) {
+	data, err := os.ReadFile(statePath)
 	if err != nil {
 		return false, false
 	}

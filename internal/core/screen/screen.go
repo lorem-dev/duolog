@@ -523,24 +523,35 @@ func PromptCommand(text, question string) string {
 	if question == "" {
 		return ""
 	}
-	_, rest, ok := strings.Cut(text, question)
-	if !ok {
+	// Only the block above the final menu is read, and its last prompt counts,
+	// with its command right above the menu: an older prompt in the scrollback
+	// has other output, or its own menu, between it and the final one.
+	lines := strings.Split(text, "\n")
+	options, first, ok := findQuestion(lines)
+	if !ok || len(options) == 0 {
+		return ""
+	}
+	block := strings.Join(lines[:first], "\n")
+	at := strings.LastIndex(block, question)
+	if at < 0 {
 		return ""
 	}
 	var command []string
-	for _, line := range strings.Split(rest, "\n") {
+	closed := false
+	for _, line := range strings.Split(block[at+len(question):], "\n") {
 		line = strings.TrimSpace(line)
-		if numberedRe.MatchString(line) {
-			break
-		}
-		if len(command) == 0 {
+		switch {
+		case closed:
+			if line != "" {
+				return ""
+			}
+		case len(command) == 0:
 			if c, ok := strings.CutPrefix(line, "$ "); ok {
 				command = append(command, c)
 			}
-		} else {
-			if line == "" {
-				break
-			}
+		case line == "":
+			closed = true
+		default:
 			command = append(command, line)
 		}
 	}

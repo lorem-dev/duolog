@@ -2,6 +2,7 @@ package peer
 
 import (
 	"github.com/lorem-dev/duolog/internal/app/peer/panetest"
+	"github.com/lorem-dev/duolog/internal/core/agent"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
@@ -27,7 +28,7 @@ func argvFor(route coreroute.Route, m mode.Mode, p corelaunch.Process) []string 
 
 // settingsFor are the extra settings route's agent adds to its pane.
 func settingsFor(route coreroute.Route) map[string]any {
-	return testPane(route.Agent).Agent.Settings()
+	return testPane(route.Agent).Agent.Settings(agent.PaneStart{})
 }
 
 // parseFor reads a screen with the pane facts of the named agent.

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/app/peer/peertest"
+	"github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
@@ -53,7 +54,7 @@ func TestPaneArgvDisallowsSubagents(t *testing.T) {
 }
 
 func TestPaneSettingsTurnNotificationsOff(t *testing.T) {
-	if got := (Pane{}).Settings()["preferredNotifChannel"]; got != "notifications_disabled" {
+	if got := (Pane{}).Settings(agent.PaneStart{})["preferredNotifChannel"]; got != "notifications_disabled" {
 		t.Fatalf("%v", got)
 	}
 }

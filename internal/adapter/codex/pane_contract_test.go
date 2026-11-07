@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/app/peer/peertest"
+	"github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
@@ -32,7 +33,7 @@ func TestPaneArgvPinsNotificationsAndContext(t *testing.T) {
 			t.Errorf("%q missing from %v", want, args)
 		}
 	}
-	if (Pane{}).Settings() != nil {
+	if (Pane{}).Settings(agent.PaneStart{}) != nil {
 		t.Fatal("Codex adds no pane settings")
 	}
 }

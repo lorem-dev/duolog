@@ -37,9 +37,16 @@ type PaneAgent interface {
 	// under.
 	Argv(r route.Route, m mode.Mode, p corelaunch.Process) []string
 	// Settings are the extra settings the pane's process gets, or nil.
-	Settings() map[string]any
+	Settings(start agent.PaneStart) map[string]any
 	// Offer reads the agent's own question whether to install a plugin.
 	Offer(s screen.Screen) (screen.Offer, bool)
+	// FolderTrust reads the agent's startup question whether to trust the
+	// folder it opened in and gives the label that trusts it and the folders
+	// the screen names.
+	FolderTrust(s screen.Screen) (label string, folders []string, ok bool)
+	// TrustsFolder reports whether the agent already trusts root, as the
+	// config of the home that environ selects says.
+	TrustsFolder(root string, environ []string) bool
 }
 
 // PaneSupport is the pane support of one agent: its port and the texts of its

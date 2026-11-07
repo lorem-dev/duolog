@@ -257,7 +257,8 @@ type AutoAnswer struct {
 // SafeAutoAnswer refuses labels that grant trust or bypass future approvals.
 func SafeAutoAnswer(answer string) bool {
 	answer = strings.ToLower(strings.TrimSpace(answer))
-	return answer != "" && !strings.HasPrefix(answer, "trust") && !strings.HasPrefix(answer, "yes, and don't ask") && !strings.HasPrefix(answer, "always")
+	return answer != "" && !strings.HasPrefix(answer, "trust") && !strings.Contains(answer, "trust this folder") && !strings.Contains(answer, "without asking") &&
+		!strings.HasPrefix(answer, "yes, and don't ask") && !strings.HasPrefix(answer, "always")
 }
 
 type Rex struct {

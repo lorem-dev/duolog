@@ -14,6 +14,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	"github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
@@ -163,7 +164,7 @@ func admissionRefused(line string) error { return refusedError(line) }
 func (e *env) paneInput(root string, route coreroute.Route, m mode.Mode, auto bool, variant corelaunch.Variant, leadID, role, id, run string) (corelaunch.ProcessInput, error) {
 	var settings map[string]any
 	if pane := e.pane(route.Agent); pane.Agent != nil {
-		settings = pane.Agent.Settings()
+		settings = pane.Agent.Settings(agent.PaneStart{LeadRoot: e.leadRoot(), Folder: root, Environ: os.Environ()})
 	}
 	in := peerInput(e.cfg, route, m, auto, settings, variant, leadID, role, id, run, filepath.Dir(e.dir), e.opts.ProtectedRoots, os.Environ())
 	free := in
