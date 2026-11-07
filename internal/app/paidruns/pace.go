@@ -23,8 +23,9 @@ const paceStateFile = "pace.json"
 
 // PaceBalance reads both agents' quota with read, as processes from build,
 // and returns the balance for this call, or nil when routing.balance is off.
-// An agent whose build or read fails is left out: its quota is unknown. dir
-// holds the hysteresis state, see SavePaceState.
+// An agent whose build or read fails is left out: its quota is unknown. A
+// switched-off agent is left out too, with no build and no read. dir holds
+// the hysteresis state, see SavePaceState.
 func PaceBalance(ctx context.Context, cfg *config.Config,
 	read func(context.Context, launch.Process) (account.Snapshot, error),
 	build func(agent string) (launch.Process, error),
@@ -35,6 +36,9 @@ func PaceBalance(ctx context.Context, cfg *config.Config,
 	b := &route.Balance{Mode: cfg.Routing.Balance, Margin: cfg.Routing.Margin,
 		Pace: map[string]route.AgentPace{}, Was: loadPaceState(dir)}
 	for _, agent := range paidrules.PaceAgents() {
+		if cfg.AgentSwitchedOff(agent) {
+			continue
+		}
 		p, err := build(agent)
 		if err != nil {
 			continue

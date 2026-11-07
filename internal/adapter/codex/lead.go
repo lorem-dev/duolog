@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"fmt"
 	"io/fs"
 	"path/filepath"
 	"strings"
@@ -23,6 +24,19 @@ func (Lead) Session(environ []string) (string, bool) {
 // UI; a thread without a rollout is not an interactive lead.
 func (Lead) Interactive(_ []string, transcript string) bool {
 	return session.Originator(transcript) == "codex-tui"
+}
+
+// RefuseShell refuses nothing: Codex's environment does not tell an
+// interactive thread, its rollout does.
+func (Lead) RefuseShell([]string) error { return nil }
+
+// RefuseTranscript refuses thread id when its rollout is missing or was not
+// started by the Codex terminal UI.
+func (l Lead) RefuseTranscript(id, transcript string) error {
+	if !l.Interactive(nil, transcript) {
+		return fmt.Errorf("cannot find the transcript of interactive Codex thread %s under CODEX_HOME/sessions; only an interactive Codex session can be the lead", id)
+	}
+	return nil
 }
 
 // Transcript finds sessions/.../rollout-*-<id>.jsonl under Codex's home, the

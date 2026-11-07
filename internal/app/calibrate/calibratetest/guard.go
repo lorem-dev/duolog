@@ -14,7 +14,7 @@ import (
 
 // TreeGuard has the methods of calibration.TreeGuard.
 type TreeGuard interface {
-	Prepare(dir string, environ []string) error
+	Prepare(dir string, environ func() ([]string, error)) error
 	Check(dir string, environ []string) error
 }
 
@@ -31,12 +31,17 @@ type Fake struct {
 // Refusal is what Fake.Check says about a tree it did not prepare.
 const Refusal = "the fake guard was not prepared"
 
-// Prepare remembers dir.
-func (f *Fake) Prepare(dir string, environ []string) error {
+// Prepare builds the environment, as a guard that writes into dir does, and
+// remembers dir; an environment that cannot be built fails it.
+func (f *Fake) Prepare(dir string, environ func() ([]string, error)) error {
+	env, err := environ()
+	if err != nil {
+		return err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.Prepared = append(f.Prepared, dir)
-	f.Environ = environ
+	f.Environ = env
 	return nil
 }
 
@@ -58,6 +63,9 @@ func (f *Fake) Check(dir string, environ []string) error {
 // newGuard has pointed at temporary homes.
 func environ() []string { return os.Environ() }
 
+// built builds environ for Prepare.
+func built() ([]string, error) { return environ(), nil }
+
 // TreeGuardContract runs the cases every guard meets. newGuard returns the
 // guard, grant and refusal: grant does for dir what only the person can (a
 // Codex trust; nothing for an agent that needs none), and refusal is a text
@@ -68,7 +76,7 @@ func TreeGuardContract(t *testing.T, newGuard func(t *testing.T) (guard TreeGuar
 	t.Run("prepare then check passes", func(t *testing.T) {
 		guard, grant, _ := newGuard(t)
 		dir := t.TempDir()
-		if err := guard.Prepare(dir, environ()); err != nil {
+		if err := guard.Prepare(dir, built); err != nil {
 			t.Fatal(err)
 		}
 		grant(dir)

@@ -14,6 +14,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/core/agent"
+	"github.com/lorem-dev/duolog/internal/core/launch"
 	corelead "github.com/lorem-dev/duolog/internal/core/lead"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -23,9 +24,13 @@ import (
 type Lead interface {
 	// Session reads the session id the agent exports to its shell.
 	Session(environ []string) (id string, ok bool)
-	// Interactive reports whether the session is an interactive one in a
-	// terminal, from its environment and its transcript.
-	Interactive(environ []string, transcript string) bool
+	// RefuseShell says why a shell whose environment is environ cannot be
+	// the lead's, or nil when its environment alone does not rule it out.
+	// Register asks it before it looks for the agent's process.
+	RefuseShell(environ []string) error
+	// RefuseTranscript says why session id, whose transcript is transcript
+	// ("" when none was found), is not an interactive session, or nil.
+	RefuseTranscript(id, transcript string) error
 	// Transcript finds the native transcript of session id under home.
 	Transcript(home, id string) (string, bool)
 	// State reads the model, effort and mode that the transcript records.
@@ -133,15 +138,18 @@ type found struct {
 	observed             corelead.LeadState
 }
 
-// find reads who the session is: its agent and id, the agent process above
-// the shell, its interactivity and what its transcript records.
+// find reads who the session is: its agent and id, whether its shell can be
+// a lead's, the agent process above the shell, whether its transcript shows an
+// interactive session and what that transcript records.
 func find(d Deps, r RegisterRequest) (found, error) {
 	name, id, err := identity(d, r.Agent, r.Environ)
 	if err != nil {
 		return found{}, err
 	}
 	l := d.Agents[name]
-	facts, _ := descriptor(d.Facts, name)
+	if err := l.RefuseShell(r.Environ); err != nil {
+		return found{}, err
+	}
 	pid := d.PID()
 	if pid <= 1 {
 		return found{}, fmt.Errorf("cannot find the %s process that runs this shell; run duolog lead register from the session's own shell", name)
@@ -151,8 +159,8 @@ func find(d Deps, r RegisterRequest) (found, error) {
 		return found{}, err
 	}
 	transcript, _ := l.Transcript(home, id)
-	if !l.Interactive(r.Environ, transcript) {
-		return found{}, fmt.Errorf("only an interactive %s session in a terminal can be the lead", facts.Product)
+	if err := l.RefuseTranscript(id, transcript); err != nil {
+		return found{}, err
 	}
 	s := found{name: name, id: id, transcript: transcript, pid: pid}
 	if transcript != "" {
@@ -273,16 +281,11 @@ func joined(facts []agent.Descriptor, text func(agent.Descriptor) string) []stri
 // agent sets in its tool calls. The session variable is not one (a session
 // without an id is a different error), and neither is an ENTRYPOINT variable,
 // which says how a session was started, not that an agent runs the command.
+// A variable is found as os.Getenv finds it: without case on Windows.
 func marked(environ []string, f agent.Descriptor) bool {
-	for _, kv := range environ {
-		key, value, _ := strings.Cut(kv, "=")
-		if value == "" {
-			continue
-		}
-		for _, m := range f.Markers {
-			if key == m && !slices.Contains(f.SessionEnv, m) && !strings.HasSuffix(m, "_ENTRYPOINT") {
-				return true
-			}
+	for _, m := range f.Markers {
+		if !slices.Contains(f.SessionEnv, m) && !strings.HasSuffix(m, "_ENTRYPOINT") && launch.Getenv(environ, m) != "" {
+			return true
 		}
 	}
 	return false

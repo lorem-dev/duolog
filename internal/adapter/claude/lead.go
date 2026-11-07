@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"errors"
 	"path/filepath"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
@@ -21,6 +22,18 @@ func (Lead) Session(environ []string) (string, bool) {
 func (Lead) Interactive(environ []string, _ string) bool {
 	return trusthome.Getenv(environ, "CLAUDE_CODE_ENTRYPOINT") == "cli"
 }
+
+// RefuseShell refuses a shell that Claude Code in a terminal does not run,
+// from its environment alone.
+func (l Lead) RefuseShell(environ []string) error {
+	if !l.Interactive(environ, "") {
+		return errors.New("only an interactive Claude Code session in a terminal can be the lead")
+	}
+	return nil
+}
+
+// RefuseTranscript refuses nothing: the shell check decides for Claude.
+func (Lead) RefuseTranscript(string, string) error { return nil }
 
 // Transcript finds projects/<folder>/<id>.jsonl under Claude's home, the
 // newest one when several folders hold the id.

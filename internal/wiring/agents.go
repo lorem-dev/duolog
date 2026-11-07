@@ -33,10 +33,16 @@ func doctorAgents() map[string]doctor.Agent {
 	return out
 }
 
+// Lead is what lead register and the hooks ask of an agent's lead session.
+type Lead interface {
+	lead.Lead
+	hook.Lead
+}
+
 // Agent is one registered agent. Later ports add their fields here.
 type Agent struct {
 	Facts  agent.Descriptor
-	Lead   lead.Lead
+	Lead   Lead
 	Events hook.Events
 	// Worker runs this agent's workers.
 	Worker delegate.Worker
@@ -109,7 +115,7 @@ func QuotaDeps(identity IdentitySink) quota.Deps {
 // TreeGuard is what an agent needs of a calibration tree: see
 // calibration.TreeGuard, whose method set it repeats.
 type TreeGuard interface {
-	Prepare(dir string, environ []string) error
+	Prepare(dir string, environ func() ([]string, error)) error
 	Check(dir string, environ []string) error
 }
 

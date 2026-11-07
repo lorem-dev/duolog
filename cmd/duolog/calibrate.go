@@ -23,7 +23,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/store"
-	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
 
@@ -465,16 +464,7 @@ func newCalibratePlanCommand(d *cmdDeps) *cobra.Command {
 		// Quota and billing come from the account gate, with the person's
 		// config, as the cells will run.
 		accounts := newCalibrationAccounts(d, cfg, root)
-		quotaSource := accounts.Quota()
-		quotas := map[string][]calibration.Window{}
-		for _, agent := range wiring.Names() {
-			ws, err := quotaSource.Get(ctx, agent, false)
-			if err != nil {
-				fmt.Fprintf(out, "note: quota of %s unavailable: %v\n", agent, err)
-				continue
-			}
-			quotas[agent] = ws
-		}
+		quotas := planQuotas(ctx, out, cfg, accounts.Quota())
 		budgets, err := accounts.Budgets(ctx)
 		if err != nil {
 			return err

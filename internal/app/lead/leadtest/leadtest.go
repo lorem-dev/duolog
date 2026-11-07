@@ -4,6 +4,7 @@ package leadtest
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,17 +17,27 @@ import (
 
 // Fake is a Lead that records its calls and returns scripted results. A field
 // left empty falls back to a small file format of its own: the session id in
-// FAKE_SESSION_ID, an interactive session when FAKE_INTERACTIVE=1, and the
+// FAKE_SESSION_ID, an interactive shell when FAKE_INTERACTIVE=1, and the
 // transcript at <home>/<id>.jsonl holding a JSON LeadState.
 type Fake struct {
-	ID          string // the session id Session reads
-	IsInteract  bool   // Interactive is true
-	Path        string // the transcript Transcript finds
-	LeadState   corelead.LeadState
-	StateErr    error
-	StateCalls  []string // the transcripts State was asked for
-	InteractArg []string // the transcripts Interactive was asked about
+	ID         string // the session id Session reads
+	IsInteract bool   // RefuseShell passes whatever the environment
+	// ShellErr is RefuseShell's refusal of a shell that is not interactive;
+	// nil refuses with a text of the fake's own.
+	ShellErr error
+	// TranscriptErr is what RefuseTranscript returns.
+	TranscriptErr error
+	Path          string // the transcript Transcript finds
+	LeadState     corelead.LeadState
+	StateErr      error
+	StateCalls    []string // the transcripts State was asked for
+	// Checks are the refusal checks in the order they were asked: "shell",
+	// then "transcript <path>".
+	Checks []string
 }
+
+// errShell is RefuseShell's refusal when ShellErr is nil.
+var errShell = errors.New("not an interactive fake session")
 
 // Lead is the port under test, named here so that an adapter's test need not
 // import the app package.
@@ -45,10 +56,23 @@ func (f *Fake) Session(environ []string) (string, bool) {
 	return id, id != ""
 }
 
-// Interactive returns the scripted answer, or true for FAKE_INTERACTIVE=1.
-func (f *Fake) Interactive(environ []string, transcript string) bool {
-	f.InteractArg = append(f.InteractArg, transcript)
-	return f.IsInteract || slices.Contains(environ, "FAKE_INTERACTIVE=1")
+// RefuseShell passes when IsInteract is set or the environment holds
+// FAKE_INTERACTIVE=1, and refuses with ShellErr otherwise.
+func (f *Fake) RefuseShell(environ []string) error {
+	f.Checks = append(f.Checks, "shell")
+	if f.IsInteract || slices.Contains(environ, "FAKE_INTERACTIVE=1") {
+		return nil
+	}
+	if f.ShellErr != nil {
+		return f.ShellErr
+	}
+	return errShell
+}
+
+// RefuseTranscript returns TranscriptErr.
+func (f *Fake) RefuseTranscript(_, transcript string) error {
+	f.Checks = append(f.Checks, "transcript "+transcript)
+	return f.TranscriptErr
 }
 
 // Transcript returns the scripted path, or <home>/<id>.jsonl when it exists.
@@ -86,7 +110,7 @@ type Case struct {
 	// IDEnv is the variable that carries the session id.
 	IDEnv string
 	// InteractiveEnv is an environment in which the session is interactive
-	// given the transcript the Lead finds.
+	// given the transcript the Lead finds: neither check refuses it.
 	InteractiveEnv []string
 	// Write places a transcript for id under home and returns its path.
 	Write func(t *testing.T, home, id string) string
@@ -95,9 +119,9 @@ type Case struct {
 }
 
 // LeadContract runs the cases that every Lead meets: a session id read from
-// the agent's own variable, a non-interactive environment gives false, a
-// missing transcript gives ("", false), and a transcript gives its model and
-// mode.
+// the agent's own variable, a bare environment with no transcript is refused
+// by one of the checks, a missing transcript gives ("", false), and a
+// transcript gives its model and mode.
 func LeadContract(t *testing.T, newLead func(t *testing.T) Lead, c Case) {
 	t.Helper()
 	t.Run("session id", func(t *testing.T) { sessionID(t, newLead(t), c) })
@@ -135,11 +159,15 @@ func interactive(t *testing.T, l Lead, c Case) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatal(err)
 	}
-	if !l.Interactive(c.InteractiveEnv, path) {
-		t.Error("Interactive = false for an interactive session")
+	if err := l.RefuseShell(c.InteractiveEnv); err != nil {
+		t.Errorf("RefuseShell of an interactive session = %v", err)
 	}
-	if l.Interactive([]string{"PATH=/bin"}, filepath.Join(home, "none.jsonl")) {
-		t.Error("Interactive = true for a bare environment and no transcript")
+	if err := l.RefuseTranscript(contractID, path); err != nil {
+		t.Errorf("RefuseTranscript of an interactive session = %v", err)
+	}
+	shell, transcript := l.RefuseShell([]string{"PATH=/bin"}), l.RefuseTranscript(contractID, filepath.Join(home, "none.jsonl"))
+	if shell == nil && transcript == nil {
+		t.Error("neither check refuses a bare environment and no transcript")
 	}
 }
 

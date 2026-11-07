@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -343,6 +344,31 @@ func minedRun(t *testing.T, stateDir string) *calibration.Run {
 		t.Fatal(err)
 	}
 	return run
+}
+
+// calibrate plan reads no quota of a switched-off agent.
+func TestCalibratePlanSkipsASwitchedOffAgentsQuota(t *testing.T) {
+	root := learningRepo(t, true)
+	if err := os.WriteFile(filepath.Join(root, ".duolog", "config.yaml"), []byte("learning:\n  enabled: true\nagents:\n  codex:\n    enabled: false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fakeQuota(t)
+	var mu sync.Mutex
+	var read []string
+	windows := testDeps(t).Quota.Calibration
+	testDeps(t).Quota.Calibration = func(ctx context.Context, agent string) ([]calibration.Window, error) {
+		mu.Lock()
+		read = append(read, agent)
+		mu.Unlock()
+		return windows(ctx, agent)
+	}
+	minedRun(t, filepath.Join(root, ".duolog"))
+	if out, err := executeBusCommand(t, "calibrate", "plan"); err != nil {
+		t.Fatal(out, err)
+	}
+	if !slices.Equal(read, []string{"claude"}) {
+		t.Fatalf("quota read for %q, want only claude", read)
+	}
 }
 
 func TestCalibratePlanSavesAndApproves(t *testing.T) {

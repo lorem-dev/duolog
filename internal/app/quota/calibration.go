@@ -170,7 +170,8 @@ func (a *Accounts) Observe(ctx context.Context, agent, family string, input, cac
 // Budgets reports each agent's billing through the gate, from the same reads
 // as Quota: the verdict of its worker route, the account and its usable
 // share, its paid spend and tasks in flight, and its paid_runs opt-ins. A
-// failed read is paid, never a cheaper verdict.
+// failed read is paid, never a cheaper verdict. A switched-off agent is not
+// read and has no budget: it runs no step, which delegate refuses.
 func (a *Accounts) Budgets(ctx context.Context) (map[string]budget.BillingBudget, error) {
 	g, err := a.Gate()
 	if err != nil {
@@ -178,6 +179,9 @@ func (a *Accounts) Budgets(ctx context.Context) (map[string]budget.BillingBudget
 	}
 	budgets := map[string]budget.BillingBudget{}
 	for _, agent := range []string{"claude", "codex"} {
+		if a.cfg.AgentSwitchedOff(agent) {
+			continue
+		}
 		r, err := g.Report(ctx, a.worker(agent))
 		if r.Assessment.Agent == "" {
 			return nil, err

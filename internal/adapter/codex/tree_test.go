@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -102,11 +103,13 @@ func TestTreeReadsTheWorkersEnvironment(t *testing.T) {
 }
 
 // Prepare leaves the tree as it is: the hooks are the project's, kept in the
-// slot, and duolog never edits the Codex config.
+// slot, and duolog never edits the Codex config. It builds no worker
+// environment, so one that cannot be built does not fail the tree.
 func TestTreePrepareChangesNothing(t *testing.T) {
 	tempHome(t)
 	dir := t.TempDir()
-	if err := (Tree{}).Prepare(dir, os.Environ()); err != nil {
+	broken := func() ([]string, error) { return nil, errors.New("codex environment broken") }
+	if err := (Tree{}).Prepare(dir, broken); err != nil {
 		t.Fatal(err)
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {

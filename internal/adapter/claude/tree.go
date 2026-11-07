@@ -21,9 +21,13 @@ const gateTimeout = 150
 type Tree struct{}
 
 // Prepare writes duolog's Claude hooks into dir's local settings unless Claude
-// already runs the gate in dir for a worker whose environment is environ.
-func (Tree) Prepare(dir string, environ []string) error {
-	state, err := Trust{}.Hooks(dir, environ)
+// already runs the gate in dir for a worker whose environment environ builds.
+func (Tree) Prepare(dir string, environ func() ([]string, error)) error {
+	env, err := environ()
+	if err != nil {
+		return err
+	}
+	state, err := Trust{}.Hooks(dir, env)
 	if errors.Is(err, agent.ErrNoHome) {
 		// The worker's own settings cannot be read, so they cannot be shown
 		// to run the gate: the tree gets its own, and delegate refuses a cell

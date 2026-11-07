@@ -31,6 +31,11 @@ func gateJSON(t *testing.T) string {
 	return string(hooks)
 }
 
+// env is Prepare's builder of environ.
+func env(environ []string) func() ([]string, error) {
+	return func() ([]string, error) { return environ, nil }
+}
+
 func TestTreeGuardContract(t *testing.T) {
 	calibratetest.TreeGuardContract(t, func(t *testing.T) (calibratetest.TreeGuard, func(string), string) {
 		tempHome(t)
@@ -44,7 +49,7 @@ func TestTreePrepareAddsGateUnlessTheUserHasOne(t *testing.T) {
 	home := tempHome(t)
 	dir := t.TempDir()
 	local := filepath.Join(dir, ".claude", "settings.local.json")
-	if err := (Tree{}).Prepare(dir, os.Environ()); err != nil {
+	if err := (Tree{}).Prepare(dir, env(os.Environ())); err != nil {
 		t.Fatal(err)
 	}
 	if !install.HasGate(local) {
@@ -57,7 +62,7 @@ func TestTreePrepareAddsGateUnlessTheUserHasOne(t *testing.T) {
 	// The person's own Claude settings run the gate: no second copy.
 	other := t.TempDir()
 	writeFile(t, filepath.Join(home, ".claude", "settings.json"), gateJSON(t))
-	if err := (Tree{}).Prepare(other, os.Environ()); err != nil {
+	if err := (Tree{}).Prepare(other, env(os.Environ())); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(other, ".claude", "settings.local.json")); !os.IsNotExist(err) {
@@ -81,7 +86,7 @@ func TestTreeReadsTheWorkersEnvironment(t *testing.T) {
 		t.Error("a tree whose gate is only in the caller's CLAUDE_CONFIG_DIR passed")
 	}
 	dir := t.TempDir()
-	if err := (Tree{}).Prepare(dir, worker); err != nil {
+	if err := (Tree{}).Prepare(dir, env(worker)); err != nil {
 		t.Fatal(err)
 	}
 	if !install.HasGate(filepath.Join(dir, ".claude", "settings.local.json")) {
@@ -109,7 +114,7 @@ func TestTreeCheckRefusesHooksOff(t *testing.T) {
 func TestTreeWithoutHome(t *testing.T) {
 	dir := t.TempDir()
 	environ := []string{"PATH=" + os.Getenv("PATH")}
-	if err := (Tree{}).Prepare(dir, environ); err != nil {
+	if err := (Tree{}).Prepare(dir, env(environ)); err != nil {
 		t.Fatal(err)
 	}
 	if !install.HasGate(filepath.Join(dir, ".claude", "settings.local.json")) {

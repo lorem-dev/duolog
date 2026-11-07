@@ -141,6 +141,13 @@ func (c *Config) AgentRegistered(name string) bool {
 	return ok
 }
 
+// AgentSwitchedOff reports whether the agent is registered and
+// agents.<name>.enabled is false: it runs nothing, and duolog reads neither
+// its quota nor its budget.
+func (c *Config) AgentSwitchedOff(name string) bool {
+	return c.AgentRegistered(name) && !c.AgentEnabled(name)
+}
+
 type Target struct {
 	Agent  string `yaml:"agent" jsonschema_description:"Agent that runs this target; the default depends on the role." jsonschema:"enum=claude,enum=codex"`
 	Model  string `yaml:"model" jsonschema_description:"Model alias from models, or a deliberate gpt- or claude- version pin; defaults by role."`

@@ -8,10 +8,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/app/calibrate/calibratetest"
 	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -557,8 +560,40 @@ type guardFunc struct {
 	check func(dir string, environ []string) error
 }
 
-func (guardFunc) Prepare(string, []string) error             { return nil }
-func (g guardFunc) Check(dir string, environ []string) error { return g.check(dir, environ) }
+func (guardFunc) Prepare(string, func() ([]string, error)) error { return nil }
+func (g guardFunc) Check(dir string, environ []string) error     { return g.check(dir, environ) }
+
+// The tree preparer builds only the environments its guards ask for: an
+// agent whose guard writes nothing (Codex) is not built, so a Build failure
+// of that agent does not fail the tree, as develop prepared only Claude's.
+// A failure of an agent whose guard builds still fails it.
+func TestTreePreparerBuildsOnlyWhatAGuardAsksFor(t *testing.T) {
+	cfg := testConfig(t)
+	broken := errors.New("codex environment broken")
+	var built []string
+	claude := &calibratetest.Fake{}
+	d := Deps{
+		Environ: func(cfg *config.Config, agent string, environ []string) ([]string, error) {
+			built = append(built, agent)
+			if agent == "codex" {
+				return nil, broken
+			}
+			return launchtest.Environ(cfg, agent, environ)
+		},
+		Trees: Trees{"claude": claude, "codex": guardFunc{}},
+	}
+	dir := t.TempDir()
+	if err := d.TreePreparer(cfg)(dir); err != nil {
+		t.Fatalf("prepare with a broken codex environment = %v", err)
+	}
+	if len(claude.Prepared) != 1 || claude.Prepared[0] != dir || !slices.Equal(built, []string{"claude"}) {
+		t.Fatalf("prepared %q, built %q; want claude's guard on %s and only claude built", claude.Prepared, built, dir)
+	}
+	d.Trees = Trees{"codex": &calibratetest.Fake{}}
+	if err := d.TreePreparer(cfg)(dir); !errors.Is(err, broken) {
+		t.Fatalf("prepare by a guard whose environment fails = %v, want %v", err, broken)
+	}
+}
 
 // A tree gets what its guards prepare in .claude/settings.local.json outside
 // the tree's commit; a parent's own copy of that personal file is not

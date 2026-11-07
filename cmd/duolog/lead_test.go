@@ -146,6 +146,28 @@ func TestLeadRegisterCodexUsesRolloutMode(t *testing.T) {
 	}
 }
 
+// A Claude shell that is not the terminal UI is refused before duolog looks
+// for its process, and a Codex thread without a terminal rollout with the
+// thread's id, in develop's words.
+func TestLeadRegisterRefusesNonInteractiveInDevelopsWords(t *testing.T) {
+	leadSession(t)
+	t.Setenv("CLAUDE_CODE_SESSION_ID", claudeLeadID)
+	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
+	testDeps(t).Lead.PID = func() int { return 0 }
+	const claude = "only an interactive Claude Code session in a terminal can be the lead"
+	if _, err := executeBusCommand(t, "lead", "register"); err == nil || err.Error() != claude {
+		t.Fatalf("claude -p shell: %v, want %q", err, claude)
+	}
+
+	leadSession(t)
+	t.Setenv("CODEX_HOME", filepath.Join(os.Getenv("HOME"), "codex-home"))
+	t.Setenv("CODEX_THREAD_ID", codexLeadID)
+	const codex = "cannot find the transcript of interactive Codex thread " + codexLeadID + " under CODEX_HOME/sessions; only an interactive Codex session can be the lead"
+	if _, err := executeBusCommand(t, "lead", "register"); err == nil || err.Error() != codex {
+		t.Fatalf("codex thread with no rollout: %v, want %q", err, codex)
+	}
+}
+
 func TestLeadRegisterRefusedForWorker(t *testing.T) {
 	root := leadSession(t)
 	claudeTranscript(t, os.Getenv("HOME"), "acceptEdits")

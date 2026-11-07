@@ -12,8 +12,8 @@ type Tree struct{}
 
 // Prepare does nothing: Codex reads the project's .codex/hooks.json, which the
 // calibration tree keeps in its slot for the person to approve once, and duolog
-// never edits the Codex config.
-func (Tree) Prepare(string, []string) error { return nil }
+// never edits the Codex config. It builds no worker environment.
+func (Tree) Prepare(string, func() ([]string, error)) error { return nil }
 
 // Check says whether Codex trusts dir and has approved its hooks; duolog only
 // reads the Codex config, and the person grants both in Codex. environ is the

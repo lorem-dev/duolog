@@ -39,8 +39,10 @@ type Deps struct {
 // those it selects, not duolog's own.
 type TreeGuard interface {
 	// Prepare gives dir what the agent needs from duolog, such as the gate in
-	// its settings when nothing else gives it one there.
-	Prepare(dir string, environ []string) error
+	// its settings when nothing else gives it one there. environ builds the
+	// environment; a guard that writes nothing does not call it, so that
+	// agent's environment is not built and cannot fail the tree.
+	Prepare(dir string, environ func() ([]string, error)) error
 	// Check says what the agent still lacks in dir: the gate, or the trust
 	// only the person can grant. It returns nil when a worker may run there.
 	Check(dir string, environ []string) error
@@ -51,14 +53,12 @@ type Trees map[string]TreeGuard
 
 // TreePreparer returns the function that prepares a tree for every agent of
 // d.Trees, in name order, each with the environment its worker gets under cfg
-// (WorkerEnviron). No guards prepare nothing.
+// (WorkerEnviron), built only when its guard asks for it: today only Claude's
+// guard writes anything. No guards prepare nothing.
 func (d Deps) TreePreparer(cfg *config.Config) func(dir string) error {
 	return func(dir string) error {
 		for _, name := range slices.Sorted(maps.Keys(d.Trees)) {
-			environ, err := d.WorkerEnviron(cfg, name)
-			if err != nil {
-				return err
-			}
+			environ := func() ([]string, error) { return d.WorkerEnviron(cfg, name) }
 			if err := d.Trees[name].Prepare(dir, environ); err != nil {
 				return err
 			}

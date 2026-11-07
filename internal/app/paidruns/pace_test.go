@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -135,6 +136,22 @@ func TestPaceBalanceReadsBothAgentsAndKeepsState(t *testing.T) {
 	if b.Pace["codex"].Subscription || !b.Pace["claude"].Subscription {
 		t.Errorf("pace after a failed read = %+v", b.Pace)
 	}
+
+	// A switched-off agent is neither built nor read, and has no pace.
+	on, off := true, false
+	cfg.Agents = map[string]config.AgentSwitch{"claude": {Enabled: &on}, "codex": {Enabled: &off}}
+	var touched []string
+	b = PaceBalance(context.Background(), cfg, func(ctx context.Context, p workerenv.Process) (quota.Snapshot, error) {
+		touched = append(touched, "read "+p.Agent)
+		return read(ctx, p)
+	}, func(agent string) (workerenv.Process, error) {
+		touched = append(touched, "build "+agent)
+		return build(agent)
+	}, dir, now)
+	if _, ok := b.Pace["codex"]; ok || !b.Pace["claude"].Subscription || !slices.Equal(touched, []string{"build claude", "read claude"}) {
+		t.Errorf("pace with codex off = %+v after %q, want only claude built and read", b.Pace, touched)
+	}
+	cfg.Agents = nil
 
 	// Off reads nothing.
 	cfg.Routing.Balance = "off"
