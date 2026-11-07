@@ -203,6 +203,7 @@ func newHarness(t *testing.T) *harness {
 		Canonical:   filepath.Clean,
 		Build:       launchtest.Build,
 		DroppedKeys: launchtest.DroppedKeys,
+		Names:       []string{"claude", "codex"},
 		Agents:      testAgents(),
 	}
 	// A duolog on the worker PATH, as where it is installed; set after Deps

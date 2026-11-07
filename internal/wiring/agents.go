@@ -137,10 +137,11 @@ func InstallDeps() install.Deps {
 	return d
 }
 
-// HookEnv fills the Events and Lead of env.Agent, and the Caps of every
-// registered agent. An agent that is not registered gets no Events or Lead,
+// HookEnv fills the Events and Lead of env.Agent, and the names and Caps of
+// every registered agent. An agent that is not registered gets no Events or Lead,
 // and every hook of it does nothing.
 func HookEnv(env hook.Env) hook.Env {
+	env.Agents = Names()
 	if a, ok := Find(env.Agent); ok {
 		env.Events, env.Lead = a.Events, a.Lead
 	}

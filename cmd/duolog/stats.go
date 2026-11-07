@@ -10,6 +10,7 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"
+	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
 
@@ -61,7 +62,7 @@ func statsClasses(cmd *cobra.Command, root string) error {
 	} else if err != nil {
 		return err
 	}
-	cfg, err := configfile.Load(root)
+	cfg, err := configfile.Load(root, wiring.ConfigOptions())
 	if err != nil {
 		return err
 	}

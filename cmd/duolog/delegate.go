@@ -10,6 +10,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/store"
+	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
 
@@ -40,7 +41,7 @@ func newDelegateCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cfg, err := configfile.Load(root)
+		cfg, err := configfile.Load(root, wiring.ConfigOptions())
 		if err != nil {
 			return err
 		}

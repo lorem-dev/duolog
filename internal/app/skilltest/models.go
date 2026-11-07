@@ -18,10 +18,11 @@ func manualOnly(cfg *config.Config, alias string) bool {
 // DefaultTargets takes the price endpoints of each available agent's catalog,
 // leaving out manual-only models. Config has prices rather than capability
 // ranks; the upper endpoint is the strongest tier. Explicit model lists can
-// choose intermediate tiers.
-func DefaultTargets(cfg *config.Config, unavailable map[string]bool) []config.Target {
+// choose intermediate tiers. agents are the registered agents' names, in
+// registry order.
+func DefaultTargets(cfg *config.Config, agents []string, unavailable map[string]bool) []config.Target {
 	var targets []config.Target
-	for _, agent := range []string{"claude", "codex"} {
+	for _, agent := range agents {
 		if unavailable[agent] {
 			continue
 		}
@@ -60,8 +61,8 @@ func DefaultTargets(cfg *config.Config, unavailable map[string]bool) []config.Ta
 var safeModel = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
 // ParseTargets reads agent/model/effort runs. A manual-only model needs
-// allowManual, as for delegation.
-func ParseTargets(cfg *config.Config, text string, allowManual bool) ([]config.Target, error) {
+// allowManual, as for delegation. agents are the registered agents' names.
+func ParseTargets(cfg *config.Config, agents []string, text string, allowManual bool) ([]config.Target, error) {
 	var targets []config.Target
 	for _, entry := range strings.Split(text, ",") {
 		parts := strings.Split(strings.TrimSpace(entry), "/")
@@ -69,7 +70,7 @@ func ParseTargets(cfg *config.Config, text string, allowManual bool) ([]config.T
 			return nil, fmt.Errorf("model must be agent/model/effort: %q", entry)
 		}
 		t := config.Target{Agent: parts[0], Model: parts[1], Effort: parts[2]}
-		if t.Agent != "claude" && t.Agent != "codex" {
+		if !slices.Contains(agents, t.Agent) {
 			return nil, fmt.Errorf("unknown agent %q", t.Agent)
 		}
 		if !slices.Contains([]string{"low", "medium", "high", "xhigh", "max", "ultra"}, t.Effort) {

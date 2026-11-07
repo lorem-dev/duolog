@@ -10,6 +10,7 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/app/sync"
 	"github.com/lorem-dev/duolog/internal/store"
+	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
 
@@ -34,7 +35,7 @@ func newSyncCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cfg, err := configfile.Load(root)
+		cfg, err := configfile.Load(root, wiring.ConfigOptions())
 		if err != nil {
 			return err
 		}
@@ -75,7 +76,7 @@ func newSyncCommand(d *cmdDeps) *cobra.Command {
 		return nil
 	}}
 	f := cmd.Flags()
-	f.StringVar(&o.From, "from", "", "Side that holds the sources, claude or codex; needed on the first run")
+	f.StringVar(&o.From, "from", "", "Side that holds the sources, "+agentChoice()+"; needed on the first run")
 	f.BoolVar(&o.AgentsOnly, "agents-only", false, "Sync agent files only")
 	f.BoolVar(&o.SkillsOnly, "skills-only", false, "Sync skills only")
 	f.BoolVar(&o.DryRun, "dry-run", false, "Show what would change and write nothing")

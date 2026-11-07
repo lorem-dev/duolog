@@ -177,7 +177,7 @@ func resetAt(t, resetInMin int64) int64 {
 func quotaEvents(q record.QuotaObservation, windows []telemetry.Window, now time.Time) []telemetry.Quota {
 	base := telemetry.Quota{Agent: q.Agent, Src: q.Source, Plan: q.Plan, Epoch: q.Epoch, Overage: q.Overage, SpendControl: q.SpendControl}
 	fits := func(e telemetry.Quota) bool {
-		_, err := telemetry.Encode(e, telemetry.Names{}, now)
+		_, err := telemetry.Encode(e, registryNames(), now)
 		return err == nil
 	}
 	whole := base

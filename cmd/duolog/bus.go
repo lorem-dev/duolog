@@ -8,6 +8,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/store"
+	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
 
@@ -16,7 +17,7 @@ func openBus() (*bus.Bus, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := configfile.Load(root)
+	cfg, err := configfile.Load(root, wiring.ConfigOptions())
 	if err != nil {
 		return nil, err
 	}

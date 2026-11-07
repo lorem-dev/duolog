@@ -28,6 +28,7 @@ import (
 // DelegateDeps fills every field of delegate.Deps with the real function.
 func DelegateDeps() delegate.Deps {
 	return delegate.Deps{
+		Names:       Names(),
 		Agents:      delegateAgents(),
 		Lead:        Leads(),
 		OAuth:       mcpauth.New(),
@@ -154,6 +155,7 @@ func DoctorDeps(d delegate.Deps) doctor.Deps {
 		GateBinary:   workerenv.GateBinary,
 		Build:        workerenv.Build,
 		DroppedKeys:  workerenv.DroppedKeys,
+		Names:        Names(),
 		Agents:       doctorAgents(),
 		ClaudeFolder: claude.ClaudeFolder,
 		Probes:       probes,

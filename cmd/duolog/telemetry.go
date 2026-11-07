@@ -20,6 +20,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/telemetry"
+	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v3"
 )
@@ -27,9 +28,15 @@ import (
 // errWorkerTelemetry refuses a worker before any file is read.
 var errWorkerTelemetry = errors.New("only the person may run duolog telemetry; a worker cannot")
 
-// modelMarkers are the variables Claude Code and Codex set in the processes
+// modelMarkers are the variables the registered agents set in the processes
 // their tool calls start. Any of them means a model may read the output.
-var modelMarkers = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED", "CODEX_THREAD_ID"}
+var modelMarkers = func() []string {
+	var all []string
+	for _, d := range wiring.Descriptors() {
+		all = append(all, d.Markers...)
+	}
+	return all
+}()
 
 // newTelemetryCommand holds the person's controls of local telemetry. Every
 // subcommand refuses a worker before it reads anything; a lead model's call
@@ -61,7 +68,7 @@ func openPersonStore() (*telemetry.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := configfile.Load(root)
+	cfg, err := configfile.Load(root, wiring.ConfigOptions())
 	if err != nil {
 		return nil, err
 	}

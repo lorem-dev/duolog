@@ -15,8 +15,9 @@ import (
 )
 
 // Line uses aliases even when the configuration deliberately pins a version.
-// lead identifies the session receiving the SessionStart hint.
-func Line(cfg *config.Config, lead string, reg *session.Registry) string {
+// lead identifies the session receiving the SessionStart hint. agents are the
+// registered agents' names, in registry order.
+func Line(cfg *config.Config, agents []string, lead string, reg *session.Registry) string {
 	parts := []string{"duolog"}
 	if lead != "" {
 		parts = append(parts, "lead="+lead)
@@ -26,7 +27,7 @@ func Line(cfg *config.Config, lead string, reg *session.Registry) string {
 		if err != nil {
 			parts = append(parts, "availability=unknown")
 		} else {
-			for _, agent := range []string{"claude", "codex"} {
+			for _, agent := range agents {
 				if unavailable[agent] {
 					parts = append(parts, agent+"=unavailable")
 				}
@@ -90,19 +91,34 @@ func CapsNote(lead, other caps.Inventory, otherHasDuolog bool) string {
 }
 
 // StartNote uses persisted capability lists only; SessionStart never scans.
-// agents holds each registered agent's Caps by name.
-func StartNote(root string, lead session.Lead, agents map[string]Caps) string {
-	other := "codex"
-	if lead.Agent == "codex" {
-		other = "claude"
+// names are the registered agents' names, in registry order; the others are
+// every one but the lead's. With several, the count adds what each lacks and
+// is unknown when any list is. agents holds each registered agent's Caps by
+// name.
+func StartNote(root string, names []string, lead session.Lead, agents map[string]Caps) string {
+	mine := Cached(agents, lead.Agent, root)
+	total, unknown := 0, mine.Unknown
+	var missing []string
+	for _, other := range names {
+		if other == lead.Agent {
+			continue
+		}
+		theirs := Cached(agents, other, root)
+		if theirs.Unknown {
+			unknown = true
+		} else if !mine.Unknown {
+			total += len(caps.Diff(mine, theirs))
+		}
+		if !HasDuolog(agents, other, root) {
+			missing = append(missing, other)
+		}
 	}
-	mine, theirs := Cached(agents, lead.Agent, root), Cached(agents, other, root)
 	count := "unknown"
-	if !mine.Unknown && !theirs.Unknown {
-		count = fmt.Sprint(len(caps.Diff(mine, theirs)))
+	if !unknown {
+		count = fmt.Sprint(total)
 	}
 	note := "; caps=" + count
-	if !HasDuolog(agents, other, root) {
+	for _, other := range missing {
 		note += "; " + other + " has no duolog hooks: sandbox only"
 	}
 	if cfg, err := configfile.Load(root); err == nil && cfg.Coauthors.Enabled {

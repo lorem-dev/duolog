@@ -47,10 +47,12 @@ type Env struct {
 	Root, Agent string
 	Events      Events
 	Lead        Lead
-	WorkRoot    string
-	Input       []byte
-	Environ     []string
-	Stderr      io.Writer
+	// Agents are the registered agents' names, in registry order.
+	Agents   []string
+	WorkRoot string
+	Input    []byte
+	Environ  []string
+	Stderr   io.Writer
 	// StartedAt is captured by the command before it reads hook stdin.
 	// Embedded callers may omit it; the hook then captures its own start time.
 	StartedAt time.Time
@@ -245,7 +247,7 @@ func deliver(ctx context.Context, e Env, event string, register, includeRoster b
 			return Output{}
 		}
 		if includeRoster {
-			data = append([]byte(roster.Line(s.cfg, s.lead.ID, s.reg)+roster.StartNote(e.Root, s.lead, e.Caps)+roster.LearningNote(s.cfg)+"\n"), data...)
+			data = append([]byte(roster.Line(s.cfg, e.Agents, s.lead.ID, s.reg)+roster.StartNote(e.Root, e.Agents, s.lead, e.Caps)+roster.LearningNote(s.cfg)+"\n"), data...)
 		}
 	} else {
 		data = configLine(event, err)

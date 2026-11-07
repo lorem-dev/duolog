@@ -69,7 +69,7 @@ func variants(d Deps, cfg *config.Config, role string, opts Options) ([]corelaun
 	} else if spec, ok := cfg.Roles[role]; ok {
 		targets = []config.Target{spec.Use, spec.Fallback}
 		// A role's derived fallback runs the other agent.
-		for _, agent := range []string{"claude", "codex"} {
+		for _, agent := range d.Names {
 			targets = append(targets, config.Target{Agent: agent})
 		}
 	}

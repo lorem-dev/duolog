@@ -30,7 +30,7 @@ func workerModeFindings(d Deps, cfg *config.Config, root string) []Finding {
 		sort.Strings(names)
 		for _, name := range names {
 			e := entries[name]
-			for _, agent := range []string{"claude", "codex"} {
+			for _, agent := range d.Names {
 				native, extras, looser, applies := describeWorkerMode(agent, e)
 				if native == "" {
 					continue

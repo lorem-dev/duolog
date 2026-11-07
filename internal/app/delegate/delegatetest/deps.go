@@ -68,6 +68,7 @@ func (f *Fake) Deps() delegate.Deps {
 		agents[name] = a
 	}
 	return delegate.Deps{
+		Names:       []string{"claude", "codex"},
 		Agents:      agents,
 		RunLogin:    declineLogins,
 		Lead:        map[string]leadio.Lead{"claude": &leadtest.Fake{}, "codex": &leadtest.Fake{}},

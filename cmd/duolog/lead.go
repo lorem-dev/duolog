@@ -52,6 +52,6 @@ func newLeadRegisterCommand(d *cmdDeps) *cobra.Command {
 			return err
 		},
 	}
-	cmd.Flags().StringVar(&agentFlag, "agent", "", "The agent of this session, claude or codex, when both are set in the environment")
+	cmd.Flags().StringVar(&agentFlag, "agent", "", "The agent of this session, "+agentChoice()+", when both are set in the environment")
 	return cmd
 }

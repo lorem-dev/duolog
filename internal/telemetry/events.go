@@ -69,10 +69,11 @@ func validID(s string) bool {
 	return true
 }
 
-// Names are the configured role and class names; any other name is written
-// as other.
+// Names are the configured role and class names, the registered agents and the
+// model families of their descriptors; any other name is written as other.
 type Names struct {
-	Roles, Classes []string
+	Roles, Classes   []string
+	Agents, Families []string
 }
 
 // Event is one of the record types below.

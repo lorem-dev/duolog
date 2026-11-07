@@ -43,7 +43,7 @@ func newInstallCommand(d *cmdDeps) *cobra.Command {
 		return nil
 	}}
 	cmd.Flags().StringVar(&scope, "scope", "project", "Where to install: project or user")
-	cmd.Flags().StringVar(&agent, "agent", "both", "Which agent: claude, codex or both")
+	cmd.Flags().StringVar(&agent, "agent", "both", agentFlagHelp("both"))
 	return cmd
 }
 
@@ -57,6 +57,6 @@ func newUninstallCommand(d *cmdDeps) *cobra.Command {
 		return d.Install.Remove(o)
 	}}
 	cmd.Flags().StringVar(&scope, "scope", "project", "Where to uninstall: project or user")
-	cmd.Flags().StringVar(&agent, "agent", "both", "Which agent: claude, codex or both")
+	cmd.Flags().StringVar(&agent, "agent", "both", agentFlagHelp("both"))
 	return cmd
 }

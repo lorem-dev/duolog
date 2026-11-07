@@ -21,10 +21,10 @@ const (
 )
 
 // Closed sets. Callers map their own values (model names to families, quota
-// window names to kinds) before Encode; anything not listed is other.
+// window names to kinds) before Encode; anything not listed is other. The set
+// of agents and the set of families come from the registered agents' descriptors
+// through Names.
 var (
-	agents      = []string{"claude", "codex", other}
-	families    = []string{"fable", "opus", "sonnet", "haiku", "astra", "sol", "terra", "luna", "all", other} // all: a window for every model
 	efforts     = []string{"low", "medium", "high", "xhigh", "max", "ultra", other}
 	placements  = []string{"worker", "peer", "self", "inlead", other}
 	outcomes    = []string{"done", "failed", "infra", "lead", "interrupted", "needs", other}
@@ -84,8 +84,8 @@ func (r Run) clean(stamp Common, names Names) (any, error) {
 	r.Common, err = common(stamp, "run", r.Common)
 	r.Role = configured(r.Role, names.Roles)
 	r.Class = configured(r.Class, names.Classes)
-	r.Agent = closed(r.Agent, agents)
-	r.Family = closed(r.Family, families)
+	r.Agent = closed(r.Agent, names.Agents)
+	r.Family = closed(r.Family, names.Families)
 	r.Effort = closed(r.Effort, efforts)
 	r.Placement = closed(r.Placement, placements)
 	r.Outcome = closed(r.Outcome, outcomes)
@@ -102,9 +102,9 @@ func (r Run) clean(stamp Common, names Names) (any, error) {
 	return r, err
 }
 
-func (w Window) clean() (Window, error) {
+func (w Window) clean(names Names) (Window, error) {
 	w.Kind = closed(w.Kind, windowKinds)
-	w.Family = closed(w.Family, families)
+	w.Family = closed(w.Family, names.Families)
 	w.Status = closed(w.Status, statuses)
 	return w, errors.Join(
 		bounded("len_min", w.LenMin, 1, maxInt31),
@@ -112,27 +112,27 @@ func (w Window) clean() (Window, error) {
 		seconds("reset_in_min", w.ResetInMin))
 }
 
-func (q Quota) clean(stamp Common, _ Names) (any, error) {
+func (q Quota) clean(stamp Common, names Names) (any, error) {
 	if len(q.Windows) > maxItems {
 		return nil, errLineTooLong
 	}
 	var err error
 	q.Common, err = common(stamp, "quota", q.Common)
-	q.Agent = closed(q.Agent, agents)
+	q.Agent = closed(q.Agent, names.Agents)
 	q.Src = closed(q.Src, sources)
 	q.Plan = closed(q.Plan, plans)
 	windows := make([]Window, len(q.Windows))
 	for i, w := range q.Windows {
 		var werr error
-		windows[i], werr = w.clean()
+		windows[i], werr = w.clean(names)
 		err = errors.Join(err, werr)
 	}
 	q.Windows = windows
 	return q, errors.Join(err, tokens("epoch", q.Epoch))
 }
 
-func (t Target) clean() Target {
-	return Target{Agent: closed(t.Agent, agents), Family: closed(t.Family, families), Effort: closed(t.Effort, efforts)}
+func (t Target) clean(names Names) Target {
+	return Target{Agent: closed(t.Agent, names.Agents), Family: closed(t.Family, names.Families), Effort: closed(t.Effort, efforts)}
 }
 
 func (r Route) clean(stamp Common, names Names) (any, error) {
@@ -145,11 +145,11 @@ func (r Route) clean(stamp Common, names Names) (any, error) {
 	r.Class = configured(r.Class, names.Classes)
 	candidates := make([]Target, len(r.Candidates))
 	for i, t := range r.Candidates {
-		candidates[i] = t.clean()
+		candidates[i] = t.clean(names)
 	}
 	r.Candidates = candidates
-	r.Chosen = r.Chosen.clean()
-	r.Incumbent = r.Incumbent.clean()
+	r.Chosen = r.Chosen.clean(names)
+	r.Incumbent = r.Incumbent.clean(names)
 	r.Rule = closed(r.Rule, rules)
 	// The comparison also refuses NaN.
 	if !(r.ScoreMin >= -maxScore && r.ScoreMin <= maxScore) {
@@ -168,19 +168,19 @@ func (g Gate) clean(stamp Common, _ Names) (any, error) {
 	return g, errors.Join(err, seconds("wait_secs", g.WaitSecs))
 }
 
-func (p Peer) clean(stamp Common, _ Names) (any, error) {
+func (p Peer) clean(stamp Common, names Names) (any, error) {
 	var err error
 	p.Common, err = common(stamp, "peer", p.Common)
 	p.Op = closed(p.Op, peerOps)
-	p.Agent = closed(p.Agent, agents)
+	p.Agent = closed(p.Agent, names.Agents)
 	p.Outcome = closed(p.Outcome, outcomes)
 	return p, errors.Join(err, seconds("secs", p.Secs))
 }
 
-func (r Reset) clean(stamp Common, _ Names) (any, error) {
+func (r Reset) clean(stamp Common, names Names) (any, error) {
 	var err error
 	r.Common, err = common(stamp, "reset", r.Common)
-	r.Agent = closed(r.Agent, agents)
+	r.Agent = closed(r.Agent, names.Agents)
 	r.Reason = closed(r.Reason, resets)
 	return r, err
 }

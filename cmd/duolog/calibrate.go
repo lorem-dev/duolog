@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/app/calibrate"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/core/budget"
@@ -23,6 +22,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/store"
+	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
 
@@ -64,7 +64,7 @@ func newCalibrateSurveyCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cfg, err := configfile.Load(root)
+		cfg, err := loadConfig(root)
 		if err != nil {
 			return err
 		}
@@ -138,7 +138,7 @@ func newCalibrateClassesCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cfg, err := configfile.Load(root)
+		cfg, err := loadConfig(root)
 		if err != nil {
 			return err
 		}
@@ -231,7 +231,7 @@ func newCalibrateMineCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cfg, err := configfile.Load(root)
+		cfg, err := loadConfig(root)
 		if err != nil {
 			return err
 		}
@@ -382,7 +382,7 @@ func newCalibratePlanCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cfg, err := configfile.Load(root)
+		cfg, err := loadConfig(root)
 		if err != nil {
 			return err
 		}
@@ -466,7 +466,7 @@ func newCalibratePlanCommand(d *cmdDeps) *cobra.Command {
 		accounts := newCalibrationAccounts(d, cfg, root)
 		quotaSource := accounts.Quota()
 		quotas := map[string][]calibration.Window{}
-		for _, agent := range []string{"claude", "codex"} {
+		for _, agent := range wiring.Names() {
 			ws, err := quotaSource.Get(ctx, agent, false)
 			if err != nil {
 				fmt.Fprintf(out, "note: quota of %s unavailable: %v\n", agent, err)
@@ -612,7 +612,7 @@ func withCalibrationRunner(d *cmdDeps, cmd *cobra.Command, lead string, f func(*
 	if err != nil {
 		return err
 	}
-	cfg, err := configfile.Load(root)
+	cfg, err := loadConfig(root)
 	if err != nil {
 		return err
 	}
@@ -796,7 +796,7 @@ func newCalibrateStatusCommand() *cobra.Command {
 			return err
 		}
 		// A config that does not load has nothing to note; the run is shown.
-		if cfg, err := configfile.Load(root); err == nil {
+		if cfg, err := loadConfig(root); err == nil {
 			for _, note := range cfg.Calibration.Ignored {
 				if _, err := fmt.Fprintf(out, "note: %s\n", note); err != nil {
 					return err
@@ -813,7 +813,7 @@ func newCalibrateJudgeCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cfg, err := configfile.Load(root)
+		cfg, err := loadConfig(root)
 		if err != nil {
 			return err
 		}
@@ -1012,7 +1012,7 @@ func newCalibrateProposeCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cfg, err := configfile.Load(root)
+		cfg, err := loadConfig(root)
 		if err != nil {
 			return err
 		}

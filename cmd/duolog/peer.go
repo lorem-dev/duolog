@@ -16,6 +16,7 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/peer"
+	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/spf13/cobra"
 )
@@ -30,7 +31,7 @@ func peerContext(d *cmdDeps, cmd *cobra.Command, lead string, allowManual bool, 
 	if err != nil {
 		return nil, nil, err
 	}
-	cfg, err := configfile.Load(root)
+	cfg, err := configfile.Load(root, wiring.ConfigOptions())
 	if err != nil {
 		return nil, nil, err
 	}

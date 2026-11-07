@@ -28,6 +28,7 @@ import (
 	corerun "github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/usage"
 	"github.com/lorem-dev/duolog/internal/store"
+	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v3"
@@ -79,11 +80,11 @@ func newSkillCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		plan, err := skilltest.ReadPlan(strings.NewReader(string(data)))
+		plan, err := skilltest.ReadPlan(strings.NewReader(string(data)), wiring.Names())
 		if err != nil {
 			return fmt.Errorf("%s: %w", planPath, err)
 		}
-		cfg, err := configfile.Load(root)
+		cfg, err := configfile.Load(root, wiring.ConfigOptions())
 		if err != nil {
 			return err
 		}
@@ -99,14 +100,14 @@ func newSkillCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		for _, agent := range []string{"claude", "codex"} {
+		for _, agent := range wiring.Names() {
 			if _, err := exec.LookPath(agent); err != nil {
 				unavailable[agent] = true
 			}
 		}
-		targets := skilltest.DefaultTargets(cfg, unavailable)
+		targets := skilltest.DefaultTargets(cfg, wiring.Names(), unavailable)
 		if modelList != "" {
-			targets, err = skilltest.ParseTargets(cfg, modelList, allowManual)
+			targets, err = skilltest.ParseTargets(cfg, wiring.Names(), modelList, allowManual)
 			if err != nil {
 				return err
 			}

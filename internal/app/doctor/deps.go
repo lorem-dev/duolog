@@ -26,6 +26,9 @@ type Deps struct {
 	// DroppedKeys lists the route names an agent's workers no longer get:
 	// workerenv.DroppedKeys.
 	DroppedKeys launch.DroppedKeys
+	// Names lists the registered agents in registry order; doctor loops over
+	// them where it reports each agent.
+	Names []string
 	// Agents holds each registered agent's ports by name.
 	Agents map[string]Agent
 	// ClaudeFolder reports whether Claude Code trusts the folder root, from

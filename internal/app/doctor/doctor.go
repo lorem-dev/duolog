@@ -117,7 +117,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 	var baseline map[string]string
 	_ = json.Unmarshal([]byte(FixtureVersions), &baseline)
 	available := map[string]bool{}
-	for _, agent := range []string{"claude", "codex"} {
+	for _, agent := range d.Names {
 		if !d.Available(agent) {
 			add("warning", agent+" binary missing")
 			continue
@@ -149,7 +149,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 	// values. An explicit list replaces the default, so the example keeps the
 	// agent's paid env, and its cap when it has one.
 	dropped := d.DroppedKeys(cfg, os.Environ())
-	for _, agent := range []string{"claude", "codex"} {
+	for _, agent := range d.Names {
 		paid := cfg.PaidRuns.Agent(agent)
 		limit := "5"
 		if paid.DailyCapUSD > 0 {
@@ -178,7 +178,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 		if err != nil {
 			add("warning", "availability: "+err.Error())
 		} else {
-			for _, agent := range []string{"claude", "codex"} {
+			for _, agent := range d.Names {
 				if unavailable[agent] {
 					add("warning", agent+"=unavailable")
 				}
@@ -200,7 +200,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 		}
 	}
 	if opts.Probe {
-		for _, agent := range []string{"claude", "codex"} {
+		for _, agent := range d.Names {
 			if !available[agent] {
 				continue
 			}
@@ -243,7 +243,7 @@ func billing(ctx context.Context, d Deps, cfg *config.Config, root string, avail
 	}
 	// The account's lines come once, from the first worker report.
 	var account []string
-	for _, agent := range []string{"claude", "codex"} {
+	for _, agent := range d.Names {
 		if !available[agent] {
 			continue
 		}
@@ -295,31 +295,48 @@ func billing(ctx context.Context, d Deps, cfg *config.Config, root string, avail
 // bridgeLine names the MCP servers each agent could hand to a worker of the
 // other, and whether bridging is on. Names only: no value is read out. Both
 // the servers and the worker's own config are read from duolog's environment.
+// With several agents, a server is lendable when any other agent accepts it.
 func bridgeLine(d Deps, cfg *config.Config, root string, available map[string]bool) string {
 	state := "off (capabilities.on_missing.mcp: " + cfg.Capabilities.OnMissing.MCP + ")"
 	if cfg.Capabilities.OnMissing.MCP == caps.ActionBridge {
 		state = "on"
 	}
 	parts := []string{"MCP bridge " + state}
-	for _, agent := range []string{"claude", "codex"} {
+	for _, agent := range d.Names {
 		if !available[agent] {
 			continue
 		}
-		other := "codex"
-		if agent == "codex" {
-			other = "claude"
-		}
-		var ok []string
-		if from, to := d.Agents[agent].Caps, d.Agents[other].Caps; from != nil && to != nil {
-			ok, _ = caps.Lendable(from.Servers(root, os.Environ()), func(s caps.Server) string { return to.Refusal(root, s, os.Environ()) })
-		}
-		names := "none"
+		ok := d.lendable(agent, root)
+		lend := "none"
 		if len(ok) > 0 {
-			names = strings.Join(ok, ", ")
+			lend = strings.Join(ok, ", ")
 		}
-		parts = append(parts, agent+" can lend: "+names)
+		parts = append(parts, agent+" can lend: "+lend)
 	}
 	return strings.Join(parts, "; ")
+}
+
+// lendable names the MCP servers of agent that some other registered agent
+// accepts; an agent without Caps lends none.
+func (d Deps) lendable(agent, root string) []string {
+	from := d.Agents[agent].Caps
+	if from == nil {
+		return nil
+	}
+	ok, _ := caps.Lendable(from.Servers(root, os.Environ()), func(s caps.Server) string {
+		reason := "no other agent"
+		for _, other := range d.Names {
+			to := d.Agents[other].Caps
+			if other == agent || to == nil {
+				continue
+			}
+			if reason = to.Refusal(root, s, os.Environ()); reason == "" {
+				return ""
+			}
+		}
+		return reason
+	})
+	return ok
 }
 
 // metadata runs agent's own metadata command through its Probe.

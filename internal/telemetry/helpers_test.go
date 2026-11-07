@@ -12,7 +12,12 @@ import (
 
 var testNow = time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
 
-var testNames = Names{Roles: []string{"reviewer", "writer"}, Classes: []string{"small", "large"}}
+var testNames = Names{
+	Roles:    []string{"reviewer", "writer"},
+	Classes:  []string{"small", "large"},
+	Agents:   []string{"claude", "codex"},
+	Families: []string{"fable", "opus", "sonnet", "haiku", "astra", "sol", "terra", "luna", "all"},
+}
 
 func sampleRun() Run {
 	return Run{Role: "reviewer", Class: "small", Agent: "claude", Family: "opus", Effort: "high", Placement: "worker",

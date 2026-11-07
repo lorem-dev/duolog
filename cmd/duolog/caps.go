@@ -17,7 +17,7 @@ func newCapsCommand() *cobra.Command {
 			return err
 		}
 		var inv []caps.Inventory
-		for _, agent := range []string{"claude", "codex"} {
+		for _, agent := range wiring.Names() {
 			i, err := wiring.ScanCaps(cmd.Context(), agent, root)
 			if err != nil {
 				return err

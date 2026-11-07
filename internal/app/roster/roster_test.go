@@ -15,6 +15,8 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
+var testAgents = []string{"claude", "codex"}
+
 // agentCaps are the registered agents' real capabilities, which read the
 // temporary home the tests set.
 func agentCaps() map[string]Caps {
@@ -44,7 +46,7 @@ func setup(t *testing.T) (*config.Config, *session.Registry) {
 }
 func TestRosterLineUnderBudget(t *testing.T) {
 	cfg, reg := setup(t)
-	line := Line(cfg, "lead", reg)
+	line := Line(cfg, testAgents, "lead", reg)
 	if float64(len(strings.Fields(line)))*1.5 > 80 {
 		t.Fatal(line)
 	}
@@ -62,13 +64,13 @@ func TestRosterMarksUnavailable(t *testing.T) {
 	if err := reg.MarkUnavailable("codex", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
-	if line := Line(cfg, "", reg); !strings.Contains(line, "codex=unavailable") {
+	if line := Line(cfg, testAgents, "", reg); !strings.Contains(line, "codex=unavailable") {
 		t.Fatal(line)
 	}
 }
 func TestRosterDoesNotRunAgents(t *testing.T) {
 	cfg, reg := setup(t)
-	if Line(cfg, "", reg) == "" {
+	if Line(cfg, testAgents, "", reg) == "" {
 		t.Fatal("empty roster")
 	}
 	if _, err := os.Stat(reg.Dir); err != nil {
@@ -84,7 +86,7 @@ func TestRosterCountsDifferences(t *testing.T) {
 	if note != "codex lacks 3" {
 		t.Fatal(note)
 	}
-	full := Line(cfg, "lead", reg) + "\n" + note
+	full := Line(cfg, testAgents, "lead", reg) + "\n" + note
 	if float64(len(strings.Fields(full)))*1.5 > 80 {
 		t.Fatal(full)
 	}
@@ -118,11 +120,11 @@ func TestStartNoteUsesOnlyCachedCapabilities(t *testing.T) {
 		}
 	}
 	// setup removed every executable from PATH; cached notes still work.
-	note := StartNote(root, session.Lead{ID: "lead", Target: config.Target{Agent: "claude"}}, agentCaps())
+	note := StartNote(root, testAgents, session.Lead{ID: "lead", Target: config.Target{Agent: "claude"}}, agentCaps())
 	if !strings.Contains(note, "caps=1") || !strings.Contains(note, "codex has no duolog hooks") {
 		t.Fatal(note)
 	}
-	line := Line(&config.Config{Roles: map[string]config.Role{"work": {Use: config.Target{Agent: "claude", Model: "sonnet", Effort: "low"}}}}, "lead", reg)
+	line := Line(&config.Config{Roles: map[string]config.Role{"work": {Use: config.Target{Agent: "claude", Model: "sonnet", Effort: "low"}}}}, testAgents, "lead", reg)
 	if !strings.Contains(line, "sonnet/low") {
 		t.Fatal(line)
 	}
@@ -133,7 +135,7 @@ func TestRosterShowsAPinnedModel(t *testing.T) {
 	role := cfg.Roles["plan"]
 	role.Use.Model = "claude-opus-5-5"
 	cfg.Roles["plan"] = role
-	if line := Line(cfg, "lead", reg); !strings.Contains(line, "plan=claude-opus-5-5/") {
+	if line := Line(cfg, testAgents, "lead", reg); !strings.Contains(line, "plan=claude-opus-5-5/") {
 		t.Fatal(line)
 	}
 }
@@ -145,13 +147,13 @@ func TestStartNoteCoauthors(t *testing.T) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if note := StartNote(root, session.Lead{}, agentCaps()); !strings.HasSuffix(note, "; commits: add duolog coauthors") {
+	if note := StartNote(root, testAgents, session.Lead{}, agentCaps()); !strings.HasSuffix(note, "; commits: add duolog coauthors") {
 		t.Fatal(note)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("coauthors:\n  enabled: false\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if note := StartNote(root, session.Lead{}, agentCaps()); strings.Contains(note, "commits:") {
+	if note := StartNote(root, testAgents, session.Lead{}, agentCaps()); strings.Contains(note, "commits:") {
 		t.Fatal(note)
 	}
 }

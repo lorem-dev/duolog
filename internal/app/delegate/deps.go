@@ -118,6 +118,9 @@ type Trust interface {
 // the capability scan and the MCP bridge are each agent's Caps. The wiring package fills every field with the real
 // function; app tests fill them with fakes.
 type Deps struct {
+	// Names lists the registered agents in registry order: a role's derived
+	// fallback and the paid pass go through them.
+	Names []string
 	// Agents holds the ports of each registered agent, by name.
 	Agents map[string]Agent
 	// Lead holds each agent's Lead, keyed by agent name; the transcript of

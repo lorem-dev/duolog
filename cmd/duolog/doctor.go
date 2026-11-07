@@ -21,6 +21,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/rex"
 	"github.com/lorem-dev/duolog/internal/telemetry"
+	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/spf13/cobra"
 )
@@ -32,7 +33,7 @@ func newDoctorCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cfg, err := configfile.Load(root)
+		cfg, err := configfile.Load(root, wiring.ConfigOptions())
 		if err != nil {
 			return doctorConfigError(cmd, err)
 		}

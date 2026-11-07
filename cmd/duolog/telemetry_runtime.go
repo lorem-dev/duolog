@@ -16,6 +16,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/usage"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/telemetry"
+	"github.com/lorem-dev/duolog/internal/wiring"
 )
 
 // The bounds telemetry checks numbers against: maxSafe for counts, maxSecs
@@ -33,13 +34,28 @@ func telemetryLocation() telemetry.Location {
 	return telemetry.Location{GOOS: runtime.GOOS, Home: home, XDGStateHome: os.Getenv("XDG_STATE_HOME"), LocalAppData: os.Getenv("LOCALAPPDATA")}
 }
 
+// registryNames are the agents and families telemetry accepts, from the
+// registered agents' descriptors. "all" is a quota window that covers every
+// model.
+func registryNames() telemetry.Names {
+	var n telemetry.Names
+	for _, d := range wiring.Descriptors() {
+		n.Agents = append(n.Agents, d.Name)
+		n.Families = append(n.Families, d.Families...)
+	}
+	n.Families = append(n.Families, "all")
+	return n
+}
+
 // telemetryOptions are the store settings for the project at root, from the
 // loaded config: its role and class names, and its StateRoot with symlinks
 // resolved, so every worktree of a checkout shares one partition.
 func telemetryOptions(cfg *config.Config, root string) telemetry.Options {
+	names := registryNames()
+	names.Roles, names.Classes = slices.Sorted(maps.Keys(cfg.Roles)), slices.Sorted(maps.Keys(cfg.Learning.Classes))
 	o := telemetry.Options{
 		Location:        telemetryLocation(),
-		Names:           telemetry.Names{Roles: slices.Sorted(maps.Keys(cfg.Roles)), Classes: slices.Sorted(maps.Keys(cfg.Learning.Classes))},
+		Names:           names,
 		Enabled:         cfg.Telemetry.Enabled,
 		ProjectEnabled:  cfg.Telemetry.ProjectEnabled,
 		RetentionDays:   cfg.Telemetry.RetentionDays,

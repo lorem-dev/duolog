@@ -12,7 +12,7 @@ func TestDuologRegressionPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	p, err := ReadPlan(f)
+	p, err := ReadPlan(f, testAgents)
 	if err != nil || len(p.Situations) != 9 {
 		t.Fatalf("%+v %v", p, err)
 	}
@@ -48,7 +48,7 @@ func TestDuologRegressionPlan(t *testing.T) {
 }
 
 func TestChecksAndStrictPlan(t *testing.T) {
-	p, err := ReadPlan(strings.NewReader("situations:\n- id: s1\n  text: What next?\n  check:\n    contains: [peer, answer]\n    absent: [allow]\n    starts: DUOLOG\n    regex: 'answer\\s+p1'\n"))
+	p, err := ReadPlan(strings.NewReader("situations:\n- id: s1\n  text: What next?\n  check:\n    contains: [peer, answer]\n    absent: [allow]\n    starts: DUOLOG\n    regex: 'answer\\s+p1'\n"), testAgents)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,14 +71,14 @@ func TestChecksAndStrictPlan(t *testing.T) {
 		"situations: [{id: s1, text: x, check: {}}]",
 		"situations: []\n---\nsituations: []",
 	} {
-		if _, err := ReadPlan(strings.NewReader(bad)); err == nil {
+		if _, err := ReadPlan(strings.NewReader(bad), testAgents); err == nil {
 			t.Errorf("accepted %s", bad)
 		}
 	}
 }
 
 func TestGradeRejectsBadAnswers(t *testing.T) {
-	p, err := ReadPlan(strings.NewReader("situations: [{id: s1, text: x, check: {starts: yes}}]"))
+	p, err := ReadPlan(strings.NewReader("situations: [{id: s1, text: x, check: {starts: yes}}]"), testAgents)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestAgentSpecificSituations(t *testing.T) {
   - {id: claude, agents: [claude], text: Claude question, check: {starts: yes}}
   - {id: codex, agents: [codex], text: Codex question, check: {starts: yes}}
   - {id: both, agents: [claude, codex], text: Both question, check: {starts: yes}}
-`))
+`), testAgents)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestAgentSpecificSituations(t *testing.T) {
 	if len(p.Situations) != 4 {
 		t.Fatal("filter changed original plan")
 	}
-	if _, err := ReadPlan(strings.NewReader("situations: [{id: x, agents: [typo], text: question, check: {starts: yes}}]")); err == nil {
+	if _, err := ReadPlan(strings.NewReader("situations: [{id: x, agents: [typo], text: question, check: {starts: yes}}]"), testAgents); err == nil {
 		t.Fatal("accepted unknown agent")
 	}
 }

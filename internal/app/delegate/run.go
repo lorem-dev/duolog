@@ -265,7 +265,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		pass++
 		variant = passes[pass]
 		unavailable = map[string]bool{}
-		for _, agent := range []string{"claude", "codex"} {
+		for _, agent := range d.Names {
 			unavailable[agent] = !paidAgents[agent]
 		}
 		return true

@@ -28,7 +28,9 @@ type Check struct {
 	Regex    string   `yaml:"regex"`
 }
 
-func ReadPlan(r io.Reader) (Plan, error) {
+// ReadPlan reads a situation plan; agents are the registered agents' names,
+// and a situation may name only those.
+func ReadPlan(r io.Reader, agents []string) (Plan, error) {
 	var p Plan
 	d := yaml.NewDecoder(r)
 	d.KnownFields(true)
@@ -49,7 +51,7 @@ func ReadPlan(r io.Reader) (Plan, error) {
 		}
 		ids[s.ID] = true
 		for _, agent := range s.Agents {
-			if agent != "claude" && agent != "codex" {
+			if !slices.Contains(agents, agent) {
 				return p, fmt.Errorf("situation %s: unknown agent %q", s.ID, agent)
 			}
 		}
