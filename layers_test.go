@@ -60,13 +60,10 @@ var appOrder = []string{"launch", "lead", "learn", "paidruns", "quota", "gate", 
 // with the PR that removes each. The list may only shrink; a move may rename a
 // key when the same import gets a new path at one end.
 var knownViolations = map[string]string{
-	"internal/app/calibrate (test) -> internal/adapter/session": "PR 29",
-	"internal/app/calibrate (test) -> internal/wiring":          "PR 29: the cell tests run real delegations on wiring.DelegateDeps",
-	"internal/app/calibrate -> github.com/pelletier/go-toml/v2": "stays: cell.go definesCheck reads a project's pyproject.toml, which is not tree guard code (ruling on PR 45)",
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 3
+const maxKnownViolations = 0
 
 // Reasons of the allowed edges, one per target.
 const (

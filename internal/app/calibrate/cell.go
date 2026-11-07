@@ -15,13 +15,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pelletier/go-toml/v2"
-
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/core/usage"
 	"github.com/lorem-dev/duolog/internal/journal"
+	projectroot "github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -444,13 +443,7 @@ func definesCheck(name string, before, after []byte, words []string) bool {
 	case base == "package.json":
 		return packageChecksDiffer(before, after)
 	case base == "pyproject.toml":
-		return !sameParts(before, after, func(doc []byte) (any, error) {
-			var v struct {
-				Tool any `toml:"tool"`
-			}
-			err := toml.Unmarshal(doc, &v)
-			return v.Tool, err
-		})
+		return !sameParts(before, after, projectroot.PyprojectTool)
 	case base == "setup.cfg":
 		return !sameParts(before, after, func(doc []byte) (any, error) { return iniSection(doc, "tool:pytest"), nil })
 	}

@@ -194,7 +194,7 @@ func newJudgeFixture(t *testing.T, a, b string, score scoreFunc) *judgeFixture {
 	f := &judgeFixture{runDir: runDir, run: run, task: task, pair: Pair{Task: "k-1", Class: "implement", A: a, B: b}, slot: slot, home: home}
 	f.env = JudgeEnv{
 		CellEnv: CellEnv{Root: root, StateDir: stateDir, RunDir: runDir, Lead: "lead-1", Cfg: cfg,
-			Deps: Deps{Environ: launchtest.Environ, Trees: realTrees(), Delegate: func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+			Deps: Deps{Environ: launchtest.Environ, Trees: fakeTrees(), Delegate: func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
 				role, taskPath, opts := r.Role, r.TaskPath, r.Options
 				// Calibration keeps the task copy in the work root's state,
 				// where task.Inline reads it.
@@ -395,23 +395,6 @@ func TestJudgeFilesNotMarkdown(t *testing.T) {
 	}
 	if tasks != 1 || answers != len(f.calls) {
 		t.Fatalf("%d task.md and %d answer.json for %d calls", tasks, answers, len(f.calls))
-	}
-}
-
-// A Codex judge runs only in a judge slot Codex trusts with its hooks.
-func TestJudgeRefusesUntrustedSlot(t *testing.T) {
-	f := newJudgeFixture(t, "claude/opus/high", "claude/sonnet/medium", func(string, bool) (int, int, int, int) { return 3, 1, 3, 1 })
-	trustCodex(t, f.home, f.slot, true, false)
-	_, err := JudgePair(context.Background(), f.env, f.run, f.pair, f.task)
-	if err == nil || !strings.Contains(err.Error(), "Codex must trust") || !strings.Contains(err.Error(), f.slot) {
-		t.Fatalf("err = %v, want a trust refusal naming %s", err, f.slot)
-	}
-	if len(f.calls) != 0 {
-		t.Fatalf("%d judge calls in an untrusted slot", len(f.calls))
-	}
-	// The hooks stay in the slot for the person to approve.
-	if _, err := os.Stat(filepath.Join(f.slot, ".codex", "hooks.json")); err != nil {
-		t.Fatal(err)
 	}
 }
 

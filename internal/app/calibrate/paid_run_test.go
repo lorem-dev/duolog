@@ -17,22 +17,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/paidrules"
-	"github.com/lorem-dev/duolog/internal/testbin"
 )
-
-// sharedGate makes every delegation of the test admit through one gate, as
-// one user's runs do.
-func sharedGate(t *testing.T, cfg *config.Config) *paidruns.Gate {
-	t.Helper()
-	g, err := paidrunstest.Gate(filepath.Join(t.TempDir(), "accounts"), cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := realDeps.PaidGate
-	realDeps.PaidGate = func(*config.Config) (*paidruns.Gate, error) { return g, nil }
-	t.Cleanup(func() { realDeps.PaidGate = old })
-	return g
-}
 
 func gateState(t *testing.T, g *paidruns.Gate) paidruns.State {
 	t.Helper()
@@ -92,40 +77,36 @@ func paidCodex(approved, cap, spent float64) map[string]BillingBudget {
 // uncharged rerun of the old one. (Each attempt of a login retry takes its
 // own permit: TestAttemptSettlementOnCancelRetryAndFallback.)
 func TestCalibrationOnePermitPerActualAttempt(t *testing.T) {
-	t.Run("a real cell takes one permit after its start", func(t *testing.T) {
+	// The account permits of a real cell are counted on the real delegation:
+	// TestCalibrationRealCellTakesOnePermit in internal/wiring. Here the
+	// cell's delegation gets the budget its start set, after the start.
+	t.Run("a cell's delegation runs under the budget its start set", func(t *testing.T) {
 		f := newCellFixture(t)
-		g := sharedGate(t, f.env.Cfg)
-		var out delegate.Outcome
-		fake := f.realClaude(t, testbin.Scenario{Stdout: parseAnswer, Writes: map[string]string{"parse.go": "package widget\n\nfunc Parse(line string) []string { return nil }\n"}}, &out)
+		want := &paidrules.StepBudget{PlanHash: "plan-h", StepID: "c-1.1", USDRemaining: 10, WeeklyRemaining: 0.1, WindowRemaining: 0.5, WaitForSession: true}
+		var got []*paidrules.StepBudget
+		work := worked(t)
+		f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+			got = append(got, r.Options.Budget)
+			return work(ctx, r)
+		}
 		ctx, step := withStep(context.Background())
 		start := func() (bool, error) {
-			step.budget = &paidrules.StepBudget{PlanHash: "plan-h", StepID: "c-1.1", USDRemaining: 10, WeeklyRemaining: 0.1, WindowRemaining: 0.5, WaitForSession: true}
+			step.budget = want
 			return true, nil
 		}
-		r, err := RunCell(ctx, f.env, f.cell, f.task, start)
-		if err != nil || r.State != CellDone {
-			t.Fatalf("cell: %+v %v (%q)", r, err, out.Line)
+		if r, err := RunCell(ctx, f.env, f.cell, f.task, start); err != nil || r.State != CellDone {
+			t.Fatalf("cell: %+v %v", r, err)
 		}
-		st := gateState(t, g)
-		if len(st.Reservations) != 0 || len(st.Settled) != 1 {
-			t.Fatalf("one permit settled once: %+v %+v", st.Reservations, st.Settled)
+		if len(got) != 1 || got[0] != want {
+			t.Fatalf("delegation budgets %v, want the one the start set", got)
 		}
-		for _, s := range st.Settled {
-			if !s.Started || s.Input == 0 {
-				t.Fatalf("settlement: %+v", s)
-			}
-		}
-		if r.Input == 0 || r.Output == 0 {
-			t.Fatalf("the cell lost its token split: %+v", r)
-		}
-		calls := callCount(t, fake)
 
 		refused := func() (bool, error) { return false, nil }
 		if _, err := RunCell(ctx, f.env, f.cell, f.task, refused); !errors.Is(err, ErrNotAdmitted) {
 			t.Fatalf("refused start: %v", err)
 		}
-		if st := gateState(t, g); len(st.Settled) != 1 || len(st.Reservations) != 0 || callCount(t, fake) != calls {
-			t.Fatal("a refused step reserved, spent or ran")
+		if len(got) != 1 {
+			t.Fatal("a refused step ran its delegation")
 		}
 	})
 
@@ -385,17 +366,4 @@ func TestCalibrationSharedRatesAndSpendOnce(t *testing.T) {
 	if len(f.calls) != 0 || o.Stopped != stopHeld || !strings.Contains(f.out.String(), "still holds its account reservation") {
 		t.Fatalf("a held cell ran again: %+v %v\n%s", o, f.calls, f.out.String())
 	}
-}
-
-// callCount counts the calls of a fake binary.
-func callCount(t *testing.T, bin string) int {
-	t.Helper()
-	data, err := os.ReadFile(bin + ".calls.ndjson")
-	if os.IsNotExist(err) {
-		return 0
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	return strings.Count(string(data), "\n")
 }

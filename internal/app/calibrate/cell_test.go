@@ -2,7 +2,6 @@ package calibration
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -13,17 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
-	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	corerun "github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/taskspec"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/store"
-	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
 const parseStatement = "Add a function Parse(line string) []string that splits line on commas."
@@ -104,7 +98,7 @@ func newCellFixtureWith(t *testing.T, parentFiles map[string]string) *cellFixtur
 			},
 			Verify:  VerifyIsolated,
 			Environ: launchtest.Environ,
-			Trees:   realTrees(),
+			Trees:   fakeTrees(),
 		},
 		Checks: func(_ context.Context, dir string, commands []string) []journal.Check {
 			f.checkCalls++
@@ -121,57 +115,6 @@ func newCellFixtureWith(t *testing.T, parentFiles map[string]string) *cellFixtur
 		},
 	}
 	return f
-}
-
-// parseAnswer is a Claude worker's output after it wrote parse.go.
-const parseAnswer = `{"session_id":"worker-1","usage":{"input_tokens":1000,"output_tokens":200},"structured_output":{"done":true,"summary":"Added Parse.","files":["parse.go"],"needs":[]}}` + "\n"
-
-// realClaude gives the cell a Claude entry and runs it through the real
-// delegation, task inlining and worker runner, with a fake claude binary
-// that answers a worker run with worker. It returns the binary's path; its
-// recordings hold the last run's argv. outcome receives what the delegation
-// returned.
-func (f *cellFixture) realClaude(t *testing.T, worker testbin.Scenario, outcome *delegate.Outcome) string {
-	t.Helper()
-	t.Setenv("DUOLOG_DEPTH", "")
-	t.Setenv("DUOLOG_LEAD", "")
-	// duolog calibrate runs in the project, which delegation reads from the
-	// working folder.
-	t.Chdir(f.root)
-	reg, err := session.Open(f.env.Store.Dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := reg.RegisterLead(session.Lead{ID: "lead-1", Target: config.Target{Agent: "codex", Model: "sol", Effort: "high"}, Mode: mode.Edits}); err != nil {
-		t.Fatal(err)
-	}
-	f.cell.Entry = "claude/opus/high"
-	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
-		out, err := delegate.Run(ctx, realDeps, r)
-		*outcome = out
-		return out, err
-	}
-	// Both calls start with the worker process's --settings, whose JSON names
-	// the cell's tree, so they are told apart by order: the login check runs
-	// on that process first, then the worker.
-	return testbin.Install(t, "claude", testbin.Scenario{Sequence: []testbin.Scenario{
-		{Stdout: `{"loggedIn":true}`},
-		worker,
-	}})
-}
-
-// argv is the argument list the fake binary at path last ran with.
-func argv(t *testing.T, path string) []string {
-	t.Helper()
-	data, err := os.ReadFile(path + ".args.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var args []string
-	if err := json.Unmarshal(data, &args); err != nil {
-		t.Fatal(err)
-	}
-	return args
 }
 
 func (f *cellFixture) run(t *testing.T) CellResult {
@@ -621,30 +564,6 @@ func TestRunCellCheckTimeCap(t *testing.T) {
 	f.emptied(t, f.slot)
 }
 
-// A Claude cell gets the turn cap as --max-turns. A worker that reaches it
-// ends the cell as failed_limit with reason "turn cap" and keeps its usage,
-// without checks: Codex has no such cap, so it is no result, not a failure.
-// Claude reports the cap with no answer.
-func TestRunCellTurnCapThroughClaude(t *testing.T) {
-	f := newCellFixture(t)
-	var out delegate.Outcome
-	fake := f.realClaude(t, testbin.Scenario{Exit: 1, Stdout: `{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":101,"session_id":"worker-1","usage":{"input_tokens":30,"output_tokens":5}}` + "\n"}, &out)
-	r := f.run(t)
-	if r.State != CellFailedLimit || r.Passed || r.Reason != "turn cap" {
-		t.Fatalf("result %+v, want failed_limit, not passed, turn cap (delegation line %q)", r, out.Line)
-	}
-	if r.Tokens != 35 {
-		t.Fatalf("Tokens = %d, want 35", r.Tokens)
-	}
-	if f.checkCalls != 0 {
-		t.Fatalf("checks ran %d times after the turn cap", f.checkCalls)
-	}
-	args := argv(t, fake)
-	if i := slices.Index(args, "--max-turns"); i < 0 || i+1 == len(args) || args[i+1] != "100" {
-		t.Fatalf("worker argv %q, want --max-turns 100", args)
-	}
-}
-
 // A worker whose reported usage grows past calibration.cell_max_tokens ends
 // the cell as failed_limit with reason "token cap", keeps what it used and
 // runs no checks; usage at the cap or below is not over it.
@@ -683,112 +602,6 @@ func TestRunCellTokenCap(t *testing.T) {
 	}
 }
 
-// A Claude cell's tree has the duolog gate active even when the project's
-// gate is installed at project scope only and the replayed parent predates
-// it: the worker runs with rules, not "sandbox only".
-func TestRunCellClaudeTreeHasGate(t *testing.T) {
-	f := newCellFixture(t)
-	// Installed after the parent and not committed.
-	write(t, f.root, ".claude/settings.json", claudeGateJSON(t))
-	var out delegate.Outcome
-	fake := f.realClaude(t, testbin.Scenario{Stdout: parseAnswer, Writes: map[string]string{"parse.go": "package widget\n\nfunc Parse(line string) []string { return nil }\n"}}, &out)
-	r := f.run(t)
-	if r.State != CellDone || !r.Passed {
-		t.Fatalf("result %+v, want done and passed (delegation line %q)", r, out.Line)
-	}
-	if strings.Contains(out.Line, "no duolog hooks") || strings.Contains(out.Line, "rules are off") {
-		t.Fatalf("the worker ran without the gate: %q", out.Line)
-	}
-	if !strings.Contains(string(r.Patch), "parse.go") || strings.Contains(string(r.Patch), ".claude") {
-		t.Fatalf("patch holds the candidate's change only:\n%s", r.Patch)
-	}
-	if cwd, err := os.ReadFile(fake + ".cwd"); err != nil || pathutil.Resolved(string(cwd)) != pathutil.Resolved(f.slot) {
-		t.Fatalf("worker ran in %q, %v; want the slot %s", cwd, err, f.slot)
-	}
-}
-
-// A cell's worker gets the telemetry and balance roots as every delegated
-// worker does: the delegation carries them and the Claude worker's launch
-// settings deny them.
-func TestRunCellWorkerGetsProtectedRoots(t *testing.T) {
-	f := newCellFixture(t)
-	roots := []string{filepath.Join(f.home, "state", "duolog", "telemetry"), filepath.Join(f.home, "state", "duolog", "balance")}
-	f.env.ProtectedRoots = roots
-	var out delegate.Outcome
-	fake := f.realClaude(t, testbin.Scenario{Stdout: parseAnswer, Writes: map[string]string{"parse.go": "package widget\n\nfunc Parse(line string) []string { return nil }\n"}}, &out)
-	delegateRun := f.env.Delegate
-	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
-		if got := r.Options.ProtectedRoots; !slices.Equal(got, roots) {
-			t.Errorf("delegation roots %q, want %q", got, roots)
-		}
-		return delegateRun(ctx, r)
-	}
-	if r := f.run(t); r.State != CellDone {
-		t.Fatalf("result %+v, want done (delegation line %q)", r, out.Line)
-	}
-	args := argv(t, fake)
-	i := slices.Index(args, "--settings")
-	if i < 0 || i+1 == len(args) {
-		t.Fatalf("worker argv %q has no settings", args)
-	}
-	var settings struct {
-		Sandbox struct {
-			Filesystem struct {
-				DenyRead []string `json:"denyRead"`
-			} `json:"filesystem"`
-		} `json:"sandbox"`
-	}
-	if err := json.Unmarshal([]byte(args[i+1]), &settings); err != nil {
-		t.Fatal(err)
-	}
-	for _, root := range roots {
-		if !slices.Contains(settings.Sandbox.Filesystem.DenyRead, filepath.ToSlash(root)) {
-			t.Fatalf("worker settings %s do not deny %s", args[i+1], root)
-		}
-	}
-}
-
-// disableAllHooks turns the gate off in every layer Claude loads: from the
-// replayed commit's project settings or from the person's user settings, it
-// refuses the cell before the worker starts. The export leaves a committed
-// local settings file out, so that layer holds only duolog's gate.
-func TestRunCellRefusesClaudeTreeWithHooksOff(t *testing.T) {
-	off := `{"disableAllHooks":true}`
-	gate := claudeGateJSON(t)
-	for _, tc := range []struct {
-		name         string
-		parent       map[string]string
-		userSettings string
-	}{
-		{"project settings", map[string]string{".claude/settings.json": off}, ""},
-		{"project settings with the gate", map[string]string{".claude/settings.json": `{"disableAllHooks":true,` + gate[1:]}, ""},
-		{"user settings", nil, off},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newCellFixtureWith(t, tc.parent)
-			if tc.userSettings != "" {
-				write(t, filepath.Join(f.home, ".claude"), "settings.json", tc.userSettings)
-			}
-			var out delegate.Outcome
-			fake := f.realClaude(t, testbin.Scenario{Stdout: parseAnswer}, &out)
-			started := false
-			_, err := RunCell(context.Background(), f.env, f.cell, f.task, func() (bool, error) { started = true; return true, nil })
-			if err == nil || !strings.Contains(err.Error(), "disableAllHooks") || !strings.Contains(err.Error(), f.slot) {
-				t.Fatalf("RunCell with hooks off = %v, want a refusal naming disableAllHooks and %s", err, f.slot)
-			}
-			if started {
-				t.Fatal("a cell refused for hooks off was admitted; the refusal must come before start")
-			}
-			if exists(fake + ".args.json") {
-				t.Fatalf("the worker ran with hooks off: %q", argv(t, fake))
-			}
-			if exists(f.cellFile("result.json")) {
-				t.Fatal("a refused cell saved a result")
-			}
-		})
-	}
-}
-
 func TestRunCellProviderLimit(t *testing.T) {
 	f := newCellFixture(t)
 	var tree string
@@ -821,29 +634,6 @@ func TestRunCellLeakageExposed(t *testing.T) {
 		t.Fatalf("checks ran %d times on an exposed tree", f.checkCalls)
 	}
 	f.emptied(t, tree)
-}
-
-// The first run with project-only Codex hooks: the refusal leaves the hooks
-// the person must approve in the slot and nothing else, and once they are
-// approved the next run works there.
-func TestRunCellRefusesUntrustedTree(t *testing.T) {
-	f := newCellFixture(t)
-	trustCodex(t, f.home, f.slot, false, false)
-	_, err := RunCell(context.Background(), f.env, f.cell, f.task, nil)
-	if err == nil || !strings.Contains(err.Error(), f.slot) || !strings.Contains(err.Error(), "hooks") {
-		t.Fatalf("RunCell on an untrusted tree: err = %v, want one naming %s and its hooks", err, f.slot)
-	}
-	onlyHooks(t, f.slot)
-	if exists(f.cellFile("result.json")) {
-		t.Fatal("a refused cell saved a result")
-	}
-
-	trustCodex(t, f.home, f.slot, true, true)
-	f.env.Delegate = worked(t)
-	if r := f.run(t); r.State != CellDone || !r.Passed {
-		t.Fatalf("result %+v after approving the hooks, want done and passed", r)
-	}
-	onlyHooks(t, f.slot)
 }
 
 // onlyHooks fails unless slot holds the project's Codex hooks and nothing

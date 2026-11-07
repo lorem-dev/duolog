@@ -14,7 +14,6 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/journal"
-	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
 // fakeQuota answers every agent with one weekly and one five-hour window,
@@ -912,122 +911,6 @@ func TestRunCutAfterPilotCountsSpent(t *testing.T) {
 		if c.State != CellSkipped || c.Reason != "cut to cap" {
 			t.Fatalf("cell %+v, want skipped, cut to cap", c)
 		}
-	}
-}
-
-// A cell Codex refuses before its worker starts costs nothing: the run
-// readies and checks the real tree first and charges only an attempt it
-// admitted. Once the person trusts the tree, the cell runs and is charged
-// once.
-func TestRunTrustRefusalChargesNothing(t *testing.T) {
-	f := newCellFixture(t)
-	trustCodex(t, f.home, f.slot, false, false)
-	workers := 0
-	work := worked(t)
-	f.env.Delegate = func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
-		workers++
-		return work(ctx, r)
-	}
-	run := &Run{ID: "cal-1", Step: "plan", Created: testTime, Approved: &Approval{Hash: "h", Time: testTime},
-		Cells: []Cell{{ID: "c001", Task: f.task.ID, Class: "implement", Entry: "codex/sol/high", Round: 1, State: CellPending}}}
-	if err := run.Save(f.env.StateDir); err != nil {
-		t.Fatal(err)
-	}
-	m, err := LoadManifest(f.runDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	q := &fakeQuota{weekly: 20, window: 20, reset: testTime.Add(time.Hour)}
-	var out bytes.Buffer
-	runner := func(run *Run) *Runner {
-		return &Runner{StateDir: f.env.StateDir, Root: f.root, Cfg: f.env.Cfg, Run: run, Plan: Plan{Run: run.ID, CapWeekly: 10, CapWindow: 50}, Manifest: m,
-			Quota: &QuotaCache{Read: q.read, Now: func() time.Time { return testTime }}, Now: func() time.Time { return testTime },
-			Cell: func(ctx context.Context, c Cell, t TaskRecord, start StartFunc) (CellResult, error) {
-				return RunCell(ctx, f.env, c, t, start)
-			},
-			Rewrite: func(context.Context, TaskRecord, StartFunc) (string, int64, error) {
-				return "", 0, errors.New("no rewrite")
-			},
-			Out: &out}
-	}
-	for range 2 {
-		if _, err := runner(run).Execute(context.Background()); err == nil || !strings.Contains(err.Error(), f.slot) {
-			t.Fatalf("Execute on an untrusted tree = %v, want a refusal naming %s", err, f.slot)
-		}
-		saved, err := LoadRun(f.env.StateDir, run.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := saved.Spend.WeeklyPct["codex"]; got != 0 || workers != 0 {
-			t.Fatalf("after a trust refusal: spend %v, %d workers; want nothing charged and no worker", got, workers)
-		}
-		if saved.Cells[0].State != CellPending {
-			t.Fatalf("cell %+v after a trust refusal, want pending", saved.Cells[0])
-		}
-		run = saved
-	}
-
-	trustCodex(t, f.home, f.slot, true, true)
-	o, err := runner(run).Resume(context.Background())
-	if err != nil || !o.Done {
-		t.Fatalf("Resume = %+v, %v; want done:\n%s", o, err, out.String())
-	}
-	saved, err := LoadRun(f.env.StateDir, run.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := saved.Spend.WeeklyPct["codex"]; got != BoundWeekly || workers != 1 || saved.Cells[0].State != CellDone {
-		t.Fatalf("after trusting: spend %v, %d workers, cell %+v; want one attempt charged and done", got, workers, saved.Cells[0])
-	}
-}
-
-// A cell the delegation refuses after admission but before its worker
-// starts, here for a lead that is not registered, costs nothing: the charge
-// is released, the cell is pending again and no worker ran.
-func TestRunDelegateRefusalReleasesCharge(t *testing.T) {
-	f := newCellFixture(t)
-	var out delegate.Outcome
-	fake := f.realClaude(t, testbin.Scenario{Stdout: parseAnswer}, &out)
-	f.env.Lead = "lead-gone"
-	run := &Run{ID: "cal-1", Step: "plan", Created: testTime, Approved: &Approval{Hash: "h", Time: testTime},
-		Cells: []Cell{{ID: "c001", Task: f.task.ID, Class: "implement", Entry: f.cell.Entry, Round: 1, State: CellPending}}}
-	if err := run.Save(f.env.StateDir); err != nil {
-		t.Fatal(err)
-	}
-	m, err := LoadManifest(f.runDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	q := &fakeQuota{weekly: 20, window: 20, reset: testTime.Add(time.Hour)}
-	r := &Runner{StateDir: f.env.StateDir, Root: f.root, Cfg: f.env.Cfg, Run: run, Plan: Plan{Run: run.ID, CapWeekly: 10, CapWindow: 50}, Manifest: m,
-		Quota: &QuotaCache{Read: q.read, Now: func() time.Time { return testTime }}, Now: func() time.Time { return testTime },
-		Cell: func(ctx context.Context, c Cell, t TaskRecord, start StartFunc) (CellResult, error) {
-			return RunCell(ctx, f.env, c, t, start)
-		},
-		Rewrite: func(context.Context, TaskRecord, StartFunc) (string, int64, error) {
-			return "", 0, errors.New("no rewrite")
-		},
-		Out: &bytes.Buffer{}}
-	if _, err := r.Execute(context.Background()); err == nil || !strings.Contains(err.Error(), "lead-gone") {
-		t.Fatalf("Execute = %v, want the unknown lead refused", err)
-	}
-	if _, err := os.Stat(fake + ".args.json"); !os.IsNotExist(err) {
-		t.Fatalf("a worker ran for a refused delegation: %v", err)
-	}
-	saved, err := LoadRun(f.env.StateDir, run.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := saved.Spend.WeeklyPct["claude"]; got != 0 {
-		t.Fatalf("claude weekly spend %v after a refusal before the worker, want 0", got)
-	}
-	for key, o := range saved.Spend.Outstanding {
-		if len(o.Charges) > 0 {
-			t.Fatalf("window %s keeps charges %+v after a refusal before the worker", key, o.Charges)
-		}
-	}
-	if c := saved.Cells[0]; c.State != CellPending || c.Tree != "" {
-		t.Fatalf("cell %+v after a refusal before the worker, want pending without a tree", c)
 	}
 }
 
