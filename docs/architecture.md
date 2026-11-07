@@ -121,20 +121,21 @@ change that removes it. The test fails in three cases:
 | A listed key happens on no target | Delete it and lower `maxKnownViolations` |
 | `maxKnownViolations` is not the length of `knownViolations` | Set it to the length |
 
-The list may only shrink. A key that exists on some targets only, such as
-`internal/paidruns -> golang.org/x/sys/windows`, counts as found when one
-target reports it. The ceiling must equal the length, because a ceiling left
-high lets new violations in later.
+The list may only shrink. A key counts as found when one target reports it, so
+a key that exists on some targets only is not stale. The example is
+`internal/app/paidruns -> golang.org/x/sys/windows` in `boundaryExceptions`,
+the list of security-boundary imports that stay on purpose. The ceiling must
+equal the length, because a ceiling left high lets new violations in later.
 
 A move may rename a key when the same import gets a new path at one end. For
-example, `internal/app/delegate -> internal/models` becomes
-`internal/app/delegate -> internal/adapter/models`. The count does not rise.
+example, `internal/app/peer -> internal/rex` becomes
+`internal/app/peer -> internal/adapter/rex`. The count does not rise.
 List each renamed key as `old -> new` in the pull request.
 
 `boundaryExceptions` lists the imports of the security boundary that stay on
-purpose, apart from `knownViolations`. It is empty until the gate moves to
-`internal/app/gate`. The gate and the paid-runs account gate then keep a few
-adapter imports, because replacing them with ports would change security code.
+purpose, apart from `knownViolations`. The gate and the paid-runs account gate
+keep a few adapter imports there, because replacing them with ports would
+change security code.
 
 Run the test alone with:
 

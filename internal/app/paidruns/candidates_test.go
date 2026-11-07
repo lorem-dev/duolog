@@ -119,7 +119,7 @@ func TestCandidatesFreeBeforePaidAndPinnedAgent(t *testing.T) {
 		u     float64
 	}{{nil, 1}, {costs, 0}, {costs, 1.5}, {[]paidrules.WindowCost{{Used: -1}}, 1}} {
 		if h, ok := paidrules.Headroom(bad.costs, bad.u); ok || h != 0 {
-			t.Errorf("paidrules.Headroom(%+v, %v) = %v %v, want no score", bad.costs, bad.u, h, ok)
+			t.Errorf("Headroom(%+v, %v) =%v %v, want no score", bad.costs, bad.u, h, ok)
 		}
 	}
 	// The gate gives a paid permit no windows: no invented rate.

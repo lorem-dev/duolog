@@ -1,6 +1,7 @@
 package paidrules
 
 import (
+	"slices"
 	"time"
 
 	coreaccount "github.com/lorem-dev/duolog/internal/core/account"
@@ -13,7 +14,7 @@ import (
 // the split.
 
 // PaceAgents are the agents whose pace is read.
-func PaceAgents() []string { return paceAgents }
+func PaceAgents() []string { return slices.Clone(paceAgents) }
 
 // QuotaMaxAge is balance.max_age_seconds: the oldest quota read a verdict or
 // the cache trusts. A config without it uses the default.

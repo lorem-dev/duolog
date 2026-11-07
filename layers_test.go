@@ -358,6 +358,9 @@ func TestLayers(t *testing.T) {
 		for _, key := range staleViolations(knownViolations, found) {
 			t.Errorf("%s no longer happens on any target; delete it from knownViolations and lower maxKnownViolations", key)
 		}
+		for _, key := range staleViolations(boundaryExceptions, found) {
+			t.Errorf("%s no longer happens on any target; delete it from boundaryExceptions", key)
+		}
 		for _, key := range staleViolations(allowedEdges, found) {
 			t.Errorf("%s no longer happens on any target; delete it from allowedEdges", key)
 		}
