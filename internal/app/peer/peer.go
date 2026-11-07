@@ -31,6 +31,8 @@ type Entry struct {
 	Note     string
 	// Report is the path of the peer's report file, set only when it exists.
 	Report string
+	// Excerpt is the start of that report: a few lines, cut at a size limit.
+	Excerpt string
 }
 
 // Report is what Status returns. Go cannot have a type and a function both

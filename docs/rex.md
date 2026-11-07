@@ -115,9 +115,18 @@ Every peer may write one file under `.duolog`: its report at
 worktree that is the worktree's own `.duolog`, not the main checkout's. The
 gate allows that write for that peer only, even in plan mode or a read-only
 role; every other path under `.duolog` and every other peer's report stay
-denied. `peer wait` and `peer status` add `report <path>` to their line once
-the file exists. A Codex peer in a read-only role can still refuse the write
-before the gate sees it, because its `-s read-only` sandbox allows no writes.
+denied. The peer's prompt hook tells it to put its final answer there, short,
+with the result first; the typed task line stays short for an 80-column pane.
+`peer send` removes the report of the task before, so a report is always the
+current task's. `peer wait` and `peer status` add `report <path>` to their line
+once the file exists, then print the report's first lines, at most 15 lines
+and 1500 characters, with `[report cut]` when the rest is left out. A task
+that ended without a report ends the wait line with `no report written`; the
+bus keeps its cut `peer-idle` line, which adds `; report <path>` once the file
+exists. The report must be a regular file inside the peer's own checkout: a
+link, or a path behind one, that leaves it is ignored. A Codex peer in a
+read-only role can still refuse the write before the gate sees it, because
+its `-s read-only` sandbox allows no writes.
 
 A Claude peer never starts in Claude's own plan mode, even in a read-only
 role or under a lead in `plan`. Plan mode shows its own `Exit plan mode?`

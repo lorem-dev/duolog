@@ -366,7 +366,7 @@ func Prompt(ctx context.Context, e Env) Output {
 	countTurn(ctx, e)
 	return deliver(ctx, e, "UserPromptSubmit", e.Agent == "codex", false, startTime(e), func(s *state, _ []byte) string {
 		startQueue(ctx, e, s)
-		return loadLine(ctx, e, s, false)
+		return strings.Join(slices.DeleteFunc([]string{loadLine(ctx, e, s, false), peerReportNote(e)}, func(l string) bool { return l == "" }), "\n")
 	})
 }
 func PostTool(ctx context.Context, e Env) Output {

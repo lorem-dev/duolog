@@ -51,6 +51,8 @@
 
 - Claude workers and peers start in `auto`, not `acceptEdits`, under a lead at
   level `full` or a Claude lead in `auto`.
+- A peer is told to put its final answer in its report file; `peer wait` and
+  `status` print the report's start, or say that the task had none.
 
 ### Fixed
 

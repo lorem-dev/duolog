@@ -125,8 +125,8 @@ func (e *env) reportLine(entry session.Entry) string {
 	if root == "" {
 		root = e.root
 	}
-	path := filepath.Join(root, filepath.FromSlash(policy.ReportPath(entry.ID)))
-	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
+	path := e.reportFile(entry)
+	if path == "" {
 		return ""
 	}
 	if sameWorkRoot(root, e.root) {

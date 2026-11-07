@@ -78,7 +78,12 @@ func entryLine(e peer.Entry) string {
 	if e.Report != "" {
 		line += "; report " + e.Report
 	}
-	return strings.Join(strings.Fields(line), " ")
+	line = strings.Join(strings.Fields(line), " ")
+	if e.Excerpt != "" {
+		// The start of the peer's report keeps its line breaks.
+		line += "\n" + e.Excerpt
+	}
+	return line
 }
 
 func newPeerCommand(d *cmdDeps) *cobra.Command {

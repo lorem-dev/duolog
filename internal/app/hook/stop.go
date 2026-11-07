@@ -16,6 +16,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -177,6 +178,9 @@ func idleText(root string, entry session.Entry, last string) string {
 	text := entry.ID + " idle in " + relativeCwd(root, entry.WorkRoot)
 	if summary := firstLine(last); summary != "" {
 		text += ": " + summary
+	}
+	if hasReport(root, entry) {
+		text += "; report " + policy.ReportPath(entry.ID)
 	}
 	return text
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
@@ -28,6 +29,11 @@ func Wait(ctx context.Context, id string) (Entry, error) {
 	got, err := e.watchMarked(ctx, entry)
 	if got.ID != "" {
 		got.Report = e.reportLine(entry)
+		if got.Report != "" {
+			got.Excerpt = e.reportExcerpt(entry)
+		} else if got.State == Ready && strings.HasPrefix(got.Note, "task finished") {
+			got.Note += "; " + noReport
+		}
 	}
 	return got, err
 }
@@ -57,9 +63,7 @@ func Status(ctx context.Context, id string) (Report, error) {
 			return st, err
 		}
 		st.ChangedFiles, _ = e.changedFiles(entry)
-		if path := e.reportLine(entry); path != "" {
-			st.Line += "; report " + path
-		}
+		st.Line += e.reportText(entry)
 		return st, nil
 	case Question:
 		if err := e.ask(entry, screen.Question); err != nil {
@@ -101,10 +105,23 @@ func Status(ctx context.Context, id string) (Report, error) {
 	if note := e.restartNote(entry); note != "" {
 		st.Line += "; " + note
 	}
-	if path := e.reportLine(entry); path != "" {
-		st.Line += "; report " + path
-	}
+	st.Line += e.reportText(entry)
 	return st, nil
+}
+
+// reportText is what a status line adds for the peer's report: "; report
+// <path>", then the start of the report on the lines after it. It is "" when
+// there is no report.
+func (e *env) reportText(entry session.Entry) string {
+	path := e.reportLine(entry)
+	if path == "" {
+		return ""
+	}
+	text := "; report " + path
+	if body := e.reportExcerpt(entry); body != "" {
+		text += "\n" + body
+	}
+	return text
 }
 
 // restartNote says so when the flags the session started with are not the

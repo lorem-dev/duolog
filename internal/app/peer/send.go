@@ -90,7 +90,10 @@ func Send(ctx context.Context, id, taskRef string) (err error) {
 	if err := task.launch(ctx, ""); err != nil {
 		return errors.Join(err, e.unsent(ctx, entry, task))
 	}
-	text := corescreen.TaskLine(e.root, path)
+	// A report left by the task before is not this task's answer. The line
+	// typed stays short, to fit one row of an 80-column pane; the peer's
+	// prompt hook tells it where to put its final answer.
+	text := e.freshTaskLine(entry, path)
 	if err := e.deliver(ctx, entry, text); err != nil {
 		if errors.Is(err, errNotDelivered) {
 			// Enter was never pressed: the task is proven unsent.
