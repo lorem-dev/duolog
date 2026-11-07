@@ -8,8 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/store"
 )
@@ -23,7 +24,7 @@ func testPolicy(t testing.TB) config.Policy {
 	t.Setenv("USERPROFILE", dir)
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("APPDATA", dir)
-	c, err := config.Load(dir)
+	c, err := configfile.Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,7 +413,7 @@ func BenchmarkGate(b *testing.B) {
 	b.Setenv("APPDATA", root)
 	b.ResetTimer()
 	for b.Loop() {
-		c, err := config.Load(root)
+		c, err := configfile.Load(root)
 		if err != nil {
 			b.Fatal(err)
 		}

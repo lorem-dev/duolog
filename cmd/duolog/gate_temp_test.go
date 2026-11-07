@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/app/gate"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/policy"
-	"github.com/lorem-dev/duolog/internal/mode"
 )
 
 // A Claude worker reads its own session temp folder, which the hook places

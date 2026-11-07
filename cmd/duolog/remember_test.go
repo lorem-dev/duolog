@@ -11,7 +11,8 @@ import (
 
 	claudeadapter "github.com/lorem-dev/duolog/internal/adapter/claude"
 	codexadapter "github.com/lorem-dev/duolog/internal/adapter/codex"
-	"github.com/lorem-dev/duolog/internal/config"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/policy"
 )
@@ -35,7 +36,7 @@ func TestRememberAllowsWorkersOnly(t *testing.T) {
 	if _, err := rememberIn(t, "make", "generate_types"); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +101,7 @@ func TestRememberConcurrentRunsKeepEveryRule(t *testing.T) {
 				return
 			default:
 			}
-			if _, err := config.LearnedRules(root); err != nil {
+			if _, err := configfile.LearnedRules(root); err != nil {
 				readErr <- err
 				return
 			}
@@ -127,7 +128,7 @@ func TestRememberConcurrentRunsKeepEveryRule(t *testing.T) {
 	if err := <-readErr; err != nil {
 		t.Errorf("a reader saw a partial learned.yaml: %v", err)
 	}
-	rules, err := config.LearnedRules(root)
+	rules, err := configfile.LearnedRules(root)
 	if err != nil || len(rules) != writers {
 		t.Fatalf("learned rules: %d of %d, %v", len(rules), writers, err)
 	}
@@ -151,7 +152,7 @@ func TestRememberWritesAllThreeConfigs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	rules, err := config.LearnedRules(root)
+	rules, err := configfile.LearnedRules(root)
 	if err != nil || len(rules) != 1 || rules[0].Match != rule.Match {
 		t.Fatalf("learned rules: %+v %v", rules, err)
 	}
@@ -192,7 +193,7 @@ func TestLearnedRulesKeepOnlyExecAllows(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".duolog", config.LearnedFile), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	rules, err := config.LearnedRules(root)
+	rules, err := configfile.LearnedRules(root)
 	if err != nil || len(rules) != 1 || rules[0].Match != "jq *" {
 		t.Fatalf("got %+v %v", rules, err)
 	}
@@ -241,7 +242,7 @@ func TestRememberMCPTool(t *testing.T) {
 	if err != nil || !strings.Contains(out, `mcp "jira/get_issue" allow`) {
 		t.Fatal(out, err)
 	}
-	cfg, err := config.Load(root)
+	cfg, err := configfile.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +264,7 @@ func TestRememberMCPTool(t *testing.T) {
 	if err != nil || !strings.Contains(out, "claude: mcp__my-wiki") || !strings.Contains(out, "codex: no rule") {
 		t.Fatal(out, err)
 	}
-	cfg, _ = config.Load(root)
+	cfg, _ = configfile.Load(root)
 	if d := policy.Evaluate(cfg.Policy, policy.LeadRules{}, mode.Ask, policy.Action{Kind: "mcp", Target: "my_wiki/search", Role: "review_final"}); d.Kind != policy.Allow {
 		t.Fatal(d)
 	}

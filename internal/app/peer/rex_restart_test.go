@@ -8,8 +8,8 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/peer/peertest"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 	corepane "github.com/lorem-dev/duolog/internal/core/pane"
-	"github.com/lorem-dev/duolog/internal/mode"
 )
 
 // goneInOldSession makes block:peer, the pane of the old session, gone.

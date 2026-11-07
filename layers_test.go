@@ -33,9 +33,6 @@ type legacyTier struct {
 // legacyTiers gives today's packages the tier of the part that stays at their
 // path after the migration. A row goes when its package moves.
 var legacyTiers = map[string]legacyTier{
-	"internal/mode": {tier: tierCore},
-
-	"internal/config":    {tier: tierKit},
 	"internal/rex":       {tier: tierKit},
 	"internal/bus":       {tier: tierKit},
 	"internal/journal":   {tier: tierKit},
@@ -59,8 +56,7 @@ var appOrder = []string{"launch", "lead", "learn", "paidruns", "quota", "gate", 
 // knownViolations are the imports that break a rule today, keyed "from -> to",
 // with the PR that removes each. The list may only shrink; a move may rename a
 // key when the same import gets a new path at one end.
-var knownViolations = map[string]string{
-}
+var knownViolations = map[string]string{}
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
 const maxKnownViolations = 0
@@ -166,7 +162,7 @@ var boundaryExceptions = map[string]string{
 	"internal/app/gate -> internal/store":                  "security boundary: moves only; decisions.go, ask.go, askonce.go",
 	"internal/app/gate -> internal/trust":                  "security boundary: moves only; lead.go",
 	"internal/app/gate -> internal/trusthome":              "security boundary: moves only; lead.go",
-	"internal/app/gate (test) -> internal/config":          "security boundary: moves only; gate_test.go and other tests load the default config",
+	"internal/app/gate (test) -> internal/adapter/config":  "security boundary: moves only; gate_test.go and other tests load the default config",
 
 	"internal/app/paidruns -> github.com/gofrs/flock":     "security boundary: moves only; state.go locks the account state folder for Store.Update and Store.View",
 	"internal/app/paidruns -> golang.org/x/sys/unix":      "security boundary: moves only; process_darwin.go reads a process's start time, the birth of an Owner (darwin only)",
@@ -195,8 +191,8 @@ func TestLayers(t *testing.T) {
 			test     bool
 			want     string
 		}{
-			{"internal/mode", "os", false, "core-stdlib"},
-			{"internal/mode", "os", true, ""},
+			{"internal/core/mode", "os", false, "core-stdlib"},
+			{"internal/core/mode", "os", true, ""},
 			{"internal/core/route", "net/url", false, "core-stdlib"},
 			{"internal/core/route", "github.com/bmatcuk/doublestar/v4", false, ""},
 			{"internal/core/config", "go.yaml.in/yaml/v3", false, ""},
@@ -221,7 +217,7 @@ func TestLayers(t *testing.T) {
 			{"internal/app/delegate", m + "internal/newthing", false, "unknown-tier"},
 			{"internal/app/hook", m + "internal/telemetry", false, ""},
 			{"internal/app/delegate", m + "internal/rex", false, "app-imports-adapter"},
-			{"internal/mode", m + "internal/config", false, "core-imports-outer"},
+			{"internal/core/mode", m + "internal/rex", false, "core-imports-outer"},
 		}
 		for _, c := range cases {
 			if got := layerRule(c.from, c.to, c.test); got != c.want {
@@ -232,16 +228,16 @@ func TestLayers(t *testing.T) {
 	t.Run("graph", func(t *testing.T) {
 		m := modulePath + "/"
 		pkgs := []listedPackage{
-			{ImportPath: m + "internal/mode", Imports: []string{"os", "strings"}},
-			{ImportPath: m + "internal/mode [" + m + "internal/mode.test]", ForTest: m + "internal/mode",
-				Imports: []string{"os", "strings", "testing", m + "internal/store [" + m + "internal/mode.test]"}},
-			{ImportPath: m + "internal/mode.test", Name: "main", Imports: []string{m + "internal/mode [" + m + "internal/mode.test]"}},
-			{ImportPath: m + "internal/mode_test [" + m + "internal/mode.test]", ForTest: m + "internal/mode",
-				Imports: []string{m + "internal/mode [" + m + "internal/mode.test]", "os"}},
+			{ImportPath: m + "internal/core/mode", Imports: []string{"os", "strings"}},
+			{ImportPath: m + "internal/core/mode [" + m + "internal/core/mode.test]", ForTest: m + "internal/core/mode",
+				Imports: []string{"os", "strings", "testing", m + "internal/store [" + m + "internal/core/mode.test]"}},
+			{ImportPath: m + "internal/core/mode.test", Name: "main", Imports: []string{m + "internal/core/mode [" + m + "internal/core/mode.test]"}},
+			{ImportPath: m + "internal/core/mode_test [" + m + "internal/core/mode.test]", ForTest: m + "internal/core/mode",
+				Imports: []string{m + "internal/core/mode [" + m + "internal/core/mode.test]", "os"}},
 		}
 		want := []layerViolation{
-			{Key: "internal/mode (test) -> internal/store", Rule: "core-imports-outer"},
-			{Key: "internal/mode -> os", Rule: "core-stdlib"},
+			{Key: "internal/core/mode (test) -> internal/store", Rule: "core-imports-outer"},
+			{Key: "internal/core/mode -> os", Rule: "core-stdlib"},
 		}
 		if got := layerViolations(pkgs); !slices.Equal(got, want) {
 			t.Errorf("layerViolations = %v, want %v", got, want)

@@ -3,7 +3,7 @@ package policy
 import (
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/mode"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 )
 
 // Windows reads a rooted path without a drive, such as /etc/passwd or \x,

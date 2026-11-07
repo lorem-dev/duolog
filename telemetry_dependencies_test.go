@@ -23,7 +23,7 @@ func TestTelemetryDependencies(t *testing.T) {
 			{"syscall/js", "", true},
 			{"example.com/newdep", "example.com/newdep", true},
 			{"github.com/spf13/cobra", "github.com/spf13/cobra", true},
-			{"github.com/lorem-dev/duolog/internal/config", "github.com/lorem-dev/duolog", true},
+			{"github.com/lorem-dev/duolog/internal/core/config", "github.com/lorem-dev/duolog", true},
 			{"github.com/lorem-dev/duolog/internal/telemetryx", "github.com/lorem-dev/duolog", true},
 			{"os", "", false},
 			{"crypto/hmac", "", false},

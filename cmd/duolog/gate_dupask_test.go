@@ -12,9 +12,9 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/bus"
-	"github.com/lorem-dev/duolog/internal/config"
+	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/policy"
-	"github.com/lorem-dev/duolog/internal/mode"
 )
 
 // answerAsks replies kind to every ask that reaches the bus until the test
