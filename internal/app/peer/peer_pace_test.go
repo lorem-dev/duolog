@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	"github.com/lorem-dev/duolog/internal/core/account"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/quota"
 )
 
 func fakePace(t *testing.T, week map[string]float64) {
@@ -17,20 +17,20 @@ func fakePace(t *testing.T, week map[string]float64) {
 	old := paidruns.PaceRead
 	t.Cleanup(func() { paidruns.PaceRead = old })
 	yes := func() *bool { v := true; return &v }
-	paidruns.PaceRead = func(_ context.Context, p corelaunch.Process) (quota.Snapshot, error) {
+	paidruns.PaceRead = func(_ context.Context, p corelaunch.Process) (account.Snapshot, error) {
 		used, ok := week[p.Agent]
 		if !ok {
-			return quota.Snapshot{}, context.DeadlineExceeded
+			return account.Snapshot{}, context.DeadlineExceeded
 		}
 		now := time.Now()
-		s := quota.Snapshot{ReadAt: now, Windows: []quota.Window{
+		s := account.Snapshot{ReadAt: now, Windows: []account.Window{
 			{Kind: "session", DurationMinutes: 300, UsedPercent: 10, ResetsAt: now.Add(time.Hour)},
 			{Kind: "weekly_all", DurationMinutes: 10080, UsedPercent: used * 100, ResetsAt: now.Add(338688 * time.Second)},
 		}}
 		if p.Agent == "claude" {
-			s.Billing = quota.BillingFacts{AuthMethod: "claude.ai", APIProvider: "firstParty", RouteKnown: true, WindowsAvailable: yes()}
+			s.Billing = account.BillingFacts{AuthMethod: "claude.ai", APIProvider: "firstParty", RouteKnown: true, WindowsAvailable: yes()}
 		} else {
-			s.Billing = quota.BillingFacts{AccountType: "chatgpt", AuthMode: "chatgpt", RouteKnown: true, OrdinaryUsageAllowed: yes()}
+			s.Billing = account.BillingFacts{AccountType: "chatgpt", AuthMode: "chatgpt", RouteKnown: true, OrdinaryUsageAllowed: yes()}
 		}
 		return s, nil
 	}

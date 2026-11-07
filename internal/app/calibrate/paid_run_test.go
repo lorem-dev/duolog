@@ -13,10 +13,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
+	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/paidrules"
-	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -332,7 +332,7 @@ func TestCalibrationSessionWaitAndCapPause(t *testing.T) {
 }
 
 // paidRoute reads a route billed per token.
-func paidRoute(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
+func paidRoute(ctx context.Context, p corelaunch.Process) (account.Snapshot, error) {
 	s, err := paidrunstest.Subscription(ctx, p)
 	s.Billing.RouteSignals = []corelaunch.Signal{{Name: "auth:apiKey", Layer: "account/read"}}
 	return s, err

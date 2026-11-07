@@ -12,6 +12,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/install"
 	"github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/peer"
+	"github.com/lorem-dev/duolog/internal/app/quota"
 	"github.com/lorem-dev/duolog/internal/app/remember"
 	agentsync "github.com/lorem-dev/duolog/internal/app/sync"
 	"github.com/lorem-dev/duolog/internal/core/agent"
@@ -62,6 +63,31 @@ type Agent struct {
 	// agent with "peer open: <agent> has no pane support". The texts of its
 	// pane are Facts.Pane.
 	Pane peer.PaneAgent
+	// Quota gives the agent's quota reader, whose reads hand each identity
+	// field of a reply to identity (nil for none). Nil means the agent has no
+	// quota read: its reads fail, so its verdict is paid, and it gets no paid
+	// pass.
+	Quota func(identity IdentitySink) quota.Reader
+}
+
+// IdentitySink receives the identity fields of a quota reply, as
+// quota.Reader.IdentitySink of internal/quota does.
+type IdentitySink func(agent, kind string, raw []byte) error
+
+func claudeQuota(identity IdentitySink) quota.Reader { return claude.Quota{IdentitySink: identity} }
+
+func codexQuota(identity IdentitySink) quota.Reader { return codex.Quota{IdentitySink: identity} }
+
+// QuotaDeps gives quota the reader of each registered agent that has one,
+// with identity as their identity sink.
+func QuotaDeps(identity IdentitySink) quota.Deps {
+	d := quota.Deps{Agents: map[string]quota.Reader{}}
+	for _, a := range Agents() {
+		if a.Quota != nil {
+			d.Agents[a.Facts.Name] = a.Quota(identity)
+		}
+	}
+	return d
 }
 
 // TreeGuard is what an agent needs of a calibration tree: see
@@ -74,8 +100,8 @@ type TreeGuard interface {
 // Agents returns the registered agents in order: claude, then codex.
 func Agents() []Agent {
 	return []Agent{
-		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}, Login: claude.Login{}, Trust: claude.Trust{}, Installer: claude.Installer{}, Sync: claude.Format{}, Allow: claude.NativeAllow{}, Probe: claude.Probe{}, Tree: claude.Tree{}, Pane: claude.Pane{}},
-		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}, Login: codex.Login{}, Trust: codex.Trust{}, Installer: codex.Installer{}, Sync: codex.Format{}, Allow: codex.NativeAllow{}, Probe: codex.Probe{}, Tree: codex.Tree{}, Pane: codex.Pane{}},
+		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}, Login: claude.Login{}, Trust: claude.Trust{}, Installer: claude.Installer{}, Sync: claude.Format{}, Allow: claude.NativeAllow{}, Probe: claude.Probe{}, Tree: claude.Tree{}, Pane: claude.Pane{}, Quota: claudeQuota},
+		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}, Login: codex.Login{}, Trust: codex.Trust{}, Installer: codex.Installer{}, Sync: codex.Format{}, Allow: codex.NativeAllow{}, Probe: codex.Probe{}, Tree: codex.Tree{}, Pane: codex.Pane{}, Quota: codexQuota},
 	}
 }
 
@@ -150,7 +176,13 @@ func SyncFormats() agentsync.Formats {
 func delegateAgents() map[string]delegate.Agent {
 	out := map[string]delegate.Agent{}
 	for _, a := range Agents() {
-		out[a.Facts.Name] = delegate.Agent{Worker: a.Worker, Models: a.Models, Login: a.Login, Trust: a.Trust}
+		d := delegate.Agent{Worker: a.Worker, Models: a.Models, Login: a.Login, Trust: a.Trust}
+		if a.Quota != nil {
+			// The gate reads through the same port, bound to the account's
+			// identity; delegate only learns that the agent has one.
+			d.Quota = a.Quota(nil)
+		}
+		out[a.Facts.Name] = d
 	}
 	return out
 }

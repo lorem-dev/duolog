@@ -6,10 +6,10 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	"github.com/lorem-dev/duolog/internal/core/account"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/core/run"
-	"github.com/lorem-dev/duolog/internal/quota"
 )
 
 // A Claude run cancelled or timed out mid-request knows only its finished
@@ -67,7 +67,7 @@ func TestFreeRunOnOverageSaysSo(t *testing.T) {
 	h := newHarness(t)
 	h.results = []run.Result{{Done: true, Summary: "Completed.", Files: []string{}, Needs: []string{},
 		Usage: run.Usage{Input: 12, Output: 3}, UsageKnown: true, UsageComplete: true,
-		Billing: quota.RunEvidence{Expected: true, Seen: true, UsingOverage: true}}}
+		Billing: account.RunEvidence{Expected: true, Seen: true, UsingOverage: true}}}
 	o, err := h.run("implement")
 	if err != nil {
 		t.Fatal(err)

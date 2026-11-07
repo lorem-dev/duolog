@@ -187,7 +187,7 @@ func TestCalibrationSharedRatesThroughGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := newCalibrationAccounts(testDeps(t), cfg, ".")
-	g, err := a.open()
+	g, err := a.Gate()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,12 +220,12 @@ func TestCalibrationSharedRatesThroughGate(t *testing.T) {
 	if err := a.Observe(context.Background(), "codex", "sol", 1_000_000, 0, 100_000); err != nil {
 		t.Fatal(err)
 	}
-	if a.observedAt["codex"].IsZero() {
+	if a.ObservedAt("codex").IsZero() {
 		t.Fatal("the step was not observed")
 	}
 	// The same reads again observe nothing more.
-	before := a.observedAt["codex"]
-	if err := a.Observe(context.Background(), "codex", "sol", 1_000_000, 0, 100_000); err != nil || !a.observedAt["codex"].Equal(before) {
+	before := a.ObservedAt("codex")
+	if err := a.Observe(context.Background(), "codex", "sol", 1_000_000, 0, 100_000); err != nil || !a.ObservedAt("codex").Equal(before) {
 		t.Fatalf("observed the same reads twice: %v", err)
 	}
 }

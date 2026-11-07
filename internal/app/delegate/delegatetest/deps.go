@@ -17,6 +17,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/lead/leadtest"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
+	"github.com/lorem-dev/duolog/internal/app/quota/quotatest"
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/run"
@@ -89,11 +90,12 @@ func (f *Fake) Deps() delegate.Deps {
 
 // Agents are the registered agents with their real trust readers, which read
 // the home folder the test sets: trust is a file read, not a process or an
-// account, so it needs no fake here. Use Trust for a scripted one.
+// account, so it needs no fake here. Use Trust for a scripted one. Each has
+// a fake quota reader: the gate of Deps reads on its own.
 func Agents() map[string]delegate.Agent {
 	out := map[string]delegate.Agent{}
 	for name, t := range launchtest.Trusts() {
-		out[name] = delegate.Agent{Trust: t}
+		out[name] = delegate.Agent{Trust: t, Quota: &quotatest.Fake{Agent: name}}
 	}
 	return out
 }

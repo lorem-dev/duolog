@@ -20,6 +20,7 @@ import (
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/app/calibrate"
+	appquota "github.com/lorem-dev/duolog/internal/app/quota"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/journal"
 	"github.com/lorem-dev/duolog/internal/quota"
@@ -310,7 +311,7 @@ func TestCalibrateClassesNeedsSurvey(t *testing.T) {
 // fakeQuota gives every agent a weekly and a five-hour window at 20% used.
 func fakeQuota(t *testing.T) {
 	t.Helper()
-	testDeps(t).QuotaReader = func(ctx context.Context, agent string) ([]calibration.Window, error) {
+	testDeps(t).Quota.Calibration = func(ctx context.Context, agent string) ([]calibration.Window, error) {
 		reset := time.Now().Add(time.Hour)
 		return []calibration.Window{
 			{Kind: calibration.KindWeekly, UsedPercent: 20, ResetsAt: reset.Add(72 * time.Hour)},
@@ -590,7 +591,7 @@ func TestQuotaWindowsKeepModelLimits(t *testing.T) {
 		{Kind: calibration.KindWeekly, UsedPercent: 20, ResetsAt: reset.Add(72 * time.Hour)},
 		{Kind: calibration.KindWeekly, Model: "sol", UsedPercent: 84, ResetsAt: reset.Add(48 * time.Hour)},
 	}
-	if got := quotaWindows(s); !reflect.DeepEqual(got, want) {
+	if got := appquota.Windows(s); !reflect.DeepEqual(got, want) {
 		t.Fatalf("quotaWindows = %+v, want %+v", got, want)
 	}
 }
@@ -609,7 +610,7 @@ func TestQuotaWindowsTreatRejectedFamilyAsFull(t *testing.T) {
 		{Kind: calibration.KindWeekly, UsedPercent: 20, ResetsAt: reset},
 		{Kind: calibration.KindWeekly, Model: "sol", UsedPercent: 100, ResetsAt: reset},
 	}
-	if got := quotaWindows(s); !reflect.DeepEqual(got, want) {
+	if got := appquota.Windows(s); !reflect.DeepEqual(got, want) {
 		t.Fatalf("quotaWindows = %+v, want %+v", got, want)
 	}
 }

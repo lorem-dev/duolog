@@ -149,7 +149,7 @@ func TestCalibrateJudgeStopsAtLeadReserve(t *testing.T) {
 	stateDir := filepath.Join(root, ".duolog")
 	ranRun(t, stateDir)
 	calls := fakeJudge(t)
-	testDeps(t).QuotaReader = func(ctx context.Context, agent string) ([]calibration.Window, error) {
+	testDeps(t).Quota.Calibration = func(ctx context.Context, agent string) ([]calibration.Window, error) {
 		return []calibration.Window{{Kind: calibration.KindWeekly, UsedPercent: 85}}, nil
 	}
 	out, err := executeBusCommand(t, "calibrate", "judge")
@@ -306,7 +306,7 @@ func TestRunRewriteTrustRefusalChargesNothing(t *testing.T) {
 	}
 	var out strings.Builder
 	r := &calibration.Runner{StateDir: s.Dir, Root: root, Cfg: cfg, Run: run, Plan: calibration.Plan{Run: run.ID, CapWeekly: 10, CapWindow: 50}, Manifest: m,
-		Quota: &calibration.QuotaCache{Read: testDeps(t).QuotaReader}, Now: time.Now,
+		Quota: &calibration.QuotaCache{Read: testDeps(t).Quota.Calibration}, Now: time.Now,
 		Cell: func(context.Context, calibration.Cell, calibration.TaskRecord, calibration.StartFunc) (calibration.CellResult, error) {
 			t.Fatal("a cell ran before its statement was rewritten")
 			return calibration.CellResult{}, nil

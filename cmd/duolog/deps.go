@@ -26,9 +26,6 @@ import (
 type cmdDeps struct {
 	wiring.CmdDeps
 
-	// QuotaReader replaces calibration's quota reads in tests; nil reads them
-	// through the account gate.
-	QuotaReader calibration.QuotaReader
 	// SurveyChecks runs the baseline checks, CellChecks the class checks of a
 	// calibration cell; both run the check process.
 	SurveyChecks, CellChecks calibration.CheckRunner

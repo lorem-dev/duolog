@@ -49,8 +49,8 @@ type Reader struct {
 // Identity kinds handed to Reader.IdentitySink: the login's account, and the
 // organization or workspace it belongs to.
 const (
-	IdentityAccount = "account"
-	IdentityOrg     = "org"
+	IdentityAccount = account.IdentityAccount
+	IdentityOrg     = account.IdentityOrg
 )
 
 // errIdentity hides the sink's error, which may quote the identity.

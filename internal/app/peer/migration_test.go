@@ -10,10 +10,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
+	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -109,7 +109,7 @@ func TestMigrationSurvivesQuestionAndError(t *testing.T) {
 		keys(t)
 		read := r.gate.Cache.Read
 		paid := true
-		r.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
+		r.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (account.Snapshot, error) {
 			s, err := read(ctx, p)
 			if paid {
 				s.Billing.RouteSignals = []corelaunch.Signal{{Name: "auth:apiKey", Layer: "account/read"}}

@@ -8,6 +8,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/launch"
 	leadio "github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	"github.com/lorem-dev/duolog/internal/app/quota"
 	"github.com/lorem-dev/duolog/internal/capability"
 	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
@@ -29,12 +30,16 @@ type ModelResolver interface {
 }
 
 // Agent is what Run reaches of one agent. Later ports add their fields here.
-// A nil Trust fails closed: an agent with no Trust reads as untrusted.
+// A nil Trust fails closed: an agent with no Trust reads as untrusted. So
+// does a nil Quota: the account gate reads through the same port, bound to
+// the account's identity, so an agent without one is never read, its
+// verdict is paid, and it gets no paid pass.
 type Agent struct {
 	Worker Worker
 	Models ModelResolver
 	Login  Login
 	Trust  Trust
+	Quota  quota.Reader
 }
 
 // checker returns the checker of the worker process p: the real one over the

@@ -11,11 +11,11 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
+	"github.com/lorem-dev/duolog/internal/core/account"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/usage"
-	"github.com/lorem-dev/duolog/internal/quota"
 )
 
 const (
@@ -32,8 +32,8 @@ func accountState(t *testing.T, g *paidruns.Gate) paidruns.State {
 	return st
 }
 
-func paidReads(used float64) func(context.Context, corelaunch.Process) (quota.Snapshot, error) {
-	return func(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
+func paidReads(used float64) func(context.Context, corelaunch.Process) (account.Snapshot, error) {
+	return func(ctx context.Context, p corelaunch.Process) (account.Snapshot, error) {
 		s, err := paidrunstest.Subscription(ctx, p)
 		s.Billing.RouteSignals = []corelaunch.Signal{{Name: "auth:apiKey", Layer: "auth status"}}
 		s.Windows[0].UsedPercent = used
@@ -156,7 +156,7 @@ func TestProbeUsesGateAndBuild(t *testing.T) {
 			t.Fatalf("probe with no slot: %v", err)
 		}
 		cfg.Limits.SessionsByTier.Small = 3
-		g.Cache.Read = func(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
+		g.Cache.Read = func(ctx context.Context, p corelaunch.Process) (account.Snapshot, error) {
 			s, err := paidrunstest.Subscription(ctx, p)
 			s.Windows[0].UsedPercent = 95
 			return s, err

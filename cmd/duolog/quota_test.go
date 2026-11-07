@@ -13,6 +13,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/paidstore"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	appquota "github.com/lorem-dev/duolog/internal/app/quota"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/quota"
@@ -206,7 +207,7 @@ func TestQuotaCreditsVisibility(t *testing.T) {
 				credits = &quota.Credits{HasCredits: tc.has, Unlimited: tc.unlimited, Balance: tc.balance}
 			}
 			var out bytes.Buffer
-			err := printQuota(&out, map[string]quotaResult{
+			err := appquota.Print(&out, map[string]appquota.Result{
 				"claude": {Snapshot: &quota.Snapshot{ExtraUsage: &quota.ExtraUsage{Enabled: false}}},
 				"codex":  {Snapshot: &quota.Snapshot{Credits: credits}},
 			}, time.Now())
@@ -291,7 +292,7 @@ func TestQuotaWithoutProjectStateCreatesNothing(t *testing.T) {
 func TestQuotaWeeklyFamilyKindLabels(t *testing.T) {
 	var out bytes.Buffer
 	reset := time.Now().Add(time.Hour)
-	err := printQuota(&out, map[string]quotaResult{
+	err := appquota.Print(&out, map[string]appquota.Result{
 		"claude": {Snapshot: &quota.Snapshot{Windows: []quota.Window{
 			{Kind: "weekly_opus", UsedPercent: 1, ResetsAt: reset},
 			{Kind: "weekly_sonnet", UsedPercent: 2, ResetsAt: reset},

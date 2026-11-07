@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/core/account"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/run"
-	"github.com/lorem-dev/duolog/internal/quota"
 )
 
 // The result line is the contract with the lead: it is all the lead reads of
@@ -180,7 +180,7 @@ func TestRunLineGolden(t *testing.T) {
 		{"run_overage_notice", func(t *testing.T, h *harness) {
 			h.results = []run.Result{{Done: true, Summary: "Completed.", Files: []string{}, Needs: []string{},
 				Usage: run.Usage{Input: 12, Output: 3}, UsageKnown: true, UsageComplete: true,
-				Billing: quota.RunEvidence{Expected: true, Seen: true, UsingOverage: true}}}
+				Billing: account.RunEvidence{Expected: true, Seen: true, UsingOverage: true}}}
 		}},
 		{"run_migration_notice_joined", func(t *testing.T, h *harness) {
 			t.Setenv("OPENAI_API_KEY", "sk-test-value")
@@ -202,7 +202,7 @@ func TestRunLineGolden(t *testing.T) {
 			unsetEnv(t, "ANTHROPIC_API_KEY")
 			h.results = []run.Result{{Done: true, Summary: "Completed.", Files: []string{}, Needs: []string{},
 				Usage: run.Usage{Input: 12, Output: 3}, UsageKnown: true, UsageComplete: true,
-				Billing: quota.RunEvidence{Expected: true, Seen: true, UsingOverage: true}}}
+				Billing: account.RunEvidence{Expected: true, Seen: true, UsingOverage: true}}}
 		}},
 		{"run_long_summary_multibyte_cut", func(t *testing.T, h *harness) {
 			h.results = []run.Result{{Done: true, Summary: strings.Repeat("é€ü", 300), Files: []string{"a.go"}, Needs: []string{}}}

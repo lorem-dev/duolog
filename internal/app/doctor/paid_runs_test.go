@@ -10,10 +10,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
+	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/paidrules"
-	"github.com/lorem-dev/duolog/internal/quota"
 )
 
 // Values that must never reach a report: keys, a lead's key, an endpoint URL.
@@ -25,7 +25,7 @@ const (
 
 // reportGate makes delegate.NewGate return one gate over a temporary account
 // state, whose reads answer as read does.
-func reportGate(t *testing.T, cfg *config.Config, read func(context.Context, corelaunch.Process) (quota.Snapshot, error)) *paidruns.Gate {
+func reportGate(t *testing.T, cfg *config.Config, read func(context.Context, corelaunch.Process) (account.Snapshot, error)) *paidruns.Gate {
 	t.Helper()
 	g, err := paidrunstest.Gate(t.TempDir(), cfg)
 	if err != nil {
@@ -42,7 +42,7 @@ func reportGate(t *testing.T, cfg *config.Config, read func(context.Context, cor
 
 // shapeReads answers Claude as a first-party subscription with paid overage
 // on, and Codex with an API key route.
-func shapeReads(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
+func shapeReads(ctx context.Context, p corelaunch.Process) (account.Snapshot, error) {
 	s, err := paidrunstest.Subscription(ctx, p)
 	switch p.Agent {
 	case "claude":
@@ -70,7 +70,7 @@ func seed(t *testing.T, g *paidruns.Gate) {
 		// A free Claude run that went on paid overage after the last read.
 		st.Settled["claude-overage"] = paidrules.Settlement{ID: "claude-overage", Agent: "claude", ChargedUSD: 0.2,
 			Started: true, CompleteUsage: true, Ended: later,
-			Evidence: quota.RunEvidence{Expected: true, Seen: true, UsingOverage: true}}
+			Evidence: account.RunEvidence{Expected: true, Seen: true, UsingOverage: true}}
 		return nil
 	})
 	if err != nil {
@@ -179,10 +179,10 @@ func TestQuotaAndDoctorShapeReports(t *testing.T) {
 
 	t.Run("a failed read keeps its evidence", func(t *testing.T) {
 		cfg, opts, _ := setup(t)
-		reportGate(t, cfg, func(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
+		reportGate(t, cfg, func(ctx context.Context, p corelaunch.Process) (account.Snapshot, error) {
 			s, _ := paidrunstest.Subscription(ctx, p)
 			s.Billing.RouteSignals = []corelaunch.Signal{{Name: "auth:apiKey", Layer: "auth status"}}
-			return quota.Snapshot{Billing: s.Billing}, errors.New("usage read failed")
+			return account.Snapshot{Billing: s.Billing}, errors.New("usage read failed")
 		})
 		text := joined(Run(context.Background(), testDeps, cfg, opts))
 		for _, want := range []string{"claude worker: paid: auth:apiKey (auth status), read:failed", "codex worker: paid: auth:apiKey (auth status), read:failed"} {

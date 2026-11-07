@@ -6,6 +6,14 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/launch"
 )
 
+// Identity kinds of a free reply: the login's account, and the organization
+// or workspace it belongs to. The account state keys each agent's identity
+// digest by "agent/kind".
+const (
+	IdentityAccount = "account"
+	IdentityOrg     = "org"
+)
+
 type Window struct {
 	Kind            string    `json:"kind"`
 	Group           string    `json:"group,omitempty"`

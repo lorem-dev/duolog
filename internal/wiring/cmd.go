@@ -14,6 +14,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/app/profile"
+	"github.com/lorem-dev/duolog/internal/app/quota"
 	agentsync "github.com/lorem-dev/duolog/internal/app/sync"
 	"github.com/lorem-dev/duolog/internal/core/budget"
 	"github.com/lorem-dev/duolog/internal/rex"
@@ -63,6 +64,9 @@ type CmdDeps struct {
 	GOOS string
 	// SyncFormats holds the format of each agent that duolog sync converts.
 	SyncFormats agentsync.Formats
+	// Quota is what quota reads with: each agent's reader and, in tests, the
+	// reader that replaces calibration's reads.
+	Quota quota.Deps
 }
 
 // Cmd fills every field of CmdDeps with the real function.
@@ -87,6 +91,7 @@ func Cmd() CmdDeps {
 		IsTerminal:      isTerminal,
 		GOOS:            runtime.GOOS,
 		SyncFormats:     SyncFormats(),
+		Quota:           QuotaDeps(nil),
 	}
 }
 

@@ -10,9 +10,9 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
-	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -51,7 +51,7 @@ func (r *rig) wantHeld(sessions, tasks int) {
 func (r *rig) paidCodex() {
 	r.cfg.PaidRuns.Codex.Allow, r.cfg.PaidRuns.Codex.DailyCapUSD = true, 100
 	read := r.gate.Cache.Read
-	r.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
+	r.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (account.Snapshot, error) {
 		s, err := read(ctx, p)
 		if p.Agent == "codex" {
 			s.Billing.RouteSignals = []corelaunch.Signal{{Name: "auth:apiKey", Layer: "account/read"}}
@@ -337,7 +337,7 @@ func TestPeerBuildAndPaidQuestion(t *testing.T) {
 		r.cfg.PaidRuns.Claude.Allow, r.cfg.PaidRuns.Claude.DailyCapUSD = true, 100
 		r.cfg.PaidRuns.Claude.Env = []string{"ANTHROPIC_API_KEY"}
 		read := r.gate.Cache.Read
-		r.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
+		r.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (account.Snapshot, error) {
 			s, err := read(ctx, p)
 			s.Billing.RouteSignals = []corelaunch.Signal{{Name: "auth:apiKey", Layer: "auth status"}}
 			return s, err

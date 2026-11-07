@@ -60,9 +60,9 @@ func pluginNeeds(needs []string) []string {
 
 // variants are the variants delegation tries, in order: every free
 // candidate of the role before any paid one, and a paid pass only when the
-// role's candidates, by paidrules.Candidates, hold a paid variant. paid names
-// the agents that have one.
-func variants(cfg *config.Config, role string, opts Options) ([]corelaunch.Variant, map[string]bool) {
+// role's candidates, by paidrules.Candidates, hold a paid variant of an agent
+// with a Quota. paid names the agents that have one.
+func variants(d Deps, cfg *config.Config, role string, opts Options) ([]corelaunch.Variant, map[string]bool) {
 	var targets []config.Target
 	if opts.Entry != nil {
 		targets = []config.Target{*opts.Entry}
@@ -75,7 +75,9 @@ func variants(cfg *config.Config, role string, opts Options) ([]corelaunch.Varia
 	}
 	paid := map[string]bool{}
 	for _, c := range paidrules.Candidates(targets, opts.Entry != nil, cfg.PaidRuns) {
-		if c.Variant == corelaunch.Paid {
+		// An agent without a quota reader is never read, so its spend could
+		// not be judged: it gets no paid pass.
+		if c.Variant == corelaunch.Paid && d.Agents[c.Target.Agent].Quota != nil {
 			paid[c.Target.Agent] = true
 		}
 	}

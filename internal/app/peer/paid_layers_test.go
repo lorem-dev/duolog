@@ -10,11 +10,11 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
+	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
-	"github.com/lorem-dev/duolog/internal/quota"
 )
 
 // writeFile writes data at path, making its folder.
@@ -108,7 +108,7 @@ func TestPeerSendKeepsPaneRoute(t *testing.T) {
 			r.cfg.PaidRuns.Codex.Allow, r.cfg.PaidRuns.Codex.DailyCapUSD = true, 100
 			r.cfg.PaidRuns.Codex.Env = []string{"OPENAI_API_KEY"}
 			paid := true
-			r.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
+			r.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (account.Snapshot, error) {
 				s, err := paidrunstest.Subscription(ctx, p)
 				if paid {
 					s.Billing.RouteSignals = []corelaunch.Signal{{Name: "auth:apiKey", Layer: "account/read"}}

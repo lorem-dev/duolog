@@ -10,12 +10,12 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/core/run"
-	"github.com/lorem-dev/duolog/internal/quota"
 )
 
 // accounts is the account state of the harness's gate.
@@ -42,7 +42,7 @@ func (h *harness) settled() []paidrules.Settlement {
 // paidReads makes the quota reads of agents show an API key route.
 func (h *harness) paidReads(agents ...string) {
 	read := h.gate.Cache.Read
-	h.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (quota.Snapshot, error) {
+	h.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (account.Snapshot, error) {
 		s, err := read(ctx, p)
 		if slices.Contains(agents, p.Agent) {
 			s.Billing.RouteSignals = []corelaunch.Signal{{Name: "auth:apiKey", Layer: "auth status"}}
@@ -114,7 +114,7 @@ func TestAttemptSettlementOnCancelRetryAndFallback(t *testing.T) {
 		h := newHarness(t)
 		reported := 0.25
 		h.results = []run.Result{{AuthFailed: true, Usage: run.Usage{Input: 100, Cached: 40, Output: 10}, UsageKnown: true,
-			UsageComplete: true, ReportedUSD: &reported, Billing: quota.RunEvidence{Expected: true, Seen: true, UsingOverage: true}}}
+			UsageComplete: true, ReportedUSD: &reported, Billing: account.RunEvidence{Expected: true, Seen: true, UsingOverage: true}}}
 		h.auth.login = LoggedIn
 		o, err := h.run("implement")
 		if err != nil || !strings.HasPrefix(o.Line, "done=true") {

@@ -256,7 +256,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 	}
 	// Every free candidate of the role, use then fallback, comes before any
 	// paid one: a free pass, then a paid pass over the agents that allow it.
-	passes, paidAgents := variants(cfg, role, opts)
+	passes, paidAgents := variants(d, cfg, role, opts)
 	pass, variant := 0, passes[0]
 	nextPass := func() bool {
 		if pass+1 >= len(passes) {

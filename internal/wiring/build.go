@@ -23,7 +23,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -168,9 +167,9 @@ func paidGate(cfg *config.Config) (*paidruns.Gate, error) {
 	if err != nil {
 		return nil, err
 	}
-	reader := quota.Reader{IdentitySink: func(agent, kind string, raw []byte) error {
+	readers := QuotaDeps(func(agent, kind string, raw []byte) error {
 		_, err := st.Identity(agent, kind, raw)
 		return err
-	}}
-	return &paidruns.Gate{Store: st, Cache: &paidstore.Cache{Read: reader.ReadProcess}, Config: cfg, Layers: paidruns.ReadLayers}, nil
+	})
+	return &paidruns.Gate{Store: st, Cache: &paidstore.Cache{Read: readers.Read}, Config: cfg, Layers: paidruns.ReadLayers}, nil
 }
