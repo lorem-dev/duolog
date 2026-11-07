@@ -42,6 +42,14 @@ func Rank(agent, native string) (int, bool) {
 // level plan gets Claude's default mode, never Claude's plan (see
 // launchNative).
 func Default(agent string, m Mode, sandbox string) string {
+	return DefaultFor(agent, m, sandbox, false)
+}
+
+// DefaultFor is Default for a lead whose ceiling allows auto (Ceiling.Auto):
+// a Claude worker or peer at level edits or full then starts in Claude's auto
+// mode instead of acceptEdits. Level plan and a read-only role sandbox keep
+// default, and bypassPermissions is never the default.
+func DefaultFor(agent string, m Mode, sandbox string, auto bool) string {
 	if sandbox == "read-only" {
 		m = Plan
 	}
@@ -54,6 +62,9 @@ func Default(agent string, m Mode, sandbox string) string {
 	case "claude":
 		switch m {
 		case Edits, Full:
+			if auto {
+				return "auto"
+			}
 			return "acceptEdits"
 		}
 		return "default"
@@ -213,8 +224,13 @@ func Resolve(agent string, r Request, c Ceiling, sandbox string) Resolved {
 	if sandbox == "read-only" {
 		level = Plan
 	}
+	// The auto default holds only at the lead's own level: an entry that
+	// lowers the level falls back to acceptEdits.
+	def := func(level Mode) string {
+		return DefaultFor(agent, level, sandbox, c.Auto && level == c.Effective)
+	}
 	if r.Native == "" {
-		return Resolved{Level: level, Native: Default(agent, level, sandbox), Source: "default"}
+		return Resolved{Level: level, Native: def(level), Source: "default"}
 	}
 	want := Parse(agent, r.Native)
 	rank, ok := Rank(agent, r.Native)
@@ -222,9 +238,9 @@ func Resolve(agent string, r Request, c Ceiling, sandbox string) Resolved {
 	native, by := r.Native, ""
 	switch {
 	case !ok:
-		native, by = Default(agent, level, sandbox), "not offered"
+		native, by = def(level), "not offered"
 	case want != level || rank > loosestRank(agent, level, c.Auto):
-		native = Default(agent, level, sandbox)
+		native = def(level)
 		switch {
 		case sandbox == "read-only":
 			by = "role sandbox"
@@ -239,7 +255,7 @@ func Resolve(agent string, r Request, c Ceiling, sandbox string) Resolved {
 	// Default's name for plan, so it is never looser.
 	native = launchNative(agent, native)
 	nativeRank, _ := Rank(agent, native)
-	defaultRank, _ := Rank(agent, Default(agent, level, sandbox))
+	defaultRank, _ := Rank(agent, def(level))
 	return Resolved{Level: level, Native: native, Source: r.Source, LoweredBy: by, Looser: nativeRank > defaultRank}
 }
 

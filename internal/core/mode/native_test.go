@@ -16,7 +16,7 @@ func TestResolveTable(t *testing.T) {
 		looser              bool
 	}{
 		{"claude", "auto", Edits, Edits, "acceptEdits", "workspace-write", "acceptEdits", Edits, "lead edits", false},
-		{"claude", "auto", Edits, Edits, "auto", "workspace-write", "auto", Edits, "", true},
+		{"claude", "auto", Edits, Edits, "auto", "workspace-write", "auto", Edits, "", false},
 		{"claude", "auto", Full, Full, "bypassPermissions", "workspace-write", "auto", Edits, "", true},
 		{"claude", "bypassPermissions", Edits, Edits, "acceptEdits", "workspace-write", "acceptEdits", Edits, "lead edits", false},
 		{"claude", "bypassPermissions", Full, Full, "bypassPermissions", "workspace-write", "bypassPermissions", Full, "", true},
@@ -44,8 +44,9 @@ func TestResolveWithoutEntryIsArgs(t *testing.T) {
 	for _, agent := range []string{"claude", "codex"} {
 		for _, m := range []Mode{Plan, Ask, Edits, Full} {
 			for _, sb := range []string{"read-only", "workspace-write"} {
-				got := Resolve(agent, Request{}, NewCeiling("claude", "bypassPermissions", m, m), sb)
-				if !reflect.DeepEqual(Flags(agent, got.Native), Args(agent, m, sb)) || got.Source != "default" || got.Looser {
+				c := NewCeiling("claude", "bypassPermissions", m, m)
+				got := Resolve(agent, Request{}, c, sb)
+				if !reflect.DeepEqual(Flags(agent, got.Native), ArgsFor(agent, m, sb, c.Auto)) || got.Source != "default" || got.Looser {
 					t.Errorf("%s %s %s: %+v", agent, m, sb, got)
 				}
 			}
@@ -75,7 +76,7 @@ func TestResolveNeverAboveLead(t *testing.T) {
 							// Codex has no flag between read-only and
 							// workspace-write, so its default at ask is the
 							// latter.
-							isDefault := got.Native == Default(agent, got.Level, sb)
+							isDefault := got.Native == Default(agent, got.Level, sb) || got.Native == DefaultFor(agent, got.Level, sb, c.Auto)
 							if !ok || Lower(got.Level, eff) != got.Level || (!isDefault && Lower(parsed, got.Level) != parsed) {
 								t.Fatalf("%s %q lead %s eff %s: %+v", agent, req, lead, eff, got)
 							}
@@ -105,6 +106,45 @@ func TestLowerNative(t *testing.T) {
 		if got := LowerNative(tc.agent, tc.a, tc.b); got != tc.want {
 			t.Errorf("LowerNative(%q,%q,%q)=%q want %q", tc.agent, tc.a, tc.b, got, tc.want)
 		}
+	}
+}
+
+// A Claude worker or peer starts in auto when the lead's ceiling allows it;
+// every other case keeps its earlier default.
+func TestClaudeStartsInAutoWhenCeilingAllows(t *testing.T) {
+	for _, tc := range []struct {
+		name, agent, leadNative, req, sandbox string
+		lead, eff                             Mode
+		want                                  string
+	}{
+		{"full lead", "claude", "bypassPermissions", "", "workspace-write", Full, Full, "auto"},
+		{"codex lead at full", "claude", "", "", "workspace-write", Full, Full, "auto"},
+		{"claude auto lead at edits", "claude", "auto", "", "workspace-write", Edits, Edits, "auto"},
+		{"edits lead", "claude", "acceptEdits", "", "workspace-write", Edits, Edits, "acceptEdits"},
+		{"full lead lowered to edits by duolog mode", "claude", "bypassPermissions", "", "workspace-write", Full, Edits, "acceptEdits"},
+		{"read-only role", "claude", "bypassPermissions", "", "read-only", Full, Full, "default"},
+		{"plan", "claude", "bypassPermissions", "", "workspace-write", Full, Plan, "default"},
+		{"entry lowers to acceptEdits", "claude", "bypassPermissions", "acceptEdits", "workspace-write", Full, Full, "acceptEdits"},
+		{"entry asks bypassPermissions", "claude", "bypassPermissions", "bypassPermissions", "workspace-write", Full, Full, "bypassPermissions"},
+		{"codex unchanged", "codex", "bypassPermissions", "", "workspace-write", Full, Full, "workspace-write"},
+	} {
+		c := NewCeiling("claude", tc.leadNative, tc.lead, tc.eff)
+		got := Resolve(tc.agent, Request{Native: tc.req, Source: "x"}, c, tc.sandbox)
+		if got.Native != tc.want {
+			t.Errorf("%s: native %q, want %q (%+v)", tc.name, got.Native, tc.want, got)
+		}
+		if tc.req == "" && got.Looser {
+			t.Errorf("%s: the default is never looser than itself: %+v", tc.name, got)
+		}
+	}
+	if got := ArgsFor("claude", Full, "workspace-write", true); !reflect.DeepEqual(got, []string{"--permission-mode", "auto"}) {
+		t.Errorf("ArgsFor full auto = %v", got)
+	}
+	if got := ArgsFor("claude", Full, "workspace-write", false); !reflect.DeepEqual(got, []string{"--permission-mode", "acceptEdits"}) {
+		t.Errorf("ArgsFor full = %v", got)
+	}
+	if got := ArgsFor("claude", Plan, "workspace-write", true); !reflect.DeepEqual(got, []string{"--permission-mode", "default"}) {
+		t.Errorf("ArgsFor plan auto = %v", got)
 	}
 }
 

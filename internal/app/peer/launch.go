@@ -16,8 +16,8 @@ import (
 // m picks. A Codex workspace-write peer gets no network and no writable root
 // beyond the project, whatever Codex's own config files say, as a worker
 // does.
-func paneLaunch(route coreroute.Route, m mode.Mode) []string {
-	return mode.PinCodexSandbox(route.Agent, mode.Args(route.Agent, m, route.Sandbox), false, nil)
+func paneLaunch(route coreroute.Route, m mode.Mode, auto bool) []string {
+	return mode.PinCodexSandbox(route.Agent, mode.ArgsFor(route.Agent, m, route.Sandbox, auto), false, nil)
 }
 
 // agentEnv builds a peer pane's process: its environment, its argv prefix and
@@ -31,18 +31,19 @@ func agentEnv(build launch.Build, in corelaunch.ProcessInput) (corelaunch.Proces
 	return build(in)
 }
 
-// peerInput describes the pane of route in variant under a lead in mode m:
+// peerInput describes the pane of route in variant under a lead in mode m
+// (auto: the lead's ceiling allows Claude's auto mode):
 // environ, the route's context, the state folder and protected roots its
 // Claude settings deny, the settings the agent's pane adds (Claude's
 // notifications off), and the permission words the pane launches with, so
 // that the gate admits them. run, when set, is the pane's DUOLOG_RUN:
 // the run id duolog drew for this launch, never a vendor id; the gate's
 // telemetry events and the peer's own carry it.
-func peerInput(cfg *config.Config, route coreroute.Route, m mode.Mode, settings map[string]any, variant corelaunch.Variant, leadID, role, peerID, run, stateDir string,
+func peerInput(cfg *config.Config, route coreroute.Route, m mode.Mode, auto bool, settings map[string]any, variant corelaunch.Variant, leadID, role, peerID, run, stateDir string,
 	roots, environ []string) corelaunch.ProcessInput {
 	in := corelaunch.ProcessInput{Agent: route.Agent, Shape: corelaunch.Peer, Variant: variant, Config: cfg,
 		Environ: environ, LeadID: leadID, Role: role, PeerID: peerID, StateDir: stateDir,
-		Minimal: route.Context == "minimal", ProtectedRoots: roots, Launch: paneLaunch(route, m)}
+		Minimal: route.Context == "minimal", ProtectedRoots: roots, Launch: paneLaunch(route, m, auto)}
 	if run != "" {
 		in.ExtraEnv = []string{"DUOLOG_RUN=" + run}
 	}

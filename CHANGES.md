@@ -42,6 +42,11 @@
 
 ## Development
 
+### Changed
+
+- Claude workers and peers start in `auto`, not `acceptEdits`, under a lead at
+  level `full` or a Claude lead in `auto`.
+
 ### Fixed
 
 - `peer close` removes the peer's `coauthor-<id>.model` file, and `peer open`

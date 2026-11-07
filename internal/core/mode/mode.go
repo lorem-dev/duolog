@@ -62,5 +62,10 @@ func Lower(a, b Mode) Mode {
 // Args selects native flags within the role sandbox. Full mode uses the same
 // flags as edits; automatic hook confirmation belongs to the policy layer.
 func Args(agent string, m Mode, sandbox string) []string {
-	return Flags(agent, Default(agent, m, sandbox))
+	return ArgsFor(agent, m, sandbox, false)
+}
+
+// ArgsFor is Args for a lead whose ceiling allows auto (DefaultFor).
+func ArgsFor(agent string, m Mode, sandbox string, auto bool) []string {
+	return Flags(agent, DefaultFor(agent, m, sandbox, auto))
 }

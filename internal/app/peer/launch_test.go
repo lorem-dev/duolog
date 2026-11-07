@@ -2,11 +2,13 @@ package peer
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
@@ -85,6 +87,36 @@ func TestPeerAdmittedArgvIsLaunchedArgv(t *testing.T) {
 			if len(args) < len(admitted) || !slices.Equal(args[:len(admitted)], admitted) || slices.Contains(args[len(admitted):], tc.flag) {
 				t.Errorf("%s %s: launched %v, admitted %v", variant, tc.agent, args, admitted)
 			}
+		}
+	}
+}
+
+// A Claude peer opens in auto when the lead's ceiling allows it (a lead at
+// full, or a Claude lead in auto at edits), and keeps acceptEdits at edits
+// otherwise. A read-only role or a lead in plan keeps default, and Codex is
+// unchanged.
+func TestClaudePeerLaunchesInAutoWhenLeadAllows(t *testing.T) {
+	for _, tc := range []struct {
+		agent, sandbox, native string
+		m                      mode.Mode
+		want                   []string
+	}{
+		{"claude", "workspace-write", "bypassPermissions", mode.Full, []string{"--permission-mode", "auto"}},
+		{"claude", "workspace-write", "auto", mode.Edits, []string{"--permission-mode", "auto"}},
+		{"claude", "workspace-write", "acceptEdits", mode.Edits, []string{"--permission-mode", "acceptEdits"}},
+		{"claude", "workspace-write", "bypassPermissions", mode.Edits, []string{"--permission-mode", "acceptEdits"}}, // a lower duolog mode
+		{"claude", "read-only", "bypassPermissions", mode.Full, []string{"--permission-mode", "default"}},
+		{"claude", "workspace-write", "bypassPermissions", mode.Plan, []string{"--permission-mode", "default"}},
+		{"codex", "workspace-write", "bypassPermissions", mode.Full, []string{"-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=false", "-c", "sandbox_workspace_write.writable_roots=[]"}},
+	} {
+		route := coreroute.Route{Target: config.Target{Agent: tc.agent, Model: "opus"}, Sandbox: tc.sandbox}
+		auto := mode.NewCeiling("claude", tc.native, tc.m, tc.m).Auto
+		p, err := agentEnv(launchtest.Build, peerInput(&config.Config{}, route, tc.m, auto, settingsFor(route), corelaunch.Free, "lead", "plan", "peer-test", "", t.TempDir(), nil, os.Environ()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(p.Launch, tc.want) {
+			t.Errorf("%s %s %s lead %s/%s: launch %v, want %v", tc.agent, tc.sandbox, tc.m, tc.native, tc.m, p.Launch, tc.want)
 		}
 	}
 }

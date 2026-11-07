@@ -300,7 +300,7 @@ func TestWorkerModesProjectRolesAndModelsCannotRaise(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, role := range []string{"review_final", "newrole"} {
-			if r := resolve(cfg, role, "haiku"); r.Looser || r.Native != "acceptEdits" {
+			if r := resolve(cfg, role, "haiku"); r.Looser || r.Native != "auto" {
 				t.Errorf("%s: %+v", role, r)
 			}
 		}

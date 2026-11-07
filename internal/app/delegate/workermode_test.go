@@ -148,6 +148,51 @@ func TestWorkerModeNeverAboveLead(t *testing.T) {
 	}
 }
 
+// With no worker_modes entry, a Claude worker starts in auto when the lead's
+// ceiling allows it (a lead at full, or a Claude lead in auto at edits) and in
+// acceptEdits otherwise; a project entry may lower it, and bypassPermissions is
+// never the default.
+func TestClaudeWorkerStartsInAutoUnderFullLead(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		lead    mode.Mode
+		native  string
+		limit   mode.Mode // "" for no duolog mode
+		entry   string    // worker_modes roles.implement
+		want    string
+		wantArg string
+	}{
+		{"full lead", mode.Full, "bypassPermissions", "", "", "auto", "auto"},
+		{"claude auto lead at edits", mode.Edits, "auto", "", "", "auto", "auto"},
+		{"edits lead", mode.Edits, "acceptEdits", "", "", "acceptEdits", "acceptEdits"},
+		{"DUOLOG_MODE edits under a full lead", mode.Full, "bypassPermissions", mode.Edits, "", "acceptEdits", "acceptEdits"},
+		{"entry lowers to acceptEdits", mode.Full, "bypassPermissions", "", "claude: acceptEdits", "acceptEdits", "acceptEdits"},
+	} {
+		h := newHarness(t)
+		h.claudeGate(true)
+		h.gateOnPath(true)
+		if tc.entry != "" {
+			h.workerModes("  roles:\n    implement: {" + tc.entry + "}\n")
+		}
+		h.leadNative("claude", tc.lead, tc.native)
+		if tc.limit != "" {
+			if err := h.reg.SetMode("lead-123456", tc.limit); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := h.runOn("implement", "claude", "sonnet"); err != nil {
+			t.Fatal(tc.name, err)
+		}
+		c := h.calls[0]
+		if c.Native != tc.want || !slices.Equal(c.Process.Launch, []string{"-p", "--permission-mode", tc.wantArg}) {
+			t.Errorf("%s: native %s, launch %v", tc.name, c.Native, c.Process.Launch)
+		}
+		if env := strings.Join(c.Process.Env, "\n"); !strings.Contains(env, "DUOLOG_NATIVE="+tc.want) {
+			t.Errorf("%s: env lacks DUOLOG_NATIVE=%s", tc.name, tc.want)
+		}
+	}
+}
+
 func TestFamilyEntryLowersToPlan(t *testing.T) {
 	h := newHarness(t)
 	h.workerModes("  families:\n    luna: {codex: read-only}\n")
@@ -193,9 +238,9 @@ func TestFailedGatePreflightRefusesRun(t *testing.T) {
 		setup              func(h *harness)
 		entry              string
 	}{
-		{"claude gate missing", "claude", "sonnet", func(h *harness) { h.claudeGate(false); h.gateOnPath(true) }, "claude: auto"},
-		{"claude hooks off", "claude", "sonnet", func(h *harness) { h.claudeGate(true); h.hooksOff(); h.gateOnPath(true) }, "claude: auto"},
-		{"binary missing", "claude", "sonnet", func(h *harness) { h.claudeGate(true); h.gateOnPath(false) }, "claude: auto"},
+		{"claude gate missing", "claude", "sonnet", func(h *harness) { h.claudeGate(false); h.gateOnPath(true) }, "claude: bypassPermissions"},
+		{"claude hooks off", "claude", "sonnet", func(h *harness) { h.claudeGate(true); h.hooksOff(); h.gateOnPath(true) }, "claude: bypassPermissions"},
+		{"binary missing", "claude", "sonnet", func(h *harness) { h.claudeGate(true); h.gateOnPath(false) }, "claude: bypassPermissions"},
 		// Hooks approved, folder not trusted: trustWarning only warns, so the
 		// preflight is what refuses.
 		{"codex folder untrusted", "codex", "sol", func(h *harness) { h.codexHooksOnly(); h.gateOnPath(true) }, "codex: workspace-write, network: true"},
@@ -210,12 +255,12 @@ func TestFailedGatePreflightRefusesRun(t *testing.T) {
 			h.claudeGate(false)
 			h.gateOnPath(true)
 			put(h.t, filepath.Join(os.Getenv("HOME"), ".claude", "settings.json"), `{"enabledPlugins":{"duolog@duolog":true}}`)
-		}, "claude: auto"},
+		}, "claude: bypassPermissions"},
 	} {
 		h := newHarness(t)
 		tc.setup(h)
 		h.workerModes("  roles:\n    implement: {" + strings.ReplaceAll(tc.entry, "<state>", filepath.ToSlash(filepath.Join(h.root, ".duolog"))) + "}\n")
-		h.leadNative("claude", mode.Edits, "auto")
+		h.leadNative("claude", mode.Full, "bypassPermissions")
 		out, err := h.runOn("implement", tc.agent, tc.model)
 		t.Logf("%s: %s", tc.name, out.Line)
 		h.requireCalls(0) // neither the worker nor a fallback agent ran
@@ -836,14 +881,14 @@ func TestLooserRunWithoutGateRowsWarns(t *testing.T) {
 	h.gitRepo() // changes() needs Git to see the edit
 	h.claudeGate(true)
 	h.gateOnPath(true)
-	h.workerModes("  roles:\n    implement: {claude: auto}\n")
-	h.leadNative("claude", mode.Edits, "auto")
+	h.workerModes("  roles:\n    implement: {claude: bypassPermissions}\n")
+	h.leadNative("claude", mode.Full, "bypassPermissions")
 	h.change = "a.go" // the fake run edits a file and writes no gate row
 	out, err := h.runOn("implement", "claude", "sonnet")
-	if err != nil || !strings.Contains(out.Line, "gate saw no actions in native auto") || !strings.Contains(out.Line, "native=auto (role implement)") {
+	if err != nil || !strings.Contains(out.Line, "gate saw no actions in native bypassPermissions") || !strings.Contains(out.Line, "native=bypassPermissions (role implement)") {
 		t.Fatal(out.Line, err)
 	}
-	if !strings.Contains(read(t, filepath.Join(h.s.Dir, "usage.ndjson")), `"native":"auto"`) {
+	if !strings.Contains(read(t, filepath.Join(h.s.Dir, "usage.ndjson")), `"native":"bypassPermissions"`) {
 		t.Fatal("usage record lacks native")
 	}
 }

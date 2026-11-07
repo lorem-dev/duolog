@@ -42,7 +42,12 @@ value counts as `ask`.
 Each worker also starts in a native mode of its agent: a Claude
 `--permission-mode` or a Codex sandbox. By default `duolog delegate` passes
 the flag that matches the lead's mode, never above `acceptEdits` for Claude or
-`workspace-write` for Codex. The `worker_modes` section of the config
+`workspace-write` for Codex. The exception is a lead that allows Claude
+`auto` (a Claude lead in `bypassPermissions` or `auto`, or any lead at level
+`full`): its Claude workers and peers start in `auto`, never in
+`bypassPermissions`. A read-only role or level `plan` keeps `default`, and
+`duolog mode edits` under a lead in `bypassPermissions` gives `acceptEdits`
+again. The `worker_modes` section of the config
 ([Configuration](configuration.md#which-layers-may-change-worker-modes))
 changes it for one role or one model family. Without the section nothing
 changes.

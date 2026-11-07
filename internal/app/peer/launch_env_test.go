@@ -95,7 +95,7 @@ func TestAgentEnvPinsExecutableDirectory(t *testing.T) {
 		t.Setenv("PATH", parent)
 		for _, agent := range []string{"claude", "codex"} {
 			route := coreroute.Route{Target: config.Target{Agent: agent, Model: "sol"}}
-			p, err := agentEnv(launchtest.Build, peerInput(&config.Config{EnvPassthrough: []string{"PATH", "Path"}}, route, mode.Ask, settingsFor(route), corelaunch.Free, "lead", "docs", "peer-test",
+			p, err := agentEnv(launchtest.Build, peerInput(&config.Config{EnvPassthrough: []string{"PATH", "Path"}}, route, mode.Ask, false, settingsFor(route), corelaunch.Free, "lead", "docs", "peer-test",
 				"0123456789abcdef0123456789abcdef", "", nil, os.Environ()))
 			if err != nil {
 				t.Fatal(err)

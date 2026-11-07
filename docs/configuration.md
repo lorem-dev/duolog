@@ -819,8 +819,10 @@ spend more than them; see
 ## Which layers may change worker modes
 
 `worker_modes` sets the native mode a `duolog delegate` worker starts in.
-Without it, workers get duolog's default flags: Claude `acceptEdits` at most,
-Codex `workspace-write` at most. Peers ignore the section.
+Without it, workers get duolog's default flags: Claude `acceptEdits`, or
+`auto` when the lead allows it (a lead at `full`, or a Claude lead in `auto`),
+Codex `workspace-write` at most. Peers ignore the section and start with the
+same default.
 
 Even without this section, every Codex `workspace-write` worker and peer
 runs with no network and no writable roots beyond the project, whatever

@@ -50,6 +50,10 @@ type leadInfo struct {
 	target  *config.Target
 	mode    mode.Mode
 	address string
+	// auto reports a lead whose ceiling allows a Claude peer in auto
+	// (mode.Ceiling.Auto): a Claude lead in bypassPermissions or auto, or a
+	// lead at level full.
+	auto bool
 }
 
 // lead reads the lead's live mode and target. A lead that is not registered
@@ -76,7 +80,8 @@ func (e *env) lead(now time.Time) (leadInfo, error) {
 			lead.Effort = observed.Effort
 		}
 	}
-	return leadInfo{id: lead.ID, target: &lead.Target, mode: m, address: session.Address(lead)}, nil
+	auto := mode.NewCeiling(lead.Agent, lead.Native, lead.Mode, m).Auto
+	return leadInfo{id: lead.ID, target: &lead.Target, mode: m, address: session.Address(lead), auto: auto}, nil
 }
 
 func (e *env) address(leadID string) string {

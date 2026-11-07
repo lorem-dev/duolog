@@ -636,6 +636,9 @@ func TestPeerStartsInLeadMode(t *testing.T) {
 		{"codex", "implement", mode.Full, "-s workspace-write", codexIdle("")},
 		{"claude", "plan", mode.Ask, "--permission-mode default", claudeIdle("")},
 		{"claude", "debug_hard", mode.Edits, "--permission-mode acceptEdits", claudeIdle("")},
+		// A lead at full opens its Claude peer in auto, never in bypassPermissions.
+		{"claude", "debug_hard", mode.Full, "--permission-mode auto", claudeIdle("")},
+		{"claude", "plan", mode.Full, "--permission-mode default", claudeIdle("")},
 	} {
 		r := newRig(t, withScreens(tc.screen))
 		r.lead("claude", tc.mode)

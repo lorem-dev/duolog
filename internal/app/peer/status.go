@@ -118,7 +118,7 @@ func (e *env) restartNote(entry session.Entry) string {
 		return ""
 	}
 	sandbox := e.cfg.Roles[entry.Role].Sandbox
-	if slices.Equal(mode.Args(entry.Agent, entry.Mode, sandbox), mode.Args(entry.Agent, lead.mode, sandbox)) {
+	if slices.Equal(mode.ArgsFor(entry.Agent, entry.Mode, sandbox, lead.auto), mode.ArgsFor(entry.Agent, lead.mode, sandbox, lead.auto)) {
 		return ""
 	}
 	return fmt.Sprintf("restart needed: it started in mode %s and the lead is now in mode %s; run duolog peer close %s, then duolog peer open %s", entry.Mode, lead.mode, entry.ID, entry.Role)

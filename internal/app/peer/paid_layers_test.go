@@ -166,7 +166,7 @@ func TestPeerInputLocations(t *testing.T) {
 		t.Fatal(err)
 	}
 	route := coreroute.Route{Target: config.Target{Agent: "claude", Model: "opus"}}
-	in, err := e.paneInput(r.root, route, mode.Ask, corelaunch.Free, "lead-1", "plan", "peer-x", "")
+	in, err := e.paneInput(r.root, route, mode.Ask, false, corelaunch.Free, "lead-1", "plan", "peer-x", "")
 	if err != nil {
 		t.Fatal(err)
 	}
