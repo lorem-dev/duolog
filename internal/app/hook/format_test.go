@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -23,11 +24,11 @@ func TestLineForAsk(t *testing.T) {
 		m    bus.Message
 		want string
 	}{
-		{"short", bus.Message{N: 15287, K: "ask", Ref: "peer-x", S: "exec git status"}, "ask 15287 peer-x: exec git status"},
-		{"person", bus.Message{N: 7, K: "ask", Ref: "peer-x", P: true, S: "exec git push"}, "ask 7 peer-x: exec git push (person)"},
-		{"cut", bus.Message{N: 8, K: "ask", Ref: "p", S: long}, "ask 8 p: " + long[:77] + "..."},
-		{"lines joined", bus.Message{N: 9, K: "ask", Ref: "p", S: "exec a\n  b\tc"}, "ask 9 p: exec a b c"},
-		{"no ref", bus.Message{N: 10, K: "ask", From: "codex/review", S: "exec ls"}, "ask 10 codex/review: exec ls"},
+		{"short", bus.Message{N: 15287, K: "ask", Ref: "peer-x", S: "exec git status"}, "ask 15287 peer-x: exec git status; duolog allow 15287 or duolog deny 15287"},
+		{"person", bus.Message{N: 7, K: "ask", Ref: "peer-x", P: true, S: "exec git push"}, "ask 7 peer-x: exec git push (person); the person runs duolog allow 7 or duolog deny 7"},
+		{"cut", bus.Message{N: 8, K: "ask", Ref: "p", S: long}, "ask 8 p: " + long[:77] + "...; duolog allow 8 or duolog deny 8"},
+		{"lines joined", bus.Message{N: 9, K: "ask", Ref: "p", S: "exec a\n  b\tc"}, "ask 9 p: exec a b c; duolog allow 9 or duolog deny 9"},
+		{"no ref", bus.Message{N: 10, K: "ask", From: "codex/review", S: "exec ls"}, "ask 10 codex/review: exec ls; duolog allow 10 or duolog deny 10"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -35,11 +36,50 @@ func TestLineForAsk(t *testing.T) {
 			if got != c.want {
 				t.Fatalf("got %q, want %q", got, c.want)
 			}
-			if c.name == "cut" && len(strings.TrimPrefix(got, "ask 8 p: ")) != 80 {
-				t.Fatalf("summary is %d bytes, want 80", len(strings.TrimPrefix(got, "ask 8 p: ")))
+			if summary, _, _ := strings.Cut(strings.TrimPrefix(got, "ask 8 p: "), ";"); c.name == "cut" && len(summary) != 80 {
+				t.Fatalf("summary is %d bytes, want 80", len(summary))
 			}
 		})
 	}
+}
+
+// An ask that carries its wait says how many seconds its asker still waits,
+// rounded up, and never fewer than none.
+func TestAskLineCountsSecondsLeft(t *testing.T) {
+	sent := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	m := bus.Message{N: 3, T: sent.Format(time.RFC3339Nano), K: "ask", Ref: "peer-x", S: "exec go test ./...", W: 120}
+	for _, c := range []struct {
+		after time.Duration
+		want  string
+	}{
+		{0, ", 120s left"},
+		{25*time.Second + time.Millisecond, ", 95s left"},
+		{119*time.Second + 500*time.Millisecond, ", 1s left"},
+		{130 * time.Second, ", 0s left"},
+	} {
+		at := sent.Add(c.after)
+		clock = func() time.Time { return at }
+		want := "ask 3 peer-x: exec go test ./...; duolog allow 3 or duolog deny 3" + c.want
+		if got := line(m); got != want {
+			t.Errorf("after %s: got %q, want %q", c.after, got, want)
+		}
+	}
+	clock = time.Now
+	m.W = 0
+	if got := line(m); strings.Contains(got, "left") {
+		t.Errorf("an ask without its wait: %q", got)
+	}
+}
+
+// secondsLeft is the part of an ask line that depends on how long a test ran.
+var secondsLeft = regexp.MustCompile(`, \d+s left`)
+
+// leftless drops the seconds left from the ask lines of c.
+func leftless(c string) string { return secondsLeft.ReplaceAllString(c, "") }
+
+// asked is the line of open ask n from peer-x, without its seconds left.
+func asked(n int64, summary string) string {
+	return fmt.Sprintf("ask %d peer-x: %s; duolog allow %d or duolog deny %d", n, summary, n, n)
 }
 
 func TestLineForStatusAndNotice(t *testing.T) {
@@ -83,12 +123,12 @@ func TestFiveMessagesAreAllShown(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		ask(t, b, a, fmt.Sprintf("exec cmd-%d", i))
 	}
-	c := content(t, Prompt(context.Background(), e), "UserPromptSubmit")
+	c := leftless(content(t, Prompt(context.Background(), e), "UserPromptSubmit"))
 	lines := strings.Split(strings.TrimSuffix(c, "\n"), "\n")
 	if len(lines) != 5 || strings.Contains(c, "more") || strings.Contains(c, `"n":`) {
 		t.Fatal(c)
 	}
-	if lines[0] != "ask 1 peer-x: exec cmd-0" || lines[4] != "ask 5 peer-x: exec cmd-4" {
+	if lines[0] != asked(1, "exec cmd-0") || lines[4] != asked(5, "exec cmd-4") {
 		t.Fatal(c)
 	}
 }
@@ -145,7 +185,9 @@ func TestSixMessagesShowThreeAndCountThree(t *testing.T) {
 	}
 }
 
-func TestOpenAsksAreNeverHeld(t *testing.T) {
+// An open ask is always shown and never counted among the held lines, though
+// it is kept, so that the next hook shows it again.
+func TestOpenAsksAreNeverHidden(t *testing.T) {
 	e, r, b := setup(t, "claude")
 	SessionStart(context.Background(), e)
 	a := session.Address(lead(t, r, e))
@@ -154,15 +196,42 @@ func TestOpenAsksAreNeverHeld(t *testing.T) {
 		status(t, b, a, fmt.Sprintf("s-%d", i))
 	}
 	last := ask(t, b, a, "exec go test")
-	c := content(t, Prompt(context.Background(), e), "UserPromptSubmit")
-	want := fmt.Sprintf("ask %d peer-x: exec rm -rf build\nstatus peer-x: s-3\nstatus peer-x: s-4\nstatus peer-x: s-5\nask %d peer-x: exec go test\nand 3 more: duolog inbox\n", first, last)
+	c := leftless(content(t, Prompt(context.Background(), e), "UserPromptSubmit"))
+	want := asked(first, "exec rm -rf build") + "\nstatus peer-x: s-3\nstatus peer-x: s-4\nstatus peer-x: s-5\n" + asked(last, "exec go test") + "\nand 3 more: duolog inbox\n"
 	if c != want {
 		t.Fatalf("got %q\nwant %q", c, want)
 	}
 	lines, err := b.Inbox(a)
-	if err != nil || len(lines) != 3 || bytes.Contains(bytes.Join(lines, nil), []byte(`"k":"ask"`)) {
+	if err != nil || len(lines) != 5 || bytes.Count(bytes.Join(lines, nil), []byte(`"k":"ask"`)) != 2 {
 		t.Fatalf("held = %q, %v", lines, err)
 	}
+}
+
+// Each later hook shows an open ask again, with how to answer it, until the
+// lead answers it or it expires. Then the hook is silent.
+func TestOpenAskRepeatsUntilAnswered(t *testing.T) {
+	e, r, b := setup(t, "claude")
+	SessionStart(context.Background(), e)
+	a := session.Address(lead(t, r, e))
+	n := ask(t, b, a, "exec go test ./internal/app/peer/...")
+	want := asked(n, "exec go test ./internal/app/peer/...") + "\n"
+	if c := content(t, Prompt(context.Background(), e), "UserPromptSubmit"); leftless(c) != want || !secondsLeft.MatchString(c) {
+		t.Fatalf("hook 1 = %q", c)
+	}
+	for i := 2; i <= 3; i++ {
+		if c := leftless(content(t, PostTool(context.Background(), e), "PostToolUse")); c != want {
+			t.Fatalf("hook %d = %q", i, c)
+		}
+	}
+	status(t, b, a, "pane busy")
+	if c := leftless(content(t, PostTool(context.Background(), e), "PostToolUse")); c != want+"status peer-x: pane busy\n" {
+		t.Fatalf("hook with news = %q", c)
+	}
+	if _, err := b.Send(bus.Message{From: a, To: "claude/worker", K: "allow", Ref: strconv.FormatInt(n, 10), S: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	silent(t, PostTool(context.Background(), e))
+	silent(t, Prompt(context.Background(), e))
 }
 
 func TestHeldLinesKeepTheirPointer(t *testing.T) {
@@ -208,11 +277,13 @@ func TestHeldAsksArePrunedOrShown(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(t, held, string(inbox[0])+expired+string(inbox[1])+other)
-	want := fmt.Sprintf("ask %d peer-x: exec open\nand 1 more: duolog inbox\n", open)
-	if c := content(t, PostTool(context.Background(), e), "PostToolUse"); c != want {
+	want := asked(open, "exec open") + "\nand 1 more: duolog inbox\n"
+	if c := leftless(content(t, PostTool(context.Background(), e), "PostToolUse")); c != want {
 		t.Fatalf("got %q\nwant %q", c, want)
 	}
-	if data, err := os.ReadFile(held); err != nil || string(data) != other {
+	// The open ask stays held for the next hook; the answered and the expired
+	// ones are gone.
+	if data, err := os.ReadFile(held); err != nil || string(data) != string(inbox[1])+other {
 		t.Fatalf("held file = %q, %v", data, err)
 	}
 }
@@ -240,8 +311,8 @@ func TestAnsweredAskIsHidden(t *testing.T) {
 	if _, err := b.Send(bus.Message{From: a, To: "claude/worker", K: "allow", Ref: strconv.FormatInt(answered, 10), S: "allow"}); err != nil {
 		t.Fatal(err)
 	}
-	c := content(t, Prompt(context.Background(), e), "UserPromptSubmit")
-	if c != fmt.Sprintf("ask %d peer-x: exec go test\n", open) {
+	c := leftless(content(t, Prompt(context.Background(), e), "UserPromptSubmit"))
+	if c != asked(open, "exec go test")+"\n" {
 		t.Fatal(c)
 	}
 }
@@ -259,8 +330,31 @@ func TestAnswerAfterABadBusLineCounts(t *testing.T) {
 	// The bus reader refuses the bad line, so present gets the asks directly.
 	lines := strings.SplitAfter(raw, "\n")
 	text, _ := present(b.Directory(), nil, [][]byte{[]byte(lines[0]), []byte(lines[1])})
-	if string(text) != "ask 1 peer-x: exec open\n" {
+	if leftless(string(text)) != asked(1, "exec open")+"\n" {
 		t.Fatalf("got %q", text)
+	}
+}
+
+// An open ask without a time it can expire from is shown once and not held,
+// so it does not come back in every hook until an answer arrives.
+func TestAskWithoutTimeIsShownOnce(t *testing.T) {
+	e, r, b := setup(t, "claude")
+	SessionStart(context.Background(), e)
+	a := session.Address(lead(t, r, e))
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	timed := fmt.Sprintf(`{"n":1,"t":%q,"from":"claude/worker","to":%q,"k":"ask","ref":"peer-x","s":"exec timed","w":120}`+"\n", now, a)
+	for _, at := range []string{`"t":"yesterday",`, ``} {
+		untimed := fmt.Sprintf(`{"n":2,%s"from":"claude/worker","to":%q,"k":"ask","ref":"peer-x","s":"exec untimed","w":120}`+"\n", at, a)
+		text, keep := present(b.Directory(), nil, [][]byte{[]byte(timed), []byte(untimed)})
+		if leftless(string(text)) != asked(1, "exec timed")+"\n"+asked(2, "exec untimed")+"\n" {
+			t.Fatalf("got %q", text)
+		}
+		if len(keep) != 1 || string(keep[0]) != timed {
+			t.Fatalf("held %q", keep)
+		}
+		if text, keep = present(b.Directory(), [][]byte{[]byte(untimed)}, nil); len(text) == 0 || len(keep) != 0 {
+			t.Fatalf("a held untimed ask: %q, held %q", text, keep)
+		}
 	}
 }
 

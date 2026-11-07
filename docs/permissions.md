@@ -392,6 +392,39 @@ another one; every unquoted word still counts. All other rules read the line
 as written, so a report line such as `git push` is still refused, and so is
 `echo 'git push' > x.sh; sh x.sh`.
 
+The gate reads two common shell forms as the plain commands they run, so they
+need no ask. It judges the line as written first, and a deny of it stands.
+
+| Form | Read as |
+|---|---|
+| `$(go env GOROOT)/bin/go test ./...`, also quoted, and `.../bin/gofmt` | `go test ./...`, so the rules for `go` apply |
+| `cat > /dev/null <<'EOF'`, `: <<'EOF'` or `true <<'EOF'` on its own line, with its body | Nothing: the line is left out |
+
+The first form is the way around a version manager's `go` shim in this
+repository. Only this exact substitution names a program, and only as the
+first word of a command, not after a redirect such as `>|`. Any other one,
+such as `$(go env GOPATH)/bin/x`, still asks, in full mode too. So does a
+variable that holds the path, as in `GO=$(go env GOROOT)/bin/go; $GO vet`,
+since a quoted name such as `export "G""O=git"` can set it again. The line
+asks too when it names `GOROOT`, `GOENV`, `GOTOOLCHAIN` or `IFS` elsewhere,
+since they change the folder that `go env GOROOT` prints or how the shell
+splits it, or when it defines a function or uses `alias`, `hash`, `enable` or
+`trap`.
+
+A here-document that only `cat > /dev/null`, `:` or `true` reads runs nothing.
+Agents write one as a note beside a read. The line keeps it, and asks as
+before, when the body is unquoted and holds `$`, a backtick or a backslash,
+which the shell expands. It also keeps it when a pipe or `&&` on the line
+before continues into it. A line that defines a function or uses `alias`,
+`hash`, `enable` or `trap` keeps it too, since these can make `cat` run
+something else. `python3 - <<'EOF'` and `cat <<'EOF' | sh` run their body,
+so they still ask.
+
+`go env -w` and `go env -u` ask the person in every mode, full too. They
+change the user's Go env file outside the work root, and every later `go`
+run reads it, the lead's too. `go env GOPATH` and other reads follow the
+rules as before.
+
 Secrets include nested `.env` and `.env.*` files. Paths outside the working
 tree ask in every mode, unless an explicit outside-path rule applies. A broad
 `**` allow does not cover them. On macOS and Windows, path rules ignore case.
@@ -721,9 +754,20 @@ the line above.
 ## How a worker asks the lead
 
 For an `ask` decision, duolog sends a numbered request to the lead on the bus
-and waits up to `ask_timeout_seconds` (120 by default). The wait is capped at
-120 seconds, below every shipped gate hook's timeout of 150 seconds. Doctor
-warns about larger settings. Timeout and cancellation always deny.
+and waits up to `ask_timeout_seconds` (120 by default). Set it under `policy`
+in `.duolog/config.yaml`. The wait is capped at 120 seconds, below every
+shipped gate hook's timeout of 150 seconds. Doctor warns about larger
+settings. Timeout and cancellation always deny.
+
+While the worker waits, every hook of the lead shows the request again, with
+how to answer it and the seconds left:
+
+```text
+ask 15287 peer-x: exec go test ./...; duolog allow 15287 or duolog deny 15287, 95s left
+```
+
+The lead's prompt and tool hooks show it until it is answered or expires, so a
+busy lead sees it before the worker is denied. Nothing answers it for the lead.
 
 A lead waiting for its foreground `delegate` cannot answer a request. In that
 case the gate denies at once and names the command. The worker retries once

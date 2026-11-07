@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
@@ -14,6 +15,9 @@ import (
 func partDecision(p config.Policy, m mode.Mode, a Action, part string, decision func(kind, reason, rule string) Decision, wildOutside func(config.Rule, string) bool) Decision {
 	partAction := a
 	partAction.Target = part
+	if a.Kind == "exec" && goEnvWrites(part) {
+		return decision(Ask, "go env -w and -u change the user's Go env file outside the work root", RuleOutside)
+	}
 	var d Decision
 	if rule, ok := firstRule(p, a, partAction); ok {
 		d = decision(rule.Decision, "matched project policy", rule.Action+" "+rule.Match)
@@ -31,6 +35,43 @@ func partDecision(p config.Policy, m mode.Mode, a Action, part string, decision 
 		d = decision(Deny, "invalid policy decision", "invalid policy")
 	}
 	return confirmInFull(m, d)
+}
+
+// goEnvWrites reports whether any run of a part's words is go env with -w or
+// -u, as in go env -w GOFLAGS=x or env go -C dir env --u=GOPROXY. These write
+// the user's Go env file, which every later go run reads, the lead's too.
+func goEnvWrites(part string) bool {
+	words := strings.Fields(part)
+	for i, word := range words {
+		if programName(word) != "go" {
+			continue
+		}
+		args, ok := goEnvArgs(words[i+1:])
+		if ok && slices.ContainsFunc(args, func(arg string) bool {
+			arg = strings.Trim(arg, `"'`)
+			name, _, _ := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+			return strings.HasPrefix(arg, "-") && (name == "w" || name == "u")
+		}) {
+			return true
+		}
+	}
+	return false
+}
+
+// goEnvArgs returns the words after env when the words after go run go env,
+// past options such as -C dir before the subcommand.
+func goEnvArgs(rest []string) ([]string, bool) {
+	for len(rest) > 0 && strings.HasPrefix(strings.Trim(rest[0], `"'`), "-") {
+		if option := strings.Trim(rest[0], `"'`); option == "-C" || option == "--C" {
+			rest = rest[min(2, len(rest)):]
+		} else {
+			rest = rest[1:]
+		}
+	}
+	if len(rest) == 0 || strings.Trim(rest[0], `"'`) != "env" {
+		return nil, false
+	}
+	return rest[1:], true
 }
 
 // firstRule returns the first rule that is not a deny and matches one part,

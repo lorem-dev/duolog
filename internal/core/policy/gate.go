@@ -59,7 +59,9 @@ type Action struct {
 	taskRead bool
 	// revision marks an operand of a Git read command, which may name a
 	// revision such as HEAD~1 rather than a path, so the 8.3 check skips it.
-	revision bool
+	// asWritten marks a line that plainDecision judges as written, which
+	// plainExec does not read again.
+	revision, asWritten bool
 }
 
 type Decision struct {
@@ -76,6 +78,8 @@ func PersonOnly(d Decision) bool { return d.Kind == Ask && d.Rule == RuleOutside
 
 // Evaluate applies denies before role and mode limits. Lead restrictions always
 // apply: no project setting can grant access that the lead does not have.
+// A POSIX line that plainExec reads is judged as written and then as the plain
+// line it is; see plainDecision.
 func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	if lead.Mode != "" {
 		m = mode.Lower(m, lead.Mode)
@@ -105,7 +109,7 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	if a.Kind == "spawn" {
 		return decision(Deny, "workers cannot delegate", "worker depth")
 	}
-	if d, ok := protectedDecision(a, m); ok {
+	if d, ok := protectedOrPlain(p, lead, m, a); ok {
 		return d
 	}
 	// Before parsing, which gives up on wrappers such as env and asks instead.

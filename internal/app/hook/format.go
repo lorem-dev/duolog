@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/lorem-dev/duolog/internal/app/gate"
@@ -25,9 +26,15 @@ const (
 	summaryRunes = 80
 )
 
-// line is one short plain line for a message, in place of its JSON.
+// clock is the time the lines count an ask's wait from; tests set it.
+var clock = time.Now
+
+// line is one short plain line for a message, in place of its JSON. An ask
+// ends in how to answer it and, when it carries its wait, the seconds left
+// before its asker is denied.
 //
-//	ask 15287 peer-x: exec go test ./... (person)
+//	ask 15287 peer-x: exec go test ./...; duolog allow 15287 or duolog deny 15287, 95s left
+//	ask 7 peer-x: exec cat ../x (person); the person runs duolog allow 7 or duolog deny 7, 95s left
 //	status peer-x: pane closed
 //	notice duolog/plugin: plugin offered
 //	done 6 codex/review: finished
@@ -39,9 +46,16 @@ func line(m bus.Message) string {
 	s := cut(m.S, summaryRunes)
 	switch m.K {
 	case policy.Ask:
-		out := "ask " + strconv.FormatInt(m.N, 10) + " " + who + ": " + s
+		n := strconv.FormatInt(m.N, 10)
+		out := "ask " + n + " " + who + ": " + s
+		answer := "duolog allow " + n + " or duolog deny " + n
 		if m.P {
 			out += " (person)"
+			answer = "the person runs " + answer
+		}
+		out += "; " + answer
+		if left, ok := askLeft(m); ok {
+			out += ", " + strconv.Itoa(left) + "s left"
 		}
 		return out
 	case "status", "notice", "peer-idle", "peer-exit":
@@ -52,6 +66,25 @@ func line(m bus.Message) string {
 		kind = "msg"
 	}
 	return kind + " " + strconv.FormatInt(m.N, 10) + " " + m.From + ": " + s
+}
+
+// expires reports whether an ask carries a time that gate.AskExpired can count
+// from. Only such an ask is held for the next hook; one without it would show
+// in every hook until an answer came, so it is shown once.
+func expires(m bus.Message) bool {
+	_, err := time.Parse(time.RFC3339Nano, m.T)
+	return err == nil
+}
+
+// askLeft returns the whole seconds, rounded up, before the asker of m stops
+// waiting. ok is false for an ask that does not carry its wait or time.
+func askLeft(m bus.Message) (int, bool) {
+	at, err := time.Parse(time.RFC3339Nano, m.T)
+	if err != nil || m.W <= 0 {
+		return 0, false
+	}
+	left := at.Add(time.Duration(m.W) * time.Second).Sub(clock())
+	return max(0, int((left+time.Second-1)/time.Second)), true
 }
 
 // cut joins the lines of s and keeps at most n characters, ending in ... when
@@ -113,9 +146,10 @@ func entries(lines [][]byte) (out []entry, asks bool) {
 // present turns the lines an earlier hook held and the lead's unread lines
 // into the text of one hook and the lines to keep held. An ask that was
 // answered or has expired is dropped: nobody can act on it. Every open ask is
-// shown, a held one too. More than showAll other new messages show only the
-// newest showNewest of them; the rest join the held lines. While any line is
-// held, the text ends in one line that counts them.
+// shown, and held, so that each later hook shows it again until it is answered
+// or expires; one without a time to expire from is shown once. More than showAll other new messages show only the newest
+// showNewest of them; the rest join the held lines. While any of those other
+// lines is held, the text ends in one line that counts them.
 func present(dir string, held, unread [][]byte) (text []byte, keep [][]byte) {
 	old, oldAsks := entries(held)
 	fresh, freshAsks := entries(unread)
@@ -127,23 +161,30 @@ func present(dir string, held, unread [][]byte) (text []byte, keep [][]byte) {
 		return gate.AskExpired(m) || answered[strconv.FormatInt(m.N, 10)]
 	}
 	var out bytes.Buffer
+	var asks, others [][]byte
 	for _, e := range old {
 		switch {
 		case e.m.K != policy.Ask:
-			keep = append(keep, e.raw)
+			others = append(others, e.raw)
 		case !closed(e.m):
 			out.WriteString(line(e.m) + "\n")
+			if expires(e.m) {
+				asks = append(asks, e.raw)
+			}
 		}
 	}
 	shown, newlyHeld := capOthers(fresh, closed)
 	for _, e := range shown {
 		out.WriteString(line(e.m) + "\n")
+		if e.m.K == policy.Ask && expires(e.m) {
+			asks = append(asks, e.raw)
+		}
 	}
-	keep = append(keep, newlyHeld...)
-	if len(keep) > 0 {
-		out.WriteString("and " + strconv.Itoa(len(keep)) + " more: duolog inbox\n")
+	others = append(others, newlyHeld...)
+	if len(others) > 0 {
+		out.WriteString("and " + strconv.Itoa(len(others)) + " more: duolog inbox\n")
 	}
-	return out.Bytes(), keep
+	return out.Bytes(), append(asks, others...)
 }
 
 // capOthers drops closed asks from fresh and splits the rest into the lines

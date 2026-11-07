@@ -55,6 +55,11 @@
   `status` print the report's start, or say that the task had none.
 - Claude workers and peers are told to batch their reads into one turn and to
   use no `node -e` or `python -c`, which cuts their turns and cost.
+- The gate judges `$(go env GOROOT)/bin/go` as `go`, and skips a here-document
+  that only `cat > /dev/null` or `:` reads, instead of asking.
+- The lead's hooks show each open ask again until it ends, with
+  `duolog allow <n>` and the seconds left before it expires.
+- `go env -w` and `go env -u` ask the person in every mode.
 
 ### Fixed
 

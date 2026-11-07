@@ -66,16 +66,21 @@ mail, the hook adds one short line per message to the lead's context, not the
 JSON from the bus:
 
 ```text
-ask 15287 peer-x: exec go test ./... (person)
+ask 15287 peer-x: exec go test ./...; duolog allow 15287 or duolog deny 15287, 95s left
+ask 15288 peer-x: exec cat ../x (person); the person runs duolog allow 15288 or duolog deny 15288, 110s left
 status peer-x: pane closed
 notice duolog/plugin: plugin offered
 ```
 
-An ask line carries its number, the peer, and the command cut to 80
-characters; `(person)` marks an ask only the person may answer. An ask that
-was answered or has expired before the hook runs is not shown, and every other
-ask is. When more than 5 other messages arrive at once, the hook shows the
-newest 3 of them and one line, `and N more: duolog inbox`. Each later hook
+An ask line carries its number, the peer, the command cut to 80 characters,
+how to answer it, and the seconds before its asker is denied. `(person)` marks
+an ask only the person may answer. An ask that was answered or has expired
+before the hook runs is not shown. Every other ask is shown, and each later
+hook shows it again until it is answered or expires. The hook keeps open asks
+with the held messages, so `duolog inbox` prints them too, and after that the
+hooks stop showing them. When more than 5 other messages arrive at once, the
+hook shows the newest 3 of them and one line, `and N more: duolog inbox`. That
+count leaves out the open asks. Each later hook
 prints that line again while those messages wait. The bus keeps every message,
 and the ones the hook did not show are what `duolog inbox` prints next, as the
 full JSON lines. At session start the lead also gets a short roster line with
