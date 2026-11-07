@@ -46,12 +46,12 @@
 
 - `worker_modes` sets a worker's native mode per role and family, never above
   the lead's. At plan, a worker runs MCP tools only with a `read_only` rule.
-- `paid_runs.<agent>.allow` lets workers and peers run paid when out of quota,
-  up to `daily_cap_usd` in 24 hours; `calibrate` does so within the plan's USD.
+- `paid_runs.<agent>.allow` runs workers and peers paid out of quota, up to
+  `daily_cap_usd` a day; `usable_share` caps a workspace account's window use.
 - `limits.max_total_sessions` and `limits.sessions_by_tier` cap live sessions
   per account; a delegation waits `limits.session_wait_seconds` for a slot.
-- `paid_runs.usable_share` (0.5) keeps a workspace account to that share of its
-  window; `paid_runs.claude.subscription_endpoints` names subscription URLs.
+- `agents.<name>.enabled: false` switches an agent off: it gets no task, and
+  duolog builds no worker for it and reads none of its quota.
 - `duolog quota` and `doctor` show billing, spend, sessions and `held:` panes;
   a timed-out quota read retries once; `peer release <id>` frees a closed one.
 - `routing.balance: pace` starts a new task on the role's `fallback` while its
