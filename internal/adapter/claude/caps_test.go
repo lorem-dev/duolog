@@ -132,40 +132,25 @@ func TestUnapprovedProjectServerIsNotBridged(t *testing.T) {
 	}
 }
 
-// The scan and its cache list the servers, and marking them names why one
-// cannot be bridged, with no value of their config.
-func TestScanMarksBridgeableWithoutSecrets(t *testing.T) {
+// The scan lists the servers and its cache holds them, with no value of their
+// config. The marks come from the other agent's Refusal; the test of the
+// marked inventory is TestScanMarksBridgeableWithoutSecrets in app/delegate,
+// which may import both adapters.
+func TestScanCachesServersWithoutSecrets(t *testing.T) {
 	const secret = "s3cret-alpha-value"
 	cp, home, root := capsEnv(t)
 	capsPath(t, testbin.Install(t, "claude", testbin.Scenario{}))
 	putFile(t, filepath.Join(root, ".duolog", ".gitignore"), "*\n")
 	claudeState(t, home, root, `{"jira":{"type":"http","url":"https://j.example.com","headers":{"X-Token":"`+secret+`"}},"notion":{"type":"http","url":"https://n.example.com"}}`, "")
-	inv, err := cp.Scan(context.Background(), root, os.Environ())
-	if err != nil {
+	if _, err := cp.Scan(context.Background(), root, os.Environ()); err != nil {
 		t.Fatal(err)
 	}
-	inv.Items = caps.Mark(inv.Items, cp.Servers(root, os.Environ()), func(s caps.Server) string { return s.Why })
-	var jira, notion caps.Item
-	for _, it := range inv.Items {
-		switch it.Name {
-		case "jira":
-			jira = it
-		case "notion":
-			notion = it
-		}
-	}
-	if !jira.Bridgeable || notion.Bridgeable || !strings.Contains(notion.NoBridge, "OAuth") {
-		t.Fatal(inv.Items)
-	}
 	cached, _ := os.ReadFile(filepath.Join(root, ".duolog", "cache", "inventory-claude.json"))
-	if len(cached) == 0 {
-		t.Fatal("no cache")
+	if got := strings.Join(itemNames(cp.Cached(root)), " "); got != "mcp:jira mcp:notion" {
+		t.Fatalf("cached items = %s; want both servers", got)
 	}
-	data, _ := json.Marshal(inv)
-	for _, text := range []string{string(data), string(cached)} {
-		if strings.Contains(text, secret) || strings.Contains(text, "X-Token") {
-			t.Fatal(text)
-		}
+	if strings.Contains(string(cached), secret) || strings.Contains(string(cached), "X-Token") {
+		t.Fatal(string(cached))
 	}
 }
 

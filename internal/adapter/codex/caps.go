@@ -56,6 +56,8 @@ func (c Caps) windows() bool {
 func (c Caps) Scan(ctx context.Context, root string, environ []string) (caps.Inventory, error) {
 	return kit.ScanInventory("codex", project.StateRoot(root), c.Home, environ, func(f kit.Folders) ([]caps.Item, []string) {
 		items, unknown := scanCodex(ctx, root, f)
+		// The project layer of a trusted folder defines servers too.
+		items = append(items, kit.ServerItems(codexServers(root, f))...)
 		for _, it := range items {
 			// Plugins may bring skills and MCP servers that no file lists.
 			if it.Kind == caps.KindPlugin {

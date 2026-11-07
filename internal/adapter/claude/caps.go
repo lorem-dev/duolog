@@ -51,7 +51,8 @@ func (c Caps) windows() bool {
 // no file.
 func (c Caps) Scan(ctx context.Context, root string, environ []string) (caps.Inventory, error) {
 	return kit.ScanInventory("claude", project.StateRoot(root), c.Home, environ, func(f kit.Folders) ([]caps.Item, []string) {
-		return scanClaude(ctx, root, f), []string{caps.KindMCP}
+		items := scanClaude(ctx, root, f)
+		return append(items, kit.ServerItems(claudeServers(root, f))...), []string{caps.KindMCP}
 	})
 }
 

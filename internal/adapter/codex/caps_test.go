@@ -105,6 +105,36 @@ func TestCodexProjectLayerNeedsTrust(t *testing.T) {
 	}
 }
 
+// The scan lists the servers of a trusted project's .codex/config.toml next to
+// the user's, and so does the cache that roster reads. An untrusted project
+// layer adds none.
+func TestScanListsProjectLayerServers(t *testing.T) {
+	cp, home, root := capsEnv(t)
+	capsPath(t, pluginList(t, `{"installed":[]}`))
+	putFile(t, filepath.Join(root, ".duolog", ".gitignore"), "*\n")
+	putFile(t, filepath.Join(root, ".codex", "config.toml"), "[mcp_servers.docs]\ncommand = \"docs\"\n")
+	putFile(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.mine]\ncommand = \"mine\"\n")
+	inv, err := cp.Scan(context.Background(), root, os.Environ())
+	if err != nil || inv.Unknown {
+		t.Fatal(inv, err)
+	}
+	if got := strings.Join(itemNames(inv), " "); got != "mcp:mine" {
+		t.Fatalf("untrusted project: items = %s", got)
+	}
+	abs, _ := filepath.Abs(root)
+	putFile(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.mine]\ncommand = \"mine\"\n[projects."+kit.TOMLString(abs)+"]\ntrust_level = \"trusted\"\n")
+	inv, err = cp.Scan(context.Background(), root, os.Environ())
+	if err != nil || inv.Unknown {
+		t.Fatal(inv, err)
+	}
+	if got := strings.Join(itemNames(inv), " "); got != "mcp:docs mcp:mine" {
+		t.Fatalf("trusted project: items = %s", got)
+	}
+	if got := strings.Join(itemNames(cp.Cached(root)), " "); got != "mcp:docs mcp:mine" {
+		t.Fatalf("cached items = %s", got)
+	}
+}
+
 // Codex splits a -c key at each dot with no quoting, so a quoted name would
 // make a new server with no transport, and Codex would refuse its config. The
 // overrides name each enabled server bare and leave out a name that a bare key

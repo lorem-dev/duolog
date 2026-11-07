@@ -131,6 +131,16 @@ func ReadJSON(path string, into any) bool {
 	return err == nil && json.Unmarshal(data, into) == nil
 }
 
+// ServerItems are unmarked mcp items for the servers, so that a scan lists
+// every server the agent's config layers define, and its cache holds them.
+func ServerItems(servers map[string]caps.Server) []caps.Item {
+	var items []caps.Item
+	for _, name := range SortedNames(servers) {
+		items = append(items, caps.Item{Kind: caps.KindMCP, Name: name})
+	}
+	return items
+}
+
 // SortedNames are the names of servers, sorted.
 func SortedNames(servers map[string]caps.Server) []string {
 	names := make([]string, 0, len(servers))
