@@ -34,7 +34,19 @@ func stopSetup(t *testing.T, peer session.Entry) (Env, *session.Registry, *bus.B
 	}
 	input, _ := json.Marshal(map[string]any{"session_id": "peer-session-1", "hook_event_name": "Stop"})
 	pane := withAgent(Env{Root: e.Root, Input: input, Environ: []string{"DUOLOG_DEPTH=1", "DUOLOG_LEAD=" + l.ID, "DUOLOG_PEER=peer-abc123"}}, "codex")
+	// The default wait drops a line on a loaded Windows runner, where opening
+	// the registry and the bus can take longer; a test that wants a line sent
+	// gets room. Tests of a dropped line set their own wait.
+	noticeWait(t, 2*time.Second)
 	return pane, r, b, session.Address(l)
+}
+
+// noticeWait sets store.NoticeWait for the test.
+func noticeWait(t *testing.T, d time.Duration) {
+	t.Helper()
+	saved := store.NoticeWait
+	store.NoticeWait = d
+	t.Cleanup(func() { store.NoticeWait = saved })
 }
 
 // allMail reads every message the lead has not read.
@@ -234,7 +246,7 @@ func stopReturns(t *testing.T, ctx context.Context, pane Env) {
 	select {
 	case o := <-done:
 		silent(t, o)
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("Stop waited for a held lock")
 	}
 }
@@ -247,6 +259,7 @@ func TestPeerStopReturnsWithAHeldLock(t *testing.T) {
 	for _, name := range []string{"bus.lock", "sessions.lock"} {
 		t.Run(name, func(t *testing.T) {
 			pane, _, b, address := stopSetup(t, session.Entry{Task: "t.md"})
+			noticeWait(t, time.Second)
 			release := holdLock(t, filepath.Join(pane.Root, ".duolog"), name)
 			stopReturns(t, context.Background(), pane)
 			release()
@@ -258,9 +271,7 @@ func TestPeerStopReturnsWithAHeldLock(t *testing.T) {
 		})
 		t.Run(name+" cancelled", func(t *testing.T) {
 			pane, _, _, _ := stopSetup(t, session.Entry{Task: "t.md"})
-			saved := store.NoticeWait
-			store.NoticeWait = time.Minute
-			t.Cleanup(func() { store.NoticeWait = saved })
+			noticeWait(t, time.Minute)
 			holdLock(t, filepath.Join(pane.Root, ".duolog"), name)
 			ctx, cancel := context.WithCancel(context.Background())
 			time.AfterFunc(100*time.Millisecond, cancel)
@@ -353,13 +364,11 @@ func TestPeerStopSameMessageTwoTurns(t *testing.T) {
 // load than store.NoticeWait, as it may on a busy machine, drops neither line.
 func TestPeerStopConfigLoadSpendsNoWait(t *testing.T) {
 	pane, _, b, address := stopSetup(t, session.Entry{Task: "t.md"})
-	saved := store.NoticeWait
-	store.NoticeWait = 100 * time.Millisecond
-	t.Cleanup(func() { store.NoticeWait = saved })
+	noticeWait(t, time.Second)
 	loads := 0
 	pane.Config = func(root string) (*config.Config, error) {
 		loads++
-		time.Sleep(150 * time.Millisecond)
+		time.Sleep(1500 * time.Millisecond)
 		return configfile.Load(root)
 	}
 	stopReturns(t, context.Background(), pane)
@@ -375,11 +384,10 @@ func TestPeerStopConfigLoadSpendsNoWait(t *testing.T) {
 // own: a stop line that used up its wait does not drop the peer-idle line.
 func TestPeerStopIdleHasItsOwnWait(t *testing.T) {
 	pane, _, b, address := stopSetup(t, session.Entry{Task: "t.md"})
-	saved := store.NoticeWait
-	store.NoticeWait = 300 * time.Millisecond
-	t.Cleanup(func() { store.NoticeWait = saved })
+	// The stop line gives up at 2 s; the lock is free at 3 s, a second into
+	// the peer-idle line's own wait.
 	release := holdLock(t, filepath.Join(pane.Root, ".duolog"), "sessions.lock")
-	time.AfterFunc(450*time.Millisecond, release)
+	time.AfterFunc(3*time.Second, release)
 	stopReturns(t, context.Background(), pane)
 	if ms := kindMail(t, b, address, "peer-idle"); len(ms) != 1 {
 		t.Fatalf("peer-idle mail %+v, want the line its own wait sent", ms)
