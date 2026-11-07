@@ -34,6 +34,15 @@ type Caps struct {
 	// GOOS is the system whose variable names the bridge compares; "" is
 	// runtime.GOOS.
 	GOOS string
+	// SkillsDir is agents.codex.skills_dir: the project skills folder, with
+	// slashes, below the project root. "" means DefaultSkillsDir.
+	SkillsDir string
+}
+
+// WithSkillsDir returns c with the project skills folder dir.
+func (c Caps) WithSkillsDir(dir string) Caps {
+	c.SkillsDir = dir
+	return c
 }
 
 func (c Caps) lookup() func(string) (string, bool) {
@@ -55,7 +64,7 @@ func (c Caps) windows() bool {
 // plugin may bring skills and MCP servers that no file lists.
 func (c Caps) Scan(ctx context.Context, root string, environ []string) (caps.Inventory, error) {
 	return kit.ScanInventory("codex", project.StateRoot(root), c.Home, environ, func(f kit.Folders) ([]caps.Item, []string) {
-		items, unknown := scanCodex(ctx, root, f)
+		items, unknown := scanCodex(ctx, root, c.SkillsDir, f)
 		// The project layer of a trusted folder defines servers too.
 		items = append(items, kit.ServerItems(codexServers(root, f))...)
 		for _, it := range items {
@@ -74,12 +83,34 @@ func (Caps) Cached(root string) caps.Inventory {
 	return kit.CachedInventory("codex", project.StateRoot(root))
 }
 
-func scanCodex(ctx context.Context, root string, f kit.Folders) ([]caps.Item, []string) {
+// projectSkills lists the skills of the project folders: the configured one
+// first, then the default .agents/skills and .codex/skills. During a move
+// both the old and the new folder hold skills, so a name found in an earlier
+// folder wins and later folders do not list it again.
+func projectSkills(root, configured string) []caps.Item {
+	dirs := []string{SkillsDirOrDefault(configured), DefaultSkillsDir, ".codex/skills"}
+	var items []caps.Item
+	seenDir, seenName := map[string]bool{}, map[string]bool{}
+	for _, dir := range dirs {
+		if seenDir[dir] {
+			continue
+		}
+		seenDir[dir] = true
+		for _, it := range kit.SkillsIn(filepath.Join(root, filepath.FromSlash(dir))) {
+			if !seenName[it.Name] {
+				seenName[it.Name] = true
+				items = append(items, it)
+			}
+		}
+	}
+	return items
+}
+
+func scanCodex(ctx context.Context, root, skillsDir string, f kit.Folders) ([]caps.Item, []string) {
 	var items []caps.Item
 	items = append(items, kit.SkillsIn(filepath.Join(f.Home, ".agents", "skills"))...)
 	items = append(items, kit.SkillsIn(filepath.Join(f.Codex(), "skills"))...)
-	items = append(items, kit.SkillsIn(filepath.Join(root, ".agents", "skills"))...)
-	items = append(items, kit.SkillsIn(filepath.Join(root, ".codex", "skills"))...)
+	items = append(items, projectSkills(root, skillsDir)...)
 	config := filepath.Join(f.Codex(), "config.toml")
 	data, _ := os.ReadFile(config)
 	var parsed struct {

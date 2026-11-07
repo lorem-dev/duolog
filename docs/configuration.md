@@ -219,7 +219,7 @@ The lead's own settings are the ceiling:
 | `limits` | Live sessions and the size of a task the lead may do itself. See [below](#how-many-sessions-run-at-once) |
 | `routing` | Pace balancing of subscriptions. See [above](#how-duolog-balances-subscriptions-by-pace) |
 | `models` | The agent and the prices for each alias. They drive admission of paid runs and the estimates of `duolog stats` and telemetry. Claude cache writes cost 1.25 times `input` for the five-minute cache and 2 times for the one-hour cache |
-| `agents` | Which registered agents may run tasks, with `enabled: true` or `false`. One key per agent: `claude`, `codex`, ... The built-in agents are on; any other registered agent is off until you switch it on |
+| `agents` | Which registered agents may run tasks, with `enabled: true` or `false`. One key per agent: `claude`, `codex`, ... The built-in agents are on; any other registered agent is off until you switch it on. `agents.codex.skills_dir` sets Codex's project skills folder; see [below](#where-codex-keeps-its-project-skills) |
 | `paid_runs` | Paid runs per agent with a daily USD cap, and the usable share of a workspace account. One key per agent: `claude`, `codex`, ... See [below](#how-paid-runs-are-allowed-and-capped) |
 | `balance` | How old a quota read may be, and how learned window rates set the session tiers |
 | `sessions` | When a resumed thread closes |
@@ -236,6 +236,49 @@ The lead's own settings are the ceiling:
 | `coauthors` | Enable worker credit and set commit co-author templates, one key per agent: `claude`, `codex`, ... See [Getting started](getting-started.md#how-to-credit-the-workers-in-commits) |
 | `worker_modes` | The native permission mode a `delegate` worker starts in, per role and per model family, one key per agent: `claude`, `codex`, ... See [below](#which-layers-may-change-worker-modes) and [Permissions](permissions.md#a-workers-native-mode) |
 | `telemetry` | The local history of runs, quota and routing. See [below](#which-layers-may-change-telemetry) and [Telemetry](telemetry.md) |
+
+## Where Codex keeps its project skills
+
+By default, `duolog install` and `duolog sync` put Codex's project skills in
+`.agents/skills`. Set `agents.codex.skills_dir` to use another folder. Codex
+loads skills from `.codex/skills` too, so a repository can drop `.agents/`:
+
+```yaml
+agents:
+  codex:
+    skills_dir: .codex/skills
+```
+
+The value is a path below the project root, written with slashes. Set it in
+`.duolog/config.yaml` or `.duolog/config.local.yaml`, not in your user config.
+An empty value, an absolute path and a path with `..` are errors. So is a
+folder that is, holds or sits inside `.git`, `.duolog`, `.claude/skills`,
+`.claude/agents` or `.codex/agents`, and `.codex` itself. Case does not matter.
+Only `agents.codex` has this key. User scope keeps `~/.agents/skills`.
+
+In a linked worktree, duolog reads the key from the worktree's own project
+config, because the worktree holds the files it writes. A worktree has no
+`config.local.yaml`, so duolog reads the one of the main checkout.
+
+Install, uninstall, sync and `duolog caps` all use the folder. When you change
+the key, the next `duolog sync` writes the skills to the new folder. It removes
+the files it owns from the old folder, and removes that folder when it is
+empty. `duolog install --scope project` does the same for duolog's own skills.
+Install also backs up the old duolog skill folders under `.duolog/backup/`
+and removes them, whatever files they hold, so Codex does not load two copies.
+A backup with other content gets a new name ending in `.1`, `.2` and so on.
+If a backup cannot be written, the file stays and install fails. A skill
+folder that is a link, or sits below a link, is left alone with a note.
+A file that duolog does not own stays where it is. `duolog caps` reads both
+folders until the old one is empty, and the new folder wins on a name that
+both hold.
+
+If Codex is the sync source and you change the key, move the skills by hand
+first. Until then sync reports the old folder and removes nothing. The same
+holds for `--switch-direction`. Once an old skill is gone for good, sync
+treats it like any deleted source. If both names lead to one directory, for
+example through a link, sync keeps the files and does not write through the
+link.
 
 ## How the lead keeps its state through compaction
 

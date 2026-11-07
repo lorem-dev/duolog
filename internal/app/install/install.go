@@ -39,6 +39,14 @@ type Installer interface {
 	InstructionFiles(root string) (current string, all []string)
 }
 
+// SkillDefaults is implemented by the Installer of an agent whose project
+// skills folder a config key can move. DefaultSkillDir is the default folder
+// when SkillDir names another one, and "" otherwise. Run moves duolog's own
+// skills out of it, and Remove removes them from it too.
+type SkillDefaults interface {
+	DefaultSkillDir(scope, base, home string) string
+}
+
 // Plugins is implemented by the Installer of an agent that has a plugin
 // registering the same hooks and skill: Run installs none of them where the
 // plugin is enabled for root, and drops a copy an earlier install left.
@@ -102,25 +110,14 @@ func (d Deps) Run(o Options) (Report, error) {
 	var regated []regate // hooks files whose gate command changes
 	for _, a := range agents {
 		path := a.Installer.HookFile(o.Scope, base, o.Home)
-		if plugins, ok := a.Installer.(Plugins); ok {
-			enabled, err := plugins.Enabled(base, o.Home, os.Environ())
-			if err != nil {
-				return Report{}, err
-			}
-			if enabled {
-				// The plugin already registers these hooks and the skill; a second
-				// copy in settings.json would run every gate twice. Drop any copy an
-				// earlier install left behind.
-				if old, err := os.ReadFile(path); err == nil {
-					data, _, err := a.Installer.Hooks(old, 0)
-					if err != nil {
-						return Report{}, fmt.Errorf("%s: %w", path, err)
-					}
-					edits = append(edits, edit{path: path, data: data})
-				}
-				report.Notes = append(report.Notes, strings.ToUpper(a.Name[:1])+a.Name[1:]+": the "+pluginKey+" plugin is enabled, so its hooks and skill are used and none were installed here. Gate waits are capped at 120 seconds.")
-				continue
-			}
+		dropped, note, enabled, err := pluginEdits(a, o, base, path)
+		if err != nil {
+			return Report{}, err
+		}
+		if enabled {
+			edits = append(edits, dropped...)
+			report.Notes = append(report.Notes, note)
+			continue
 		}
 		old, err := readIfExists(path)
 		if err != nil {
@@ -147,25 +144,11 @@ func (d Deps) Run(o Options) (Report, error) {
 		edits = append(edits, skillEdits...)
 	}
 	if o.Scope != "user" {
-		if _, err := store.Open(o.Root); err != nil {
-			return Report{}, err
-		}
-		if e, ok, err := calibrationIgnoreEdit(o.Root); err != nil {
-			return Report{}, err
-		} else if ok {
-			edits = append(edits, e)
-		}
-		instructions, err := d.instructionEdits(o.Root)
+		project, err := d.projectEdits(o.Root)
 		if err != nil {
 			return Report{}, err
 		}
-		edits = append(edits, instructions...)
-		path := filepath.Join(o.Root, ".duolog", "config.yaml")
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			edits = append(edits, edit{path: path, data: []byte("# yaml-language-server: $schema=" + config.SchemaURL + "\nversion: 1\n")})
-		} else if err != nil {
-			return Report{}, err
-		}
+		edits = append(edits, project...)
 	}
 	// A backup next to a project file lands in the work tree, where git add -A
 	// picks it up. .duolog/ is ignored, so project backups go there.
@@ -188,7 +171,61 @@ func (d Deps) Run(o Options) (Report, error) {
 			return report, err
 		}
 	}
-	return report, nil
+	// The skills are in the configured folder now; take duolog's own out of the
+	// default one. Any other file there stays.
+	notes, err := dropDefaultSkills(agents, o, base)
+	report.Notes = append(report.Notes, notes...)
+	return report, err
+}
+
+// pluginEdits reports whether the plugin of agent a is enabled for base. The
+// plugin already registers the hooks and the skill, and a second copy in
+// settings.json would run every gate twice, so the edits drop any copy an
+// earlier install left behind, and the note tells the person.
+func pluginEdits(a Agent, o Options, base, path string) (edits []edit, note string, enabled bool, err error) {
+	plugins, ok := a.Installer.(Plugins)
+	if !ok {
+		return nil, "", false, nil
+	}
+	enabled, err = plugins.Enabled(base, o.Home, os.Environ())
+	if err != nil || !enabled {
+		return nil, "", false, err
+	}
+	if old, err := os.ReadFile(path); err == nil {
+		data, _, err := a.Installer.Hooks(old, 0)
+		if err != nil {
+			return nil, "", false, fmt.Errorf("%s: %w", path, err)
+		}
+		edits = append(edits, edit{path: path, data: data})
+	}
+	note = strings.ToUpper(a.Name[:1]) + a.Name[1:] + ": the " + pluginKey + " plugin is enabled, so its hooks and skill are used and none were installed here. Gate waits are capped at 120 seconds."
+	return edits, note, true, nil
+}
+
+// projectEdits plans what a project install adds beside the hooks and skills:
+// the calibration ignore line, the instruction files and a starter config.
+func (d Deps) projectEdits(root string) ([]edit, error) {
+	if _, err := store.Open(root); err != nil {
+		return nil, err
+	}
+	var edits []edit
+	if e, ok, err := calibrationIgnoreEdit(root); err != nil {
+		return nil, err
+	} else if ok {
+		edits = append(edits, e)
+	}
+	instructions, err := d.instructionEdits(root)
+	if err != nil {
+		return nil, err
+	}
+	edits = append(edits, instructions...)
+	path := filepath.Join(root, ".duolog", "config.yaml")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		edits = append(edits, edit{path: path, data: []byte("# yaml-language-server: $schema=" + config.SchemaURL + "\nversion: 1\n")})
+	} else if err != nil {
+		return nil, err
+	}
+	return edits, nil
 }
 
 // regate is a hooks file whose gate command changed, with the agent's way to
@@ -279,38 +316,73 @@ func (d Deps) Remove(o Options) error {
 		}
 	}
 	for _, a := range agents {
-		for _, name := range plugin.Skills {
-			files, err := skillFiles(a.Name, name)
-			if err != nil {
-				return err
-			}
-			dir := filepath.Join(a.Installer.SkillDir(o.Scope, base, o.Home), name)
-			for _, rel := range files {
-				path := filepath.Join(dir, filepath.FromSlash(rel))
-				// A file with other content is not the one Run wrote, so it stays.
-				ours, err := plugin.FS.ReadFile(a.Name + "/skills/" + name + "/" + rel)
-				if err != nil {
-					return err
-				}
-				if have, err := os.ReadFile(path); err != nil || !bytes.Equal(have, ours) {
-					continue
-				}
-				if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-					return err
-				}
-				// Folders go only when empty, from the file's up to the skill's.
-				for parent := filepath.Dir(path); parent != filepath.Dir(dir); parent = filepath.Dir(parent) {
-					if os.Remove(parent) != nil {
-						break
-					}
-				}
-			}
+		if err := removeSkills(a, a.Installer.SkillDir(o.Scope, base, o.Home)); err != nil {
+			return err
 		}
+	}
+	// An earlier install may have used the default folder.
+	if _, err := dropDefaultSkills(agents, o, base); err != nil {
+		return err
 	}
 	if o.Scope != "user" {
 		return d.removeInstructions(o.Root)
 	}
 	return nil
+}
+
+// removeSkills deletes the bundled skill files of agent a from skills, the
+// skills folder. A file with other content is not the one Run wrote, so it
+// stays. Folders go only when empty, from the file's up to the skill's.
+func removeSkills(a Agent, skills string) error {
+	for _, name := range plugin.Skills {
+		if err := removeSkill(a, name, skills); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// removeSkill deletes the files of the bundled skill name of agent a from the
+// skills folder. Folders go only when empty, from the file's up to the skill's.
+func removeSkill(a Agent, name, skills string) error {
+	files, err := skillFiles(a.Name, name)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(skills, name)
+	for _, rel := range files {
+		path := filepath.Join(dir, filepath.FromSlash(rel))
+		ours, err := plugin.FS.ReadFile(a.Name + "/skills/" + name + "/" + rel)
+		if err != nil {
+			return err
+		}
+		if have, err := os.ReadFile(path); err != nil || !bytes.Equal(have, ours) {
+			continue
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		for parent := filepath.Dir(path); parent != filepath.Dir(dir); parent = filepath.Dir(parent) {
+			if os.Remove(parent) != nil {
+				break
+			}
+		}
+	}
+	return nil
+}
+
+// pruneUp removes dir when it is empty, then the folders above it that are
+// empty, up to but not including base.
+func pruneUp(dir, base string) {
+	for dir != base && strings.HasPrefix(dir, base+string(filepath.Separator)) {
+		if info, err := os.Lstat(dir); err != nil || !info.IsDir() || isLinkMode(info.Mode()) {
+			return
+		}
+		if os.Remove(dir) != nil {
+			return
+		}
+		dir = filepath.Dir(dir)
+	}
 }
 
 // skillFiles lists every file of one bundled skill, relative to its folder,

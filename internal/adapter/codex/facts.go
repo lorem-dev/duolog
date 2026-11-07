@@ -36,6 +36,7 @@ var Facts = agent.Descriptor{
 	},
 	Config: agent.ConfigFacts{
 		SandboxRoots:  true,
+		SkillsDir:     DefaultSkillsDir,
 		CoauthorDoc:   "Codex co-author template with {name} and {model}; defaults to OpenAI Codex, the model and noreply@openai.com.",
 		NativeModes:   []string{"read-only", "workspace-write"},
 		NativeModeDoc: "Native Codex sandbox a worker starts in; danger-full-access is not offered. Absent means duolog's default.",

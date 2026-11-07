@@ -1,13 +1,37 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
+
+// scanAllCaps lists what every registered agent has, with the project skills
+// folders that the project config of the work root sets. The scan reads the
+// folders of the work root too, because in a linked worktree those are the
+// files the agent loads. A config that does not load keeps the default
+// folders, because caps only lists.
+func scanAllCaps(ctx context.Context, root string) ([]caps.Inventory, error) {
+	work := workRoot(root)
+	dirs, err := configfile.ProjectSkillsDirs(work, wiring.Descriptors())
+	if err != nil {
+		dirs = nil
+	}
+	var inv []caps.Inventory
+	for _, agent := range wiring.Names() {
+		i, err := wiring.ScanCaps(ctx, agent, work, dirs)
+		if err != nil {
+			return nil, err
+		}
+		inv = append(inv, i)
+	}
+	return inv, nil
+}
 
 func newCapsCommand() *cobra.Command {
 	var diff, asJSON bool
@@ -16,13 +40,9 @@ func newCapsCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		var inv []caps.Inventory
-		for _, agent := range wiring.Names() {
-			i, err := wiring.ScanCaps(cmd.Context(), agent, root)
-			if err != nil {
-				return err
-			}
-			inv = append(inv, i)
+		inv, err := scanAllCaps(cmd.Context(), root)
+		if err != nil {
+			return err
 		}
 		out := cmd.OutOrStdout()
 		if diff {

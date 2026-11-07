@@ -4,6 +4,7 @@ package wiring
 import (
 	"context"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/claude"
@@ -143,6 +144,18 @@ func InstallDeps() install.Deps {
 	return d
 }
 
+// ConfiguredInstall returns d with the project skills folder that dirs names
+// for each agent that has such a key (see configfile.ProjectSkillsDirs).
+func ConfiguredInstall(d install.Deps, dirs map[string]string) install.Deps {
+	agents := slices.Clone(d.Agents)
+	for i, a := range agents {
+		if c, ok := a.Installer.(codex.Installer); ok {
+			agents[i].Installer = c.WithSkillsDir(dirs[a.Name])
+		}
+	}
+	return install.Deps{Agents: agents}
+}
+
 // HookEnv fills the Events and Lead of env.Agent, and the names and Caps of
 // every registered agent. An agent that is not registered gets no Events or Lead,
 // and every hook of it does nothing.
@@ -167,10 +180,15 @@ func RosterCaps() map[string]roster.Caps {
 // ScanCaps lists what agent has for duolog's own environment, and marks each
 // MCP server of its config files with whether a worker of another registered
 // agent could borrow it: the first reason one of them gives, or bridgeable.
-func ScanCaps(ctx context.Context, agent, root string) (caps.Inventory, error) {
+// dirs names the project skills folder of an agent that has one; a nil map
+// keeps the default.
+func ScanCaps(ctx context.Context, agent, root string, dirs map[string]string) (caps.Inventory, error) {
 	a, ok := Find(agent)
 	if !ok {
 		return caps.Inventory{Agent: agent, Unknown: true}, nil
+	}
+	if c, ok := a.Caps.(codex.Caps); ok {
+		a.Caps = c.WithSkillsDir(dirs[agent])
 	}
 	inv, err := a.Caps.Scan(ctx, root, os.Environ())
 	if err != nil || inv.Unknown {

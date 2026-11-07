@@ -11,7 +11,11 @@ import (
 // Installer writes duolog's hooks and skill for Codex: the hooks in
 // .codex/hooks.json, the skill in .agents/skills, and the install offer in
 // AGENTS.md.
-type Installer struct{}
+type Installer struct {
+	// SkillsDir is agents.codex.skills_dir: the project skills folder, with
+	// slashes, below the project root. "" means DefaultSkillsDir.
+	SkillsDir string
+}
 
 // HookFile is the hooks file whose hooks scope selects: user scope is the
 // Codex home that home selects (CODEX_HOME applies), project scope .codex
@@ -28,9 +32,42 @@ func (Installer) HookFile(scope, base, home string) string {
 	return filepath.Join(base, ".codex", "hooks.json")
 }
 
-// SkillDir is the folder the bundled skills go into.
-func (Installer) SkillDir(_, base, _ string) string {
-	return filepath.Join(base, ".agents", "skills")
+// DefaultSkillsDir is the project skills folder of Codex when
+// agents.codex.skills_dir is not set. User scope always keeps it under home.
+const DefaultSkillsDir = ".agents/skills"
+
+// SkillsDirOrDefault returns dir, or DefaultSkillsDir when dir is empty.
+func SkillsDirOrDefault(dir string) string {
+	if dir == "" {
+		return DefaultSkillsDir
+	}
+	return dir
+}
+
+// WithSkillsDir returns i with the project skills folder dir, as
+// agents.codex.skills_dir sets it.
+func (i Installer) WithSkillsDir(dir string) Installer {
+	i.SkillsDir = dir
+	return i
+}
+
+// SkillDir is the folder the bundled skills go into: under home for user
+// scope, and the configured folder under base for project scope.
+func (i Installer) SkillDir(scope, base, _ string) string {
+	if scope == "user" {
+		return filepath.Join(base, filepath.FromSlash(DefaultSkillsDir))
+	}
+	return filepath.Join(base, filepath.FromSlash(SkillsDirOrDefault(i.SkillsDir)))
+}
+
+// DefaultSkillDir is the default project skills folder when the configured one
+// differs from it, and "" otherwise. An earlier install may have put duolog's
+// skills there.
+func (i Installer) DefaultSkillDir(scope, base, _ string) string {
+	if scope == "user" || SkillsDirOrDefault(i.SkillsDir) == DefaultSkillsDir {
+		return ""
+	}
+	return filepath.Join(base, filepath.FromSlash(DefaultSkillsDir))
 }
 
 // Hooks merges duolog's Codex hooks, with gate timeouts of timeout seconds,

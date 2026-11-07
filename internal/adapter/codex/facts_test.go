@@ -47,6 +47,7 @@ func TestFacts(t *testing.T) {
 		},
 		Config: agent.ConfigFacts{
 			SandboxRoots:  true,
+			SkillsDir:     ".agents/skills",
 			CoauthorDoc:   "Codex co-author template with {name} and {model}; defaults to OpenAI Codex, the model and noreply@openai.com.",
 			NativeModes:   []string{"read-only", "workspace-write"},
 			NativeModeDoc: "Native Codex sandbox a worker starts in; danger-full-access is not offered. Absent means duolog's default.",

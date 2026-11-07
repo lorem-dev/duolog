@@ -13,6 +13,20 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "AgentSwitchCodex": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether this agent may run tasks; the built-in agents default to true and any other registered agent to false."
+        },
+        "skills_dir": {
+          "type": "string",
+          "description": "Folder of Codex's project skills, relative to the project root and written with slashes; set it in the project's .duolog/config.yaml or config.local.yaml, not the user config. User scope is not affected. Defaults to .agents/skills."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "AgentSync": {
       "properties": {
         "model_map": {
@@ -411,7 +425,7 @@
               "description": "Switch for Claude."
             },
             "codex": {
-              "$ref": "#/$defs/AgentSwitch",
+              "$ref": "#/$defs/AgentSwitchCodex",
               "description": "Switch for Codex."
             }
           },

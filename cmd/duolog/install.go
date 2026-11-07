@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/app/install"
+	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
 
@@ -20,6 +22,20 @@ func installOptions(scope, agent string) (install.Options, error) {
 	return install.Options{Scope: scope, Agent: agent, Home: home, Root: root}, nil
 }
 
+// configuredInstall returns the install deps with the project skills folder
+// that the config sets. User scope has none. When the config does not load, it
+// returns the plain deps and the error.
+func configuredInstall(d *cmdDeps, o install.Options) (install.Deps, error) {
+	if o.Scope == "user" {
+		return d.Install, nil
+	}
+	dirs, err := configfile.ProjectSkillsDirs(o.Root, wiring.Descriptors())
+	if err != nil {
+		return d.Install, err
+	}
+	return wiring.ConfiguredInstall(d.Install, dirs), nil
+}
+
 func newInstallCommand(d *cmdDeps) *cobra.Command {
 	var scope, agent string
 	cmd := &cobra.Command{Use: "install", Short: "Install duolog hooks and skill for Claude Code and Codex", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -27,7 +43,11 @@ func newInstallCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		report, err := d.Install.Run(o)
+		deps, err := configuredInstall(d, o)
+		if err != nil {
+			return err
+		}
+		report, err := deps.Run(o)
 		if err != nil {
 			return err
 		}
@@ -54,7 +74,10 @@ func newUninstallCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return d.Install.Remove(o)
+		// A config that does not load must not block an uninstall: the default
+		// folder is cleaned, and a custom folder stays for the person to remove.
+		deps, _ := configuredInstall(d, o)
+		return deps.Remove(o)
 	}}
 	cmd.Flags().StringVar(&scope, "scope", "project", "Where to uninstall: project or user")
 	cmd.Flags().StringVar(&agent, "agent", "both", agentFlagHelp("both"))

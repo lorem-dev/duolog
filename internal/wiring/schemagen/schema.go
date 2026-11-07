@@ -28,7 +28,7 @@ func GenerateFor(agents []agent.Descriptor) ([]byte, error) {
 	paidAgents(schema, agents)
 	coauthors(schema.Definitions["Coauthors"], agents)
 	workerMode(schema.Definitions["WorkerMode"], agents)
-	agentSwitches(schema.Definitions["Config"], agents)
+	agentSwitches(schema, agents)
 	agentEnum(schema.Definitions["Target"], agents)
 	agentEnum(schema.Definitions["Model"], agents)
 	compactWindows(schema.Definitions["Workers"])
@@ -110,16 +110,36 @@ func workerMode(s *jsonschema.Schema, agents []agent.Descriptor) {
 	s.Properties = props
 }
 
-// agentSwitches writes one property of the agents section per agent.
-func agentSwitches(s *jsonschema.Schema, agents []agent.Descriptor) {
-	section, ok := s.Properties.Get("agents")
+// agentSwitches writes one property of the agents section per agent. Its
+// definition has the enabled key alone, and each agent with a skills_dir key
+// has a definition of its own that adds it.
+func agentSwitches(schema *jsonschema.Schema, agents []agent.Descriptor) {
+	section, ok := schema.Definitions["Config"].Properties.Get("agents")
 	if !ok {
 		return
 	}
 	section.AdditionalProperties = jsonschema.FalseSchema
 	section.Properties = jsonschema.NewProperties()
+	full := schema.Definitions["AgentSwitch"]
+	skills, _ := full.Properties.Get("skills_dir")
+	plain := without(full, "skills_dir")
+	schema.Definitions["AgentSwitch"] = plain
 	for _, a := range agents {
-		section.Properties.Set(a.Name, &jsonschema.Schema{Ref: "#/$defs/AgentSwitch", Description: "Switch for " + a.Display + "."})
+		ref := "AgentSwitch"
+		if a.Config.SkillsDir != "" {
+			ref = "AgentSwitch" + a.Display
+			clone := *plain
+			with := &clone
+			with.Properties = jsonschema.NewProperties()
+			for pair := plain.Properties.Oldest(); pair != nil; pair = pair.Next() {
+				with.Properties.Set(pair.Key, pair.Value)
+			}
+			doc := *skills
+			doc.Description = "Folder of " + a.Display + "'s project skills, relative to the project root and written with slashes; set it in the project's .duolog/config.yaml or config.local.yaml, not the user config. User scope is not affected. Defaults to " + a.Config.SkillsDir + "."
+			with.Properties.Set("skills_dir", &doc)
+			schema.Definitions[ref] = with
+		}
+		section.Properties.Set(a.Name, &jsonschema.Schema{Ref: "#/$defs/" + ref, Description: "Switch for " + a.Display + "."})
 	}
 }
 

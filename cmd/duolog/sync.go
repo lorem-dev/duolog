@@ -14,6 +14,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// syncProject loads the config and runs the sync in the work root. The files
+// are written there, so the project config of the work root names the skills
+// folder, not the config of the root that holds the state.
+func syncProject(d *cmdDeps, root string, o agentsync.Options) (agentsync.Report, error) {
+	cfg, err := configfile.Load(root, wiring.ConfigOptions())
+	if err != nil {
+		return agentsync.Report{}, err
+	}
+	if !o.DryRun && !o.Check {
+		if _, err := store.Open(root); err != nil {
+			return agentsync.Report{}, err
+		}
+	}
+	work := workRoot(root)
+	dirs, err := configfile.ProjectSkillsDirs(work, wiring.Descriptors())
+	if err != nil {
+		return agentsync.Report{}, err
+	}
+	return agentsync.Run(work, d.SyncFormats.Configured(dirs), cfg.Sync, o)
+}
+
 func newSyncCommand(d *cmdDeps) *cobra.Command {
 	var o agentsync.Options
 	var modelFlags []string
@@ -35,17 +56,8 @@ func newSyncCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cfg, err := configfile.Load(root, wiring.ConfigOptions())
-		if err != nil {
-			return err
-		}
-		if !o.DryRun && !o.Check {
-			if _, err := store.Open(root); err != nil {
-				return err
-			}
-		}
 		o.Resolver = d.Delegate.Agents["codex"].Models
-		rep, err := agentsync.Run(workRoot(root), d.SyncFormats, cfg.Sync, o)
+		rep, err := syncProject(d, root, o)
 		if err != nil {
 			return err
 		}

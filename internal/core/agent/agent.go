@@ -50,6 +50,9 @@ type PaneFacts struct {
 // ConfigFacts names the keys of the config that only some agents have.
 type ConfigFacts struct {
 	SubscriptionEndpoints, SandboxRoots bool
+	// SkillsDir is the default project skills folder of an agent whose folder
+	// agents.<name>.skills_dir sets; empty means the agent has no such key.
+	SkillsDir string
 	// CoauthorDoc is the schema text of coauthors.<agent>.
 	CoauthorDoc string
 	// NativeModes are the native names a worker may start in, lowest first,

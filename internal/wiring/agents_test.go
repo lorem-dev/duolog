@@ -16,9 +16,9 @@ func TestBuiltinAgentsMatchRegistry(t *testing.T) {
 	}
 	for i, b := range builtin {
 		r := registry[i]
-		if b.Name != r.Name || b.Config.SubscriptionEndpoints != r.Config.SubscriptionEndpoints {
-			t.Errorf("agent %d: builtin %q (subscription endpoints %t), registry %q (%t)",
-				i, b.Name, b.Config.SubscriptionEndpoints, r.Name, r.Config.SubscriptionEndpoints)
+		if b.Name != r.Name || b.Config.SubscriptionEndpoints != r.Config.SubscriptionEndpoints || b.Config.SkillsDir != r.Config.SkillsDir {
+			t.Errorf("agent %d: builtin %q (subscription endpoints %t, skills dir %q), registry %q (%t, %q)",
+				i, b.Name, b.Config.SubscriptionEndpoints, b.Config.SkillsDir, r.Name, r.Config.SubscriptionEndpoints, r.Config.SkillsDir)
 		}
 	}
 }

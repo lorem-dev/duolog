@@ -28,7 +28,7 @@ import (
 // capped at the default total and tiers, whether Git ignores it or not.
 func restrictLayer(i int, root string, base, node *yaml.Node) (notices []config.ConfigNotice, shared string, err error) {
 	if i == 0 {
-		return nil, "", nil
+		return nil, "", userSkillsDirError(node)
 	}
 	file := projectFile
 	if i == 2 {
@@ -424,8 +424,8 @@ func validateEnums(node *yaml.Node, typ reflect.Type, path string, agents []agen
 	case reflect.Map:
 		for i := 0; i+1 < len(node.Content); i += 2 {
 			key := node.Content[i].Value
-			if typ == reflect.TypeFor[map[string]config.AgentSwitch]() && !slices.Contains(agentNames(agents), key) {
-				return atLine(node.Content[i].Line, fmt.Errorf("%s.%s: unknown key", path, key))
+			if err := checkAgentSwitchKey(node.Content[i], node.Content[i+1], typ, path, agents); err != nil {
+				return err
 			}
 			if err := validateEnums(node.Content[i+1], typ.Elem(), path+"."+key, agents); err != nil {
 				return err

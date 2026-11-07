@@ -118,6 +118,10 @@ func (c Coauthors) MarshalYAML() (any, error) {
 // the agent's default, which the embedded defaults give.
 type AgentSwitch struct {
 	Enabled *bool `yaml:"enabled" jsonschema_description:"Whether this agent may run tasks; the built-in agents default to true and any other registered agent to false."`
+	// SkillsDir is read for the agents whose descriptor names a default
+	// project skills folder (agent.ConfigFacts.SkillsDir); the schema offers
+	// it for those agents only.
+	SkillsDir *string `yaml:"skills_dir,omitempty" jsonschema_description:"Folder of this agent's project skills, relative to the project root and written with slashes; user scope is not affected. Defaults to .agents/skills for Codex."`
 }
 
 // AgentEnabled reports whether the agent is registered and switched on. A

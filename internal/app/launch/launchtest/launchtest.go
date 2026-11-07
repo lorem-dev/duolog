@@ -92,6 +92,10 @@ func Installers() map[string]Installer {
 	return map[string]Installer{"claude": claude.Installer{}, "codex": codex.Installer{}}
 }
 
+// CodexInstaller is the real Codex installer with the project skills folder
+// dir, as agents.codex.skills_dir sets it.
+func CodexInstaller(dir string) Installer { return codex.Installer{SkillsDir: dir} }
+
 // LoadConfig loads the config files that apply to the project at root, as the
 // commands do.
 func LoadConfig(root string) (*config.Config, error) { return configfile.Load(root) }

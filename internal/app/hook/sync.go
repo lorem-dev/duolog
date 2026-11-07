@@ -14,39 +14,48 @@ import (
 
 // syncConfig returns the sync settings, or false when this hook must not sync:
 // a worker, an unknown agent, or a project without .duolog.
-func syncConfig(e Env) (config.Sync, bool) {
+//
+// It also returns the formats with the skills folders that the config sets.
+func syncConfig(e Env) (agentsync.Formats, config.Sync, bool) {
 	if worker(e) || !served(e) || e.Sync[e.Agent] == nil {
-		return config.Sync{}, false
+		return nil, config.Sync{}, false
 	}
 	if info, err := os.Stat(filepath.Join(e.Root, ".duolog")); err != nil || !info.IsDir() {
-		return config.Sync{}, false
+		return nil, config.Sync{}, false
 	}
 	cfg, err := configfile.Load(e.Root)
 	if err != nil {
-		return config.Sync{}, false
+		return nil, config.Sync{}, false
 	}
-	return cfg.Sync, true
+	// The files the sync writes are in the work root, which in a linked
+	// worktree is not the root that holds the state, so its project config
+	// names the skills folder.
+	dirs, err := configfile.ProjectSkillsDirs(workRoot(e), configfile.BuiltinAgents())
+	if err != nil {
+		return nil, config.Sync{}, false
+	}
+	return e.Sync.Configured(dirs), cfg.Sync, true
 }
 
 // syncStart catches edits made outside the agent's file tools and new models.
 func syncStart(e Env) string {
-	cfg, ok := syncConfig(e)
+	formats, cfg, ok := syncConfig(e)
 	if !ok {
 		return ""
 	}
-	return agentsync.SessionStart(workRoot(e), e.Sync, cfg, e.Models)
+	return agentsync.SessionStart(workRoot(e), formats, cfg, e.Models)
 }
 
 // syncTool rebuilds what the tool call touched. It reads the paths from a
 // separate view of the hook input, so the parsing in input stays as it is.
 func syncTool(e Env) string {
-	cfg, ok := syncConfig(e)
+	formats, cfg, ok := syncConfig(e)
 	if !ok {
 		return ""
 	}
 	var lines []string
 	for _, path := range touchedPaths(e.Input) {
-		if line := agentsync.Hook(workRoot(e), e.Sync, cfg, path, e.Models); line != "" && !contains(lines, line) {
+		if line := agentsync.Hook(workRoot(e), formats, cfg, path, e.Models); line != "" && !contains(lines, line) {
 			lines = append(lines, line)
 		}
 	}

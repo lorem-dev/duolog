@@ -18,13 +18,24 @@ import (
 var codexKeys = []string{"name", "description", "model", "model_reasoning_effort", "developer_instructions"}
 
 // Format is the sync format of Codex: TOML agent files.
-type Format struct{}
+type Format struct {
+	// SkillsDir is agents.codex.skills_dir: the project skills folder, with
+	// slashes, below the project root. "" means DefaultSkillsDir.
+	SkillsDir string
+}
 
 var _ agentfile.Format = Format{}
 
+// WithSkillsDir returns f with the project skills folder dir, as
+// agents.codex.skills_dir sets it.
+func (f Format) WithSkillsDir(dir string) agentfile.Format {
+	f.SkillsDir = dir
+	return f
+}
+
 // Dirs returns the folders of Codex's project agents and skills.
-func (Format) Dirs() agentfile.Dirs {
-	return agentfile.Dirs{Agents: ".codex/agents", Skills: ".agents/skills", Ext: ".toml"}
+func (f Format) Dirs() agentfile.Dirs {
+	return agentfile.Dirs{Agents: ".codex/agents", Skills: SkillsDirOrDefault(f.SkillsDir), Ext: ".toml"}
 }
 
 // ParseAgent reads a Codex TOML agent and returns it in the form of the

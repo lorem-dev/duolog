@@ -1235,10 +1235,12 @@
   },
   "Agents": {
     "claude": {
-      "Enabled": true
+      "Enabled": true,
+      "SkillsDir": null
     },
     "codex": {
-      "Enabled": true
+      "Enabled": true,
+      "SkillsDir": null
     }
   }
 }

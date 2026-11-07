@@ -238,6 +238,7 @@ func (r *runner) wantKind(target string) (agent, ok bool) {
 }
 
 func (r *runner) sync(lock *Lock) {
+	r.adoptSameFiles(lock)
 	var units []unit
 	if !r.o.SkillsOnly {
 		units = append(units, r.agentUnits()...)
@@ -328,13 +329,8 @@ func (r *runner) apply(lock *Lock, u unit) {
 // within reports whether path stays under the generated agents or skills folder.
 func (r *runner) within(path string) bool {
 	path = filepath.Clean(path)
-	for parent := filepath.Dir(path); ; parent = filepath.Dir(parent) {
-		if info, err := os.Lstat(parent); err == nil && info.Mode()&os.ModeSymlink != 0 {
-			return false
-		}
-		if parent == r.root || parent == filepath.Dir(parent) {
-			break
-		}
+	if !r.noLinks(path) {
+		return false
 	}
 	for _, t := range r.to {
 		for _, base := range []string{r.abs(t.dirs.Agents), r.abs(t.dirs.Skills)} {
@@ -354,14 +350,15 @@ func (r *runner) removeStale(lock *Lock, produced map[string]string, failed map[
 	sort.Strings(keys)
 	for _, key := range keys {
 		e := lock.Files[key]
-		if _, ok := r.wantKind(key); !ok || !r.inScope(e.Source) {
+		wanted, moved := r.staleKind(key, e)
+		if !wanted || !r.inScope(e.Source) {
 			continue
 		}
-		if _, live := produced[key]; live || failed[e.Source] {
+		if r.keepStale(key, e, produced, failed) {
 			continue
 		}
 		path := r.abs(key)
-		if !r.within(path) {
+		if !r.safeParent(path, moved) {
 			r.rep.Conflicts = append(r.rep.Conflicts, key+": unsafe target parent; not removed")
 			continue
 		}
@@ -387,7 +384,7 @@ func (r *runner) removeStale(lock *Lock, produced map[string]string, failed map[
 			continue
 		}
 		delete(lock.Files, key)
-		r.pruneEmpty(filepath.Dir(path))
+		r.prune(filepath.Dir(path), moved)
 	}
 }
 
