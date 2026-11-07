@@ -12,8 +12,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/agent"
 )
 
-const offerMarker = "<!-- duolog -->"
-
 type instructionState struct {
 	Created         bool   `json:"created,omitempty"`
 	SeparatorPrefix string `json:"separator_prefix,omitempty"`
@@ -51,14 +49,36 @@ func contains(list []string, s string) bool {
 	return false
 }
 
-func stripOffer(data []byte) []byte {
-	var out []byte
+// rebuild returns data with duolog's block replaced by block: in place when
+// the file has one, else where the first one-line offer of an earlier version
+// stood. Any other such line goes. placed is false when neither was there,
+// and the caller then inserts the block. An empty block removes them all.
+func rebuild(data, block []byte) (out []byte, placed bool, err error) {
+	start, end, found, err := agent.FindBlock(data)
+	if err != nil {
+		return nil, false, err
+	}
+	if found && end > 0 && data[end-1] != '\n' {
+		block = bytes.TrimRight(block, "\n")
+	}
+	offset := 0
+	placed = found
 	for _, line := range bytes.SplitAfter(data, []byte("\n")) {
-		if !bytes.HasPrefix(line, []byte(offerMarker)) {
+		switch {
+		case found && offset == start:
+			out = append(out, block...)
+		case found && offset > start && offset < end:
+		case bytes.HasPrefix(line, []byte(agent.LegacyOfferMarker)):
+			if !placed {
+				out = append(out, block...)
+				placed = true
+			}
+		default:
 			out = append(out, line...)
 		}
+		offset += len(line)
 	}
-	return out
+	return out, placed, nil
 }
 
 func insertOffer(data []byte) ([]byte, bool) {
@@ -87,12 +107,12 @@ func insertOffer(data []byte) ([]byte, bool) {
 			if added {
 				prefix = append(prefix, '\n')
 			}
-			prefix = append(prefix, []byte(agent.InstallOffer+"\n")...)
+			prefix = append(prefix, []byte(agent.Block)...)
 			return append(prefix, data[offset:]...), added
 		}
 		previous = text
 	}
-	return append([]byte(agent.InstallOffer+"\n"), data...), false
+	return append([]byte(agent.Block), data...), false
 }
 
 func (d Deps) instructionEdits(root string) ([]edit, error) {
@@ -113,15 +133,18 @@ func (d Deps) instructionEdits(root string) ([]edit, error) {
 		if !known {
 			entry.Created = os.IsNotExist(err)
 		}
-		clean := stripOffer(old)
-		if !bytes.Equal(clean, old) {
-			clean = removeSeparator(clean, entry)
+		data, placed, err := rebuild(old, []byte(agent.Block))
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
 		}
-		data, added := insertOffer(clean)
-		entry.AddedNewline = added
-		entry.SeparatorPrefix = ""
-		if added {
-			entry.SeparatorPrefix = string(clean)
+		if !placed {
+			var added bool
+			data, added = insertOffer(old)
+			entry.AddedNewline = added
+			entry.SeparatorPrefix = ""
+			if added {
+				entry.SeparatorPrefix = string(old)
+			}
 		}
 		state[rel] = entry
 		edits = append(edits, edit{path: path, data: data})
@@ -159,6 +182,13 @@ func (d Deps) removeInstructions(root string) error {
 	}
 	// Every possible location, including a previously selected one.
 	_, all := d.instructionPaths(root)
+	// Read every file first: unpaired markers in one leave all of them as they are.
+	type removal struct {
+		path  string
+		clean []byte
+		entry instructionState
+	}
+	var removals []removal
 	for _, path := range all {
 		rel, _ := filepath.Rel(root, path)
 		data, err := os.ReadFile(path)
@@ -168,16 +198,21 @@ func (d Deps) removeInstructions(root string) error {
 		if err != nil {
 			return err
 		}
-		clean := stripOffer(data)
-		if bytes.Equal(clean, data) {
-			continue
+		clean, _, err := rebuild(data, nil)
+		if err != nil {
+			return fmt.Errorf("%s: %w", path, err)
 		}
-		entry := state[rel]
-		clean = removeSeparator(clean, entry)
-		if len(clean) == 0 && entry.Created {
-			err = os.Remove(path)
+		if !bytes.Equal(clean, data) {
+			entry := state[rel]
+			removals = append(removals, removal{path, removeSeparator(clean, entry), entry})
+		}
+	}
+	for _, r := range removals {
+		var err error
+		if len(r.clean) == 0 && r.entry.Created {
+			err = os.Remove(r.path)
 		} else {
-			_, err = apply(edit{path: path, data: clean, backup: projectBackup(root, path)})
+			_, err = apply(edit{path: r.path, data: r.clean, backup: projectBackup(root, r.path)})
 		}
 		if err != nil {
 			return err

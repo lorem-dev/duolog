@@ -42,6 +42,11 @@
 
 ## Development
 
+### Added
+
+- `install` keeps one marked block in the instruction files, with a usage line
+  for agents, and replaces it on each run; `doctor` and `--check` report it.
+
 ### Changed
 
 - Claude workers and peers start in `auto`, not `acceptEdits`, under a lead at

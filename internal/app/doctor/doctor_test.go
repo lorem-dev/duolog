@@ -320,6 +320,54 @@ func TestInstallOfferIsInfoOnly(t *testing.T) {
 	}
 }
 
+func TestInstructionBlockIsInfoOnly(t *testing.T) {
+	cfg, opts, _ := setup(t)
+	for _, tc := range []struct{ state, text string }{
+		{"missing", "# Rules\n"},
+		{"outdated", coreagent.InstructionBegin + "\nold\n" + coreagent.InstructionEnd + "\n"},
+		{"current", "# Rules\n" + coreagent.Block},
+	} {
+		for _, path := range testDeps.instructionPaths(opts.Root) {
+			if err := os.WriteFile(path, []byte(tc.text), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		count := 0
+		for _, finding := range Run(context.Background(), testDeps, cfg, opts) {
+			if strings.Contains(finding.Message, "duolog instructions in") {
+				count++
+				if finding.Level != "info" || !strings.HasSuffix(strings.SplitN(finding.Message, "; ", 2)[0], ": "+tc.state) {
+					t.Fatalf("%s: %+v", tc.state, finding)
+				}
+			}
+		}
+		if count != 2 {
+			t.Fatalf("%s: got %d instruction findings", tc.state, count)
+		}
+	}
+}
+
+func TestInstructionBlockWithUnpairedMarkerIsWarning(t *testing.T) {
+	cfg, opts, _ := setup(t)
+	for _, path := range testDeps.instructionPaths(opts.Root) {
+		if err := os.WriteFile(path, []byte(coreagent.InstructionBegin+"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := 0
+	for _, finding := range Run(context.Background(), testDeps, cfg, opts) {
+		if strings.Contains(finding.Message, "duolog instructions in") {
+			count++
+			if finding.Level != "warning" || !strings.Contains(finding.Message, "do not pair up") {
+				t.Fatalf("%+v", finding)
+			}
+		}
+	}
+	if count != 2 {
+		t.Fatalf("got %d instruction findings", count)
+	}
+}
+
 func TestDoctorNeverMentionsCalibration(t *testing.T) {
 	cfg, opts, _ := setup(t)
 	run := filepath.Join(opts.Root, ".duolog", "calibration", "runs", "r1")

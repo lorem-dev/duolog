@@ -46,6 +46,10 @@ requests here.
 - Run the duolog built from this checkout: `scripts/dev/bin/duolog`. In Claude
   sessions the hooks also put it on PATH as `duolog`. See "How duolog runs while
   you work on it" in `docs/contributing.md`.
+- Do work on duolog through duolog itself (`scripts/dev/bin/duolog`): live
+  peers in Rex for implementation and review, each in its own `.worktrees/`
+  worktree, one peer per worktree. Start a Claude Agent subagent only when
+  duolog answers `run here`.
 - When the codegraph MCP tools are available, use them for structural
   questions: where a symbol is defined, what calls it, what a change affects.
   Use grep and file reads for literal text. Build the index with

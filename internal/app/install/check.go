@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/plugin"
 )
 
@@ -148,6 +149,7 @@ func (d Deps) Check(o Options) ([]Status, error) {
 	for i, a := range agents {
 		s := checkAgent(a, o, base, scope, o.HooksOnly || shared[i] != "")
 		s.SharedDir, s.SharesWith = shared[i], with[i]
+		checkInstruction(&s, a, o, base)
 		out = append(out, s)
 	}
 	return out, nil
@@ -207,6 +209,29 @@ func checkAgent(a Agent, o Options, base, scope string, hooksOnly bool) Status {
 		s.Changed = append(s.Changed, leftover...)
 	}
 	return s
+}
+
+// checkInstruction adds agent a's project instruction file to s.Changed when
+// it does not hold the current duolog block: missing, outdated or without
+// one. It leaves an install that is not there, runs the dev launcher or could
+// not be read, and a check of hooks alone.
+func checkInstruction(s *Status, a Agent, o Options, root string) {
+	if !s.Installed || s.Dev || s.Err != nil || s.Scope != "project" || o.HooksOnly {
+		return
+	}
+	path, _ := a.Installer.InstructionFiles(root)
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		s.Err = err
+		return
+	}
+	current, _, err := agent.BlockCurrent(data)
+	switch {
+	case err != nil:
+		s.Err = fmt.Errorf("%s: %w", path, err)
+	case !current:
+		s.Changed = append(s.Changed, path)
+	}
 }
 
 // hasSkills reports whether any of duolog's bundled skill folders is in the

@@ -10,6 +10,13 @@ import (
 // InstallOffer is the project instruction that installation writes.
 const InstallOffer = agent.InstallOffer
 
+// UsageNote is the usage line that installation writes after the offer, and
+// Block is the marked block that holds both.
+const (
+	UsageNote = agent.UsageNote
+	Block     = agent.Block
+)
+
 // handler and group are the shape of a hooks document, as the tests read it.
 type handler struct {
 	Type           string   `json:"type"`

@@ -61,11 +61,21 @@ $env:DUOLOG_INSTALL_DIR = "$env:LOCALAPPDATA\Programs\duolog"
 irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
 ```
 
-Project setup adds one marked line near the top of `AGENTS.md` and the Claude
+Project setup adds one block, between `<!-- duolog:begin -->` and
+`<!-- duolog:end -->` lines, near the top of `AGENTS.md` and the Claude
 instruction file. If the project has `.duolog/config.yaml` but a new machine
-has no duolog on `PATH`, that line asks the agent to offer the install command.
-The agent must get your agreement before running it. User setup does not add
-this line. Uninstall removes the line and keeps your other instructions.
+has no duolog on `PATH`, the block asks the agent to offer the install command.
+The agent must get your agreement before running it. The block also tells the
+agent to hand work to duolog's workers and to start its own subagent only when
+duolog says `run here`. User setup does not add the block.
+
+Each install replaces everything between the markers with the current text, so
+a newer duolog updates it; your text outside the markers is never touched. An
+install also turns the one-line offer of an earlier duolog into the block, in
+the same place. Uninstall removes the block and that old line and keeps your
+other instructions. If a file has a begin marker without an end marker, or the
+reverse, install and uninstall stop with an error that names the file and
+change nothing.
 
 ## What works on each OS
 
@@ -124,8 +134,8 @@ The command writes these files and prints each path:
 | `.agents/skills/duolog/SKILL.md` | The same skill for Codex |
 | `.agents/skills/duolog-skill-check/`, `.agents/skills/duolog-calibrate/` and `.agents/skills/duolog-peers/` | The other three skills for Codex |
 | `.duolog/config.yaml` | A starter config, only if none exists |
-| `AGENTS.md` | One line offering install on a machine without duolog |
-| `.claude/CLAUDE.md` or `CLAUDE.md` | The same line; uses the nested file if it exists |
+| `AGENTS.md` | A marked block: offer to install on a machine without duolog, and work through duolog |
+| `.claude/CLAUDE.md` or `CLAUDE.md` | The same block; uses the nested file if it exists |
 
 Use `--agent claude` or `--agent codex` to install for one agent. Use
 `--scope user` to install in your home folder for all projects. SessionStart
@@ -147,7 +157,7 @@ supplies the skill, but does not install hooks. The next section has the
 marketplace commands.
 
 A marketplace plugin's skill checks `duolog version` and offers the binary
-install if it is missing. In a project someone else set up, the marked line
+install if it is missing. In a project someone else set up, the marked block
 in `AGENTS.md` and `CLAUDE.md` offers it when `.duolog/config.yaml` exists;
 the skill also checks. Both require agreement before running the install.
 If the binary exists but the rules are off, the skill runs `duolog doctor`
@@ -158,7 +168,7 @@ If a file already exists and changes, duolog first copies it. A project file
 goes to the same path under `.duolog/backup/`, which Git ignores, so
 `git add -A` does not pick it up. A file in your home folder goes to
 `<file>.duolog.bak`. `duolog uninstall` removes only the hook entries and the
-skill file that duolog added. It also removes the marked install offer. An
+skill file that duolog added. It also removes the marked block. An
 instruction file is deleted only if duolog created it and it is now empty.
 
 A new duolog binary does not change the hooks and skills that an older one
@@ -268,7 +278,9 @@ duolog doctor
 
 The command prints one line for each finding. It checks the agent binaries and
 versions, whether hooks are installed, Codex trust, Claude trust, Rex, and the
-install offer (for information only). The Claude line reads only the trust flag
+instruction block (current, outdated or missing; for information only).
+`duolog install --check` counts a missing or outdated block as out of date.
+The Claude line reads only the trust flag
 of the project folder from Claude's user state. If the folder is not trusted,
 Claude ignores the project's `permissions.allow` entries; run Claude Code in
 the folder once and accept the trust dialog. If the state cannot be read, the

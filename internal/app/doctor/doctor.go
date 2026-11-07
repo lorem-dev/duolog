@@ -217,7 +217,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 			add("info", agent+" probe succeeded")
 		}
 	}
-	return out
+	return append(out, d.instructionNotes(root)...)
 }
 
 // installFindings warns of each install that is out of date: a binary upgrade
@@ -360,4 +360,34 @@ func (d Deps) metadata(ctx context.Context, agent string, args ...string) ([]byt
 		return nil, fmt.Errorf("no probe for %s", agent)
 	}
 	return pr.Metadata(ctx, args...)
+}
+
+// instructionNotes says, for each instruction file the agents read in the
+// project at root, whether it holds duolog's block as this version writes it.
+func (d Deps) instructionNotes(root string) []Finding {
+	var notes []Finding
+	for _, path := range d.instructionPaths(root) {
+		notes = append(notes, instructionFinding(path))
+	}
+	return notes
+}
+
+// instructionFinding says whether the instruction file at path holds duolog's
+// block as this version writes it: current, outdated (install replaces it), or
+// missing. Unpaired markers are a warning, as install refuses such a file.
+func instructionFinding(path string) Finding {
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return Finding{"warning", fmt.Sprintf("duolog instructions in %s: %v", path, err)}
+	}
+	current, present, err := coreagent.BlockCurrent(data)
+	switch {
+	case err != nil:
+		return Finding{"warning", fmt.Sprintf("duolog instructions in %s: %v; fix the markers, then run duolog install", path, err)}
+	case current:
+		return Finding{"info", fmt.Sprintf("duolog instructions in %s: current", path)}
+	case present:
+		return Finding{"info", fmt.Sprintf("duolog instructions in %s: outdated; run duolog install", path)}
+	}
+	return Finding{"info", fmt.Sprintf("duolog instructions in %s: missing", path)}
 }
