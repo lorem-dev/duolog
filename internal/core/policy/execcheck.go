@@ -15,27 +15,18 @@ import (
 
 // hiddenDeny looks inside one command for what a deny must still see. The gate
 // reads command text and runs no shell, so a deny has to hold for a command that
-// another program starts (uv run git push) and for a path that a program other
-// than a named read command is given (sed -n p .env). The words of a for or
-// select header become the loop variable, which any command of the line may
-// read or write: they are judged by the state read rule, and by the write
+// another program starts (uv run git push, innerCommandDeny, for every rule
+// but the agent rules, which commandDeny judges) and for a path that a program
+// other than a named read command is given (sed -n p .env). The words of a for
+// or select header become the loop variable, which any command of the line
+// may read or write: they are judged by the state read rule, and by the write
 // rules when lineWrites says some command of the line can write.
 func hiddenDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, part string, lineWrites bool) (Decision, bool) {
+	if d, ok := innerCommandDeny(p, lead, m, a, part, false); ok {
+		return d, true
+	}
 	words := strings.Fields(part)
-	denies := slices.Clip(lead.Deny)
-	for _, rule := range p.Rules {
-		if rule.Decision == Deny {
-			denies = append(denies, rule)
-		}
-	}
-	for i := 0; i < len(words); i++ {
-		tail := strings.Join(words[i:], " ")
-		for _, rule := range denies {
-			if rule.Action == "exec" && roleApplies(rule, a.Role) && denyMatchesCommand(rule.Match, tail) {
-				return Decision{Kind: Deny, Reason: "denied command inside this command", Rule: rule.Action + " " + rule.Match, Mode: m}, true
-			}
-		}
-	}
+	denies := denyRules(p, lead)
 	header := loopHeader(part)
 	writes := canWrite(part) || header && lineWrites
 	for _, word := range words[1:] {

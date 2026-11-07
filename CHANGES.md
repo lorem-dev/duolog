@@ -49,6 +49,11 @@
 - `install --check` (`--hooks-only` for CI) and `doctor` find hooks and skills
   an older duolog installed; the lead's session start names the fix.
 
+### Fixed
+
+- The worker gate no longer refuses a report as a start of `claude` or `codex`
+  when a here-document or quoted text only names them.
+
 ## 1.5.0
 
 ### Added

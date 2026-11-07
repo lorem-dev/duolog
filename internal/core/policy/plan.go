@@ -20,11 +20,7 @@ func planLimit(p config.Policy, m mode.Mode, a Action, parts []string, uncertain
 	if m != mode.Plan || a.Kind == "read" {
 		return Decision{}, false
 	}
-	safe := a.Kind == "exec" && !uncertain && len(parts) > 0
-	for _, part := range parts {
-		safe = safe && allowedReadCommand(p, a.Role, part, a.Shell)
-	}
-	if safe {
+	if a.Kind == "exec" && namedReads(p, a, parts, uncertain) {
 		return Decision{}, false
 	}
 	if !uncertainRead(a, parts, uncertain, lineWrites) {
@@ -34,6 +30,21 @@ func planLimit(p config.Policy, m mode.Mode, a Action, parts []string, uncertain
 		return *readAsk, true
 	}
 	return decision(Ask, "plan mode: a read command whose shell syntax duolog cannot read for sure requires approval", "mode plan"), true
+}
+
+// namedReads reports whether a command line is certain and every part of it
+// is a read-only command that a read-only allow rule names: all that a
+// read-only role may run.
+func namedReads(p config.Policy, a Action, parts []string, uncertain bool) bool {
+	if uncertain || len(parts) == 0 {
+		return false
+	}
+	for _, part := range parts {
+		if !allowedReadCommand(p, a.Role, part, a.Shell) {
+			return false
+		}
+	}
+	return true
 }
 
 // uncertainRead reports whether an uncertain exec line holds only known

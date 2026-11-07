@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 )
 
@@ -19,7 +20,7 @@ var agentPackages = []string{"@anthropic-ai/claude-code", "@openai/codex"}
 // commandPrefixes run the command that follows them, so the program after
 // them is still in command position.
 var commandPrefixes = []string{
-	"env", "time", "nohup", "exec", "command", "builtin", "nice", "ionice", "sudo", "doas", "timeout", "stdbuf", "setsid", "xargs", "caffeinate",
+	"env", "time", "nohup", "exec", "command", "builtin", "eval", "nice", "ionice", "sudo", "doas", "timeout", "stdbuf", "setsid", "xargs", "caffeinate",
 	"sh", "bash", "zsh", "dash", "ksh", "fish", "cmd", "start", "call", "powershell", "pwsh", "&",
 }
 
@@ -27,8 +28,16 @@ var commandPrefixes = []string{
 // any program path or Windows launcher (ProgramName), behind a prefix such as
 // env, VAR=x, time, nohup or cmd /c, inside sh -c '...', or through a package
 // runner (npx, pnpm dlx, npm exec, bunx, yarn dlx) or node running the CLI's
-// script.
+// script. Only a word in command position counts. In a POSIX line that
+// shellData can read, quoted text and here-document bodies that only data
+// programs receive are left out first, so a report that names either agent
+// starts nothing. Any other line is read word by word, quotes or not.
 func startsAgent(command, shell string) bool {
+	if shell != "powershell" {
+		if masked, ok := shellData(command); ok {
+			command = masked
+		}
+	}
 	for _, words := range protectedWords(command, shell) {
 		for i, word := range words {
 			if !commandPosition(words[:i]) {
@@ -44,6 +53,22 @@ func startsAgent(command, shell string) bool {
 		}
 	}
 	return false
+}
+
+// agentRule reports whether an exec rule names only claude or codex, such as
+// the default {claude,codex} and {claude,codex} *. Such a rule judges the
+// commands as commandParts reads them, as startsAgent does.
+func agentRule(rule config.Rule) bool {
+	if rule.Action != "exec" {
+		return false
+	}
+	for _, alternative := range expandBraces(rule.Match) {
+		word, _, _ := strings.Cut(strings.TrimSpace(alternative), " ")
+		if name := ProgramName(word); name != "claude" && name != "codex" {
+			return false
+		}
+	}
+	return true
 }
 
 // valueOptions are, per prefix, the options whose value is the next word,

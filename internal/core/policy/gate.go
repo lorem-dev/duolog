@@ -122,27 +122,15 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	// do not, so a read-only reviewer can hand back its report.
 	report := a.Kind == "write" && ReportTarget(a.Peer, a.Target)
 	lineWrites := a.Kind == "exec" && lineCanWrite(a.Target, parts)
+	// The agent rules and the search for a denied command inside another one
+	// skip quoted text and bodies that only data programs receive.
+	if d, ok := commandDeny(p, lead, m, a, commandParts(a, parts), report, decision); ok {
+		return d
+	}
 	// Check every part for a deny before any ask or allow can return.
 	for _, part := range parts {
-		partAction := a
-		partAction.Target = part
-		baseAction := partAction
-		if a.Kind == "exec" {
-			baseAction.Target = denyCommand(part)
-			if a.Shell == "powershell" {
-				baseAction.Target = denyPowerShell(part)
-			}
-		}
-		// Preserve path-specific denies as well as basename command denies.
-		for _, rule := range lead.Deny {
-			if matches(rule, partAction) || matches(rule, baseAction) {
-				return decision(Deny, "denied by lead settings", "lead: "+rule.Action+" "+rule.Match)
-			}
-		}
-		for _, rule := range p.Rules {
-			if rule.Decision == Deny && !report && (matches(rule, partAction) || matches(rule, baseAction)) {
-				return decision(Deny, "denied by project policy", rule.Action+" "+rule.Match)
-			}
+		if d, ok := ruleDeny(p, lead, a, part, report, false, decision); ok {
+			return d
 		}
 		if a.Kind == "exec" {
 			if d, ok := redirectDeny(p, lead, m, a, part); ok {
@@ -204,22 +192,8 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 			return decision(Deny, "role "+a.Role+" cannot write", "role sandbox")
 		}
 	}
-	if a.Kind == "exec" && (lead.RoleSandbox == "read-only" || !roleCanWrite(p, Action{Kind: "write", Target: "role-check", Role: a.Role})) {
-		if uncertain || len(parts) == 0 {
-			return decision(Deny, "read-only role requires a named read-only command", "role sandbox")
-		}
-		for _, part := range parts {
-			allowed := false
-			for _, rule := range p.Rules {
-				if rule.Decision == Allow && readOnlyRule(rule.Match) && readOnlyCommand(part) && matches(rule, Action{Kind: "exec", Target: part, Role: a.Role, Shell: a.Shell}) {
-					allowed = true
-					break
-				}
-			}
-			if !allowed {
-				return decision(Deny, "read-only role requires a named read-only command", "role sandbox")
-			}
-		}
+	if a.Kind == "exec" && (lead.RoleSandbox == "read-only" || !roleCanWrite(p, Action{Kind: "write", Target: "role-check", Role: a.Role})) && !namedReads(p, a, parts, uncertain) {
+		return decision(Deny, "read-only role requires a named read-only command", "role sandbox")
 	}
 	// Plan's limit is hard, so it comes before every return that asks (planLimit).
 	if d, ok := planLimit(p, m, a, parts, uncertain, lineWrites, readAsk, decision); ok {

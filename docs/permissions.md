@@ -372,6 +372,20 @@ included. This check reads the command text, so a script or interpreter that
 starts an agent, such as `python3 -c "import os; os.system('claude')"`, is
 not caught.
 
+The rule judges only a word that starts a command. Quoted text and
+here-document bodies that only data programs receive, such as `cat`, `tee`,
+`echo` and `printf`, start nothing. So a worker may write a report that names
+both agents with `cat > notes.md <<'EOF'`. Another rule may still refuse the
+write, such as the limit of a read-only role. A substitution such as `$(...)`
+in that text, a pipe into a shell, also across a line end after `|`, or a
+line the gate cannot read this way is read word by word as before. Such a
+line has a comment, a backslash outside single quotes or a quoted
+here-document, or `${` in double quotes. Only the rules that name `claude` or
+`codex` skip that text, also when they look for a command among the words of
+another one; every unquoted word still counts. All other rules read the line
+as written, so a report line such as `git push` is still refused, and so is
+`echo 'git push' > x.sh; sh x.sh`.
+
 Secrets include nested `.env` and `.env.*` files. Paths outside the working
 tree ask in every mode, unless an explicit outside-path rule applies. A broad
 `**` allow does not cover them. On macOS and Windows, path rules ignore case.
