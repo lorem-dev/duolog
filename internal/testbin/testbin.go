@@ -109,6 +109,30 @@ var startEnv = os.Environ()
 // the link shares it with every other test.
 func Install(t testing.TB, name string, s Scenario) string {
 	t.Helper()
+	if err := buildFake(); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	dest := filepath.Join(dir, name)
+	if err := place(dest); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest+".json", data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return dest
+}
+
+// buildFake builds the fake once per test process and shares it.
+func buildFake() error {
 	build.Do(func() {
 		dir, err := os.MkdirTemp("", "duolog-testbin-build-")
 		if err != nil {
@@ -133,30 +157,34 @@ func Install(t testing.TB, name string, s Scenario) string {
 			build.shared = share(build.binary)
 		}
 	})
-	if build.err != nil {
-		t.Fatal(build.err)
-	}
-	dir := t.TempDir()
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	dest := filepath.Join(dir, name)
-	// Windows refuses to delete a link to an executable that another test's
-	// fake still runs, so each test there gets its own copy.
-	if build.shared == "" || runtime.GOOS == "windows" || os.Link(build.shared, dest) != nil {
-		if err := os.WriteFile(dest, build.binary, 0755); err != nil {
-			t.Fatal(err)
+	return build.err
+}
+
+// place puts the built fake at dest: a link to the shared copy, or a copy of
+// its own.
+//
+// macOS kills with SIGKILL a process started through a hard link while
+// another hard link to the same file is made or removed, which tests do all
+// the time in Install and t.TempDir cleanup: one start in a few hundred to a
+// thousand when 32 goroutines did it at once, and under go test ./... a fake
+// that died with "signal: killed". A symbolic link leaves the shared file's
+// links alone, and os.Executable on macOS names the symbolic link, next to
+// which the fake finds its scenario. Linux resolves /proc/self/exe through a
+// symbolic link, so it keeps the hard link. Windows refuses to delete a link
+// to an executable that another test's fake still runs, so each test there
+// gets its own copy.
+func place(dest string) error {
+	if build.shared != "" && runtime.GOOS == "darwin" && os.Symlink(build.shared, dest) == nil {
+		if _, err := os.Stat(dest); err == nil {
+			return nil
 		}
+		// The shared file is gone, so the link leads nowhere.
+		_ = os.Remove(dest)
 	}
-	data, err := json.Marshal(s)
-	if err != nil {
-		t.Fatal(err)
+	if build.shared != "" && runtime.GOOS != "darwin" && runtime.GOOS != "windows" && os.Link(build.shared, dest) == nil {
+		return nil
 	}
-	if err := os.WriteFile(dest+".json", data, 0600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return dest
+	return os.WriteFile(dest, build.binary, 0755)
 }
 
 type buildError struct {
