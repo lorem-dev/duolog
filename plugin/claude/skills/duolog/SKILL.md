@@ -16,13 +16,13 @@ allowed-tools: Bash(duolog version), Bash(duolog doctor), Bash(duolog roster), B
    macOS/Linux:
 
    ```sh
-   curl -fsSL https://github.com/lorem-dev/duolog/releases/download/v1.4.1/install.sh | sh -s -- --version v1.4.1 && duolog install --scope project
+   curl -fsSL https://github.com/lorem-dev/duolog/releases/download/v1.5.0/install.sh | sh -s -- --version v1.5.0 && duolog install --scope project
    ```
 
    Windows PowerShell:
 
    ```powershell
-   $env:DUOLOG_VERSION = 'v1.4.1'; irm https://github.com/lorem-dev/duolog/releases/download/v1.4.1/install.ps1 | iex
+   $env:DUOLOG_VERSION = 'v1.5.0'; irm https://github.com/lorem-dev/duolog/releases/download/v1.5.0/install.ps1 | iex
    ```
 
    Windows: add the printed directory to PATH; run

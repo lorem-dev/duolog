@@ -42,6 +42,8 @@
 
 ## Development
 
+## 1.5.0
+
 ### Added
 
 - `worker_modes` sets a worker's native mode per role and family, never above
