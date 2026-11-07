@@ -52,7 +52,9 @@ func TestReadRetriesATimeoutOnce(t *testing.T) {
 	isolate(t)
 	claude := testbin.Install(t, "claude", testbin.Scenario{SleepMS: 60000})
 	start := time.Now()
-	_, err := (Reader{Timeout: 300 * time.Millisecond}).Read(context.Background(), "claude")
+	// Each budget leaves the fake time to start and record its call, even on
+	// a loaded Windows runner where a cold process start can take a second.
+	_, err := (Reader{Timeout: 2 * time.Second}).Read(context.Background(), "claude")
 	if !errors.Is(err, ErrTimedOut) {
 		t.Fatal(err)
 	}
@@ -69,7 +71,9 @@ func TestReadRetriesATimeoutOnce(t *testing.T) {
 func TestReadNoRetryAfterCallerCancels(t *testing.T) {
 	isolate(t)
 	claude := testbin.Install(t, "claude", testbin.Scenario{SleepMS: 60000})
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	// Room for a cold start of the fake on Windows, still well inside the
+	// read's own budget.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_, err := (Reader{Timeout: 10 * time.Second}).Read(ctx, "claude")
 	if !errors.Is(err, ErrTimedOut) {
