@@ -4,24 +4,24 @@ import (
 	"strings"
 	"testing"
 
-	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"go.yaml.in/yaml/v3"
 )
+
+// defaultConfig decodes the embedded config.default.yaml, without any user or
+// project layer.
+func defaultConfig(t *testing.T) *config.Config {
+	t.Helper()
+	var cfg config.Config
+	if err := yaml.Unmarshal(config.DefaultYAML(), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	return &cfg
+}
 
 func defaults(t *testing.T) config.Learning {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-	t.Setenv("CODEX_HOME", "")
-	t.Setenv("CLAUDE_CONFIG_DIR", "")
-	t.Setenv("XDG_CONFIG_HOME", home)
-	t.Setenv("APPDATA", home)
-	cfg, err := configfile.Load(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return cfg.Learning
+	return defaultConfig(t).Learning
 }
 
 func TestClassifyFirstMatchWins(t *testing.T) {

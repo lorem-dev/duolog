@@ -1,36 +1,26 @@
 package usage
 
 import (
-	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"math"
-	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/lorem-dev/duolog/internal/core/config"
+	"go.yaml.in/yaml/v3"
 )
 
-func logFile(t *testing.T, data string) string {
+// defaults decodes the embedded config.default.yaml, without any user or
+// project layer.
+func defaults(t *testing.T) *config.Config {
 	t.Helper()
-	home := t.TempDir()
-	for _, key := range []string{"HOME", "USERPROFILE", "XDG_CONFIG_HOME", "APPDATA"} {
-		t.Setenv(key, home)
-	}
-	dir := filepath.Join(t.TempDir(), ".duolog")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	var cfg config.Config
+	if err := yaml.Unmarshal(config.DefaultYAML(), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, "usage.ndjson")
-	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
-		t.Fatal(err)
-	}
-	return path
+	return &cfg
 }
 
 func TestCostMatchesSummarize(t *testing.T) {
-	logFile(t, "")
-	cfg, err := configfile.Load(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := defaults(t)
 	if usd, ok := Cost(cfg, "codex", "gpt-6.1-sol", Tokens{Input: 1_000_000}); !ok || math.Abs(usd-2.00) > 1e-9 {
 		t.Fatal(usd, ok)
 	}
@@ -42,11 +32,7 @@ func TestCostMatchesSummarize(t *testing.T) {
 // Claude charges a five-minute cache write at 1.25x and a one-hour write at
 // 2x the input price, so the same tokens cost more as writes than as input.
 func TestCacheWritesCostMoreThanInput(t *testing.T) {
-	logFile(t, "")
-	cfg, err := configfile.Load(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := defaults(t)
 	cost := func(tokens Tokens) float64 {
 		t.Helper()
 		usd, ok := Cost(cfg, "claude", "opus", tokens)

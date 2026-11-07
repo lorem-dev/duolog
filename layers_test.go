@@ -60,27 +60,16 @@ var appOrder = []string{"launch", "lead", "learn", "paidruns", "quota", "gate", 
 // with the PR that removes each. The list may only shrink; a move may rename a
 // key when the same import gets a new path at one end.
 var knownViolations = map[string]string{
-	"internal/app/calibrate (test) -> internal/adapter/config":  "after PR 10: its tests load the config files",
 	"internal/app/calibrate (test) -> internal/adapter/session": "PR 29",
 	"internal/app/calibrate (test) -> internal/wiring":          "PR 29: the cell tests run real delegations on wiring.DelegateDeps",
 	"internal/app/calibrate -> github.com/pelletier/go-toml/v2": "stays: cell.go definesCheck reads a project's pyproject.toml, which is not tree guard code (ruling on PR 45)",
-	"internal/app/delegate -> internal/adapter/config":          "after PR 10: RefuseRootEnv checks writable roots at launch",
-	"internal/app/doctor (test) -> internal/adapter/config":     "after PR 10: its tests load the config files",
-	"internal/app/hook -> internal/adapter/config":              "after PR 10: hooks load the config files",
-	"internal/app/learn -> internal/adapter/config":             "after PR 10: learn loads the config files",
 	"internal/core/learn -> go.yaml.in/yaml/v3":                 "PR 16: Render moves out once calibrate.go shrinks",
-	"internal/core/learn (test) -> internal/adapter/config":     "after PR 10: its tests load the default config",
 	"internal/core/learn -> internal/journal":                   "journal.Outcomes moves to core/record",
-	"internal/app/peer -> internal/adapter/config":              "after PR 10: a peer loads the config files",
 	"internal/app/peer -> internal/rex":                         "the Pane port, moved out of PR 29 to a later task",
-	"internal/app/profile (test) -> internal/adapter/config":    "after PR 10: its tests load the config files",
-	"internal/app/roster -> internal/adapter/config":            "after PR 10: roster loads the config files",
-	"internal/core/route (test) -> internal/adapter/config":     "after PR 10: its tests load the default config",
-	"internal/core/usage (test) -> internal/adapter/config":     "after PR 10: its tests load the default config",
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 17
+const maxKnownViolations = 6
 
 // Reasons of the allowed edges, one per target.
 const (
@@ -91,6 +80,7 @@ const (
 	reasonProject  = "git rev-parse of the project and state roots, and git helpers; git is the project's tool, not an agent's"
 	reasonSession  = "lead and peer registry in the state folder; its agent parts sit behind the Lead port"
 	reasonPlugin   = "embedded skill names, read-only data"
+	reasonConfig   = "loads the config files; the same for every agent (agent facts reach validation through descriptors), no second backend, no seam"
 )
 
 // allowedEdges are the app-to-kit imports where a port buys nothing, by the
@@ -99,41 +89,49 @@ const (
 // random boundary. Keyed "from -> to"; the value is the reason. Targets are
 // closed, see allowedTargets.
 var allowedEdges = map[string]string{
-	"internal/app/calibrate -> internal/journal":        reasonJournal,
-	"internal/app/calibrate -> internal/project":        reasonProject,
-	"internal/app/calibrate -> internal/store":          reasonStore,
-	"internal/app/delegate -> internal/bus":             reasonBus,
-	"internal/app/delegate -> internal/coauthor":        reasonCoauthor,
-	"internal/app/delegate -> internal/journal":         reasonJournal,
-	"internal/app/delegate -> internal/project":         reasonProject,
-	"internal/app/delegate -> internal/adapter/session": reasonSession,
-	"internal/app/delegate -> internal/store":           reasonStore,
-	"internal/app/doctor -> internal/adapter/session":   reasonSession,
-	"internal/app/hook -> internal/bus":                 reasonBus,
-	"internal/app/hook -> internal/adapter/session":     reasonSession,
-	"internal/app/hook -> internal/store":               reasonStore,
-	"internal/app/install -> internal/store":            reasonStore,
-	"internal/app/install -> plugin":                    reasonPlugin,
-	"internal/app/lead -> internal/adapter/session":     reasonSession,
-	"internal/app/lead -> internal/store":               reasonStore,
-	"internal/app/peer -> internal/bus":                 reasonBus,
-	"internal/app/peer -> internal/coauthor":            reasonCoauthor,
-	"internal/app/peer -> internal/project":             reasonProject,
-	"internal/app/peer -> internal/adapter/session":     reasonSession,
-	"internal/app/peer -> internal/store":               reasonStore,
-	"internal/app/profile -> internal/journal":          reasonJournal,
-	"internal/app/profile -> internal/project":          reasonProject,
-	"internal/app/profile -> internal/store":            reasonStore,
-	"internal/app/roster -> internal/adapter/session":   reasonSession,
-	"internal/app/sync -> internal/project":             reasonProject,
-	"internal/app/sync -> internal/store":               reasonStore,
-	"internal/app/sync -> plugin":                       reasonPlugin,
+	"internal/app/calibrate (test) -> internal/adapter/config": reasonConfig,
+	"internal/app/calibrate -> internal/journal":               reasonJournal,
+	"internal/app/calibrate -> internal/project":               reasonProject,
+	"internal/app/calibrate -> internal/store":                 reasonStore,
+	"internal/app/delegate -> internal/adapter/config":         reasonConfig,
+	"internal/app/delegate -> internal/bus":                    reasonBus,
+	"internal/app/delegate -> internal/coauthor":               reasonCoauthor,
+	"internal/app/delegate -> internal/journal":                reasonJournal,
+	"internal/app/delegate -> internal/project":                reasonProject,
+	"internal/app/delegate -> internal/adapter/session":        reasonSession,
+	"internal/app/delegate -> internal/store":                  reasonStore,
+	"internal/app/doctor (test) -> internal/adapter/config":    reasonConfig,
+	"internal/app/doctor -> internal/adapter/session":          reasonSession,
+	"internal/app/hook -> internal/adapter/config":             reasonConfig,
+	"internal/app/hook -> internal/bus":                        reasonBus,
+	"internal/app/hook -> internal/adapter/session":            reasonSession,
+	"internal/app/hook -> internal/store":                      reasonStore,
+	"internal/app/install -> internal/store":                   reasonStore,
+	"internal/app/install -> plugin":                           reasonPlugin,
+	"internal/app/lead -> internal/adapter/session":            reasonSession,
+	"internal/app/lead -> internal/store":                      reasonStore,
+	"internal/app/learn -> internal/adapter/config":            reasonConfig,
+	"internal/app/peer -> internal/adapter/config":             reasonConfig,
+	"internal/app/peer -> internal/bus":                        reasonBus,
+	"internal/app/peer -> internal/coauthor":                   reasonCoauthor,
+	"internal/app/peer -> internal/project":                    reasonProject,
+	"internal/app/peer -> internal/adapter/session":            reasonSession,
+	"internal/app/peer -> internal/store":                      reasonStore,
+	"internal/app/profile (test) -> internal/adapter/config":   reasonConfig,
+	"internal/app/profile -> internal/journal":                 reasonJournal,
+	"internal/app/profile -> internal/project":                 reasonProject,
+	"internal/app/profile -> internal/store":                   reasonStore,
+	"internal/app/roster -> internal/adapter/config":           reasonConfig,
+	"internal/app/roster -> internal/adapter/session":          reasonSession,
+	"internal/app/sync -> internal/project":                    reasonProject,
+	"internal/app/sync -> internal/store":                      reasonStore,
+	"internal/app/sync -> plugin":                              reasonPlugin,
 }
 
 // allowedTargets is the closed set of targets an allowed edge may have.
 var allowedTargets = []string{
 	"internal/store", "internal/journal", "internal/bus", "internal/coauthor",
-	"internal/project", "internal/adapter/session", "plugin",
+	"internal/project", "internal/adapter/session", "plugin", "internal/adapter/config",
 }
 
 // invalidAllowedEdges returns the keys of m that are not valid allowed edges,
