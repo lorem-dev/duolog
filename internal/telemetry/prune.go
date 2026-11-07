@@ -603,6 +603,9 @@ func sharingError(err error) bool {
 
 // pruneCategory maps a failed check or step to a closed error.
 func pruneCategory(err error) error {
+	// DEBUG ONLY, never merged: show the cause of a failed prune.
+	_, file, line, _ := runtime.Caller(1)
+	fmt.Fprintf(os.Stderr, "DEBUG prune cause at %s:%d: %v (%#v)\n", filepath.Base(file), line, err, errors.Unwrap(err))
 	var refused *refusedError
 	switch {
 	case errors.Is(err, errUnsafe), errors.Is(err, errOwner), errors.As(err, &refused):
