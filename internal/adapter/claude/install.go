@@ -49,6 +49,14 @@ func (Installer) Hooks(existing []byte, timeout int) ([]byte, []string, error) {
 	return data, nil, err
 }
 
+// OurHooks returns duolog's own hooks in the settings file whose bytes are
+// data, as install.OurHooks reads them.
+func (Installer) OurHooks(data []byte) (map[string][]string, error) { return install.OurHooks(data) }
+
+// DevHooks reports whether duolog's hooks in data run the dev launcher of the
+// duolog checkout at root.
+func (Installer) DevHooks(data []byte, root string) bool { return install.RunsDevLauncher(data, root) }
+
 // InstructionFiles names the instruction file Claude reads in the project at
 // root, the existing .claude/CLAUDE.md or else CLAUDE.md, and every place one
 // could have been written.

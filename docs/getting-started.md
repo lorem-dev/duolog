@@ -161,6 +161,37 @@ goes to the same path under `.duolog/backup/`, which Git ignores, so
 skill file that duolog added. It also removes the marked install offer. An
 instruction file is deleted only if duolog created it and it is now empty.
 
+A new duolog binary does not change the hooks and skills that an older one
+installed. `duolog doctor` names each install that is out of date, with its
+files and the command that fixes it. The lead's session start says so too.
+To check without writing anything, run:
+
+```bash
+duolog install --check
+```
+
+It takes the same `--scope` and `--agent` flags. Use it in a Git hook or a
+CI job. Only duolog's own hooks and skill folders count; your other hooks,
+settings and skills do not.
+
+| Exit code | Meaning |
+|---|---|
+| 0 | Current, or not installed: a folder with no duolog hooks or skills |
+| 1 | Out of date, so `duolog install` would change it, or it could not be checked |
+
+Some lines need you, not `duolog install`, and do not change the exit code.
+Such a line names a file to remove from a duolog skill folder. It can also
+say that duolog hooks in `.claude/settings.json` run twice beside the
+plugin, or that two agents share one skills folder.
+
+Hooks without the duolog skills are out of date. Some repositories commit
+the hooks and keep the duolog skills out of Git. A CI job for such a
+repository checks the hooks only:
+
+```bash
+duolog install --check --hooks-only
+```
+
 Codex needs two approvals that duolog cannot give. Open `/hooks` in Codex and
 press `t` to trust the hooks. Trust the project folder too. Without them,
 Codex skips the hooks and prints no warning.

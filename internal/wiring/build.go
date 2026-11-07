@@ -164,6 +164,7 @@ func DoctorDeps(d delegate.Deps) doctor.Deps {
 		ClaudeFolder: claude.ClaudeFolder,
 		Probes:       probes,
 		Available:    func(agent string) bool { _, err := exec.LookPath(agent); return err == nil },
+		InstallCheck: installCheck,
 	}
 }
 

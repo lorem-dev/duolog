@@ -39,6 +39,10 @@ type Deps struct {
 	Probes map[string]Probe
 	// Available says whether the agent's binary can be found.
 	Available func(agent string) bool
+	// InstallCheck compares the project install at root and the user install
+	// under home with what this duolog writes, and returns a line for each
+	// install that is out of date or could not be checked. Nil checks none.
+	InstallCheck func(root, home string) []string
 }
 
 // Trust reads what an agent's settings and approvals say about duolog's

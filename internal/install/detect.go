@@ -153,6 +153,27 @@ func IsDevLauncher(path string) bool {
 	return strings.HasPrefix(strings.ReplaceAll(string(head[:n]), "\r\n", "\n"), devLauncherHead)
 }
 
+// RunsDevLauncher reports whether duolog's hooks in the settings or hooks file
+// whose bytes are data run the dev launcher of the duolog checkout at root, as
+// duolog's own repository does. duolog install never writes those hooks.
+func RunsDevLauncher(data []byte, root string) bool {
+	if root == "" || !IsDevLauncher(filepath.Join(root, "scripts", "dev", "bin", "duolog")) {
+		return false
+	}
+	ours, err := OurHooks(data)
+	if err != nil {
+		return false
+	}
+	for _, groups := range ours {
+		for _, g := range groups {
+			if strings.Contains(g, "scripts/dev/bin/duolog") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // IsOurs reports whether handler i of the group is duolog's.
 func (g HookGroup) IsOurs(i int) bool {
 	h := g.Hooks[i]

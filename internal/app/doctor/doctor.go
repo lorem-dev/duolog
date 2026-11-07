@@ -142,7 +142,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 		}
 	}
 	add("info", bridgeLine(d, cfg, root, available))
-	out = append(out, workerModeFindings(d, cfg, root)...)
+	out = append(append(out, installFindings(d, root)...), workerModeFindings(d, cfg, root)...)
 	out = append(out, billing(ctx, d, cfg, root, available, opts.Lead)...)
 	// Said every time while the person sets or lists a key that paid runs do
 	// not let through, so the change is never silent. Names only, never
@@ -216,6 +216,20 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 			}
 			add("info", agent+" probe succeeded")
 		}
+	}
+	return out
+}
+
+// installFindings warns of each install that is out of date: a binary upgrade
+// leaves the installed hooks and skills as they were.
+func installFindings(d Deps, root string) []Finding {
+	if d.InstallCheck == nil {
+		return nil
+	}
+	home, _ := os.UserHomeDir()
+	var out []Finding
+	for _, line := range d.InstallCheck(root, home) {
+		out = append(out, Finding{"warning", line})
 	}
 	return out
 }

@@ -46,6 +46,8 @@
 
 - `agents.codex.skills_dir` moves Codex's project skills. 1.5.0 refuses it, so
   a repository that sets it needs this release.
+- `install --check` (`--hooks-only` for CI) and `doctor` find hooks and skills
+  an older duolog installed; the lead's session start names the fix.
 
 ## 1.5.0
 

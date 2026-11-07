@@ -128,11 +128,13 @@ func Agents() []Agent {
 	}
 }
 
-// Claude's Installer is also its Plugins, and Codex's its Approvals: install
-// asserts them.
+// Claude's Installer is also its Plugins, and Codex's its Approvals; both
+// read their own hooks for install --check. install asserts them.
 var (
 	_ install.Plugins   = claude.Installer{}
 	_ install.Approvals = codex.Installer{}
+	_ install.HookParts = claude.Installer{}
+	_ install.HookParts = codex.Installer{}
 )
 
 // InstallDeps gives install the Installer of each registered agent, in order.
@@ -165,7 +167,34 @@ func HookEnv(env hook.Env) hook.Env {
 		env.Events, env.Lead = a.Events, a.Lead
 	}
 	env.Caps = RosterCaps()
+	env.InstallNote = func(root string) string {
+		home, err := os.UserHomeDir()
+		d, ok := projectInstall(root)
+		if err != nil || !ok {
+			return ""
+		}
+		return d.ProjectNote(root, home)
+	}
 	return env
+}
+
+// projectInstall returns the install deps with the project skills folders
+// that the config files under root set, read as duolog install reads them for
+// the root it writes to. ok is false, and the deps are the plain ones, when
+// the key cannot be read.
+func projectInstall(root string) (install.Deps, bool) {
+	dirs, err := configfile.ProjectSkillsDirs(root, Descriptors())
+	if err != nil {
+		return InstallDeps(), false
+	}
+	return ConfiguredInstall(InstallDeps(), dirs), true
+}
+
+// installCheck is doctor's InstallCheck: the project and user installs,
+// compared with the folders the config at root selects.
+func installCheck(root, home string) []string {
+	d, _ := projectInstall(root)
+	return d.StaleLines(root, home)
 }
 
 // RosterCaps gives each registered agent's Caps by name, as roster takes them.

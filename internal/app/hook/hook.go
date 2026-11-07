@@ -87,6 +87,10 @@ type Env struct {
 	// Config loads the project's config at root. Nil means the config files
 	// of the project and the user.
 	Config func(root string) (*config.Config, error)
+	// InstallNote returns the note a lead's session start adds when the
+	// project install at root is out of date, or nothing. It only reads local
+	// files, and says nothing when its check fails. Nil means no note.
+	InstallNote func(root string) string
 }
 
 // loadConfig loads the config of the project at e.Root, through e.Config
@@ -320,16 +324,31 @@ func deliver(ctx context.Context, e Env, event string, register, includeRoster b
 	return render(e, event, data)
 }
 func SessionStart(ctx context.Context, e Env) Output {
-	return deliver(ctx, e, "SessionStart", true, true, startTime(e), func(*state, []byte) string {
+	return deliver(ctx, e, "SessionStart", true, true, startTime(e), func(s *state, _ []byte) string {
 		prune(e)
 		var lines []string
-		for _, line := range []string{telemetryStart(ctx, e), syncStart(e), compactStart(ctx, e)} {
+		for _, line := range []string{telemetryStart(ctx, e), syncStart(e), compactStart(ctx, e), installNote(e, s)} {
 			if line != "" {
 				lines = append(lines, line)
 			}
 		}
 		return strings.Join(lines, "\n")
 	})
+}
+
+// installNote is the note of a registered lead's session start when the
+// project install is out of date. A worker and an unregistered session get
+// none, and a panic in the check is no note either.
+func installNote(e Env, s *state) (note string) {
+	if s == nil || e.InstallNote == nil {
+		return ""
+	}
+	defer func() {
+		if recover() != nil {
+			note = ""
+		}
+	}()
+	return e.InstallNote(e.Root)
 }
 
 // prune lets a lead's session start remove the delegation folders and

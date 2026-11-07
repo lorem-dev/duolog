@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -38,7 +39,11 @@ func configuredInstall(d *cmdDeps, o install.Options) (install.Deps, error) {
 
 func newInstallCommand(d *cmdDeps) *cobra.Command {
 	var scope, agent string
+	var check, hooksOnly bool
 	cmd := &cobra.Command{Use: "install", Short: "Install duolog hooks and skill for Claude Code and Codex", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		if hooksOnly && !check {
+			return errors.New("--hooks-only works only with --check")
+		}
 		o, err := installOptions(scope, agent)
 		if err != nil {
 			return err
@@ -46,6 +51,10 @@ func newInstallCommand(d *cmdDeps) *cobra.Command {
 		deps, err := configuredInstall(d, o)
 		if err != nil {
 			return err
+		}
+		if check {
+			o.HooksOnly = hooksOnly
+			return installCheck(cmd, deps, o)
 		}
 		report, err := deps.Run(o)
 		if err != nil {
@@ -64,7 +73,52 @@ func newInstallCommand(d *cmdDeps) *cobra.Command {
 	}}
 	cmd.Flags().StringVar(&scope, "scope", "project", "Where to install: project or user")
 	cmd.Flags().StringVar(&agent, "agent", "both", agentFlagHelp("both"))
+	cmd.Flags().BoolVar(&check, "check", false, "Write nothing; exit 1 when install would change the installed hooks or skills, or they cannot be checked")
+	cmd.Flags().BoolVar(&hooksOnly, "hooks-only", false, "With --check: compare duolog's hooks and leave the skills out")
 	return cmd
+}
+
+// installCheck prints the lines of each selected agent's install at o's
+// scope. It fails when install would change one, or one could not be
+// checked; a line for the person alone, such as a file to remove, does not
+// fail it. It writes nothing.
+func installCheck(cmd *cobra.Command, d install.Deps, o install.Options) error {
+	statuses, err := d.Check(o)
+	if err != nil {
+		return err
+	}
+	stale, broken := false, false
+	for _, s := range statuses {
+		lines := s.Lines(o.Root)
+		stale, broken = stale || s.Stale(), broken || s.Err != nil
+		if s.Err == nil && !s.Stale() {
+			lines = append(lines, settledLine(s))
+		}
+		for _, line := range lines {
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), line); err != nil {
+				return err
+			}
+		}
+	}
+	switch {
+	case broken:
+		return errors.New("the duolog install could not be checked")
+	case stale:
+		return errors.New("the duolog install is out of date")
+	}
+	return nil
+}
+
+// settledLine says what install --check found for an install that install
+// would not change.
+func settledLine(s install.Status) string {
+	switch {
+	case !s.Installed:
+		return s.Agent + " " + s.Scope + " install: not installed"
+	case s.Dev:
+		return s.Agent + " " + s.Scope + " install runs the dev launcher of this checkout; not compared"
+	}
+	return s.Agent + " " + s.Scope + " install is current"
 }
 
 func newUninstallCommand(d *cmdDeps) *cobra.Command {

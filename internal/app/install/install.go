@@ -77,10 +77,13 @@ type Deps struct {
 }
 
 // Options selects what to install and where. Scope is "project" (default) or
-// "user"; Agent is an agent's name or "both" (default).
+// "user"; Agent is an agent's name or "both" (default). HooksOnly makes Check
+// compare duolog's hooks alone, for a repository that commits the hooks and
+// ignores the skills; Run and Remove do not read it.
 type Options struct {
 	Scope, Agent string
 	Home, Root   string
+	HooksOnly    bool
 }
 
 // Report lists the files written and the steps the user still has to do.
@@ -109,39 +112,23 @@ func (d Deps) Run(o Options) (Report, error) {
 	var report Report
 	var regated []regate // hooks files whose gate command changes
 	for _, a := range agents {
-		path := a.Installer.HookFile(o.Scope, base, o.Home)
-		dropped, note, enabled, err := pluginEdits(a, o, base, path)
+		p, err := planAgent(a, o, base)
 		if err != nil {
 			return Report{}, err
 		}
-		if enabled {
-			edits = append(edits, dropped...)
-			report.Notes = append(report.Notes, note)
-			continue
+		if p.hook != nil {
+			edits = append(edits, *p.hook)
 		}
-		old, err := readIfExists(path)
-		if err != nil {
-			return Report{}, err
-		}
-		data, notes, err := a.Installer.Hooks(old, GateTimeout)
-		if err != nil {
-			return Report{}, fmt.Errorf("%s: %w", path, err)
-		}
-		edits = append(edits, edit{path: path, data: data})
-		report.Notes = append(report.Notes, notes...)
-		if approvals, ok := a.Installer.(Approvals); ok {
+		report.Notes = append(report.Notes, p.notes...)
+		if approvals, ok := a.Installer.(Approvals); ok && !p.plugin {
 			// The agent skips a hook whose command changed after approval, and its
 			// trusted_hash stays; trust must not count that hash for the new
 			// command.
-			if old != nil && approvals.GateChanged(old, data) {
-				regated = append(regated, regate{approvals, path})
+			if p.old != nil && approvals.GateChanged(p.old, p.hook.data) {
+				regated = append(regated, regate{approvals, p.hook.path})
 			}
 		}
-		skillEdits, err := skillEdits(a, o, base)
-		if err != nil {
-			return Report{}, err
-		}
-		edits = append(edits, skillEdits...)
+		edits = append(edits, p.skills...)
 	}
 	if o.Scope != "user" {
 		project, err := d.projectEdits(o.Root)
@@ -226,6 +213,51 @@ func (d Deps) projectEdits(root string) ([]edit, error) {
 		return nil, err
 	}
 	return edits, nil
+}
+
+// agentPlan is what Run writes for one agent, and what Check compares with
+// the files: the hooks or settings file and the bundled skills.
+type agentPlan struct {
+	// hookFile is the hooks or settings file of the scope, old its bytes now
+	// (nil when there is none), and hook its new bytes; hook is nil when Run
+	// leaves the file alone.
+	hookFile string
+	old      []byte
+	hook     *edit
+	// plugin says the agent's plugin is enabled and supplies the hooks and
+	// skills: Run then only drops a copy an earlier install left, and writes
+	// no skill.
+	plugin bool
+	skills []edit
+	notes  []string
+}
+
+// planAgent plans the writes of agent a for o under base. It writes nothing.
+func planAgent(a Agent, o Options, base string) (agentPlan, error) {
+	p := agentPlan{hookFile: a.Installer.HookFile(o.Scope, base, o.Home)}
+	dropped, note, enabled, err := pluginEdits(a, o, base, p.hookFile)
+	if err != nil {
+		return p, err
+	}
+	if enabled {
+		p.plugin, p.notes = true, []string{note}
+		if len(dropped) > 0 {
+			p.hook = &dropped[0]
+			p.old, _ = os.ReadFile(p.hookFile)
+		}
+		return p, nil
+	}
+	old, err := readIfExists(p.hookFile)
+	if err != nil {
+		return p, err
+	}
+	data, notes, err := a.Installer.Hooks(old, GateTimeout)
+	if err != nil {
+		return p, fmt.Errorf("%s: %w", p.hookFile, err)
+	}
+	p.old, p.hook, p.notes = old, &edit{path: p.hookFile, data: data}, notes
+	p.skills, err = skillEdits(a, o, base)
+	return p, err
 }
 
 // regate is a hooks file whose gate command changed, with the agent's way to

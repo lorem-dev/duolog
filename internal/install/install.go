@@ -159,6 +159,68 @@ func Merge(existing, ours []byte) ([]byte, error) {
 	return Encode(top)
 }
 
+// OurHooks returns duolog's own part of the settings or hooks file whose
+// bytes are data (nil for a missing file): by event, each group that holds a
+// duolog handler, with its other fields and only duolog's handlers, as compact
+// JSON with sorted keys. Foreign handlers, groups and keys, and the layout of
+// the file, are left out, so two files compare equal when duolog's hooks in
+// them are the same. A file that is not a JSON object is an error, as in
+// Merge.
+func OurHooks(data []byte) (map[string][]string, error) {
+	out := map[string][]string{}
+	if data == nil {
+		return out, nil
+	}
+	top := map[string]json.RawMessage{}
+	if err := json.Unmarshal(data, &top); err != nil || top == nil {
+		return nil, fmt.Errorf("not a JSON object: %v", err) //nolint:errorlint // err is nil when top is null
+	}
+	hooks := map[string][]json.RawMessage{}
+	if raw, ok := top["hooks"]; ok {
+		if err := json.Unmarshal(raw, &hooks); err != nil {
+			return nil, fmt.Errorf("bad \"hooks\" value: %w", err)
+		}
+	}
+	for name, groups := range hooks {
+		for _, raw := range groups {
+			if part, ok := ourPart(raw); ok {
+				out[name] = append(out[name], part)
+			}
+		}
+	}
+	return out, nil
+}
+
+// ourPart returns one group with only duolog's handlers, as compact JSON with
+// sorted keys, and false when the group has none or cannot be read.
+func ourPart(raw json.RawMessage) (string, bool) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var fields map[string]any
+	if dec.Decode(&fields) != nil {
+		return "", false
+	}
+	handlers, _ := fields["hooks"].([]any)
+	var ours []any
+	for _, item := range handlers {
+		h, _ := item.(map[string]any)
+		command, _ := h["command"].(string)
+		windows, _ := h["commandWindows"].(string)
+		if IsOurCommand(command) || IsOurCommand(windows) {
+			ours = append(ours, item)
+		}
+	}
+	if len(ours) == 0 {
+		return "", false
+	}
+	fields["hooks"] = ours
+	data, err := Encode(fields)
+	if err != nil {
+		return "", false
+	}
+	return string(data), true
+}
+
 // IsOurCommand shares handler recognition with trust and startup checks.
 func IsOurCommand(command string) bool {
 	return command == "duolog" || command == "duolog gate" || strings.Contains(command, "duolog hook ") || strings.Contains(command, "duolog gate ")

@@ -88,6 +88,14 @@ func (Installer) Hooks(existing []byte, timeout int) ([]byte, []string, error) {
 	return data, notes, err
 }
 
+// OurHooks returns duolog's own hooks in the hooks file whose bytes are data,
+// as install.OurHooks reads them.
+func (Installer) OurHooks(data []byte) (map[string][]string, error) { return install.OurHooks(data) }
+
+// DevHooks reports whether duolog's hooks in data run the dev launcher of the
+// duolog checkout at root.
+func (Installer) DevHooks(data []byte, root string) bool { return install.RunsDevLauncher(data, root) }
+
 // InstructionFiles names the instruction file Codex reads in the project at
 // root, AGENTS.md, and every place one could have been written.
 func (Installer) InstructionFiles(root string) (current string, all []string) {

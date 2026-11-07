@@ -103,11 +103,8 @@ func skipSkill(skill, base string) (note string, skip bool) {
 // file at path and removes it, and reports whether it did. A folder, a link and
 // a file that is gone are passed over.
 func dropFile(path string, d fs.DirEntry, walkErr error, o Options) (bool, error) {
-	if os.IsNotExist(walkErr) {
-		return false, nil
-	}
-	if walkErr != nil || !d.Type().IsRegular() {
-		return false, walkErr
+	if ok, err := dropTarget(d, walkErr); !ok {
+		return false, err
 	}
 	if err := backUp(path, o); err != nil {
 		return false, err
@@ -116,6 +113,45 @@ func dropFile(path string, d fs.DirEntry, walkErr error, o Options) (bool, error
 		return false, err
 	}
 	return true, nil
+}
+
+// dropTarget says whether the walk in dropOwnSkills removes the entry d: a
+// regular file. A folder, a link and a file that is gone are passed over.
+func dropTarget(d fs.DirEntry, walkErr error) (bool, error) {
+	if os.IsNotExist(walkErr) {
+		return false, nil
+	}
+	if walkErr != nil || !d.Type().IsRegular() {
+		return false, walkErr
+	}
+	return true, nil
+}
+
+// defaultSkillFiles lists what dropOwnSkills removes from dir, by the same
+// rules: every regular file of duolog's bundled skill folders there, except in
+// a skill it leaves because of a link. An empty dir has none.
+func defaultSkillFiles(dir, base string) ([]string, error) {
+	if dir == "" {
+		return nil, nil
+	}
+	var files []string
+	for _, name := range plugin.Skills {
+		skill := filepath.Join(dir, name)
+		if _, skip := skipSkill(skill, base); skip {
+			continue
+		}
+		err := filepath.WalkDir(skill, func(path string, d fs.DirEntry, err error) error {
+			ok, err := dropTarget(d, err)
+			if ok {
+				files = append(files, path)
+			}
+			return err
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return files, nil
 }
 
 // dropOwnSkills removes every file of duolog's bundled skill folders from dir,
