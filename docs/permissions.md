@@ -729,7 +729,10 @@ A lead waiting for its foreground `delegate` cannot answer a request. In that
 case the gate denies at once and names the command. The worker retries once
 with a plainer form, then stops with `done: false` and the command in `needs`.
 The lead decides, adjusts the task or permitted policy/mode, and re-runs. Deny
-rules still apply. When the lead is free, normal numbered asks work as below.
+rules still apply. A Claude worker or peer also starts with a fixed line in its
+system prompt: batch reads into one Bash call of read-only commands joined by
+`;`, and use no `node -e` or `python -c`, which the gate cannot read. When the
+lead is free, normal numbered asks work as below.
 `peer wait` returns at once for a pending gate ask of its own peer. An ask
 names its peer, and an ask from a worker outside a peer pane stops no
 `peer wait`. An ask expires when its asker's wait has passed, so a request

@@ -51,6 +51,8 @@
 
 - Claude workers and peers start in `auto`, not `acceptEdits`, under a lead at
   level `full` or a Claude lead in `auto`.
+- Claude workers and peers are told to batch their reads into one turn and to
+  use no `node -e` or `python -c`, which cuts their turns and cost.
 
 ### Fixed
 

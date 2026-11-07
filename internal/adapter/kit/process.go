@@ -12,6 +12,13 @@ import (
 // task itself comes on stdin.
 const TaskInstruction = "Do the task in the stdin block."
 
+// BatchReadsRule is appended to the system prompt of every Claude worker and
+// peer. A cost study (docs/research/2026-11-04-session-cost.md) found that
+// batching reads into one turn cut cost and turns; node -e got the saving but
+// the gate cannot read its script, so the rule asks for plain joined commands.
+const BatchReadsRule = "Batch your reads: in one turn, read several files or ranges with one Bash call of read-only commands joined by ; (cat a; grep -n x b; sed -n 1,40p c), or with several Read, Grep and Glob calls in one reply, instead of one read per turn. " +
+	"Do not use node -e, python -c or other inline scripts to read or edit; the gate cannot check them and asks."
+
 // WriteMCPConfig writes the bridged servers for --mcp-config. CreateTemp makes
 // the file 0600; the chmod keeps it so on a system that does otherwise.
 func WriteMCPConfig(dir string, data []byte) (string, error) {
