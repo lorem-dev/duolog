@@ -49,6 +49,9 @@ func Resolve(cfg *config.Config, role string, unavailable map[string]bool, opts 
 		use = *opts.Use
 	}
 	route := Route{Target: use, Sandbox: spec.Sandbox, Context: spec.Context, Session: spec.Session}
+	// A switched-off agent is unavailable, so the role moves to the next
+	// enabled agent. A pinned use stays as given and is refused below.
+	unavailable = withSwitchedOff(cfg, unavailable, opts.Use)
 	if opts.Balance != nil && opts.Use == nil && !unavailable[use.Agent] && !unavailable[spec.Fallback.Agent] {
 		d := opts.Balance.Decide(role, spec)
 		route.Ahead = d.Ahead
@@ -93,17 +96,37 @@ func Resolve(cfg *config.Config, role string, unavailable map[string]bool, opts 
 				route.Self = true
 			}
 		}
-		efforts := []string{"low", "medium", "high", "xhigh", "max", "ultra"}
-		ceiling, requested := slices.Index(efforts, lead.Effort), slices.Index(efforts, route.Effort)
-		if ceiling >= 0 && requested > ceiling {
-			route.Effort, route.EffortCapped = lead.Effort, true
-		}
-		// With no effort the agent picks its own default, which can be above the lead's.
-		if ceiling >= 0 && route.Effort == "" {
-			route.Effort = lead.Effort
-		}
+		capEffort(&route, lead.Effort)
 	}
 	return route, nil
+}
+
+// capEffort holds the route's effort to the lead's.
+func capEffort(route *Route, leadEffort string) {
+	efforts := []string{"low", "medium", "high", "xhigh", "max", "ultra"}
+	ceiling, requested := slices.Index(efforts, leadEffort), slices.Index(efforts, route.Effort)
+	if ceiling >= 0 && requested > ceiling {
+		route.Effort, route.EffortCapped = leadEffort, true
+	}
+	// With no effort the agent picks its own default, which can be above the lead's.
+	if ceiling >= 0 && route.Effort == "" {
+		route.Effort = leadEffort
+	}
+}
+
+// withSwitchedOff copies unavailable and marks every registered agent that is
+// switched off, except the agent of a pinned use, which refuse reports.
+func withSwitchedOff(cfg *config.Config, unavailable map[string]bool, pinned *config.Target) map[string]bool {
+	out := make(map[string]bool, len(unavailable))
+	for name, v := range unavailable {
+		out[name] = v
+	}
+	for name := range cfg.Agents {
+		if cfg.AgentRegistered(name) && !cfg.AgentEnabled(name) && (pinned == nil || pinned.Agent != name) {
+			out[name] = true
+		}
+	}
+	return out
 }
 
 // refuse says why a resolved route may not run: its agent is switched off, or

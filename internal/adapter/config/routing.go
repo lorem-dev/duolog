@@ -10,9 +10,10 @@ import (
 
 // restrictProjectAgents removes each agents.<name>.enabled: true from a shared
 // layer: it may switch an agent off, never on, because an agent the person did
-// not enable would otherwise receive the project's code as a fallback. The
-// nodes are resolved mappings.
-func restrictProjectAgents(_, layer *yaml.Node, projectFile string) ([]config.ConfigNotice, error) {
+// not enable would otherwise receive the project's code as a fallback. A true
+// the layers below already have is kept: it widens nothing. The nodes are
+// resolved mappings.
+func restrictProjectAgents(base, layer *yaml.Node, projectFile string) ([]config.ConfigNotice, error) {
 	agents := mappingValue(layer, "agents")
 	if agents == nil || agents.Kind != yaml.MappingNode {
 		return nil, nil
@@ -35,6 +36,9 @@ func restrictProjectAgents(_, layer *yaml.Node, projectFile string) ([]config.Co
 			if !on {
 				return true, nil
 			}
+			if baseOn, err := baseAgentOn(base, name); err != nil || baseOn {
+				return baseOn, err
+			}
 			notices = append(notices, config.ConfigNotice{Key: "agents." + name + ".enabled", Reason: fmt.Sprintf(
 				"true in %s is ignored: a shared config may only switch an agent off", projectFile)})
 			return false, nil
@@ -44,6 +48,14 @@ func restrictProjectAgents(_, layer *yaml.Node, projectFile string) ([]config.Co
 		}
 	}
 	return notices, nil
+}
+
+// baseAgentOn reports whether the layers below have agents.<name>.enabled on;
+// a missing value counts as off.
+func baseAgentOn(base *yaml.Node, name string) (bool, error) {
+	var on bool
+	err := decodeOptional(mappingValue(mappingValue(mappingValue(base, "agents"), name), "enabled"), &on)
+	return on, err
 }
 
 // restrictProjectRouting removes the project's routing.balance when it turns

@@ -25,6 +25,26 @@ func TestModelSelectionAndValidation(t *testing.T) {
 	}
 }
 
+// TestSwitchedOffAgentNotTested: a switched-off agent is left out of the
+// default targets and refused in a named list.
+func TestSwitchedOffAgentNotTested(t *testing.T) {
+	on, off := true, false
+	cfg := &config.Config{
+		Agents: map[string]config.AgentSwitch{"claude": {Enabled: &on}, "codex": {Enabled: &off}},
+		Models: map[string]config.Model{"sonnet": {Agent: "claude", Input: 1, Output: 2}, "luna": {Agent: "codex", Input: 1, Output: 2}},
+	}
+	for _, r := range DefaultTargets(cfg, testAgents, nil) {
+		if r.Agent == "codex" {
+			t.Errorf("default targets include %+v", r)
+		}
+	}
+	_, err := ParseTargets(cfg, testAgents, "codex/luna/low", false)
+	want := "agent codex is switched off (agents.codex.enabled is false)"
+	if err == nil || err.Error() != want {
+		t.Errorf("err = %v, want %q", err, want)
+	}
+}
+
 func TestDefaultTargetsSkipManualOnlyModels(t *testing.T) {
 	cfg := &config.Config{Models: map[string]config.Model{
 		"haiku": {Agent: "claude", Input: 1, Output: 2}, "opus": {Agent: "claude", Input: 4, Output: 20}, "fable": {Agent: "claude", Input: 10, Output: 50},

@@ -15,6 +15,12 @@ func manualOnly(cfg *config.Config, alias string) bool {
 	return alias == "fable" || alias == "astra" || slices.Contains(cfg.Limits.ManualOnlyModels, alias)
 }
 
+// switchedOff reports whether agent is registered and agents.<agent>.enabled
+// is false.
+func switchedOff(cfg *config.Config, agent string) bool {
+	return cfg.AgentRegistered(agent) && !cfg.AgentEnabled(agent)
+}
+
 // DefaultTargets takes the price endpoints of each available agent's catalog,
 // leaving out manual-only models. Config has prices rather than capability
 // ranks; the upper endpoint is the strongest tier. Explicit model lists can
@@ -23,25 +29,10 @@ func manualOnly(cfg *config.Config, alias string) bool {
 func DefaultTargets(cfg *config.Config, agents []string, unavailable map[string]bool) []config.Target {
 	var targets []config.Target
 	for _, agent := range agents {
-		if unavailable[agent] {
+		if unavailable[agent] || switchedOff(cfg, agent) {
 			continue
 		}
-		var names []string
-		for name, m := range cfg.Models {
-			if m.Agent == agent && !manualOnly(cfg, name) {
-				names = append(names, name)
-			}
-		}
-		slices.SortFunc(names, func(a, b string) int {
-			pa, pb := cfg.Models[a], cfg.Models[b]
-			if pa.Input+pa.Output < pb.Input+pb.Output {
-				return -1
-			}
-			if pa.Input+pa.Output > pb.Input+pb.Output {
-				return 1
-			}
-			return strings.Compare(a, b)
-		})
+		names := catalogByPrice(cfg, agent)
 		if len(names) == 0 {
 			continue
 		}
@@ -58,6 +49,28 @@ func DefaultTargets(cfg *config.Config, agents []string, unavailable map[string]
 	return targets
 }
 
+// catalogByPrice lists the agent's models that are not manual-only, cheapest
+// first.
+func catalogByPrice(cfg *config.Config, agent string) []string {
+	var names []string
+	for name, m := range cfg.Models {
+		if m.Agent == agent && !manualOnly(cfg, name) {
+			names = append(names, name)
+		}
+	}
+	slices.SortFunc(names, func(a, b string) int {
+		pa, pb := cfg.Models[a], cfg.Models[b]
+		if pa.Input+pa.Output < pb.Input+pb.Output {
+			return -1
+		}
+		if pa.Input+pa.Output > pb.Input+pb.Output {
+			return 1
+		}
+		return strings.Compare(a, b)
+	})
+	return names
+}
+
 var safeModel = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
 // ParseTargets reads agent/model/effort runs. A manual-only model needs
@@ -72,6 +85,9 @@ func ParseTargets(cfg *config.Config, agents []string, text string, allowManual 
 		t := config.Target{Agent: parts[0], Model: parts[1], Effort: parts[2]}
 		if !slices.Contains(agents, t.Agent) {
 			return nil, fmt.Errorf("unknown agent %q", t.Agent)
+		}
+		if switchedOff(cfg, t.Agent) {
+			return nil, fmt.Errorf("agent %s is switched off (agents.%s.enabled is false)", t.Agent, t.Agent)
 		}
 		if !slices.Contains([]string{"low", "medium", "high", "xhigh", "max", "ultra"}, t.Effort) {
 			return nil, fmt.Errorf("unknown effort %q", t.Effort)

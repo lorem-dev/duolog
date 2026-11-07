@@ -119,6 +119,14 @@ func TestAgentsProjectCannotSwitchOn(t *testing.T) {
 	if cfg, err = Load(root, kestrelOptions()); err != nil || !cfg.AgentEnabled("kestrel") || len(cfg.Notices) != 0 {
 		t.Errorf("user switch = %v, %v, notices %v", cfg.AgentEnabled("kestrel"), err, cfg.Notices)
 	}
+
+	// A shared true for an agent the layers below already have on widens
+	// nothing: it is kept, with no notice.
+	root = isolatedRoot(t)
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "agents: {claude: {enabled: true}, codex: {enabled: false}}\n")
+	if cfg, err = Load(root, kestrelOptions()); err != nil || !cfg.AgentEnabled("claude") || cfg.AgentEnabled("codex") || len(cfg.Notices) != 0 {
+		t.Errorf("shared no-op true: claude %v, codex %v, err %v, notices %v", cfg.AgentEnabled("claude"), cfg.AgentEnabled("codex"), err, cfg.Notices)
+	}
 }
 
 func TestRoutingRejectsBadValues(t *testing.T) {

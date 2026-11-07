@@ -240,10 +240,21 @@ func (lr *learnRun) route(cfg *config.Config, role string, unavailable map[strin
 		return nil
 	}
 	cursor := lr.after
+	// A switched-off agent is skipped like an unavailable one. Resolve below
+	// gets the caller's map and does the same for the role itself.
+	skip := make(map[string]bool, len(unavailable))
+	for name, v := range unavailable {
+		skip[name] = v
+	}
+	for name := range cfg.Agents {
+		if !cfg.AgentEnabled(name) {
+			skip[name] = true
+		}
+	}
 	var choice learn.Choice
 	var ok bool
 	for {
-		choice, ok = learn.Choose(cfg.Learning, lr.rec.Class, role, unavailable, cursor)
+		choice, ok = learn.Choose(cfg.Learning, lr.rec.Class, role, skip, cursor)
 		if !ok || lr.after == "" {
 			break
 		}
