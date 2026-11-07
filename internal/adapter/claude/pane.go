@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/lorem-dev/duolog/internal/adapter/kit"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/route"
@@ -25,6 +26,7 @@ func (Pane) Argv(r route.Route, m mode.Mode, p corelaunch.Process) []string {
 	if r.Effort != "" {
 		args = append(args, "--effort", r.Effort)
 	}
+	args = append(args, "--append-system-prompt", kit.BatchReadsRule)
 	disallowed := []string{"Agent", "Task"}
 	if mode.GateHeld(Facts.Name, m, r.Sandbox) {
 		disallowed = append(disallowed, mode.HeldDisallowedTools(true)...)

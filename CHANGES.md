@@ -53,6 +53,8 @@
   level `full` or a Claude lead in `auto`.
 - A peer is told to put its final answer in its report file; `peer wait` and
   `status` print the report's start, or say that the task had none.
+- Claude workers and peers are told to batch their reads into one turn and to
+  use no `node -e` or `python -c`, which cuts their turns and cost.
 
 ### Fixed
 

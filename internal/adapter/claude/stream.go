@@ -36,6 +36,7 @@ func claudeArgv(s runSpec) []string {
 	// stream-json carries the rate limit events that tell whether the run spent
 	// paid overage; -p accepts it only with --verbose.
 	args = append(args, "--output-format", "stream-json", "--verbose", "--json-schema", answerSchema)
+	args = append(args, "--append-system-prompt", kit.BatchReadsRule)
 	if s.MaxTurns > 0 {
 		args = append(args, "--max-turns", strconv.Itoa(s.MaxTurns))
 	}
