@@ -28,7 +28,7 @@ func (r *Registry) ResolveLead(explicit string) (Lead, error) {
 			return Lead{}, err
 		}
 		if !ok {
-			return Lead{}, fmt.Errorf("lead %q is unavailable; start a lead session", id)
+			return Lead{}, fmt.Errorf("lead %q is not a live lead in %s: it was never registered in this project's state, or its session ended; run `duolog lead register` inside the lead session", id, r.Dir)
 		}
 		return l, nil
 	}

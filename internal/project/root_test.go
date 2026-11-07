@@ -46,6 +46,35 @@ func TestStateRootOfASubmoduleIsTheSubmodule(t *testing.T) {
 	same(t, StateRoot(parent), parent)
 }
 
+func TestStateRootOfALinkedWorktreeOfASubmoduleIsTheSubmodule(t *testing.T) {
+	base := t.TempDir()
+	child, parent := filepath.Join(base, "child"), filepath.Join(base, "parent")
+	for _, dir := range []string{child, parent} {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		git(t, dir, "init", "-q")
+		git(t, dir, "commit", "-q", "--allow-empty", "-m", "x")
+	}
+	git(t, parent, "submodule", "add", "-q", child, "sm")
+	linked := filepath.Join(parent, "sm", ".worktrees", "w0")
+	git(t, filepath.Join(parent, "sm"), "worktree", "add", "-q", linked)
+	same(t, StateRoot(linked), filepath.Join(parent, "sm"))
+}
+
+func TestStateRootOfALinkedWorktreeOfABareRepositoryIsItself(t *testing.T) {
+	base := t.TempDir()
+	src, bare, linked := filepath.Join(base, "src"), filepath.Join(base, "bare.git"), filepath.Join(base, "linked")
+	if err := os.Mkdir(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git(t, src, "init", "-q")
+	git(t, src, "commit", "-q", "--allow-empty", "-m", "x")
+	git(t, base, "clone", "-q", "--bare", src, bare)
+	git(t, bare, "worktree", "add", "-q", "--detach", linked)
+	same(t, StateRoot(linked), linked)
+}
+
 func TestStateRootOfALinkedWorktreeIsTheMainCheckout(t *testing.T) {
 	base := t.TempDir()
 	main, linked := filepath.Join(base, "main"), filepath.Join(base, "linked")

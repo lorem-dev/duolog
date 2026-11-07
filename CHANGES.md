@@ -62,6 +62,8 @@
 
 ### Fixed
 
+- A lead registered in a submodule's main checkout is found from its linked
+  worktrees; `--lead` names the state folder when it finds no live lead.
 - `peer send` no longer refuses an idle Claude peer that shows only a dim
   suggestion: the capture asks Rex for the vt format, which keeps styles.
 - `peer close` removes the peer's `coauthor-<id>.model` file, and `peer open`

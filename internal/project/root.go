@@ -30,6 +30,33 @@ func gitRoot(cwd, flag string) string {
 	return path
 }
 
+// mainWorktree returns the main checkout of the repository whose shared Git
+// folder is common, from its core.worktree setting: a submodule's folder sits
+// outside its checkout and says where it is. A bare repository sets none, and
+// "" is returned for it or when the setting cannot be read.
+func mainWorktree(common string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "config", "--file", filepath.Join(common, "config"), "--get", "core.worktree")
+	cmd.Stdin = strings.NewReader("")
+	data, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	path := strings.TrimSpace(string(data))
+	if path == "" {
+		return ""
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(common, path)
+	}
+	path = filepath.Clean(path)
+	if info, err := os.Stat(path); err != nil || !info.IsDir() {
+		return ""
+	}
+	return path
+}
+
 // WorkRoot returns the checkout containing cwd, or fallback outside Git.
 func WorkRoot(cwd, fallback string) string {
 	if root := gitRoot(cwd, "--show-toplevel"); root != "" {
@@ -50,8 +77,13 @@ func StateRoot(cwd string) string {
 		return cwd
 	}
 	// A submodule's common folder is <parent>/.git/modules/<name>, which is no
-	// checkout. Only a folder named .git has its checkout beside it.
+	// checkout. Only a folder named .git has its checkout beside it; for any
+	// other, Git names the main checkout itself, which a linked worktree of the
+	// submodule shares. A bare repository has none, so its worktrees stand alone.
 	if filepath.Base(common) != ".git" {
+		if main := mainWorktree(common); main != "" {
+			return preserveRoot(cwd, main)
+		}
 		if top := gitRoot(cwd, "--show-toplevel"); top != "" {
 			return preserveRoot(cwd, top)
 		}

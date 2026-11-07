@@ -27,6 +27,11 @@ says `no live lead`. Ask that session to run this command in its own shell:
 duolog lead register [plan|ask|edits|full]
 ```
 
+A linked worktree shares the lead of its repository's main checkout, a
+submodule's included: run the command in either. A lead of another repository
+is never found. `--lead <id>` names the state folder it searched when it finds
+no live lead.
+
 duolog reads the session ID that the agent sets in its shell. Claude sets
 `CLAUDE_CODE_SESSION_ID`, and Codex sets `CODEX_THREAD_ID`. If the ID is
 missing, the command refuses. duolog records the agent process above the
