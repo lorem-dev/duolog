@@ -66,7 +66,7 @@ An app package may import only the app packages that come earlier in this
 list, lowest first:
 
 ```text
-launch, lead, quota, learn, paidruns, gate, delegate, profile, peer,
+launch, lead, learn, paidruns, quota, gate, delegate, profile, peer,
 calibrate, doctor, sync, roster, hook, install, remember, skilltest
 ```
 
@@ -77,20 +77,22 @@ import one direction. It matches the imports of today's code: `hook` imports
 
 ## Where today's packages sit
 
-Most packages have not moved yet. The `legacyTiers` table in `layers_test.go`
-gives each one the tier of the part that stays at its path after the
-migration, so the rules apply now. For example, `internal/mode` is core and
-`internal/rex` is kit.
+A few kit packages still sit outside `internal/adapter`: `internal/rex`,
+`internal/bus`, `internal/journal`, `internal/store`, `internal/project`,
+`internal/trust`, `internal/trusthome`, `internal/install`,
+`internal/coauthor`, `internal/workerenv`, `internal/quota`,
+`internal/telemetry`, `internal/artifact` and `plugin`. The `legacyTiers`
+table in `layers_test.go` makes each of them kit, so the rules apply to them
+now.
 
-Some code has moved already. The core packages `internal/core/mode`,
-`internal/core/pathutil`, `internal/core/record`, `internal/core/route`,
-`internal/core/screen`, `internal/core/usage` and `internal/core/learn` hold
-what used to sit in `internal/mode`, `internal/pathutil`, `internal/router`,
-`internal/peer`, `internal/usage` and `internal/learning`. The model resolver
-is `internal/adapter/models`, and the code that edits the project config for
-learning is `internal/app/learn`. A few old paths stay as forwarding packages
-with aliases, so that the security boundary and the files near their size
-limits keep their imports. Import the new path in new code.
+Every other package sits under a tier path. The use cases are under
+`internal/app`, such as `internal/app/delegate` and `internal/app/gate`. The
+mode tables are `internal/core/mode`, the routes `internal/core/route`, and
+the config types `internal/core/config`. The config files are read by
+`internal/adapter/config`, the lead and peer registry is
+`internal/adapter/session`, and each agent's code is in
+`internal/adapter/claude` or `internal/adapter/codex`. No forwarding package
+is left.
 
 When a package moves under a tier path, delete its row in the same change. The
 test fails when a row names a package that `go list` does not report. Put a
@@ -112,30 +114,21 @@ internal/app/delegate -> os/exec
 internal/core/learn (test) -> internal/adapter/config
 ```
 
-`knownViolations` lists the imports that break a rule today, each with the
-change that removes it. The test fails in three cases:
+The test fails in two cases:
 
 | Case | What to do |
 |---|---|
-| An import breaks a rule and its key is not listed | Fix the import. In a move, rename its key |
-| A listed key happens on no target | Delete it and lower `maxKnownViolations` |
-| `maxKnownViolations` is not the length of `knownViolations` | Set it to the length |
+| An import breaks a rule and its key is in neither `boundaryExceptions` nor `allowedEdges` | Fix the import, most often with a port |
+| A key of `boundaryExceptions` or `allowedEdges` happens on no target | Delete the key |
 
-The list may only shrink. A key counts as found when one target reports it, so
-a key that exists on some targets only is not stale. The example is
-`internal/app/paidruns -> golang.org/x/sys/windows` in `boundaryExceptions`,
-the list of security-boundary imports that stay on purpose. The ceiling must
-equal the length, because a ceiling left high lets new violations in later.
+A key counts as found when one target reports it, so a key that exists on
+some targets only is not stale. The example is
+`internal/app/paidruns -> golang.org/x/sys/windows`.
 
 A move may rename a key when the same import gets a new path at one end. For
-example, `internal/app/peer -> internal/rex` becomes
-`internal/app/peer -> internal/adapter/rex`. The count does not rise.
-List each renamed key as `old -> new` in the pull request.
-
-`boundaryExceptions` lists the imports of the security boundary that stay on
-purpose, apart from `knownViolations`. The gate and the paid-runs account gate
-keep a few adapter imports there, because replacing them with ports would
-change security code.
+example, `internal/app/gate -> internal/store` becomes
+`internal/app/gate -> internal/adapter/store` when the store moves under
+`internal/adapter`. List each renamed key as `old -> new` in the pull request.
 
 Run the test alone with:
 
@@ -143,19 +136,27 @@ Run the test alone with:
 go test -run TestLayers .
 ```
 
-## Which app imports are allowed edges
+## Which imports are boundary exceptions or allowed edges
 
-A port buys nothing when the code behind it is the same for every agent, has
-no planned second backend and needs no test seam at a process, clock or random
-boundary. That is the port rule of the design. An app package may import such
-a kit directly. `allowedEdges` in `layers_test.go` lists these imports, keyed
-`from -> to`, each with its reason. The layers test accepts a key there as it
-does one in `boundaryExceptions`, and fails when a key happens on no target.
+No import breaks a rule without a reason in `layers_test.go`. Each such import
+is a boundary exception or an allowed edge.
 
-A key is valid only when its `from` is `internal/app/<name>`, its `to` is one
-of the targets below, and its reason is not empty. `invalidAllowedEdges`
-checks this. Any other kit import stays in `knownViolations` until a port
-replaces it.
+**Boundary exceptions.** `boundaryExceptions` lists the imports of the
+security boundary that stay on purpose. The gate and the paid-runs account
+gate keep a few adapter imports there, because replacing them with ports
+would change security code. A key's `from` must be `internal/core/policy`,
+`internal/app/gate`, `internal/core/paidrules`, `internal/app/paidruns` or
+`internal/adapter/paidstore`. Each reason starts with
+`security boundary: moves only;` and a space. `internal/core/policy` may
+import `os` and nothing else. The 1.6.0 ports replace these imports.
+
+**Allowed edges.** A port buys nothing when the code behind it is the same
+for every agent, has no planned second backend and needs no test seam at a
+process, clock or random boundary. That is the port rule of the design. An
+app package may import such a kit directly. `allowedEdges` lists these
+imports, each with its reason. A key is valid only when its `from` is
+`internal/app/<name>`, its `to` is one of the targets below, and its reason
+is not empty. `invalidAllowedEdges` checks this.
 
 | Target | Reason |
 |---|---|
@@ -165,15 +166,73 @@ replaces it.
 | `internal/coauthor` | Co-author records in the state folder. The templates per agent come from config |
 | `internal/project` | `git rev-parse` of the project and state roots, and git helpers. Git is the project's tool, not an agent's |
 | `internal/adapter/session` | Lead and peer registry in the state folder. Its agent parts sit behind the Lead port in `internal/app/lead` |
+| `internal/adapter/config` | Loads the config files. The same for every agent: agent facts reach validation through descriptors. No second backend and no seam |
 | `plugin` | Embedded skill names, read-only data |
 
-`internal/rex` is not on this list. It gets the `Pane` port, because a second
-pane backend is planned.
+So the app tier may load the config files. `internal/rex` is not on this
+list. It gets the `Pane` port, because a second pane backend is planned.
+
+## Which code is kept for the security boundary
+
+The boundary files call some code of other packages. That code keeps its
+package, name, signature and behaviour until the 1.6.0 boundary ports. It
+also holds both agents' arms, so a new agent adds its arm there too.
+
+| Package | Kept | Called from |
+|---|---|---|
+| `internal/workerenv` | `Build`, `SettingsLayers`, `ArgvLayers`, `ReadLayer`, `IsWorker`: in effect the whole package | `internal/app/paidruns`, `cmd/duolog/gate.go` |
+| `internal/quota` | `Reader` with `ReadProcess`, and `IdentityAccount` and `IdentityOrg`: in effect the whole package | `internal/app/paidruns` |
+| `internal/trusthome` | `Claude`, `HomeIn`, `ErrNoHome` and the helpers they call | `internal/app/gate`, `internal/app/paidruns`, `cmd/duolog/gate.go` |
+| `internal/trust` | `CodexHome` and the helpers it calls | `internal/app/gate` |
+| `internal/adapter/session` | `ValidSessionID`, `CurrentLead`, `Open`, `Address`, `CodexMode`, `ReadLeadState`, `Registry`, and the types `Lead` and `LeadObservation` | `internal/app/gate`, `cmd/duolog/gate.go`, `cmd/duolog/leadguard.go` |
+| `internal/journal`, `internal/store`, `internal/bus` | All of them | `internal/app/paidruns`, `internal/app/gate` |
+
+## Where the code may name an agent
+
+`TestAgentNames` in `agent_names_test.go` parses every Go file that is not a
+test. It fails on a string literal equal to an agent's name outside the
+places that `agentNameHomes` lists, each with its reason:
+
+- the agent's own adapter, `internal/adapter/claude` or
+  `internal/adapter/codex`
+- `internal/core/mode`, which keeps the mode tables of each agent
+- the security boundary
+- the code kept for the boundary: `internal/workerenv`, `internal/quota`,
+  and the files of `internal/adapter/session` that hold a kept function
+
+Other code takes the name from the agent's descriptor, `agent.Descriptor`.
+Comments may name an agent, and the test skips the test-tier folders whose
+name ends in `test`, such as `internal/app/delegate/delegatetest`. The test
+also fails when a place in `agentNameHomes` names no agent any more.
+
+The files that still name an agent today are in `pendingAgentNames`. The list
+is closed and may only shrink, under the ceiling `maxPendingAgentNames`, and
+it drains in 1.6.0, when those names move to the agent descriptors.
+
+## How to add an agent
+
+1. Make the adapter, `internal/adapter/<name>`. It exports `Facts`, an
+   `agent.Descriptor`, and one type for each port that `wiring.Agent` holds.
+2. Run the contract test of each port against the adapter. The contract
+   tests are in the fake packages, such as
+   `internal/app/delegate/delegatetest`.
+3. Add the agent to `wiring.Agents()`. A port left nil fails closed: with no
+   `Trust`, write roles are refused; with no `Quota`, the paid pass is
+   refused; with no `Pane`, `peer open` refuses the agent.
+4. Add the adapter's path to the agent tier in `tierOf` of `layers_test.go`
+   and to the tier table above.
+5. Add the agent to `BuiltinAgents` in `internal/adapter/config`, and to the
+   mode tables in `internal/core/mode`.
+6. Add its arms to the code kept for the boundary: `internal/workerenv` and
+   `internal/quota`, and the lead state and trust if it can be a lead. These
+   arms move to the adapter with the 1.6.0 ports.
+7. Run `make schema`. The agent maps of the config, such as `paid_runs`,
+   `coauthors` and `worker_modes`, take the new name from the descriptor.
 
 ## How to prove a move changed nothing
 
-A move changes no logic. It only moves code, changes import paths and adds
-forwarding aliases. Three checks prove it.
+A move changes no logic. It only moves code and changes import paths. Three
+checks prove it.
 
 **The test list stays the same.** Before the first change, list the tests of
 the old packages. After the change, list the tests of the new and the
@@ -181,8 +240,8 @@ remaining packages, then compare. Put both lists in the pull request.
 
 ```bash
 SCRATCH=$(mktemp -d)
-go test -list . ./internal/models ./internal/router | grep -Ev '^(ok|\?|FAIL)[[:space:]]' | sort > "$SCRATCH/tests-before.txt"
-go test -list . ./internal/core/route ./internal/adapter/models ./internal/models ./internal/router | grep -Ev '^(ok|\?|FAIL)[[:space:]]' | sort > "$SCRATCH/tests-after.txt"
+go test -list . ./internal/rex | grep -Ev '^(ok|\?|FAIL)[[:space:]]' | sort > "$SCRATCH/tests-before.txt"
+go test -list . ./internal/adapter/rex | grep -Ev '^(ok|\?|FAIL)[[:space:]]' | sort > "$SCRATCH/tests-after.txt"
 diff "$SCRATCH/tests-before.txt" "$SCRATCH/tests-after.txt"
 ```
 

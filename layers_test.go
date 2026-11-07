@@ -53,14 +53,6 @@ var legacyTiers = map[string]legacyTier{
 // import only app packages earlier in the list.
 var appOrder = []string{"launch", "lead", "learn", "paidruns", "quota", "gate", "delegate", "profile", "peer", "calibrate", "doctor", "sync", "roster", "hook", "install", "remember", "skilltest"}
 
-// knownViolations are the imports that break a rule today, keyed "from -> to",
-// with the PR that removes each. The list may only shrink; a move may rename a
-// key when the same import gets a new path at one end.
-var knownViolations = map[string]string{}
-
-// maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 0
-
 // Reasons of the allowed edges, one per target.
 const (
 	reasonStore    = "state folder handle, renames and locks; the same for every agent, no second backend, no seam (design section 3 port rule)"
@@ -333,19 +325,15 @@ func TestLayers(t *testing.T) {
 		}
 		for _, v := range layerViolations(pkgs) {
 			found[v.Key] = true
-			_, known := knownViolations[v.Key]
 			_, excepted := boundaryExceptions[v.Key]
 			_, allowed := allowedEdges[v.Key]
-			if !known && !excepted && !allowed {
-				t.Errorf("%s breaks %s; fix the import or, in a move, rename its key in knownViolations", v.Key, v.Rule)
+			if !excepted && !allowed {
+				t.Errorf("%s breaks %s; fix the import", v.Key, v.Rule)
 			}
 		}
 		targets++
 	})
 	if targets == 6 {
-		for _, key := range staleViolations(knownViolations, found) {
-			t.Errorf("%s no longer happens on any target; delete it from knownViolations and lower maxKnownViolations", key)
-		}
 		for _, key := range staleViolations(boundaryExceptions, found) {
 			t.Errorf("%s no longer happens on any target; delete it from boundaryExceptions", key)
 		}
@@ -355,9 +343,6 @@ func TestLayers(t *testing.T) {
 		for _, rel := range staleLegacyTiers(listed) {
 			t.Errorf("%s is not a package any more; delete it from legacyTiers", rel)
 		}
-	}
-	if len(knownViolations) != maxKnownViolations {
-		t.Errorf("knownViolations has %d entries; set maxKnownViolations to that number (it may only go down)", len(knownViolations))
 	}
 }
 
@@ -535,7 +520,8 @@ func layerViolations(pkgs []listedPackage) []layerViolation {
 	return violations
 }
 
-// staleViolations returns the keys of known that no target found, sorted.
+// staleViolations returns the keys of known (boundaryExceptions or
+// allowedEdges) that no target found, sorted.
 func staleViolations(known map[string]string, found map[string]bool) []string {
 	var stale []string
 	for key := range known {
