@@ -154,6 +154,65 @@ func rgShortsKnown(cluster string) bool {
 	return true
 }
 
+// gitRead reports whether a Git command, its lower-case words given, only
+// reads: status, diff, log or show, without an option that writes a file or
+// runs a program.
+func gitRead(command string, words []string) bool {
+	return len(words) > 1 && slices.Contains([]string{"status", "diff", "log", "show"}, words[1]) && !strings.Contains(command, "--output") && !strings.Contains(command, "--ext-diff") && !strings.Contains(command, "--textconv") && !strings.Contains(command, "--no-index")
+}
+
+// knownLongOptions are, per program, the long options it may read with; any
+// other asks, since GNU takes any unambiguous start of a long option, so
+// wc --f=list may mean --files0-from=list.
+var knownLongOptions = map[string][]string{
+	"wc": {"bytes", "chars", "lines", "words", "max-line-length", "total", "help", "version"},
+	"du": {"all", "apparent-size", "block-size", "bytes", "total", "dereference-args", "max-depth", "human-readable", "inodes", "dereference",
+		"count-links", "no-dereference", "separate-dirs", "si", "summarize", "threshold", "time", "time-style", "exclude", "one-file-system", "null", "help", "version"},
+}
+
+// filesFromList reports whether a command's arguments read the files that a
+// list names, as --files0-from of wc, du and sort and -files0-from of find
+// do, also when a long option of three or more letters of wc, du or sort
+// only starts it, as --files0=list does. The gate cannot see the list, so
+// such a command is not a plain read. A long option of name that
+// knownLongOptions does not list counts too, and so does the check of a
+// checksum program (checksumCheck), which reads every file its list names.
+func filesFromList(name string, args []string) bool {
+	known, checked := knownLongOptions[name]
+	abbreviates := checked || name == "sort"
+	sums := slices.Contains(checksumPrograms, name)
+	return slices.ContainsFunc(args, func(w string) bool {
+		option, _, _ := strings.Cut(strings.TrimPrefix(w, "--"), "=")
+		switch {
+		case strings.Contains(w, "files0-from"), sums && checksumCheck(w):
+			return true
+		case !strings.HasPrefix(w, "--") || option == "":
+			return false
+		}
+		return abbreviates && startsOption("files0-from", option, 3) || checked && !slices.Contains(known, option)
+	})
+}
+
+// checksumPrograms check the files a list names with -c or --check.
+var checksumPrograms = []string{"shasum", "sha1sum", "sha224sum", "sha256sum", "sha384sum", "sha512sum", "md5sum", "b2sum", "cksum"}
+
+// checksumCheck reports whether a word of a checksum program asks it to check
+// a list, from a file or from standard input: -c, also in a cluster such as
+// -bc, or --check or any start of it.
+func checksumCheck(word string) bool {
+	if option, long := strings.CutPrefix(word, "--"); long {
+		option, _, _ = strings.Cut(option, "=")
+		return startsOption("check", option, 1)
+	}
+	return strings.HasPrefix(word, "-") && strings.Contains(word[1:], "c")
+}
+
+// startsOption reports whether option starts the long option full and has
+// at least the given number of letters, as GNU programs take an option.
+func startsOption(full, option string, least int) bool {
+	return len(option) >= least && len(option) <= len(full) && full[:len(option)] == option
+}
+
 // commandWords splits a part into the arguments the shell passes on. A quoted
 // word with spaces is one argument, and a path or glob in it keeps its spaces,
 // so every policy comparison sees what the program receives.
@@ -285,7 +344,7 @@ func readTargetDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action, 
 		}
 		return Decision{}, false
 	}
-	d := Evaluate(p, lead, m, Action{Kind: "read", Target: target, Role: a.Role, Shell: shell, OwnResult: ownTempRead(a, written), revision: revision})
+	d := Evaluate(p, lead, m, Action{Kind: "read", Target: target, Role: a.Role, Shell: shell, OwnResult: ownTempRead(a, written), taskRead: taskReadWord(a, written, searchable(p, lead, a)), revision: revision})
 	d.Reason = "read command: " + d.Reason
 	return d, d.Kind == Deny || d.Kind != Allow && !device
 }

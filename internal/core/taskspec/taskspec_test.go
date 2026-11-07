@@ -293,6 +293,17 @@ func TestRejectsTaskMissingSection(t *testing.T) {
 	}
 }
 
+// Read lists paths as Write does: absolute ones, ~ and globs included, with
+// a line range cut off, and prose names nothing.
+func TestReadPathsTakesPathsNotProse(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "task.md")
+	write(t, p, "## Goal\nx\n## Read\n- `/srv/notes/docs/*.md`: the docs\n- /srv/notes/guide/\n- ~/notes/plan.md:3-9\n- internal/a.go\n- the review notes\n## Write\n- a.go\n## Limits\n## Check\n")
+	got, err := ReadPaths(os.DirFS(filepath.Dir(p)), filepath.Base(p))
+	if err != nil || strings.Join(got, " ") != pathutil.Clean("/srv/notes/docs/*.md")+" "+pathutil.Clean("/srv/notes/guide")+" ~/notes/plan.md internal/a.go" {
+		t.Fatal(got, err)
+	}
+}
+
 func TestWritePathsTakesPathsNotProse(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "task.md")
 	if err := os.WriteFile(p, []byte("## Goal\nx\n## Read\n## Write\n- `internal/a.go`: the limiter\n- docs/\n- cmd/x.go:10-20\n- the changelog entry\n* internal/**/*_test.go\nprose line.go\n## Limits\n## Check\n"), 0600); err != nil {

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,7 +16,6 @@ import (
 	"time"
 
 	"crypto/sha256"
-	"github.com/bmatcuk/doublestar/v4"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/app/launch"
@@ -69,6 +69,9 @@ func (p Placement) String() string {
 type Options struct {
 	Lead             string
 	AllowManualModel bool
+	// Stderr receives what delegate tells the person beside the result line,
+	// such as Read entries it ignores. Nil discards it.
+	Stderr io.Writer
 	// Needs lists "kind:name" capabilities the task relies on.
 	Needs []string
 	// Features and Class classify the delegation in learning mode.
@@ -161,7 +164,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 			}
 		}
 	}
-	writes, original, err := readTask(root, lookup)
+	writes, reads, original, err := readTask(root, lookup, opts.Stderr)
 	if err != nil {
 		return out, err
 	}
@@ -373,10 +376,10 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		wm := resolveWorkerMode(cfg, role, route, lead, leadMode)
 		capNotes = ""
 		// The bridge must not replace a variable the worker already gets. The
-		// worker mode's DUOLOG_NATIVE, and DUOLOG_MODE when an entry applies,
-		// go through the build with the run id, so the account gate admits the
-		// environment the worker runs with.
-		runEnv := append([]string{"DUOLOG_RUN=" + att.run}, wm.env()...)
+		// worker mode's DUOLOG_NATIVE, DUOLOG_MODE when an entry applies, and
+		// the task's Read paths go through the build with the run id, so the
+		// account gate admits the environment the worker runs with.
+		runEnv := workerRunEnv(att.run, wm, reads)
 		var base corelaunch.Process
 		if base, err = workerEnv(d.Build, workerInput(cfg, route, variant, leadID, role, root, opts.ProtectedRoots, runEnv, opts.Needs)); err != nil {
 			return out, err
@@ -1201,30 +1204,4 @@ func settleAuth(ctx context.Context, d Deps, cfg *config.Config, reg *session.Re
 	out.Needs = []string{p.Need()}
 	out.Line = oneLine("role " + role + " waits for lead: " + reason + "." + tail)
 	return false, nil
-}
-
-// outsideWrite lists the changed paths that no Write entry covers: a file, a
-// folder that holds it, or a glob. A task whose Write lists no path gets no
-// list, since it did not say what the worker may change. A change the lead
-// made while the worker ran shows up here too.
-func outsideWrite(changed, writes []string) []string {
-	if len(writes) == 0 {
-		return nil
-	}
-	var outside []string
-	for _, name := range changed {
-		clean := pathutil.Clean(name)
-		covered := false
-		for _, w := range writes {
-			match, _ := doublestar.Match(w, clean)
-			if match || w == "." || clean == w || strings.HasPrefix(clean, w+"/") {
-				covered = true
-				break
-			}
-		}
-		if !covered {
-			outside = append(outside, name)
-		}
-	}
-	return outside
 }

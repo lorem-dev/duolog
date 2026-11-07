@@ -34,10 +34,11 @@ func InClaudeTemp(temps []string, target string) bool {
 	return false
 }
 
-// within reports whether path is dir or lies inside it.
+// within reports whether path is dir or lies inside it, with the separator
+// and the case rules of the host.
 func within(dir, path string) bool {
 	rel, err := filepath.Rel(dir, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, "../")
+	return err == nil && (rel == "." || filepath.IsLocal(rel))
 }
 
 // maxTempEntries bounds the walk of staysWithin; a larger folder does not
@@ -45,7 +46,9 @@ func within(dir, path string) bool {
 const maxTempEntries = 10000
 
 // staysWithin reports whether every symlink at or below path, a resolved path
-// inside temp, resolves inside temp.
+// inside temp, resolves inside temp, and nothing else there is more than a
+// folder or a regular file (specialType): a Windows junction, which Go reads
+// as irregular, leads out as a symlink does.
 func staysWithin(temp, path string) bool {
 	entries := 0
 	err := filepath.WalkDir(path, func(name string, entry fs.DirEntry, err error) error {
@@ -55,10 +58,13 @@ func staysWithin(temp, path string) bool {
 		if entries++; entries > maxTempEntries {
 			return fs.ErrInvalid
 		}
-		if entry.Type()&fs.ModeSymlink != 0 {
+		switch {
+		case entry.Type() == fs.ModeSymlink:
 			if resolved, err := filepath.EvalSymlinks(name); err != nil || !within(temp, resolved) {
 				return fs.ErrPermission
 			}
+		case specialType(entry.Type()):
+			return fs.ErrPermission
 		}
 		return nil
 	})

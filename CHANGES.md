@@ -48,11 +48,20 @@
   a repository that sets it needs this release.
 - `install --check` (`--hooks-only` for CI) and `doctor` find hooks and skills
   an older duolog installed; the lead's session start names the fix.
+- A worker reads the files outside the project that a task in `.duolog/`
+  lists under Read as absolute paths, folders or globs; denies still apply.
 
 ### Fixed
 
 - The worker gate no longer refuses a report as a start of `claude` or `codex`
   when a here-document or quoted text only names them.
+
+### Security
+
+- `wc`, `du`, `sort` and `find` with `files0-from` or a start of it, which read
+  the files a list names, now ask, as does an unknown long option of `wc`/`du`.
+- `shasum -c` and `--check` of `sha256sum`, `md5sum`, `b2sum`, `cksum` and the
+  like read every file their list names, so they now ask instead of reading.
 
 ## 1.5.0
 

@@ -10,6 +10,11 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 )
 
+// outside reports whether a path leaves the work root; see pathutil.Outside.
+func outside(path string) bool {
+	return pathutil.Outside(path)
+}
+
 // workTarget places a path that a command in a names, as written, from a's
 // work root, as RelativeTarget does.
 func workTarget(a Action, target string) string {

@@ -21,6 +21,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/telemetry"
@@ -131,7 +132,7 @@ func evaluateHook(deps *cmdDeps, cmd *cobra.Command, root, agent, event string, 
 		action.ProtectedRoots = roots
 		action.Peer = os.Getenv("DUOLOG_PEER")
 		action.Work = work
-		ownClaudeFiles(action, i == 0, agent, work, envelope)
+		workerFiles(action, i == 0, agent, work, envelope)
 		if (action.Kind == "read" || action.Kind == "write") && action.Target != "" {
 			action.Target = policy.RelativeTarget(work, envelope.Cwd, action.Target)
 		}
@@ -291,12 +292,42 @@ type hookEnvelope struct {
 	Tool      string `json:"tool_name"`
 	SessionID string `json:"session_id"`
 	ToolUseID string `json:"tool_use_id"`
-	// The read tools' path as the worker wrote it, before Normalize cleans
-	// away its .. parts.
+	// The read tools' path and patterns as the worker wrote them, before
+	// Normalize cleans away their .. parts.
 	Input struct {
-		File string `json:"file_path"`
-		Path string `json:"path"`
+		File    string `json:"file_path"`
+		Path    string `json:"path"`
+		Pattern string `json:"pattern"`
+		Glob    string `json:"glob"`
 	} `json:"tool_input"`
+}
+
+// workerFiles marks what of the worker's own an action may read: the paths
+// its task lists under Read, from DUOLOG_READ, which delegate sets and the
+// worker cannot, and a Claude worker's own files (ownClaudeFiles). A read
+// tool that wrote .. in its path or pattern gets no Read list, since
+// Normalize cleaned it away before a symlink could be resolved.
+func workerFiles(action *policy.Action, first bool, agent, work string, e hookEnvelope) {
+	raw := []string{e.Input.File, e.Input.Path, e.Input.Pattern, e.Input.Glob}
+	if !slices.ContainsFunc(raw, dotDot) {
+		action.Reads = gateReads(os.Getenv(policy.TaskReadsEnv))
+	}
+	ownClaudeFiles(action, first, agent, work, e)
+}
+
+// gateReads are the entries of a DUOLOG_READ value that are not too wide to
+// read (configfile.RefuseRead), judged again here after the symlinks of each
+// entry's fixed folder are resolved, since a link can point elsewhere now
+// than when delegate started the worker.
+func gateReads(value string) []string {
+	return slices.DeleteFunc(policy.TaskReads(value), func(entry string) bool {
+		return configfile.RefuseRead(pathutil.Resolved(policy.ReadEntryFolder(pathutil.Native(entry)))) != ""
+	})
+}
+
+// dotDot reports whether a path names a .. segment, with either separator.
+func dotDot(path string) bool {
+	return slices.Contains(strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == '\\' }), "..")
 }
 
 // ownClaudeFiles marks what of a Claude worker's own an action reaches, from

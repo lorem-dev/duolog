@@ -150,6 +150,19 @@ func references(data []byte, work fs.FS) ([]Reference, error) {
 // a path, so prose such as "- the changelog entry" names nothing. The task
 // file is name in fsys.
 func WritePaths(fsys fs.FS, name string) ([]string, error) {
+	return sectionPaths(fsys, name, "Write")
+}
+
+// ReadPaths returns the files, folders and globs that Read lists, by the
+// rules of WritePaths, with a line range cut off. An entry may be absolute or
+// start with ~.
+func ReadPaths(fsys fs.FS, name string) ([]string, error) {
+	return sectionPaths(fsys, name, "Read")
+}
+
+// sectionPaths returns the paths that a section of the task file name in fsys
+// lists, as WritePaths says.
+func sectionPaths(fsys fs.FS, name, section string) ([]string, error) {
 	data, err := fs.ReadFile(fsys, name)
 	if err != nil {
 		return nil, err
@@ -159,7 +172,7 @@ func WritePaths(fsys fs.FS, name string) ([]string, error) {
 		return nil, err
 	}
 	var paths []string
-	for _, line := range strings.Split(parts["Write"], "\n") {
+	for _, line := range strings.Split(parts[section], "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "- ") && !strings.HasPrefix(line, "* ") {
 			continue

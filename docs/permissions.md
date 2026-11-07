@@ -235,10 +235,11 @@ option does not. Paths named by a read command follow the read rules, so
 `cat .env` is denied and `cat /outside/notes.txt` asks. A shell glob in a
 path asks because it can expand onto denied files. Recursive `grep` and `rg`
 with `--hidden`, `-u` or `--no-ignore` ask unless their roots reach duolog
-state. The state checks below deny those recursive commands. Plain `rg` and
-the `Grep` tool can still search a denied file that is neither hidden nor
-git-ignored:
-keep such files out of the tree or ignore them. `git diff` and `git log` with
+state. The state checks below deny those recursive commands. Plain `rg` can
+still search a denied file that is neither hidden nor git-ignored. Claude's
+`Grep` tool passes `--hidden`, so it can also search a hidden file such as
+`.env` that is not git-ignored. Keep such files out of the tree or ignore
+them. `git diff` and `git log` with
 no path can also show a denied file that Git tracks, so do not commit one.
 
 A `--glob` option of `rg`, or the glob of the `Grep` tool, asks when it
@@ -402,6 +403,49 @@ in Claude's config folder. Another session's folder and every other path under
 A deny wins over an allow. When no rule matches, the decision is
 `on_unmatched`, which is `ask` by default. The default denies always apply: a
 project that sets its own `rules` replaces the allow rules, not the denies.
+
+## A worker reads what its task lists
+
+A worker of `duolog delegate` may read a path outside the work root that its
+task lists under Read: an absolute file, folder or glob, or one that starts
+with `~`, which names the lead's home folder. A relative entry names a path
+in the project, as before. Only a task file under `.duolog/`, where the lead
+writes tasks, counts. For a task file elsewhere, such as one that a cloned
+repository ships, delegate ignores such entries and says so on stderr.
+delegate hands the list to the worker's gate in `DUOLOG_READ`, which a
+worker cannot set. The list allows the read tools and named read commands
+such as `cat`, `wc` or `rg` on those paths, in every mode and role. It allows
+no write, no other command and no path that a deny rule, the state rule or
+the private store rule refuses.
+
+delegate leaves out an entry that is too wide, by the rule for Codex writable
+roots: a volume root, the home folder or a parent of it, or a path that holds
+or lies in a folder of credentials or agent settings, such as `~/.ssh`. The
+gate checks each entry again after it resolves its symlinks. Reads of such a
+path still ask.
+
+The gate resolves symlinks first, so a listed name that leads elsewhere still
+asks. A path written with `..`, and a folder with a symlink below it that
+leads out, are not covered either. A listed glob covers files, not folders,
+and a shell glob in a command still asks. Peers do not get the list.
+
+A search, a listing or a glob of a listed folder counts only when everything
+below the search root is something a search may read. A symlink anywhere
+below it does not count, since `rg -L` or `grep -R` follows it, even to a
+`.env` beside the folder. Nor does a Windows junction, such as the hidden
+`My Music` in `Documents`, or anything else that is neither a folder nor a
+regular file, such as a socket or a device. Nor does a hidden name, such as
+`.env` or `.duolog`, a name shaped like a Windows short name, or a path that
+a read deny or the state rule refuses, such as `server.key`. The gate walks
+up to 10,000 entries to find out. Otherwise the search asks, and the plain
+files in the folder stay readable one by one.
+
+A read command that reads the files a list names, such as
+`wc --files0-from=list`, is no plain read and asks. GNU programs take any
+unambiguous start of a long option, so `wc --files0=list` asks too, and so
+does any long option of `wc` or `du` that the gate does not know. A checksum
+check, such as `shasum -c list` or `sha256sum --check`, reads every file its
+list names, from a file or from standard input, so it asks too.
 
 ## Workers cannot read duolog state
 

@@ -306,7 +306,10 @@ Name the function and the line.
 
 List files with line ranges in Read. duolog puts those lines in the worker's
 standard input, up to `wire.inline_max_bytes`, so the worker does not spend
-calls on reading them.
+calls on reading them. In a task file under `.duolog/`, an absolute path,
+folder or glob in Read, or one that starts with `~`, lets the worker read
+those files outside the project; see
+[Permissions](permissions.md#a-worker-reads-what-its-task-lists).
 
 Send the task to a role:
 

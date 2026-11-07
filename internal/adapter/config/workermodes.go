@@ -420,9 +420,35 @@ func RefuseRootEnv(root string, environ []string) string {
 	return refuseRoot(filepath.Clean(root), filepath.Clean(home), getenv)
 }
 
+// RefuseRead says why a path that a task lists under Read, a file or a
+// folder, is too wide to hand a worker's gate, as RefuseRoot says for a
+// writable root, or returns "" when it is not.
+func RefuseRead(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "home folder: " + err.Error()
+	}
+	root, home := filepath.Clean(path), filepath.Clean(home)
+	if reason := refuseWide(root, home); reason != "" {
+		return reason
+	}
+	return refuseProtected(root, home, os.Getenv)
+}
+
 // refuseRoot compares canonical paths (kit.Canonical): symlinks in the
 // existing prefix resolved, case folded where the volume ignores it.
 func refuseRoot(root, home string, getenv func(string) string) string {
+	if reason := refuseWide(root, home); reason != "" {
+		return reason
+	}
+	if info, err := os.Stat(root); err == nil && !info.IsDir() {
+		return "a writable root must be a folder, not a file"
+	}
+	return refuseProtected(root, home, getenv)
+}
+
+// refuseWide refuses a volume root, and the home folder and its ancestors.
+func refuseWide(root, home string) string {
 	canonical := kit.Canonical(root)
 	if canonical == filepath.VolumeName(canonical)+string(filepath.Separator) {
 		return "a volume root is too wide"
@@ -430,9 +456,12 @@ func refuseRoot(root, home string, getenv func(string) string) string {
 	if kit.Within(canonical, kit.Canonical(home)) {
 		return "the home folder and its ancestors are too wide"
 	}
-	if info, err := os.Stat(root); err == nil && !info.IsDir() {
-		return "a writable root must be a folder, not a file"
-	}
+	return ""
+}
+
+// refuseProtected refuses a path that holds or lies in a folder of
+// credentials or of agent and duolog settings.
+func refuseProtected(root, home string, getenv func(string) string) string {
 	for _, p := range protectedFolders(runtime.GOOS, home, getenv) {
 		if kit.Overlap(p, root) {
 			return "protected: it holds credentials or duolog's own settings"

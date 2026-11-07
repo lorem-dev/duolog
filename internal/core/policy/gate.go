@@ -50,6 +50,13 @@ type Action struct {
 	OwnResult bool `json:"-"`
 	// Temp is the hook's ClaudeTemp folders, whose files read commands may read.
 	Temp []string `json:"-"`
+	// Reads are the absolute paths, folders and globs that the task lists
+	// under Read, from TaskReadsEnv, never from the worker. Read tools and
+	// named read commands may read them.
+	Reads []string `json:"-"`
+	// taskRead marks a read that a named read command makes of a path in
+	// Reads, as written in the command; see taskReadWord.
+	taskRead bool
 	// revision marks an operand of a Git read command, which may name a
 	// revision such as HEAD~1 rather than a path, so the 8.3 check skips it.
 	revision bool
@@ -199,8 +206,8 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	if d, ok := planLimit(p, m, a, parts, uncertain, lineWrites, readAsk, decision); ok {
 		return d
 	}
-	if a.Kind == "read" && a.OwnResult && outside(a.Target) {
-		return decision(Allow, "the worker's own saved tool result or session temp file", "own tool results")
+	if d, ok := outsideReadAllow(p, lead, a, readAsk, decision); ok {
+		return d
 	}
 	if (a.Kind == "read" || a.Kind == "write") && outside(a.Target) {
 		for _, rule := range p.Rules {
@@ -759,10 +766,6 @@ func shellParts(command string, reads bool) ([]string, bool) {
 	return parts, uncertain || escaped || quote != 0
 }
 
-func outside(path string) bool {
-	return pathutil.Outside(path)
-}
-
 // Canonical command forms are used only for denies, never to grant access to
 // an executable at an arbitrary path.
 func denyCommand(command string) string {
@@ -829,11 +832,11 @@ var checkedReadCommands = []string{"find", "rg", "sed", "jq", "sort", "uniq", "t
 func readOnlyCommand(command string) bool {
 	raw := strings.Fields(command)
 	words := strings.Fields(strings.ToLower(command))
-	if len(words) == 0 {
+	if len(words) == 0 || filesFromList(words[0], words[1:]) {
 		return false
 	}
 	if words[0] == "git" {
-		return len(words) > 1 && slices.Contains([]string{"status", "diff", "log", "show"}, words[1]) && !strings.Contains(command, "--output") && !strings.Contains(command, "--ext-diff") && !strings.Contains(command, "--textconv") && !strings.Contains(command, "--no-index")
+		return gitRead(command, words)
 	}
 	switch words[0] {
 	case "find":

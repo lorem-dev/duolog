@@ -19,7 +19,7 @@ func newDelegateCommand(d *cmdDeps) *cobra.Command {
 	var needs []string
 	var allowManual bool
 	cmd := &cobra.Command{Use: "delegate <role>", Short: "Delegate a task and print its answer", Long: "Delegate a task and print its answer.\n\nThe task file needs the sections ## Goal, ## Read, ## Write, ## Limits and ## Check.", Args: cobra.ExactArgs(1), SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
-		opts := delegate.Options{Lead: lead, AllowManualModel: allowManual, Needs: needs, Class: class, EscalateFrom: escalateFrom, EscalateReason: reason}
+		opts := delegate.Options{Lead: lead, AllowManualModel: allowManual, Needs: needs, Class: class, EscalateFrom: escalateFrom, EscalateReason: reason, Stderr: cmd.ErrOrStderr()}
 		parsed, err := learn.ParseFeatures(features)
 		if err == nil && (escalateFrom == "") != (reason == "") {
 			err = errors.New("--escalate-from and --reason go together: name the delegation you leave and why")

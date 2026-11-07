@@ -2,12 +2,17 @@ package delegate
 
 import (
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/bmatcuk/doublestar/v4"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/pathutil"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/taskspec"
 	"github.com/lorem-dev/duolog/internal/project"
@@ -53,23 +58,100 @@ func taskCopy(work taskspec.Tree, path string) (taskspec.Tree, string) {
 
 // readTask confines the task file at path to the work root, checks its
 // sections, and returns the paths its Write lists, to name what the worker
-// changed outside them, and its text.
-func readTask(root, path string) (writes []string, original []byte, err error) {
+// changed outside them, the paths outside the project that its Read lists,
+// which the worker's gate lets it read (taskReads), and its text. Only a task
+// file under .duolog/, where the lead writes tasks, may list paths outside
+// the project; for any other, such as one a cloned repository ships, readTask
+// tells stderr which entries it ignores.
+func readTask(root, path string, stderr io.Writer) (writes, reads []string, original []byte, err error) {
 	work := WorkTree(root)
 	name, _, err := work.Resolve(path)
 	if err != nil {
-		return nil, nil, fmt.Errorf("task file: %w; write it inside the project, such as .duolog/task.md, which Git ignores", err)
+		return nil, nil, nil, fmt.Errorf("task file: %w; write it inside the project, such as .duolog/task.md, which Git ignores", err)
 	}
 	if err = taskspec.Validate(work.FS, name); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if writes, err = taskspec.WritePaths(work.FS, name); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
+	}
+	if reads, err = taskspec.ReadPaths(work.FS, name); err != nil {
+		return nil, nil, nil, err
 	}
 	if original, err = fs.ReadFile(work.FS, name); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return writes, original, nil
+	if reads = taskReads(reads); len(reads) > 0 && !strings.HasPrefix(name, ".duolog/") {
+		if stderr != nil {
+			_, _ = fmt.Fprintf(stderr, "duolog delegate: task file %s is not under .duolog/, so the worker gets no reads outside the project from its Read: %s\n", name, strings.Join(reads, ", "))
+		}
+		reads = nil
+	}
+	return writes, reads, original, nil
+}
+
+// taskReads keeps the Read entries that can name a path outside the project:
+// absolute ones, and ~ or ~/x, which name the lead's home folder. They come
+// back absolute and native. A relative entry lies in the project, where the
+// gate already lets a worker read. An entry whose fixed folder, the part
+// before any glob, is too wide (configfile.RefuseRead), such as the home
+// folder or ~/.ssh, is left out, so its reads still ask.
+func taskReads(entries []string) []string {
+	home, _ := os.UserHomeDir()
+	var reads []string
+	for _, entry := range entries {
+		native := pathutil.Native(entry)
+		if entry == "~" || strings.HasPrefix(entry, "~/") {
+			if home == "" {
+				continue
+			}
+			native = filepath.Join(home, pathutil.Native(strings.TrimPrefix(entry[1:], "/")))
+		}
+		if !filepath.IsAbs(native) {
+			continue
+		}
+		native = filepath.Clean(native)
+		if configfile.RefuseRead(policy.ReadEntryFolder(native)) == "" {
+			reads = append(reads, native)
+		}
+	}
+	return reads
+}
+
+// outsideWrite lists the changed paths that no Write entry covers: a file, a
+// folder that holds it, or a glob. A task whose Write lists no path gets no
+// list, since it did not say what the worker may change. A change the lead
+// made while the worker ran shows up here too.
+func outsideWrite(changed, writes []string) []string {
+	if len(writes) == 0 {
+		return nil
+	}
+	var outside []string
+	for _, name := range changed {
+		clean := pathutil.Clean(name)
+		covered := false
+		for _, w := range writes {
+			match, _ := doublestar.Match(w, clean)
+			if match || w == "." || clean == w || strings.HasPrefix(clean, w+"/") {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			outside = append(outside, name)
+		}
+	}
+	return outside
+}
+
+// workerRunEnv is what a worker's gate reads besides duolog's own names: the
+// run id, the worker mode's variables and the Read paths of its task.
+func workerRunEnv(runID string, wm workerMode, reads []string) []string {
+	env := append([]string{"DUOLOG_RUN=" + runID}, wm.env()...)
+	if len(reads) > 0 {
+		env = append(env, policy.TaskReadsEnv+"="+policy.TaskReadsValue(reads))
+	}
+	return env
 }
 
 // inlineTask builds the worker's input from the task copy at copyPath, with
