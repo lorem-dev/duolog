@@ -58,6 +58,8 @@
   removes the ones that closed peers of older versions left behind.
 - `go test`, `ls` or `git add` on a path ending in `claude` or `codex` is no
   longer denied as a start of the agent.
+- On Windows a telemetry prune no longer fails when another duolog creates the
+  prune stamp at the same moment, and a failed prune now names its cause.
 
 ## 1.5.1
 

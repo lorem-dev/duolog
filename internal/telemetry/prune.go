@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -81,7 +82,7 @@ func (s *Store) Prune(force bool) (Maintenance, error) {
 	}
 	l, stamp, err := s.lockGlobal()
 	if err != nil {
-		return Maintenance{}, pruneCategory(err)
+		return Maintenance{}, pruneCategory("take the global lock", err)
 	}
 	defer l.Close()
 	now := s.o.Now().UTC()
@@ -91,7 +92,7 @@ func (s *Store) Prune(force bool) (Maintenance, error) {
 	race("prune")
 	projects, err := projectPartitions(s.root)
 	if err != nil {
-		return Maintenance{}, pruneCategory(err)
+		return Maintenance{}, pruneCategory("list the partitions", err)
 	}
 	var m Maintenance
 	s.removeStaleStamps(now, &m)
@@ -102,7 +103,7 @@ func (s *Store) Prune(force bool) (Maintenance, error) {
 		m.Skipped++
 	}
 	if err := s.setStamp(stamp, now); err != nil {
-		return m, pruneCategory(err)
+		return m, pruneCategory("date "+stampName, err)
 	}
 	return m, nil
 }
@@ -268,18 +269,44 @@ func (s *Store) lockGlobal() (*flock.Flock, os.FileInfo, error) {
 		return nil, nil, err
 	}
 	if err := s.newStamp(); err != nil {
-		return nil, nil, err
+		return nil, nil, during("create "+stampName, err)
 	}
-	return s.lockFile(stampName)
+	l, info, err := s.lockFile(stampName)
+	if err != nil {
+		return nil, nil, during("lock "+stampName, err)
+	}
+	return l, info, nil
 }
+
+// openForLock opens the file lockFile checks, and takeLock opens it by path
+// and takes its flock; tests replace them to act as Windows refusing a file
+// that another process holds.
+var (
+	openForLock = func(r *os.Root, name string) (*os.File, error) {
+		return openRegular(r, name, os.O_CREATE|os.O_RDWR)
+	}
+	takeLock = (*flock.Flock).Lock
+)
 
 // lockFile takes the exclusive flock on name, a file opened and checked like
 // every other, and confirms after locking that the locked file is the one
 // checked and is still at name, so a file removed or replaced meanwhile is
 // never trusted. A file that left the name while the lock was awaited fails
 // with errMoved.
+//
+// The flock opens the file by path, and Go opens a path on Windows without
+// FILE_SHARE_DELETE, so that open fails with a sharing violation while any
+// other handle on the file has delete access: the other creator's MoveFileEx
+// holds the new stamp open that way from the moment it has its name until
+// the call returns, and Root.Remove holds a stamp linked in under two names
+// that way. Both opens are tried again on a sharing error, as the rename and
+// removals are.
 func (s *Store) lockFile(name string) (*flock.Flock, os.FileInfo, error) {
-	f, err := openRegular(s.root, name, os.O_CREATE|os.O_RDWR)
+	var f *os.File
+	err := retry(func() (err error) {
+		f, err = openForLock(s.root, name)
+		return err
+	}, sharingError)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -290,7 +317,7 @@ func (s *Store) lockFile(name string) (*flock.Flock, os.FileInfo, error) {
 	}
 	// Without O_CREATE flock cannot make a file in place of a removed one.
 	l := flock.New(filepath.Join(s.path, filepath.FromSlash(name)), flock.SetFlag(os.O_RDWR))
-	if err := l.Lock(); err != nil {
+	if err := retry(func() error { return takeLock(l) }, sharingError); err != nil {
 		l.Close()
 		return nil, nil, scrub(err)
 	}
@@ -601,14 +628,45 @@ func sharingError(err error) bool {
 	return errors.Is(err, syscall.Errno(32)) || errors.Is(err, syscall.Errno(33))
 }
 
-// pruneCategory maps a failed check or step to a closed error.
-func pruneCategory(err error) error {
+// pruneCategory maps a failed check or step to its closed error and names
+// the step and its cause: errors.Is matches the closed error and the cause.
+func pruneCategory(step string, err error) error {
 	var refused *refusedError
+	closed := errPrune
 	switch {
 	case errors.Is(err, errUnsafe), errors.Is(err, errOwner), errors.As(err, &refused):
-		return errUnsafeStore
+		closed = errUnsafeStore
 	case errors.Is(err, fs.ErrPermission):
-		return errDenied
+		closed = errDenied
 	}
-	return errPrune
+	return &stepError{closed: closed, step: step, cause: err}
+}
+
+// during names the step a store error comes from.
+func during(step string, err error) error {
+	return &stepError{step: step, cause: err}
+}
+
+// stepError is the step that failed and its cause, under a closed error
+// when closed is set. Its text drops the cause's own "telemetry: " prefix.
+// The causes are scrubbed or closed errors, so it names no path.
+type stepError struct {
+	closed error
+	step   string
+	cause  error
+}
+
+func (e *stepError) Error() string {
+	head := "telemetry"
+	if e.closed != nil {
+		head = e.closed.Error()
+	}
+	return head + ": " + e.step + ": " + strings.TrimPrefix(e.cause.Error(), "telemetry: ")
+}
+
+func (e *stepError) Unwrap() []error {
+	if e.closed == nil {
+		return []error{e.cause}
+	}
+	return []error{e.closed, e.cause}
 }

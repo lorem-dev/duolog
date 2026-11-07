@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/gofrs/flock"
 )
 
 // noRename makes newStamp act as on a system or file system that cannot
@@ -170,6 +172,78 @@ func TestStampRenameRetried(t *testing.T) {
 			}
 			if got := exists(t, filepath.Join(root, stampName)); got != tc.ok {
 				t.Errorf("stamp there: %v, want %v", got, tc.ok)
+			}
+		})
+	}
+}
+
+// On Windows the stamp's lock opens it twice, once checked under the root
+// and once by path for the flock, and either open meets a sharing violation
+// while another process holds the stamp with delete access, as the other
+// creator's MoveFileEx does until it returns: both are tried again a few
+// times. Elsewhere the error is returned at once. A Prune that fails names
+// the step and keeps the cause for errors.Is.
+func TestStampLockSharingRetried(t *testing.T) {
+	sharing := syscall.Errno(32) // ERROR_SHARING_VIOLATION on Windows
+	for _, tc := range []struct {
+		name         string
+		windows      bool
+		opens, locks int // sharing errors before the open or the lock runs
+		ok           bool
+	}{
+		{name: "open then done", windows: true, opens: 2, ok: true},
+		{name: "lock then done", windows: true, locks: 3, ok: true},
+		{name: "open for good", windows: true, opens: retryAttempts},
+		{name: "lock for good", windows: true, locks: retryAttempts},
+		{name: "not windows", locks: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, root, _ := pruneFixture(t, testNow, 30)
+			setWindowsErrors(t, tc.windows)
+			opens, locks := 0, 0
+			oldOpen, oldLock := openForLock, takeLock
+			t.Cleanup(func() { openForLock, takeLock = oldOpen, oldLock })
+			openForLock = func(r *os.Root, name string) (*os.File, error) {
+				if name == stampName {
+					if opens++; opens <= tc.opens {
+						return nil, scrub(&fs.PathError{Op: "open", Path: name, Err: sharing})
+					}
+				}
+				return oldOpen(r, name)
+			}
+			takeLock = func(l *flock.Flock) error {
+				if filepath.Base(l.Path()) == stampName {
+					if locks++; locks <= tc.locks {
+						return &fs.PathError{Op: "open", Path: l.Path(), Err: sharing}
+					}
+				}
+				return oldLock(l)
+			}
+			_, err := s.Prune(true)
+			if tc.ok {
+				if err != nil {
+					t.Fatalf("Prune: %v", err)
+				}
+				if got := stampTime(t, root); !got.Equal(testNow) {
+					t.Errorf("stamp dated %v, want %v", got, testNow)
+				}
+				return
+			}
+			if !errors.Is(err, errPrune) || !errors.Is(err, sharing) {
+				t.Fatalf("Prune: %v, want %v caused by %v", err, errPrune, sharing)
+			}
+			if want := "lock " + stampName + ": "; !strings.Contains(err.Error(), want) {
+				t.Errorf("Prune: %q does not name the step %q", err, want)
+			}
+			noPath(t, err, root)
+			if want := min(tc.opens+1, retryAttempts); tc.opens > 0 && opens != want {
+				t.Errorf("opened %d times, want %d", opens, want)
+			}
+			if want := min(tc.locks+1, retryAttempts); tc.locks > 0 && tc.windows && locks != want {
+				t.Errorf("locked %d times, want %d", locks, want)
+			}
+			if !tc.windows && locks != 1 {
+				t.Errorf("locked %d times off Windows, want 1", locks)
 			}
 		})
 	}
