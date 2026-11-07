@@ -61,7 +61,7 @@ func CloseNote(ctx context.Context, id string) (note string, err error) {
 	if err := e.sessionEnded(ctx, entry); err != nil {
 		return note, err
 	}
-	if err := e.reg.RemovePeer(entry.ID); err != nil {
+	if err := e.dropPeer(entry); err != nil {
 		return note, err
 	}
 	// A task still open ends with the pane. An ended pane reported its own.

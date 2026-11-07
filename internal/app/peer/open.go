@@ -215,6 +215,11 @@ func withNotice(notice string) func(Entry, error) (Entry, error) {
 // livePeers returns the open panes of this lead and agent. A pane that is gone
 // or whose program ended is marked closed on the way, so it cannot hold the limit.
 func (e *env) livePeers(ctx context.Context, leadID, agent string) ([]session.Entry, error) {
+	// Open holds the placement lock here: the right time to drop the model
+	// files that peers of older versions left behind.
+	// Best effort: a file that stays does no harm, so a failure never stops
+	// the open.
+	_ = e.sweepModels()
 	all, err := e.reg.Entries()
 	if err != nil {
 		return nil, err

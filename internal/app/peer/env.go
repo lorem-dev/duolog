@@ -424,6 +424,67 @@ func (e *env) modelPath(entry session.Entry) string {
 	return filepath.Join(e.dir, "coauthor-"+entry.ID+".model")
 }
 
+// dropPeer drops a closed peer from the registry, then deletes its model file:
+// the final credit has run, so nothing needs it. A file already gone is fine.
+func (e *env) dropPeer(entry session.Entry) error {
+	if err := e.reg.RemovePeer(entry.ID); err != nil {
+		return err
+	}
+	if err := os.Remove(e.modelPath(entry)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// sweepModels removes the model files that older versions left for peers the
+// registry no longer holds. Only regular files named coauthor-peer-<id>.model
+// with a plain id qualify; a symlink, a folder or any other name stays.
+func (e *env) sweepModels() error {
+	all, err := e.reg.Entries()
+	if err != nil {
+		return err
+	}
+	held := make(map[string]bool, len(all))
+	for _, x := range all {
+		held[x.ID] = true
+	}
+	files, err := os.ReadDir(e.dir)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, f := range files {
+		name := f.Name()
+		id, ok := strings.CutPrefix(name, "coauthor-")
+		if !ok {
+			continue
+		}
+		id, ok = strings.CutSuffix(id, ".model")
+		if !ok || !plainPeerID(id) || held[id] || !f.Type().IsRegular() {
+			continue
+		}
+		if err := os.Remove(filepath.Join(e.dir, name)); err != nil && !os.IsNotExist(err) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// plainPeerID reports whether id has the shape newID gives: "peer-" and
+// lowercase letters or digits.
+func plainPeerID(id string) bool {
+	rest, ok := strings.CutPrefix(id, "peer-")
+	if !ok || rest == "" {
+		return false
+	}
+	for _, c := range rest {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') {
+			return false
+		}
+	}
+	return true
+}
+
 func (e *env) credit(entry session.Entry) error {
 	if !e.cfg.Coauthors.Enabled {
 		return nil
