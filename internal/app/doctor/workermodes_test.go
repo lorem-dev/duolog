@@ -25,7 +25,7 @@ func TestDoctorReportsWorkerModes(t *testing.T) {
 	d := testDeps
 	var gateCalls int
 	d.GateBinary = func(string) (string, error) { gateCalls++; return "", errors.New("duolog is not on the worker PATH") }
-	cfg := &config.Config{EnvPassthrough: config.DefaultEnvPassthrough(runtime.GOOS), WorkerModes: config.WorkerModes{Roles: map[string]config.WorkerMode{"implement": {Claude: "auto"}, "docs": {Claude: "plan"}}}}
+	cfg := &config.Config{EnvPassthrough: config.DefaultEnvPassthrough(runtime.GOOS), WorkerModes: config.WorkerModes{Roles: map[string]config.WorkerMode{"implement": {Native: map[string]string{"claude": "auto"}}, "docs": {Native: map[string]string{"claude": "plan"}}}}}
 	got := workerModeFindings(d, cfg, root)
 	want := []Finding{
 		{"info", "worker_modes: role docs asks claude plan; it applies always"},
@@ -60,7 +60,7 @@ func TestDoctorUsesGateBinary(t *testing.T) {
 	cfg := &config.Config{
 		Roles:          map[string]config.Role{"implement": {Sandbox: "workspace-write"}},
 		EnvPassthrough: []string{"HOME", "USERPROFILE", "USER"},
-		WorkerModes:    config.WorkerModes{Roles: map[string]config.WorkerMode{"implement": {Claude: "bypassPermissions"}}},
+		WorkerModes:    config.WorkerModes{Roles: map[string]config.WorkerMode{"implement": {Native: map[string]string{"claude": "bypassPermissions"}}}},
 	}
 	calls := 0
 	d := testDeps
@@ -82,8 +82,8 @@ func TestDoctorSaysWhenAnEntryNeverApplies(t *testing.T) {
 		EnvPassthrough: config.DefaultEnvPassthrough(runtime.GOOS),
 		Roles:          map[string]config.Role{"review_final": {Sandbox: "read-only"}, "implement": {Sandbox: "workspace-write"}},
 		WorkerModes: config.WorkerModes{
-			Roles:    map[string]config.WorkerMode{"review_final": {Claude: "bypassPermissions", Codex: "read-only"}, "implement": {Network: true}},
-			Families: map[string]config.WorkerMode{"haiku": {Claude: "bypassPermissions"}},
+			Roles:    map[string]config.WorkerMode{"review_final": {Native: map[string]string{"claude": "bypassPermissions", "codex": "read-only"}}, "implement": {Network: true}},
+			Families: map[string]config.WorkerMode{"haiku": {Native: map[string]string{"claude": "bypassPermissions"}}},
 		},
 	}
 	d := testDeps
@@ -129,12 +129,12 @@ func TestDoctorReadsTheWorkersSettings(t *testing.T) {
 		entry             config.WorkerMode
 		setup             func(t *testing.T, home, root, alternate string)
 	}{
-		{"claude gate only in the caller's CLAUDE_CONFIG_DIR", "claude", "Claude has no duolog gate here", config.WorkerMode{Claude: "bypassPermissions"},
+		{"claude gate only in the caller's CLAUDE_CONFIG_DIR", "claude", "Claude has no duolog gate here", config.WorkerMode{Native: map[string]string{"claude": "bypassPermissions"}},
 			func(t *testing.T, _, _, alternate string) {
 				write(t, filepath.Join(alternate, "settings.json"), gate)
 				t.Setenv("CLAUDE_CONFIG_DIR", alternate)
 			}},
-		{"codex folder trust only in the caller's CODEX_HOME", "codex", "Codex does not trust this folder", config.WorkerMode{Codex: "workspace-write", Network: true},
+		{"codex folder trust only in the caller's CODEX_HOME", "codex", "Codex does not trust this folder", config.WorkerMode{Native: map[string]string{"codex": "workspace-write"}, Network: true},
 			func(t *testing.T, home, root, alternate string) {
 				hooks, err := launchtest.HooksJSON("codex", 30)
 				if err != nil {

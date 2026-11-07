@@ -287,7 +287,9 @@ func TestCalibrationSessionWaitAndCapPause(t *testing.T) {
 
 	t.Run("other projects' spend counts", func(t *testing.T) {
 		cfg := testConfig(t)
-		cfg.PaidRuns.Codex.Allow, cfg.PaidRuns.Codex.DailyCapUSD, cfg.PaidRuns.Codex.Calibrate = true, 5, true
+		pa := cfg.PaidRuns.Agent("codex")
+		pa.Allow, pa.DailyCapUSD, pa.Calibrate = true, 5, true
+		cfg.PaidRuns.Set("codex", pa)
 		g, err := paidrunstest.Gate(filepath.Join(t.TempDir(), "accounts"), cfg)
 		if err != nil {
 			t.Fatal(err)
@@ -308,7 +310,9 @@ func TestCalibrationSessionWaitAndCapPause(t *testing.T) {
 			t.Fatalf("another project's spend did not count: %v", err)
 		}
 		budget.USDRemaining = 0.01
-		cfg.PaidRuns.Codex.DailyCapUSD = 1000
+		pa = cfg.PaidRuns.Agent("codex")
+		pa.DailyCapUSD = 1000
+		cfg.PaidRuns.Set("codex", pa)
 		if _, err := g.Acquire(context.Background(), paidruns.Request{Input: in, Family: "sol", Role: "implement", Calibration: true, Budget: budget}); !errors.As(err, &r) || r.Reason != paidrules.ReasonStepBudget {
 			t.Fatalf("a step past its approved USD: %v", err)
 		}

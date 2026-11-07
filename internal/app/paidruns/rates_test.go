@@ -214,10 +214,14 @@ func TestRatesRealUnitsAndThreeIntervals(t *testing.T) {
 
 	t.Run("usable share leaves rates in real units", func(t *testing.T) {
 		workspace := pricedConfig()
-		workspace.PaidRuns.Claude.Account = "workspace"
+		pw := workspace.PaidRuns.Agent("claude")
+		pw.Account = "workspace"
+		workspace.PaidRuns.Set("claude", pw)
 		workspace.PaidRuns.UsableShare = 0.5
 		personal := pricedConfig()
-		personal.PaidRuns.Claude.Account = "personal"
+		pp := personal.PaidRuns.Agent("claude")
+		pp.Account = "personal"
+		personal.PaidRuns.Set("claude", pp)
 		personal.PaidRuns.UsableShare = 1
 		w, p := newLearner(t, workspace), newLearner(t, personal)
 		w.climb(6, 3, 1, 1000000)

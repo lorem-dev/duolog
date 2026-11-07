@@ -121,9 +121,13 @@ func TestQuotaAndDoctorShapeReports(t *testing.T) {
 		t.Setenv("ANTHROPIC_BASE_URL", reportEndpoint)
 		t.Setenv("OPENAI_API_KEY", reportKey)
 		cfg.EnvPassthrough = append(cfg.EnvPassthrough, "ANTHROPIC_BASE_URL", "OPENAI_API_KEY")
-		cfg.PaidRuns.Claude.SubscriptionEndpoints = map[string]string{"corp": reportEndpoint}
-		cfg.PaidRuns.Claude.Account = "workspace"
-		cfg.PaidRuns.Codex.Allow, cfg.PaidRuns.Codex.DailyCapUSD = true, 5
+		pc := cfg.PaidRuns.Agent("claude")
+		pc.SubscriptionEndpoints = map[string]string{"corp": reportEndpoint}
+		pc.Account = "workspace"
+		cfg.PaidRuns.Set("claude", pc)
+		px := cfg.PaidRuns.Agent("codex")
+		px.Allow, px.DailyCapUSD = true, 5
+		cfg.PaidRuns.Set("codex", px)
 		cfg.Notices = append(cfg.Notices, config.ConfigNotice{Key: "paid_runs.claude.daily_cap_usd", Reason: "the shared project config may only lower it"})
 		g := reportGate(t, cfg, shapeReads)
 		seed(t, g)

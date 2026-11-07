@@ -13,7 +13,7 @@ import (
 )
 
 func settings() config.Coauthors {
-	return config.Coauthors{Enabled: true, Claude: "{name} <noreply@anthropic.com>", Codex: "OpenAI Codex {model} <noreply@openai.com>"}
+	return config.Coauthors{Enabled: true, Templates: map[string]string{"claude": "{name} <noreply@anthropic.com>", "codex": "OpenAI Codex {model} <noreply@openai.com>"}}
 }
 
 func TestRecordsAndLines(t *testing.T) {

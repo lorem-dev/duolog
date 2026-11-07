@@ -21,8 +21,8 @@ func yes() *bool { v := true; return &v }
 func testConfig() *config.Config {
 	cfg := &config.Config{}
 	cfg.PaidRuns.UsableShare = 0.5
-	for _, a := range []*config.PaidAgent{&cfg.PaidRuns.Claude.PaidAgent, &cfg.PaidRuns.Codex} {
-		a.Account = "auto"
+	for _, name := range []string{"claude", "codex"} {
+		cfg.PaidRuns.Set(name, config.PaidAgent{Account: "auto"})
 	}
 	return cfg
 }

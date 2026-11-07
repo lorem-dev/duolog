@@ -250,3 +250,43 @@ func TestNoSelfBeatsMinimalContextRule(t *testing.T) {
 		}
 	}
 }
+
+// TestFallbackOrder: a role with no fallback of its own takes the first agent
+// of routing.agent_order that is registered, enabled, available and not the
+// use agent.
+func TestFallbackOrder(t *testing.T) {
+	off := false
+	for _, tc := range []struct {
+		name      string
+		order     []string
+		disable   string
+		wantAgent string
+	}{
+		{"only the use agent", []string{"codex"}, "", ""},
+		{"unregistered first", []string{"kestrel", "claude"}, "", "claude"},
+		{"disabled", []string{"claude", "codex"}, "claude", ""},
+		{"default order", nil, "", "claude"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := defaults(t)
+			r := cfg.Roles["implement_complex"]
+			r.Use = config.Target{Agent: "codex", Model: "sol", Effort: "high"}
+			r.Fallback = config.Target{}
+			cfg.Roles["implement_complex"] = r
+			cfg.Routing.AgentOrder = tc.order
+			if tc.disable != "" {
+				cfg.Agents[tc.disable] = config.AgentSwitch{Enabled: &off}
+			}
+			got, err := Resolve(cfg, "implement_complex", map[string]bool{"codex": true}, Options{})
+			if tc.wantAgent == "" {
+				if err == nil || !strings.Contains(err.Error(), "no available agent") {
+					t.Fatalf("route %+v, err %v; want no available agent", got, err)
+				}
+				return
+			}
+			if err != nil || got.Agent != tc.wantAgent {
+				t.Fatalf("route %+v, err %v; want agent %s", got, err, tc.wantAgent)
+			}
+		})
+	}
+}

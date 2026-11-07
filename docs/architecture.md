@@ -79,9 +79,8 @@ import one direction. It matches the imports of today's code: `hook` imports
 
 Most packages have not moved yet. The `legacyTiers` table in `layers_test.go`
 gives each one the tier of the part that stays at its path after the
-migration, so the rules apply now. For example, `internal/task` is core,
-`internal/rex` is kit and
-`internal/config/schemagen` is wiring.
+migration, so the rules apply now. For example, `internal/mode` is core and
+`internal/rex` is kit.
 
 Some code has moved already. The core packages `internal/core/mode`,
 `internal/core/pathutil`, `internal/core/record`, `internal/core/route`,

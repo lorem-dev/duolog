@@ -3,6 +3,16 @@
   "$id": "https://raw.githubusercontent.com/lorem-dev/duolog/main/duolog-config.schema.json",
   "$ref": "#/$defs/Config",
   "$defs": {
+    "AgentSwitch": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether this agent may run tasks; the built-in agents default to true and any other registered agent to false."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "AgentSync": {
       "properties": {
         "model_map": {
@@ -11,6 +21,16 @@
           },
           "type": "object",
           "description": "Claude-to-Codex alias mapping; defaults map fable, opus, sonnet and haiku to astra, sol, terra and luna."
+        },
+        "model_rows": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "type": "array",
+          "description": "Model aliases that stand for one another across agents, one row per model with a key per agent; model_map rows are added to them. A pair that model_map and model_rows map differently fails to load."
         },
         "default_effort": {
           "additionalProperties": {
@@ -383,6 +403,21 @@
         "routing": {
           "$ref": "#/$defs/Routing",
           "description": "How a new task picks between a role's agents beyond the ladder: balance subscriptions by pace, and the margin. The shared project config may only tighten these."
+        },
+        "agents": {
+          "properties": {
+            "claude": {
+              "$ref": "#/$defs/AgentSwitch",
+              "description": "Switch for Claude."
+            },
+            "codex": {
+              "$ref": "#/$defs/AgentSwitch",
+              "description": "Switch for Codex."
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "description": "Which registered agents may run tasks, one key per agent: claude, codex, ..."
         }
       },
       "additionalProperties": false,
@@ -830,6 +865,13 @@
           "exclusiveMaximum": 1,
           "minimum": 0,
           "description": "How far the used share of the weekly window may exceed the elapsed share before an agent counts as ahead of pace, and how far below pace it must fall to count as back, 0 or more and below 1; defaults to 0.10. The shared project config may only lower it."
+        },
+        "agent_order": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Order in which an agent is taken when a role has no fallback agent of its own: the first registered, enabled, available agent that is not the role's use agent; defaults to claude, codex."
         }
       },
       "additionalProperties": false,

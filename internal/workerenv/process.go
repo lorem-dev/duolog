@@ -347,7 +347,7 @@ func envNames(environ []string) []string {
 
 func endpoints(cfg *config.Config, agent string) map[string]string {
 	if agent == "claude" {
-		return cfg.PaidRuns.Claude.SubscriptionEndpoints
+		return cfg.PaidRuns.Agents["claude"].SubscriptionEndpoints
 	}
 	return nil
 }

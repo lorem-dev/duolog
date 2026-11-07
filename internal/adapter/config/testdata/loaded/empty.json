@@ -2,8 +2,10 @@
   "SkillTests": "ask",
   "Coauthors": {
     "Enabled": true,
-    "Claude": "{name} \u003cnoreply@anthropic.com\u003e",
-    "Codex": "OpenAI Codex {model} \u003cnoreply@openai.com\u003e"
+    "Templates": {
+      "claude": "{name} \u003cnoreply@anthropic.com\u003e",
+      "codex": "OpenAI Codex {model} \u003cnoreply@openai.com\u003e"
+    }
   },
   "Version": 1,
   "Wire": {
@@ -685,6 +687,7 @@
         "opus": "sol",
         "sonnet": "terra"
       },
+      "ModelRows": null,
       "DefaultEffort": {
         "fable": "high",
         "haiku": "low",
@@ -1194,24 +1197,27 @@
   },
   "PaidRuns": {
     "UsableShare": 0.5,
-    "Claude": {
-      "Allow": false,
-      "DailyCapUSD": 0,
-      "Calibrate": false,
-      "Env": [
-        "ANTHROPIC_API_KEY"
-      ],
-      "Account": "auto",
-      "SubscriptionEndpoints": {}
-    },
-    "Codex": {
-      "Allow": false,
-      "DailyCapUSD": 0,
-      "Calibrate": false,
-      "Env": [
-        "OPENAI_API_KEY"
-      ],
-      "Account": "auto"
+    "Agents": {
+      "claude": {
+        "Allow": false,
+        "DailyCapUSD": 0,
+        "Calibrate": false,
+        "Env": [
+          "ANTHROPIC_API_KEY"
+        ],
+        "Account": "auto",
+        "SubscriptionEndpoints": {}
+      },
+      "codex": {
+        "Allow": false,
+        "DailyCapUSD": 0,
+        "Calibrate": false,
+        "Env": [
+          "OPENAI_API_KEY"
+        ],
+        "Account": "auto",
+        "SubscriptionEndpoints": null
+      }
     }
   },
   "Balance": {
@@ -1221,6 +1227,18 @@
   },
   "Routing": {
     "Balance": "pace",
-    "Margin": 0.1
+    "Margin": 0.1,
+    "AgentOrder": [
+      "claude",
+      "codex"
+    ]
+  },
+  "Agents": {
+    "claude": {
+      "Enabled": true
+    },
+    "codex": {
+      "Enabled": true
+    }
   }
 }

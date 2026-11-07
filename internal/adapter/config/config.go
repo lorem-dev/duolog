@@ -13,6 +13,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/store"
 )
@@ -56,13 +57,18 @@ func restrictLayer(i int, root string, base, node *yaml.Node) (notices []config.
 }
 
 // Load merges embedded, user, project and local settings in that order.
-func Load(root string) (*config.Config, error) {
+//
+// The agent maps (paid_runs, coauthors, worker_modes, agents) take one key per
+// registered agent. The registry's descriptors come in opts; without them
+// the agents are claude and codex.
+func Load(root string, opts ...LoadOptions) (*config.Config, error) {
+	agents := agentsOf(opts)
 	userDir, err := os.UserConfigDir()
 	if err != nil {
 		return nil, fmt.Errorf("user config directory: %w", err)
 	}
 	var merged yaml.Node
-	if err := mergeLayer(&merged, config.DefaultYAML(), "embedded config.default.yaml"); err != nil {
+	if err := mergeLayer(&merged, config.DefaultYAML(), "embedded config.default.yaml", agents); err != nil {
 		return nil, err
 	}
 	paths := []string{
@@ -95,7 +101,7 @@ func Load(root string) (*config.Config, error) {
 		if err != nil {
 			return nil, fileError(path, err)
 		}
-		node, err := parseLayer(data, path)
+		node, err := parseLayer(data, path, agents)
 		if err != nil {
 			return nil, err
 		}
@@ -132,12 +138,8 @@ func Load(root string) (*config.Config, error) {
 	if cfg.Rex.StuckNotifyMinutes < 0 {
 		return nil, fmt.Errorf("rex.stuck_notify_minutes must be zero or greater")
 	}
-	for name, role := range cfg.Roles {
-		for _, target := range []config.Target{role.Use, role.Fallback} {
-			if _, ok := cfg.Models[target.Model]; !ok && !strings.HasPrefix(target.Model, "gpt-") && !strings.HasPrefix(target.Model, "claude-") {
-				return nil, fmt.Errorf("role %s: unknown model %q", name, target.Model)
-			}
-		}
+	if err := validateRoleModels(&cfg); err != nil {
+		return nil, err
 	}
 	for i, rule := range cfg.Rex.AutoAnswers {
 		if strings.TrimSpace(rule.Match) == "" || !config.SafeAutoAnswer(rule.Answer) {
@@ -160,7 +162,7 @@ func Load(root string) (*config.Config, error) {
 	if err := validateCalibration(&cfg); err != nil {
 		return nil, err
 	}
-	if err := validatePaidRuns(&cfg); err != nil {
+	if err := validateAgentMaps(&cfg, agents); err != nil {
 		return nil, err
 	}
 	if err := lowerSharedCaps(&cfg, layers[0], layers[1], layers[2], localLabel); err != nil {
@@ -177,6 +179,19 @@ func Load(root string) (*config.Config, error) {
 		cfg.Learning.Learned = routing.Ladders
 	}
 	return &cfg, nil
+}
+
+// validateRoleModels refuses a role whose use or fallback model is neither an
+// alias nor a deliberate version pin.
+func validateRoleModels(cfg *config.Config) error {
+	for name, role := range cfg.Roles {
+		for _, target := range []config.Target{role.Use, role.Fallback} {
+			if _, ok := cfg.Models[target.Model]; !ok && !strings.HasPrefix(target.Model, "gpt-") && !strings.HasPrefix(target.Model, "claude-") {
+				return fmt.Errorf("role %s: unknown model %q", name, target.Model)
+			}
+		}
+	}
+	return nil
 }
 
 type learnedRules struct {
@@ -228,8 +243,8 @@ func keepDefaultDenies(cfg *config.Config) error {
 	return nil
 }
 
-func mergeLayer(dst *yaml.Node, data []byte, source string) error {
-	node, err := parseLayer(data, source)
+func mergeLayer(dst *yaml.Node, data []byte, source string, agents []agent.Descriptor) error {
+	node, err := parseLayer(data, source, agents)
 	if err != nil {
 		return err
 	}
@@ -240,7 +255,7 @@ func mergeLayer(dst *yaml.Node, data []byte, source string) error {
 // parseLayer checks one layer and returns its root with aliases and merge
 // keys resolved, or nil for an empty file. Keys are checked on the node
 // first so that an unknown key is named by its full path.
-func parseLayer(data []byte, source string) (*yaml.Node, error) {
+func parseLayer(data []byte, source string, agents []agent.Descriptor) (*yaml.Node, error) {
 	var node yaml.Node
 	if err := yaml.Unmarshal(data, &node); err != nil {
 		return nil, fileError(source, err)
@@ -254,7 +269,7 @@ func parseLayer(data []byte, source string) (*yaml.Node, error) {
 	if err != nil {
 		return nil, fileError(source, err)
 	}
-	if err := validateEnums(effective, reflect.TypeFor[config.Config](), "config"); err != nil {
+	if err := validateEnums(effective, reflect.TypeFor[config.Config](), "config", agents); err != nil {
 		return nil, fileError(source, err)
 	}
 	if err := checkAccountLimitNodes(effective); err != nil {
@@ -389,9 +404,9 @@ func yamlField(typ reflect.Type, key string) (reflect.StructField, bool) {
 // Reject nulls and unknown keys and read enum tags from the types reflected into
 // the public schema. Walk only explicitly supplied fields so partial override
 // layers are valid.
-func validateEnums(node *yaml.Node, typ reflect.Type, path string) error {
+func validateEnums(node *yaml.Node, typ reflect.Type, path string, agents []agent.Descriptor) error {
 	if node.Kind == yaml.AliasNode {
-		return validateEnums(node.Alias, typ, path)
+		return validateEnums(node.Alias, typ, path, agents)
 	}
 	if node.Tag == "!!null" {
 		return atLine(node.Line, fmt.Errorf("%s: null is not allowed", path))
@@ -402,51 +417,84 @@ func validateEnums(node *yaml.Node, typ reflect.Type, path string) error {
 			break
 		}
 		for i := 0; i+1 < len(node.Content); i += 2 {
-			key, value := node.Content[i].Value, node.Content[i+1]
-			field, ok := yamlField(typ, key)
-			if !ok {
-				return atLine(node.Content[i].Line, fmt.Errorf("%s.%s: unknown key", path, key))
-			}
-			var choices []string
-			for _, tag := range strings.Split(field.Tag.Get("jsonschema"), ",") {
-				if v, ok := strings.CutPrefix(tag, "enum="); ok {
-					choices = append(choices, v)
-				}
-			}
-			// worker_modes names are checked by resolveWorkerModes, which
-			// says why a name is refused; the schema still lists them.
-			if len(choices) > 0 && typ != reflect.TypeFor[config.WorkerMode]() {
-				actual := value
-				if actual.Kind == yaml.AliasNode {
-					actual = actual.Alias
-				}
-				valid := false
-				for _, choice := range choices {
-					if actual.Tag == "!!str" && actual.Value == choice {
-						valid = true
-						break
-					}
-				}
-				if !valid {
-					return atLine(actual.Line, fmt.Errorf("%s.%s: invalid value %q (want %s)", path, key, actual.Value, strings.Join(choices, ", ")))
-				}
-			}
-			if err := validateEnums(value, field.Type, path+"."+key); err != nil {
+			if err := validateEntry(node.Content[i], node.Content[i+1], typ, path, agents); err != nil {
 				return err
 			}
 		}
 	case reflect.Map:
 		for i := 0; i+1 < len(node.Content); i += 2 {
-			if err := validateEnums(node.Content[i+1], typ.Elem(), path+"."+node.Content[i].Value); err != nil {
+			key := node.Content[i].Value
+			if typ == reflect.TypeFor[map[string]config.AgentSwitch]() && !slices.Contains(agentNames(agents), key) {
+				return atLine(node.Content[i].Line, fmt.Errorf("%s.%s: unknown key", path, key))
+			}
+			if err := validateEnums(node.Content[i+1], typ.Elem(), path+"."+key, agents); err != nil {
 				return err
 			}
 		}
 	case reflect.Slice:
 		for i, child := range node.Content {
-			if err := validateEnums(child, typ.Elem(), fmt.Sprintf("%s[%d]", path, i)); err != nil {
+			if err := validateEnums(child, typ.Elem(), fmt.Sprintf("%s[%d]", path, i), agents); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// validateEntry checks one key of a struct's mapping: the key exists, its
+// value is one of the enum choices, and the value is valid for its type.
+func validateEntry(keyNode, value *yaml.Node, typ reflect.Type, path string, agents []agent.Descriptor) error {
+	key := keyNode.Value
+	field, ok := yamlField(typ, key)
+	if !ok {
+		return validateAgentEntry(keyNode, value, typ, path, agents)
+	}
+	var choices []string
+	for _, tag := range strings.Split(field.Tag.Get("jsonschema"), ",") {
+		if v, ok := strings.CutPrefix(tag, "enum="); ok {
+			choices = append(choices, v)
+		}
+	}
+	// The agent of a target or a model is one of the registered ones.
+	if key == "agent" && (typ == reflect.TypeFor[config.Target]() || typ == reflect.TypeFor[config.Model]()) {
+		choices = agentNames(agents)
+	}
+	// worker_modes names are checked by resolveWorkerModes, which says why a
+	// name is refused; the schema still lists them.
+	if len(choices) > 0 && typ != reflect.TypeFor[config.WorkerMode]() {
+		if err := checkChoice(value, choices, path+"."+key); err != nil {
+			return err
+		}
+	}
+	return validateEnums(value, field.Type, path+"."+key, agents)
+}
+
+// checkChoice refuses a string value that is not one of the choices.
+func checkChoice(value *yaml.Node, choices []string, path string) error {
+	actual := value
+	if actual.Kind == yaml.AliasNode {
+		actual = actual.Alias
+	}
+	if actual.Tag == "!!str" && slices.Contains(choices, actual.Value) {
+		return nil
+	}
+	return atLine(actual.Line, fmt.Errorf("%s: invalid value %q (want %s)", path, actual.Value, strings.Join(choices, ", ")))
+}
+
+// validateAgentEntry checks a key that is no field of the struct: paid_runs,
+// coauthors and a worker mode hold one key per registered agent beside their
+// own keys, and any other key is unknown.
+func validateAgentEntry(keyNode, value *yaml.Node, typ reflect.Type, path string, agents []agent.Descriptor) error {
+	key, elem := keyNode.Value, agentKeyType(typ)
+	if elem == nil || !slices.Contains(agentNames(agents), key) {
+		return atLine(keyNode.Line, fmt.Errorf("%s.%s: unknown key", path, key))
+	}
+	// subscription_endpoints is the key of the agents whose descriptor says
+	// they have endpoints.
+	if elem == reflect.TypeFor[config.PaidAgent]() && !descriptorOf(agents, key).Config.SubscriptionEndpoints {
+		if at := mappingEntry(value, "subscription_endpoints"); at != nil {
+			return atLine(at.Line, fmt.Errorf("%s.%s.subscription_endpoints: unknown key", path, key))
+		}
+	}
+	return validateEnums(value, elem, path+"."+key, agents)
 }

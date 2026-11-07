@@ -32,7 +32,9 @@ func TestClaudePeerDisallowsSubagents(t *testing.T) {
 // the built process's prefix in the free and the paid variant alike.
 func TestCodexPeerPinsSandboxExtras(t *testing.T) {
 	paid := &config.Config{}
-	paid.PaidRuns.Codex.Allow, paid.PaidRuns.Codex.DailyCapUSD = true, 5
+	pa := paid.PaidRuns.Agent("codex")
+	pa.Allow, pa.DailyCapUSD = true, 5
+	paid.PaidRuns.Set("codex", pa)
 	pinned := 0
 	for _, variant := range []corelaunch.Variant{corelaunch.Free, corelaunch.Paid} {
 		for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
@@ -57,8 +59,11 @@ func TestCodexPeerPinsSandboxExtras(t *testing.T) {
 // launch argv with nothing permission-shaped added after it, free and paid.
 func TestPeerAdmittedArgvIsLaunchedArgv(t *testing.T) {
 	paid := &config.Config{}
-	paid.PaidRuns.Codex.Allow, paid.PaidRuns.Codex.DailyCapUSD = true, 5
-	paid.PaidRuns.Claude.Allow, paid.PaidRuns.Claude.DailyCapUSD = true, 5
+	for _, name := range []string{"codex", "claude"} {
+		pa := paid.PaidRuns.Agent(name)
+		pa.Allow, pa.DailyCapUSD = true, 5
+		paid.PaidRuns.Set(name, pa)
+	}
 	for _, variant := range []corelaunch.Variant{corelaunch.Free, corelaunch.Paid} {
 		for _, tc := range []struct {
 			agent, model, sandbox string

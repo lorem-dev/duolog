@@ -281,8 +281,10 @@ func TestGateCountsProcessesAndPanes(t *testing.T) {
 
 	t.Run("peer panes and sends", func(t *testing.T) {
 		w := newGateWorld(t)
-		w.cfg.PaidRuns.Claude.Allow, w.cfg.PaidRuns.Claude.DailyCapUSD = true, 50
-		w.cfg.PaidRuns.Claude.Env = []string{"ANTHROPIC_API_KEY"}
+		pa := w.cfg.PaidRuns.Agent("claude")
+		pa.Allow, pa.DailyCapUSD = true, 50
+		pa.Env = []string{"ANTHROPIC_API_KEY"}
+		w.cfg.PaidRuns.Set("claude", pa)
 		open := w.acquire(w.peerOpenRequest("claude", workerenv.Paid, 201))
 		session := open.Reservation.ID
 		if r := w.state().Reservations[session]; !r.Session || !r.Task || r.Estimate.USD <= 0 {
@@ -346,7 +348,9 @@ func TestGateCountsProcessesAndPanes(t *testing.T) {
 
 	t.Run("workspace keeps three panes but runs one task", func(t *testing.T) {
 		w := newGateWorld(t)
-		w.cfg.PaidRuns.Claude.Account = "workspace"
+		pa := w.cfg.PaidRuns.Agent("claude")
+		pa.Account = "workspace"
+		w.cfg.PaidRuns.Set("claude", pa)
 		var sessions []string
 		for i := range 3 {
 			// An idle pane runs nothing, so it keeps no other task waiting

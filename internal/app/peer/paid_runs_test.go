@@ -49,7 +49,9 @@ func (r *rig) wantHeld(sessions, tasks int) {
 // paidCodex makes Codex reads show an API key route and lets Codex run paid,
 // so a Codex pane opens in the paid variant with a priced estimate.
 func (r *rig) paidCodex() {
-	r.cfg.PaidRuns.Codex.Allow, r.cfg.PaidRuns.Codex.DailyCapUSD = true, 100
+	pa := r.cfg.PaidRuns.Agent("codex")
+	pa.Allow, pa.DailyCapUSD = true, 100
+	r.cfg.PaidRuns.Set("codex", pa)
 	read := r.gate.Cache.Read
 	r.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (account.Snapshot, error) {
 		s, err := read(ctx, p)
@@ -334,8 +336,10 @@ func TestPeerBuildAndPaidQuestion(t *testing.T) {
 		t.Setenv("ANTHROPIC_API_KEY", "sk-peer-paid")
 		t.Setenv("OPENAI_API_KEY", "sk-peer-other")
 		r.cfg.EnvPassthrough = append(r.cfg.EnvPassthrough, "OPENAI_API_KEY")
-		r.cfg.PaidRuns.Claude.Allow, r.cfg.PaidRuns.Claude.DailyCapUSD = true, 100
-		r.cfg.PaidRuns.Claude.Env = []string{"ANTHROPIC_API_KEY"}
+		pc := r.cfg.PaidRuns.Agent("claude")
+		pc.Allow, pc.DailyCapUSD = true, 100
+		pc.Env = []string{"ANTHROPIC_API_KEY"}
+		r.cfg.PaidRuns.Set("claude", pc)
 		read := r.gate.Cache.Read
 		r.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (account.Snapshot, error) {
 			s, err := read(ctx, p)

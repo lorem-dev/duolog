@@ -63,11 +63,8 @@ func Resolve(cfg *config.Config, role string, unavailable map[string]bool, opts 
 		route.IsFallback = true
 		route.Target = spec.Fallback
 		if route.Agent == "" || route.Agent == use.Agent || unavailable[route.Agent] || route.Model == "" {
-			agent := "claude"
-			if use.Agent == "claude" {
-				agent = "codex"
-			}
-			if unavailable[agent] {
+			agent := fallbackAgent(cfg, use.Agent, unavailable)
+			if agent == "" {
 				return Route{}, fmt.Errorf("role %s: no available agent", role)
 			}
 			model, err := mappedModel(cfg, use, agent)
@@ -109,26 +106,24 @@ func Resolve(cfg *config.Config, role string, unavailable map[string]bool, opts 
 	return route, nil
 }
 
-func mappedModel(cfg *config.Config, primary config.Target, agent string) (string, error) {
-	alias := Normalize(primary.Agent, primary.Model)
-	if primary.Agent == "claude" {
-		if name, ok := cfg.Sync.Agents.ModelMap[alias]; ok && name != "" {
-			return name, nil
-		}
-	} else {
-		// Refuse ambiguous reverse mappings rather than choosing by map iteration order.
-		match := ""
-		for claude, codex := range cfg.Sync.Agents.ModelMap {
-			if codex == alias {
-				if match != "" {
-					return "", fmt.Errorf("ambiguous model mapping for %s", alias)
-				}
-				match = claude
-			}
-		}
-		if match != "" {
-			return match, nil
+// fallbackAgent is the first agent of routing.agent_order that is registered,
+// enabled, available and not the use agent; empty when there is none.
+func fallbackAgent(cfg *config.Config, use string, unavailable map[string]bool) string {
+	order := cfg.Routing.AgentOrder
+	if len(order) == 0 {
+		order = config.DefaultAgentOrder()
+	}
+	for _, name := range order {
+		if name != use && cfg.AgentRegistered(name) && cfg.AgentEnabled(name) && !unavailable[name] {
+			return name
 		}
 	}
-	return "", fmt.Errorf("no model mapping for %s on %s", alias, agent)
+	return ""
+}
+
+// mappedModel reads the rows of model_map and model_rows. An ambiguous reverse
+// mapping is refused rather than chosen by map iteration order.
+func mappedModel(cfg *config.Config, primary config.Target, agent string) (string, error) {
+	alias := Normalize(primary.Agent, primary.Model)
+	return cfg.Sync.Agents.MapModel(primary.Agent, alias, agent)
 }

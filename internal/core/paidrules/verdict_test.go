@@ -23,8 +23,8 @@ func no() *bool  { v := false; return &v }
 func testConfig() *config.Config {
 	cfg := &config.Config{}
 	cfg.PaidRuns.UsableShare = 0.5
-	for _, a := range []*config.PaidAgent{&cfg.PaidRuns.Claude.PaidAgent, &cfg.PaidRuns.Codex} {
-		a.Account = "auto"
+	for _, name := range []string{"claude", "codex"} {
+		cfg.PaidRuns.Set(name, config.PaidAgent{Account: "auto"})
 	}
 	return cfg
 }
@@ -375,7 +375,8 @@ func TestAccountEvidenceAndUsableShare(t *testing.T) {
 			}
 			// A config without an account kind is auto.
 			cfg := testConfig()
-			cfg.PaidRuns.Claude.Account, cfg.PaidRuns.Codex.Account = "", ""
+			cfg.PaidRuns.Set("claude", config.PaidAgent{})
+			cfg.PaidRuns.Set("codex", config.PaidAgent{})
 			wantAccount(t, eval(agent, snapshot(agent), coreaccount.RunEvidence{}, cfg), "personal", 1)
 		})
 		for _, reason := range reasons[agent] {
@@ -406,11 +407,7 @@ func TestAccountEvidenceAndUsableShare(t *testing.T) {
 		})
 		t.Run(agent+"/forced workspace", func(t *testing.T) {
 			cfg := testConfig()
-			if agent == "claude" {
-				cfg.PaidRuns.Claude.Account = "workspace"
-			} else {
-				cfg.PaidRuns.Codex.Account = "workspace"
-			}
+			cfg.PaidRuns.Set(agent, config.PaidAgent{Account: "workspace"})
 			key := "paid_runs." + agent + ".account"
 			wantAccount(t, eval(agent, snapshot(agent), coreaccount.RunEvidence{}, cfg), "workspace", 0.5, key)
 			cfg.PaidRuns.UsableShare = 0.3
@@ -422,7 +419,8 @@ func TestAccountEvidenceAndUsableShare(t *testing.T) {
 			// Ruling 1: explicit personal never suppresses positive
 			// workspace evidence; it means personal only without evidence.
 			cfg := testConfig()
-			cfg.PaidRuns.Claude.Account, cfg.PaidRuns.Codex.Account = "personal", "personal"
+			cfg.PaidRuns.Set("claude", config.PaidAgent{Account: "personal"})
+			cfg.PaidRuns.Set("codex", config.PaidAgent{Account: "personal"})
 			wantAccount(t, eval(agent, snapshot(agent), coreaccount.RunEvidence{}, cfg), "personal", 1)
 			s := snapshot(agent)
 			s.Billing.WorkspaceReasons = []string{reasons[agent][0]}

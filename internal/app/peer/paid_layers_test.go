@@ -105,8 +105,10 @@ func TestPeerSendKeepsPaneRoute(t *testing.T) {
 			if c.key {
 				t.Setenv("OPENAI_API_KEY", "sk-pane-key")
 			}
-			r.cfg.PaidRuns.Codex.Allow, r.cfg.PaidRuns.Codex.DailyCapUSD = true, 100
-			r.cfg.PaidRuns.Codex.Env = []string{"OPENAI_API_KEY"}
+			pa := r.cfg.PaidRuns.Agent("codex")
+			pa.Allow, pa.DailyCapUSD = true, 100
+			pa.Env = []string{"OPENAI_API_KEY"}
+			r.cfg.PaidRuns.Set("codex", pa)
 			paid := true
 			r.gate.Cache.Read = func(ctx context.Context, p corelaunch.Process) (account.Snapshot, error) {
 				s, err := paidrunstest.Subscription(ctx, p)

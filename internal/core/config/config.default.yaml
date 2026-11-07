@@ -60,6 +60,13 @@ balance:
 routing:
   balance: pace            # pace, or off for the ladder as written
   margin: 0.10             # used share may pass elapsed share by this much
+  agent_order: [claude, codex] # who takes a task whose role names no other agent
+
+# The built-in agents are on. A third registered agent is off until its entry
+# says enabled: true.
+agents:
+  claude: {enabled: true}
+  codex: {enabled: true}
 
 # Aliases only. Claude Code resolves its own. For Codex, duolog picks the newest visible
 # gpt-<version>-<family> in `codex debug models`. A full name in a role is a deliberate pin.

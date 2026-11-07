@@ -125,13 +125,7 @@ func Lines(dir string, cfg config.Coauthors, since time.Time) ([]string, error) 
 		if !r.Time.After(since) || r.Files <= 0 {
 			continue
 		}
-		var template string
-		switch r.Agent {
-		case "claude":
-			template = cfg.Claude
-		case "codex":
-			template = cfg.Codex
-		}
+		template := cfg.Templates[r.Agent]
 		line := strings.TrimSpace(strings.NewReplacer("{model}", r.Model, "{name}", displayName(r.Model)).Replace(template))
 		if line == "" {
 			continue

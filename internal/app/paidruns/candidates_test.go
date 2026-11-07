@@ -26,11 +26,9 @@ func paid(t config.Target) paidrules.Candidate {
 func optIn(agents ...string) config.PaidRuns {
 	var p config.PaidRuns
 	for _, agent := range agents {
-		a := &p.Codex
-		if agent == "claude" {
-			a = &p.Claude.PaidAgent
-		}
+		a := p.Agent(agent)
 		a.Allow, a.DailyCapUSD = true, 5
+		p.Set(agent, a)
 	}
 	return p
 }
@@ -68,8 +66,8 @@ func TestCandidatesFreeBeforePaidAndPinnedAgent(t *testing.T) {
 
 	// allow without a cap, or a cap without allow, is no opt-in.
 	var halves config.PaidRuns
-	halves.Claude.Allow = true
-	halves.Codex.DailyCapUSD = 5
+	halves.Set("claude", config.PaidAgent{Allow: true})
+	halves.Set("codex", config.PaidAgent{DailyCapUSD: 5})
 	if got := paidrules.Candidates(role, false, halves); !reflect.DeepEqual(got, []paidrules.Candidate{free(claudeSonnet), free(codexSol)}) {
 		t.Errorf("half an opt-in made a paid variant: %+v", got)
 	}
@@ -125,8 +123,10 @@ func TestCandidatesFreeBeforePaidAndPinnedAgent(t *testing.T) {
 		}
 	}
 	// The gate gives a paid permit no windows: no invented rate.
-	w.cfg.PaidRuns.Claude.Allow, w.cfg.PaidRuns.Claude.DailyCapUSD = true, 50
-	w.cfg.PaidRuns.Claude.Env = []string{"ANTHROPIC_API_KEY"}
+	pa := w.cfg.PaidRuns.Agent("claude")
+	pa.Allow, pa.DailyCapUSD = true, 50
+	pa.Env = []string{"ANTHROPIC_API_KEY"}
+	w.cfg.PaidRuns.Set("claude", pa)
 	permit := w.acquire(w.request("claude", workerenv.Worker, workerenv.Paid, 101))
 	if permit.Assessment.Verdict != paidrules.Paid || len(permit.Reservation.Estimate.Windows) != 0 {
 		t.Fatalf("paid permit: %+v", permit)

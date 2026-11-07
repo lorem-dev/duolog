@@ -3,6 +3,7 @@ package config
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -30,12 +31,14 @@ func routeModels(view userView) map[string][]string {
 		}
 		add(role.Use.Model)
 		add(role.Fallback.Model)
-		for claude, codex := range view.Sync.Agents.ModelMap {
-			if role.Use.Model == claude {
-				add(codex)
+		for _, row := range view.Sync.Agents.Rows() {
+			if !slices.Contains(slices.Collect(maps.Values(row)), role.Use.Model) {
+				continue
 			}
-			if role.Use.Model == codex {
-				add(claude)
+			for _, agent := range slices.Sorted(maps.Keys(row)) {
+				if row[agent] != role.Use.Model {
+					add(row[agent])
+				}
 			}
 		}
 		out[name] = list
@@ -45,19 +48,45 @@ func routeModels(view userView) map[string][]string {
 
 // layerMode is one project-layer entry; nil marks a field the layer leaves.
 type layerMode struct {
-	Claude        *string   `yaml:"claude"`
-	Codex         *string   `yaml:"codex"`
+	// Native is the layer's native name by agent name.
+	Native        map[string]string
 	Network       *bool     `yaml:"network"`
 	WritableRoots *[]string `yaml:"writable_roots"`
 }
 
+// UnmarshalYAML reads network, writable_roots and one native name per agent.
+func (l *layerMode) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("line %d: a worker mode must be a mapping", node.Line)
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key, value := node.Content[i].Value, node.Content[i+1]
+		var err error
+		switch key {
+		case "network":
+			err = value.Decode(&l.Network)
+		case "writable_roots":
+			err = value.Decode(&l.WritableRoots)
+		default:
+			var name string
+			if err = value.Decode(&name); err == nil {
+				if l.Native == nil {
+					l.Native = map[string]string{}
+				}
+				l.Native[key] = name
+			}
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (l layerMode) entry() config.WorkerMode {
 	var e config.WorkerMode
-	if l.Claude != nil {
-		e.Claude = *l.Claude
-	}
-	if l.Codex != nil {
-		e.Codex = *l.Codex
+	for agent, name := range l.Native {
+		e = e.With(agent, name)
 	}
 	if l.Network != nil {
 		e.Network = *l.Network
@@ -170,7 +199,7 @@ func resolveWorkerModes(cfg *config.Config, view userView, user, shared, local [
 	out.SetUserView(view.Models, routeModels(view))
 	for _, entries := range []map[string]config.WorkerMode{out.Roles, out.Families} {
 		for name, e := range entries {
-			if e.Claude == "" && e.Codex == "" && !e.Network && len(e.WritableRoots) == 0 {
+			if !hasNative(e) && !e.Network && len(e.WritableRoots) == 0 {
 				delete(entries, name)
 			}
 		}
@@ -204,28 +233,22 @@ func lowerWorkerEntry(out *config.WorkerModes, outEntries map[string]config.Work
 			"%s.%s %s in %s is ignored: a project config may only lower worker modes; %s applies",
 			path, field, value, file, applies(applying)))
 	}
-	for _, agent := range []string{"claude", "codex"} {
-		ptr := l.Claude
-		if agent == "codex" {
-			ptr = l.Codex
-		}
-		if ptr == nil || *ptr == "" {
+	e.Native = maps.Clone(base.Native)
+	for _, agent := range slices.Sorted(maps.Keys(l.Native)) {
+		name := l.Native[agent]
+		if name == "" {
 			continue
 		}
-		rank, _ := mode.Rank(agent, *ptr)
+		rank, _ := mode.Rank(agent, name)
 		limit := config.DefaultCap
 		if b := base.For(agent); b != "" {
 			limit, _ = mode.Rank(agent, b)
 		}
 		if rank > limit {
-			ignore(agent, *ptr, base.For(agent))
+			ignore(agent, name, base.For(agent))
 			continue
 		}
-		if agent == "claude" {
-			e.Claude = *ptr
-		} else {
-			e.Codex = *ptr
-		}
+		e = e.With(agent, name)
 	}
 	if l.Network != nil {
 		switch {
@@ -274,9 +297,12 @@ func capChangedRole(out *config.WorkerModes, name, file string) {
 			"worker_modes.roles.%s.%s %s is ignored: %s changes role %s; duolog's default applies",
 			name, field, value, file, name))
 	}
-	if rank, _ := mode.Rank("claude", e.Claude); rank > config.DefaultCap {
-		ignore("claude", e.Claude)
-		e.Claude = ""
+	e.Native = maps.Clone(e.Native)
+	for _, agent := range slices.Sorted(maps.Keys(e.Native)) {
+		if rank, _ := mode.Rank(agent, e.Native[agent]); rank > config.DefaultCap {
+			ignore(agent, e.Native[agent])
+			e = e.With(agent, "")
+		}
 	}
 	if e.Network {
 		ignore("network", "true")
@@ -298,7 +324,7 @@ func validateWorkerEntry(cfg *config.Config, kind, name string, e config.WorkerM
 			return fmt.Errorf("%s: no such role", path)
 		}
 	}
-	for _, agent := range []string{"claude", "codex"} {
+	for _, agent := range slices.Sorted(maps.Keys(e.Native)) {
 		native := e.For(agent)
 		if native == "" {
 			continue
@@ -318,7 +344,7 @@ func validateWorkerEntry(cfg *config.Config, kind, name string, e config.WorkerM
 		return fmt.Errorf("%s: network and writable_roots belong to a role", path)
 	case role.Sandbox != "workspace-write":
 		return fmt.Errorf("%s: network and writable_roots need a workspace-write role", path)
-	case e.Codex != "" && e.Codex != "workspace-write":
+	case e.For("codex") != "" && e.For("codex") != "workspace-write":
 		return fmt.Errorf("%s: network and writable_roots need codex workspace-write", path)
 	}
 	return nil
@@ -456,10 +482,16 @@ func protectedFolders(goos, home string, getenv func(string) string) []string {
 	return protected
 }
 
+// hasNative reports whether the entry sets a native name for any agent.
+func hasNative(e config.WorkerMode) bool {
+	return slices.ContainsFunc(slices.Collect(maps.Values(e.Native)), func(n string) bool { return n != "" })
+}
+
 func cloneModes(m map[string]config.WorkerMode) map[string]config.WorkerMode {
 	out := make(map[string]config.WorkerMode, len(m))
 	for k, v := range m {
 		v.WritableRoots = slices.Clone(v.WritableRoots)
+		v.Native = maps.Clone(v.Native)
 		out[k] = v
 	}
 	return out

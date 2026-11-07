@@ -302,7 +302,7 @@ func ReadLayers(_ context.Context, in launch.ProcessInput) ([]launch.LayerFacts,
 	}
 	var endpoints map[string]string
 	if in.Agent == "claude" && in.Config != nil {
-		endpoints = in.Config.PaidRuns.Claude.SubscriptionEndpoints
+		endpoints = in.Config.PaidRuns.Agents["claude"].SubscriptionEndpoints
 	}
 	layers := workerenv.SettingsLayers(in.Agent, in.Locations)
 	if in.Shape == launch.Lead && len(in.Prefix) > 1 {

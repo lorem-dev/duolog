@@ -16,6 +16,11 @@ import (
 
 // userConfigPath is in paid_runs_test.go, which both features' tests share.
 
+// claudeMode is a worker mode entry that sets only Claude's native name.
+func claudeMode(native string) config.WorkerMode {
+	return config.WorkerMode{Native: map[string]string{"claude": native}}
+}
+
 func TestWorkerModesAbsentByDefault(t *testing.T) {
 	cfg, err := Load(isolatedRoot(t))
 	if err != nil || len(cfg.WorkerModes.Roles) != 0 || len(cfg.WorkerModes.Families) != 0 || len(cfg.WorkerModes.Ignored) != 0 {
@@ -218,10 +223,10 @@ func TestWorkerModesProjectOnlyLowers(t *testing.T) {
 	}
 	w := cfg.WorkerModes
 	impl := w.Roles["implement"]
-	if impl.Claude != "auto" || impl.Network || !slices.Equal(impl.WritableRoots, []string{a}) {
+	if impl.For("claude") != "auto" || impl.Network || !slices.Equal(impl.WritableRoots, []string{a}) {
 		t.Fatalf("implement %+v", impl)
 	}
-	if w.Roles["tests"].Claude != "" || w.Roles["tests"].Codex != "workspace-write" || w.Roles["docs"].Claude != "acceptEdits" || w.Roles["debug"].Claude != "" || w.Families["luna"].Codex != "read-only" {
+	if w.Roles["tests"].For("claude") != "" || w.Roles["tests"].For("codex") != "workspace-write" || w.Roles["docs"].For("claude") != "acceptEdits" || w.Roles["debug"].For("claude") != "" || w.Families["luna"].For("codex") != "read-only" {
 		t.Fatalf("%+v", w)
 	}
 	joined := strings.Join(w.Ignored, "\n")
@@ -239,7 +244,7 @@ func TestWorkerModesProjectOnlyLowers(t *testing.T) {
 	}
 	// A project layer may lower.
 	writeConfig(t, filepath.Join(root, ".duolog/config.yaml"), "worker_modes:\n  roles:\n    implement: {claude: plan}\n")
-	if cfg, err = Load(root); err != nil || cfg.WorkerModes.Roles["implement"].Claude != "plan" {
+	if cfg, err = Load(root); err != nil || cfg.WorkerModes.Roles["implement"].For("claude") != "plan" {
 		t.Fatalf("%+v %v", cfg.WorkerModes, err)
 	}
 }
@@ -258,10 +263,10 @@ func TestWorkerModesLaterLayerCannotUndoLowering(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := cfg.WorkerModes
-	if impl := w.Roles["implement"]; impl.Claude != "plan" || impl.Network || len(impl.WritableRoots) != 0 {
+	if impl := w.Roles["implement"]; impl.For("claude") != "plan" || impl.Network || len(impl.WritableRoots) != 0 {
 		t.Fatalf("implement %+v", impl)
 	}
-	if w.Roles["tests"].Claude != "plan" || w.Families["luna"].Codex != "read-only" {
+	if w.Roles["tests"].For("claude") != "plan" || w.Families["luna"].For("codex") != "read-only" {
 		t.Fatalf("%+v", w)
 	}
 	joined := strings.Join(w.Ignored, "\n")
@@ -371,8 +376,8 @@ func TestWorkerModesProjectRolesAndModelsCannotRaise(t *testing.T) {
 // default.
 func TestWorkerModesFamilyOnlyLowers(t *testing.T) {
 	w := config.WorkerModes{
-		Roles:    map[string]config.WorkerMode{"implement": {Claude: "bypassPermissions"}},
-		Families: map[string]config.WorkerMode{"haiku": {Claude: "auto"}, "opus": {Claude: "bypassPermissions"}, "sonnet": {Claude: "plan"}},
+		Roles:    map[string]config.WorkerMode{"implement": claudeMode("bypassPermissions")},
+		Families: map[string]config.WorkerMode{"haiku": claudeMode("auto"), "opus": claudeMode("bypassPermissions"), "sonnet": claudeMode("plan")},
 	}
 	for _, tc := range []struct {
 		role   string

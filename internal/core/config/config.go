@@ -1,34 +1,38 @@
 package config
 
 import (
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
+
+	"go.yaml.in/yaml/v3"
 )
 
 type Config struct {
-	SkillTests     string           `yaml:"skill_tests" jsonschema_description:"Cross-model skill testing preference: ask before each change, always test, or never test; defaults to ask." jsonschema:"enum=ask,enum=always,enum=never"`
-	Coauthors      Coauthors        `yaml:"coauthors" jsonschema_description:"Commit co-author templates for workers; enabled by default."`
-	Version        int              `yaml:"version" jsonschema_description:"Configuration format version; defaults to 1."`
-	Wire           Wire             `yaml:"wire" jsonschema_description:"Task and message encoding and size limits; defaults suit the file bus."`
-	Limits         Limits           `yaml:"limits" jsonschema_description:"Worker and session limits: resumable sessions per lead, live sessions per account by measured tier and in all, and the slot wait."`
-	Models         map[string]Model `yaml:"models" jsonschema_description:"Model aliases and their prices, which drive estimates and admission of paid runs; defaults include the eight vendor families."`
-	Roles          map[string]Role  `yaml:"roles" jsonschema_description:"Named task routes; overrides merge by role and field into the eleven defaults."`
-	Sessions       Sessions         `yaml:"sessions" jsonschema_description:"Thread lifetime limits; defaults close large or idle threads."`
-	Policy         Policy           `yaml:"policy" jsonschema_description:"Permission rules constrained by the lead; defaults ask for unmatched actions."`
-	Capabilities   Capabilities     `yaml:"capabilities" jsonschema_description:"Missing capability handling; defaults read skills and let the lead handle tools."`
-	Sync           Sync             `yaml:"sync" jsonschema_description:"Settings for generating agent and skill files; automatic sync defaults to true."`
-	EnvPassthrough []string         `yaml:"env_passthrough" jsonschema_description:"Environment variables passed to workers; defaults include native OS login and agent config directories, not API keys. A free run drops names that bill per token even when listed; only paid_runs.<agent>.allow lets them through."`
-	Workers        Workers          `yaml:"workers" jsonschema_description:"What Claude workers and peers inherit from the person's own settings."`
-	Lead           Lead             `yaml:"lead" jsonschema_description:"What duolog adds to the person's own lead session; compact notes are on by default."`
-	Rex            Rex              `yaml:"rex" jsonschema_description:"Terminal capture and startup settings; defaults to 20 lines and 120 seconds."`
-	Learning       Learning         `yaml:"learning" jsonschema_description:"Learning mode: task classes, classification rules, ladders and priors; off by default."`
-	Telemetry      Telemetry        `yaml:"telemetry" jsonschema_description:"Local telemetry that never leaves the machine; on by default. User level, except that a project may turn off its own events."`
-	Calibration    Calibration      `yaml:"calibration" jsonschema_description:"Project calibration caps and task filters; calibration runs only when the person asks the lead for it."`
-	WorkerModes    WorkerModes      `yaml:"worker_modes" jsonschema_description:"Native permission mode a delegate worker starts in, per role and model family; never above the lead's mode. User level, project layers may only lower. Absent means duolog's default flags."`
-	PaidRuns       PaidRuns         `yaml:"paid_runs" jsonschema_description:"Paid runs per agent with a daily USD cap, and the share of each window used on workspace accounts; paid runs are off by default."`
-	Balance        Balance          `yaml:"balance" jsonschema_description:"How quota reads and learned window rates are trusted: read age, interval size and the margin of a tier step up. The shared project config may only make these stricter."`
-	Routing        Routing          `yaml:"routing" jsonschema_description:"How a new task picks between a role's agents beyond the ladder: balance subscriptions by pace, and the margin. The shared project config may only tighten these."`
+	SkillTests     string                 `yaml:"skill_tests" jsonschema_description:"Cross-model skill testing preference: ask before each change, always test, or never test; defaults to ask." jsonschema:"enum=ask,enum=always,enum=never"`
+	Coauthors      Coauthors              `yaml:"coauthors" jsonschema_description:"Commit co-author templates for workers; enabled by default."`
+	Version        int                    `yaml:"version" jsonschema_description:"Configuration format version; defaults to 1."`
+	Wire           Wire                   `yaml:"wire" jsonschema_description:"Task and message encoding and size limits; defaults suit the file bus."`
+	Limits         Limits                 `yaml:"limits" jsonschema_description:"Worker and session limits: resumable sessions per lead, live sessions per account by measured tier and in all, and the slot wait."`
+	Models         map[string]Model       `yaml:"models" jsonschema_description:"Model aliases and their prices, which drive estimates and admission of paid runs; defaults include the eight vendor families."`
+	Roles          map[string]Role        `yaml:"roles" jsonschema_description:"Named task routes; overrides merge by role and field into the eleven defaults."`
+	Sessions       Sessions               `yaml:"sessions" jsonschema_description:"Thread lifetime limits; defaults close large or idle threads."`
+	Policy         Policy                 `yaml:"policy" jsonschema_description:"Permission rules constrained by the lead; defaults ask for unmatched actions."`
+	Capabilities   Capabilities           `yaml:"capabilities" jsonschema_description:"Missing capability handling; defaults read skills and let the lead handle tools."`
+	Sync           Sync                   `yaml:"sync" jsonschema_description:"Settings for generating agent and skill files; automatic sync defaults to true."`
+	EnvPassthrough []string               `yaml:"env_passthrough" jsonschema_description:"Environment variables passed to workers; defaults include native OS login and agent config directories, not API keys. A free run drops names that bill per token even when listed; only paid_runs.<agent>.allow lets them through."`
+	Workers        Workers                `yaml:"workers" jsonschema_description:"What Claude workers and peers inherit from the person's own settings."`
+	Lead           Lead                   `yaml:"lead" jsonschema_description:"What duolog adds to the person's own lead session; compact notes are on by default."`
+	Rex            Rex                    `yaml:"rex" jsonschema_description:"Terminal capture and startup settings; defaults to 20 lines and 120 seconds."`
+	Learning       Learning               `yaml:"learning" jsonschema_description:"Learning mode: task classes, classification rules, ladders and priors; off by default."`
+	Telemetry      Telemetry              `yaml:"telemetry" jsonschema_description:"Local telemetry that never leaves the machine; on by default. User level, except that a project may turn off its own events."`
+	Calibration    Calibration            `yaml:"calibration" jsonschema_description:"Project calibration caps and task filters; calibration runs only when the person asks the lead for it."`
+	WorkerModes    WorkerModes            `yaml:"worker_modes" jsonschema_description:"Native permission mode a delegate worker starts in, per role and model family; never above the lead's mode. User level, project layers may only lower. Absent means duolog's default flags."`
+	PaidRuns       PaidRuns               `yaml:"paid_runs" jsonschema_description:"Paid runs per agent with a daily USD cap, and the share of each window used on workspace accounts; paid runs are off by default."`
+	Balance        Balance                `yaml:"balance" jsonschema_description:"How quota reads and learned window rates are trusted: read age, interval size and the margin of a tier step up. The shared project config may only make these stricter."`
+	Routing        Routing                `yaml:"routing" jsonschema_description:"How a new task picks between a role's agents beyond the ladder: balance subscriptions by pace, and the margin. The shared project config may only tighten these."`
+	Agents         map[string]AgentSwitch `yaml:"agents" jsonschema_description:"Which registered agents may run tasks, one key per agent: claude, codex, ..."`
 	// Notices names the keys that Load ignored or capped: values of a shared
 	// layer, .duolog/config.yaml or a .duolog/config.local.yaml that Git
 	// tracks, that would widen paid runs or session limits or lower model
@@ -69,10 +73,72 @@ type Lead struct {
 	CompactNotes bool `yaml:"compact_notes" jsonschema_description:"Help the lead keep its delegation state through compaction: the PreCompact hook asks Claude to keep the open peers, open asks, branches and pull requests in the summary and lists the live peers, and the session start after a compaction lists them again. Defaults to true."`
 }
 
+// Coauthors holds the commit co-author settings. In YAML the templates sit
+// beside enabled, one key per agent: "one key per agent: claude, codex, ...".
 type Coauthors struct {
-	Enabled bool   `yaml:"enabled" jsonschema_description:"Record worker changes and offer commit co-author lines; defaults to true."`
-	Claude  string `yaml:"claude" jsonschema_description:"Claude co-author template with {name} and {model}; defaults to a display name and noreply@anthropic.com."`
-	Codex   string `yaml:"codex" jsonschema_description:"Codex co-author template with {name} and {model}; defaults to OpenAI Codex, the model and noreply@openai.com."`
+	Enabled bool `yaml:"enabled" jsonschema_description:"Record worker changes and offer commit co-author lines; defaults to true."`
+	// Templates is the co-author template by agent name, with {name} and
+	// {model}.
+	Templates map[string]string `yaml:"-" jsonschema:"-"`
+}
+
+// UnmarshalYAML reads enabled and one template per agent.
+func (c *Coauthors) UnmarshalYAML(node *yaml.Node) error {
+	return decodeFlat(node, "coauthors", func(key string, value *yaml.Node) error {
+		if key == "enabled" {
+			return value.Decode(&c.Enabled)
+		}
+		var template string
+		if err := value.Decode(&template); err != nil {
+			return err
+		}
+		if c.Templates == nil {
+			c.Templates = map[string]string{}
+		}
+		c.Templates[key] = template
+		return nil
+	})
+}
+
+// MarshalYAML writes enabled, then each template in agent name order.
+func (c Coauthors) MarshalYAML() (any, error) {
+	out := &yaml.Node{Kind: yaml.MappingNode}
+	if err := addKey(out, "enabled", c.Enabled); err != nil {
+		return nil, err
+	}
+	for _, name := range slices.Sorted(maps.Keys(c.Templates)) {
+		if err := addKey(out, name, c.Templates[name]); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// AgentSwitch turns one registered agent on or off. An unset Enabled means
+// the agent's default, which the embedded defaults give.
+type AgentSwitch struct {
+	Enabled *bool `yaml:"enabled" jsonschema_description:"Whether this agent may run tasks; the built-in agents default to true and any other registered agent to false."`
+}
+
+// AgentEnabled reports whether the agent is registered and switched on. A
+// config without the agents section, one that was not loaded, enables every
+// agent.
+func (c *Config) AgentEnabled(name string) bool {
+	if c.Agents == nil {
+		return true
+	}
+	s, ok := c.Agents[name]
+	return ok && s.Enabled != nil && *s.Enabled
+}
+
+// AgentRegistered reports whether Load registered the agent, or true for a
+// config that was not loaded.
+func (c *Config) AgentRegistered(name string) bool {
+	if c.Agents == nil {
+		return true
+	}
+	_, ok := c.Agents[name]
+	return ok
 }
 
 type Target struct {
@@ -159,12 +225,13 @@ type Sync struct {
 }
 
 type AgentSync struct {
-	ModelMap      map[string]string `yaml:"model_map" jsonschema_description:"Claude-to-Codex alias mapping; defaults map fable, opus, sonnet and haiku to astra, sol, terra and luna."`
-	DefaultEffort map[string]string `yaml:"default_effort" jsonschema_description:"Effort per Claude alias when absent; defaults to high for fable and opus, medium for sonnet, low for haiku."`
-	EffortMap     map[string]string `yaml:"effort_map" jsonschema_description:"Effort translation between agents; defaults preserve levels except ultra becomes max."`
-	CodexName     string            `yaml:"codex_name" jsonschema_description:"Agent naming strategy, keep or underscore; defaults to keep."`
-	DropKeys      []string          `yaml:"drop_keys" jsonschema_description:"Agent frontmatter keys explicitly discarded; defaults to color."`
-	Overrides     map[string]Target `yaml:"overrides" jsonschema_description:"Per-agent model and effort overrides; defaults to an empty map."`
+	ModelMap      map[string]string   `yaml:"model_map" jsonschema_description:"Claude-to-Codex alias mapping; defaults map fable, opus, sonnet and haiku to astra, sol, terra and luna."`
+	ModelRows     []map[string]string `yaml:"model_rows" jsonschema_description:"Model aliases that stand for one another across agents, one row per model with a key per agent; model_map rows are added to them. A pair that model_map and model_rows map differently fails to load."`
+	DefaultEffort map[string]string   `yaml:"default_effort" jsonschema_description:"Effort per Claude alias when absent; defaults to high for fable and opus, medium for sonnet, low for haiku."`
+	EffortMap     map[string]string   `yaml:"effort_map" jsonschema_description:"Effort translation between agents; defaults preserve levels except ultra becomes max."`
+	CodexName     string              `yaml:"codex_name" jsonschema_description:"Agent naming strategy, keep or underscore; defaults to keep."`
+	DropKeys      []string            `yaml:"drop_keys" jsonschema_description:"Agent frontmatter keys explicitly discarded; defaults to color."`
+	Overrides     map[string]Target   `yaml:"overrides" jsonschema_description:"Per-agent model and effort overrides; defaults to an empty map."`
 }
 
 type SkillSync struct {

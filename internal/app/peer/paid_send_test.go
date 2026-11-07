@@ -175,7 +175,9 @@ func TestPeerFirstSendIsAdmittedAfresh(t *testing.T) {
 		r.paidCodex()
 		e := r.ready()
 		open := r.accounts().Reservations[r.entry(e.ID).AccountSessionID]
-		r.cfg.PaidRuns.Codex.DailyCapUSD = open.Estimate.USD / 2
+		pa := r.cfg.PaidRuns.Agent("codex")
+		pa.DailyCapUSD = open.Estimate.USD / 2
+		r.cfg.PaidRuns.Set("codex", pa)
 		path := r.task()
 		script := baseScript()
 		script["capture"] = screens(sendOK(path)...)
@@ -220,7 +222,9 @@ func TestPeerFirstSendIsAdmittedAfresh(t *testing.T) {
 		e := r.ready()
 		open := r.accounts().Reservations[r.entry(e.ID).AccountSessionID]
 		// The cap holds the one task, not two.
-		r.cfg.PaidRuns.Codex.DailyCapUSD = open.Estimate.USD * 1.5
+		pa := r.cfg.PaidRuns.Agent("codex")
+		pa.DailyCapUSD = open.Estimate.USD * 1.5
+		r.cfg.PaidRuns.Set("codex", pa)
 		r.send(e.ID, r.task())
 		r.wantHeld(1, 1)
 		task := r.accounts().Reservations[r.entry(e.ID).TaskGeneration]

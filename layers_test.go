@@ -50,8 +50,6 @@ var legacyTiers = map[string]legacyTier{
 	"internal/telemetry": {tier: tierKit},
 	"internal/artifact":  {tier: tierKit},
 	"plugin":             {tier: tierKit},
-
-	"internal/config/schemagen": {tier: tierWiring},
 }
 
 // appOrder is the order of the app packages, lowest first. An app package may

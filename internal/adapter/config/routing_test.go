@@ -2,6 +2,7 @@ package config
 
 import (
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -9,15 +10,21 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
+// routing is the routing of a config that sets a balance and a margin and
+// leaves the agent order at its default.
+func routing(balance string, margin float64) config.Routing {
+	return config.Routing{Balance: balance, Margin: margin, AgentOrder: []string{"claude", "codex"}}
+}
+
 func TestRoutingDefaults(t *testing.T) {
 	cfg, err := Load(isolatedRoot(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Routing != (config.Routing{Balance: "pace", Margin: .10}) {
+	if !reflect.DeepEqual(cfg.Routing, routing("pace", .10)) {
 		t.Errorf("routing defaults = %+v, want pace and 0.10", cfg.Routing)
 	}
-	if config.DefaultRouting() != cfg.Routing {
+	if !reflect.DeepEqual(config.DefaultRouting(), cfg.Routing) {
 		t.Errorf("DefaultRouting() = %+v, differs from Load's", config.DefaultRouting())
 	}
 }
@@ -29,11 +36,11 @@ func TestRoutingTrustedLayersMayLoosen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Routing != (config.Routing{Balance: "off", Margin: .3}) || len(cfg.Notices) != 0 {
+	if !reflect.DeepEqual(cfg.Routing, routing("off", .3)) || len(cfg.Notices) != 0 {
 		t.Errorf("user routing = %+v, notices %v", cfg.Routing, cfg.Notices)
 	}
 	writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), "routing: {balance: pace, margin: 0.2}\n")
-	if cfg, err = Load(root); err != nil || cfg.Routing != (config.Routing{Balance: "pace", Margin: .2}) {
+	if cfg, err = Load(root); err != nil || !reflect.DeepEqual(cfg.Routing, routing("pace", .2)) {
 		t.Errorf("local routing = %+v, %v", cfg.Routing, err)
 	}
 }
@@ -46,7 +53,7 @@ func TestRoutingProjectCannotLoosen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Routing != config.DefaultRouting() {
+	if !reflect.DeepEqual(cfg.Routing, config.DefaultRouting()) {
 		t.Errorf("project loosened routing: %+v", cfg.Routing)
 	}
 	want := []string{"routing.margin", "routing.balance"}
@@ -77,7 +84,7 @@ func TestRoutingProjectCannotLoosen(t *testing.T) {
 	// A narrower margin and an unchanged balance are accepted.
 	root = isolatedRoot(t)
 	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "routing: {balance: pace, margin: 0.02}\n")
-	if cfg, err = Load(root); err != nil || cfg.Routing != (config.Routing{Balance: "pace", Margin: .02}) || len(cfg.Notices) != 0 {
+	if cfg, err = Load(root); err != nil || !reflect.DeepEqual(cfg.Routing, routing("pace", .02)) || len(cfg.Notices) != 0 {
 		t.Errorf("project tightening = %+v, %v, notices %v", cfg.Routing, err, cfg.Notices)
 	}
 }

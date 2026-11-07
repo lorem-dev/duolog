@@ -339,8 +339,10 @@ func TestSlotQueueFirstComeAndFreshRead(t *testing.T) {
 
 	t.Run("cap lost while waiting refuses", func(t *testing.T) {
 		w := newGateWorld(t)
-		w.cfg.PaidRuns.Claude.Allow, w.cfg.PaidRuns.Claude.DailyCapUSD = true, 6
-		w.cfg.PaidRuns.Claude.Env = []string{"ANTHROPIC_API_KEY"}
+		pa := w.cfg.PaidRuns.Agent("claude")
+		pa.Allow, pa.DailyCapUSD = true, 6
+		pa.Env = []string{"ANTHROPIC_API_KEY"}
+		w.cfg.PaidRuns.Set("claude", pa)
 		holder := w.acquire(w.request("claude", workerenv.Worker, workerenv.Paid, 821))
 		req := w.request("claude", workerenv.Worker, workerenv.Paid, 822)
 		req.Wait = time.Minute
@@ -357,14 +359,18 @@ func TestSlotQueueFirstComeAndFreshRead(t *testing.T) {
 
 	t.Run("opt-in lost while waiting refuses", func(t *testing.T) {
 		w := newGateWorld(t)
-		w.cfg.PaidRuns.Claude.Allow, w.cfg.PaidRuns.Claude.DailyCapUSD = true, 50
-		w.cfg.PaidRuns.Claude.Env = []string{"ANTHROPIC_API_KEY"}
+		pa := w.cfg.PaidRuns.Agent("claude")
+		pa.Allow, pa.DailyCapUSD = true, 50
+		pa.Env = []string{"ANTHROPIC_API_KEY"}
+		w.cfg.PaidRuns.Set("claude", pa)
 		holder := w.acquire(w.request("claude", workerenv.Worker, workerenv.Paid, 831))
 		req := w.request("claude", workerenv.Worker, workerenv.Paid, 832)
 		req.Wait = time.Minute
 		w.onWait = func(n int) {
 			if n == 2 {
-				w.cfg.PaidRuns.Claude.Allow = false
+				off := w.cfg.PaidRuns.Agent("claude")
+				off.Allow = false
+				w.cfg.PaidRuns.Set("claude", off)
 				w.finish(holder, paidrules.Settlement{})
 			}
 		}

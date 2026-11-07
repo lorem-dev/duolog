@@ -34,5 +34,10 @@ var Facts = agent.Descriptor{
 		Interrupt:   []string{`^[\s⎿│]*Interrupted(?:\s*·\s*What should Claude do instead\?|\s+by user\b)`},
 		Composer:    agent.ComposerFacts{Marker: "❯", Boxed: true},
 	},
-	Config: agent.ConfigFacts{SubscriptionEndpoints: true},
+	Config: agent.ConfigFacts{
+		SubscriptionEndpoints: true,
+		CoauthorDoc:           "Claude co-author template with {name} and {model}; defaults to a display name and noreply@anthropic.com.",
+		NativeModes:           []string{"plan", "default", "acceptEdits", "auto", "bypassPermissions"},
+		NativeModeDoc:         "Native Claude permission mode a worker starts in; it never exceeds the lead's mode. plan sets the worker's level to plan: it starts in default, and the gate keeps it read-only. Absent means duolog's default.",
+	},
 }

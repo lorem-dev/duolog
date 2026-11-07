@@ -46,11 +46,11 @@ func paidConfig() *config.Config {
 		"OPENAI_API_KEY", "CODEX_API_KEY", "CORP_LLM_KEY", "DUOLOG_LEAD", "REX_SESSION",
 	}}
 	cfg.PaidRuns.UsableShare = 0.5
-	cfg.PaidRuns.Claude.Allow = true
-	cfg.PaidRuns.Claude.DailyCapUSD = 5
-	cfg.PaidRuns.Claude.Env = []string{"ANTHROPIC_API_KEY", "CLAUDE_PAID_EXTRA"}
-	cfg.PaidRuns.Claude.SubscriptionEndpoints = map[string]string{"corp-gateway": "https://llm.example.com/claude"}
-	cfg.PaidRuns.Codex.Env = []string{"OPENAI_API_KEY", "CODEX_PAID_EXTRA"}
+	cfg.PaidRuns.Set("claude", config.PaidAgent{
+		Allow: true, DailyCapUSD: 5, Env: []string{"ANTHROPIC_API_KEY", "CLAUDE_PAID_EXTRA"},
+		SubscriptionEndpoints: map[string]string{"corp-gateway": "https://llm.example.com/claude"},
+	})
+	cfg.PaidRuns.Set("codex", config.PaidAgent{Env: []string{"OPENAI_API_KEY", "CODEX_PAID_EXTRA"}})
 	return cfg
 }
 
@@ -216,7 +216,9 @@ func TestBuildFreeAndPaid(t *testing.T) {
 
 	// An untrusted base URL is a route name like any other.
 	in := buildInput("claude", Worker, Free)
-	in.Config.PaidRuns.Claude.SubscriptionEndpoints = map[string]string{"other": "https://llm.example.com/other"}
+	pa := in.Config.PaidRuns.Agent("claude")
+	pa.SubscriptionEndpoints = map[string]string{"other": "https://llm.example.com/other"}
+	in.Config.PaidRuns.Set("claude", pa)
 	untrusted := mustBuild(t, in)
 	if _, ok := envValue(untrusted.Env, "ANTHROPIC_BASE_URL"); ok || len(untrusted.EndpointEntries) != 0 ||
 		!slices.Contains(untrusted.Dropped, "ANTHROPIC_BASE_URL") {
@@ -406,7 +408,9 @@ func TestBuildCarriesLaunchWords(t *testing.T) {
 		"-c", `sandbox_workspace_write.writable_roots=["/safe/cache"]`}
 	for _, variant := range []Variant{Free, Paid} {
 		in := buildInput("codex", Worker, variant)
-		in.Config.PaidRuns.Codex.Allow, in.Config.PaidRuns.Codex.DailyCapUSD = true, 5
+		pa := in.Config.PaidRuns.Agent("codex")
+		pa.Allow, pa.DailyCapUSD = true, 5
+		in.Config.PaidRuns.Set("codex", pa)
 		in.Launch = launch
 		p := mustBuild(t, in)
 		if !slices.Equal(p.Launch, launch) {
@@ -478,7 +482,9 @@ func TestBuildDoesNotInventCodexSpeedFlag(t *testing.T) {
 		t.Errorf("pinned signals = %v", pinned.Signals)
 	}
 	in.Variant = Paid
-	in.Config.PaidRuns.Codex.Allow, in.Config.PaidRuns.Codex.DailyCapUSD = true, 5
+	pa := in.Config.PaidRuns.Agent("codex")
+	pa.Allow, pa.DailyCapUSD = true, 5
+	in.Config.PaidRuns.Set("codex", pa)
 	unpinned := mustBuild(t, in)
 	if want := []string{"service_tier='fast'"}; !reflect.DeepEqual(speedArgs(unpinned.Argv("exec")), want) || unpinned.FastPinned {
 		t.Errorf("paid argv = %v", unpinned.Argv("exec"))
@@ -515,9 +521,15 @@ func TestBuildCacheKeyFromNamesAndFacts(t *testing.T) {
 		},
 		"mtime":      func(in *ProcessInput) { in.Layers[0].Modified = time.Unix(200, 0) },
 		"unreadable": func(in *ProcessInput) { in.Layers[0].Unreadable = true },
-		"cap":        func(in *ProcessInput) { in.Config.PaidRuns.Claude.DailyCapUSD = 6 },
+		"cap": func(in *ProcessInput) {
+			pa := in.Config.PaidRuns.Agent("claude")
+			pa.DailyCapUSD = 6
+			in.Config.PaidRuns.Set("claude", pa)
+		},
 		"endpoint": func(in *ProcessInput) {
-			in.Config.PaidRuns.Claude.SubscriptionEndpoints = map[string]string{"corp-gateway": "https://llm.example.com/v2"}
+			pa := in.Config.PaidRuns.Agent("claude")
+			pa.SubscriptionEndpoints = map[string]string{"corp-gateway": "https://llm.example.com/v2"}
+			in.Config.PaidRuns.Set("claude", pa)
 		},
 		"passthrough": func(in *ProcessInput) { in.Config.EnvPassthrough = in.Config.EnvPassthrough[:2] },
 	} {

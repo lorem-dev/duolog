@@ -8,18 +8,23 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 // validatePaidRuns checks the merged paid settings. Interval checks are
 // negated so that NaN, which compares false with every bound, cannot pass.
-func validatePaidRuns(cfg *config.Config) error {
+func validatePaidRuns(cfg *config.Config, agents []agent.Descriptor) error {
 	p := cfg.PaidRuns
 	if !(p.UsableShare > 0 && p.UsableShare <= 1) {
 		return fmt.Errorf("paid_runs.usable_share: must be above 0 and at most 1")
 	}
-	for _, agent := range []string{"claude", "codex"} {
-		a, key := p.Agent(agent), "paid_runs."+agent
+	for _, d := range agents {
+		name := d.Name
+		if _, ok := p.Agents[name]; !ok {
+			continue
+		}
+		a, key := p.Agent(name), "paid_runs."+name
 		if !(a.DailyCapUSD >= 0 && a.DailyCapUSD <= math.MaxFloat64) {
 			return fmt.Errorf("%s.daily_cap_usd: must be a finite number of USD, 0 or more", key)
 		}
@@ -85,9 +90,9 @@ func restrictProjectPaid(base, layer *yaml.Node, projectFile string) ([]config.C
 	if err != nil {
 		return nil, err
 	}
-	for _, agent := range []string{"claude", "codex"} {
-		settings := mappingValue(paid, agent)
-		if settings == nil {
+	for i := 0; i+1 < len(paid.Content); i += 2 {
+		agent, settings := paid.Content[i].Value, paid.Content[i+1]
+		if agent == "usable_share" {
 			continue
 		}
 		baseAgent, prefix := mappingValue(basePaid, agent), "paid_runs."+agent+"."

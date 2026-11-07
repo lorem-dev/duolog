@@ -21,7 +21,9 @@ func TestDoctorRepeatsMigrationWhileKeyDropped(t *testing.T) {
 	if err := os.Unsetenv("OPENAI_API_KEY"); err != nil {
 		t.Fatal(err)
 	}
-	cfg.PaidRuns.Claude.Env = []string{"CLAUDE_PAID_EXTRA"}
+	pa := cfg.PaidRuns.Agent("claude")
+	pa.Env = []string{"CLAUDE_PAID_EXTRA"}
+	cfg.PaidRuns.Set("claude", pa)
 	claude := corelaunch.MigrationLine("claude", "ANTHROPIC_API_KEY")
 	codex := corelaunch.MigrationLine("codex", "OPENAI_API_KEY")
 	// An explicit list replaces the default, so the example keeps the paid env.
@@ -59,8 +61,10 @@ func TestDoctorRepeatsMigrationWhileKeyDropped(t *testing.T) {
 	// Allowed with the key in the paid env: the key reaches paid runs, so no
 	// warning for that agent.
 	cfg.EnvPassthrough = base
-	cfg.PaidRuns.Claude.Allow, cfg.PaidRuns.Claude.DailyCapUSD = true, 5
-	cfg.PaidRuns.Claude.Env = []string{"ANTHROPIC_API_KEY"}
+	pa = cfg.PaidRuns.Agent("claude")
+	pa.Allow, pa.DailyCapUSD = true, 5
+	pa.Env = []string{"ANTHROPIC_API_KEY"}
+	cfg.PaidRuns.Set("claude", pa)
 	for _, f := range Run(context.Background(), testDeps, cfg, opts) {
 		if strings.Contains(f.Message, "no longer get") {
 			t.Fatalf("allowed key still warned: %+v", f)
@@ -68,7 +72,8 @@ func TestDoctorRepeatsMigrationWhileKeyDropped(t *testing.T) {
 	}
 
 	// Neither set nor listed: no warning.
-	cfg.PaidRuns.Claude.Allow = false
+	pa.Allow = false
+	cfg.PaidRuns.Set("claude", pa)
 	if err := os.Unsetenv("ANTHROPIC_API_KEY"); err != nil {
 		t.Fatal(err)
 	}

@@ -26,8 +26,10 @@ const (
 // person who used them on purpose would, and allows paid Claude runs.
 func passthroughConfig() *config.Config {
 	cfg := &config.Config{EnvPassthrough: []string{"HOME", "PATH", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"}}
-	cfg.PaidRuns.Claude.Allow, cfg.PaidRuns.Claude.DailyCapUSD = true, 5
-	cfg.PaidRuns.Claude.Env = []string{"ANTHROPIC_API_KEY"}
+	pa := cfg.PaidRuns.Agent("claude")
+	pa.Allow, pa.DailyCapUSD = true, 5
+	pa.Env = []string{"ANTHROPIC_API_KEY"}
+	cfg.PaidRuns.Set("claude", pa)
 	return cfg
 }
 

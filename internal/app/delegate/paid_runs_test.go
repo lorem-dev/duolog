@@ -219,13 +219,17 @@ func TestAttemptSettlementOnCancelRetryAndFallback(t *testing.T) {
 	t.Run("a retry acquires under the cap as it is then", func(t *testing.T) {
 		h := newHarness(t)
 		h.paidReads("codex", "claude")
-		h.cfg.PaidRuns.Codex.Allow, h.cfg.PaidRuns.Codex.DailyCapUSD = true, 1000
+		pa := h.cfg.PaidRuns.Agent("codex")
+		pa.Allow, pa.DailyCapUSD = true, 1000
+		h.cfg.PaidRuns.Set("codex", pa)
 		h.auth.login = LoggedIn
 		h.beforeStart = func() {
 			// The first run spends its whole estimate, and the cap then
 			// leaves room for half of another.
 			for _, r := range h.accounts().Reservations {
-				h.cfg.PaidRuns.Codex.DailyCapUSD = 1.5 * r.Estimate.USD
+				pa := h.cfg.PaidRuns.Agent("codex")
+				pa.DailyCapUSD = 1.5 * r.Estimate.USD
+				h.cfg.PaidRuns.Set("codex", pa)
 				usd := r.Estimate.USD
 				h.results = []run.Result{{AuthFailed: true, ReportedUSD: &usd, Usage: run.Usage{Input: 10, Output: 1}, UsageKnown: true}}
 			}
@@ -281,7 +285,9 @@ func TestInLeadFallbackKeepsPaidPassAndRefusals(t *testing.T) {
 		h := newHarness(t)
 		h.lead("claude", mode.Ask, "high")
 		h.paidReads("codex")
-		h.cfg.PaidRuns.Codex.Allow, h.cfg.PaidRuns.Codex.DailyCapUSD = true, 5
+		pa := h.cfg.PaidRuns.Agent("codex")
+		pa.Allow, pa.DailyCapUSD = true, 5
+		h.cfg.PaidRuns.Set("codex", pa)
 		o, err := h.run("implement")
 		if err != nil {
 			t.Fatal(err)
@@ -304,7 +310,9 @@ func TestInLeadFallbackKeepsPaidPassAndRefusals(t *testing.T) {
 			h.lead("claude", mode.Ask, "high")
 			h.paidReads("codex")
 			if c.allow {
-				h.cfg.PaidRuns.Codex.Allow, h.cfg.PaidRuns.Codex.DailyCapUSD = true, 0.000001
+				pa := h.cfg.PaidRuns.Agent("codex")
+				pa.Allow, pa.DailyCapUSD = true, 0.000001
+				h.cfg.PaidRuns.Set("codex", pa)
 			}
 			o, err := h.run("implement")
 			if err != nil {
@@ -332,7 +340,9 @@ func TestWorkerBuildGatesExplicitPassthroughInDelegate(t *testing.T) {
 	h := newHarness(t)
 	t.Setenv("OPENAI_API_KEY", "sk-delegate-secret")
 	h.cfg.EnvPassthrough = append(h.cfg.EnvPassthrough, "OPENAI_API_KEY")
-	h.cfg.PaidRuns.Codex.Allow, h.cfg.PaidRuns.Codex.DailyCapUSD = true, 5
+	pa := h.cfg.PaidRuns.Agent("codex")
+	pa.Allow, pa.DailyCapUSD = true, 5
+	h.cfg.PaidRuns.Set("codex", pa)
 	roots := []string{filepath.Join(h.root, "protected")}
 	target := config.Target{Agent: "claude", Model: "sonnet", Effort: "high"}
 	for _, opts := range []Options{

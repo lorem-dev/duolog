@@ -8,6 +8,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/claude"
 	"github.com/lorem-dev/duolog/internal/adapter/codex"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/doctor"
 	"github.com/lorem-dev/duolog/internal/app/hook"
@@ -201,6 +202,21 @@ func Names() []string {
 		names[i] = a.Facts.Name
 	}
 	return names
+}
+
+// Descriptors returns the facts of the registered agents, in order.
+func Descriptors() []agent.Descriptor {
+	all := Agents()
+	facts := make([]agent.Descriptor, len(all))
+	for i, a := range all {
+		facts[i] = a.Facts
+	}
+	return facts
+}
+
+// ConfigOptions is what config loading needs of the registry.
+func ConfigOptions() configfile.LoadOptions {
+	return configfile.LoadOptions{Agents: Descriptors()}
 }
 
 // NativeAgents returns the registered agents in order, as `remember --native`

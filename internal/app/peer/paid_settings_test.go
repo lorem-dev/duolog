@@ -36,7 +36,9 @@ func peerProcessIn(t *testing.T, cfg *config.Config, route coreroute.Route, m mo
 func TestPeerFastModePinned(t *testing.T) {
 	root := t.TempDir()
 	paid := &config.Config{}
-	paid.PaidRuns.Claude.Allow, paid.PaidRuns.Claude.DailyCapUSD = true, 5
+	pa := paid.PaidRuns.Agent("claude")
+	pa.Allow, pa.DailyCapUSD = true, 5
+	paid.PaidRuns.Set("claude", pa)
 	for _, variant := range []corelaunch.Variant{corelaunch.Free, corelaunch.Paid} {
 		for _, context := range []string{"minimal", "project"} {
 			route := coreroute.Route{Target: config.Target{Agent: "claude", Model: "opus"}, Context: context}

@@ -2,8 +2,11 @@ package config
 
 import (
 	"cmp"
+	"maps"
 	"slices"
 	"strings"
+
+	"go.yaml.in/yaml/v3"
 
 	"github.com/lorem-dev/duolog/internal/core/mode"
 )
@@ -38,23 +41,74 @@ func (w *WorkerModes) SetUserView(models map[string]Model, routes map[string][]s
 // default flag at any level: Claude acceptEdits, Codex workspace-write.
 const DefaultCap = 2
 
-// WorkerMode is one role or family entry.
+// WorkerMode is one role or family entry. In YAML the native names sit beside
+// network and writable_roots, one key per agent: "one key per agent: claude,
+// codex, ...".
 type WorkerMode struct {
-	Claude        string   `yaml:"claude" jsonschema_description:"Native Claude permission mode a worker starts in; it never exceeds the lead's mode. plan sets the worker's level to plan: it starts in default, and the gate keeps it read-only. Absent means duolog's default." jsonschema:"enum=plan,enum=default,enum=acceptEdits,enum=auto,enum=bypassPermissions"`
-	Codex         string   `yaml:"codex" jsonschema_description:"Native Codex sandbox a worker starts in; danger-full-access is not offered. Absent means duolog's default." jsonschema:"enum=read-only,enum=workspace-write"`
-	Network       bool     `yaml:"network" jsonschema_description:"Codex workspace-write only, role entries only: lets the worker's commands reach the network; defaults to false."`
-	WritableRoots []string `yaml:"writable_roots" jsonschema_description:"Codex workspace-write only, role entries only: absolute or ~/ folders the worker's commands may write besides the project; defaults to none."`
+	// Native is the native name an agent starts in, by agent name.
+	Native        map[string]string `yaml:"-" jsonschema:"-"`
+	Network       bool              `yaml:"network" jsonschema_description:"Codex workspace-write only, role entries only: lets the worker's commands reach the network; defaults to false."`
+	WritableRoots []string          `yaml:"writable_roots" jsonschema_description:"Codex workspace-write only, role entries only: absolute or ~/ folders the worker's commands may write besides the project; defaults to none."`
 }
 
 // For returns the entry's native name for an agent, empty when it sets none.
 func (w WorkerMode) For(agent string) string {
-	switch agent {
-	case "claude":
-		return w.Claude
-	case "codex":
-		return w.Codex
+	return w.Native[agent]
+}
+
+// With returns a copy of the entry whose native name for agent is name; an
+// empty name removes it.
+func (w WorkerMode) With(agent, name string) WorkerMode {
+	native := maps.Clone(w.Native)
+	if name == "" {
+		delete(native, agent)
+	} else {
+		if native == nil {
+			native = map[string]string{}
+		}
+		native[agent] = name
 	}
-	return ""
+	w.Native = native
+	return w
+}
+
+// UnmarshalYAML reads network, writable_roots and one native name per agent.
+func (w *WorkerMode) UnmarshalYAML(node *yaml.Node) error {
+	return decodeFlat(node, "worker mode", func(key string, value *yaml.Node) error {
+		switch key {
+		case "network":
+			return value.Decode(&w.Network)
+		case "writable_roots":
+			return value.Decode(&w.WritableRoots)
+		}
+		var name string
+		if err := value.Decode(&name); err != nil {
+			return err
+		}
+		if w.Native == nil {
+			w.Native = map[string]string{}
+		}
+		w.Native[key] = name
+		return nil
+	})
+}
+
+// MarshalYAML writes each native name in agent name order, then network and
+// writable_roots.
+func (w WorkerMode) MarshalYAML() (any, error) {
+	out := &yaml.Node{Kind: yaml.MappingNode}
+	for _, name := range slices.Sorted(maps.Keys(w.Native)) {
+		if err := addKey(out, name, w.Native[name]); err != nil {
+			return nil, err
+		}
+	}
+	if err := addKey(out, "network", w.Network); err != nil {
+		return nil, err
+	}
+	if err := addKey(out, "writable_roots", w.WritableRoots); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // Request combines the role entry and the entries of the given families for

@@ -3,7 +3,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/lorem-dev/duolog/internal/config/schemagen"
+	"github.com/lorem-dev/duolog/internal/wiring/schemagen"
 	"os"
 )
 

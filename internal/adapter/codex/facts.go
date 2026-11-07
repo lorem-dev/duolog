@@ -34,5 +34,10 @@ var Facts = agent.Descriptor{
 		CommandQuestion: "Would you like to run the following command?",
 		Queued:          "shift+left to answer",
 	},
-	Config: agent.ConfigFacts{SandboxRoots: true},
+	Config: agent.ConfigFacts{
+		SandboxRoots:  true,
+		CoauthorDoc:   "Codex co-author template with {name} and {model}; defaults to OpenAI Codex, the model and noreply@openai.com.",
+		NativeModes:   []string{"read-only", "workspace-write"},
+		NativeModeDoc: "Native Codex sandbox a worker starts in; danger-full-access is not offered. Absent means duolog's default.",
+	},
 }

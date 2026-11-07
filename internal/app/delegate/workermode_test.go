@@ -774,7 +774,9 @@ func TestAdmittedArgvIsLaunchedArgv(t *testing.T) {
 		h.workerModes("  roles:\n    implement: {codex: workspace-write, network: true, writable_roots: [\"" + safe + "\"]}\n")
 		if paid {
 			h.paidReads("codex", "claude")
-			h.cfg.PaidRuns.Codex.Allow, h.cfg.PaidRuns.Codex.DailyCapUSD = true, 1000
+			pa := h.cfg.PaidRuns.Agent("codex")
+			pa.Allow, pa.DailyCapUSD = true, 1000
+			h.cfg.PaidRuns.Set("codex", pa)
 			h.gate.Config = h.cfg // workerModes loaded a new config
 		}
 		h.lead("codex", mode.Edits, "high")

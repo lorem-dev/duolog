@@ -105,8 +105,10 @@ func TestProbeUsesGateAndBuild(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "paid") {
 			t.Fatalf("paid probe without allow: %v", err)
 		}
-		cfg.PaidRuns.Claude.Allow, cfg.PaidRuns.Claude.DailyCapUSD = true, 0.000001
-		cfg.PaidRuns.Claude.Env = []string{"ANTHROPIC_API_KEY"}
+		pa := cfg.PaidRuns.Agent("claude")
+		pa.Allow, pa.DailyCapUSD = true, 0.000001
+		pa.Env = []string{"ANTHROPIC_API_KEY"}
+		cfg.PaidRuns.Set("claude", pa)
 		if err := probe(ctx, testDeps, "claude", cfg, nil); err == nil || !strings.Contains(err.Error(), "daily cap") {
 			t.Fatalf("paid probe above the cap: %v", err)
 		}
@@ -118,8 +120,10 @@ func TestProbeUsesGateAndBuild(t *testing.T) {
 	t.Run("allowed paid probe settles usage and cost", func(t *testing.T) {
 		cfg, _, a := setup(t)
 		t.Setenv("ANTHROPIC_API_KEY", probeKey)
-		cfg.PaidRuns.Claude.Allow, cfg.PaidRuns.Claude.DailyCapUSD = true, 100
-		cfg.PaidRuns.Claude.Env = []string{"ANTHROPIC_API_KEY"}
+		pa := cfg.PaidRuns.Agent("claude")
+		pa.Allow, pa.DailyCapUSD = true, 100
+		pa.Env = []string{"ANTHROPIC_API_KEY"}
+		cfg.PaidRuns.Set("claude", pa)
 		g := reportGate(t, cfg, paidReads(10))
 		cost := 0.0123
 		a.claude.Usage = Usage{Tokens: usage.Tokens{Input: 120, Cached: 20, Output: 5}, CostUSD: &cost, Known: true}

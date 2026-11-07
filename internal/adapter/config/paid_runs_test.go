@@ -79,8 +79,8 @@ func TestPaidDefaultsAndValidation(t *testing.T) {
 			t.Errorf("%s defaults = %+v, want off, cap 0, account auto, env %v", agent, a, env)
 		}
 	}
-	if p.Claude.SubscriptionEndpoints == nil || len(p.Claude.SubscriptionEndpoints) != 0 {
-		t.Errorf("claude subscription_endpoints = %#v, want empty", p.Claude.SubscriptionEndpoints)
+	if p.Agent("claude").SubscriptionEndpoints == nil || len(p.Agent("claude").SubscriptionEndpoints) != 0 {
+		t.Errorf("claude subscription_endpoints = %#v, want empty", p.Agent("claude").SubscriptionEndpoints)
 	}
 	if a := p.Agent("gemini"); a.Allow || a.Env != nil {
 		t.Errorf("unknown agent = %+v, want the zero value", a)
@@ -298,11 +298,11 @@ func TestProjectCannotTrustEndpointOrExpandPaidEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := cfg.PaidRuns
-	if !slices.Equal(p.Claude.Env, []string{"ANTHROPIC_AUTH_TOKEN"}) || !slices.Equal(p.Codex.Env, []string{"OPENAI_API_KEY"}) {
-		t.Errorf("env claude %v codex %v, want the intersections", p.Claude.Env, p.Codex.Env)
+	if !slices.Equal(p.Agent("claude").Env, []string{"ANTHROPIC_AUTH_TOKEN"}) || !slices.Equal(p.Agent("codex").Env, []string{"OPENAI_API_KEY"}) {
+		t.Errorf("env claude %v codex %v, want the intersections", p.Agent("claude").Env, p.Agent("codex").Env)
 	}
-	if want := map[string]string{"corp": "https://llm.example.com/claude"}; !maps.Equal(p.Claude.SubscriptionEndpoints, want) {
-		t.Errorf("endpoints = %v, want %v", p.Claude.SubscriptionEndpoints, want)
+	if want := map[string]string{"corp": "https://llm.example.com/claude"}; !maps.Equal(p.Agent("claude").SubscriptionEndpoints, want) {
+		t.Errorf("endpoints = %v, want %v", p.Agent("claude").SubscriptionEndpoints, want)
 	}
 	want := []string{"paid_runs.claude.env", "paid_runs.claude.subscription_endpoints.rogue", "paid_runs.claude.subscription_endpoints.lab", "paid_runs.codex.env"}
 	if got := noticeKeys(cfg.Notices); !slices.Equal(got, want) {
@@ -331,7 +331,7 @@ func TestProjectCannotTrustEndpointOrExpandPaidEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	p = cfg.PaidRuns
-	if !slices.Equal(p.Claude.Env, []string{"ANTHROPIC_API_KEY"}) || len(p.Codex.Env) != 0 || len(p.Claude.SubscriptionEndpoints) != 0 {
+	if !slices.Equal(p.Agent("claude").Env, []string{"ANTHROPIC_API_KEY"}) || len(p.Agent("codex").Env) != 0 || len(p.Agent("claude").SubscriptionEndpoints) != 0 {
 		t.Errorf("project additions applied: %+v", p)
 	}
 	writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), "paid_runs: {claude: {subscription_endpoints: {corp: \"https://llm.example.com/claude\"}}, codex: {env: [CODEX_API_KEY]}}\n")
@@ -339,7 +339,7 @@ func TestProjectCannotTrustEndpointOrExpandPaidEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p = cfg.PaidRuns; len(p.Claude.SubscriptionEndpoints) != 1 || !slices.Equal(p.Codex.Env, []string{"CODEX_API_KEY"}) {
+	if p = cfg.PaidRuns; len(p.Agent("claude").SubscriptionEndpoints) != 1 || !slices.Equal(p.Agent("codex").Env, []string{"CODEX_API_KEY"}) {
 		t.Errorf("local additions lost: %+v", p)
 	}
 }

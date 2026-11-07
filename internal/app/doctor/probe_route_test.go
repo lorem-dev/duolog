@@ -40,8 +40,10 @@ func TestProbeRefusesSettingsRoute(t *testing.T) {
 func TestPaidProbePricesCacheWrites(t *testing.T) {
 	cfg, _, a := setup(t)
 	t.Setenv("ANTHROPIC_API_KEY", probeKey)
-	cfg.PaidRuns.Claude.Allow, cfg.PaidRuns.Claude.DailyCapUSD = true, 100
-	cfg.PaidRuns.Claude.Env = []string{"ANTHROPIC_API_KEY"}
+	pa := cfg.PaidRuns.Agent("claude")
+	pa.Allow, pa.DailyCapUSD = true, 100
+	pa.Env = []string{"ANTHROPIC_API_KEY"}
+	cfg.PaidRuns.Set("claude", pa)
 	g := reportGate(t, cfg, paidReads(10))
 	a.claude.Usage = Usage{Tokens: usage.Tokens{Input: 2000000, Write: 2000000, WriteHour: 1000000}, Known: true}
 	if err := probe(context.Background(), testDeps, "claude", cfg, nil); err != nil {

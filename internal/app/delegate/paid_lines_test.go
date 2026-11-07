@@ -51,7 +51,9 @@ func TestRefusalLineWording(t *testing.T) {
 func TestLeadLineOmitsAllowAdviceWhenOptedIn(t *testing.T) {
 	h := newHarness(t)
 	h.paidReads("codex", "claude")
-	h.cfg.PaidRuns.Codex.Allow, h.cfg.PaidRuns.Codex.DailyCapUSD = true, 0.0001
+	pa := h.cfg.PaidRuns.Agent("codex")
+	pa.Allow, pa.DailyCapUSD = true, 0.0001
+	h.cfg.PaidRuns.Set("codex", pa)
 	o, err := h.run("implement")
 	if err != nil {
 		t.Fatal(err)

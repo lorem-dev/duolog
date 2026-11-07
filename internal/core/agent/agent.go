@@ -50,6 +50,12 @@ type PaneFacts struct {
 // ConfigFacts names the keys of the config that only some agents have.
 type ConfigFacts struct {
 	SubscriptionEndpoints, SandboxRoots bool
+	// CoauthorDoc is the schema text of coauthors.<agent>.
+	CoauthorDoc string
+	// NativeModes are the native names a worker may start in, lowest first,
+	// and NativeModeDoc is the schema text of worker_modes.*.<agent>.
+	NativeModes   []string
+	NativeModeDoc string
 }
 
 // Descriptor is everything the code knows about one agent as data.

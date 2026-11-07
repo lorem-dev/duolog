@@ -130,6 +130,7 @@ window. A task you pin with `--use` or a profile is never moved.
 |---|---|---|
 | `routing.balance` | `pace` | `pace` balances; `off` keeps the ladder as written |
 | `routing.margin` | `0.10` | How far the used share may pass the elapsed share |
+| `routing.agent_order` | `[claude, codex]` | The order in which a task whose role names no usable fallback takes an agent: the first one that is registered, switched on, available and not the role's own agent |
 
 The shared `.duolog/config.yaml` may only tighten these keys. It cannot turn
 `balance` off, and it cannot raise `margin`. duolog ignores such a value and
@@ -218,12 +219,13 @@ The lead's own settings are the ceiling:
 | `limits` | Live sessions and the size of a task the lead may do itself. See [below](#how-many-sessions-run-at-once) |
 | `routing` | Pace balancing of subscriptions. See [above](#how-duolog-balances-subscriptions-by-pace) |
 | `models` | The agent and the prices for each alias. They drive admission of paid runs and the estimates of `duolog stats` and telemetry. Claude cache writes cost 1.25 times `input` for the five-minute cache and 2 times for the one-hour cache |
-| `paid_runs` | Paid runs per agent with a daily USD cap, and the usable share of a workspace account. See [below](#how-paid-runs-are-allowed-and-capped) |
+| `agents` | Which registered agents may run tasks, with `enabled: true` or `false`. One key per agent: `claude`, `codex`, ... The built-in agents are on; any other registered agent is off until you switch it on |
+| `paid_runs` | Paid runs per agent with a daily USD cap, and the usable share of a workspace account. One key per agent: `claude`, `codex`, ... See [below](#how-paid-runs-are-allowed-and-capped) |
 | `balance` | How old a quota read may be, and how learned window rates set the session tiers |
 | `sessions` | When a resumed thread closes |
 | `policy` | The rules for worker actions. See [Permissions](permissions.md) |
 | `capabilities` | What to do when the other agent lacks a skill, plugin or server |
-| `sync` | How agents and skills are generated. See [Sync](sync.md) |
+| `sync` | How agents and skills are generated. `sync.agents.model_map` maps a Claude alias to a Codex alias; `sync.agents.model_rows` lists the aliases that stand for one another, one row per model with a key per agent, such as `{claude: opus, codex: sol}`. A pair that `model_map` and `model_rows` map differently is an error. See [Sync](sync.md) |
 | `env_passthrough` | The only variables a worker inherits. A free run still drops names that bill per token |
 | `workers.inherit_plugins` | `false` (default): a Claude worker or peer turns off every plugin your user and project settings enable, except duolog's own. `true`: it loads them all, as your own sessions do. See [below](#what-workers-inherit) |
 | `workers.compact_window` | `auto` (default): Claude workers and peers compact at the size `workers.compact_ladder` gives for your plan. `0`: Claude's own default. `100000` to `1000000`: the context size in tokens at which they compact. See [below](#what-workers-inherit) |
@@ -231,8 +233,8 @@ The lead's own settings are the ceiling:
 | `rex` | Timeouts and capture settings for live sessions. See [Rex](rex.md) |
 | `rex.stuck_notify_minutes` | Minutes before `peer wait` sends one reminder for an unanswered question. Default: `5`; `0` disables reminders |
 | `rex.auto_answers` | Ordered `{match, answer}` rules for safe peer questions. Defaults to answering `Hooks need review` with `Continue without trusting`. A project list replaces the defaults; `[]` disables it. Trust and persistent approval grants are refused |
-| `coauthors` | Enable worker credit and set commit co-author templates. See [Getting started](getting-started.md#how-to-credit-the-workers-in-commits) |
-| `worker_modes` | The native permission mode a `delegate` worker starts in, per role and per model family. See [below](#which-layers-may-change-worker-modes) and [Permissions](permissions.md#a-workers-native-mode) |
+| `coauthors` | Enable worker credit and set commit co-author templates, one key per agent: `claude`, `codex`, ... See [Getting started](getting-started.md#how-to-credit-the-workers-in-commits) |
+| `worker_modes` | The native permission mode a `delegate` worker starts in, per role and per model family, one key per agent: `claude`, `codex`, ... See [below](#which-layers-may-change-worker-modes) and [Permissions](permissions.md#a-workers-native-mode) |
 | `telemetry` | The local history of runs, quota and routing. See [below](#which-layers-may-change-telemetry) and [Telemetry](telemetry.md) |
 
 ## How the lead keeps its state through compaction

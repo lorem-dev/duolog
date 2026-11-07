@@ -91,7 +91,9 @@ func TestAgentPaceNeverSubscriptionOnOverageOrPaid(t *testing.T) {
 
 func TestAgentPaceScalesByWorkspaceShare(t *testing.T) {
 	cfg := testConfig()
-	cfg.PaidRuns.Codex.Account = "workspace"
+	pa := cfg.PaidRuns.Agent("codex")
+	pa.Account = "workspace"
+	cfg.PaidRuns.Set("codex", pa)
 	got := paidrules.AgentPace(process("codex", workerenv.Worker, workerenv.Free), paceSnapshot("codex", .30, .1), nil, cfg, now)
 	if got.Week == nil || !near(got.Week.Used, .6) {
 		t.Errorf("workspace week = %+v, want 0.6 of the usable half", got.Week)

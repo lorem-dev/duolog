@@ -7,6 +7,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/app/quota"
 	"github.com/lorem-dev/duolog/internal/core/account"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 )
@@ -26,7 +27,7 @@ func (f readFunc) Read(ctx context.Context, p corelaunch.Process) (account.Snaps
 func TestNoQuotaNoPaidPass(t *testing.T) {
 	h := newHarness(t)
 	h.lead("claude", mode.Ask, "high")
-	h.cfg.PaidRuns.Codex.Allow, h.cfg.PaidRuns.Codex.DailyCapUSD = true, 5
+	h.cfg.PaidRuns.Set("codex", config.PaidAgent{Allow: true, DailyCapUSD: 5})
 	codex := h.deps.Agents["codex"]
 	codex.Quota = nil
 	h.deps.Agents["codex"] = codex

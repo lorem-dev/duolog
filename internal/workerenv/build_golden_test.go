@@ -103,11 +103,11 @@ func goldenConfig() *config.Config {
 		"OPENAI_API_KEY", "CODEX_API_KEY", "CORP_LLM_KEY", "GOLDEN_KEEP", "DUOLOG_LEAD", "REX_SESSION",
 	}}
 	cfg.PaidRuns.UsableShare = 0.5
-	cfg.PaidRuns.Claude.Allow, cfg.PaidRuns.Claude.DailyCapUSD = true, 5
-	cfg.PaidRuns.Claude.Env = []string{"ANTHROPIC_API_KEY", "CLAUDE_PAID_EXTRA"}
-	cfg.PaidRuns.Claude.SubscriptionEndpoints = map[string]string{"corp-gateway": "https://llm.example.com/claude"}
-	cfg.PaidRuns.Codex.Allow, cfg.PaidRuns.Codex.DailyCapUSD = true, 5
-	cfg.PaidRuns.Codex.Env = []string{"OPENAI_API_KEY", "CODEX_PAID_EXTRA"}
+	cfg.PaidRuns.Set("claude", config.PaidAgent{
+		Allow: true, DailyCapUSD: 5, Env: []string{"ANTHROPIC_API_KEY", "CLAUDE_PAID_EXTRA"},
+		SubscriptionEndpoints: map[string]string{"corp-gateway": "https://llm.example.com/claude"},
+	})
+	cfg.PaidRuns.Set("codex", config.PaidAgent{Allow: true, DailyCapUSD: 5, Env: []string{"OPENAI_API_KEY", "CODEX_PAID_EXTRA"}})
 	return cfg
 }
 
@@ -328,7 +328,12 @@ func TestBuildRefusalsGolden(t *testing.T) {
 		name string
 		set  func(in *ProcessInput)
 	}{
-		{"paid without opt-in", func(in *ProcessInput) { in.Variant = Paid; in.Config.PaidRuns.Claude.Allow = false }},
+		{"paid without opt-in", func(in *ProcessInput) {
+			in.Variant = Paid
+			pa := in.Config.PaidRuns.Agent("claude")
+			pa.Allow = false
+			in.Config.PaidRuns.Set("claude", pa)
+		}},
 		{"unknown agent", func(in *ProcessInput) { in.Agent = "gemini" }},
 		{"unknown shape", func(in *ProcessInput) { in.Shape = "daemon" }},
 		{"unknown variant", func(in *ProcessInput) { in.Variant = "cheap" }},

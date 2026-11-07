@@ -129,8 +129,10 @@ func TestDroppedOnlyLoginGoesToLeadWithoutLogin(t *testing.T) {
 	// advice, so the first launch carries no line.
 	t.Run("allowed key", func(t *testing.T) {
 		h := keys(t)
-		h.cfg.PaidRuns.Codex.Allow, h.cfg.PaidRuns.Codex.DailyCapUSD = true, 5
-		h.cfg.PaidRuns.Codex.Env = []string{"OPENAI_API_KEY"}
+		pa := h.cfg.PaidRuns.Agent("codex")
+		pa.Allow, pa.DailyCapUSD = true, 5
+		pa.Env = []string{"OPENAI_API_KEY"}
+		h.cfg.PaidRuns.Set("codex", pa)
 		o, e := h.run("implement")
 		h.requireCalls(1)
 		if e != nil || !strings.HasPrefix(o.Line, "done=true") || strings.Contains(o.Line, "no longer get") {

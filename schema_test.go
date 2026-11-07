@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog"
-	"github.com/lorem-dev/duolog/internal/config/schemagen"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/wiring/schemagen"
 	validator "github.com/santhosh-tekuri/jsonschema/v6"
 	"go.yaml.in/yaml/v3"
 )

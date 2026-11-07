@@ -34,15 +34,15 @@ func TestDroppedKeysSetOrListedNotAllowed(t *testing.T) {
 		{"other route shapes", []string{"CODEX_API_KEY"}, []string{"ANTHROPIC_BASE_URL=https://other.example.com", "CLAUDE_CODE_USE_BEDROCK=1"}, nil,
 			map[string][]string{"claude": {"ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK"}, "codex": {"CODEX_API_KEY"}}},
 		{"trusted base URL", []string{"ANTHROPIC_BASE_URL"}, []string{"ANTHROPIC_BASE_URL=https://llm.example.com/claude/"},
-			func(p *config.PaidRuns) { p.Claude.SubscriptionEndpoints = trusted }, map[string][]string{}},
+			func(p *config.PaidRuns) { p.Set("claude", config.PaidAgent{SubscriptionEndpoints: trusted}) }, map[string][]string{}},
 		{"allowed with the key in its env", nil, []string{"ANTHROPIC_API_KEY=x", "OPENAI_API_KEY=y"},
 			func(p *config.PaidRuns) {
-				p.Claude.Allow, p.Claude.DailyCapUSD, p.Claude.Env = true, 5, []string{"ANTHROPIC_API_KEY"}
+				p.Set("claude", config.PaidAgent{Allow: true, DailyCapUSD: 5, Env: []string{"ANTHROPIC_API_KEY"}})
 			}, map[string][]string{"codex": codex}},
 		{"allowed and listed", []string{"ANTHROPIC_AUTH_TOKEN"}, []string{"ANTHROPIC_AUTH_TOKEN=x"},
-			func(p *config.PaidRuns) { p.Claude.Allow, p.Claude.DailyCapUSD = true, 5 }, map[string][]string{}},
+			func(p *config.PaidRuns) { p.Set("claude", config.PaidAgent{Allow: true, DailyCapUSD: 5}) }, map[string][]string{}},
 		{"allowed without the key", nil, []string{"ANTHROPIC_API_KEY=x"},
-			func(p *config.PaidRuns) { p.Claude.Allow, p.Claude.DailyCapUSD = true, 5 }, map[string][]string{"claude": claude}},
+			func(p *config.PaidRuns) { p.Set("claude", config.PaidAgent{Allow: true, DailyCapUSD: 5}) }, map[string][]string{"claude": claude}},
 	} {
 		cfg := &config.Config{EnvPassthrough: c.names}
 		if c.paid != nil {

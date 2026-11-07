@@ -50,8 +50,7 @@ type cacheWorld struct {
 
 func newCacheWorld(agent string) *cacheWorld {
 	cfg := &config.Config{EnvPassthrough: []string{"HOME", "ANTHROPIC_BASE_URL", "CORP_LLM_KEY"}}
-	cfg.PaidRuns.Claude.Allow, cfg.PaidRuns.Claude.DailyCapUSD = true, 5
-	cfg.PaidRuns.Claude.SubscriptionEndpoints = map[string]string{"corp": trustedURL}
+	cfg.PaidRuns.Set("claude", config.PaidAgent{Allow: true, DailyCapUSD: 5, SubscriptionEndpoints: map[string]string{"corp": trustedURL}})
 	w := &cacheWorld{
 		agent: agent, shape: launch.Worker, variant: launch.Paid, cfg: cfg,
 		environ: []string{"HOME=/home/test", "ANTHROPIC_BASE_URL=" + trustedURL, "CORP_LLM_KEY=" + cacheKey},
@@ -82,7 +81,7 @@ func (w *cacheWorld) build() (launch.Process, error) {
 	}
 	stat := func(string) (os.FileInfo, error) { return cacheInfo{}, nil }
 	layer := launch.Layer{Name: "user", Path: "settings.json"}
-	facts := workerenv.ReadLayer(w.agent, layer, w.cfg.PaidRuns.Claude.SubscriptionEndpoints, read, stat)
+	facts := workerenv.ReadLayer(w.agent, layer, w.cfg.PaidRuns.Agent("claude").SubscriptionEndpoints, read, stat)
 	envKey := w.envKey
 	if envKey == "" {
 		envKey = w.cache.ProviderEnvKey(w.agent)
@@ -158,9 +157,15 @@ func TestCacheRebuildsSameNameEndpointBeforeReuse(t *testing.T) {
 		{"layer disappears", func(w *cacheWorld) { delete(w.files, "settings.json") }, true, paidrules.Subscription},
 		{"layer unreadable", func(w *cacheWorld) { w.files["settings.json"] = "denied" }, true, paidrules.Paid},
 		{"config endpoint moves", func(w *cacheWorld) {
-			w.cfg.PaidRuns.Claude.SubscriptionEndpoints = map[string]string{"corp": movedURL}
+			pa := w.cfg.PaidRuns.Agent("claude")
+			pa.SubscriptionEndpoints = map[string]string{"corp": movedURL}
+			w.cfg.PaidRuns.Set("claude", pa)
 		}, true, paidrules.Paid},
-		{"config cap", func(w *cacheWorld) { w.cfg.PaidRuns.Claude.DailyCapUSD = 6 }, true, paidrules.Subscription},
+		{"config cap", func(w *cacheWorld) {
+			pa := w.cfg.PaidRuns.Agent("claude")
+			pa.DailyCapUSD = 6
+			w.cfg.PaidRuns.Set("claude", pa)
+		}, true, paidrules.Subscription},
 		{"shape", func(w *cacheWorld) { w.shape = launch.Peer }, true, paidrules.Subscription},
 		{"variant", func(w *cacheWorld) { w.variant = launch.Free }, true, paidrules.Subscription},
 		{"nothing", func(*cacheWorld) {}, false, paidrules.Subscription},
