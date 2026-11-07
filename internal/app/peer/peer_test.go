@@ -157,7 +157,7 @@ func newRig(t *testing.T, script map[string]peertest.Reply) *rig {
 	// The Claude gate runs, as where duolog is installed: a Claude peer at
 	// level plan or in a read-only role opens only then.
 	r.claudeGate(true)
-	testbin.Install(t, "duolog", testbin.Scenario{})
+	duolog := testbin.Install(t, "duolog", testbin.Scenario{})
 	// One account state for the whole test, as for one user: open, send and
 	// close are separate commands. Its quota reads start no binary.
 	if r.gate, err = paidrunstest.Gate(filepath.Join(home, "accounts"), r.cfg); err != nil {
@@ -185,6 +185,12 @@ func newRig(t *testing.T, script map[string]peertest.Reply) *rig {
 		// The held-gate check is the real one, on the real gate binary lookup.
 		HeldGate: func(agent, root string, env []string) error {
 			return delegate.HeldGate(delegate.Deps{GateBinary: launchtest.GateBinary, Agents: delegatetest.Agents()}, agent, root, env)
+		},
+		// A queue run is the fake duolog, and no test starts one detached
+		// unless it says so.
+		Executable: func() (string, error) { return duolog, nil },
+		StartDetached: func([]string, string, string) error {
+			return errors.New("this test starts no detached run")
 		},
 	}
 	r.useDeps(func(*Deps) {})
@@ -933,6 +939,26 @@ func TestSendIsOneLineReference(t *testing.T) {
 	}
 	if tasks := r.messages("task"); len(tasks) != 1 || tasks[0].From != "codex/lead.lead-1" || tasks[0].To != "codex/implement" {
 		t.Fatalf("%+v", tasks)
+	}
+}
+
+// A send counts the peer's turns again from none and forgets the last told
+// turn, so the Stop hook tells the new task's first turn end.
+func TestSendCountsTurnsAgain(t *testing.T) {
+	r := newRig(t, baseScript())
+	e := r.ready()
+	if _, err := r.reg.Update(e.ID, func(x *session.Entry) { x.Turns, x.IdleTurn = 3, "message:abc:3" }); err != nil {
+		t.Fatal(err)
+	}
+	path := r.task()
+	script := baseScript()
+	script["capture"] = screens(sendOK(path)...)
+	r.panes(script)
+	if err := Send(r.ctx, e.ID, "task.md"); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.entry(e.ID); got.Turns != 0 || got.IdleTurn != "" {
+		t.Fatalf("turns %d, idle turn %q after a send", got.Turns, got.IdleTurn)
 	}
 }
 

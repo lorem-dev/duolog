@@ -162,7 +162,7 @@ func newPeerCommand(d *cmdDeps) *cobra.Command {
 		return st.Line, err
 	})
 	answer.Flags().StringVar(&reason, "reason", "", "One line to type into the pane, after \"Reason: \", when the answer leaves it interrupted, such as why a permission was denied")
-	closeCmd := run("close <id>", "Close a session; changed files are left as they are", cobra.ExactArgs(1), peerClose)
+	closeCmd := run("close <id>", "Close a session; changed files are left as they are", cobra.ExactArgs(1), d.peerClose)
 	var listJSON, listLong bool
 	list := &cobra.Command{Use: "list", Short: "List this lead's peer states without answering questions", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		if listLong && listJSON {
@@ -180,35 +180,37 @@ func newPeerCommand(d *cmdDeps) *cobra.Command {
 		if listJSON {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(peers)
 		}
-		if listLong {
-			return writeLongList(cmd.OutOrStdout(), peers, time.Now())
-		}
-		for _, p := range peers {
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", p.ID, p.State); err != nil {
-				return err
-			}
-		}
-		return nil
+		return writePeerList(ctx, d, cmd.OutOrStdout(), peers, listLong)
 	}}
 	list.Flags().BoolVar(&listJSON, "json", false, "Print peers as JSON; id and state keep their old values")
 	list.Flags().BoolVar(&listLong, "long", false, "Print a table with role, agent, task, last event and tab")
 	release := run("release <id>", "End the account hold of a pane that no session records, as quota and doctor show it", cobra.ExactArgs(1), func(ctx context.Context, _ *cobra.Command, args []string) (string, error) {
 		return peer.Release(ctx, args[0])
 	})
-	root.AddCommand(open, wait, send, status, answer, closeCmd, list, release, newPeerShowCommand(d, &lead), newPeerViewCommand(d, &lead), newPeerLaunchCommand(d))
+	root.AddCommand(open, wait, send, status, answer, closeCmd, list, release, newPeerQueueCommand(d, &lead), newPeerShowCommand(d, &lead), newPeerViewCommand(d, &lead), newPeerLaunchCommand(d))
 	return root
 }
 
-// peerClose closes a peer and says so when its pane was already gone.
-func peerClose(ctx context.Context, _ *cobra.Command, args []string) (string, error) {
-	note, err := peer.CloseNote(ctx, args[0])
+// peerClose closes a peer and says so when its pane was already gone. The
+// freed session goes to the lead's queue: a detached run opens what it can.
+func (d *cmdDeps) peerClose(ctx context.Context, _ *cobra.Command, args []string) (string, error) {
+	id := args[0]
+	note, err := peer.CloseNote(ctx, id)
 	if err != nil {
 		return "", err
 	}
+	line := id + " closed"
 	if note != "" {
-		return args[0] + " closed; " + note, nil
+		line += "; " + note
 	}
-	return args[0] + " closed", nil
+	// The close just freed a session: every queued item may take it.
+	switch started, err := d.StartQueueRun(ctx, nil); {
+	case err != nil:
+		line += "; queue run not started: " + err.Error()
+	case started:
+		line += "; queue run started"
+	}
+	return line, nil
 }
 
 // errPeerShowModel is the refusal when a model may read the output.

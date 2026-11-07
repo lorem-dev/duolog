@@ -111,6 +111,18 @@ type Settlement struct {
 	// whose quota read predates the end still counts them. The Store sets
 	// them; a caller's are ignored.
 	Windows []WindowCost `json:"windows,omitempty"`
+	// Admitted is when the reservation was admitted, which its windows were
+	// read for. The Store sets it; a caller's is ignored.
+	Admitted time.Time `json:"admitted,omitzero"`
+}
+
+// Reading is the windows an admission read and was refused on, of one
+// agent's account key, at the time it was decided. A refusal holds nothing,
+// so this is the only place its reading stays.
+type Reading struct {
+	AccountKey string       `json:"account_key,omitempty"`
+	At         time.Time    `json:"at"`
+	Windows    []WindowCost `json:"windows,omitempty"`
 }
 
 // RateSample is a learned window rate of one agent, family and account

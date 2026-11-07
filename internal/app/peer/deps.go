@@ -150,4 +150,10 @@ type Deps struct {
 	// DroppedKeys lists the route names an agent's panes no longer get:
 	// workerenv.DroppedKeys.
 	DroppedKeys launch.DroppedKeys
+	// Executable is the duolog that a detached queue run starts.
+	Executable func() (string, error)
+	// StartDetached starts argv in dir as a process of its own that the caller
+	// does not wait for, its output appended to logPath, as
+	// kit.StartDetached does.
+	StartDetached func(argv []string, dir, logPath string) error
 }

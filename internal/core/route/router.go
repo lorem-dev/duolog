@@ -1,6 +1,7 @@
 package route
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 
@@ -36,6 +37,10 @@ type Options struct {
 	Balance *Balance
 }
 
+// ErrNoAgent is what Resolve returns, wrapped, when neither agent is
+// available to a role: the same call may pass once a limit resets.
+var ErrNoAgent = errors.New("no available agent")
+
 // Resolve chooses a configured fallback, or derives one from the model map.
 // InLead tells the caller that the unavailable primary moved to the lead's agent;
 // Self separately identifies work the lead can perform without a new session.
@@ -68,7 +73,7 @@ func Resolve(cfg *config.Config, role string, unavailable map[string]bool, opts 
 		if route.Agent == "" || route.Agent == use.Agent || unavailable[route.Agent] || route.Model == "" {
 			agent := fallbackAgent(cfg, use.Agent, unavailable)
 			if agent == "" {
-				return Route{}, fmt.Errorf("role %s: no available agent", role)
+				return Route{}, fmt.Errorf("role %s: %w", role, ErrNoAgent)
 			}
 			model, err := mappedModel(cfg, use, agent)
 			if err != nil {

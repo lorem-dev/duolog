@@ -31,7 +31,8 @@ var publish = store.Rename
 // State is the account state that every project of the user shares: money,
 // reservations, rates and session slots belong to the account, not to a
 // project. AccountKeys maps "agent/kind" to a salted identity digest; Tiers
-// is keyed by agent. It never holds a raw identity or a route value.
+// is keyed by agent, and so is Readings, the latest refused admission's
+// windows. It never holds a raw identity or a route value.
 type State struct {
 	Version      int                              `json:"version"`
 	Reservations map[string]paidrules.Reservation `json:"reservations"`
@@ -39,6 +40,7 @@ type State struct {
 	AccountKeys  map[string]string                `json:"account_keys"`
 	Samples      []paidrules.RateSample           `json:"samples"`
 	Tiers        map[string]paidrules.TierResult  `json:"tiers"`
+	Readings     map[string]paidrules.Reading     `json:"readings,omitempty"`
 	Tickets      []paidrules.Ticket               `json:"tickets"`
 	NextTicket   uint64                           `json:"next_ticket"`
 }
@@ -175,6 +177,9 @@ func (st *State) init() {
 	}
 	if st.Tiers == nil {
 		st.Tiers = map[string]paidrules.TierResult{}
+	}
+	if st.Readings == nil {
+		st.Readings = map[string]paidrules.Reading{}
 	}
 }
 

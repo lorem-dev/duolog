@@ -67,12 +67,12 @@ list, lowest first:
 
 ```text
 launch, lead, learn, paidruns, quota, gate, delegate, profile, peer,
-calibrate, doctor, sync, roster, hook, install, remember, skilltest
+calibrate, doctor, sync, roster, load, hook, install, remember, skilltest
 ```
 
 The order keeps the app packages free of import cycles and gives every
 import one direction. It matches the imports of today's code: `hook` imports
-`sync` and `roster`, `doctor` imports `peer`, and `calibrate` imports
+`sync`, `roster` and `load`, `doctor` imports `peer`, and `calibrate` imports
 `profile`. No app package has to break the order when it moves.
 
 ## Where today's packages sit

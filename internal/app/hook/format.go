@@ -44,7 +44,7 @@ func line(m bus.Message) string {
 			out += " (person)"
 		}
 		return out
-	case "status", "notice":
+	case "status", "notice", "peer-idle", "peer-exit":
 		return m.K + " " + who + ": " + s
 	}
 	kind := m.K

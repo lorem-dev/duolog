@@ -61,14 +61,21 @@ func askMessages(t *testing.T, dir string) []bus.Message {
 func askReply(t *testing.T, kind, from string, unknown bool, want string) {
 	t.Helper()
 	b, _, dir := askSetup(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	// A reply that settles the ask ends the wait at once, so its wait can be
+	// long: a slow runner's setup, ask and reply then all fit in it. A reply
+	// that must be ignored waits the whole wait out, so that one stays short.
+	wait := 1100 * time.Millisecond
+	if kind == want {
+		wait = 20 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), wait+time.Second)
 	defer cancel()
 	result := make(chan Decision, 1)
 	go func() {
-		result <- Escalate(ctx, b, "first-123456", Action{Kind: "exec", Target: "custom-command", Role: "implement"}, 1100*time.Millisecond, false)
+		result <- Escalate(ctx, b, "first-123456", Action{Kind: "exec", Target: "custom-command", Role: "implement"}, wait, false)
 	}()
 	var request bus.Message
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
 		ms := askMessages(t, dir)
 		if len(ms) > 0 {

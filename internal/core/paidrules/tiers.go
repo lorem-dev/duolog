@@ -290,6 +290,21 @@ func tierSettings(cfg *config.Config) (config.SessionTiers, config.Balance) {
 	return tiers, balance
 }
 
+// LastTier is the tier admission recorded last for an agent, with the
+// session limit cfg gives that tier now. With none recorded, it is the small
+// tier every agent starts at.
+func LastTier(last TierResult, cfg *config.Config) TierResult {
+	tiers, _ := tierSettings(cfg)
+	if !slices.Contains(tierOrder, last.Tier) {
+		return TierResult{Tier: TierSmall, Reason: "no tier recorded yet", Limit: tiers.Limit(TierSmall)}
+	}
+	reason := "admission's last tier"
+	if last.Reason != "" {
+		reason += ": " + last.Reason
+	}
+	return TierResult{Tier: last.Tier, Reason: reason, Rates: last.Rates, Limit: tiers.Limit(last.Tier)}
+}
+
 func formatRate(perMillion float64) string {
 	return strconv.FormatFloat(perMillion, 'g', 3, 64)
 }

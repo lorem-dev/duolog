@@ -59,6 +59,19 @@ type Options struct {
 	// ObserveAttempt receives each task a peer was sent, once it has ended, as
 	// a run placed on the peer.
 	ObserveAttempt delegate.Observer
+	// WorkDir, when set, is the folder whose checkout a peer works in, as if
+	// the command ran there; the queue opens each item in its own. Empty is
+	// the command's working folder.
+	WorkDir string
+	// FreeOnly admits a new pane on the free variant only, never the paid
+	// one, even where paid runs are allowed: the queue's runs, which nobody
+	// starts by hand, set it.
+	FreeOnly bool
+	// NewOnly opens a new pane even where the role has a live one in the
+	// checkout, so that the free-variant rule always applies and a queued
+	// task never lands in another task's conversation. The queue's runs set it
+	// with FreeOnly.
+	NewOnly bool
 }
 
 // Operation is one open, send or close as the library ran it: its agent, how

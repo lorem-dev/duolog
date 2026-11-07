@@ -69,6 +69,15 @@ type Entry struct {
 	// StopNotified is the task, by path and generation, whose unfinished
 	// stop the peer's Stop hook already told the lead of: once per task.
 	StopNotified string `json:",omitempty"`
+	// IdleTurn is the turn, by transcript length, whose end the peer's Stop
+	// hook already told the lead of with a peer-idle message.
+	IdleTurn string `json:",omitempty"`
+	// Turns counts the turns the peer began since its last send: its prompt
+	// hook adds one per prompt, and a send starts it again. It tells apart two
+	// turns that end with the same message when no transcript is readable.
+	Turns int `json:",omitempty"`
+	// ExitNotified is set once the lead was told the peer's process exited.
+	ExitNotified bool `json:",omitempty"`
 }
 
 // Unfinished is the rule of duolog peer status: a peer's task is unfinished

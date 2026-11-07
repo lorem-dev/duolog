@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"text/tabwriter"
@@ -8,6 +9,23 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/app/peer"
 )
+
+// writePeerList prints the plain list, or the table with long, and the load
+// line as its last line.
+func writePeerList(ctx context.Context, d *cmdDeps, w io.Writer, peers []peer.ListedPeer, long bool) error {
+	if long {
+		if err := writeLongList(w, peers, time.Now()); err != nil {
+			return err
+		}
+	} else {
+		for _, p := range peers {
+			if _, err := fmt.Fprintf(w, "%s %s\n", p.ID, p.State); err != nil {
+				return err
+			}
+		}
+	}
+	return writeLoadLine(ctx, d, w, peers)
+}
 
 // writeLongList prints the table of `peer list --long`. It holds duolog's
 // own data only, never text from a peer's screen.

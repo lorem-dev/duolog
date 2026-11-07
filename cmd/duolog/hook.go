@@ -39,7 +39,12 @@ func newHookCommand(d *cmdDeps) *cobra.Command {
 		if err != nil || len(data) > 4*1024*1024 {
 			return nil
 		}
-		env := wiring.HookEnv(hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ(), Stderr: cmd.ErrOrStderr(), Peers: peerLines(d, cmd), Models: d.Delegate.Agents["codex"].Models, Sync: d.SyncFormats})
+		// A prompt and a peer-idle message start the lead's queue run, at
+		// most one per hook, while the load line shows a free session.
+		loads := leadLoad(d, cmd)
+		startQueue := queueStarter(d, cmd, loads)
+		env := wiring.HookEnv(hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ(), Stderr: cmd.ErrOrStderr(), Peers: peerLines(d, cmd), Models: d.Delegate.Agents["codex"].Models, Sync: d.SyncFormats, Load: loads,
+			QueueRun: startQueue, PeerIdle: func(ctx context.Context, leadID, _ string) { startQueue(ctx, leadID) }})
 		var out hook.Output
 		switch args[0] {
 		case "SessionStart", "session-start":

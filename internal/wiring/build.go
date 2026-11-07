@@ -126,8 +126,10 @@ func PeerDeps(d delegate.Deps) peer.Deps {
 		HeldGate: func(agent, root string, env []string) error {
 			return delegate.HeldGate(d, agent, root, env)
 		},
-		Build:       workerenv.Build,
-		DroppedKeys: workerenv.DroppedKeys,
+		Build:         workerenv.Build,
+		DroppedKeys:   workerenv.DroppedKeys,
+		Executable:    os.Executable,
+		StartDetached: kit.StartDetached,
 	}
 }
 
