@@ -105,10 +105,12 @@ there it starts the agent's exit.
 
 An input that shows only the agent's suggestion counts as empty, so
 `duolog peer send` types over it. duolog tells a suggestion from typed text
-by its look: Claude draws suggestions dim or grey. Claude's `Try "..."`
+by its look: Claude draws suggestions dim or grey, in the semicolon or the
+colon form of an SGR colour. Claude's `Try "..."`
 placeholder also counts, even when it wraps or is cut at the pane's edge.
-Rex must keep the styles in its capture for other suggestions; without them,
-duolog takes the text for typed text and refuses to send.
+duolog reads the input line with `rex capture --format vt`, because Rex's
+default format drops the styles; without them, duolog takes the text for
+typed text and refuses to send.
 
 Every peer may write one file under `.duolog`: its report at
 `.duolog/tasks/<peer-id>/report.md` in the checkout it works in. In a linked

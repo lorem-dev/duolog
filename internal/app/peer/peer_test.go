@@ -2049,6 +2049,24 @@ func TestSendTypesOverSuggestion(t *testing.T) {
 	}
 }
 
+// A suggestion drawn in a colon-form colour with a colour-space id is no
+// input either, while the same text typed in that colour's neighbour is.
+func TestSendTypesOverColonFormSuggestion(t *testing.T) {
+	r := newRig(t, withScreens(claudeIdle("")))
+	e := r.open("plan")
+	path := r.task()
+	suggestion := styledIdle("\x1b[7mc\x1b[27m\x1b[38:2:0:153:153:153mommit the changes\x1b[0m")
+	r.panes(withScreens(suggestion, suggestion, styledIdle(line("task.md")+cursor), claudeWorking()))
+	if err := Send(r.ctx, e.ID, path); err != nil {
+		t.Fatal(err)
+	}
+	r.panes(withScreens(styledIdle("\x1b[38:2:0:255:255:255mcommit the changes\x1b[0m" + cursor)))
+	err := Send(r.ctx, e.ID, path)
+	if err == nil || !strings.Contains(err.Error(), "holds text") {
+		t.Fatalf("%v", err)
+	}
+}
+
 // Denying a permission prompt with a reason types the reason into the pane
 // it leaves interrupted, so the peer goes on with it.
 func TestDenyWithReasonReplies(t *testing.T) {

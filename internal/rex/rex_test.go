@@ -312,6 +312,29 @@ func TestCaptureStyledKeepsOnlySGR(t *testing.T) {
 	}
 }
 
+// Rex captures plain text unless asked for the vt format, which keeps the
+// styles; the styled capture must ask, the plain one must not.
+func TestCaptureStyledAsksForVT(t *testing.T) {
+	c := install(t, testbin.Scenario{Stdout: "❯ x"})
+	if _, err := c.CaptureStyled(context.Background(), "b", 20); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Capture(context.Background(), "b", 20); err != nil {
+		t.Fatal(err)
+	}
+	got := calls(t, c.Bin)
+	if len(got) != 2 {
+		t.Fatalf("%v", got)
+	}
+	styled, plain := strings.Join(got[0], " "), strings.Join(got[1], " ")
+	if !strings.Contains(styled, "--format vt") || !strings.Contains(styled, "--trim --unwrap") {
+		t.Fatalf("styled capture: %s", styled)
+	}
+	if strings.Contains(plain, "--format") {
+		t.Fatalf("plain capture: %s", plain)
+	}
+}
+
 func TestNewWindowUsesSessionAndCommand(t *testing.T) {
 	c := install(t, testbin.Scenario{Responses: map[string]testbin.Scenario{"window new": {Stdout: `{"window_id":"window:new","block_ids":["block:new"]}`}}})
 	c.Anchor, c.Dir, c.Label = "block:lead", "/work", "codex-tests"

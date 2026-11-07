@@ -256,54 +256,109 @@ func (s *sgrState) apply(params string) {
 		*s = sgrState{}
 		return
 	}
-	p := strings.FieldsFunc(params, func(r rune) bool { return r == ';' || r == ':' })
+	// Parameters split on ";". A parameter may carry sub-parameters after
+	// ":" (4:2 is a double underline, 38:2:0:r:g:b a colour with a colour-space
+	// id), which must not be read as parameters of their own.
+	p := strings.Split(params, ";")
 	num := func(i int) int {
 		if i >= len(p) {
 			return -1
 		}
-		n, err := strconv.Atoi(p[i])
+		head, _, _ := strings.Cut(p[i], ":")
+		n, err := strconv.Atoi(head)
 		if err != nil {
 			return -1
 		}
 		return n
 	}
 	for i := 0; i < len(p); i++ {
-		switch n := num(i); {
-		case n == 0:
-			*s = sgrState{}
-		case n == 2:
-			s.dim = true
-		case n == 22:
-			s.dim = false
-		case n == 7:
-			s.inverse = true
-		case n == 27:
-			s.inverse = false
-		case n == 90:
-			s.grey = true
-		case n >= 30 && n <= 37 || n == 39 || n >= 91 && n <= 97:
-			s.grey = false
-		case n == 38 || n == 48:
-			// An extended colour: 5;index or 2;r;g;b. Only the foreground counts.
-			switch num(i + 1) {
-			case 5:
-				if n == 38 {
-					s.grey = greyIndex(num(i + 2))
-				}
-				i += 2
-			case 2:
-				if n == 38 {
-					s.grey = greyRGB(num(i+2), num(i+3), num(i+4))
-				}
-				i += 4
+		n := num(i)
+		if n == 38 || n == 48 || n == 58 {
+			// An extended colour; only the foreground counts.
+			sub, used := extendedColour(p, i)
+			i += used
+			if n == 38 {
+				s.grey = greyColour(sub)
 			}
+			continue
 		}
+		if strings.Contains(p[i], ":") {
+			// Sub-parameters of any other code, such as 4:2, set no style here.
+			continue
+		}
+		s.set(n)
 	}
+}
+
+// set applies one plain SGR code.
+func (s *sgrState) set(n int) {
+	switch {
+	case n == 0:
+		*s = sgrState{}
+	case n == 2:
+		s.dim = true
+	case n == 22:
+		s.dim = false
+	case n == 7:
+		s.inverse = true
+	case n == 27:
+		s.inverse = false
+	case n == 90:
+		s.grey = true
+	case n >= 30 && n <= 37 || n == 39 || n >= 91 && n <= 97:
+		s.grey = false
+	}
+}
+
+// extendedColour returns the parts of the colour that parameter i (38, 48 or
+// 58) starts and how many further parameters it used. The colon form holds
+// the colour in the one parameter; the semicolon form takes the next ones:
+// 5;index or 2;r;g;b.
+func extendedColour(p []string, i int) (sub []string, used int) {
+	if _, rest, ok := strings.Cut(p[i], ":"); ok {
+		return strings.Split(rest, ":"), 0
+	}
+	if i+1 >= len(p) {
+		return nil, 0
+	}
+	switch p[i+1] {
+	case "5":
+		used = 2
+	case "2":
+		used = 4
+	}
+	end := min(i+1+used, len(p))
+	return p[i+1 : end], end - i - 1
+}
+
+// greyColour reads the parts of an extended colour, "5", index or "2",
+// [colour-space id,] r, g, b, and reports a grey. The colon form may carry an
+// empty or numeric colour-space id before r; the last three parts are r, g, b.
+func greyColour(sub []string) bool {
+	nums := make([]int, len(sub))
+	for i, part := range sub {
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			n = -1
+		}
+		nums[i] = n
+	}
+	switch {
+	case len(nums) >= 2 && nums[0] == 5:
+		return greyIndex(nums[1])
+	case len(nums) >= 4 && nums[0] == 2:
+		return greyRGB(nums[len(nums)-3], nums[len(nums)-2], nums[len(nums)-1])
+	}
+	return false
 }
 
 // greyIndex is the bright black of the 16 colours or a middle step of the
 // 256-colour grey ramp; the ramp's ends are near black and near white.
-func greyIndex(n int) bool { return n == 8 || n >= 238 && n <= 250 }
+func greyIndex(n int) bool {
+	// 102 and 145 are the grey steps of the colour cube that match the same
+	// middle band; 59 is too dark and 188 too light.
+	return n == 8 || n == 102 || n == 145 || n >= 238 && n <= 250
+}
 
 // greyRGB is a colour with equal parts that is neither dark nor light, such
 // as the rgb(153,153,153) that Claude draws its suggestions in.

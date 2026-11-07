@@ -331,7 +331,8 @@ func (c Client) Capture(ctx context.Context, block string, lines int) ([]byte, e
 // Every other escape sequence and control character is dropped, and a line
 // that holds only styles counts as blank.
 func (c Client) CaptureStyled(ctx context.Context, block string, lines int) ([]byte, error) {
-	out, err := c.call(ctx, "capture", "-s", c.Session, "-b", block, "--trim", "--unwrap")
+	// Rex's default format is plain text; only the vt format keeps the styles.
+	out, err := c.call(ctx, "capture", "-s", c.Session, "-b", block, "--format", "vt", "--trim", "--unwrap")
 	if err != nil {
 		return nil, err
 	}

@@ -234,7 +234,6 @@ linters:
       - {path: '^internal/core/route/router\.go$', linters: [nestif], text: '.if\ unavailable\[route\.Agent\]. has complex nested blocks \(complexity: 6\)'} # if if unavailable[route.Agent]: nesting 6
       - {path: '^internal/core/screen/decide\.go$', linters: [gocognit], text: 'complexity 21 of func .(?:\(\*?\w+\)\.)?Pick. is'} # Pick: cognitive 21
       - {path: '^internal/core/screen/screen\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?Parse is 18,'} # Parse: cyclomatic 18
-      - {path: '^internal/core/screen/screen\.go$', linters: [cyclop, gocognit], text: 'complexity 24 of func .(?:\(\*?\w+\)\.)?apply. is|function (?:\(\*?\w+\)\.)?apply is 23,'} # apply: cyclomatic 23, cognitive 24
       - {path: '^internal/core/screen/screen\.go$', linters: [cyclop, gocognit], text: 'complexity 25 of func .(?:\(\*?\w+\)\.)?questionText. is|function (?:\(\*?\w+\)\.)?questionText is 17,'} # questionText: cyclomatic 17, cognitive 25
       - {path: '^internal/core/screen/screen\.go$', linters: [nestif], text: '.if\ ok. has complex nested blocks \(complexity: 6\)'} # if if ok: nesting 6
       - {path: '^internal/core/taskspec/taskspec\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Inline. has too many statements \(48 > |complexity 24 of func .(?:\(\*?\w+\)\.)?Inline. is|function (?:\(\*?\w+\)\.)?Inline is 19,'} # Inline: cyclomatic 19, statements 48, cognitive 24

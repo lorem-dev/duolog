@@ -353,6 +353,54 @@ func TestSuggestionIsNoInput(t *testing.T) {
 	}
 }
 
+// A suggestion in a colour form the first reading missed is still no input:
+// a colon form with a colour-space id, and the mid greys of the 256-colour
+// cube. A sub-parameter that is not "dim" does not make typed text dim, and
+// typed text in a non-grey colour stays input.
+func TestSuggestionColourForms(t *testing.T) {
+	cases := []struct {
+		name, screen, input string
+	}{
+		{"colon rgb with colour space", styledIdle("\x1b[7mc\x1b[27m\x1b[38:2:0:153:153:153mommit the changes" + reset), ""},
+		{"colon rgb without colour space", styledIdle("\x1b[7mc\x1b[27m\x1b[38:2::153:153:153mommit the changes" + reset), ""},
+		{"colon 256 grey", styledIdle("\x1b[38:5:245mrun the tests" + reset), ""},
+		{"cube grey 145", styledIdle("\x1b[38;5;145mrun the tests" + reset), ""},
+		{"cube grey 102", styledIdle("\x1b[38;5;102mrun the tests" + reset), ""},
+		{"double underline is not dim", styledIdle("\x1b[4:2mfix the build" + reset + cursor), "fix the build"},
+		{"underline colour is not the text colour", styledIdle("\x1b[58;2;153;153;153mfix the build" + reset + cursor), "fix the build"},
+		{"typed in blue", styledIdle("\x1b[38;5;75mfix the build" + reset + cursor), "fix the build"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := parseAs("claude", []byte(tc.screen))
+			if s.State != Ready || s.Input != tc.input || s.Empty != (tc.input == "") {
+				t.Fatalf("%+v", s)
+			}
+		})
+	}
+}
+
+// Claude Code puts a no-break space after the prompt and a grey recap above
+// the box. Neither makes the dim suggestion in the row typed text.
+func TestSuggestionAfterNoBreakSpace(t *testing.T) {
+	ready := fixtureText("claude-ready.txt")
+	placeholder := "❯ " + `Try "how does <filepath> work?"`
+	row := "❯ " + reset + dim + "Don't commit; the lead does." + reset
+	recap := "\x1b[3m" + grey + "recap: the peer finished its task." + reset + "\n\n"
+	s := strings.Replace(ready, placeholder, row, 1)
+	rule := strings.Repeat("─", 64) + "\n"
+	s = strings.Replace(s, rule+row, recap+rule+row, 1)
+	got := parseAs("claude", []byte(s))
+	if got.State != Ready || !got.Empty || got.Input != "" {
+		t.Fatalf("%+v", got)
+	}
+	typed := strings.Replace(ready, placeholder, "❯ Don't commit; the lead does.", 1)
+	got = parseAs("claude", []byte(typed))
+	if got.Empty || got.Input != "Don't commit; the lead does." {
+		t.Fatalf("%+v", got)
+	}
+}
+
 // Without styles, Claude's placeholder is told by its shape, also when it
 // wraps over rows or is cut at the pane's edge.
 func TestClaudePlaceholderShapes(t *testing.T) {
