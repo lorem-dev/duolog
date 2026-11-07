@@ -42,6 +42,8 @@
 
 ## Development
 
+## 1.5.1
+
 ### Added
 
 - `agents.codex.skills_dir` moves Codex's project skills. 1.5.0 refuses it, so
