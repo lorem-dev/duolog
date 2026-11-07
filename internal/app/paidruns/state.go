@@ -160,6 +160,9 @@ func (st *State) init() {
 	if st.Tiers == nil {
 		st.Tiers = map[string]TierResult{}
 	}
+	if st.Readings == nil {
+		st.Readings = map[string]Reading{}
+	}
 }
 
 // write replaces the folder's file name with data through a temporary file,

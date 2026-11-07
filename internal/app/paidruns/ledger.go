@@ -46,7 +46,7 @@ func (s *Store) Settle(ctx context.Context, in Settlement) error {
 		in.Agent, in.AccountKey = r.Agent, r.AccountKey
 		in.Started = in.Started || r.Started
 		// The window costs it held stay against reads older than its end.
-		in.Windows = r.Estimate.Windows
+		in.Windows, in.Admitted = r.Estimate.Windows, r.Created
 		in.ChargedUSD = charge(r, in)
 		if in.Ended.IsZero() {
 			in.Ended = s.now()

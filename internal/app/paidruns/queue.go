@@ -103,11 +103,7 @@ func (s *Store) enter(ctx context.Context, in Admission, l *line, tier TierResul
 		if dry {
 			return nil
 		}
-		// A tier made for an account the state no longer holds is not kept.
-		if tier.Tier != "" && d.Reason != ReasonAccountChanged {
-			tier.Live = agentLive
-			st.Tiers[r.Agent] = tier
-		}
+		st.keep(d, tier, agentLive, now)
 		switch {
 		case d.Admitted || !l.wait || !slotReason(d.Reason):
 			st.dropTicket(l.ticket)
@@ -124,6 +120,24 @@ func (s *Store) enter(ctx context.Context, in Admission, l *line, tier TierResul
 		return entry{}, err
 	}
 	return e, nil
+}
+
+// keep records what decision d, made at now, read of its agent's account:
+// the tier, with agentLive sessions, and for a refusal, which holds nothing,
+// the windows it read, as the agent's latest refused reading. Neither is kept
+// when it was made for an account the state no longer holds.
+func (st *State) keep(d Decision, tier TierResult, agentLive int, now time.Time) {
+	if d.Reason == ReasonAccountChanged {
+		return
+	}
+	agent := d.Reservation.Agent
+	if !d.Admitted && len(d.Reservation.Estimate.Windows) > 0 {
+		st.Readings[agent] = Reading{AccountKey: d.Reservation.AccountKey, At: now, Windows: d.Reservation.Estimate.Windows}
+	}
+	if tier.Tier != "" {
+		tier.Live = agentLive
+		st.Tiers[agent] = tier
+	}
 }
 
 // setAsideOpenTask takes the first task off the open of peer send r's

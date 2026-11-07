@@ -111,6 +111,18 @@ type Settlement struct {
 	// whose quota read predates the end still counts them. The Store sets
 	// them; a caller's are ignored.
 	Windows []WindowCost `json:"windows,omitempty"`
+	// Admitted is when the reservation was admitted, which its windows were
+	// read for. The Store sets it; a caller's is ignored.
+	Admitted time.Time `json:"admitted,omitzero"`
+}
+
+// Reading is the windows an admission read and was refused on, of one
+// agent's account key, at the time it was decided. A refusal holds nothing,
+// so this is the only place its reading stays.
+type Reading struct {
+	AccountKey string       `json:"account_key,omitempty"`
+	At         time.Time    `json:"at"`
+	Windows    []WindowCost `json:"windows,omitempty"`
 }
 
 // RateSample is a learned window rate of one agent, family and account
@@ -153,7 +165,8 @@ type Ticket struct {
 // State is the account state that every project of the user shares: money,
 // reservations, rates and session slots belong to the account, not to a
 // project. AccountKeys maps "agent/kind" to a salted identity digest; Tiers
-// is keyed by agent. It never holds a raw identity or a route value.
+// is keyed by agent, and so is Readings, the latest refused admission's
+// windows. It never holds a raw identity or a route value.
 type State struct {
 	Version      int                    `json:"version"`
 	Reservations map[string]Reservation `json:"reservations"`
@@ -161,6 +174,7 @@ type State struct {
 	AccountKeys  map[string]string      `json:"account_keys"`
 	Samples      []RateSample           `json:"samples"`
 	Tiers        map[string]TierResult  `json:"tiers"`
+	Readings     map[string]Reading     `json:"readings,omitempty"`
 	Tickets      []Ticket               `json:"tickets"`
 	NextTicket   uint64                 `json:"next_ticket"`
 }

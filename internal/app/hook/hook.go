@@ -7,11 +7,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/app/load"
 	"github.com/lorem-dev/duolog/internal/app/roster"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/capability"
@@ -35,6 +37,31 @@ type Env struct {
 	// Peers returns the lines of `duolog peer list` for the lead with this
 	// session id. Nil means none; the command sets it.
 	Peers func(ctx context.Context, leadID string) []string
+	// Load returns the load of the lead with this session id: its peers, the
+	// session limits and the 5-hour window. Nil means none; the command sets it.
+	Load func(ctx context.Context, leadID string) load.Summary
+	// PeerIdle is the hook point for work that follows a peer going idle, such
+	// as starting queued work. The lead's hooks call it once for each
+	// peer-idle message they deliver, with the lead's session id and the peer
+	// id. They run with the lead's environment; the peer's own Stop
+	// hook runs as a worker and cannot open peers. Nil by default.
+	PeerIdle func(ctx context.Context, leadID, peerID string)
+	// QueueRun starts the queue run of the lead with this session id when
+	// the lead has queued items. The lead's prompt hook calls it. Nil means
+	// none; the command sets it.
+	QueueRun func(ctx context.Context, leadID string)
+	// Config loads the project's config at root. Nil means the config files
+	// of the project and the user.
+	Config func(root string) (*config.Config, error)
+}
+
+// loadConfig loads the config of the project at e.Root, through e.Config
+// when it is set.
+func loadConfig(e Env) (*config.Config, error) {
+	if e.Config != nil {
+		return e.Config(e.Root)
+	}
+	return configfile.Load(e.Root)
 }
 
 type Output struct {
@@ -184,14 +211,39 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 	return &state{cfg: cfg, reg: reg, bus: b, lead: lead}, nil
 }
 
-func receive(s *state) ([]byte, error) {
-	var data []byte
-	err := s.bus.Consume(session.Address(s.lead), func(held, unread [][]byte) [][]byte {
+// receive renders the lead's unread lines and names the peers of the
+// peer-idle messages among them, each once.
+func receive(s *state) (data []byte, idle []string, err error) {
+	err = s.bus.Consume(session.Address(s.lead), func(held, unread [][]byte) [][]byte {
 		var keep [][]byte
 		data, keep = present(s.bus.Directory(), held, unread)
+		idle = idlePeers(unread)
 		return keep
 	})
+	return data, idle, err
+}
+
+// take receives the lead's unread lines, then calls PeerIdle for the peer-idle
+// messages among them.
+func take(ctx context.Context, e Env, s *state) ([]byte, error) {
+	data, idle, err := receive(s)
+	if err == nil {
+		followIdle(ctx, e, s, idle)
+	}
 	return data, err
+}
+
+// idlePeers names the peers of the peer-idle messages in lines, in order and
+// each once.
+func idlePeers(lines [][]byte) []string {
+	var peers []string
+	for _, line := range lines {
+		var m bus.Message
+		if json.Unmarshal(line, &m) == nil && m.K == "peer-idle" && m.Ref != "" && !slices.Contains(peers, m.Ref) {
+			peers = append(peers, m.Ref)
+		}
+	}
+	return peers
 }
 
 func render(agent, event string, data []byte) Output {
@@ -206,13 +258,21 @@ func render(agent, event string, data []byte) Output {
 	encoded, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": event, "additionalContext": string(data)}})
 	return Output{Stdout: append(encoded, '\n')}
 }
-func deliver(ctx context.Context, e Env, event string, register, includeRoster bool, started time.Time, extra func() string) Output {
+
+// deliver renders the lead's unread bus lines, then extra's line. extra gets
+// the lead's state, nil when the session is no registered lead, and the bus
+// data delivered so far.
+func deliver(ctx context.Context, e Env, event string, register, includeRoster bool, started time.Time, extra func(s *state, data []byte) string) Output {
 	if ctx.Err() != nil {
 		return Output{}
 	}
 	var data []byte
-	if s, err := prepare(e, register, started); err == nil && s != nil {
-		if data, err = receive(s); err != nil {
+	s, err := prepare(e, register, started)
+	if err == nil && s != nil {
+		if event == "UserPromptSubmit" || event == "PostToolUse" {
+			tellExited(ctx, e, s)
+		}
+		if data, err = take(ctx, e, s); err != nil {
 			return Output{}
 		}
 		if includeRoster {
@@ -222,14 +282,14 @@ func deliver(ctx context.Context, e Env, event string, register, includeRoster b
 		data = configLine(event, err)
 	}
 	if extra != nil {
-		if line := extra(); line != "" {
+		if line := extra(s, data); line != "" {
 			data = append(data, []byte(line+"\n")...)
 		}
 	}
 	return render(e.Agent, event, data)
 }
 func SessionStart(ctx context.Context, e Env) Output {
-	return deliver(ctx, e, "SessionStart", true, true, startTime(e), func() string {
+	return deliver(ctx, e, "SessionStart", true, true, startTime(e), func(*state, []byte) string {
 		prune(e)
 		var lines []string
 		for _, line := range []string{telemetryStart(ctx, e), syncStart(e), compactStart(ctx, e)} {
@@ -253,10 +313,21 @@ func prune(e Env) {
 	}
 }
 func Prompt(ctx context.Context, e Env) Output {
-	return deliver(ctx, e, "UserPromptSubmit", e.Agent == "codex", false, startTime(e), nil)
+	countTurn(ctx, e)
+	return deliver(ctx, e, "UserPromptSubmit", e.Agent == "codex", false, startTime(e), func(s *state, _ []byte) string {
+		startQueue(ctx, e, s)
+		return loadLine(ctx, e, s, false)
+	})
 }
 func PostTool(ctx context.Context, e Env) Output {
-	return deliver(ctx, e, "PostToolUse", false, false, startTime(e), func() string { return syncTool(e) })
+	return deliver(ctx, e, "PostToolUse", false, false, startTime(e), func(s *state, data []byte) string {
+		lines := []string{syncTool(e)}
+		// The load line rides along with a bus delivery only.
+		if len(data) > 0 {
+			lines = append(lines, loadLine(ctx, e, s, true))
+		}
+		return strings.Join(slices.DeleteFunc(lines, func(l string) bool { return l == "" }), "\n")
+	})
 }
 
 // Observe records lead permission changes on hooks which have no delivery
@@ -324,7 +395,7 @@ func Wake(ctx context.Context, e Env) int {
 		current := size()
 		if current != previous {
 			previous = current
-			data, err := receive(s)
+			data, err := take(ctx, e, s)
 			if err != nil {
 				return 0
 			}

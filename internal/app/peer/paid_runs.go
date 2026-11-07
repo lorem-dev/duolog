@@ -97,9 +97,10 @@ func (h *hold) release(ctx context.Context) error {
 
 // admitPane admits a new pane of route before it exists: one live slot and
 // one task's estimate in one reservation, the free variant first and the
-// paid one when the agent opted in. A pane never waits for a slot: a refusal
-// names the counts and the close command. A pane that only the gate keeps
-// read-only is refused when that gate cannot be shown to run.
+// paid one when the agent opted in, unless the options ask for the free one
+// only. A pane never waits for a slot: a refusal names the counts and the
+// close command. A pane that only the gate keeps read-only is refused when
+// that gate cannot be shown to run.
 func (e *env) admitPane(ctx context.Context, route coreroute.Route, lead leadInfo, role, id, run string) (*hold, error) {
 	g, err := e.accounts()
 	if err != nil {
@@ -107,7 +108,7 @@ func (e *env) admitPane(ctx context.Context, route coreroute.Route, lead leadInf
 	}
 	variants := []workerenv.Variant{workerenv.Free}
 	for _, c := range paidruns.Candidates([]config.Target{route.Target}, true, e.cfg.PaidRuns) {
-		if c.Variant == workerenv.Paid {
+		if c.Variant == workerenv.Paid && !e.opts.FreeOnly {
 			variants = append(variants, workerenv.Paid)
 		}
 	}
@@ -139,8 +140,21 @@ func (e *env) admitPane(ctx context.Context, route coreroute.Route, lead leadInf
 		}
 		return h, nil
 	}
-	return nil, fmt.Errorf("%s -> lead: %s", role, strings.Join(refusals, "; "))
+	return nil, refused(fmt.Sprintf("%s -> lead: %s", role, strings.Join(refusals, "; ")))
 }
+
+// ErrRefused marks an open that admission refused: a session limit, the
+// window's headroom or the paid-run rules. Nothing was opened, and the same
+// open may pass later, once a session is free.
+var ErrRefused = errors.New("admission refused")
+
+// refusedError is an admission refusal worded as the refusal itself.
+type refusedError string
+
+func (r refusedError) Error() string        { return string(r) }
+func (r refusedError) Is(target error) bool { return target == ErrRefused }
+
+func refused(line string) error { return refusedError(line) }
 
 // paneInput describes the pane of route in variant that runs in root, with
 // the places its settings layers come from: the home folder, the project

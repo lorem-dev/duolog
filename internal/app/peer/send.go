@@ -77,7 +77,13 @@ func Send(ctx context.Context, id, taskRef string) (err error) {
 	if err != nil {
 		return err
 	}
-	if entry, err = e.update(entry.ID, func(x *session.Entry) { x.TaskGeneration, x.AdmissionID = task.id(), task.id() }); err != nil {
+	// The peer's turns count again from this send; the last told turn goes
+	// with them, so the first turn of this task is told even when it ends
+	// with the same message as the last turn of the one before.
+	if entry, err = e.update(entry.ID, func(x *session.Entry) {
+		x.TaskGeneration, x.AdmissionID = task.id(), task.id()
+		x.Turns, x.IdleTurn = 0, ""
+	}); err != nil {
 		return errors.Join(err, task.release(ctx))
 	}
 	if err := task.launch(ctx, ""); err != nil {
