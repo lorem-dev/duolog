@@ -19,11 +19,12 @@ type LoadOptions struct {
 	Agents []agent.Descriptor
 }
 
-// builtinAgents stands for the registry where Load gets no options: the tests
+// BuiltinAgents stands for the registry where Load gets no options: the tests
 // of this layer and the security boundary's callers, whose function bodies may
 // not change in this task. It carries only the facts that Load reads, and
-// goes when those callers pass wiring.ConfigOptions.
-func builtinAgents() []agent.Descriptor {
+// goes when those callers pass wiring.ConfigOptions. A wiring test holds it
+// equal to the registry's descriptors on those facts.
+func BuiltinAgents() []agent.Descriptor {
 	return []agent.Descriptor{
 		{Name: "claude", Display: "Claude", Config: agent.ConfigFacts{SubscriptionEndpoints: true}},
 		{Name: "codex", Display: "Codex"},
@@ -38,7 +39,7 @@ func agentsOf(opts []LoadOptions) []agent.Descriptor {
 			return o.Agents
 		}
 	}
-	return builtinAgents()
+	return BuiltinAgents()
 }
 
 // descriptorOf returns the descriptor called name, the zero one when none is.

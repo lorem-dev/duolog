@@ -59,8 +59,13 @@ func (l *layerMode) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.MappingNode {
 		return fmt.Errorf("line %d: a worker mode must be a mapping", node.Line)
 	}
+	seen := map[string]int{}
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		key, value := node.Content[i].Value, node.Content[i+1]
+		if first, dup := seen[key]; dup {
+			return fmt.Errorf("line %d: mapping key %q already defined at line %d", node.Content[i].Line, key, first)
+		}
+		seen[key] = node.Content[i].Line
 		var err error
 		switch key {
 		case "network":

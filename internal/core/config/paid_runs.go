@@ -87,13 +87,20 @@ func (p PaidRuns) MarshalYAML() (any, error) {
 	return out, nil
 }
 
-// decodeFlat calls set for each key of a mapping node.
+// decodeFlat calls set for each key of a mapping node. A repeated key is
+// refused with the text yaml.v3 gives, which a custom unmarshaler would skip.
 func decodeFlat(node *yaml.Node, what string, set func(key string, value *yaml.Node) error) error {
 	if node.Kind != yaml.MappingNode {
 		return fmt.Errorf("line %d: %s must be a mapping", node.Line, what)
 	}
+	seen := map[string]int{}
 	for i := 0; i+1 < len(node.Content); i += 2 {
-		if err := set(node.Content[i].Value, node.Content[i+1]); err != nil {
+		k := node.Content[i]
+		if first, dup := seen[k.Value]; dup {
+			return fmt.Errorf("line %d: mapping key %q already defined at line %d", k.Line, k.Value, first)
+		}
+		seen[k.Value] = k.Line
+		if err := set(k.Value, node.Content[i+1]); err != nil {
 			return err
 		}
 	}

@@ -89,6 +89,38 @@ func TestRoutingProjectCannotLoosen(t *testing.T) {
 	}
 }
 
+// TestAgentsProjectCannotSwitchOn: a shared layer may switch an agent off but
+// not on, so it cannot make an agent the person never enabled a fallback.
+func TestAgentsProjectCannotSwitchOn(t *testing.T) {
+	root := isolatedRoot(t)
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "agents: {kestrel: {enabled: true}, codex: {enabled: false}}\nrouting: {agent_order: [kestrel]}\n")
+	cfg, err := Load(root, kestrelOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AgentEnabled("kestrel") {
+		t.Error("a shared layer switched kestrel on")
+	}
+	if cfg.AgentEnabled("codex") {
+		t.Error("a shared layer could not switch codex off")
+	}
+	if got := noticeKeys(cfg.Notices); !slices.Equal(got, []string{"agents.kestrel.enabled"}) {
+		t.Errorf("notices = %v, want agents.kestrel.enabled", got)
+	}
+	for _, n := range cfg.Notices {
+		if !strings.Contains(n.Reason, ".duolog/config.yaml") {
+			t.Errorf("notice %+v does not name the project file", n)
+		}
+	}
+
+	// The person's own layer may switch it on.
+	root = isolatedRoot(t)
+	writeConfig(t, userConfigPath(t), "agents: {kestrel: {enabled: true}}\n")
+	if cfg, err = Load(root, kestrelOptions()); err != nil || !cfg.AgentEnabled("kestrel") || len(cfg.Notices) != 0 {
+		t.Errorf("user switch = %v, %v, notices %v", cfg.AgentEnabled("kestrel"), err, cfg.Notices)
+	}
+}
+
 func TestRoutingRejectsBadValues(t *testing.T) {
 	for _, tc := range []struct{ yaml, key string }{
 		{"routing: {margin: 1}\n", "routing.margin"},

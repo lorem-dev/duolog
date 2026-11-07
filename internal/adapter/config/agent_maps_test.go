@@ -9,7 +9,7 @@ import (
 
 // kestrelOptions registers a third agent beside the two built-in ones.
 func kestrelOptions() LoadOptions {
-	agents := append(builtinAgents(), agent.Descriptor{Name: "kestrel", Display: "Kestrel"})
+	agents := append(BuiltinAgents(), agent.Descriptor{Name: "kestrel", Display: "Kestrel"})
 	return LoadOptions{Agents: agents}
 }
 
@@ -23,6 +23,10 @@ func TestUnknownAgentKeyRefused(t *testing.T) {
 		{"agents: {kestrel: {enabled: true}}\n", "config.agents.kestrel: unknown key"},
 		{"sync: {agents: {model_rows: [{claude: opus, kestrel: kite}]}}\n", "sync.agents.model_rows[0].kestrel: unknown key"},
 		{"paid_runs: {codex: {subscription_endpoints: {corp: \"https://x.example.invalid/\"}}}\n", "config.paid_runs.codex.subscription_endpoints: unknown key"},
+		// A repeated agent key is refused as yaml.v3 refuses a repeated key.
+		{"paid_runs: {claude: {allow: false}, claude: {allow: true, daily_cap_usd: 5}}\n", `mapping key "claude" already defined`},
+		{"coauthors: {codex: \"A <a@example.invalid>\", codex: \"B <b@example.invalid>\"}\n", `mapping key "codex" already defined`},
+		{"worker_modes: {roles: {implement: {codex: read-only, codex: workspace-write}}}\n", `mapping key "codex" already defined`},
 	} {
 		root := isolatedRoot(t)
 		writeConfig(t, userConfigPath(t), tc.yaml)

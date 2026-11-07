@@ -79,8 +79,8 @@ func Resolve(cfg *config.Config, role string, unavailable map[string]bool, opts 
 		route.InLead = opts.Lead != nil && route.Agent == opts.Lead.Agent
 	}
 	alias := Normalize(route.Agent, route.Model)
-	if !opts.AllowManualModel && (alias == "fable" || alias == "astra" || slices.Contains(cfg.Limits.ManualOnlyModels, alias)) {
-		return Route{}, fmt.Errorf("role %s: model %s requires --allow-manual-model", role, route.Model)
+	if err := refuse(cfg, role, route, alias, opts.AllowManualModel); err != nil {
+		return Route{}, err
 	}
 	if opts.Lead != nil {
 		lead := opts.Lead
@@ -104,6 +104,18 @@ func Resolve(cfg *config.Config, role string, unavailable map[string]bool, opts 
 		}
 	}
 	return route, nil
+}
+
+// refuse says why a resolved route may not run: its agent is switched off, or
+// its model is manual-only and the caller did not allow it.
+func refuse(cfg *config.Config, role string, route Route, alias string, allowManual bool) error {
+	if route.Agent != "" && cfg.AgentRegistered(route.Agent) && !cfg.AgentEnabled(route.Agent) {
+		return fmt.Errorf("role %s: agent %s is switched off (agents.%s.enabled is false)", role, route.Agent, route.Agent)
+	}
+	if !allowManual && (alias == "fable" || alias == "astra" || slices.Contains(cfg.Limits.ManualOnlyModels, alias)) {
+		return fmt.Errorf("role %s: model %s requires --allow-manual-model", role, route.Model)
+	}
+	return nil
 }
 
 // fallbackAgent is the first agent of routing.agent_order that is registered,
