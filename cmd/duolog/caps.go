@@ -4,7 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/core/caps"
+	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
 
@@ -15,9 +16,9 @@ func newCapsCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		var inv []capability.Inventory
+		var inv []caps.Inventory
 		for _, agent := range []string{"claude", "codex"} {
-			i, err := capability.Scan(cmd.Context(), agent, root)
+			i, err := wiring.ScanCaps(cmd.Context(), agent, root)
 			if err != nil {
 				return err
 			}
@@ -25,7 +26,7 @@ func newCapsCommand() *cobra.Command {
 		}
 		out := cmd.OutOrStdout()
 		if diff {
-			only := []capability.Inventory{{Agent: inv[0].Agent, Items: capability.Diff(inv[0], inv[1]), Unknown: inv[0].Unknown || inv[1].Unknown}, {Agent: inv[1].Agent, Items: capability.Diff(inv[1], inv[0]), Unknown: inv[0].Unknown || inv[1].Unknown}}
+			only := []caps.Inventory{{Agent: inv[0].Agent, Items: caps.Diff(inv[0], inv[1]), Unknown: inv[0].Unknown || inv[1].Unknown}, {Agent: inv[1].Agent, Items: caps.Diff(inv[1], inv[0]), Unknown: inv[0].Unknown || inv[1].Unknown}}
 			inv = only
 		}
 		if asJSON {

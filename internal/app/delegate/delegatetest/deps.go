@@ -18,7 +18,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/app/quota/quotatest"
-	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/workerenv"
@@ -64,18 +63,14 @@ func (f *Fake) Deps() delegate.Deps {
 		a.Worker = &Worker{f: f, launch: workertest.For(name).Launch}
 		a.Models = models{}
 		a.Login = Login{Agent: name}
+		// Every inventory is unknown, so no need is claimed absent.
+		a.Caps = &Caps{Agent: name}
 		agents[name] = a
 	}
 	return delegate.Deps{
-		Agents:   agents,
-		RunLogin: declineLogins,
-		Lead:     map[string]leadio.Lead{"claude": &leadtest.Fake{}, "codex": &leadtest.Fake{}},
-		ScanCapabilities: func(_ context.Context, agent, _ string, _ []string) (capability.Inventory, error) {
-			return capability.Inventory{Agent: agent, Unknown: true}, nil
-		},
-		BridgeMCP: func(_, _, _ string, _ []string, _ map[string][]string, _ []string) (*run.MCP, map[string]string) {
-			return nil, nil
-		},
+		Agents:      agents,
+		RunLogin:    declineLogins,
+		Lead:        map[string]leadio.Lead{"claude": &leadtest.Fake{}, "codex": &leadtest.Fake{}},
 		Build:       workerenv.Build,
 		DroppedKeys: workerenv.DroppedKeys,
 		PaidGate: func(cfg *config.Config) (*paidruns.Gate, error) {

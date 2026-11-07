@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/adapter/kit"
 	"github.com/lorem-dev/duolog/internal/core/agent"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 )
 
 // initialize is the first MCP request. A server that checks its token at all
@@ -37,8 +39,8 @@ func New() *Probe {
 // Check sends initialize with the credentials of def. Only 401, 403 or an error
 // that names authentication count; a network failure does not stop the worker.
 // The problem it returns names no agent or server: the caller knows both.
-func (c *Probe) Check(ctx context.Context, def capability.Server) *agent.LoginProblem {
-	u, headers, err := def.Request()
+func (c *Probe) Check(ctx context.Context, def caps.Server) *agent.LoginProblem {
+	u, headers, err := kit.Request(def, os.LookupEnv)
 	if err != nil {
 		return nil
 	}

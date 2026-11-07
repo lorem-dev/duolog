@@ -12,7 +12,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/app/launch"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
-	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/paidrules"
@@ -51,7 +51,7 @@ func workerInput(cfg *config.Config, route coreroute.Route, variant corelaunch.V
 func pluginNeeds(needs []string) []string {
 	var names []string
 	for _, need := range needs {
-		if kind, name, err := capability.ParseNeed(need); err == nil && kind == capability.KindPlugin {
+		if kind, name, err := caps.ParseNeed(need); err == nil && kind == caps.KindPlugin {
 			names = append(names, name)
 		}
 	}

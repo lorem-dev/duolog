@@ -3,12 +3,13 @@ package roster
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
-	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/route"
 )
@@ -49,13 +50,36 @@ func Line(cfg *config.Config, lead string, reg *session.Registry) string {
 	return strings.Join(parts, " ")
 }
 
+// Caps is what the roster asks of an agent's capabilities: the inventory its
+// last scan cached, and whether duolog's hooks are in its settings.
+type Caps interface {
+	Cached(root string) caps.Inventory
+	HasDuolog(root string, environ []string) bool
+}
+
+// Cached is the cached inventory of agent, or an unknown one for an agent
+// without Caps.
+func Cached(agents map[string]Caps, agent, root string) caps.Inventory {
+	if c := agents[agent]; c != nil {
+		return c.Cached(root)
+	}
+	return caps.Inventory{Agent: agent, Unknown: true}
+}
+
+// HasDuolog reports whether duolog's hooks are in agent's settings, read from
+// duolog's own environment; an agent without Caps has none.
+func HasDuolog(agents map[string]Caps, agent, root string) bool {
+	c := agents[agent]
+	return c != nil && c.HasDuolog(root, os.Environ())
+}
+
 // CapsNote says what the other agent lacks compared with the lead's agent and
 // whether it has duolog hooks. It is empty when there is nothing to say; an
 // unknown inventory is never reported as a difference.
-func CapsNote(lead, other capability.Inventory, otherHasDuolog bool) string {
+func CapsNote(lead, other caps.Inventory, otherHasDuolog bool) string {
 	var parts []string
 	if !lead.Unknown && !other.Unknown {
-		if n := len(capability.Diff(lead, other)); n > 0 {
+		if n := len(caps.Diff(lead, other)); n > 0 {
 			parts = append(parts, fmt.Sprintf("%s lacks %d", other.Agent, n))
 		}
 	}
@@ -66,18 +90,19 @@ func CapsNote(lead, other capability.Inventory, otherHasDuolog bool) string {
 }
 
 // StartNote uses persisted capability lists only; SessionStart never scans.
-func StartNote(root string, lead session.Lead) string {
+// agents holds each registered agent's Caps by name.
+func StartNote(root string, lead session.Lead, agents map[string]Caps) string {
 	other := "codex"
 	if lead.Agent == "codex" {
 		other = "claude"
 	}
-	mine, theirs := capability.Cached(lead.Agent, root), capability.Cached(other, root)
+	mine, theirs := Cached(agents, lead.Agent, root), Cached(agents, other, root)
 	count := "unknown"
 	if !mine.Unknown && !theirs.Unknown {
-		count = fmt.Sprint(len(capability.Diff(mine, theirs)))
+		count = fmt.Sprint(len(caps.Diff(mine, theirs)))
 	}
 	note := "; caps=" + count
-	if !capability.HasDuolog(other, root) {
+	if !HasDuolog(agents, other, root) {
 		note += "; " + other + " has no duolog hooks: sandbox only"
 	}
 	if cfg, err := configfile.Load(root); err == nil && cfg.Coauthors.Enabled {

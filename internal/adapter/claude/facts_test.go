@@ -27,7 +27,7 @@ func TestFacts(t *testing.T) {
 			AuthToken: []string{"ANTHROPIC_AUTH_TOKEN"},
 			BaseURL:   []string{"ANTHROPIC_BASE_URL"},
 		},
-		// internal/capability/bridge.go agentVariable, Claude's part.
+		// internal/adapter/kit/caps.go AgentVariable, Claude's part.
 		HiddenPrefixes: []string{"ANTHROPIC_", "CLAUDE_"},
 		// internal/workerenv/process.go:190.
 		WorkerEnv: []string{"DISABLE_AUTOUPDATER=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"},

@@ -16,12 +16,12 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/codex"
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/skilltest"
-	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
@@ -384,7 +384,7 @@ func askSkill(d *cmdDeps, cmd *cobra.Command, cfg *config.Config, root, work, pr
 	// MCP server inherited from the user's Codex configuration.
 	bridge := &corerun.MCP{}
 	if target.Agent == "codex" {
-		bridge.CodexArgs = capability.CodexOffEnv(work, permit.Process.Env)
+		bridge.CodexArgs = codex.Caps{}.Off(work, permit.Process.Env)
 	}
 	spec := corerun.Spec{Route: route, SkillTest: true, TaskDir: work, Cwd: work, Stdin: []byte(prompt), Process: &permit.Process, MCP: bridge, Timeout: 10 * time.Minute}
 	spec.Started = func(pid int) error {

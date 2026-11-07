@@ -8,8 +8,8 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/roster"
-	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
 
@@ -41,9 +41,9 @@ func newRosterCommand(d *cmdDeps) *cobra.Command {
 			if leadSession.Agent == "codex" {
 				other = "claude"
 			}
-			mine := capability.Cached(leadSession.Agent, root)
-			theirs := capability.Cached(other, root)
-			if note := roster.CapsNote(mine, theirs, capability.HasDuolog(other, root)); note != "" {
+			agents := wiring.RosterCaps()
+			mine, theirs := roster.Cached(agents, leadSession.Agent, root), roster.Cached(agents, other, root)
+			if note := roster.CapsNote(mine, theirs, roster.HasDuolog(agents, other, root)); note != "" {
 				if _, err := fmt.Fprintln(cmd.OutOrStdout(), note); err != nil {
 					return err
 				}

@@ -15,7 +15,7 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/gate"
-	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/policy"
@@ -798,7 +798,7 @@ func TestLearningJournalsLeadFirstWait(t *testing.T) {
 	h := newHarness(t)
 	h.lead("claude", mode.Edits, "high")
 	h.learning(true)
-	h.inventories(capability.Inventory{Agent: "codex"}, capability.Inventory{Agent: "claude", Items: []capability.Item{{Kind: "mcp", Name: "codegraph"}}})
+	h.inventories(caps.Inventory{Agent: "codex"}, caps.Inventory{Agent: "claude", Items: []caps.Item{{Kind: "mcp", Name: "codegraph"}}})
 	out, err := h.runWith("implement", Options{Needs: []string{"mcp:codegraph"}, Features: map[string]string{"output": "code"}})
 	h.requireCalls(0)
 	if err != nil || len(out.Needs) != 1 {

@@ -28,7 +28,7 @@ func TestFacts(t *testing.T) {
 			APIKey:  []string{"CODEX_API_KEY", "OPENAI_API_KEY"},
 			BaseURL: []string{"OPENAI_BASE_URL"},
 		},
-		// internal/capability/bridge.go agentVariable, Codex's part.
+		// internal/adapter/kit/caps.go AgentVariable, Codex's part.
 		HiddenPrefixes: []string{"CODEX_", "OPENAI_"},
 		// internal/runner/runner.go authFailure, Codex's part.
 		LoginPhrases:    []string{"codex login", "token_expired", "invalid_token", "refresh token"},

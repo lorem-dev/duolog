@@ -22,7 +22,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/bus"
-	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	corelead "github.com/lorem-dev/duolog/internal/core/lead"
@@ -199,13 +199,11 @@ func newHarness(t *testing.T) *harness {
 	// The real functions, but for the ones that would start a binary or touch
 	// the user's account state.
 	h.deps = Deps{
-		Lead:             map[string]leadio.Lead{"claude": transcriptLead{Fake: &leadtest.Fake{}, agent: "claude"}, "codex": transcriptLead{Fake: &leadtest.Fake{}, agent: "codex"}},
-		ScanCapabilities: capability.ScanEnv,
-		BridgeMCP:        capability.Bridge,
-		Canonical:        filepath.Clean,
-		Build:            launchtest.Build,
-		DroppedKeys:      launchtest.DroppedKeys,
-		Agents:           testAgents(),
+		Lead:        map[string]leadio.Lead{"claude": transcriptLead{Fake: &leadtest.Fake{}, agent: "claude"}, "codex": transcriptLead{Fake: &leadtest.Fake{}, agent: "codex"}},
+		Canonical:   filepath.Clean,
+		Build:       launchtest.Build,
+		DroppedKeys: launchtest.DroppedKeys,
+		Agents:      testAgents(),
 	}
 	// A duolog on the worker PATH, as where it is installed; set after Deps
 	// is built, which would replace it.
@@ -1208,14 +1206,14 @@ func TestDecisionPreservesHookChangesDuringTranscriptRead(t *testing.T) {
 }
 
 // Capability checks use fixed inventories instead of real agents.
-func (h *harness) inventories(target, lead capability.Inventory) {
+func (h *harness) inventories(target, lead caps.Inventory) {
 	h.t.Helper()
-	h.deps.ScanCapabilities = func(_ context.Context, agent, _ string, _ []string) (capability.Inventory, error) {
+	withScan(&h.deps, func(agent string, _ []string) (caps.Inventory, error) {
 		if agent == target.Agent {
 			return target, nil
 		}
 		return lead, nil
-	}
+	})
 }
 
 // Re-review, Minor 2: the worker's inventory is scanned with the
@@ -1234,10 +1232,10 @@ func TestWorkerInventoryScansTheWorkersEnvironment(t *testing.T) {
 	caller := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", caller)
 	scanned := map[string][]string{}
-	h.deps.ScanCapabilities = func(_ context.Context, agent, _ string, environ []string) (capability.Inventory, error) {
+	withScan(&h.deps, func(agent string, environ []string) (caps.Inventory, error) {
 		scanned[agent] = environ
-		return capability.Inventory{Agent: agent, Unknown: true}, nil
-	}
+		return caps.Inventory{Agent: agent, Unknown: true}, nil
+	})
 	opts := Options{Entry: &config.Target{Agent: "claude", Model: "sonnet", Effort: "medium"}, Person: true, Needs: []string{"mcp:tracker"}}
 	if out, err := h.runWith("implement", opts); err != nil {
 		t.Fatal(out.Line, err)
@@ -1257,12 +1255,12 @@ func (h *harness) runNeeds(role string, needs ...string) (Outcome, error) {
 	return h.runWith(role, Options{Needs: needs})
 }
 
-var skillSource = capability.Item{Kind: "skill", Name: "figma-use", Source: "/abs/figma-use/SKILL.md"}
+var skillSource = caps.Item{Kind: "skill", Name: "figma-use", Source: "/abs/figma-use/SKILL.md"}
 
 func TestNeedsAppendedToLimits(t *testing.T) {
 	h := newHarness(t)
 	h.lead("claude", mode.Edits, "high")
-	h.inventories(capability.Inventory{Agent: "codex"}, capability.Inventory{Agent: "claude", Items: []capability.Item{skillSource}})
+	h.inventories(caps.Inventory{Agent: "codex"}, caps.Inventory{Agent: "claude", Items: []caps.Item{skillSource}})
 	before := read(t, h.path)
 	if _, e := h.runNeeds("implement", "skill:figma-use"); e != nil {
 		t.Fatal(e)
@@ -1286,7 +1284,7 @@ func TestNeedsAppendedToLimits(t *testing.T) {
 func TestLeadFirstStartsNothing(t *testing.T) {
 	h := newHarness(t)
 	h.lead("claude", mode.Edits, "high")
-	h.inventories(capability.Inventory{Agent: "codex"}, capability.Inventory{Agent: "claude", Items: []capability.Item{{Kind: "mcp", Name: "codegraph"}}})
+	h.inventories(caps.Inventory{Agent: "codex"}, caps.Inventory{Agent: "claude", Items: []caps.Item{{Kind: "mcp", Name: "codegraph"}}})
 	o, e := h.runNeeds("implement", "mcp:codegraph")
 	h.requireCalls(0)
 	if e != nil || strings.Count(o.Line, "\n") != 0 || o.Line == "" || len(o.Needs) != 1 || o.Needs[0] != "mcp:codegraph" || !strings.Contains(o.Line, "artifact in Read") {
@@ -1297,7 +1295,7 @@ func TestRerouteRunsOtherAgent(t *testing.T) {
 	h := newHarness(t)
 	h.lead("claude", mode.Edits, "low")
 	h.cfg.Capabilities.OnMissing.MCP = "reroute"
-	h.inventories(capability.Inventory{Agent: "codex"}, capability.Inventory{Agent: "claude", Items: []capability.Item{{Kind: "mcp", Name: "codegraph"}}})
+	h.inventories(caps.Inventory{Agent: "codex"}, caps.Inventory{Agent: "claude", Items: []caps.Item{{Kind: "mcp", Name: "codegraph"}}})
 	o, e := h.runNeeds("implement", "mcp:codegraph")
 	// The other agent is the lead's own, so the work is handed back to the lead,
 	// at the effort the lead allows.
@@ -1309,7 +1307,7 @@ func TestRerouteRunsOtherAgent(t *testing.T) {
 func TestMissingEverywhereRefuses(t *testing.T) {
 	h := newHarness(t)
 	h.lead("claude", mode.Edits, "high")
-	h.inventories(capability.Inventory{Agent: "codex"}, capability.Inventory{Agent: "claude"})
+	h.inventories(caps.Inventory{Agent: "codex"}, caps.Inventory{Agent: "claude"})
 	o, e := h.runNeeds("implement", "skill:nope")
 	h.requireCalls(0)
 	if e == nil || !strings.Contains(o.Line, "skill:nope") {
@@ -1319,12 +1317,12 @@ func TestMissingEverywhereRefuses(t *testing.T) {
 func TestUnknownInventoryStartsWithNeedsLine(t *testing.T) {
 	h := newHarness(t)
 	h.lead("claude", mode.Edits, "high")
-	h.inventories(capability.Inventory{Agent: "codex", Unknown: true}, capability.Inventory{Agent: "claude"})
+	h.inventories(caps.Inventory{Agent: "codex", Unknown: true}, caps.Inventory{Agent: "claude"})
 	if _, e := h.runNeeds("implement", "mcp:codegraph"); e != nil {
 		t.Fatal(e)
 	}
 	h.requireCalls(1)
-	if !strings.Contains(read(t, filepath.Join(h.calls[0].TaskDir, "task.md")), capability.NeedsLine) {
+	if !strings.Contains(read(t, filepath.Join(h.calls[0].TaskDir, "task.md")), caps.NeedsLine) {
 		t.Fatal("needs line missing")
 	}
 }

@@ -89,7 +89,7 @@ linters:
       # .duolog/, the config and the files duolog writes into a project are meant
       # to be read by the person and by Git (0755 and 0644). Telemetry and the
       # calibration trees are not in this list, so their modes stay checked.
-      - path: ^(cmd|scripts)/|^internal/(adapter/codex|app/delegate|app/install|app/learn|app/peer|app/sync|adapter/session|artifact|bus|capability|install|journal|learning|models|store|testbin)/|^internal/adapter/kit/process/
+      - path: ^(cmd|scripts)/|^internal/(adapter/codex|app/delegate|app/install|app/learn|app/peer|app/sync|adapter/session|artifact|bus|install|journal|learning|models|store|testbin)/|^internal/adapter/kit/process/|^internal/adapter/kit/caps\.go$
         text: G30[126]
         linters: [gosec]
       # The allow rules of `duolog remember --native` go into the person's own
@@ -212,14 +212,6 @@ linters:
       - {path: '^internal/app/calibrate/survey\.go$', linters: [cyclop, gocognit], text: 'complexity 26 of func .(?:\(\*?\w+\)\.)?proposeCommands. is|function (?:\(\*?\w+\)\.)?proposeCommands is 17,'} # proposeCommands: cyclomatic 17, cognitive 26
       - {path: '^internal/app/calibrate/survey\.go$', linters: [nestif], text: '.if\ len\(s\.Facts\.Test\)\ ==\ 0. has complex nested blocks \(complexity: 5\)'} # if if len(s.Facts.Test) == 0: nesting 5
       - {path: '^internal/app/calibrate/validate\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .validateChecks. has too many statements \(53 > |complexity 23 of func .(?:\(\*?\w+\)\.)?validateChecks. is|function (?:\(\*?\w+\)\.)?validateChecks is 22,'} # validateChecks: cyclomatic 22, statements 53, cognitive 23
-      - {path: '^internal/capability/bridge\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Bridge. has too many statements \(57 > |complexity 41 of func .(?:\(\*?\w+\)\.)?Bridge. is|function (?:\(\*?\w+\)\.)?Bridge is 22,'} # Bridge: cyclomatic 22, statements 57, cognitive 41
-      - {path: '^internal/capability/bridge\.go$', linters: [cyclop, gocognit], text: 'complexity 32 of func .(?:\(\*?\w+\)\.)?claude. is|function (?:\(\*?\w+\)\.)?claude is 16,'} # claude: cyclomatic 16, cognitive 32
-      - {path: '^internal/capability/bridge\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .codex. has too many statements \(42 > |complexity 27 of func .(?:\(\*?\w+\)\.)?codex. is|function (?:\(\*?\w+\)\.)?codex is 16,'} # codex: cyclomatic 16, statements 42, cognitive 27
-      - {path: '^internal/capability/bridge\.go$', linters: [cyclop, gocognit], text: 'complexity 40 of func .(?:\(\*?\w+\)\.)?staticWhy. is|function (?:\(\*?\w+\)\.)?staticWhy is 21,'} # staticWhy: cyclomatic 21, cognitive 40
-      - {path: '^internal/capability/inventory\.go$', linters: [gocognit], text: 'complexity 21 of func .(?:\(\*?\w+\)\.)?ScanEnv. is'} # ScanEnv: cognitive 21
-      - {path: '^internal/capability/inventory\.go$', linters: [nestif], text: '.if\ err\ ==\ nil. has complex nested blocks \(complexity: 6\)'} # if if err == nil: nesting 6
-      - {path: '^internal/capability/resolve\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Resolve. has too many statements \(43 > |complexity 28 of func .(?:\(\*?\w+\)\.)?Resolve. is|function (?:\(\*?\w+\)\.)?Resolve is 22,'} # Resolve: cyclomatic 22, statements 43, cognitive 28
-      - {path: '^internal/capability/servers\.go$', linters: [cyclop, funlen], text: 'Function .parseCodex. has too many statements \(43 > |function (?:\(\*?\w+\)\.)?parseCodex is 21,'} # parseCodex: cyclomatic 21, statements 43
       - {path: '^internal/coauthor/coauthor\.go$', linters: [nestif], text: '.if\ err\ !=\ nil. has complex nested blocks \(complexity: 6\)'} # if if err != nil: nesting 6
       - {path: '^internal/core/budget/plan\.go$', linters: [revive], text: 'file length is 746 lines'} # internal/core/budget/plan.go: code lines 746
       - {path: '^internal/core/budget/plan\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .BuildPlan. has too many statements \(136 > |complexity 102 of func .(?:\(\*?\w+\)\.)?BuildPlan. is|function (?:\(\*?\w+\)\.)?BuildPlan is 54,'} # BuildPlan: cyclomatic 54, statements 136, cognitive 102
@@ -359,6 +351,11 @@ linters:
       - {path: '^internal/adapter/kit/process/run\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Run. has too many statements \(120 > |complexity 52 of func .(?:\(\*?\w+\)\.)?Run. is|function (?:\(\*?\w+\)\.)?Run is 46,'} # Run: cyclomatic 46, statements 120, cognitive 52
       - {path: '^internal/adapter/claude/worker\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?resetTime is 17,'} # resetTime: cyclomatic 17
       - {path: '^internal/adapter/session/resolve\.go$', linters: [nestif], text: '.if\ id\ !=\ "". has complex nested blocks \(complexity: 7\)'} # if if id != "": nesting 7
+      - {path: '^internal/adapter/claude/caps\.go$', linters: [cyclop, gocognit], text: 'complexity 32 of func .(?:\(\*?\w+\)\.)?build. is|function (?:\(\*?\w+\)\.)?build is 16,'} # build: cyclomatic 16, cognitive 32
+      - {path: '^internal/adapter/codex/caps\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .build. has too many statements \(42 > |complexity 27 of func .(?:\(\*?\w+\)\.)?build. is|function (?:\(\*?\w+\)\.)?build is 16,'} # build: cyclomatic 16, statements 42, cognitive 27
+      - {path: '^internal/adapter/codex/caps\.go$', linters: [cyclop, funlen], text: 'Function .parseCodex. has too many statements \(43 > |function (?:\(\*?\w+\)\.)?parseCodex is 21,'} # parseCodex: cyclomatic 21, statements 43
+      - {path: '^internal/adapter/kit/caps\.go$', linters: [nestif], text: '.if\ err\ ==\ nil. has complex nested blocks \(complexity: 6\)'} # if if err == nil: nesting 6
+      - {path: '^internal/core/caps/resolve\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .Resolve. has too many statements \(43 > |complexity 28 of func .(?:\(\*?\w+\)\.)?Resolve. is|function (?:\(\*?\w+\)\.)?Resolve is 22,'} # Resolve: cyclomatic 22, statements 43, cognitive 28
       - {path: '^internal/adapter/session/session\.go$', linters: [cyclop, gocognit], text: 'complexity 35 of func .(?:\(\*?\w+\)\.)?RecordLimited. is|function (?:\(\*?\w+\)\.)?RecordLimited is 17,'} # RecordLimited: cyclomatic 17, cognitive 35
       - {path: '^internal/adapter/session/session\.go$', linters: [cyclop], text: 'function (?:\(\*?\w+\)\.)?access is 17,'} # access: cyclomatic 17
       - {path: '^internal/adapter/session/session\.go$', linters: [cyclop, funlen, gocognit], text: 'Function .observeLead. has too many statements \(44 > |complexity 29 of func .(?:\(\*?\w+\)\.)?observeLead. is|function (?:\(\*?\w+\)\.)?observeLead is 21,'} # observeLead: cyclomatic 21, statements 44, cognitive 29

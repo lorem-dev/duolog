@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 )
 
@@ -18,10 +18,10 @@ func bridgeHarness(t *testing.T) *harness {
 	t.Helper()
 	h := newHarness(t)
 	h.lead("claude", mode.Edits, "high")
-	h.cfg.Capabilities.OnMissing.MCP = capability.ActionBridge
+	h.cfg.Capabilities.OnMissing.MCP = caps.ActionBridge
 	home := os.Getenv("HOME")
 	put(t, filepath.Join(home, ".claude.json"), `{"mcpServers":{"jira":{"type":"http","url":"https://j.example.com/mcp","headers":{"X-Token":"`+leadToken+`"}},"wiki":{"type":"http","url":"https://w.example.com/mcp","oauth":{"clientId":"c"}}}}`)
-	h.inventories(capability.Inventory{Agent: "codex"}, capability.Inventory{Agent: "claude", Items: []capability.Item{
+	h.inventories(caps.Inventory{Agent: "codex"}, caps.Inventory{Agent: "claude", Items: []caps.Item{
 		{Kind: "mcp", Name: "jira", Bridgeable: true},
 		{Kind: "mcp", Name: "wiki", NoBridge: "it signs in with OAuth"},
 	}})
@@ -84,7 +84,7 @@ func TestBridgeFailureGoesToLead(t *testing.T) {
 // bridged one.
 func TestBridgedAndOwnServers(t *testing.T) {
 	h := bridgeHarness(t)
-	h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "mine"}}}, capability.Inventory{Agent: "claude", Items: []capability.Item{{Kind: "mcp", Name: "jira", Bridgeable: true}}})
+	h.inventories(caps.Inventory{Agent: "codex", Items: []caps.Item{{Kind: "mcp", Name: "mine"}}}, caps.Inventory{Agent: "claude", Items: []caps.Item{{Kind: "mcp", Name: "jira", Bridgeable: true}}})
 	if _, e := h.runNeeds("implement", "mcp:jira", "mcp:mine"); e != nil {
 		t.Fatal(e)
 	}
@@ -97,7 +97,7 @@ func TestBridgedAndOwnServers(t *testing.T) {
 // lead_first stays the default: nothing is bridged unless the user turns it on.
 func TestBridgeIsOffByDefault(t *testing.T) {
 	h := bridgeHarness(t)
-	h.cfg.Capabilities.OnMissing.MCP = capability.ActionLeadFirst
+	h.cfg.Capabilities.OnMissing.MCP = caps.ActionLeadFirst
 	o, e := h.runNeeds("implement", "mcp:jira")
 	h.requireCalls(0)
 	if e != nil || len(o.Needs) != 1 || strings.Contains(o.Line, "bridge") {
@@ -109,7 +109,7 @@ func TestBridgeIsOffByDefault(t *testing.T) {
 func TestOwnServerLimitedByToolList(t *testing.T) {
 	h := bridgeHarness(t)
 	h.cfg.Capabilities.MCPTools = map[string][]string{"mine": {"read"}}
-	h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "mine"}}}, capability.Inventory{Agent: "claude"})
+	h.inventories(caps.Inventory{Agent: "codex", Items: []caps.Item{{Kind: "mcp", Name: "mine"}}}, caps.Inventory{Agent: "claude"})
 	// A server Codex does not define, such as a plugin's, gets no enabled_tools:
 	// the table would have no transport.
 	if _, e := h.runNeeds("implement", "mcp:mine"); e != nil {

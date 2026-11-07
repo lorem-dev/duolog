@@ -5,6 +5,8 @@ import (
 	"slices"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
+	"github.com/lorem-dev/duolog/internal/app/roster"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 )
 
@@ -18,9 +20,14 @@ var (
 	_ Lead   = fakeAgent{}
 )
 
-// withAgent sets e's agent together with its Events and Lead.
+// withAgent sets e's agent together with its Events and Lead, and the real
+// Caps of the registered agents, which read the temporary home the tests set.
 func withAgent(e Env, name string) Env {
 	e.Agent, e.Events, e.Lead = name, fakeAgent{name}, fakeAgent{name}
+	e.Caps = map[string]roster.Caps{}
+	for agent, c := range launchtest.AllCaps() {
+		e.Caps[agent] = c
+	}
 	return e
 }
 

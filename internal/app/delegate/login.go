@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/capability"
 	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/store"
 )
@@ -57,7 +57,7 @@ type Login interface {
 // ServerOAuth checks a static HTTP server with the credentials the worker would
 // get. The problem it returns names no agent or server.
 type ServerOAuth interface {
-	Check(ctx context.Context, def capability.Server) *Problem
+	Check(ctx context.Context, def caps.Server) *Problem
 }
 
 // Checker is what Run needs to check logins; tests replace it.
@@ -66,7 +66,7 @@ type Checker interface {
 	Agent(ctx context.Context, agent string) *Problem
 	// Server reports a server the worker cannot use. def is its definition
 	// from a config file, or nil for a server no file lists.
-	Server(ctx context.Context, agent, name string, def *capability.Server) *Problem
+	Server(ctx context.Context, agent, name string, def *caps.Server) *Problem
 	// Login runs the agent's login for p once, within timeout.
 	Login(ctx context.Context, p Problem, timeout time.Duration) LoginResult
 	// Forget drops a passed check of p, so that the next check asks again.
@@ -126,7 +126,7 @@ func (c *loginChecker) Agent(ctx context.Context, agent string) *Problem {
 	return nil
 }
 
-func (c *loginChecker) Server(ctx context.Context, agent, name string, def *capability.Server) *Problem {
+func (c *loginChecker) Server(ctx context.Context, agent, name string, def *caps.Server) *Problem {
 	p := Problem{Agent: agent, Server: name}
 	if c.passed(p) {
 		return nil

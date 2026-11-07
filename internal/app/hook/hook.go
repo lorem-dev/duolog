@@ -16,7 +16,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/roster"
 	agentsync "github.com/lorem-dev/duolog/internal/app/sync"
 	"github.com/lorem-dev/duolog/internal/bus"
-	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -64,6 +63,10 @@ type Env struct {
 	// Sync holds the formats that duolog sync converts between. Nil means the
 	// hook does not sync.
 	Sync agentsync.Formats
+	// Caps holds each registered agent's capabilities by name: their cached
+	// inventories and whether duolog's hooks are in their settings. An agent
+	// that is not in it has no duolog hooks and an unknown inventory.
+	Caps map[string]roster.Caps
 }
 
 type Output struct {
@@ -137,7 +140,7 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
 		// Only a session that will register may create state in a new folder.
-		if !register || !interactiveLead(e, h) || !capability.HasDuolog(e.Agent, e.Root) {
+		if !register || !interactiveLead(e, h) || !roster.HasDuolog(e.Caps, e.Agent, e.Root) {
 			return nil, nil
 		}
 		if _, err := store.Open(e.Root); err != nil {
@@ -242,7 +245,7 @@ func deliver(ctx context.Context, e Env, event string, register, includeRoster b
 			return Output{}
 		}
 		if includeRoster {
-			data = append([]byte(roster.Line(s.cfg, s.lead.ID, s.reg)+roster.StartNote(e.Root, s.lead)+roster.LearningNote(s.cfg)+"\n"), data...)
+			data = append([]byte(roster.Line(s.cfg, s.lead.ID, s.reg)+roster.StartNote(e.Root, s.lead, e.Caps)+roster.LearningNote(s.cfg)+"\n"), data...)
 		}
 	} else {
 		data = configLine(event, err)

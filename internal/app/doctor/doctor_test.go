@@ -15,7 +15,7 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/doctor/doctortest"
-	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/testbin"
@@ -273,9 +273,14 @@ func TestDoctorReadsSavedCatalogFixture(t *testing.T) {
 
 func TestDoctorFlagsMissingDuolog(t *testing.T) {
 	cfg, opts, _ := setup(t)
-	old := capability.Home
-	capability.Home = os.Getenv("HOME")
-	t.Cleanup(func() { capability.Home = old })
+	saved := testDeps.Agents
+	t.Cleanup(func() { testDeps.Agents = saved })
+	testDeps.Agents = map[string]Agent{}
+	for name, c := range launchtest.CapsIn(os.Getenv("HOME"), nil, "") {
+		a := saved[name]
+		a.Caps = c
+		testDeps.Agents[name] = a
+	}
 	got := findings(t, cfg, opts)
 	contains(t, got, "claude has no duolog hooks", "codex has no duolog hooks")
 	if err := os.MkdirAll(filepath.Join(opts.Root, ".codex"), 0755); err != nil {

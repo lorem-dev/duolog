@@ -1,4 +1,6 @@
-// Package caps holds the rules for naming MCP capabilities.
+// Package caps holds what an agent has (skills, plugins, MCP servers), the
+// decision of what to do when a worker lacks one, and the rules for naming MCP
+// capabilities. It reads no file: the agents' adapters read their lists.
 package caps
 
 import "regexp"

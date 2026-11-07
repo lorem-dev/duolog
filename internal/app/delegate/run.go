@@ -21,9 +21,9 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/launch"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/bus"
-	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/coauthor"
 	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
@@ -143,7 +143,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		return out, fmt.Errorf("nested delegation refused (DUOLOG_DEPTH=%s)", os.Getenv("DUOLOG_DEPTH"))
 	}
 	for _, need := range opts.Needs {
-		if _, _, err = capability.ParseNeed(need); err != nil {
+		if _, _, err = caps.ParseNeed(need); err != nil {
 			return out, err
 		}
 	}
@@ -387,17 +387,17 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		if len(opts.Needs) > 0 {
 			// The worker's inventory is what its own environment's settings
 			// folders hold; the lead's is duolog's own.
-			target, scanErr := d.ScanCapabilities(ctx, route.Agent, root, env)
+			target, scanErr := d.scan(ctx, route.Agent, root, env)
 			if scanErr != nil {
 				return out, scanErr
 			}
-			lead := capability.Inventory{Agent: leadAgent, Unknown: true}
+			lead := caps.Inventory{Agent: leadAgent, Unknown: true}
 			if leadAgent != "" {
-				if lead, scanErr = d.ScanCapabilities(ctx, leadAgent, root, os.Environ()); scanErr != nil {
+				if lead, scanErr = d.leadInventory(ctx, leadAgent, route.Agent, root); scanErr != nil {
 					return out, scanErr
 				}
 			}
-			plan := capabilityPlan(capability.Resolve(target, lead, opts.Needs, cfg.Capabilities))
+			plan := capabilityPlan(caps.Resolve(target, lead, opts.Needs, cfg.Capabilities))
 			if r := plan.Refuse; r != nil {
 				out.Line = oneLine("role " + role + ": " + r.Hint)
 				return out, fmt.Errorf("capability %s missing: %s", r.Need, r.Hint)
@@ -407,12 +407,12 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 			bridged = nil
 			if len(bridge) > 0 {
 				var failed map[string]string
-				bridged, failed = d.BridgeMCP(leadAgent, route.Agent, root, bridge, cfg.Capabilities.MCPTools, env)
+				bridged, failed = d.bridge(leadAgent, route.Agent, root, bridge, cfg.Capabilities.MCPTools, env)
 				for _, name := range bridge {
 					if why, ok := failed[name]; ok {
-						need := capability.KindMCP + ":" + name
+						need := caps.KindMCP + ":" + name
 						lacking = append(lacking, need)
-						notes = append(notes, capability.BridgeFallback(need, route.Agent, why))
+						notes = append(notes, caps.BridgeFallback(need, route.Agent, why))
 					}
 				}
 			}
@@ -429,7 +429,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 				unavailable[route.Agent] = true
 				continue
 			}
-			if needsKind(opts.Needs, capability.KindMCP) {
+			if needsKind(opts.Needs, caps.KindMCP) {
 				notes = append(notes, AuthWorkerLine)
 			}
 			for _, n := range notes {
@@ -547,14 +547,14 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		// so its agent and the servers it needs are checked first.
 		// The servers are checked only once the agent is logged in, so a login
 		// that works checks them next.
-		for problems := preflight(ctx, checker, route.Agent, leadAgent, root, opts.Needs, bridged, pre.Env); len(problems) > 0; {
+		for problems := d.preflight(ctx, checker, route.Agent, leadAgent, root, opts.Needs, bridged, pre.Env); len(problems) > 0; {
 			p := problems[0]
 			ok, authErr := settleAuth(ctx, d, cfg, reg, checker, leadID, role, p, &loginTried, &out)
 			if authErr != nil || !ok {
 				return out, authErr
 			}
 			if p.Server == "" {
-				problems = preflight(ctx, checker, route.Agent, leadAgent, root, opts.Needs, bridged, pre.Env)
+				problems = d.preflight(ctx, checker, route.Agent, leadAgent, root, opts.Needs, bridged, pre.Env)
 			} else {
 				problems = problems[1:]
 			}
@@ -572,8 +572,8 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 			// The admitted process (current.launch sets it) already holds the
 			// resolved native flags and the Codex sandbox pins; the runner
 			// refuses it if this spec asks for other ones.
-			spec := run.Spec{Route: route, Mode: wm.Level, Native: wm.Native, Network: wm.Network, WritableRoots: wm.WritableRoots, TaskDir: dir, Cwd: root, Prompt: capability.NeedsLine, Stdin: stdin, Persistent: route.Session == "resume", KeepMCP: needsKind(withoutBridged(opts.Needs, bridged), capability.KindMCP, capability.KindPlugin), KeepSkills: needsKind(opts.Needs, capability.KindSkill, capability.KindPlugin), MCP: bridged, ProtectedRoots: opts.ProtectedRoots}
-			spec.MCP = limitOwn(spec, opts.Needs, cfg.Capabilities.MCPTools, pre.Env)
+			spec := run.Spec{Route: route, Mode: wm.Level, Native: wm.Native, Network: wm.Network, WritableRoots: wm.WritableRoots, TaskDir: dir, Cwd: root, Prompt: caps.NeedsLine, Stdin: stdin, Persistent: route.Session == "resume", KeepMCP: needsKind(withoutBridged(opts.Needs, bridged), caps.KindMCP, caps.KindPlugin), KeepSkills: needsKind(opts.Needs, caps.KindSkill, caps.KindPlugin), MCP: bridged, ProtectedRoots: opts.ProtectedRoots}
+			spec.MCP = d.limitOwn(spec, opts.Needs, cfg.Capabilities.MCPTools, pre.Env)
 			spec.MaxTurns = opts.MaxTurns
 			var entry *session.Entry
 			if route.Session == "resume" {
@@ -713,7 +713,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 				if usageErr := appendUsage(s.Dir, role, route, out.Result, wm.Native); usageErr != nil {
 					return out, errors.Join(err, usageErr)
 				}
-				problems := runProblems(route.Agent, leadAgent, root, out.Result, bridged, opts.Needs, current.permit.Process.Env)
+				problems := d.runProblems(route.Agent, leadAgent, root, out.Result, bridged, opts.Needs, current.permit.Process.Env)
 				if len(problems) == 0 || out.Result.Interrupted || out.Result.QuotaEnded {
 					break
 				}
@@ -984,7 +984,7 @@ func Snapshot(root string) (map[string]string, error)  { return snapshot(root) }
 func Changes(before, after map[string]string) []string { return changes(before, after) }
 
 // workerLines close every worker's input.
-var workerLines = "\n" + capability.NeedsLine + "\n" + gateRetryLine + "\n" + ownershipLine + "\n" + decisionsLine + "\n" + summaryLine + "\n"
+var workerLines = "\n" + caps.NeedsLine + "\n" + gateRetryLine + "\n" + ownershipLine + "\n" + decisionsLine + "\n" + summaryLine + "\n"
 
 const summaryLine = "When everything went as planned, keep the summary to one short sentence; give details only for a problem, an open question or a choice you made."
 
@@ -1009,8 +1009,8 @@ func withoutBridged(needs []string, bridged *run.MCP) []string {
 	}
 	var out []string
 	for _, need := range needs {
-		kind, name, err := capability.ParseNeed(need)
-		if err == nil && kind == capability.KindMCP && slices.Contains(bridged.Names, name) {
+		kind, name, err := caps.ParseNeed(need)
+		if err == nil && kind == caps.KindMCP && slices.Contains(bridged.Names, name) {
 			continue
 		}
 		out = append(out, need)
@@ -1046,21 +1046,21 @@ func workerBrief(root string) []byte {
 // the lead's definition, which is what the worker gets; the worker's own
 // servers are those the settings folders of workerEnv, its environment,
 // define.
-func preflight(ctx context.Context, checker Checker, agent, leadAgent, root string, needs []string, bridged *run.MCP, workerEnv []string) []Problem {
+func (d Deps) preflight(ctx context.Context, checker Checker, agent, leadAgent, root string, needs []string, bridged *run.MCP, workerEnv []string) []Problem {
 	var out []Problem
 	if p := checker.Agent(ctx, agent); p != nil {
 		return append(out, *p)
 	}
-	own, lent := capability.ServersEnv(agent, root, workerEnv), map[string]capability.Server{}
+	own, lent := d.servers(agent, root, workerEnv), map[string]caps.Server{}
 	if bridged != nil {
-		lent = capability.Servers(leadAgent, root)
+		lent = d.servers(leadAgent, root, os.Environ())
 	}
 	for _, need := range needs {
-		kind, name, err := capability.ParseNeed(need)
-		if err != nil || kind != capability.KindMCP {
+		kind, name, err := caps.ParseNeed(need)
+		if err != nil || kind != caps.KindMCP {
 			continue
 		}
-		var def *capability.Server
+		var def *caps.Server
 		if bridged != nil && slices.Contains(bridged.Names, name) {
 			if s, ok := lent[name]; ok {
 				def = &s
@@ -1083,7 +1083,7 @@ func preflight(ctx context.Context, checker Checker, agent, leadAgent, root stri
 // runProblems reads a refused login from a finished run: an error the runner
 // classified, or auth: entries the worker put in needs.
 // The worker's own servers are those of workerEnv, its environment.
-func runProblems(agent, leadAgent, root string, r run.Result, bridged *run.MCP, taskNeeds, workerEnv []string) []Problem {
+func (d Deps) runProblems(agent, leadAgent, root string, r run.Result, bridged *run.MCP, taskNeeds, workerEnv []string) []Problem {
 	// A finished run stays finished, whatever its log said about a login.
 	if r.Done {
 		return nil
@@ -1092,13 +1092,13 @@ func runProblems(agent, leadAgent, root string, r run.Result, bridged *run.MCP, 
 	for _, p := range fromNeeds(agent, r.Needs) {
 		// The worker writes these needs, so a server counts only when the task
 		// named it: its name reaches a login command and the line for the lead.
-		if p.Server == "" || slices.Contains(taskNeeds, capability.KindMCP+":"+p.Server) {
+		if p.Server == "" || slices.Contains(taskNeeds, caps.KindMCP+":"+p.Server) {
 			problems = append(problems, p)
 		}
 	}
 	// The server name comes from the worker's errors, so it too counts only
 	// when the task named it.
-	if r.AuthFailed && (r.AuthServer == "" || slices.Contains(taskNeeds, capability.KindMCP+":"+r.AuthServer)) {
+	if r.AuthFailed && (r.AuthServer == "" || slices.Contains(taskNeeds, caps.KindMCP+":"+r.AuthServer)) {
 		p := Problem{Agent: agent, Server: r.AuthServer, Reason: "the worker's agent refused its login"}
 		if p.Server != "" {
 			p.Reason = "the server refused the worker's credentials"
@@ -1109,9 +1109,9 @@ func runProblems(agent, leadAgent, root string, r run.Result, bridged *run.MCP, 
 		if p.Server == "" {
 			continue
 		}
-		defs := capability.ServersEnv(agent, root, workerEnv)
+		defs := d.servers(agent, root, workerEnv)
 		if bridged != nil && slices.Contains(bridged.Names, p.Server) {
-			defs = capability.Servers(leadAgent, root)
+			defs = d.servers(leadAgent, root, os.Environ())
 		}
 		if def, ok := defs[p.Server]; ok && def.Transport == "http" && def.Static() {
 			problems[i].Static, problems[i].Where = true, def.File

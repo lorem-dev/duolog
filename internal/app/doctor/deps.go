@@ -1,12 +1,14 @@
 package doctor
 
 import (
+	"os"
 	"path/filepath"
 	"sort"
 
 	"github.com/lorem-dev/duolog/internal/app/launch"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
@@ -50,12 +52,30 @@ type Installer interface {
 	InstructionFiles(root string) (current string, all []string)
 }
 
+// Caps is what doctor asks of an agent's capabilities, as delegate's
+// Capabilities does: the MCP servers its config defines, whether a worker of
+// it could take a server, and whether duolog's hooks are in its settings.
+type Caps interface {
+	Servers(root string, environ []string) map[string]caps.Server
+	Refusal(root string, s caps.Server, worker []string) string
+	HasDuolog(root string, environ []string) bool
+}
+
 // Agent holds what doctor asks of one registered agent. A nil port fails
-// closed: an agent with no Trust reads as untrusted, and one with no
-// Installer has no instruction file to check.
+// closed: an agent with no Trust reads as untrusted, one with no Installer has
+// no instruction file to check, and one with no Caps has no duolog hooks and
+// lends no server.
 type Agent struct {
 	Trust     Trust
 	Installer Installer
+	Caps      Caps
+}
+
+// hasDuolog reports whether duolog's hooks are in agent's settings, read from
+// duolog's own environment; an agent with no Caps has none.
+func (d Deps) hasDuolog(agent, root string) bool {
+	c := d.Agents[agent].Caps
+	return c != nil && c.HasDuolog(root, os.Environ())
 }
 
 // instructionPaths are the instruction files the agents read in the project at

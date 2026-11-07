@@ -10,9 +10,20 @@ import (
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
-	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/core/config"
 )
+
+// agentCaps are the registered agents' real capabilities, which read the
+// temporary home the tests set.
+func agentCaps() map[string]Caps {
+	out := map[string]Caps{}
+	for name, c := range launchtest.AllCaps() {
+		out[name] = c
+	}
+	return out
+}
 
 func setup(t *testing.T) (*config.Config, *session.Registry) {
 	t.Helper()
@@ -67,8 +78,8 @@ func TestRosterDoesNotRunAgents(t *testing.T) {
 
 func TestRosterCountsDifferences(t *testing.T) {
 	cfg, reg := setup(t)
-	lead := capability.Inventory{Agent: "claude", Items: []capability.Item{{Kind: "skill", Name: "a"}, {Kind: "skill", Name: "b"}, {Kind: "mcp", Name: "c"}, {Kind: "mcp", Name: "shared"}}}
-	other := capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "shared"}, {Kind: "plugin", Name: "only-codex"}}}
+	lead := caps.Inventory{Agent: "claude", Items: []caps.Item{{Kind: "skill", Name: "a"}, {Kind: "skill", Name: "b"}, {Kind: "mcp", Name: "c"}, {Kind: "mcp", Name: "shared"}}}
+	other := caps.Inventory{Agent: "codex", Items: []caps.Item{{Kind: "mcp", Name: "shared"}, {Kind: "plugin", Name: "only-codex"}}}
 	note := CapsNote(lead, other, true)
 	if note != "codex lacks 3" {
 		t.Fatal(note)
@@ -77,13 +88,13 @@ func TestRosterCountsDifferences(t *testing.T) {
 	if float64(len(strings.Fields(full)))*1.5 > 80 {
 		t.Fatal(full)
 	}
-	if CapsNote(lead, capability.Inventory{Agent: "codex", Unknown: true}, true) != "" {
+	if CapsNote(lead, caps.Inventory{Agent: "codex", Unknown: true}, true) != "" {
 		t.Fatal("unknown inventory reported as a difference")
 	}
 }
 func TestRosterWarnsWhenDuologMissing(t *testing.T) {
-	inv := capability.Inventory{Agent: "claude"}
-	note := CapsNote(inv, capability.Inventory{Agent: "codex"}, false)
+	inv := caps.Inventory{Agent: "claude"}
+	note := CapsNote(inv, caps.Inventory{Agent: "codex"}, false)
 	if !strings.Contains(note, "codex has no duolog hooks") || !strings.Contains(note, "sandbox only") {
 		t.Fatal(note)
 	}
@@ -98,16 +109,16 @@ func TestStartNoteUsesOnlyCachedCapabilities(t *testing.T) {
 	if err := os.MkdirAll(cache, 0755); err != nil {
 		t.Fatal(err)
 	}
-	mine := capability.Inventory{Agent: "claude", Items: []capability.Item{{Kind: "skill", Name: "extra"}}}
-	other := capability.Inventory{Agent: "codex", Items: []capability.Item{}}
-	for _, inv := range []capability.Inventory{mine, other} {
+	mine := caps.Inventory{Agent: "claude", Items: []caps.Item{{Kind: "skill", Name: "extra"}}}
+	other := caps.Inventory{Agent: "codex", Items: []caps.Item{}}
+	for _, inv := range []caps.Inventory{mine, other} {
 		data, _ := json.Marshal(inv)
 		if err := os.WriteFile(filepath.Join(cache, "inventory-"+inv.Agent+".json"), data, 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// setup removed every executable from PATH; cached notes still work.
-	note := StartNote(root, session.Lead{ID: "lead", Target: config.Target{Agent: "claude"}})
+	note := StartNote(root, session.Lead{ID: "lead", Target: config.Target{Agent: "claude"}}, agentCaps())
 	if !strings.Contains(note, "caps=1") || !strings.Contains(note, "codex has no duolog hooks") {
 		t.Fatal(note)
 	}
@@ -134,13 +145,13 @@ func TestStartNoteCoauthors(t *testing.T) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if note := StartNote(root, session.Lead{}); !strings.HasSuffix(note, "; commits: add duolog coauthors") {
+	if note := StartNote(root, session.Lead{}, agentCaps()); !strings.HasSuffix(note, "; commits: add duolog coauthors") {
 		t.Fatal(note)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("coauthors:\n  enabled: false\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if note := StartNote(root, session.Lead{}); strings.Contains(note, "commits:") {
+	if note := StartNote(root, session.Lead{}, agentCaps()); strings.Contains(note, "commits:") {
 		t.Fatal(note)
 	}
 }

@@ -17,8 +17,8 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/peer"
-	"github.com/lorem-dev/duolog/internal/capability"
 	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/paidrules"
@@ -123,7 +123,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 			continue
 		}
 		available[agent] = true
-		if !capability.HasDuolog(agent, root) {
+		if !d.hasDuolog(agent, root) {
 			add("warning", agent+" has no duolog hooks; its sessions get the sandbox only")
 		}
 		data, err := d.metadata(ctx, agent, "--version")
@@ -141,7 +141,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 			add("warning", fmt.Sprintf("%s %s is newer than fixture version %s", agent, version, baseline[agent]))
 		}
 	}
-	add("info", bridgeLine(cfg, root, available))
+	add("info", bridgeLine(d, cfg, root, available))
 	out = append(out, workerModeFindings(d, cfg, root)...)
 	out = append(out, billing(ctx, d, cfg, root, available, opts.Lead)...)
 	// Said every time while the person sets or lists a key that paid runs do
@@ -293,10 +293,11 @@ func billing(ctx context.Context, d Deps, cfg *config.Config, root string, avail
 }
 
 // bridgeLine names the MCP servers each agent could hand to a worker of the
-// other, and whether bridging is on. Names only: no value is read out.
-func bridgeLine(cfg *config.Config, root string, available map[string]bool) string {
+// other, and whether bridging is on. Names only: no value is read out. Both
+// the servers and the worker's own config are read from duolog's environment.
+func bridgeLine(d Deps, cfg *config.Config, root string, available map[string]bool) string {
 	state := "off (capabilities.on_missing.mcp: " + cfg.Capabilities.OnMissing.MCP + ")"
-	if cfg.Capabilities.OnMissing.MCP == capability.ActionBridge {
+	if cfg.Capabilities.OnMissing.MCP == caps.ActionBridge {
 		state = "on"
 	}
 	parts := []string{"MCP bridge " + state}
@@ -304,7 +305,14 @@ func bridgeLine(cfg *config.Config, root string, available map[string]bool) stri
 		if !available[agent] {
 			continue
 		}
-		ok, _ := capability.Bridgeable(agent, root)
+		other := "codex"
+		if agent == "codex" {
+			other = "claude"
+		}
+		var ok []string
+		if from, to := d.Agents[agent].Caps, d.Agents[other].Caps; from != nil && to != nil {
+			ok, _ = caps.Lendable(from.Servers(root, os.Environ()), func(s caps.Server) string { return to.Refusal(root, s, os.Environ()) })
+		}
 		names := "none"
 		if len(ok) > 0 {
 			names = strings.Join(ok, ", ")

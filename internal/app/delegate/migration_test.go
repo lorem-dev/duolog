@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
-	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/run"
 )
@@ -97,7 +97,7 @@ func TestDroppedOnlyLoginGoesToLeadWithoutLogin(t *testing.T) {
 
 	t.Run("unrelated mcp failure", func(t *testing.T) {
 		h := keys(t)
-		h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "wiki"}}}, capability.Inventory{Agent: "claude"})
+		h.inventories(caps.Inventory{Agent: "codex", Items: []caps.Item{{Kind: "mcp", Name: "wiki"}}}, caps.Inventory{Agent: "claude"})
 		h.auth.server = map[string]*Problem{"wiki": {Agent: "codex", Server: "wiki", Reason: "codex has no OAuth login for it"}}
 		o, e := h.runNeeds("implement", "mcp:wiki")
 		h.requireCalls(1)

@@ -4,12 +4,16 @@
 package launchtest
 
 import (
+	"context"
+
 	"github.com/lorem-dev/duolog/internal/adapter/claude"
 	"github.com/lorem-dev/duolog/internal/adapter/codex"
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/core/agent"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -43,6 +47,35 @@ type Trust interface {
 // adapters' own, for tests that read trust from a temporary home.
 func Trusts() map[string]Trust {
 	return map[string]Trust{"claude": claude.Trust{}, "codex": codex.Trust{}}
+}
+
+// Caps is the capabilities of one agent as the app packages declare them
+// (delegate.Capabilities, doctor.Caps, roster.Caps), for their tests, which
+// may not import the adapters.
+type Caps interface {
+	Scan(ctx context.Context, root string, environ []string) (caps.Inventory, error)
+	Servers(root string, environ []string) map[string]caps.Server
+	Import(root string, servers map[string]caps.Server, tools map[string][]string, worker []string) (*run.MCP, map[string]string)
+	Refusal(root string, s caps.Server, worker []string) string
+	Limit(root string, names []string, tools map[string][]string, worker []string) (codexArgs, allowedTools []string)
+	Cached(root string) caps.Inventory
+	HasDuolog(root string, environ []string) bool
+}
+
+// AllCaps are the real capabilities of the registered agents by name, which
+// read the home folder of the environment they are given.
+func AllCaps() map[string]Caps {
+	return map[string]Caps{"claude": claude.Caps{}, "codex": codex.Caps{}}
+}
+
+// CapsIn are the real capabilities of the registered agents by name with
+// home in their Home field, lookup as the lead's environment, and goos as the
+// system whose variable names they compare ("" is this one).
+func CapsIn(home string, lookup func(string) (string, bool), goos string) map[string]Caps {
+	return map[string]Caps{
+		"claude": claude.Caps{Home: home, LookupEnv: lookup, GOOS: goos},
+		"codex":  codex.Caps{Home: home, LookupEnv: lookup, GOOS: goos},
+	}
 }
 
 // Installer is the installer of one agent as app/install declares it (its

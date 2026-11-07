@@ -2,6 +2,8 @@
 package wiring
 
 import (
+	"context"
+	"os"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/claude"
@@ -14,16 +16,18 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/app/quota"
 	"github.com/lorem-dev/duolog/internal/app/remember"
+	"github.com/lorem-dev/duolog/internal/app/roster"
 	agentsync "github.com/lorem-dev/duolog/internal/app/sync"
 	"github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/agentfile"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 )
 
 // doctorAgents gives doctor the ports of each registered agent by name.
 func doctorAgents() map[string]doctor.Agent {
 	out := map[string]doctor.Agent{}
 	for _, a := range Agents() {
-		out[a.Facts.Name] = doctor.Agent{Trust: a.Trust, Installer: a.Installer}
+		out[a.Facts.Name] = doctor.Agent{Trust: a.Trust, Installer: a.Installer, Caps: a.Caps}
 	}
 	return out
 }
@@ -68,6 +72,17 @@ type Agent struct {
 	// quota read: its reads fail, so its verdict is paid, and it gets no paid
 	// pass.
 	Quota func(identity IdentitySink) quota.Reader
+	// Caps lists the agent's skills, plugins and MCP servers and takes the
+	// servers of another agent for its workers.
+	Caps Caps
+}
+
+// Caps is what the app packages ask of an agent's capabilities: delegate's
+// Capabilities, and the smaller interfaces of doctor and roster.
+type Caps interface {
+	delegate.Capabilities
+	doctor.Caps
+	roster.Caps
 }
 
 // IdentitySink receives the identity fields of a quota reply, as
@@ -100,8 +115,8 @@ type TreeGuard interface {
 // Agents returns the registered agents in order: claude, then codex.
 func Agents() []Agent {
 	return []Agent{
-		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}, Login: claude.Login{}, Trust: claude.Trust{}, Installer: claude.Installer{}, Sync: claude.Format{}, Allow: claude.NativeAllow{}, Probe: claude.Probe{}, Tree: claude.Tree{}, Pane: claude.Pane{}, Quota: claudeQuota},
-		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}, Login: codex.Login{}, Trust: codex.Trust{}, Installer: codex.Installer{}, Sync: codex.Format{}, Allow: codex.NativeAllow{}, Probe: codex.Probe{}, Tree: codex.Tree{}, Pane: codex.Pane{}, Quota: codexQuota},
+		{Facts: claude.Facts, Lead: claude.Lead{}, Events: claude.Events{}, Worker: claude.Worker{}, ResetTime: claude.ResetTime, Models: claude.Resolver{}, Login: claude.Login{}, Trust: claude.Trust{}, Installer: claude.Installer{}, Sync: claude.Format{}, Allow: claude.NativeAllow{}, Probe: claude.Probe{}, Tree: claude.Tree{}, Pane: claude.Pane{}, Quota: claudeQuota, Caps: claude.Caps{}},
+		{Facts: codex.Facts, Lead: codex.Lead{}, Events: codex.Events{}, Worker: codex.Worker{}, ResetTime: codex.ResetTime, Models: codex.Resolver{}, Login: codex.Login{}, Trust: codex.Trust{}, Installer: codex.Installer{}, Sync: codex.Format{}, Allow: codex.NativeAllow{}, Probe: codex.Probe{}, Tree: codex.Tree{}, Pane: codex.Pane{}, Quota: codexQuota, Caps: codex.Caps{}},
 	}
 }
 
@@ -121,13 +136,51 @@ func InstallDeps() install.Deps {
 	return d
 }
 
-// HookEnv fills the Events and Lead of env.Agent. An agent that is not
-// registered gets none, and every hook of it does nothing.
+// HookEnv fills the Events and Lead of env.Agent, and the Caps of every
+// registered agent. An agent that is not registered gets no Events or Lead,
+// and every hook of it does nothing.
 func HookEnv(env hook.Env) hook.Env {
 	if a, ok := Find(env.Agent); ok {
 		env.Events, env.Lead = a.Events, a.Lead
 	}
+	env.Caps = RosterCaps()
 	return env
+}
+
+// RosterCaps gives each registered agent's Caps by name, as roster takes them.
+func RosterCaps() map[string]roster.Caps {
+	out := map[string]roster.Caps{}
+	for _, a := range Agents() {
+		out[a.Facts.Name] = a.Caps
+	}
+	return out
+}
+
+// ScanCaps lists what agent has for duolog's own environment, and marks each
+// MCP server of its config files with whether a worker of another registered
+// agent could borrow it: the first reason one of them gives, or bridgeable.
+func ScanCaps(ctx context.Context, agent, root string) (caps.Inventory, error) {
+	a, ok := Find(agent)
+	if !ok {
+		return caps.Inventory{Agent: agent, Unknown: true}, nil
+	}
+	inv, err := a.Caps.Scan(ctx, root, os.Environ())
+	if err != nil || inv.Unknown {
+		return inv, err
+	}
+	why := func(s caps.Server) string {
+		for _, other := range Agents() {
+			if other.Facts.Name == agent {
+				continue
+			}
+			if reason := other.Caps.Refusal(root, s, os.Environ()); reason != "" {
+				return reason
+			}
+		}
+		return ""
+	}
+	inv.Items = caps.Mark(inv.Items, a.Caps.Servers(root, os.Environ()), why)
+	return inv, nil
 }
 
 // Find returns the registered agent called name.
@@ -176,7 +229,7 @@ func SyncFormats() agentsync.Formats {
 func delegateAgents() map[string]delegate.Agent {
 	out := map[string]delegate.Agent{}
 	for _, a := range Agents() {
-		d := delegate.Agent{Worker: a.Worker, Models: a.Models, Login: a.Login, Trust: a.Trust}
+		d := delegate.Agent{Worker: a.Worker, Models: a.Models, Login: a.Login, Trust: a.Trust, Caps: a.Caps}
 		if a.Quota != nil {
 			// The gate reads through the same port, bound to the account's
 			// identity; delegate only learns that the agent has one.

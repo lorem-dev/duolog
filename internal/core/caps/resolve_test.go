@@ -1,4 +1,4 @@
-package capability
+package caps
 
 import (
 	"strings"
@@ -97,6 +97,40 @@ func TestParseNeed(t *testing.T) {
 	}
 	if k, n, err := ParseNeed("MCP:codegraph"); err != nil || k != "mcp" || n != "codegraph" {
 		t.Fatal(k, n, err)
+	}
+}
+
+func TestResolveBridge(t *testing.T) {
+	cfg := defaults()
+	cfg.OnMissing.MCP = ActionBridge
+	source := inv("claude", Item{Kind: KindMCP, Name: "jira", Bridgeable: true}, Item{Kind: KindMCP, Name: "notion", NoBridge: "it signs in with OAuth"}, Item{Kind: KindMCP, Name: "plugin-only"})
+	// A Claude worker's MCP list is never complete, yet a server from the lead's
+	// files still counts as missing there.
+	unknown := Inventory{Agent: "claude", UnknownKinds: []string{KindMCP}}
+	for _, target := range []Inventory{inv("codex"), unknown} {
+		source.Agent = "codex"
+		if target.Agent == "codex" {
+			source.Agent = "claude"
+		}
+		if r := one(t, target, source, "mcp:jira", cfg); r.Action != ActionBridge || r.Hint != "" {
+			t.Fatal(r)
+		}
+		r := one(t, target, source, "mcp:notion", cfg)
+		if r.Action != ActionLeadFirst || !strings.Contains(r.Hint, "cannot be bridged: it signs in with OAuth") || !strings.Contains(r.Hint, "artifact in Read") {
+			t.Fatal(r)
+		}
+	}
+	// A server the worker has is never bridged.
+	if r := one(t, inv("codex", Item{Kind: KindMCP, Name: "jira"}), source, "mcp:jira", cfg); r.Action != ActionPresent {
+		t.Fatal(r)
+	}
+	// A server from no file keeps the old rule.
+	if r := one(t, inv("codex"), source, "mcp:plugin-only", cfg); r.Action != ActionLeadFirst || strings.Contains(r.Hint, "bridged") {
+		t.Fatal(r)
+	}
+	// lead_first stays the default.
+	if r := one(t, inv("codex"), source, "mcp:jira", defaults()); r.Action != ActionLeadFirst {
+		t.Fatal(r)
 	}
 }
 

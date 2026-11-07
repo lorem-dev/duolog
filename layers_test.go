@@ -35,22 +35,21 @@ type legacyTier struct {
 var legacyTiers = map[string]legacyTier{
 	"internal/mode": {tier: tierCore},
 
-	"internal/config":     {tier: tierKit},
-	"internal/rex":        {tier: tierKit},
-	"internal/bus":        {tier: tierKit},
-	"internal/journal":    {tier: tierKit},
-	"internal/store":      {tier: tierKit},
-	"internal/project":    {tier: tierKit},
-	"internal/trust":      {tier: tierKit},
-	"internal/trusthome":  {tier: tierKit},
-	"internal/install":    {tier: tierKit},
-	"internal/coauthor":   {tier: tierKit},
-	"internal/workerenv":  {tier: tierKit},
-	"internal/quota":      {tier: tierKit},
-	"internal/telemetry":  {tier: tierKit},
-	"internal/artifact":   {tier: tierKit},
-	"internal/capability": {tier: tierKit},
-	"plugin":              {tier: tierKit},
+	"internal/config":    {tier: tierKit},
+	"internal/rex":       {tier: tierKit},
+	"internal/bus":       {tier: tierKit},
+	"internal/journal":   {tier: tierKit},
+	"internal/store":     {tier: tierKit},
+	"internal/project":   {tier: tierKit},
+	"internal/trust":     {tier: tierKit},
+	"internal/trusthome": {tier: tierKit},
+	"internal/install":   {tier: tierKit},
+	"internal/coauthor":  {tier: tierKit},
+	"internal/workerenv": {tier: tierKit},
+	"internal/quota":     {tier: tierKit},
+	"internal/telemetry": {tier: tierKit},
+	"internal/artifact":  {tier: tierKit},
+	"plugin":             {tier: tierKit},
 
 	"internal/config/schemagen": {tier: tierWiring},
 }
@@ -67,28 +66,23 @@ var knownViolations = map[string]string{
 	"internal/app/calibrate (test) -> internal/adapter/session": "PR 29",
 	"internal/app/calibrate (test) -> internal/wiring":          "PR 29: the cell tests run real delegations on wiring.DelegateDeps",
 	"internal/app/calibrate -> github.com/pelletier/go-toml/v2": "stays: cell.go definesCheck reads a project's pyproject.toml, which is not tree guard code (ruling on PR 45)",
-	"internal/app/delegate -> internal/capability":              "PR 40",
 	"internal/app/delegate -> internal/adapter/config":          "after PR 10: RefuseRootEnv checks writable roots at launch",
 	"internal/app/doctor (test) -> internal/adapter/config":     "after PR 10: its tests load the config files",
-	"internal/app/doctor -> internal/capability":                "PR 40",
-	"internal/app/hook -> internal/capability":                  "PR 40",
 	"internal/app/hook -> internal/adapter/config":              "after PR 10: hooks load the config files",
 	"internal/app/learn -> internal/adapter/config":             "after PR 10: learn loads the config files",
 	"internal/core/learn -> go.yaml.in/yaml/v3":                 "PR 16: Render moves out once calibrate.go shrinks",
 	"internal/core/learn (test) -> internal/adapter/config":     "after PR 10: its tests load the default config",
 	"internal/core/learn -> internal/journal":                   "journal.Outcomes moves to core/record",
-	"internal/app/peer -> internal/capability":                  "PR 40",
 	"internal/app/peer -> internal/adapter/config":              "after PR 10: a peer loads the config files",
 	"internal/app/peer -> internal/rex":                         "the Pane port, moved out of PR 29 to a later task",
 	"internal/app/profile (test) -> internal/adapter/config":    "after PR 10: its tests load the config files",
-	"internal/app/roster -> internal/capability":                "PR 40",
 	"internal/app/roster -> internal/adapter/config":            "after PR 10: roster loads the config files",
 	"internal/core/route (test) -> internal/adapter/config":     "after PR 10: its tests load the default config",
 	"internal/core/usage (test) -> internal/adapter/config":     "after PR 10: its tests load the default config",
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 22
+const maxKnownViolations = 17
 
 // Reasons of the allowed edges, one per target.
 const (

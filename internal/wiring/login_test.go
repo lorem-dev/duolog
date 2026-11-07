@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/app/delegate"
-	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"github.com/lorem-dev/duolog/internal/workerenv"
@@ -92,7 +92,7 @@ func TestStaticServerProbe(t *testing.T) {
 				_, _ = w.Write([]byte(c.body))
 			}))
 			defer srv.Close()
-			def := capability.Server{Name: "jira", Agent: "codex", Transport: "http", URL: srv.URL, File: "config.toml [mcp_servers.jira]", Headers: []capability.Pair{{Key: "X-Token", Value: loginToken}}}
+			def := caps.Server{Name: "jira", Agent: "codex", Transport: "http", URL: srv.URL, File: "config.toml [mcp_servers.jira]", Headers: []caps.Pair{{Key: "X-Token", Value: loginToken}}}
 			dir := t.TempDir()
 			p := checkerOf(dir, launch.Process{}).Server(context.Background(), "claude", "jira", &def)
 			if (p != nil) != c.bad || got != loginToken {
@@ -113,7 +113,7 @@ func TestStaticServerProbe(t *testing.T) {
 
 // An unreachable server is not a refused login.
 func TestProbeNetworkFailurePasses(t *testing.T) {
-	def := capability.Server{Name: "x", Transport: "http", URL: "http://127.0.0.1:1/mcp", Headers: []capability.Pair{{Key: "A", Value: "b"}}}
+	def := caps.Server{Name: "x", Transport: "http", URL: "http://127.0.0.1:1/mcp", Headers: []caps.Pair{{Key: "A", Value: "b"}}}
 	if p := checkerOf("", launch.Process{}).Server(context.Background(), "codex", "x", &def); p != nil {
 		t.Fatal(p)
 	}
@@ -126,7 +126,7 @@ func TestOAuthServerStatus(t *testing.T) {
 		"mcp get docs": {Stdout: "docs:\n  Status: Connected\n"},
 	}})
 	onlyPath(t, codex, claude)
-	oauth := &capability.Server{Transport: "http", OAuth: true}
+	oauth := &caps.Server{Transport: "http", OAuth: true}
 	for _, agent := range []string{"codex", "claude"} {
 		c := checkerOf("", launch.Process{})
 		if p := c.Server(context.Background(), agent, "wiki", oauth); p == nil || p.Static || p.Command() != agent+" mcp login wiki" {
@@ -137,7 +137,7 @@ func TestOAuthServerStatus(t *testing.T) {
 		}
 	}
 	// A stdio server would have to start to be checked.
-	if p := checkerOf("", launch.Process{}).Server(context.Background(), "codex", "wiki", &capability.Server{Transport: "stdio"}); p != nil {
+	if p := checkerOf("", launch.Process{}).Server(context.Background(), "codex", "wiki", &caps.Server{Transport: "stdio"}); p != nil {
 		t.Fatal(p)
 	}
 }
@@ -196,7 +196,7 @@ func TestProbeDoesNotFollowRedirects(t *testing.T) {
 		http.Redirect(w, r, other.URL+"/steal", http.StatusTemporaryRedirect)
 	}))
 	defer srv.Close()
-	def := capability.Server{Name: "svc", Agent: "codex", Transport: "http", URL: srv.URL, Headers: []capability.Pair{{Key: "X-Token", Value: loginToken}}}
+	def := caps.Server{Name: "svc", Agent: "codex", Transport: "http", URL: srv.URL, Headers: []caps.Pair{{Key: "X-Token", Value: loginToken}}}
 	if p := checkerOf(t.TempDir(), launch.Process{}).Server(context.Background(), "claude", "svc", &def); p != nil || leaked != "" {
 		t.Fatal(p, leaked == loginToken)
 	}

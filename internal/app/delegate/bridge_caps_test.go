@@ -1,34 +1,48 @@
-package capability
+package delegate
 
 import (
-	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/core/run"
-	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
-// The secret values below must never appear in argv or in a written file.
+// The bridge tests run the two agents' real Caps through Deps.bridge, the
+// bridge from the lead's agent A to the worker's agent B: B.Import of
+// A.Servers. The secret values below must never appear in argv or in a
+// written file.
 const (
 	secretA = "s3cret-alpha-value"
 	secretB = "s3cret-bravo-value"
 	secretC = "s3cret-charlie-value"
 )
 
-// leadEnv replaces the lead's environment for one test.
-func leadEnv(t *testing.T, vars map[string]string) {
+// bridgeDeps gives Deps whose agents read their config under an empty home
+// and the lead's environment from lead, and a project root.
+func bridgeDeps(t *testing.T, lead map[string]string) (d Deps, home, root string) {
 	t.Helper()
-	old := lookupEnv
-	lookupEnv = func(name string) (string, bool) { v, ok := vars[name]; return v, ok }
-	t.Cleanup(func() { lookupEnv = old })
+	home, root = t.TempDir(), t.TempDir()
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	return Deps{Agents: bridgeAgents(home, lead, "")}, home, root
 }
 
-func claudeState(t *testing.T, home, root, user, local string) {
+// bridgeAgents are the agents with their real Caps, reading under home, with
+// lead as the lead's environment and goos as the system ("" for this one).
+func bridgeAgents(home string, lead map[string]string, goos string) map[string]Agent {
+	lookup := func(name string) (string, bool) { v, ok := lead[name]; return v, ok }
+	out := map[string]Agent{}
+	for name, c := range launchtest.CapsIn(home, lookup, goos) {
+		out[name] = Agent{Caps: c}
+	}
+	return out
+}
+
+func bridgeClaudeState(t *testing.T, home, root, user, local string) {
 	t.Helper()
 	projects := "{}"
 	if local != "" {
@@ -101,10 +115,9 @@ func TestBridgeClaudeToCodex(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			home, root := env(t)
-			leadEnv(t, c.lead)
-			claudeState(t, home, root, `{"svc":`+c.def+`}`, "")
-			got, failed := Bridge("claude", "codex", root, []string{"svc"}, nil, []string{"PATH=/bin"})
+			d, home, root := bridgeDeps(t, c.lead)
+			bridgeClaudeState(t, home, root, `{"svc":`+c.def+`}`, "")
+			got, failed := d.bridge("claude", "codex", root, []string{"svc"}, nil, []string{"PATH=/bin"})
 			if got == nil || len(failed) != 0 {
 				t.Fatal(got, failed)
 			}
@@ -185,10 +198,9 @@ func TestBridgeCodexToClaude(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			home, root := env(t)
-			leadEnv(t, c.lead)
+			d, home, root := bridgeDeps(t, c.lead)
 			put(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.svc]\n"+c.def)
-			got, failed := Bridge("codex", "claude", root, []string{"svc"}, nil, nil)
+			got, failed := d.bridge("codex", "claude", root, []string{"svc"}, nil, nil)
 			if got == nil || len(failed) != 0 {
 				t.Fatal(got, failed)
 			}
@@ -206,70 +218,15 @@ func TestBridgeCodexToClaude(t *testing.T) {
 
 // Only the servers the task names are bridged, never all of them.
 func TestBridgeOnlyNamedServers(t *testing.T) {
-	home, root := env(t)
-	leadEnv(t, nil)
-	claudeState(t, home, root, `{"a":{"command":"a"},"b":{"command":"b"}}`, "")
-	got, _ := Bridge("claude", "codex", root, []string{"a"}, nil, nil)
+	d, home, root := bridgeDeps(t, nil)
+	bridgeClaudeState(t, home, root, `{"a":{"command":"a"},"b":{"command":"b"}}`, "")
+	got, _ := d.bridge("claude", "codex", root, []string{"a"}, nil, nil)
 	if got == nil || strings.Contains(strings.Join(got.CodexArgs, " "), "mcp_servers.b.") || !slices.Equal(got.Names, []string{"a"}) {
 		t.Fatal(got)
 	}
-	got, _ = Bridge("codex", "claude", root, []string{"a"}, nil, nil)
-	if got != nil {
-		t.Fatal("codex defines no servers here", got)
-	}
-}
-
-func TestClaudePrecedence(t *testing.T) {
-	cases := []struct {
-		name, user, project, local, settings, want string
-	}{
-		{"local wins", `{"s":{"command":"user"}}`, `{"s":{"command":"project"}}`, `{"s":{"command":"local"}}`, `{"enableAllProjectMcpServers":true}`, "local"},
-		{"approved project wins over user", `{"s":{"command":"user"}}`, `{"s":{"command":"project"}}`, "", `{"enabledMcpjsonServers":["s"]}`, "project"},
-		{"unapproved project does not hide user", `{"s":{"command":"user"}}`, `{"s":{"command":"project"}}`, "", `{}`, "user"},
-		{"rejected project does not hide user", `{"s":{"command":"user"}}`, `{"s":{"command":"project"}}`, "", `{"enableAllProjectMcpServers":true,"disabledMcpjsonServers":["s"]}`, "user"},
-		{"user alone", `{"s":{"command":"user"}}`, "", "", `{}`, "user"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			home, root := env(t)
-			claudeState(t, home, root, c.user, c.local)
-			if c.project != "" {
-				put(t, filepath.Join(root, ".mcp.json"), `{"mcpServers":`+c.project+`}`)
-			}
-			put(t, filepath.Join(home, ".claude", "settings.json"), c.settings)
-			s := Servers("claude", root)["s"]
-			if s.Command != c.want || s.Scope != c.want || s.Why != "" {
-				t.Fatalf("%+v", s)
-			}
-		})
-	}
-}
-
-// An unapproved project server alone is listed but never bridged.
-func TestUnapprovedProjectServerIsNotBridged(t *testing.T) {
-	_, root := env(t)
-	put(t, filepath.Join(root, ".mcp.json"), `{"mcpServers":{"s":{"command":"evil"}}}`)
-	// The committed settings file counts only in a folder Claude trusts.
-	put(t, filepath.Join(root, ".claude", "settings.json"), `{"enableAllProjectMcpServers":true}`)
-	if s := Servers("claude", root)["s"]; !strings.Contains(s.Why, "not approved") {
-		t.Fatalf("%+v", s)
-	}
-}
-
-func TestCodexProjectLayerNeedsTrust(t *testing.T) {
-	home, root := env(t)
-	user := "[mcp_servers.s]\nurl = \"https://user.example.com/mcp\"\nbearer_token_env_var = \"T\"\n"
-	put(t, filepath.Join(root, ".codex", "config.toml"), "[mcp_servers.s]\nurl = \"https://project.example.com/mcp\"\n[mcp_servers.p]\ncommand = \"p\"\n")
-	put(t, filepath.Join(home, ".codex", "config.toml"), user)
-	if got := Servers("codex", root); got["s"].URL != "https://user.example.com/mcp" || len(got) != 1 {
-		t.Fatalf("untrusted project layer read: %+v", got)
-	}
-	abs, _ := filepath.Abs(root)
-	put(t, filepath.Join(home, ".codex", "config.toml"), user+"[projects."+tomlString(abs)+"]\ntrust_level = \"trusted\"\n")
-	got := Servers("codex", root)
-	// The project replaces url and keeps the user's bearer variable.
-	if got["s"].URL != "https://project.example.com/mcp" || got["s"].BearerVar != "T" || got["s"].Scope != "project" || got["p"].Command != "p" {
-		t.Fatalf("%+v", got)
+	got, failed := d.bridge("codex", "claude", root, []string{"a"}, nil, nil)
+	if got != nil || failed["a"] != "the lead's config does not define it" {
+		t.Fatal("codex defines no servers here", got, failed)
 	}
 }
 
@@ -309,16 +266,15 @@ func TestNotBridgeable(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			home, root := env(t)
-			leadEnv(t, c.lead)
+			d, home, root := bridgeDeps(t, c.lead)
 			to := "codex"
 			if c.from == "codex" {
 				to = "claude"
 				put(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.svc]\n"+c.def)
 			} else {
-				claudeState(t, home, root, `{"svc":`+c.def+`}`, "")
+				bridgeClaudeState(t, home, root, `{"svc":`+c.def+`}`, "")
 			}
-			got, failed := Bridge(c.from, to, root, []string{"svc"}, nil, []string{"HOME=" + home, "LANG=en_GB.UTF-8"})
+			got, failed := d.bridge(c.from, to, root, []string{"svc"}, nil, []string{"HOME=" + home, "LANG=en_GB.UTF-8"})
 			if got != nil || !strings.Contains(failed["svc"], c.why) {
 				t.Fatalf("got %+v, failed %q, want reason with %q", got, failed, c.why)
 			}
@@ -328,11 +284,10 @@ func TestNotBridgeable(t *testing.T) {
 }
 
 func TestBridgeToolAllowlist(t *testing.T) {
-	home, root := env(t)
-	leadEnv(t, nil)
-	claudeState(t, home, root, `{"jira":{"type":"http","url":"https://j.example.com","headers":{"X":"`+secretA+`"}},"wiki":{"command":"w"}}`, "")
+	d, home, root := bridgeDeps(t, nil)
+	bridgeClaudeState(t, home, root, `{"jira":{"type":"http","url":"https://j.example.com","headers":{"X":"`+secretA+`"}},"wiki":{"command":"w"}}`, "")
 	tools := map[string][]string{"jira": {"get_issue", "search"}}
-	got, _ := Bridge("claude", "codex", root, []string{"jira", "wiki"}, tools, nil)
+	got, _ := d.bridge("claude", "codex", root, []string{"jira", "wiki"}, tools, nil)
 	if v, _ := codexValue(got.CodexArgs, "mcp_servers.jira.enabled_tools"); v != `["get_issue","search"]` {
 		t.Fatal(got.CodexArgs)
 	}
@@ -342,8 +297,8 @@ func TestBridgeToolAllowlist(t *testing.T) {
 	}
 
 	put(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.jira]\nurl = \"https://j.example.com\"\nbearer_token_env_var = \"T\"\nenabled_tools = [\"get_issue\"]\ndisabled_tools = [\"delete\"]\n[mcp_servers.wiki]\ncommand = \"w\"\nenabled_tools = [\"read\"]\n")
-	leadEnv(t, map[string]string{"T": secretA})
-	got, _ = Bridge("codex", "claude", root, []string{"jira", "wiki"}, map[string][]string{"wiki": {"read", "list.all"}}, nil)
+	d.Agents = bridgeAgents(home, map[string]string{"T": secretA}, "")
+	got, _ = d.bridge("codex", "claude", root, []string{"jira", "wiki"}, map[string][]string{"wiki": {"read", "list.all"}}, nil)
 	// The duolog list wins over the lead's own enabled_tools.
 	want := []string{"mcp__jira__get_issue", "mcp__wiki__read", "mcp__wiki__list_all"}
 	if !slices.Equal(got.AllowedTools, want) || !slices.Equal(got.DisallowedTools, []string{"mcp__jira__delete"}) {
@@ -351,88 +306,15 @@ func TestBridgeToolAllowlist(t *testing.T) {
 	}
 }
 
-func TestScanMarksBridgeableWithoutSecrets(t *testing.T) {
-	home, root := env(t)
-	claude := testbin.Install(t, "claude", testbin.Scenario{})
-	onlyPath(t, claude)
-	if err := os.MkdirAll(filepath.Join(root, ".duolog"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	put(t, filepath.Join(root, ".duolog", ".gitignore"), "*\n")
-	claudeState(t, home, root, `{"jira":{"type":"http","url":"https://j.example.com","headers":{"X-Token":"`+secretA+`"}},"notion":{"type":"http","url":"https://n.example.com"}}`, "")
-	inv, err := Scan(context.Background(), "claude", root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var jira, notion Item
-	for _, it := range inv.Items {
-		switch it.Name {
-		case "jira":
-			jira = it
-		case "notion":
-			notion = it
-		}
-	}
-	if !jira.Bridgeable || notion.Bridgeable || !strings.Contains(notion.NoBridge, "OAuth") {
-		t.Fatal(inv.Items)
-	}
-	cached, _ := os.ReadFile(filepath.Join(root, ".duolog", "cache", "inventory-claude.json"))
-	if len(cached) == 0 {
-		t.Fatal("no cache")
-	}
-	data, _ := json.Marshal(inv)
-	for _, text := range []string{string(data), string(cached)} {
-		noSecret(t, "inventory", text)
-		if strings.Contains(text, "X-Token") {
-			t.Fatal(text)
-		}
-	}
-}
-
-func TestResolveBridge(t *testing.T) {
-	cfg := defaults()
-	cfg.OnMissing.MCP = ActionBridge
-	source := inv("claude", Item{Kind: KindMCP, Name: "jira", Bridgeable: true}, Item{Kind: KindMCP, Name: "notion", NoBridge: "it signs in with OAuth"}, Item{Kind: KindMCP, Name: "plugin-only"})
-	// A Claude worker's MCP list is never complete, yet a server from the lead's
-	// files still counts as missing there.
-	unknown := Inventory{Agent: "claude", UnknownKinds: []string{KindMCP}}
-	for _, target := range []Inventory{inv("codex"), unknown} {
-		source.Agent = "codex"
-		if target.Agent == "codex" {
-			source.Agent = "claude"
-		}
-		if r := one(t, target, source, "mcp:jira", cfg); r.Action != ActionBridge || r.Hint != "" {
-			t.Fatal(r)
-		}
-		r := one(t, target, source, "mcp:notion", cfg)
-		if r.Action != ActionLeadFirst || !strings.Contains(r.Hint, "cannot be bridged: it signs in with OAuth") || !strings.Contains(r.Hint, "artifact in Read") {
-			t.Fatal(r)
-		}
-	}
-	// A server the worker has is never bridged.
-	if r := one(t, inv("codex", Item{Kind: KindMCP, Name: "jira"}), source, "mcp:jira", cfg); r.Action != ActionPresent {
-		t.Fatal(r)
-	}
-	// A server from no file keeps the old rule.
-	if r := one(t, inv("codex"), source, "mcp:plugin-only", cfg); r.Action != ActionLeadFirst || strings.Contains(r.Hint, "bridged") {
-		t.Fatal(r)
-	}
-	// lead_first stays the default.
-	if r := one(t, inv("codex"), source, "mcp:jira", defaults()); r.Action != ActionLeadFirst {
-		t.Fatal(r)
-	}
-}
-
 // The written config and every argument stay free of values; the runner's own
 // tests check the file mode and removal.
 func TestBridgeOutputHasNoValues(t *testing.T) {
-	home, root := env(t)
-	leadEnv(t, map[string]string{"T": secretB})
-	claudeState(t, home, root, `{"a":{"type":"http","url":"https://a.example.com","headers":{"Authorization":"Bearer `+secretA+`"}}}`, "")
+	d, home, root := bridgeDeps(t, map[string]string{"T": secretB})
+	bridgeClaudeState(t, home, root, `{"a":{"type":"http","url":"https://a.example.com","headers":{"Authorization":"Bearer `+secretA+`"}}}`, "")
 	put(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.b]\nurl = \"https://b.example.com/mcp?t=1\"\nbearer_token_env_var = \"T\"\n[mcp_servers.b.http_headers]\nX = \""+secretC+"\"\n")
 	for _, got := range []*run.MCP{
-		func() *run.MCP { m, _ := Bridge("claude", "codex", root, []string{"a"}, nil, nil); return m }(),
-		func() *run.MCP { m, _ := Bridge("codex", "claude", root, []string{"b"}, nil, nil); return m }(),
+		func() *run.MCP { m, _ := d.bridge("claude", "codex", root, []string{"a"}, nil, nil); return m }(),
+		func() *run.MCP { m, _ := d.bridge("codex", "claude", root, []string{"b"}, nil, nil); return m }(),
 	} {
 		if got == nil {
 			t.Fatal("not bridged")
@@ -444,34 +326,20 @@ func TestBridgeOutputHasNoValues(t *testing.T) {
 		}
 	}
 	// A url with a query goes to Claude as a variable too.
-	m, _ := Bridge("codex", "claude", root, []string{"b"}, nil, nil)
+	m, _ := d.bridge("codex", "claude", root, []string{"b"}, nil, nil)
 	if strings.Contains(string(m.ClaudeConfig), "b.example.com") {
 		t.Fatal(string(m.ClaudeConfig))
-	}
-}
-
-func TestLimitOwnServers(t *testing.T) {
-	tools := map[string][]string{"jira": {"get_issue"}, "bad name": {"x"}}
-	args, allowed := Limit("codex", []string{"jira", "wiki", "bad name"}, tools)
-	if strings.Join(args, " ") != `-c mcp_servers.jira.enabled_tools=["get_issue"]` || allowed != nil {
-		t.Fatal(args, allowed)
-	}
-	args, allowed = Limit("claude", []string{"jira", "bad name"}, tools)
-	if args != nil || strings.Join(allowed, ",") != "mcp__bad_name__x,mcp__jira__get_issue" {
-		t.Fatal(args, allowed)
 	}
 }
 
 // On Windows variable names ignore case, so a server's Path or duolog_depth
 // would replace the worker's own.
 func TestBridgeEnvNamesIgnoreCaseOnWindows(t *testing.T) {
-	old := windowsEnv
-	windowsEnv = true
-	t.Cleanup(func() { windowsEnv = old })
 	for _, def := range []string{`{"command":"x","env":{"Lang":"C"}}`, `{"command":"x","env":{"Duolog_Depth":"0"}}`} {
-		home, root := env(t)
-		claudeState(t, home, root, `{"svc":`+def+`}`, "")
-		if got, failed := Bridge("claude", "codex", root, []string{"svc"}, nil, []string{"LANG=en_GB.UTF-8", "DUOLOG_DEPTH=1"}); got != nil || failed["svc"] == "" {
+		d, home, root := bridgeDeps(t, nil)
+		d.Agents = bridgeAgents(home, nil, "windows")
+		bridgeClaudeState(t, home, root, `{"svc":`+def+`}`, "")
+		if got, failed := d.bridge("claude", "codex", root, []string{"svc"}, nil, []string{"LANG=en_GB.UTF-8", "DUOLOG_DEPTH=1"}); got != nil || failed["svc"] == "" {
 			t.Fatal(def, got, failed)
 		}
 	}
@@ -479,10 +347,9 @@ func TestBridgeEnvNamesIgnoreCaseOnWindows(t *testing.T) {
 
 // Codex takes a url as text, so a Claude url that reads a variable stays.
 func TestBridgeRefusesURLWithVariableForCodex(t *testing.T) {
-	home, root := env(t)
-	leadEnv(t, map[string]string{"KEY": secretA})
-	claudeState(t, home, root, `{"svc":{"type":"http","url":"https://x.example.com/${KEY}/mcp","headers":{"A":"b"}}}`, "")
-	got, failed := Bridge("claude", "codex", root, []string{"svc"}, nil, nil)
+	d, home, root := bridgeDeps(t, map[string]string{"KEY": secretA})
+	bridgeClaudeState(t, home, root, `{"svc":{"type":"http","url":"https://x.example.com/${KEY}/mcp","headers":{"A":"b"}}}`, "")
+	got, failed := d.bridge("claude", "codex", root, []string{"svc"}, nil, nil)
 	if got != nil || !strings.Contains(failed["svc"], "url reads a variable") {
 		t.Fatal(got, failed)
 	}
@@ -491,11 +358,10 @@ func TestBridgeRefusesURLWithVariableForCodex(t *testing.T) {
 // A worker whose Codex policy uses the older exclude list gets that list back,
 // extended: Codex refuses filters next to it.
 func TestBridgeKeepsLegacyShellPolicy(t *testing.T) {
-	home, root := env(t)
-	leadEnv(t, map[string]string{})
-	claudeState(t, home, root, `{"svc":{"type":"http","url":"https://x.example.com/mcp","headers":{"A":"`+secretA+`"}}}`, "")
+	d, home, root := bridgeDeps(t, map[string]string{})
+	bridgeClaudeState(t, home, root, `{"svc":{"type":"http","url":"https://x.example.com/mcp","headers":{"A":"`+secretA+`"}}}`, "")
 	put(t, filepath.Join(home, ".codex", "config.toml"), "[shell_environment_policy]\nexclude = [\"AWS_*\"]\n")
-	got, failed := Bridge("claude", "codex", root, []string{"svc"}, nil, nil)
+	got, failed := d.bridge("claude", "codex", root, []string{"svc"}, nil, nil)
 	if got == nil {
 		t.Fatal(failed)
 	}
@@ -506,39 +372,10 @@ func TestBridgeKeepsLegacyShellPolicy(t *testing.T) {
 
 // -c keys would merge into a Codex table of the same name, a disabled one too.
 func TestBridgeRefusesNameTheWorkerHas(t *testing.T) {
-	home, root := env(t)
-	leadEnv(t, map[string]string{})
-	claudeState(t, home, root, `{"svc":{"type":"http","url":"https://x.example.com/mcp","headers":{"A":"b"}}}`, "")
+	d, home, root := bridgeDeps(t, map[string]string{})
+	bridgeClaudeState(t, home, root, `{"svc":{"type":"http","url":"https://x.example.com/mcp","headers":{"A":"b"}}}`, "")
 	put(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.svc]\ncommand = \"old\"\nenabled = false\n")
-	if got, failed := Bridge("claude", "codex", root, []string{"svc"}, nil, nil); got != nil || !strings.Contains(failed["svc"], "has a server of that name") {
+	if got, failed := d.bridge("claude", "codex", root, []string{"svc"}, nil, nil); got != nil || !strings.Contains(failed["svc"], "has a server of that name") {
 		t.Fatal(got, failed)
-	}
-}
-
-// Codex splits a -c key at each dot with no quoting, so a quoted name would
-// make a new server with no transport, and Codex would refuse its config. The
-// overrides name each enabled server bare and leave out a name that a bare key
-// cannot hold, a disabled server, and a server only Claude has.
-func TestCodexOffNamesServersBare(t *testing.T) {
-	home, root := env(t)
-	claudeState(t, home, root, `{"claude-only":{"command":"x"}}`, "")
-	put(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.codegraph]\ncommand = 'cg'\n[mcp_servers.private]\ncommand = 'p'\n[mcp_servers.parked]\ncommand = 'x'\nenabled = false\n[mcp_servers.\"a.b\"]\ncommand = 'd'\n")
-	got := strings.Join(CodexOff(root), "|")
-	want := "-c|mcp_servers.codegraph.enabled=false|-c|mcp_servers.private.enabled=false"
-	if got != want {
-		t.Fatalf("got %s, want %s", got, want)
-	}
-}
-
-// The same class as re-review Minor 2: the servers a skill test turns off
-// are those the worker's own CODEX_HOME defines, not duolog's.
-func TestCodexOffEnvReadsTheWorkersConfig(t *testing.T) {
-	home, root := env(t)
-	put(t, filepath.Join(home, ".codex", "config.toml"), "[mcp_servers.codegraph]\ncommand = 'cg'\n")
-	worker := t.TempDir()
-	put(t, filepath.Join(worker, "config.toml"), "[mcp_servers.tracker]\ncommand = 't'\n")
-	got := strings.Join(CodexOffEnv(root, []string{"HOME=" + home, "CODEX_HOME=" + worker}), "|")
-	if want := "-c|mcp_servers.tracker.enabled=false"; got != want {
-		t.Fatalf("got %s, want %s", got, want)
 	}
 }

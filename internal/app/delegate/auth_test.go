@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/run"
 )
@@ -27,7 +27,7 @@ type fakeChecker struct {
 }
 
 func (f *fakeChecker) Agent(_ context.Context, agent string) *Problem { return f.agent[agent] }
-func (f *fakeChecker) Server(_ context.Context, agent, name string, def *capability.Server) *Problem {
+func (f *fakeChecker) Server(_ context.Context, agent, name string, def *caps.Server) *Problem {
 	f.checked = append(f.checked, name)
 	if def != nil && def.Inactive {
 		f.inactive = append(f.inactive, name)
@@ -58,7 +58,7 @@ func TestPreflightReadsTheWorkersServers(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", caller)
 	worker := []string{"HOME=" + home, "USERPROFILE=" + home}
 	checker := &fakeChecker{}
-	preflight(context.Background(), checker, "claude", "", h.root, []string{"mcp:tracker"}, nil, worker)
+	h.deps.preflight(context.Background(), checker, "claude", "", h.root, []string{"mcp:tracker"}, nil, worker)
 	if len(checker.checked) != 1 || checker.checked[0] != "tracker" {
 		t.Fatalf("checked %v; want tracker, which the worker's own settings turn on", checker.checked)
 	}
@@ -84,7 +84,7 @@ func TestLoginThenWorkerRuns(t *testing.T) {
 func TestDeclinedLoginGoesToLeadOnce(t *testing.T) {
 	for _, result := range []LoginResult{Declined} {
 		h := authHarness(t)
-		h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "wiki"}}}, capability.Inventory{Agent: "claude"})
+		h.inventories(caps.Inventory{Agent: "codex", Items: []caps.Item{{Kind: "mcp", Name: "wiki"}}}, caps.Inventory{Agent: "claude"})
 		h.auth.server = map[string]*Problem{"wiki": {Agent: "codex", Server: "wiki", Reason: "codex has no OAuth login for it"}}
 		h.auth.login = result
 		o, e := h.runNeeds("implement", "mcp:wiki")
@@ -117,7 +117,7 @@ func TestLoginNeedsTerminal(t *testing.T) {
 
 func TestStaticTokenRejectedGoesToLead(t *testing.T) {
 	h := authHarness(t)
-	h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "jira"}}}, capability.Inventory{Agent: "claude"})
+	h.inventories(caps.Inventory{Agent: "codex", Items: []caps.Item{{Kind: "mcp", Name: "jira"}}}, caps.Inventory{Agent: "claude"})
 	h.auth.server = map[string]*Problem{"jira": {Agent: "codex", Server: "jira", Static: true, Where: "config.toml [mcp_servers.jira]", Reason: "the server rejected the token from config (HTTP 401)"}}
 	o, e := h.runNeeds("implement", "mcp:jira")
 	h.requireCalls(0)
@@ -146,7 +146,7 @@ func TestAuthFailureActions(t *testing.T) {
 // login that works runs the worker once more.
 func TestRunTimeRejection(t *testing.T) {
 	h := authHarness(t)
-	h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "wiki"}}}, capability.Inventory{Agent: "claude"})
+	h.inventories(caps.Inventory{Agent: "codex", Items: []caps.Item{{Kind: "mcp", Name: "wiki"}}}, caps.Inventory{Agent: "claude"})
 	h.results = []run.Result{{Done: false, Summary: "wiki said 401", Files: []string{}, Needs: []string{"auth:mcp:wiki"}}}
 	h.auth.login = LoggedIn
 	o, e := h.runNeeds("implement", "mcp:wiki")
@@ -188,7 +188,7 @@ func TestRunTimeAgentFailureWithStaticBridgedToken(t *testing.T) {
 // before the worker starts.
 func TestServersCheckedAfterAgentLogin(t *testing.T) {
 	h := authHarness(t)
-	h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "wiki"}}}, capability.Inventory{Agent: "claude"})
+	h.inventories(caps.Inventory{Agent: "codex", Items: []caps.Item{{Kind: "mcp", Name: "wiki"}}}, caps.Inventory{Agent: "claude"})
 	h.auth.agent = map[string]*Problem{"codex": {Agent: "codex", Reason: "not logged in"}}
 	h.auth.server = map[string]*Problem{"wiki": {Agent: "codex", Server: "wiki", Static: true, Where: "config.toml [mcp_servers.wiki]", Reason: "the server rejected the token from config (HTTP 401)"}}
 	h.auth.login = LoggedIn
@@ -203,7 +203,7 @@ func TestServersCheckedAfterAgentLogin(t *testing.T) {
 // a login to run, whatever the worker wrote.
 func TestRunProblemsTrustOnlyTheTask(t *testing.T) {
 	h := authHarness(t)
-	h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "wiki"}}}, capability.Inventory{Agent: "claude"})
+	h.inventories(caps.Inventory{Agent: "codex", Items: []caps.Item{{Kind: "mcp", Name: "wiki"}}}, caps.Inventory{Agent: "claude"})
 	h.results = []run.Result{{Done: true, Summary: "all tests pass", Files: []string{"a.go"}, Needs: []string{}, AuthFailed: true}}
 	o, e := h.runNeeds("implement", "mcp:wiki")
 	if e != nil || len(h.auth.logins) != 0 || !strings.HasPrefix(o.Line, "done=true") {
@@ -222,7 +222,7 @@ func TestRunProblemsTrustOnlyTheTask(t *testing.T) {
 func TestPreflightSkipsUnapprovedServer(t *testing.T) {
 	h := authHarness(t)
 	put(t, filepath.Join(h.root, ".mcp.json"), `{"mcpServers":{"svc":{"type":"http","url":"https://unapproved.invalid/mcp","headers":{"X-Api-Key":"${REVIEW_TOKEN}"}}}}`)
-	if got := preflight(context.Background(), h.auth, "claude", "codex", h.root, []string{"mcp:svc"}, nil, os.Environ()); len(got) != 0 || len(h.auth.checked) != 0 {
+	if got := h.deps.preflight(context.Background(), h.auth, "claude", "codex", h.root, []string{"mcp:svc"}, nil, os.Environ()); len(got) != 0 || len(h.auth.checked) != 0 {
 		t.Fatal(got, h.auth.checked)
 	}
 }
@@ -231,7 +231,7 @@ func TestPreflightSkipsUnapprovedServer(t *testing.T) {
 // named it.
 func TestErrorNamedServerMustBeInTask(t *testing.T) {
 	h := authHarness(t)
-	h.inventories(capability.Inventory{Agent: "codex", Items: []capability.Item{{Kind: "mcp", Name: "wiki"}}}, capability.Inventory{Agent: "claude"})
+	h.inventories(caps.Inventory{Agent: "codex", Items: []caps.Item{{Kind: "mcp", Name: "wiki"}}}, caps.Inventory{Agent: "claude"})
 	h.results = []run.Result{{Done: false, Summary: "x", Files: []string{}, Needs: []string{}, AuthFailed: true, AuthServer: "other"}}
 	if _, e := h.runNeeds("implement", "mcp:wiki"); e != nil || len(h.auth.logins) != 0 {
 		t.Fatal(e, h.auth.logins)

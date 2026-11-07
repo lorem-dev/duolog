@@ -20,7 +20,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/app/profile"
-	"github.com/lorem-dev/duolog/internal/capability"
 	"github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/workerenv"
@@ -29,17 +28,15 @@ import (
 // DelegateDeps fills every field of delegate.Deps with the real function.
 func DelegateDeps() delegate.Deps {
 	return delegate.Deps{
-		Agents:           delegateAgents(),
-		Lead:             Leads(),
-		ScanCapabilities: capability.ScanEnv,
-		BridgeMCP:        capability.Bridge,
-		OAuth:            mcpauth.New(),
-		RunLogin:         kit.RunLogin,
-		Build:            workerenv.Build,
-		DroppedKeys:      workerenv.DroppedKeys,
-		PaidGate:         paidGate,
-		GateBinary:       workerenv.GateBinary,
-		Canonical:        kit.Canonical,
+		Agents:      delegateAgents(),
+		Lead:        Leads(),
+		OAuth:       mcpauth.New(),
+		RunLogin:    kit.RunLogin,
+		Build:       workerenv.Build,
+		DroppedKeys: workerenv.DroppedKeys,
+		PaidGate:    paidGate,
+		GateBinary:  workerenv.GateBinary,
+		Canonical:   kit.Canonical,
 	}
 }
 

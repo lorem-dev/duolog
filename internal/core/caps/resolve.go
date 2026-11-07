@@ -1,4 +1,4 @@
-package capability
+package caps
 
 import (
 	"fmt"
@@ -6,6 +6,9 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/core/config"
 )
+
+// ActionBridge hands a server of the lead's agent to the worker for one run.
+const ActionBridge = "bridge"
 
 const (
 	ActionPresent    = "present"

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
-	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
@@ -51,38 +51,38 @@ func TestCapabilityPlan(t *testing.T) {
 	t.Parallel()
 	t.Run("bridge", func(t *testing.T) {
 		t.Parallel()
-		p := capabilityPlan([]capability.Resolution{{Need: "mcp:srv", Action: capability.ActionBridge}})
+		p := capabilityPlan([]caps.Resolution{{Need: "mcp:srv", Action: caps.ActionBridge}})
 		if len(p.Bridge) != 1 || p.Bridge[0] != "srv" {
 			t.Errorf("Bridge = %v, want [srv]", p.Bridge)
 		}
 	})
 	t.Run("refuse", func(t *testing.T) {
 		t.Parallel()
-		r := capability.Resolution{Need: "skill:x", Action: capability.ActionRefuse, Hint: "no skill x"}
-		p := capabilityPlan([]capability.Resolution{r})
+		r := caps.Resolution{Need: "skill:x", Action: caps.ActionRefuse, Hint: "no skill x"}
+		p := capabilityPlan([]caps.Resolution{r})
 		if p.Refuse == nil || *p.Refuse != r {
 			t.Errorf("Refuse = %v, want %v", p.Refuse, r)
 		}
 	})
 	t.Run("lead first", func(t *testing.T) {
 		t.Parallel()
-		p := capabilityPlan([]capability.Resolution{{Need: "mcp:a", Action: capability.ActionLeadFirst, Hint: "ask the lead"}})
+		p := capabilityPlan([]caps.Resolution{{Need: "mcp:a", Action: caps.ActionLeadFirst, Hint: "ask the lead"}})
 		if len(p.Lacking) != 1 || p.Lacking[0] != "mcp:a" || len(p.Notes) != 1 || p.Notes[0] != "ask the lead" {
 			t.Errorf("Lacking = %v, Notes = %v", p.Lacking, p.Notes)
 		}
 	})
 	t.Run("reroute", func(t *testing.T) {
 		t.Parallel()
-		p := capabilityPlan([]capability.Resolution{{Need: "mcp:a", Action: capability.ActionReroute, Hint: "other agent"}})
+		p := capabilityPlan([]caps.Resolution{{Need: "mcp:a", Action: caps.ActionReroute, Hint: "other agent"}})
 		if !p.Reroute || len(p.Notes) != 1 || p.Notes[0] != "other agent" {
 			t.Errorf("Reroute = %v, Notes = %v", p.Reroute, p.Notes)
 		}
 	})
 	t.Run("default with a hint", func(t *testing.T) {
 		t.Parallel()
-		p := capabilityPlan([]capability.Resolution{
-			{Need: "mcp:a", Action: capability.ActionPresent, Hint: "present"},
-			{Need: "mcp:b", Action: capability.ActionPresent},
+		p := capabilityPlan([]caps.Resolution{
+			{Need: "mcp:a", Action: caps.ActionPresent, Hint: "present"},
+			{Need: "mcp:b", Action: caps.ActionPresent},
 		})
 		if len(p.Notes) != 1 || p.Notes[0] != "present" || len(p.Bridge) != 0 || len(p.Lacking) != 0 || p.Reroute || p.Refuse != nil {
 			t.Errorf("plan = %+v", p)

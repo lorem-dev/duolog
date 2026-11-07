@@ -9,8 +9,8 @@ import (
 	leadio "github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/quota"
-	"github.com/lorem-dev/duolog/internal/capability"
 	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/run"
@@ -33,13 +33,38 @@ type ModelResolver interface {
 // A nil Trust fails closed: an agent with no Trust reads as untrusted. So
 // does a nil Quota: the account gate reads through the same port, bound to
 // the account's identity, so an agent without one is never read, its
-// verdict is paid, and it gets no paid pass.
+// verdict is paid, and it gets no paid pass. A nil Caps lists nothing: its
+// inventory is unknown, and it defines, lends and takes no MCP server.
 type Agent struct {
 	Worker Worker
 	Models ModelResolver
 	Login  Login
 	Trust  Trust
 	Quota  quota.Reader
+	Caps   Capabilities
+}
+
+// Capabilities reads one agent's skills, plugins and MCP servers, and takes
+// MCP servers of another agent for one of its workers. The bridge from agent A
+// to agent B is B.Import(A.Servers(...)). environ and worker are the
+// environment of the agent process whose folders are read: duolog's own for
+// the lead, the one the worker gets for a worker.
+type Capabilities interface {
+	// Scan lists what the agent has; an unknown inventory claims nothing.
+	Scan(ctx context.Context, root string, environ []string) (caps.Inventory, error)
+	// Servers reads the MCP servers the agent's config files define for the
+	// project at root, with the agent's own precedence.
+	Servers(root string, environ []string) map[string]caps.Server
+	// Import translates servers of another agent into this agent's format for
+	// one worker run; a server that cannot be bridged is in failed, with why.
+	// tools limits the tools of a server.
+	Import(root string, servers map[string]caps.Server, tools map[string][]string, worker []string) (m *run.MCP, failed map[string]string)
+	// Refusal says why s cannot go to a worker of this agent from its
+	// definition alone, or "" when it can.
+	Refusal(root string, s caps.Server, worker []string) string
+	// Limit applies capabilities.mcp_tools to the servers named that a worker
+	// of this agent has itself.
+	Limit(root string, names []string, tools map[string][]string, worker []string) (codexArgs, allowedTools []string)
 }
 
 // checker returns the checker of the worker process p: the real one over the
@@ -86,17 +111,15 @@ type Trust interface {
 }
 
 // Deps is what Run reaches outside the package: the worker's process, the
-// model lookup, the lead's transcript, the capability scan, the account gate
-// and the path check. The wiring package fills every field with the real
+// model lookup, the lead's transcript, the account gate and the path check;
+// the capability scan and the MCP bridge are each agent's Caps. The wiring package fills every field with the real
 // function; app tests fill them with fakes.
 type Deps struct {
 	// Agents holds the ports of each registered agent, by name.
 	Agents map[string]Agent
 	// Lead holds each agent's Lead, keyed by agent name; the transcript of
 	// the lead is read through it.
-	Lead             map[string]leadio.Lead
-	ScanCapabilities func(ctx context.Context, agent, root string, environ []string) (capability.Inventory, error)
-	BridgeMCP        func(from, to, root string, names []string, tools map[string][]string, workerEnv []string) (*run.MCP, map[string]string)
+	Lead map[string]leadio.Lead
 	// NewChecker, when set, replaces the checker that Run builds over the
 	// logins of Agents; a test sets it to script the answers.
 	NewChecker func(cacheDir string, p corelaunch.Process) Checker

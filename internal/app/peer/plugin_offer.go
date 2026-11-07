@@ -10,7 +10,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/bus"
-	"github.com/lorem-dev/duolog/internal/capability"
+	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/core/policy"
 	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -55,7 +55,7 @@ func (e *env) declinePlugin(ctx context.Context, entry session.Entry, screen Scr
 	if err := gate.Log(&store.Store{Dir: e.dir}, action, decision); err != nil {
 		return false, err
 	}
-	if setting := e.cfg.Capabilities.OnMissing.Plugin; offer.Plugin != "" && (setting == "" || setting == capability.ActionLeadFirst) {
+	if setting := e.cfg.Capabilities.OnMissing.Plugin; offer.Plugin != "" && (setting == "" || setting == caps.ActionLeadFirst) {
 		if err := e.tellPlugin(entry, offer); err != nil {
 			return false, err
 		}
