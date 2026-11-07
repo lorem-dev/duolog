@@ -728,12 +728,8 @@ func TestFinishedWorkerSurvivesDescendantHoldingOutput(t *testing.T) {
 	s := spec(t, "claude")
 	fake := installWorker(t, &s, testbin.Scenario{SpawnChild: true, Stdout: `{"structured_output":` + goodAnswer + `}`})
 	t.Cleanup(func() {
-		data, err := os.ReadFile(fake + ".child-pid")
-		if err != nil {
-			return
-		}
-		pid, err := strconv.Atoi(string(data))
-		if err != nil {
+		pid, ok := readChildPid(fake + ".child-pid")
+		if !ok {
 			return
 		}
 		if p, err := os.FindProcess(pid); err == nil {
@@ -744,6 +740,20 @@ func TestFinishedWorkerSurvivesDescendantHoldingOutput(t *testing.T) {
 	if err != nil || got.Interrupted || !got.Done {
 		t.Fatal(got, err)
 	}
+}
+
+// readChildPid reads the pid the fake worker's descendant wrote. The file can
+// exist before the pid is in it, so an empty or partial file is not a pid yet.
+func readChildPid(path string) (int, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return 0, false
+	}
+	return pid, true
 }
 
 func TestCancellationKillsDescendantHoldingOutput(t *testing.T) {
@@ -760,7 +770,7 @@ func TestCancellationKillsDescendantHoldingOutput(t *testing.T) {
 	cancelled := make(chan time.Time, 1)
 	go func() {
 		for ctx.Err() == nil {
-			if _, err := os.Stat(fake + ".child-pid"); err == nil {
+			if _, ok := readChildPid(fake + ".child-pid"); ok {
 				cancelled <- time.Now()
 				cancel()
 				return
@@ -781,13 +791,9 @@ func TestCancellationKillsDescendantHoldingOutput(t *testing.T) {
 	if err == nil || !got.Interrupted || since > 15*time.Second {
 		t.Fatal(got, err, since)
 	}
-	pidData, pidErr := os.ReadFile(fake + ".child-pid")
-	if pidErr != nil {
-		t.Fatal("descendant never started", pidErr)
-	}
-	pid, err := strconv.Atoi(string(pidData))
-	if err != nil {
-		t.Fatal(err)
+	pid, ok := readChildPid(fake + ".child-pid")
+	if !ok {
+		t.Fatal("descendant never wrote its pid")
 	}
 	t.Cleanup(func() {
 		if p, e := os.FindProcess(pid); e == nil {
