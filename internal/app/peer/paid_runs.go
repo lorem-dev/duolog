@@ -18,8 +18,8 @@ import (
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/paidrules"
+	corepane "github.com/lorem-dev/duolog/internal/core/pane"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
-	"github.com/lorem-dev/duolog/internal/rex"
 )
 
 // accountTimeout bounds an account state write that must happen even after
@@ -46,18 +46,13 @@ func (e *env) accounts() (*paidruns.Gate, error) {
 // its program runs, Gone once rex says the pane or its program ended, and
 // Unknown when rex cannot tell.
 func (e *env) paneProbe(ctx context.Context, o paidrules.Owner) paidruns.Presence {
-	client := e.rex
-	client.Anchor = ""
-	if o.PeerSession != "" {
-		client.Session = o.PeerSession
-	}
-	presence, err := client.Probe(ctx, o.Pane)
+	presence, err := e.panes.Probe(ctx, e.paneIn(o.PeerSession, o.Pane))
 	switch {
 	case err != nil:
 		return paidruns.Unknown
-	case presence == rex.Running:
+	case presence == corepane.Running:
 		return paidruns.Alive
-	case presence == rex.Gone, presence == rex.Exited:
+	case presence == corepane.Gone, presence == corepane.Exited:
 		return paidruns.Gone
 	}
 	return paidruns.Unknown
@@ -319,13 +314,6 @@ func Release(ctx context.Context, id string) (string, error) {
 		line += fmt.Sprintf("; a sent task counts at its estimate of %.2f USD", usd)
 	}
 	return line, nil
-}
-
-// paneAbsent reports an open that rex refused or never reached, so no pane
-// exists that could hold the reservation.
-func paneAbsent(err error) bool {
-	var rexErr *rex.Error
-	return errors.As(err, &rexErr) || errors.Is(err, rex.ErrSocket)
 }
 
 // billingTerms are the words that make a question one that may spend money,

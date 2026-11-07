@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/lorem-dev/duolog/internal/rex"
+	corepane "github.com/lorem-dev/duolog/internal/core/pane"
 )
 
 const (
@@ -56,20 +56,20 @@ func Show(ctx context.Context, id string, lines int) (Shown, error) {
 	if entry.Closed {
 		return Shown{}, fmt.Errorf("peer %s is closed", entry.ID)
 	}
-	client := e.clientFor(entry)
-	presence, err := client.Probe(ctx, entry.Block)
+	pane := e.paneOf(entry)
+	presence, err := e.panes.Probe(ctx, pane)
 	if err != nil {
 		return Shown{}, err
 	}
-	if presence == rex.Gone {
+	if presence == corepane.Gone {
 		return Shown{}, fmt.Errorf("peer %s: its pane is gone", entry.ID)
 	}
 	shown := Shown{ID: entry.ID, Agent: entry.Agent, Role: entry.Role, State: Exited}
-	if presence != rex.Exited {
+	if presence != corepane.Exited {
 		// The state is read from the whole styled screen, as List does, so
 		// that a short --lines cannot change it.
 		screen, err := e.screen(ctx, entry)
-		if rex.IsNotFound(err) {
+		if e.panes.Gone(err) {
 			return Shown{}, fmt.Errorf("peer %s: its pane is gone", entry.ID)
 		}
 		if err != nil {
@@ -77,8 +77,8 @@ func Show(ctx context.Context, id string, lines int) (Shown, error) {
 		}
 		shown.State = screen.State
 	}
-	raw, err := client.Capture(ctx, entry.Block, lines)
-	if rex.IsNotFound(err) {
+	raw, err := e.panes.Capture(ctx, pane, lines)
+	if e.panes.Gone(err) {
 		return Shown{}, fmt.Errorf("peer %s: its pane is gone", entry.ID)
 	}
 	if err != nil {

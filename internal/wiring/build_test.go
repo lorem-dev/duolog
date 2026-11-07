@@ -3,6 +3,8 @@ package wiring
 import (
 	"testing"
 	"time"
+
+	"github.com/lorem-dev/duolog/internal/rex"
 )
 
 // The recorded peer run lost an enter that followed a send at once: 0.7 s
@@ -14,6 +16,9 @@ func TestPeerDepsDefaultPauses(t *testing.T) {
 	}
 	if d.Clock == nil || len(d.Models) != len(Names()) || d.ResetTime == nil || d.Notify == nil || d.RecordPeer == nil || d.OnEnvFile == nil || d.Delegate == nil || d.PaidGate == nil || d.HeldGate == nil {
 		t.Fatalf("a field of peer.Deps is empty: %+v", d)
+	}
+	if _, ok := d.Pane.(rex.Pane); !ok {
+		t.Fatalf("peer.Deps.Pane is %T, want rex.Pane", d.Pane)
 	}
 	if p := ProfileDeps(DelegateDeps()); p.Delegate == nil || p.Rand == nil || p.RunCheck == nil {
 		t.Fatalf("a field of profile.Deps is empty: %+v", p)

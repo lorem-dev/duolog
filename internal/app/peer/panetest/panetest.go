@@ -10,8 +10,8 @@ import (
 )
 
 // Panes is the pane support of each registered agent, by name.
-func Panes() map[string]peertest.Pane {
-	return map[string]peertest.Pane{
+func Panes() map[string]peertest.PaneSupport {
+	return map[string]peertest.PaneSupport{
 		claude.Facts.Name: {Agent: claude.Pane{}, Facts: claude.Facts.Pane},
 		codex.Facts.Name:  {Agent: codex.Pane{}, Facts: codex.Facts.Pane},
 	}

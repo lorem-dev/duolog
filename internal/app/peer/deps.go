@@ -12,6 +12,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	corepane "github.com/lorem-dev/duolog/internal/core/pane"
 	"github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/screen"
 )
@@ -41,11 +42,63 @@ type PaneAgent interface {
 	Offer(s screen.Screen) (screen.Offer, bool)
 }
 
-// Pane is the pane support of one agent: its port and the texts of its
+// PaneSupport is the pane support of one agent: its port and the texts of its
 // terminal. An agent with no pane support has a nil Agent.
-type Pane struct {
+type PaneSupport struct {
 	Agent PaneAgent
 	Facts agent.PaneFacts
+}
+
+// PaneID names one pane: its block and the session that holds it.
+type PaneID = corepane.ID
+
+// PaneOpen is what a new pane starts with: its argv, which names the env
+// file, the tab's title, the working directory, and the session it joins or
+// the label of the session it creates.
+type PaneOpen = corepane.Open
+
+// Pane is the terminal backend that holds the peers' panes: Rex today. Peer
+// opens, drives and reads panes only through it.
+type Pane interface {
+	PaneCloser
+	// Open starts a pane and returns where it is.
+	Open(ctx context.Context, o PaneOpen) (PaneID, error)
+	// Send types text into a pane without pressing enter.
+	Send(ctx context.Context, id PaneID, text string) error
+	// Key presses one key, such as enter or ctrl+c.
+	Key(ctx context.Context, id PaneID, key string) error
+	// Capture returns the last lines non-blank lines of a pane as plain text.
+	Capture(ctx context.Context, id PaneID, lines int) ([]byte, error)
+	// CaptureStyled is Capture that keeps the styles that tell an agent's dim
+	// suggestion from typed text.
+	CaptureStyled(ctx context.Context, id PaneID, lines int) ([]byte, error)
+	// Probe tells a running program from an ended one and from a closed pane.
+	Probe(ctx context.Context, id PaneID) (corepane.Presence, error)
+	// Lead is the session of the lead's own pane, and false when no backend
+	// can be reached from here.
+	Lead() (session string, ok bool)
+	// Sessions lists the backend's sessions.
+	Sessions(ctx context.Context) ([]corepane.Session, error)
+	// RenameSession gives a session a new label.
+	RenameSession(ctx context.Context, session, label string) error
+	// CloseSession ends a session with every pane in it. A session that is
+	// already gone is not an error.
+	CloseSession(ctx context.Context, session string) error
+	// Clients lists the connected clients.
+	Clients(ctx context.Context) ([]corepane.Client, error)
+	// Gone reports an error that says the pane or session is not there.
+	Gone(err error) bool
+	// Refused reports an error that the backend gave or that shows it was not
+	// reached, so that the call did nothing.
+	Refused(err error) bool
+}
+
+// PaneCloser closes panes and shows them to the person.
+type PaneCloser interface {
+	// Close closes a pane. A pane that is already gone is not an error.
+	Close(ctx context.Context, id PaneID) error
+	// Focus shows a pane on one client of the backend. It sends no key.
+	Focus(ctx context.Context, id PaneID, client string) error
 }
 
 // Pauses are the waits between pane reads and keys. Send is the 0.7 s that the
@@ -59,9 +112,8 @@ type Pauses struct {
 
 // Deps is what peer reaches outside the package: its clock and pauses, the
 // model lookup, the person's notification, the registry write of a new pane,
-// the account gates and the delegation runner. The wiring package fills every
-// field with the real function; tests fill them with fakes. The Pane port of
-// the design moves to a later task: peer still calls rex.Client.
+// the account gates, the delegation runner and the panes. The wiring package
+// fills every field with the real function; tests fill them with fakes.
 type Deps struct {
 	Clock  Clock
 	Pauses Pauses
@@ -69,7 +121,9 @@ type Deps struct {
 	Models map[string]ModelResolver
 	// Panes gives the pane support of each agent, by agent. An agent that is
 	// not here, or has no Agent, cannot open a pane.
-	Panes map[string]Pane
+	Panes map[string]PaneSupport
+	// Pane is the backend that holds the panes.
+	Pane Pane
 	// Quota names the agents that have a quota reader, by agent. An agent that
 	// is not here is never read, so its spend could not be judged: a pane of
 	// it gets no paid pass, as in delegate.

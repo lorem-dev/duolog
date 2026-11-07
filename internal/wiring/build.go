@@ -22,6 +22,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/profile"
 	"github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/rex"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
@@ -113,6 +114,7 @@ func PeerDeps(d delegate.Deps) peer.Deps {
 		Pauses:    peer.Pauses{Poll: 2 * time.Second, Settle: time.Second, Send: 700 * time.Millisecond, Key: 150 * time.Millisecond, WorkGrace: 10 * time.Second},
 		Models:    peerModels(),
 		Panes:     peerPanes(),
+		Pane:      rex.Pane{},
 		ResetTime: resetTime,
 		Notify:    kit.Notify,
 		RecordPeer: func(reg *session.Registry, e session.Entry, limit int) error {

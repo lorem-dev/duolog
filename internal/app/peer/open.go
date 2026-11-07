@@ -14,6 +14,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	corepane "github.com/lorem-dev/duolog/internal/core/pane"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/store"
 )
@@ -131,7 +132,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 		// an env file still there to take: duolog peer launch starts nothing
 		// without it, and one that read it first cannot remove it after us.
 		// A file already taken means the agent may run: the hold stays.
-		if removeErr := os.Remove(envFile); paneAbsent(err) || removeErr == nil {
+		if removeErr := os.Remove(envFile); e.panes.Refused(err) || removeErr == nil {
 			err = errors.Join(err, pane.release(ctx))
 		}
 		return noted(Entry{}, err)
@@ -145,7 +146,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	if attachErr != nil {
 		// The pane exists but nothing records it: do not leave it unowned. Its
 		// holds go only once its close is confirmed; otherwise they stay.
-		closeErr := e.clientFor(entry).Close(ctx, block)
+		closeErr := e.panes.Close(ctx, e.paneOf(entry))
 		if closeErr == nil {
 			closeErr = e.sessionEnded(ctx, entry)
 		}
@@ -197,7 +198,7 @@ func (e *env) livePeers(ctx context.Context, leadID, agent string) ([]session.En
 		if x.Block == "" || x.Closed || x.Lead != leadID || x.Agent != agent {
 			continue
 		}
-		alive, err := e.clientFor(x).Alive(ctx, x.Block, e.cfg.Rex.CaptureLines)
+		alive, err := e.alive(ctx, x)
 		if err != nil {
 			return nil, err
 		}
@@ -210,4 +211,21 @@ func (e *env) livePeers(ctx context.Context, leadID, agent string) ([]session.En
 		live = append(live, x)
 	}
 	return live, nil
+}
+
+// alive reports whether the program in a pane still runs. It captures at most
+// capture_lines lines to confirm that the pane answers, and drops them.
+func (e *env) alive(ctx context.Context, entry session.Entry) (bool, error) {
+	id := e.paneOf(entry)
+	presence, err := e.panes.Probe(ctx, id)
+	if err != nil || presence != corepane.Running {
+		return false, err
+	}
+	if _, err := e.panes.Capture(ctx, id, e.cfg.Rex.CaptureLines); err != nil {
+		if e.panes.Gone(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }

@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/lorem-dev/duolog/internal/rex"
+	corepane "github.com/lorem-dev/duolog/internal/core/pane"
 )
 
 // openProjectPeer runs under peer-open.lock, shared with Close. Peers of all
@@ -18,35 +18,32 @@ func (e *env) openProjectPeer(ctx context.Context, label string, argv []string) 
 	if err != nil {
 		return "", "", err
 	}
-	client := e.rex
-	client.Label = label
-	client.Anchor = ""
+	open := PaneOpen{Argv: argv, Title: label, Dir: e.root}
 	if id != "" {
-		if id == e.rex.Session {
+		if id == e.leadSession {
 			return "", "", fmt.Errorf("peer session is the lead's Rex session; refusing to change its windows")
 		}
-		client.Session = id
-		block, err := client.NewWindow(ctx, argv)
+		open.Session = id
+		created, err := e.panes.Open(ctx, open)
 		if err == nil {
 			// A session from before roots were recorded joins its root's numbering.
 			_ = e.reg.SetPeerSessionRoot(id, canonicalRoot(e.opts.Root))
-			return block, id, nil
+			return created.Block, id, nil
 		}
-		if !rex.IsNotFound(err) {
+		if !e.panes.Gone(err) {
 			return "", "", err
 		}
 		if err := e.reg.SetPeerRexSession(""); err != nil {
 			return "", "", err
 		}
 	}
-	client.Session = e.rex.Session
-	created, err := client.NewSession(ctx, e.sessionLabel(), argv)
+	open.Session, open.SessionLabel = "", e.sessionLabel()
+	created, err := e.panes.Open(ctx, open)
 	if err != nil {
 		return "", "", err
 	}
 	if err := e.reg.SetPeerRexSession(created.Session); err != nil {
-		client.Session = created.Session
-		return "", "", errors.Join(err, client.KillSession(ctx))
+		return "", "", errors.Join(err, e.panes.CloseSession(ctx, created.Session))
 	}
 	// Best effort: without the record, the session is only left unnumbered.
 	_ = e.reg.SetPeerSessionRoot(created.Session, canonicalRoot(e.opts.Root))
@@ -77,7 +74,7 @@ func canonicalRoot(root string) string {
 // name keep their own numbering. Rex session IDs are time-ordered, so sorting
 // them preserves creation order regardless of the listing's order.
 func (e *env) renameProjectSessions(ctx context.Context) {
-	sessions, err := e.rex.ListSessions(ctx)
+	sessions, err := e.panes.Sessions(ctx)
 	if err != nil {
 		return
 	}
@@ -88,9 +85,9 @@ func (e *env) renameProjectSessions(ctx context.Context) {
 	root := canonicalRoot(e.opts.Root)
 	label := e.sessionLabel()
 	match := regexp.MustCompile("^" + regexp.QuoteMeta(label) + `(?: \([0-9]+\))?$`)
-	var peers []rex.SessionInfo
+	var peers []corepane.Session
 	for _, session := range sessions {
-		if session.ID != e.rex.Session && roots[session.ID] == root && match.MatchString(session.Label) {
+		if session.ID != e.leadSession && roots[session.ID] == root && match.MatchString(session.Label) {
 			peers = append(peers, session)
 		}
 	}
@@ -103,9 +100,7 @@ func (e *env) renameProjectSessions(ctx context.Context) {
 		if session.Label == name {
 			continue
 		}
-		client := e.rex
-		client.Session = session.ID
-		_ = client.RenameSession(ctx, name)
+		_ = e.panes.RenameSession(ctx, session.ID, name)
 	}
 }
 
@@ -116,7 +111,7 @@ func (e *env) cleanupProjectSession(ctx context.Context) error {
 	if err != nil || id == "" {
 		return err
 	}
-	if id == e.rex.Session {
+	if id == e.leadSession {
 		return fmt.Errorf("refusing to close the lead's Rex session")
 	}
 	entries, err := e.reg.Entries()
@@ -128,9 +123,7 @@ func (e *env) cleanupProjectSession(ctx context.Context) error {
 			return nil
 		}
 	}
-	client := e.rex
-	client.Session = id
-	if err := client.KillSession(ctx); err != nil {
+	if err := e.panes.CloseSession(ctx, id); err != nil {
 		return err
 	}
 	_ = e.reg.SetPeerSessionRoot(id, "")

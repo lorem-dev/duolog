@@ -10,7 +10,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/bus"
-	"github.com/lorem-dev/duolog/internal/rex"
+	corepane "github.com/lorem-dev/duolog/internal/core/pane"
 )
 
 // LastEvent is the newest thing duolog knows about a peer.
@@ -115,18 +115,18 @@ func List(ctx context.Context) ([]ListedPeer, error) {
 		if entry.Block == "" || entry.Lead != e.leadID {
 			continue
 		}
-		presence, err := e.clientFor(entry).Probe(ctx, entry.Block)
+		presence, err := e.panes.Probe(ctx, e.paneOf(entry))
 		if err != nil {
 			return nil, err
 		}
 		state := Gone
 		working := false
 		switch presence {
-		case rex.Exited:
+		case corepane.Exited:
 			state = Exited
-		case rex.Running:
+		case corepane.Running:
 			screen, err := e.screen(ctx, entry)
-			if rex.IsNotFound(err) {
+			if e.panes.Gone(err) {
 				break // the pane went between the probe and the capture
 			}
 			if err != nil {

@@ -1,5 +1,6 @@
-// Package peertest holds the fake PaneAgent of the peer tests and the contract
-// that every PaneAgent must meet. Only tests import it.
+// Package peertest holds the fakes of the peer tests, the PaneAgent of an
+// agent and the Pane backend, and the contracts that every PaneAgent and
+// every Pane must meet. Only tests import it.
 package peertest
 
 import (
@@ -24,8 +25,8 @@ type PaneAgent interface {
 	Offer(s screen.Screen) (screen.Offer, bool)
 }
 
-// Pane is peer.Pane under the same cycle rule.
-type Pane struct {
+// PaneSupport is peer.PaneSupport under the same cycle rule.
+type PaneSupport struct {
 	Agent PaneAgent
 	Facts agent.PaneFacts
 }

@@ -22,17 +22,16 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
+	"github.com/lorem-dev/duolog/internal/app/peer/peertest"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	corepane "github.com/lorem-dev/duolog/internal/core/pane"
 	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/core/route"
-	"github.com/lorem-dev/duolog/internal/rex"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
-
-const splitReply = `{"session_id":"session:peers","anchor_id":"block:lead","block_ids":["block:peer"],"split_ids":["split:s"],"revision":4}`
 
 func TestPendingAskNeedsThePerson(t *testing.T) {
 	for _, person := range []bool{false, true} {
@@ -60,15 +59,16 @@ type sleepAt struct {
 	d     time.Duration
 }
 
-// rig is one project with a registered lead and a fake rex. Sleeps are recorded
-// with the number of rex calls made before them, and last one millisecond.
+// rig is one project with a registered lead and a fake pane backend. Sleeps
+// are recorded with the number of pane calls made before them, and last one
+// millisecond.
 type rig struct {
 	t      *testing.T
 	root   string
 	cfg    *config.Config
 	reg    *session.Registry
 	ctx    context.Context
-	bin    string
+	pane   *peertest.FakePane
 	sleeps []sleepAt
 	// gate is the account gate every command of the test admits through.
 	gate *paidruns.Gate
@@ -76,43 +76,51 @@ type rig struct {
 	deps Deps
 }
 
-func baseScript() map[string]testbin.Scenario {
-	return map[string]testbin.Scenario{
-		"new":            {Stdout: splitReply},
-		"kill":           {},
-		"window new":     {Stdout: splitReply},
-		"session list":   {Stdout: `{"sessions":[]}`},
-		"session rename": {},
-		"block inspect":  {Stdout: `{"block":{"id":"block:peer","window_id":"window:lead"}}`},
-		"wait":           {Exit: 1, Stderr: "Error: wait timed out after 500ms: context deadline exceeded"},
-		"capture":        {Stdout: codexIdle("")},
-		"send":           {},
-		"send-key":       {},
-		"block close":    {},
+// baseScript is a backend where a new session and a tab open as block:peer,
+// every pane runs and shows an idle Codex, and every other call succeeds.
+func baseScript() map[string]peertest.Reply {
+	return map[string]peertest.Reply{
+		"open-session":  {Session: "session:peers", Block: "block:peer"},
+		"close-session": {},
+		"open-tab":      {Block: "block:peer"},
+		"sessions":      {},
+		"rename":        {},
+		"probe":         {Presence: corepane.Running},
+		"capture":       {Text: codexIdle("")},
+		"send":          {},
+		"key":           {},
+		"close":         {},
 	}
 }
 
-// screens makes a capture scenario that returns each screen in turn, then the last.
-func screens(list ...string) testbin.Scenario {
-	var seq []testbin.Scenario
+// screens makes a capture reply that returns each screen in turn, then the last.
+func screens(list ...string) peertest.Reply {
+	var seq []peertest.Reply
 	for _, s := range list {
-		seq = append(seq, testbin.Scenario{Stdout: s})
+		seq = append(seq, peertest.Reply{Text: s})
 	}
-	return testbin.Scenario{Sequence: seq}
+	return peertest.Reply{Sequence: seq}
 }
 
-func withScreens(list ...string) map[string]testbin.Scenario {
+func withScreens(list ...string) map[string]peertest.Reply {
 	s := baseScript()
 	s["capture"] = screens(list...)
 	return s
 }
 
 var (
-	gone   = testbin.Scenario{Exit: 3, Stderr: `block target "block:peer" not found`}
-	exited = testbin.Scenario{Exit: 3, Stdout: `{"exit_code": 3, "error": "exit status 3"}`}
+	// gone is a probe of a closed pane, notFound a call on one.
+	gone     = peertest.Reply{Presence: corepane.Gone}
+	notFound = peertest.Reply{Err: fmt.Errorf("block:peer: %w", peertest.ErrGone)}
+	exited   = peertest.Reply{Presence: corepane.Exited}
+	// refused is a call that never reached the backend.
+	refused = peertest.Reply{Err: fmt.Errorf("rex socket is unreachable (exit 4); this duolog command must leave the sandbox: %w", peertest.ErrRefused)}
+	// undecoded is an open whose reply did not decode: the pane may or may not
+	// exist.
+	undecoded = peertest.Reply{Err: errors.New("rex new: invalid reply")}
 )
 
-func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
+func newRig(t *testing.T, script map[string]peertest.Reply) *rig {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -144,7 +152,8 @@ func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
 		t.Fatal(err)
 	}
 	r.lead("codex", mode.Ask)
-	r.rex(script)
+	r.pane = &peertest.FakePane{LeadSession: "sess"}
+	r.panes(script)
 	// The Claude gate runs, as where duolog is installed: a Claude peer at
 	// level plan or in a read-only role opens only then.
 	r.claudeGate(true)
@@ -164,6 +173,7 @@ func newRig(t *testing.T, script map[string]testbin.Scenario) *rig {
 			return route.Normalize(target.Agent, target.Model), nil
 		}),
 		Panes:       testPanes(),
+		Pane:        r.pane,
 		Quota:       map[string]bool{"claude": true, "codex": true},
 		ResetTime:   workertest.ResetTime,
 		Notify:      func(string, string) {},
@@ -193,7 +203,7 @@ func modelsOf(f resolveFunc) map[string]ModelResolver {
 	return map[string]ModelResolver{"claude": f, "codex": f}
 }
 
-// rigClock is real time whose sleeps are recorded with the number of rex
+// rigClock is real time whose sleeps are recorded with the number of pane
 // calls made before them, and last one millisecond.
 type rigClock struct{ r *rig }
 
@@ -230,34 +240,19 @@ func (r *rig) lead(agent string, m mode.Mode) {
 	}
 }
 
-// rex installs a fake rex ahead of the current one, so a test can change what
-// the panes look like between steps. Any command the script lacks fails.
-func (r *rig) rex(script map[string]testbin.Scenario) {
+// panes gives the fake backend a new script and forgets its calls, so a test
+// can change what the panes look like between steps. Any call the script
+// lacks fails.
+func (r *rig) panes(script map[string]peertest.Reply) {
 	r.t.Helper()
-	r.bin = testbin.Install(r.t, "rex", testbin.Scenario{Exit: 99, Stderr: "unexpected rex command", Responses: script})
+	r.pane.Reset(script)
 }
 
-func (r *rig) calls() [][]string {
-	r.t.Helper()
-	data, err := os.ReadFile(r.bin + ".calls.ndjson")
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		r.t.Fatal(err)
-	}
-	var all [][]string
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-		var words []string
-		if err := json.Unmarshal([]byte(line), &words); err != nil {
-			r.t.Fatal(err)
-		}
-		all = append(all, words)
-	}
-	return all
-}
+// calls lists the pane calls since the last script, as peertest.FakePane
+// words them.
+func (r *rig) calls() [][]string { return r.pane.Calls() }
 
-// named returns the calls to one rex command, such as "send" or "block close".
+// named returns the calls of one method, such as "send" or "close".
 func (r *rig) named(name string) [][]string {
 	var found [][]string
 	for _, c := range r.calls() {
@@ -271,17 +266,18 @@ func (r *rig) named(name string) [][]string {
 // keys lists the keys pressed, in order.
 func (r *rig) keys() []string {
 	var keys []string
-	for _, c := range r.named("send-key") {
+	for _, c := range r.named("key") {
 		keys = append(keys, c[len(c)-1])
 	}
 	return keys
 }
 
-// spawns lists peer commands created in new sessions or tabs.
+// spawns lists peer commands created in new sessions or tabs: open-session
+// label title dir -- argv, or open-tab session title dir -- argv.
 func (r *rig) spawns() [][]string {
 	var out [][]string
 	for _, args := range r.calls() {
-		if len(args) > 0 && (args[0] == "new" || len(args) > 1 && args[0] == "window" && args[1] == "new") {
+		if len(args) > 0 && (args[0] == "open-session" || args[0] == "open-tab") {
 			out = append(out, args)
 		}
 	}
@@ -461,7 +457,7 @@ func TestPeerOpenRefusedForWorker(t *testing.T) {
 func TestPeerOpenRefusedWithoutPaneSupport(t *testing.T) {
 	r := newRig(t, baseScript())
 	r.useDeps(func(d *Deps) {
-		d.Panes = map[string]Pane{"claude": d.Panes["claude"], "codex": {Facts: d.Panes["codex"].Facts}}
+		d.Panes = map[string]PaneSupport{"claude": d.Panes["claude"], "codex": {Facts: d.Panes["codex"].Facts}}
 	})
 	_, err := Open(r.ctx, "implement")
 	if err == nil || err.Error() != "peer open: codex has no pane support" {
@@ -486,10 +482,10 @@ func TestAnswerRefusedForWorker(t *testing.T) {
 
 func TestSocketUnreachableIsOneLine(t *testing.T) {
 	script := baseScript()
-	script["new"] = testbin.Scenario{Exit: 4, Stderr: "connecting to Rex server\nfailed to WebSocket dial\n"}
+	script["open-session"] = refused
 	r := newRig(t, script)
 	_, err := Open(r.ctx, "implement")
-	if !errors.Is(err, rex.ErrSocket) || strings.Contains(err.Error(), "\n") || !strings.Contains(err.Error(), "sandbox") {
+	if !errors.Is(err, peertest.ErrRefused) || strings.Contains(err.Error(), "\n") || !strings.Contains(err.Error(), "sandbox") {
 		t.Fatalf("%v", err)
 	}
 }
@@ -498,13 +494,11 @@ func TestFirstPeerOpensDetachedSession(t *testing.T) {
 	r := newRig(t, baseScript())
 	r.ready()
 	split := r.spawns()[0]
-	joined := strings.Join(split, " ")
-	for _, want := range []string{"new duolog | " + filepath.Base(r.root), "--json", "--shell=none", "--window duolog | codex-implement", "-c " + r.root} {
-		if !strings.Contains(joined, want) {
-			t.Fatalf("%q missing from %s", want, joined)
-		}
+	// open-session label title dir -- argv
+	if want := []string{"open-session", "duolog | " + filepath.Base(r.root), "duolog | codex-implement", r.root, "--"}; !slices.Equal(split[:5], want) {
+		t.Fatalf("opened %v, want %v", split, want)
 	}
-	if contains(split, "sess") || contains(split, "block:lead") || len(r.named("split")) != 0 {
+	if contains(split, "sess") || contains(split, "block:lead") || len(r.named("open-tab")) != 0 {
 		t.Fatalf("lead's session changed: %v", r.calls())
 	}
 }
@@ -549,9 +543,9 @@ func TestOpenReplacesDeadSession(t *testing.T) {
 	r := newRig(t, baseScript())
 	first := r.ready()
 	script := baseScript()
-	script["block inspect"] = testbin.Scenario{Sequence: []testbin.Scenario{gone, {Stdout: `{"block":{"window_id":"window:lead"}}`}}}
-	script["window new"] = testbin.Scenario{Stdout: strings.ReplaceAll(splitReply, "block:peer", "block:second")}
-	r.rex(script)
+	script["probe"] = peertest.Reply{Sequence: []peertest.Reply{gone, {Presence: corepane.Running}}}
+	script["open-tab"] = peertest.Reply{Block: "block:second"}
+	r.panes(script)
 	second := r.open("implement")
 	if second.ID == first.ID || second.State != Ready || len(r.spawns()) != 1 {
 		t.Fatalf("%+v %+v", first, second)
@@ -692,7 +686,7 @@ func TestOpenReturnsOnQuestion(t *testing.T) {
 	if e.State != Question || e.ID == "" || !strings.Contains(e.Question, "Trust this folder?") {
 		t.Fatalf("%+v", e)
 	}
-	if len(r.named("block close")) != 0 || len(r.spawns()) != 1 {
+	if len(r.named("close")) != 0 || len(r.spawns()) != 1 {
 		t.Fatal("the pane must stay")
 	}
 	if r.entry(e.ID).Block == "" {
@@ -736,7 +730,7 @@ func TestNoKeysWithoutDecision(t *testing.T) {
 		if _, err := Wait(r.ctx, e.ID); err != nil {
 			t.Fatal(err)
 		}
-		if len(r.named("send-key")) != 0 || len(r.named("send")) != 0 {
+		if len(r.named("key")) != 0 || len(r.named("send")) != 0 {
 			t.Fatalf("%s: input was sent without a decision", tc.file)
 		}
 	}
@@ -771,14 +765,14 @@ func TestOpenTimeoutKeepsPane(t *testing.T) {
 	if time.Since(start) > 10*time.Second {
 		t.Fatal("did not stop at start_timeout_seconds")
 	}
-	if len(r.named("block close")) != 0 || r.entry(e.ID).Closed {
+	if len(r.named("close")) != 0 || r.entry(e.ID).Closed {
 		t.Fatal("the pane was closed")
 	}
 }
 
 func TestOpenReturnsWhenProgramExits(t *testing.T) {
 	script := baseScript()
-	script["wait"] = exited
+	script["probe"] = exited
 	r := newRig(t, script)
 	e := r.open("implement")
 	if e.State != Exited {
@@ -880,7 +874,7 @@ func TestCaptureNotInterpreted(t *testing.T) {
 	if err != nil || st.State != Ready || strings.Contains(st.Line, "ignore") || strings.Contains(e.Note, "ignore") {
 		t.Fatalf("%+v %v", st, err)
 	}
-	if len(r.keys()) != 0 || len(r.named("send")) != 0 || len(r.named("block close")) != 0 {
+	if len(r.keys()) != 0 || len(r.named("send")) != 0 || len(r.named("close")) != 0 {
 		t.Fatal("the capture changed what duolog did")
 	}
 }
@@ -889,8 +883,8 @@ func TestSendRefusedUntilReady(t *testing.T) {
 	r := newRig(t, baseScript())
 	e := r.ready()
 	script := baseScript()
-	script["capture"] = testbin.Scenario{Stdout: "==> Upgrading 1 outdated package\n"}
-	r.rex(script)
+	script["capture"] = peertest.Reply{Text: "==> Upgrading 1 outdated package\n"}
+	r.panes(script)
 	err := Send(r.ctx, e.ID, r.task())
 	if err == nil || !strings.Contains(err.Error(), "updating") {
 		t.Fatalf("%v", err)
@@ -919,7 +913,7 @@ func TestSendIsOneLineReference(t *testing.T) {
 	path := r.task()
 	script := baseScript()
 	script["capture"] = screens(sendOK(path)...)
-	r.rex(script)
+	r.panes(script)
 	if err := Send(r.ctx, e.ID, "task.md"); err != nil {
 		t.Fatal(err)
 	}
@@ -948,7 +942,7 @@ func TestSendLineForbidsRexUse(t *testing.T) {
 	path := r.task()
 	script := baseScript()
 	script["capture"] = screens(sendOK(path)...)
-	r.rex(script)
+	r.panes(script)
 	if err := Send(r.ctx, e.ID, path); err != nil {
 		t.Fatal(err)
 	}
@@ -974,7 +968,7 @@ func TestSendLineFitsEightyColumns(t *testing.T) {
 	}
 	script := baseScript()
 	script["capture"] = screens(codexIdle(""), codexIdle(""), codexIdle(line(rel)), working())
-	r.rex(script)
+	r.panes(script)
 	if err := Send(r.ctx, e.ID, rel); err != nil {
 		t.Fatal(err)
 	}
@@ -1015,7 +1009,7 @@ func TestSendMatchesWrappedInputAndClearsWithCtrlC(t *testing.T) {
 	twice := claudeWrapped(80, want+want)
 	script := baseScript()
 	script["capture"] = screens(claudeIdle(""), claudeIdle(""), twice, claudeIdle(""), claudeWrapped(80, want), claudeWorking())
-	r.rex(script)
+	r.panes(script)
 	if err := Send(r.ctx, e.ID, rel); err != nil {
 		t.Fatal(err)
 	}
@@ -1034,7 +1028,7 @@ func TestSendNeverPressesCtrlCOnEmptyInput(t *testing.T) {
 	e := r.open("plan")
 	script := baseScript()
 	script["capture"] = screens(claudeIdle(""))
-	r.rex(script)
+	r.panes(script)
 	err := Send(r.ctx, e.ID, r.task())
 	if err == nil || !strings.Contains(err.Error(), "input") {
 		t.Fatalf("%v", err)
@@ -1053,7 +1047,7 @@ func TestSendWaitsBeforeEnter(t *testing.T) {
 	path := r.task()
 	script := baseScript()
 	script["capture"] = screens(sendOK(path)...)
-	r.rex(script)
+	r.panes(script)
 	r.sleeps = nil
 	if err := Send(r.ctx, e.ID, path); err != nil {
 		t.Fatal(err)
@@ -1064,7 +1058,7 @@ func TestSendWaitsBeforeEnter(t *testing.T) {
 		switch c[0] {
 		case "send":
 			sendAt = i
-		case "send-key":
+		case "key":
 			enterAt = i
 		}
 	}
@@ -1102,7 +1096,7 @@ func TestSendChecksInputBeforeEnter(t *testing.T) {
 	lost := codexIdle("task.md and do it. Do not call rex.")
 	// ctrl+c clears the whole input, which the screen read after it shows.
 	script["capture"] = screens(codexIdle(""), codexIdle(""), lost, codexIdle(""), codexIdle(line("task.md")), working())
-	r.rex(script)
+	r.panes(script)
 	if err := Send(r.ctx, e.ID, path); err != nil {
 		t.Fatal(err)
 	}
@@ -1118,7 +1112,7 @@ func TestSendChecksInputBeforeEnter(t *testing.T) {
 	e2 := r2.ready()
 	script = baseScript()
 	script["capture"] = screens(codexIdle(""), codexIdle(""), lost, codexIdle(""), lost, codexIdle(""), lost, codexIdle(""))
-	r2.rex(script)
+	r2.panes(script)
 	err := Send(r2.ctx, e2.ID, r2.task())
 	if err == nil || !strings.Contains(err.Error(), "input") {
 		t.Fatalf("%v", err)
@@ -1138,7 +1132,7 @@ func TestSendChecksInputBeforeEnter(t *testing.T) {
 	e3 := r3.ready()
 	script = baseScript()
 	script["capture"] = screens(codexIdle(""), codexIdle(""), lost)
-	r3.rex(script)
+	r3.panes(script)
 	err = Send(r3.ctx, e3.ID, r3.task())
 	if err == nil || !strings.Contains(err.Error(), "clear") || len(r3.named("send")) != 1 || strings.Join(r3.keys(), ",") != "ctrl+c" {
 		t.Fatalf("%v after %d sends and keys %v", err, len(r3.named("send")), r3.keys())
@@ -1152,7 +1146,7 @@ func TestSendRetriesEnterThatWasLost(t *testing.T) {
 	script := baseScript()
 	stuck := codexIdle(line("task.md"))
 	script["capture"] = screens(codexIdle(""), codexIdle(""), stuck, stuck, working())
-	r.rex(script)
+	r.panes(script)
 	if err := Send(r.ctx, e.ID, path); err != nil {
 		t.Fatal(err)
 	}
@@ -1167,13 +1161,13 @@ func TestWaitStopsOnStuckPrompt(t *testing.T) {
 	path := r.task()
 	script := baseScript()
 	script["capture"] = screens(sendOK(path)...)
-	r.rex(script)
+	r.panes(script)
 	if err := Send(r.ctx, e.ID, path); err != nil {
 		t.Fatal(err)
 	}
 	script = baseScript()
 	script["capture"] = screens(codexIdle(line("task.md")))
-	r.rex(script)
+	r.panes(script)
 	got, err := Wait(r.ctx, e.ID)
 	if !errors.Is(err, ErrStuck) || got.State != Ready || strings.Contains(err.Error(), "\n") {
 		t.Fatalf("%+v %v", got, err)
@@ -1192,13 +1186,13 @@ func TestWaitReturnsWhenTaskFinishes(t *testing.T) {
 	path := r.task()
 	script := baseScript()
 	script["capture"] = screens(sendOK(path)...)
-	r.rex(script)
+	r.panes(script)
 	if err := Send(r.ctx, e.ID, path); err != nil {
 		t.Fatal(err)
 	}
 	script = baseScript()
 	script["capture"] = screens(working(), working(), codexIdle(""), codexIdle(""))
-	r.rex(script)
+	r.panes(script)
 	got, err := Wait(r.ctx, e.ID)
 	if err != nil || got.State != Ready || !strings.Contains(got.Note, "finished") {
 		t.Fatalf("%+v %v", got, err)
@@ -1216,7 +1210,7 @@ func TestWaitKeepsWaitingWhileWorkingMarkersShow(t *testing.T) {
 	path := r.task()
 	script := baseScript()
 	script["capture"] = screens(sendOK(path)...)
-	r.rex(script)
+	r.panes(script)
 	if err := Send(r.ctx, e.ID, path); err != nil {
 		t.Fatal(err)
 	}
@@ -1230,7 +1224,7 @@ func TestWaitKeepsWaitingWhileWorkingMarkersShow(t *testing.T) {
 	list = append(list, codexIdle(""), codexIdle(""))
 	script = baseScript()
 	script["capture"] = screens(list...)
-	r.rex(script)
+	r.panes(script)
 	got, err := Wait(r.ctx, e.ID)
 	if err != nil || got.State != Ready || !strings.Contains(got.Note, "finished") {
 		t.Fatalf("%+v %v", got, err)
@@ -1244,8 +1238,8 @@ func TestSendToExitedPeerRefused(t *testing.T) {
 	r := newRig(t, baseScript())
 	e := r.ready()
 	script := baseScript()
-	script["wait"] = exited
-	r.rex(script)
+	script["probe"] = exited
+	r.panes(script)
 	err := Send(r.ctx, e.ID, r.task())
 	if err == nil || !strings.Contains(err.Error(), "exited") {
 		t.Fatalf("%v", err)
@@ -1259,8 +1253,8 @@ func TestSendToClosedPeer(t *testing.T) {
 	r := newRig(t, baseScript())
 	e := r.ready()
 	script := baseScript()
-	script["block inspect"] = gone
-	r.rex(script)
+	script["probe"] = gone
+	r.panes(script)
 	err := Send(r.ctx, e.ID, r.task())
 	if err == nil || !strings.Contains(err.Error(), e.ID) || !strings.Contains(err.Error(), "closed") || strings.Contains(err.Error(), "\n") {
 		t.Fatalf("%v", err)
@@ -1274,8 +1268,8 @@ func TestWaitEndsWhenPeerCloses(t *testing.T) {
 	r := newRig(t, baseScript())
 	e := r.ready()
 	script := baseScript()
-	script["block inspect"] = gone
-	r.rex(script)
+	script["probe"] = gone
+	r.panes(script)
 	got, err := Wait(r.ctx, e.ID)
 	if err != nil || got.State != Closed {
 		t.Fatalf("%+v %v", got, err)
@@ -1292,7 +1286,7 @@ func TestStatusReportsUnfinishedTask(t *testing.T) {
 	path := r.task()
 	script := baseScript()
 	script["capture"] = screens(sendOK(path)...)
-	r.rex(script)
+	r.panes(script)
 	if err := Send(r.ctx, e.ID, path); err != nil {
 		t.Fatal(err)
 	}
@@ -1303,8 +1297,8 @@ func TestStatusReportsUnfinishedTask(t *testing.T) {
 		}
 	}
 	script = baseScript()
-	script["block inspect"] = gone
-	r.rex(script)
+	script["probe"] = gone
+	r.panes(script)
 	st, err := Status(r.ctx, e.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -1339,7 +1333,7 @@ func TestCloseDoesNotRevertFiles(t *testing.T) {
 	if data, err := os.ReadFile(changed); err != nil || string(data) != "work\n" {
 		t.Fatalf("%q %v", data, err)
 	}
-	if n := len(r.named("block close")); n != 1 {
+	if n := len(r.named("close")); n != 1 {
 		t.Fatalf("%d closes", n)
 	}
 	entries, err := r.reg.Entries()
@@ -1352,8 +1346,8 @@ func TestNoAutomaticReopen(t *testing.T) {
 	r := newRig(t, baseScript())
 	e := r.ready()
 	script := baseScript()
-	script["block inspect"] = gone
-	r.rex(script)
+	script["probe"] = gone
+	r.panes(script)
 	if _, err := Status(r.ctx, e.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -1366,8 +1360,8 @@ func TestNoAutomaticReopen(t *testing.T) {
 	}
 	// Only a new call from the lead opens one.
 	script = baseScript()
-	script["window new"] = testbin.Scenario{Stdout: strings.ReplaceAll(splitReply, "block:peer", "block:second")}
-	r.rex(script)
+	script["open-tab"] = peertest.Reply{Block: "block:second"}
+	r.panes(script)
 	next := r.open("implement")
 	if next.ID == e.ID || len(r.spawns()) != 1 {
 		t.Fatalf("%+v", next)
@@ -1380,8 +1374,8 @@ func TestCloseIsNotFallback(t *testing.T) {
 	r := newRig(t, baseScript())
 	e := r.ready()
 	script := baseScript()
-	script["block inspect"] = gone
-	r.rex(script)
+	script["probe"] = gone
+	r.panes(script)
 	if _, err := Wait(r.ctx, e.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -1410,8 +1404,8 @@ func TestOpenAfterCloseIsNotLimited(t *testing.T) {
 		t.Fatal(err)
 	}
 	script := baseScript()
-	script["new"] = testbin.Scenario{Stdout: strings.ReplaceAll(splitReply, "block:peer", "block:second")}
-	r.rex(script)
+	script["open-session"] = peertest.Reply{Session: "session:peers", Block: "block:second"}
+	r.panes(script)
 	second := r.open("mechanical")
 	if second.ID == first.ID || second.State != Ready || len(r.spawns()) != 1 {
 		t.Fatalf("%+v", second)
@@ -1422,9 +1416,9 @@ func TestCloseAlreadyClosedIsQuiet(t *testing.T) {
 	r := newRig(t, baseScript())
 	e := r.ready()
 	script := baseScript()
-	script["block inspect"] = gone
-	script["block close"] = gone
-	r.rex(script)
+	script["probe"] = gone
+	script["close"] = notFound
+	r.panes(script)
 	if err := Close(r.ctx, e.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -1444,7 +1438,7 @@ func TestCloseByBlockID(t *testing.T) {
 	if err := Close(r.ctx, "block:peer"); err != nil {
 		t.Fatal(err)
 	}
-	closes := r.named("block close")
+	closes := r.named("close")
 	if len(closes) != 1 || closes[0][len(closes[0])-1] != "block:peer" {
 		t.Fatalf("%v", closes)
 	}
@@ -1492,7 +1486,7 @@ func TestLimitMarksAgentUnavailable(t *testing.T) {
 	e := r.ready()
 	script := baseScript()
 	script["capture"] = screens("You've hit your usage limit. Try again at 8:48 AM.\n" + codexIdle(""))
-	r.rex(script)
+	r.panes(script)
 	got, err := Wait(r.ctx, e.ID)
 	if err != nil || got.State != Limited {
 		t.Fatalf("%+v %v", got, err)
@@ -1502,10 +1496,10 @@ func TestLimitMarksAgentUnavailable(t *testing.T) {
 		t.Fatalf("codex is not marked unavailable: %v %v", u, err)
 	}
 	// The next open routes elsewhere in a new tab beside the limited peer.
-	r.rex(withScreens(claudeIdle("")))
+	r.panes(withScreens(claudeIdle("")))
 	r.cfg.Rex.StartTimeoutSeconds = 1
 	next, err := Open(r.ctx, "implement")
-	if err != nil || next.State != Ready || len(r.named("window new")) != 1 || len(r.named("new")) != 0 {
+	if err != nil || next.State != Ready || len(r.named("open-tab")) != 1 || len(r.named("open-session")) != 0 {
 		t.Fatalf("%+v %v", next, err)
 	}
 	if argv := r.started(); !slices.Contains(argv, "claude") || slices.Contains(argv, "codex") {
@@ -1520,13 +1514,13 @@ func TestWaitReturnsRunHereOnLimit(t *testing.T) {
 	path := r.task()
 	script := baseScript()
 	script["capture"] = screens(sendOK(path)...)
-	r.rex(script)
+	r.panes(script)
 	if err := Send(r.ctx, e.ID, path); err != nil {
 		t.Fatal(err)
 	}
 	script = baseScript()
 	script["capture"] = screens("You've hit your usage limit. Try again at 8:48 AM.\n" + codexIdle(""))
-	r.rex(script)
+	r.panes(script)
 	got, err := Wait(r.ctx, e.ID)
 	if err != nil || got.State != Limited || !strings.HasPrefix(got.Note, "run here: ") || !strings.Contains(got.Note, path) || strings.Contains(got.Note, "\n") {
 		t.Fatalf("%+v %v", got, err)
@@ -1542,7 +1536,7 @@ func TestSendToLimitedPeerReturnsRunHere(t *testing.T) {
 	path := r.task()
 	script := baseScript()
 	script["capture"] = screens("You've hit your usage limit. Try again at 8:48 AM.\n" + codexIdle(""))
-	r.rex(script)
+	r.panes(script)
 	err := Send(r.ctx, e.ID, path)
 	var here *RunHereError
 	if !errors.As(err, &here) || !strings.HasPrefix(here.Line, "run here: ") || !strings.Contains(here.Line, path) {
@@ -1558,13 +1552,13 @@ func TestLimitKeepsPane(t *testing.T) {
 	e := r.ready()
 	script := baseScript()
 	script["capture"] = screens("You've hit your 5-hour limit · resets 3am (Europe/London)\n" + codexIdle(""))
-	r.rex(script)
+	r.panes(script)
 	got, err := Wait(r.ctx, e.ID)
 	if err != nil || got.State != Limited {
 		t.Fatalf("%+v %v", got, err)
 	}
 	_ = Send(r.ctx, e.ID, r.task())
-	if len(r.named("block close")) != 0 || r.entry(e.ID).Closed {
+	if len(r.named("close")) != 0 || r.entry(e.ID).Closed {
 		t.Fatal("a limit closed the pane")
 	}
 }
@@ -1638,7 +1632,7 @@ func TestPeerCommandGate(t *testing.T) {
 			r := newRig(t, withScreens(first, commandPrompt(tc.command, true), codexIdle(""), codexIdle("")))
 			r.cfg.Policy.Rules = append(r.cfg.Policy.Rules, config.Rule{Action: "exec", Match: "go test *", Decision: "allow", Roles: []string{"implement"}})
 			if tc.decision == "allow" {
-				r.rex(withScreens(first, codexIdle(""), codexIdle("")))
+				r.panes(withScreens(first, codexIdle(""), codexIdle("")))
 			}
 			e := r.open("implement")
 			if tc.decision == "ask" {
@@ -1743,9 +1737,9 @@ func TestStatusSettlesCommandWithRoleAndLeadRules(t *testing.T) {
 			}
 			first := commandPrompt("task-check ./...", false)
 			if denied {
-				r.rex(withScreens(first, commandPrompt("task-check ./...", true), codexIdle("")))
+				r.panes(withScreens(first, commandPrompt("task-check ./...", true), codexIdle("")))
 			} else {
-				r.rex(withScreens(first, codexIdle("")))
+				r.panes(withScreens(first, codexIdle("")))
 			}
 			st, err := Status(r.ctx, e.ID)
 			if err != nil {
@@ -1779,7 +1773,7 @@ func TestWaitNeverFinishesWhileWorking(t *testing.T) {
 		t.Fatal(err)
 	}
 	busy := "• Working (48s)\n" + codexIdle("")
-	r.rex(withScreens(busy))
+	r.panes(withScreens(busy))
 	var cancel context.CancelFunc
 	calls := 0
 	r.useDeps(func(d *Deps) {
@@ -1848,16 +1842,11 @@ func TestOpenDoesNotReuseAnotherWorktree(t *testing.T) {
 	if again := r.open("implement"); again.ID != second.ID {
 		t.Fatal("did not reuse same worktree")
 	}
-	if len(r.named("new")) != 1 || len(r.named("window new")) != 1 {
+	if len(r.named("open-session")) != 1 || len(r.named("open-tab")) != 1 {
 		t.Fatalf("worktrees did not get separate panes and tabs: %v", r.calls())
 	}
-	for _, name := range []string{"window new"} {
-		args := r.named(name)[0]
-		separator := slices.Index(args, "--")
-		focus := slices.Index(args, "--focus=false")
-		if focus < 0 || separator < 0 || focus > separator || slices.Contains(args[:separator], "--focus=true") {
-			t.Fatalf("%s takes focus: %v", name, args)
-		}
+	if focus := r.named("focus"); len(focus) != 0 {
+		t.Fatalf("an open took focus: %v", focus)
 	}
 }
 
@@ -1867,7 +1856,7 @@ func TestQueuedQuestionOpensAndReachesLead(t *testing.T) {
 	r := newRig(t, baseScript())
 	e := r.ready()
 	dialog := "Which environment should I use?\n› 1. Staging\n  2. Production\n"
-	r.rex(withScreens(queuedQuestion+working(), dialog))
+	r.panes(withScreens(queuedQuestion+working(), dialog))
 	got, err := Wait(r.ctx, e.ID)
 	if err != nil || got.State != Question || !strings.Contains(got.Question, "Which environment") || !strings.Contains(got.Question, "Staging") {
 		t.Fatalf("%+v %v", got, err)
@@ -1885,17 +1874,15 @@ func TestSecondPeerOpensNewTabAcrossAgents(t *testing.T) {
 	t.Setenv("REX_BLOCK", "block:lead")
 	r.ready()
 	script := withScreens(claudeIdle(""))
-	script["window new"] = testbin.Scenario{Stdout: `{"window_id":"window:other","block_ids":["block:second"]}`}
-	r.rex(script)
+	script["open-tab"] = peertest.Reply{Block: "block:second"}
+	r.panes(script)
 	next := r.open("plan")
-	if next.State != Ready || len(r.named("window new")) != 1 || len(r.named("new")) != 0 {
+	if next.State != Ready || len(r.named("open-tab")) != 1 || len(r.named("open-session")) != 0 {
 		t.Fatalf("%+v calls=%v", next, r.calls())
 	}
-	args := strings.Join(r.named("window new")[0], " ")
-	for _, want := range []string{"-s session:peers", "--focus=false", "--shell=none", r.root} {
-		if !strings.Contains(args, want) {
-			t.Fatalf("missing %s: %s", want, args)
-		}
+	// open-tab session title dir -- argv
+	if args := r.named("open-tab")[0]; args[1] != "session:peers" || args[3] != r.root || len(r.named("focus")) != 0 {
+		t.Fatalf("tab %v, focus %v", args, r.named("focus"))
 	}
 }
 
@@ -1904,7 +1891,7 @@ func TestQueuedQuestionCanAutoAnswer(t *testing.T) {
 	e := r.ready()
 	dialog := "Which environment should I use?\n› 1. Staging\n  2. Production\n"
 	r.cfg.Rex.AutoAnswers = []config.AutoAnswer{{Match: "Which environment", Answer: "Staging"}}
-	r.rex(withScreens(queuedQuestion+working(), dialog, codexIdle(""), codexIdle("")))
+	r.panes(withScreens(queuedQuestion+working(), dialog, codexIdle(""), codexIdle("")))
 	got, err := Wait(r.ctx, e.ID)
 	if err != nil || got.State != Ready || len(r.messages("ask")) != 0 {
 		t.Fatalf("%+v %v", got, err)
@@ -1918,11 +1905,9 @@ func TestMovedPeerStillUsesProjectSession(t *testing.T) {
 	r := newRig(t, baseScript())
 	t.Setenv("REX_BLOCK", "block:lead")
 	r.ready()
-	script := withScreens(claudeIdle(""))
-	script["block inspect -s session:peers --json block:peer"] = testbin.Scenario{Stdout: `{"block":{"window_id":"window:elsewhere"}}`}
-	r.rex(script)
+	r.panes(withScreens(claudeIdle("")))
 	r.open("plan")
-	if len(r.named("new")) != 0 || len(r.named("window new")) != 1 {
+	if len(r.named("open-session")) != 0 || len(r.named("open-tab")) != 1 {
 		t.Fatal(r.calls())
 	}
 }
@@ -1931,8 +1916,8 @@ func TestFailedCloseRetainsEntry(t *testing.T) {
 	r := newRig(t, baseScript())
 	e := r.ready()
 	script := baseScript()
-	script["block close"] = testbin.Scenario{Exit: 4}
-	r.rex(script)
+	script["close"] = refused
+	r.panes(script)
 	if err := Close(r.ctx, e.ID); err == nil {
 		t.Fatal("failed close succeeded")
 	}
@@ -1947,7 +1932,7 @@ func TestListPeersDoesNotAnswerQuestions(t *testing.T) {
 	if err := r.reg.Record(session.Entry{ID: "other", Lead: "another-lead", Agent: "codex", Role: "implement", Block: "block:other"}); err != nil {
 		t.Fatal(err)
 	}
-	r.rex(withScreens(fixtureText("codex-hooks-review.txt")))
+	r.panes(withScreens(fixtureText("codex-hooks-review.txt")))
 	peers, err := List(r.ctx)
 	if err != nil || len(peers) != 1 || peers[0].ID != e.ID || peers[0].State != Question {
 		t.Fatalf("%+v %v", peers, err)
@@ -1960,13 +1945,13 @@ func TestListPeersDoesNotAnswerQuestions(t *testing.T) {
 // claudePeer opens a Claude peer and sends it the rig's task.
 func (r *rig) claudePeer() (Entry, string) {
 	r.t.Helper()
-	r.rex(withScreens(claudeIdle("")))
+	r.panes(withScreens(claudeIdle("")))
 	e := r.open("plan")
 	if e.State != Ready {
 		r.t.Fatalf("not ready: %+v", e)
 	}
 	path := r.task()
-	r.rex(withScreens(claudeIdle(""), claudeIdle(""), claudeIdle(line("task.md")), claudeWorking()))
+	r.panes(withScreens(claudeIdle(""), claudeIdle(""), claudeIdle(line("task.md")), claudeWorking()))
 	if err := Send(r.ctx, e.ID, path); err != nil {
 		r.t.Fatal(err)
 	}
@@ -1987,7 +1972,7 @@ func claudeTyped(text string) string {
 func TestInterruptedPeerIsReported(t *testing.T) {
 	r := newRig(t, baseScript())
 	e, path := r.claudePeer()
-	r.rex(withScreens(claudeWorking(), claudeInterrupted()))
+	r.panes(withScreens(claudeWorking(), claudeInterrupted()))
 	got, err := Wait(r.ctx, e.ID)
 	if err != nil || got.State != Interrupted || !strings.Contains(got.Note, "duolog peer send "+e.ID) || !strings.Contains(got.Note, path) {
 		t.Fatalf("%+v %v", got, err)
@@ -2004,7 +1989,7 @@ func TestInterruptedPeerIsReported(t *testing.T) {
 		t.Fatalf("%+v %v", peers, err)
 	}
 	// The follow-up is typed into the interrupted pane.
-	r.rex(withScreens(claudeInterrupted(), claudeInterrupted(), claudeTyped(line("task.md")), claudeWorking()))
+	r.panes(withScreens(claudeInterrupted(), claudeInterrupted(), claudeTyped(line("task.md")), claudeWorking()))
 	if err := Send(r.ctx, e.ID, path); err != nil {
 		t.Fatal(err)
 	}
@@ -2020,7 +2005,7 @@ func TestSendTypesOverSuggestion(t *testing.T) {
 	e := r.open("plan")
 	path := r.task()
 	suggestion := styledIdle("\x1b[7mf\x1b[27m" + grey + "ix typecheck errors\x1b[39m")
-	r.rex(withScreens(suggestion, suggestion, styledIdle(line("task.md")+cursor), claudeWorking()))
+	r.panes(withScreens(suggestion, suggestion, styledIdle(line("task.md")+cursor), claudeWorking()))
 	if err := Send(r.ctx, e.ID, path); err != nil {
 		t.Fatal(err)
 	}
@@ -2028,7 +2013,7 @@ func TestSendTypesOverSuggestion(t *testing.T) {
 		t.Fatalf("keys %q", got)
 	}
 	// Typed text is still refused.
-	r.rex(withScreens(styledIdle("fix typecheck errors" + cursor)))
+	r.panes(withScreens(styledIdle("fix typecheck errors" + cursor)))
 	err := Send(r.ctx, e.ID, path)
 	if err == nil || !strings.Contains(err.Error(), "holds text") || len(r.named("send")) != 0 {
 		t.Fatalf("%v after %d sends", err, len(r.named("send")))
@@ -2044,7 +2029,7 @@ func TestDenyWithReasonReplies(t *testing.T) {
 	onNo := strings.Replace(strings.Replace(prompt, " ❯ 1. Yes", "   1. Yes", 1), "   4. No", " ❯ 4. No", 1)
 	reason := "Do not create files; report the plan instead."
 	typed := reasonPrefix + reason
-	r.rex(withScreens(prompt, onNo, claudeInterrupted(), claudeTyped(typed), claudeWorking()))
+	r.panes(withScreens(prompt, onNo, claudeInterrupted(), claudeTyped(typed), claudeWorking()))
 	if err := AnswerWithReason(r.ctx, e.ID, "No", reason); err != nil {
 		t.Fatal(err)
 	}
@@ -2059,7 +2044,7 @@ func TestDenyWithReasonReplies(t *testing.T) {
 	// The pane may take a sample to leave the question.
 	r2 := newRig(t, withScreens(claudeIdle("")))
 	e2 := r2.open("plan")
-	r2.rex(withScreens(prompt, onNo, claudeWorking(), claudeInterrupted(), claudeTyped(typed), claudeWorking()))
+	r2.panes(withScreens(prompt, onNo, claudeWorking(), claudeInterrupted(), claudeTyped(typed), claudeWorking()))
 	if err := AnswerWithReason(r2.ctx, e2.ID, "No", reason); err != nil || len(r2.named("send")) != 1 {
 		t.Fatalf("%v after %d sends", err, len(r2.named("send")))
 	}
@@ -2077,7 +2062,7 @@ func TestDenyReasonWaitsForSlowMenu(t *testing.T) {
 	r := newRig(t, withScreens(claudeIdle("")))
 	e := r.open("plan")
 	asks := len(r.messages(policy.Ask))
-	r.rex(withScreens(prompt, onNo, onNo, onNo, claudeInterrupted(), claudeTyped(typed), claudeWorking()))
+	r.panes(withScreens(prompt, onNo, onNo, onNo, claudeInterrupted(), claudeTyped(typed), claudeWorking()))
 	if err := AnswerWithReason(r.ctx, e.ID, "No", reason); err != nil {
 		t.Fatal(err)
 	}
@@ -2089,7 +2074,7 @@ func TestDenyReasonWaitsForSlowMenu(t *testing.T) {
 	}
 
 	// A question that stays past the wait is an error, still not an ask.
-	r.rex(withScreens(prompt, onNo, onNo))
+	r.panes(withScreens(prompt, onNo, onNo))
 	err := AnswerWithReason(r.ctx, e.ID, "No", reason)
 	if err == nil || !strings.Contains(err.Error(), "still shows") || len(r.named("send")) != 0 || len(r.messages(policy.Ask)) != asks {
 		t.Fatalf("%v after %d sends", err, len(r.named("send")))
@@ -2100,7 +2085,7 @@ func TestDenyReasonWaitsForSlowMenu(t *testing.T) {
 	if other == prompt {
 		t.Fatal("the fixture changed; pick another way to vary the question")
 	}
-	r.rex(withScreens(prompt, onNo, other))
+	r.panes(withScreens(prompt, onNo, other))
 	err = AnswerWithReason(r.ctx, e.ID, "No", reason)
 	if err == nil || !strings.Contains(err.Error(), "another question") || len(r.named("send")) != 0 || len(r.messages(policy.Ask)) != asks+1 {
 		t.Fatalf("%v after %d sends, %d asks", err, len(r.named("send")), len(r.messages(policy.Ask)))
@@ -2117,7 +2102,7 @@ func TestDenyReasonCannotSwitchMode(t *testing.T) {
 	e := r.open("plan")
 	for _, reason := range []string{"!ls", "#x", "/model sonnet", "$x", "@x"} {
 		typed := reasonPrefix + reason
-		r.rex(withScreens(prompt, onNo, claudeInterrupted(), claudeTyped(typed), claudeWorking()))
+		r.panes(withScreens(prompt, onNo, claudeInterrupted(), claudeTyped(typed), claudeWorking()))
 		if err := AnswerWithReason(r.ctx, e.ID, "No", reason); err != nil {
 			t.Fatalf("%q: %v", reason, err)
 		}
@@ -2126,7 +2111,7 @@ func TestDenyReasonCannotSwitchMode(t *testing.T) {
 		}
 	}
 	for _, reason := range []string{"one\ntwo", "one\rtwo", "x\x1b[2J", "a\tb", "x\x00"} {
-		r.rex(withScreens(prompt))
+		r.panes(withScreens(prompt))
 		if err := AnswerWithReason(r.ctx, e.ID, "No", reason); err == nil || len(r.keys()) != 0 {
 			t.Fatalf("%q: %v, keys %v", reason, err, r.keys())
 		}
@@ -2139,13 +2124,13 @@ func TestDenyReasonNeedsAnInterruptedPane(t *testing.T) {
 	r := newRig(t, withScreens(claudeIdle("")))
 	e := r.open("plan")
 	// A pane that goes on without an interrupt gets no text.
-	r.rex(withScreens(prompt, onNo, claudeIdle("")))
+	r.panes(withScreens(prompt, onNo, claudeIdle("")))
 	err := AnswerWithReason(r.ctx, e.ID, "No", "use the helper")
 	if err == nil || !strings.Contains(err.Error(), "not sent") || len(r.named("send")) != 0 {
 		t.Fatalf("%v after %d sends", err, len(r.named("send")))
 	}
 	// Nor does one whose input line holds text.
-	r.rex(withScreens(prompt, onNo, claudeTyped("draft")))
+	r.panes(withScreens(prompt, onNo, claudeTyped("draft")))
 	err = AnswerWithReason(r.ctx, e.ID, "No", "use the helper")
 	if err == nil || !strings.Contains(err.Error(), "holds text") || len(r.named("send")) != 0 {
 		t.Fatalf("%v after %d sends", err, len(r.named("send")))
@@ -2155,7 +2140,7 @@ func TestDenyReasonNeedsAnInterruptedPane(t *testing.T) {
 func TestListPeersPreservesBusyState(t *testing.T) {
 	r := newRig(t, baseScript())
 	r.ready()
-	r.rex(withScreens(working()))
+	r.panes(withScreens(working()))
 	peers, err := List(r.ctx)
 	if err != nil || len(peers) != 1 || peers[0].State == Ready {
 		t.Fatalf("%+v %v", peers, err)

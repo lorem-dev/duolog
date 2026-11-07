@@ -7,19 +7,21 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/peer/peertest"
+	corepane "github.com/lorem-dev/duolog/internal/core/pane"
 	"github.com/lorem-dev/duolog/internal/mode"
-	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
-// goneInOldSession is what real Rex answers for a block in a session that no
-// longer exists. Only the old session gets it, so a call that names another
-// session finds the block.
-var goneInOldSession = testbin.Scenario{Exit: 3, Stderr: `Error: block target "block:peer" not found: session scope: session "session:peers" not found`}
+// goneInOldSession makes block:peer, the pane of the old session, gone.
+func goneInOldSession(script map[string]peertest.Reply) {
+	script["probe block:peer"] = gone
+	script["close block:peer"] = notFound
+}
 
-// restarted makes the fake rex what a restarted Rex server is: the old session
-// is not listed, and every pane of it is not found. The lead's process died
-// with the server, so its entries were closed; the lead's agent came back in a
-// new Rex session under the same lead id.
+// restarted makes the fake backend what a restarted Rex server is: the old
+// session is not listed, and every pane of it is not found. The lead's process
+// died with the server, so its entries were closed; the lead's agent came back
+// in a new Rex session under the same lead id.
 func (r *rig) restarted() {
 	r.t.Helper()
 	if err := r.reg.Close("lead-1"); err != nil {
@@ -34,11 +36,11 @@ func (r *rig) restarted() {
 	}
 	r.lead("codex", mode.Ask)
 	r.t.Setenv("REX_SESSION", "sess-new")
+	r.pane.LeadSession = "sess-new"
 	script := baseScript()
-	script["block inspect -s session:peers"] = goneInOldSession
-	script["block close -s session:peers"] = goneInOldSession
-	script["session list"] = testbin.Scenario{Stdout: `{"sessions":[{"session_id":"sess-new","label":"lead"}]}`}
-	r.rex(script)
+	goneInOldSession(script)
+	script["sessions"] = peertest.Reply{Sessions: []corepane.Session{{ID: "sess-new", Label: "lead"}}}
+	r.panes(script)
 }
 
 func TestListShowsGonePeersAfterRexRestart(t *testing.T) {
@@ -57,7 +59,7 @@ func TestListShowsGonePeersAfterRexRestart(t *testing.T) {
 	if err != nil || !strings.Contains(string(data), `"state":"gone"`) {
 		t.Fatalf("%s %v", data, err)
 	}
-	if len(r.named("block close")) != 0 || len(r.keys()) != 0 {
+	if len(r.named("close")) != 0 || len(r.keys()) != 0 {
 		t.Fatalf("listing touched a pane: %v", r.calls())
 	}
 }
@@ -68,9 +70,10 @@ func TestListKeepsPeersOfOneLeadAcrossRexSessions(t *testing.T) {
 	r := newRig(t, baseScript())
 	old := r.ready()
 	r.t.Setenv("REX_SESSION", "sess-new")
+	r.pane.LeadSession = "sess-new"
 	script := baseScript()
-	script["block inspect -s session:peers"] = goneInOldSession
-	r.rex(script)
+	script["probe block:peer"] = gone
+	r.panes(script)
 	peers, err := List(r.ctx)
 	if err != nil || len(peers) != 1 || peers[0].ID != old.ID || peers[0].State != Gone {
 		t.Fatalf("%+v %v", peers, err)
@@ -112,8 +115,8 @@ func TestCloseGonePeerFreesRecordAndSlotWithoutRex(t *testing.T) {
 	if !strings.Contains(note, "already gone") {
 		t.Fatalf("note %q", note)
 	}
-	if n := len(r.named("block close")); n != 0 {
-		t.Fatalf("rex was asked to close a pane that does not exist: %v", r.named("block close"))
+	if n := len(r.named("close")); n != 0 {
+		t.Fatalf("rex was asked to close a pane that does not exist: %v", r.named("close"))
 	}
 	if entries, _ := r.reg.Entries(); len(entries) != 0 {
 		t.Fatalf("record stays: %+v", entries)
@@ -133,7 +136,7 @@ func TestCloseLivePeerStillClosesThePane(t *testing.T) {
 	if err != nil || note != "" {
 		t.Fatalf("%q %v", note, err)
 	}
-	if n := len(r.named("block close")); n != 1 {
+	if n := len(r.named("close")); n != 1 {
 		t.Fatalf("%d closes", n)
 	}
 }

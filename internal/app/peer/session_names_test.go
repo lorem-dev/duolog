@@ -1,13 +1,14 @@
 package peer
 
 import (
-	"encoding/json"
+	"errors"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/testbin"
+	"github.com/lorem-dev/duolog/internal/app/peer/peertest"
+	corepane "github.com/lorem-dev/duolog/internal/core/pane"
 )
 
 const (
@@ -29,49 +30,42 @@ func (r *rig) owns(ids ...string) {
 	}
 }
 
-func sessionNameScript(t *testing.T, sessions ...[2]string) map[string]testbin.Scenario {
+func sessionNameScript(t *testing.T, sessions ...[2]string) map[string]peertest.Reply {
 	t.Helper()
-	items := make([]map[string]string, 0, len(sessions))
+	items := make([]corepane.Session, 0, len(sessions))
 	for _, item := range sessions {
-		items = append(items, map[string]string{"session_id": item[0], "label": item[1]})
-	}
-	data, err := json.Marshal(map[string]any{"sessions": items})
-	if err != nil {
-		t.Fatal(err)
+		items = append(items, corepane.Session{ID: item[0], Label: item[1]})
 	}
 	script := baseScript()
-	script["new"] = testbin.Scenario{Stdout: `{"session_id":"` + newSession + `","block_ids":["block:peer"]}`}
-	script["session list"] = testbin.Scenario{Stdout: string(data)}
-	script["session rename"] = testbin.Scenario{}
+	script["open-session"] = peertest.Reply{Session: newSession, Block: "block:peer"}
+	script["sessions"] = peertest.Reply{Sessions: items}
+	script["rename"] = peertest.Reply{}
 	return script
 }
 
 func assertSessionRenames(t *testing.T, r *rig, sessions, suffixes []string) {
 	t.Helper()
-	got := r.named("session rename")
+	got := r.named("rename")
 	if len(got) != len(sessions) {
 		t.Fatalf("renames: %v, want sessions %v", got, sessions)
 	}
 	for i, id := range sessions {
-		want := []string{"session", "rename", id, projectSessionLabel(r) + suffixes[i]}
+		want := []string{"rename", id, projectSessionLabel(r) + suffixes[i]}
 		if !slices.Equal(got[i], want) {
 			t.Fatalf("rename %d: %v, want %v", i, got[i], want)
 		}
-	}
-	if len(r.named("window rename")) != 0 {
-		t.Fatal("renamed peer tabs")
 	}
 }
 
 func TestProjectSessionNameSingle(t *testing.T) {
 	r := newRig(t, baseScript())
 	label := projectSessionLabel(r)
-	r.rex(sessionNameScript(t, [2]string{newSession, label}))
+	r.panes(sessionNameScript(t, [2]string{newSession, label}))
 	r.ready()
 	assertSessionRenames(t, r, nil, nil)
+	// open-session label title dir -- argv
 	args := r.spawns()[0]
-	i := slices.Index(args, "--window")
-	if args[1] != label || i < 0 || args[i+1] != "duolog | codex-implement" {
+	if args[1] != label || args[2] != "duolog | codex-implement" {
 		t.Fatalf("session or tab label changed: %v", args)
 	}
 }
@@ -81,7 +75,7 @@ func TestProjectSessionNamesExcludeLeadSession(t *testing.T) {
 		t.Run("lead"+suffix, func(t *testing.T) {
 			r := newRig(t, baseScript())
 			label := projectSessionLabel(r)
-			r.rex(sessionNameScript(t,
+			r.panes(sessionNameScript(t,
 				[2]string{"sess", label + suffix},
 				[2]string{newSession, label + " (2)"},
 			))
@@ -95,7 +89,7 @@ func TestProjectSessionNamesSkipUnchangedLabels(t *testing.T) {
 	r := newRig(t, baseScript())
 	label := projectSessionLabel(r)
 	r.owns(firstSession)
-	r.rex(sessionNameScript(t,
+	r.panes(sessionNameScript(t,
 		[2]string{firstSession, label + " (1)"},
 		[2]string{newSession, label},
 	))
@@ -108,7 +102,7 @@ func TestProjectSessionNamesSecondCreated(t *testing.T) {
 	label := projectSessionLabel(r)
 	r.owns(firstSession)
 	// Listing order is reversed; UUIDv7 session IDs determine creation order.
-	r.rex(sessionNameScript(t, [2]string{newSession, label}, [2]string{firstSession, label}))
+	r.panes(sessionNameScript(t, [2]string{newSession, label}, [2]string{firstSession, label}))
 	r.ready()
 	assertSessionRenames(t, r, []string{firstSession, newSession}, []string{" (1)", " (2)"})
 }
@@ -119,7 +113,7 @@ func TestProjectSessionNamesAfterKill(t *testing.T) {
 			r := newRig(t, baseScript())
 			label := projectSessionLabel(r)
 			r.owns(firstSession, lastSession)
-			r.rex(sessionNameScript(t, [2]string{newSession, label}))
+			r.panes(sessionNameScript(t, [2]string{newSession, label}))
 			peer := r.ready()
 			remaining := [][2]string{{firstSession, label + " (1)"}}
 			ids, suffixes := []string{firstSession}, []string{""}
@@ -127,21 +121,21 @@ func TestProjectSessionNamesAfterKill(t *testing.T) {
 				remaining = append([][2]string{{lastSession, label + " (3)"}}, remaining...)
 				ids, suffixes = []string{lastSession}, []string{" (2)"}
 			}
-			r.rex(sessionNameScript(t, remaining...))
+			r.panes(sessionNameScript(t, remaining...))
 			if err := Close(r.ctx, peer.ID); err != nil {
 				t.Fatal(err)
 			}
 			assertSessionRenames(t, r, ids, suffixes)
-			if got := r.named("kill"); len(got) != 1 || !slices.Equal(got[0], []string{"kill", newSession}) {
+			if got := r.named("close-session"); len(got) != 1 || !slices.Equal(got[0], []string{"close-session", newSession}) {
 				t.Fatal(got)
 			}
 			calls := r.calls()
 			kill, listing := -1, -1
 			for i, args := range calls {
-				if args[0] == "kill" {
+				if args[0] == "close-session" {
 					kill = i
 				}
-				if slices.Equal(args, []string{"session", "list", "--json"}) {
+				if args[0] == "sessions" {
 					listing = i
 				}
 			}
@@ -161,7 +155,7 @@ func TestProjectSessionNamesGroupByRootNotBaseName(t *testing.T) {
 	if err := r.reg.SetPeerSessionRoot(firstSession, canonicalRoot(other)); err != nil {
 		t.Fatal(err)
 	}
-	r.rex(sessionNameScript(t, [2]string{firstSession, label}, [2]string{newSession, label}))
+	r.panes(sessionNameScript(t, [2]string{firstSession, label}, [2]string{newSession, label}))
 	r.ready()
 	// This project has one session, so it stays unnumbered; the other
 	// project's session is left alone.
@@ -181,7 +175,7 @@ func TestProjectSessionNamesGroupByRootNotBaseName(t *testing.T) {
 func TestProjectSessionNamesIgnoreOtherSessions(t *testing.T) {
 	r := newRig(t, baseScript())
 	label := projectSessionLabel(r)
-	r.rex(sessionNameScript(t,
+	r.panes(sessionNameScript(t,
 		[2]string{newSession, label + " (7)"},
 		[2]string{"session:other", "duolog | other-project"},
 		[2]string{"session:lead", "shell"},
@@ -201,16 +195,16 @@ func TestProjectSessionNameFailureDoesNotFailOpenOrClose(t *testing.T) {
 			label := projectSessionLabel(r)
 			r.owns(firstSession)
 			script := sessionNameScript(t, [2]string{newSession, label}, [2]string{firstSession, label})
-			script["session rename"] = testbin.Scenario{Exit: 4}
-			r.rex(script)
+			script["rename"] = refused
+			r.panes(script)
 			peer := r.ready()
 			if operation == "open" {
 				assertSessionRenames(t, r, []string{firstSession, newSession}, []string{" (1)", " (2)"})
 				return
 			}
 			script = sessionNameScript(t, [2]string{firstSession, label + " (1)"})
-			script["session rename"] = testbin.Scenario{Exit: 4}
-			r.rex(script)
+			script["rename"] = refused
+			r.panes(script)
 			if err := Close(r.ctx, peer.ID); err != nil {
 				t.Fatal(err)
 			}
@@ -223,20 +217,20 @@ func TestProjectSessionNameFailureDoesNotFailOpenOrClose(t *testing.T) {
 }
 
 func TestProjectSessionNameListingFailureDoesNotFailOpenOrClose(t *testing.T) {
-	for _, scenario := range []testbin.Scenario{{Exit: 4}, {Stdout: `not JSON`}} {
+	for _, reply := range []peertest.Reply{refused, {Err: errors.New("rex session list: invalid reply")}} {
 		r := newRig(t, baseScript())
 		script := sessionNameScript(t)
-		script["session list"] = scenario
-		r.rex(script)
+		script["sessions"] = reply
+		r.panes(script)
 		peer := r.ready()
-		if len(r.named("session list")) != 1 || len(r.named("session rename")) != 0 {
+		if len(r.named("sessions")) != 1 || len(r.named("rename")) != 0 {
 			t.Fatal(r.calls())
 		}
-		r.rex(script)
+		r.panes(script)
 		if err := Close(r.ctx, peer.ID); err != nil {
 			t.Fatal(err)
 		}
-		if len(r.named("session list")) != 1 || len(r.named("session rename")) != 0 {
+		if len(r.named("sessions")) != 1 || len(r.named("rename")) != 0 {
 			t.Fatal(r.calls())
 		}
 	}
@@ -246,17 +240,17 @@ func TestProjectSessionNamesDoNotChangeWhenTabsOpenOrClose(t *testing.T) {
 	r := newRig(t, baseScript())
 	first := r.ready()
 	script := withScreens(claudeIdle(""))
-	script["window new"] = testbin.Scenario{Stdout: `{"block_ids":["block:second"]}`}
-	r.rex(script)
+	script["open-tab"] = peertest.Reply{Block: "block:second"}
+	r.panes(script)
 	r.open("plan")
-	args := r.named("window new")[0]
-	if !slices.Contains(args, "duolog | claude-plan") {
+	// open-tab session title dir -- argv
+	if args := r.named("open-tab")[0]; args[2] != "duolog | claude-plan" {
 		t.Fatalf("peer tab label changed: %v", args)
 	}
 	if err := Close(r.ctx, first.ID); err != nil {
 		t.Fatal(err)
 	}
-	if len(r.named("session list")) != 0 || len(r.named("session rename")) != 0 || len(r.named("window rename")) != 0 {
+	if len(r.named("sessions")) != 0 || len(r.named("rename")) != 0 {
 		t.Fatal("tab changes affected session names", r.calls())
 	}
 }

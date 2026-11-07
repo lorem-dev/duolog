@@ -268,10 +268,10 @@ func peerModels() map[string]peer.ModelResolver {
 
 // peerPanes builds the pane support of peer.Deps from the registry. An agent
 // with no Pane keeps its texts and has a nil Agent.
-func peerPanes() map[string]peer.Pane {
-	out := map[string]peer.Pane{}
+func peerPanes() map[string]peer.PaneSupport {
+	out := map[string]peer.PaneSupport{}
 	for _, a := range Agents() {
-		out[a.Facts.Name] = peer.Pane{Agent: a.Pane, Facts: a.Facts.Pane}
+		out[a.Facts.Name] = peer.PaneSupport{Agent: a.Pane, Facts: a.Facts.Pane}
 	}
 	return out
 }

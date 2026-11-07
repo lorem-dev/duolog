@@ -9,7 +9,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/lorem-dev/duolog/internal/testbin"
+	"github.com/lorem-dev/duolog/internal/app/peer/peertest"
 )
 
 func readState(t *testing.T, r *rig) (sessions, bus []byte) {
@@ -30,14 +30,14 @@ func TestShowIsPassive(t *testing.T) {
 	r := newRig(t, baseScript())
 	e := r.ready()
 	sessions, bus := readState(t, r)
-	r.rex(withScreens(queuedQuestion + working()))
+	r.panes(withScreens(queuedQuestion + working()))
 	got, err := Show(r.ctx, e.ID, 40)
 	if err != nil || got.State != Question {
 		t.Fatalf("%+v %v", got, err)
 	}
 	for _, c := range r.calls() {
-		if joined := strings.Join(c, " "); !strings.HasPrefix(joined, "block inspect") && !strings.HasPrefix(joined, "wait") && !strings.HasPrefix(joined, "capture") {
-			t.Fatalf("show ran rex %q", joined)
+		if c[0] != "probe" && c[0] != "capture" {
+			t.Fatalf("show called the pane with %q", c)
 		}
 	}
 	if len(r.keys()) != 0 {
@@ -62,7 +62,7 @@ func TestShowAndViewLeaveTheBusAlone(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(dir, "cursors")); err != nil {
 		t.Fatal(err)
 	}
-	r.rex(viewScript(clientsOn(t, "sess")))
+	r.panes(viewScript(clientsOn("sess")))
 	if _, err := Show(r.ctx, e.ID, 5); err != nil {
 		t.Fatal(err)
 	}
@@ -104,8 +104,8 @@ func TestShowLimitsIncludeMarkerAndHeader(t *testing.T) {
 		out += strings.Repeat("😀", 300) + "\n"
 	}
 	out += strings.Repeat("€", 225) + "\n"
-	script["capture"] = testbin.Scenario{Stdout: out}
-	r.rex(script)
+	script["capture"] = peertest.Reply{Text: out}
+	r.panes(script)
 	got, err := Show(r.ctx, e.ID, 200)
 	if err != nil {
 		t.Fatal(err)
@@ -118,8 +118,8 @@ func TestShowLimitsIncludeMarkerAndHeader(t *testing.T) {
 		t.Fatalf("%d bytes printed, cut=%v", total, got.Cut)
 	}
 
-	script["capture"] = testbin.Scenario{Stdout: strings.Repeat("x", 301) + "\n" + strings.Repeat("y", 300) + "\n"}
-	r.rex(script)
+	script["capture"] = peertest.Reply{Text: strings.Repeat("x", 301) + "\n" + strings.Repeat("y", 300) + "\n"}
+	r.panes(script)
 	if got, err = Show(r.ctx, e.ID, 5); err != nil {
 		t.Fatal(err)
 	}
@@ -150,8 +150,8 @@ func TestShowStripsTerminalControls(t *testing.T) {
 	r := newRig(t, baseScript())
 	e := r.ready()
 	script := baseScript()
-	script["capture"] = testbin.Scenario{Stdout: "a\x1b]52;c;ZXZpbA==\x07b\n\x1b[2J\x1b[Hc\n" + codexIdle("")}
-	r.rex(script)
+	script["capture"] = peertest.Reply{Text: "a\x1b]52;c;ZXZpbA==\x07b\n\x1b[2J\x1b[Hc\n" + codexIdle("")}
+	r.panes(script)
 	got, err := Show(r.ctx, e.ID, 40)
 	if err != nil {
 		t.Fatal(err)
@@ -175,8 +175,8 @@ func TestShowBoundsLongLines(t *testing.T) {
 	for i := 0; i < 300; i++ {
 		out += strings.Repeat("y", 1024) + "\n"
 	}
-	script["capture"] = testbin.Scenario{Stdout: out}
-	r.rex(script)
+	script["capture"] = peertest.Reply{Text: out}
+	r.panes(script)
 	got, err := Show(r.ctx, e.ID, 200)
 	if err != nil {
 		t.Fatal(err)
@@ -199,9 +199,9 @@ func TestShowBoundsLongLines(t *testing.T) {
 		t.Fatalf("cut=%v lines=%d", got.Cut, len(got.Lines))
 	}
 	// The 100 KB line is cut when it is among the lines kept.
-	r.rex(func() map[string]testbin.Scenario {
+	r.panes(func() map[string]peertest.Reply {
 		s := baseScript()
-		s["capture"] = testbin.Scenario{Stdout: strings.Repeat("x", 100_000) + "\n" + codexIdle("")}
+		s["capture"] = peertest.Reply{Text: strings.Repeat("x", 100_000) + "\n" + codexIdle("")}
 		return s
 	}())
 	got, err = Show(r.ctx, e.ID, 200)
@@ -241,8 +241,8 @@ func TestShowDropsOldestLinesOverBytes(t *testing.T) {
 	for i := 0; i < 200; i++ {
 		out += strings.Repeat("😀", 300) + "\n"
 	}
-	script["capture"] = testbin.Scenario{Stdout: out}
-	r.rex(script)
+	script["capture"] = peertest.Reply{Text: out}
+	r.panes(script)
 	got, err := Show(r.ctx, e.ID, 200)
 	if err != nil {
 		t.Fatal(err)
@@ -263,8 +263,8 @@ func TestShowGoneAndClosed(t *testing.T) {
 	r := newRig(t, baseScript())
 	e := r.ready()
 	script := baseScript()
-	script["block inspect"] = gone
-	r.rex(script)
+	script["probe"] = gone
+	r.panes(script)
 	if _, err := Show(r.ctx, e.ID, 5); err == nil || !strings.Contains(err.Error(), "pane is gone") {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestShowGoneAndClosed(t *testing.T) {
 		t.Fatal("captured a gone pane")
 	}
 
-	r.rex(baseScript())
+	r.panes(baseScript())
 	if err := r.reg.Close(e.ID); err != nil {
 		t.Fatal(err)
 	}

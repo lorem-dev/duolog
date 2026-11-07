@@ -10,15 +10,15 @@ import (
 
 // testPanes is the real pane support of both agents: the peer tests assert
 // what a real pane's argv and texts do.
-func testPanes() map[string]Pane {
-	out := map[string]Pane{}
+func testPanes() map[string]PaneSupport {
+	out := map[string]PaneSupport{}
 	for name, p := range panetest.Panes() {
-		out[name] = Pane{Agent: p.Agent, Facts: p.Facts}
+		out[name] = PaneSupport{Agent: p.Agent, Facts: p.Facts}
 	}
 	return out
 }
 
-func testPane(agent string) Pane { return testPanes()[agent] }
+func testPane(agent string) PaneSupport { return testPanes()[agent] }
 
 // argvFor is the argv of route's pane under a lead in mode m.
 func argvFor(route coreroute.Route, m mode.Mode, p corelaunch.Process) []string {

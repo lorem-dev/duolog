@@ -184,7 +184,7 @@ func (e *env) unsent(ctx context.Context, entry session.Entry, task *hold) error
 func (e *env) deliver(ctx context.Context, entry session.Entry, text string) error {
 	notDelivered := func(err error) error { return undelivered{err} }
 	for try := 1; try <= 3; try++ {
-		if err := e.clientFor(entry).Send(ctx, entry.Block, text); err != nil {
+		if err := e.panes.Send(ctx, e.paneOf(entry), text); err != nil {
 			return notDelivered(err)
 		}
 		if err := e.opts.Deps.Clock.Sleep(ctx, e.opts.Deps.Pauses.Send); err != nil {
@@ -212,7 +212,7 @@ func (e *env) clear(ctx context.Context, entry session.Entry, screen Screen) err
 	if !screen.Composer || screen.Empty {
 		return nil
 	}
-	if err := e.clientFor(entry).SendKey(ctx, entry.Block, "ctrl+c"); err != nil {
+	if err := e.panes.Key(ctx, e.paneOf(entry), "ctrl+c"); err != nil {
 		return err
 	}
 	if err := e.opts.Deps.Clock.Sleep(ctx, e.opts.Deps.Pauses.Key); err != nil {
@@ -232,7 +232,7 @@ func (e *env) clear(ctx context.Context, entry session.Entry, screen Screen) err
 // enter is pressed once more.
 func (e *env) submit(ctx context.Context, entry session.Entry, text string) error {
 	for press := 1; press <= 2; press++ {
-		if err := e.clientFor(entry).SendKey(ctx, entry.Block, "enter"); err != nil {
+		if err := e.panes.Key(ctx, e.paneOf(entry), "enter"); err != nil {
 			return err
 		}
 		if err := e.opts.Deps.Clock.Sleep(ctx, e.opts.Deps.Pauses.Send); err != nil {

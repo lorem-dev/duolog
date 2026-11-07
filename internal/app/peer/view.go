@@ -7,7 +7,7 @@ import (
 	"os"
 	"slices"
 
-	"github.com/lorem-dev/duolog/internal/rex"
+	corepane "github.com/lorem-dev/duolog/internal/core/pane"
 )
 
 // Viewed is the outcome of moving one Rex client to a peer's tab.
@@ -36,16 +36,16 @@ func View(ctx context.Context, id, client string) (Viewed, error) {
 	if entry.Closed {
 		return Viewed{}, fmt.Errorf("peer %s is closed", entry.ID)
 	}
-	rc := e.clientFor(entry)
-	presence, err := rc.Probe(ctx, entry.Block)
+	pane := e.paneOf(entry)
+	presence, err := e.panes.Probe(ctx, pane)
 	if err != nil {
 		return Viewed{}, err
 	}
-	if presence == rex.Gone {
+	if presence == corepane.Gone {
 		return Viewed{}, fmt.Errorf("peer %s: pane is gone", entry.ID)
 	}
 	if client == "" {
-		clients, err := e.rex.Clients(ctx)
+		clients, err := e.panes.Clients(ctx)
 		if err != nil {
 			return Viewed{}, err
 		}
@@ -53,7 +53,7 @@ func View(ctx context.Context, id, client string) (Viewed, error) {
 			return Viewed{}, err
 		}
 	}
-	if err := rc.Focus(ctx, client, entry.Block); err != nil {
+	if err := e.panes.Focus(ctx, pane, client); err != nil {
 		return Viewed{}, err
 	}
 	return Viewed{ID: entry.ID, Tab: tabLabel(entry.Agent, entry.Role), Client: client}, nil
@@ -62,7 +62,7 @@ func View(ctx context.Context, id, client string) (Viewed, error) {
 // pickClient chooses the client to move. An explicit id wins. Otherwise it is
 // the one app client attached to the lead's session. Command line clients
 // never count, and zero or several matches refuse.
-func pickClient(clients []rex.ClientInfo, explicit, leadSession string) (string, error) {
+func pickClient(clients []corepane.Client, explicit, leadSession string) (string, error) {
 	if explicit != "" {
 		return explicit, nil
 	}

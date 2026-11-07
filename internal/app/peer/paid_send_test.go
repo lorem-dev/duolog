@@ -14,7 +14,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/paidrules"
-	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
 // An open that fails after the launch began, in a way that does not show
@@ -29,7 +28,7 @@ func TestPeerOpenFailedMidLaunchFreesProvenUnstartedHold(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			script := baseScript()
 			// A reply that does not decode: the pane may or may not exist.
-			script["new"] = testbin.Scenario{Stdout: "{not json"}
+			script["open-session"] = undecoded
 			r := newRig(t, script)
 			r.paidCodex()
 			if c.taken {
@@ -59,7 +58,7 @@ func TestPeerOpenFailedMidLaunchFreesProvenUnstartedHold(t *testing.T) {
 // pane that its entry records is closed with peer close instead.
 func TestPeerReleaseEndsAnOrphanedHold(t *testing.T) {
 	script := baseScript()
-	script["new"] = testbin.Scenario{Stdout: "{not json"}
+	script["open-session"] = undecoded
 	r := newRig(t, script)
 	r.paidCodex()
 	r.useDeps(func(d *Deps) { d.OnEnvFile = func(path string) { _ = os.Remove(path) } })
@@ -134,7 +133,7 @@ func TestBillingQuestionReadsTheQuestionOnly(t *testing.T) {
 	e := r.ready()
 	dialog := "• I read the docs on the API key setup in README.md.\n\n─────\n\nWhich environment should I use?\n› 1. Staging\n  2. Production\n"
 	r.cfg.Rex.AutoAnswers = []config.AutoAnswer{{Match: "Which environment", Answer: "Staging"}}
-	r.rex(withScreens(working(), dialog, codexIdle(""), codexIdle("")))
+	r.panes(withScreens(working(), dialog, codexIdle(""), codexIdle("")))
 	got, err := Wait(r.ctx, e.ID)
 	if err != nil || got.State != Ready || len(r.messages("ask")) != 0 {
 		t.Fatalf("a question below output that names an API key was not answered: %+v %v", got, err)
@@ -181,7 +180,7 @@ func TestPeerFirstSendIsAdmittedAfresh(t *testing.T) {
 		path := r.task()
 		script := baseScript()
 		script["capture"] = screens(sendOK(path)...)
-		r.rex(script)
+		r.panes(script)
 		err := Send(r.ctx, e.ID, path)
 		if err == nil || !strings.Contains(err.Error(), "daily cap") {
 			t.Fatalf("a first send above the cap: %v", err)
@@ -208,7 +207,7 @@ func TestPeerFirstSendIsAdmittedAfresh(t *testing.T) {
 		path := r.task()
 		script := baseScript()
 		script["capture"] = screens(sendOK(path)...)
-		r.rex(script)
+		r.panes(script)
 		err := Send(r.ctx, e.ID, path)
 		if err == nil || !strings.Contains(err.Error(), "no window headroom") {
 			t.Fatalf("a first send past the window reserve: %v", err)

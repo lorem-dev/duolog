@@ -3,8 +3,8 @@ package peer
 import (
 	"encoding/json"
 	"github.com/lorem-dev/duolog/internal/app/gate"
+	"github.com/lorem-dev/duolog/internal/app/peer/peertest"
 	"github.com/lorem-dev/duolog/internal/bus"
-	"github.com/lorem-dev/duolog/internal/testbin"
 	"os"
 	"path/filepath"
 	"slices"
@@ -52,8 +52,8 @@ func TestPeerWaitStopsOnlyOnItsOwnGateAsk(t *testing.T) {
 	r.cfg.Limits.MaxLiveSessions = 2
 	first := r.open("implement")
 	script := baseScript()
-	script["window new"] = testbin.Scenario{Stdout: strings.ReplaceAll(splitReply, "block:peer", "block:second")}
-	r.rex(script)
+	script["open-tab"] = peertest.Reply{Block: "block:second"}
+	r.panes(script)
 	second := r.open("mechanical")
 	if first.State != Ready || second.State != Ready || first.ID == second.ID {
 		t.Fatal(first, second)
@@ -156,7 +156,7 @@ func TestPeerUsesLinkedWorkRootForPane(t *testing.T) {
 	if info == nil || !os.SameFile(info, want) {
 		t.Fatal("peer pane uses main checkout", env.root)
 	}
-	// Split's cwd is env.root in the real Open path; the fake records that argv.
+	// The pane's dir is env.root in the real Open path; the fake records it.
 	if _, err := Open(r.ctx, "implement"); err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestPeerUsesLinkedWorkRootForPane(t *testing.T) {
 		t.Fatal(args)
 	}
 	if !strings.Contains(strings.Join(args[0], " "), work) {
-		t.Fatal("pane -c lost work root", args)
+		t.Fatal("pane dir lost work root", args)
 	}
 }
 

@@ -9,10 +9,9 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
-// TestPeerOpenUsesDeps: an open reaches the model lookup, the record and the
-// env file hook of Deps once each, and its clock is never asked to sleep for
-// longer than Pauses.Poll. The Pane port moved to a later task, so rex is
-// still the fake binary of the rig.
+// TestPeerOpenUsesDeps: an open reaches the model lookup, the record, the env
+// file hook and the Pane's Open of Deps once each, and its clock is never
+// asked to sleep for longer than Pauses.Poll.
 func TestPeerOpenUsesDeps(t *testing.T) {
 	r := newRig(t, baseScript())
 	var longest time.Duration
@@ -38,8 +37,8 @@ func TestPeerOpenUsesDeps(t *testing.T) {
 		d.OnEnvFile = func(string) { envFiles++ }
 	})
 	r.open("implement")
-	if resolved != 1 || recorded != 1 || envFiles != 1 {
-		t.Fatalf("model lookups %d, records %d, env file hooks %d; want one each", resolved, recorded, envFiles)
+	if resolved != 1 || recorded != 1 || envFiles != 1 || len(r.spawns()) != 1 {
+		t.Fatalf("model lookups %d, records %d, env file hooks %d, pane opens %v; want one each", resolved, recorded, envFiles, r.spawns())
 	}
 	if longest > 10*time.Millisecond {
 		t.Fatalf("slept %v, more than Pauses.Poll", longest)

@@ -52,7 +52,7 @@ func TestPeerRunIDsDifferPerLaunch(t *testing.T) {
 	if err := Close(r.ctx, first.ID); err != nil {
 		t.Fatal(err)
 	}
-	r.rex(baseScript())
+	r.panes(baseScript())
 	second := r.ready()
 	b := r.entry(second.ID).Run
 	if !runIDPattern.MatchString(a) || !runIDPattern.MatchString(b) || a == b || strings.Contains(b, strings.TrimPrefix(second.ID, "peer-")) {

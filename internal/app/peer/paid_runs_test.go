@@ -10,10 +10,10 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	"github.com/lorem-dev/duolog/internal/app/peer/peertest"
 	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
-	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
 // accounts is the account state behind the rig's gate.
@@ -67,7 +67,7 @@ func (r *rig) send(id, path string) {
 	r.t.Helper()
 	script := baseScript()
 	script["capture"] = screens(sendOK(path)...)
-	r.rex(script)
+	r.panes(script)
 	if err := Send(r.ctx, id, path); err != nil {
 		r.t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func (r *rig) finish(id string) Entry {
 	r.t.Helper()
 	script := baseScript()
 	script["capture"] = screens(working(), working(), codexIdle(""), codexIdle(""))
-	r.rex(script)
+	r.panes(script)
 	got, err := Wait(r.ctx, id)
 	if err != nil || got.State != Ready {
 		r.t.Fatalf("%+v %v", got, err)
@@ -156,7 +156,7 @@ func TestPeerOpenReservationTransfersOnce(t *testing.T) {
 
 	t.Run("pane never opened", func(t *testing.T) {
 		script := baseScript()
-		script["new"] = testbin.Scenario{Exit: 4, Stderr: "connecting to Rex server\nfailed to WebSocket dial\n"}
+		script["open-session"] = refused
 		r := newRig(t, script)
 		if _, err := Open(r.ctx, "implement"); err == nil {
 			t.Fatal("open succeeded")
@@ -168,15 +168,15 @@ func TestPeerOpenReservationTransfersOnce(t *testing.T) {
 
 	for _, c := range []struct {
 		name   string
-		close  testbin.Scenario
+		close  peertest.Reply
 		closed bool
 	}{
-		{"unrecorded pane closed", testbin.Scenario{}, true},
-		{"unrecorded pane maybe open", testbin.Scenario{Exit: 1, Stderr: "rex: timed out"}, false},
+		{"unrecorded pane closed", peertest.Reply{}, true},
+		{"unrecorded pane maybe open", peertest.Reply{Err: errors.New("rex: timed out")}, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			script := baseScript()
-			script["block close"] = c.close
+			script["close"] = c.close
 			r := newRig(t, script)
 			r.useDeps(func(d *Deps) {
 				d.RecordPeer = func(*session.Registry, session.Entry, int) error { return errors.New("registry is full") }
@@ -266,7 +266,7 @@ func TestPeerRepeatedIdleDoesNotDoubleSettle(t *testing.T) {
 		for _, screen := range []string{working(), fixtureText("codex-trust-live.txt")} {
 			script := baseScript()
 			script["capture"] = screens(screen)
-			r.rex(script)
+			r.panes(script)
 			if _, err := Status(r.ctx, e.ID); err != nil {
 				t.Fatal(err)
 			}
@@ -285,8 +285,8 @@ func TestPeerRepeatedIdleDoesNotDoubleSettle(t *testing.T) {
 		gen := r.entry(e.ID).TaskGeneration
 		estimate := r.accounts().Reservations[gen].Estimate.USD
 		script := baseScript()
-		script["block inspect"] = gone
-		r.rex(script)
+		script["probe"] = gone
+		r.panes(script)
 		for range 2 {
 			if st, err := Status(r.ctx, e.ID); err != nil || st.State != Closed {
 				t.Fatalf("%+v %v", st, err)
@@ -366,7 +366,7 @@ func TestPeerBuildAndPaidQuestion(t *testing.T) {
 		e := r.ready()
 		r.send(e.ID, r.task())
 		r.wantHeld(1, 1)
-		r.rex(withScreens(claudeIdle("")))
+		r.panes(withScreens(claudeIdle("")))
 		sleeps := len(r.sleeps)
 		_, err := Open(r.ctx, "plan")
 		if err == nil || !strings.Contains(err.Error(), "sessions 1 of 1 in all") || !strings.Contains(err.Error(), "duolog peer close "+e.ID) {

@@ -136,7 +136,7 @@ func TestPeerSendKeepsPaneRoute(t *testing.T) {
 			}
 			script := baseScript()
 			script["capture"] = screens(sendOK(path)...)
-			r.rex(script)
+			r.panes(script)
 			err := Send(r.ctx, e.ID, path)
 			if c.refuse {
 				if err == nil || !strings.Contains(err.Error(), "duolog peer close "+e.ID) {

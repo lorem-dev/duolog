@@ -78,7 +78,7 @@ func TestPluginOfferIsDeclinedAndLeadToldOnce(t *testing.T) {
 	}
 
 	// The same offer again in the same peer is declined with no second note.
-	r.rex(withScreens(lspOffer, lspOfferOnDecline(), claudeIdle("")))
+	r.panes(withScreens(lspOffer, lspOfferOnDecline(), claudeIdle("")))
 	st, err := Status(r.ctx, e.ID)
 	if err != nil {
 		t.Fatal(err)

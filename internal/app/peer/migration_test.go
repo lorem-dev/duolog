@@ -14,7 +14,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
 // The migration line comes once per agent and lead, whichever of delegate
@@ -88,7 +87,7 @@ func TestMigrationSurvivesQuestionAndError(t *testing.T) {
 
 	t.Run("error", func(t *testing.T) {
 		script := baseScript()
-		script["new"] = testbin.Scenario{Exit: 4, Stderr: "connecting to Rex server\nfailed to WebSocket dial\n"}
+		script["open-session"] = refused
 		r := newRig(t, script)
 		keys(t)
 		_, err := Open(r.ctx, "implement")
@@ -96,7 +95,7 @@ func TestMigrationSurvivesQuestionAndError(t *testing.T) {
 			t.Fatalf("%v", err)
 		}
 		// The notice is claimed: the next open in this lead adds nothing.
-		r.rex(baseScript())
+		r.panes(baseScript())
 		if e := r.open("implement"); e.State != Ready || strings.Contains(e.Note, "no longer get") {
 			t.Fatalf("%+v", e)
 		}

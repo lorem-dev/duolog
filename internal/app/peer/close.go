@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"time"
 
+	corepane "github.com/lorem-dev/duolog/internal/core/pane"
 	corerun "github.com/lorem-dev/duolog/internal/core/run"
-	"github.com/lorem-dev/duolog/internal/rex"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -47,13 +47,13 @@ func CloseNote(ctx context.Context, id string) (note string, err error) {
 	if err := e.credit(entry); err != nil {
 		return "", err
 	}
-	presence, err := e.clientFor(entry).Probe(ctx, entry.Block)
+	presence, err := e.panes.Probe(ctx, e.paneOf(entry))
 	if err != nil {
 		return "", err
 	}
-	if presence == rex.Gone {
+	if presence == corepane.Gone {
 		note = "its pane was already gone"
-	} else if err := e.clientFor(entry).Close(ctx, entry.Block); err != nil {
+	} else if err := e.panes.Close(ctx, e.paneOf(entry)); err != nil {
 		return "", err
 	}
 	// The close is confirmed: the slot frees, a never-sent open is refunded

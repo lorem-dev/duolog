@@ -1,18 +1,18 @@
 package peer
 
 import (
-	"github.com/lorem-dev/duolog/internal/adapter/session"
-	"github.com/lorem-dev/duolog/internal/rex"
 	"testing"
+
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 )
 
 func TestPeerClientTargetsRecordedSession(t *testing.T) {
-	e := &env{rex: rex.Client{Bin: "rex-bin", Session: "lead-session", Anchor: "lead-pane"}}
-	c := e.clientFor(session.Entry{RexSession: "peer-session"})
-	if c.Session != "peer-session" || c.Anchor != "" || e.rex.Session != "lead-session" || e.rex.Anchor != "lead-pane" {
-		t.Fatalf("client=%+v lead=%+v", c, e.rex)
+	e := &env{leadSession: "lead-session"}
+	id := e.paneOf(session.Entry{RexSession: "peer-session", Block: "block:peer"})
+	if id != (PaneID{Session: "peer-session", Block: "block:peer"}) || e.leadSession != "lead-session" {
+		t.Fatalf("pane=%+v lead=%q", id, e.leadSession)
 	}
-	if c := e.clientFor(session.Entry{}); c.Session != "lead-session" {
-		t.Fatalf("legacy=%+v", c)
+	if id := e.paneOf(session.Entry{Block: "block:peer"}); id.Session != "lead-session" {
+		t.Fatalf("legacy=%+v", id)
 	}
 }

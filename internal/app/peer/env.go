@@ -23,23 +23,25 @@ import (
 	"github.com/lorem-dev/duolog/internal/coauthor"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	corepane "github.com/lorem-dev/duolog/internal/core/pane"
 	"github.com/lorem-dev/duolog/internal/core/policy"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
 	"github.com/lorem-dev/duolog/internal/project"
-	"github.com/lorem-dev/duolog/internal/rex"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
 type env struct {
-	opts           Options
-	root           string
-	dir            string
-	cfg            *config.Config
-	reg            *session.Registry
-	bus            *bus.Bus
-	rex            rex.Client
+	opts  Options
+	root  string
+	dir   string
+	cfg   *config.Config
+	reg   *session.Registry
+	bus   *bus.Bus
+	panes Pane
+	// leadSession is the backend session of the lead's own pane.
+	leadSession    string
 	leadID         string
 	watchQuestions bool
 	// gate is the account gate, opened on first use by accounts.
@@ -84,7 +86,7 @@ func setupRecords(ctx context.Context, requireLead bool) (*env, error) {
 	if os.Getenv("REX_SESSION") == "" {
 		return nil, errors.New("peer sessions need Rex: REX_SESSION is not set; run this command in a Rex pane")
 	}
-	client, ok := rex.Detect()
+	leadSession, ok := opts.Deps.Pane.Lead()
 	if !ok {
 		return nil, errors.New("peer sessions need Rex: no rex executable in PATH, REX_BIN_DIR or the Rex app")
 	}
@@ -115,8 +117,7 @@ func setupRecords(ctx context.Context, requireLead bool) (*env, error) {
 		leadID = lead.ID
 	}
 	root = project.CurrentWorkRoot(root)
-	client.Dir = root
-	return &env{opts: opts, root: root, dir: s.Dir, cfg: cfg, reg: reg, rex: client, leadID: leadID}, nil
+	return &env{opts: opts, root: root, dir: s.Dir, cfg: cfg, reg: reg, panes: opts.Deps.Pane, leadSession: leadSession, leadID: leadID}, nil
 }
 
 // lead reads the lead's live mode and target. A lead that is not registered
@@ -233,18 +234,18 @@ func (e *env) observe(ctx context.Context, entry session.Entry) (State, Screen, 
 	if err := e.credit(entry); err != nil {
 		return Starting, Screen{}, err
 	}
-	presence, err := e.clientFor(entry).Probe(ctx, entry.Block)
+	presence, err := e.panes.Probe(ctx, e.paneOf(entry))
 	if err != nil {
 		return Starting, Screen{}, err
 	}
 	switch presence {
-	case rex.Gone:
+	case corepane.Gone:
 		return Closed, Screen{}, nil
-	case rex.Exited:
+	case corepane.Exited:
 		return Exited, Screen{}, nil
 	}
 	screen, err := e.screen(ctx, entry)
-	if rex.IsNotFound(err) {
+	if e.panes.Gone(err) {
 		return Closed, Screen{}, nil
 	}
 	if err != nil {
@@ -257,7 +258,7 @@ func (e *env) observe(ctx context.Context, entry session.Entry) (State, Screen, 
 				return Question, screen, fmt.Errorf("peer %s: queued question did not open", entry.ID)
 			}
 			if !queuedOpened {
-				if err := e.clientFor(entry).SendKey(ctx, entry.Block, "shift+left"); err != nil {
+				if err := e.panes.Key(ctx, e.paneOf(entry), "shift+left"); err != nil {
 					return Question, screen, err
 				}
 				queuedOpened = true
@@ -293,7 +294,7 @@ func (e *env) observe(ctx context.Context, entry session.Entry) (State, Screen, 
 // screen keeps the capture's styles, which tell a dim suggestion in the input
 // line from typed text.
 func (e *env) screen(ctx context.Context, entry session.Entry) (Screen, error) {
-	raw, err := e.clientFor(entry).CaptureStyled(ctx, entry.Block, e.cfg.Rex.CaptureLines)
+	raw, err := e.panes.CaptureStyled(ctx, e.paneOf(entry), e.cfg.Rex.CaptureLines)
 	if err != nil {
 		return Screen{}, err
 	}
@@ -302,7 +303,7 @@ func (e *env) screen(ctx context.Context, entry session.Entry) (Screen, error) {
 
 // pane is the pane support of the named agent; an agent that has none reads
 // every screen with no texts of its own.
-func (e *env) pane(agent string) Pane { return e.opts.Deps.Panes[agent] }
+func (e *env) pane(agent string) PaneSupport { return e.opts.Deps.Panes[agent] }
 
 // watch waits on a session. At startup it stops at the first of: ready on two
 // samples in a row, a question, a limit, the end of the program, or
@@ -571,7 +572,7 @@ func (e *env) selectOption(ctx context.Context, entry session.Entry, screen Scre
 		key, steps = "up", -steps
 	}
 	for i := 0; i < steps; i++ {
-		if err := e.clientFor(entry).SendKey(ctx, entry.Block, key); err != nil {
+		if err := e.panes.Key(ctx, e.paneOf(entry), key); err != nil {
 			return err
 		}
 		if err := e.opts.Deps.Clock.Sleep(ctx, e.opts.Deps.Pauses.Key); err != nil {
@@ -588,7 +589,7 @@ func (e *env) selectOption(ctx context.Context, entry session.Entry, screen Scre
 			return fmt.Errorf("peer %s: the cursor did not reach %q, so enter was not pressed", entry.ID, screen.Options[target].Label)
 		}
 	}
-	if err := e.clientFor(entry).SendKey(ctx, entry.Block, "enter"); err != nil {
+	if err := e.panes.Key(ctx, e.paneOf(entry), "enter"); err != nil {
 		return err
 	}
 	if err := e.opts.Deps.Clock.Sleep(ctx, e.opts.Deps.Pauses.Send); err != nil {

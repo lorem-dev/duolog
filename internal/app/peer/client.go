@@ -2,16 +2,18 @@ package peer
 
 import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
-	"github.com/lorem-dev/duolog/internal/rex"
 )
 
-// clientFor always targets the pane's recorded session. The lead's Rex
-// session is used only for legacy entries that predate session recording.
-func (e *env) clientFor(entry session.Entry) rex.Client {
-	client := e.rex
-	if entry.RexSession != "" {
-		client.Session = entry.RexSession
+// paneOf always targets the pane's recorded session. The lead's session is
+// used only for legacy entries that predate session recording.
+func (e *env) paneOf(entry session.Entry) PaneID {
+	return e.paneIn(entry.RexSession, entry.Block)
+}
+
+// paneIn is block in session, or in the lead's session when session is empty.
+func (e *env) paneIn(session, block string) PaneID {
+	if session == "" {
+		session = e.leadSession
 	}
-	client.Anchor = ""
-	return client
+	return PaneID{Session: session, Block: block}
 }

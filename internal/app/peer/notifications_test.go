@@ -42,7 +42,7 @@ func TestWaitDoesNotRemindForAnsweredQuestion(t *testing.T) {
 	r := newRig(t, withScreens(fixtureText("codex-trust-live.txt")))
 	e := r.open("implement")
 	r.cfg.Rex.StuckNotifyMinutes = 1
-	r.rex(withScreens(fixtureText("codex-trust-live.txt"), codexIdle(""), codexIdle("")))
+	r.panes(withScreens(fixtureText("codex-trust-live.txt"), codexIdle(""), codexIdle("")))
 	r.useDeps(func(d *Deps) { d.Notify = func(string, string) { t.Error("answered question caused a reminder") } })
 	ctx, cancel := context.WithTimeout(r.ctx, time.Second)
 	defer cancel()

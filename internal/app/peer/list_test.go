@@ -22,7 +22,7 @@ func TestListPeersReportsDetails(t *testing.T) {
 	if _, err := b.Send(bus.Message{From: "codex/lead.test", To: "codex/implement", K: "task", Ref: e.ID, S: "role implement task=t.md"}); err != nil {
 		t.Fatal(err)
 	}
-	r.rex(withScreens(working()))
+	r.panes(withScreens(working()))
 	peers, err := List(r.ctx)
 	if err != nil || len(peers) != 1 {
 		t.Fatalf("%+v %v", peers, err)
@@ -45,7 +45,7 @@ func TestListPeersReportsDetails(t *testing.T) {
 func TestListPeersQuestionWinsAndHasUnknownStart(t *testing.T) {
 	r := newRig(t, baseScript())
 	r.ready()
-	r.rex(withScreens(queuedQuestion + working()))
+	r.panes(withScreens(queuedQuestion + working()))
 	peers, err := List(r.ctx)
 	if err != nil || len(peers) != 1 {
 		t.Fatalf("%+v %v", peers, err)
@@ -108,7 +108,7 @@ func TestListPeersChangesNothing(t *testing.T) {
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
-	r.rex(withScreens(queuedQuestion + working()))
+	r.panes(withScreens(queuedQuestion + working()))
 	if _, err := List(r.ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestListLeavesTheBusAlone(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	r.rex(withScreens(codexIdle("")))
+	r.panes(withScreens(codexIdle("")))
 	if peers, err := List(r.ctx); err != nil || len(peers) != 1 || peers[0].ID != e.ID {
 		t.Fatalf("%+v %v", peers, err)
 	}
@@ -172,7 +172,7 @@ func TestListTabMatchesOpenedLabel(t *testing.T) {
 		t.Fatal("no tab was opened")
 	}
 	joined := strings.Join(spawns[0], "\x00")
-	r.rex(withScreens(codexIdle("")))
+	r.panes(withScreens(codexIdle("")))
 	peers, err := List(r.ctx)
 	if err != nil || len(peers) != 1 {
 		t.Fatalf("%+v %v", peers, err)
