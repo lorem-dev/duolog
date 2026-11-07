@@ -44,7 +44,8 @@ const (
 // the person dropped from a run.
 const CalibrationFile = "calibration.ndjson"
 
-var Outcomes = map[string]float64{"accepted": 3, "small_fixes": 2, "reworked": 1, "dropped": 0}
+// Outcomes is the map in core/record, shared so both names see one table.
+var Outcomes = record.Outcomes
 
 type Journal struct{ Dir string }
 

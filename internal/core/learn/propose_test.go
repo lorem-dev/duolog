@@ -6,13 +6,13 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/journal"
+	"github.com/lorem-dev/duolog/internal/core/record"
 )
 
-func unclassifiedRecords(n int) []journal.Delegation {
-	var ds []journal.Delegation
+func unclassifiedRecords(n int) []record.Delegation {
+	var ds []record.Delegation
 	for i := 0; i < n; i++ {
-		ds = append(ds, journal.Delegation{ID: fmt.Sprintf("d%d", i), Task: "t1", Role: "review_final", Class: Unclassified, RuleClass: Unclassified, Done: true})
+		ds = append(ds, record.Delegation{ID: fmt.Sprintf("d%d", i), Task: "t1", Role: "review_final", Class: Unclassified, RuleClass: Unclassified, Done: true})
 	}
 	return ds
 }
@@ -49,7 +49,7 @@ func TestNoProposalBelowThreshold(t *testing.T) {
 			case "replay":
 				ds[0].ProfileOf = "original"
 			case "infra":
-				ds[0].Outcome = journal.OutcomeInfra
+				ds[0].Outcome = record.OutcomeInfra
 			case "features":
 				ds[0].Features = map[string]string{"exemplar": "yes"}
 			case "role":
@@ -76,7 +76,7 @@ func TestProposeClassUsesFullFeatureSet(t *testing.T) {
 	}
 }
 
-func featureRecords(n int, features map[string]string) []journal.Delegation {
+func featureRecords(n int, features map[string]string) []record.Delegation {
 	ds := unclassifiedRecords(n)
 	for i := range ds {
 		ds[i].Features = features
@@ -88,7 +88,7 @@ func TestProposeClassOffersLargestGroupAndStableFeatureTie(t *testing.T) {
 	cfg := reportConfig(t)
 	yes := featureRecords(5, map[string]string{"exemplar": "yes"})
 	no := featureRecords(6, map[string]string{"exemplar": "no"})
-	for _, ds := range [][]journal.Delegation{append(append([]journal.Delegation{}, yes...), no...), append(append([]journal.Delegation{}, no...), yes...)} {
+	for _, ds := range [][]record.Delegation{append(append([]record.Delegation{}, yes...), no...), append(append([]record.Delegation{}, no...), yes...)} {
 		ps := ProposeClasses(cfg, ds, nil)
 		if len(ps) != 1 || ps[0].Rule.When["exemplar"] != "no" {
 			t.Fatal(ps)
@@ -126,10 +126,10 @@ func TestProposeClassDeclineOnlySkipsOfferedGroup(t *testing.T) {
 func TestProposeRuleCollisionUsesGroupCountsAndFeatures(t *testing.T) {
 	cfg := reportConfig(t)
 	cfg.Learning.Classify = []config.ClassRule{{When: map[string]string{"output": "diagnosis"}, Class: "debug"}}
-	makeRuns := func(n int, components, rule string) []journal.Delegation {
-		ds := make([]journal.Delegation, n)
+	makeRuns := func(n int, components, rule string) []record.Delegation {
+		ds := make([]record.Delegation, n)
 		for i := range ds {
-			ds[i] = journal.Delegation{Class: "debug_multi", StatedClass: "debug_multi", RuleClass: rule, Features: map[string]string{"components": components, "output": "diagnosis"}}
+			ds[i] = record.Delegation{Class: "debug_multi", StatedClass: "debug_multi", RuleClass: rule, Features: map[string]string{"components": components, "output": "diagnosis"}}
 		}
 		return ds
 	}
@@ -154,9 +154,9 @@ func TestProposeRuleCollisionUsesGroupCountsAndFeatures(t *testing.T) {
 func TestProposeRuleForRepeatedDisagreement(t *testing.T) {
 	cfg := reportConfig(t)
 	cfg.Learning.Classify = []config.ClassRule{{When: map[string]string{"output": "diagnosis"}, Class: "debug"}}
-	var ds []journal.Delegation
+	var ds []record.Delegation
 	for i := 0; i < 3; i++ {
-		ds = append(ds, journal.Delegation{Role: "debug_hard", Class: "debug_multi", StatedClass: "debug_multi", RuleClass: "debug", Features: map[string]string{"output": "diagnosis", "components": "2+"}})
+		ds = append(ds, record.Delegation{Role: "debug_hard", Class: "debug_multi", StatedClass: "debug_multi", RuleClass: "debug", Features: map[string]string{"output": "diagnosis", "components": "2+"}})
 	}
 	ps := ProposeClasses(cfg, ds, nil)
 	if len(ps) != 1 || ps[0].Name != "rule:debug_multi" || ps[0].Class != nil || ps[0].Rule.Class != "debug_multi" || !reflect.DeepEqual(ps[0].Rule.When, ds[0].Features) {

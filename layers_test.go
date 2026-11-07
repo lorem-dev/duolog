@@ -63,13 +63,11 @@ var knownViolations = map[string]string{
 	"internal/app/calibrate (test) -> internal/adapter/session": "PR 29",
 	"internal/app/calibrate (test) -> internal/wiring":          "PR 29: the cell tests run real delegations on wiring.DelegateDeps",
 	"internal/app/calibrate -> github.com/pelletier/go-toml/v2": "stays: cell.go definesCheck reads a project's pyproject.toml, which is not tree guard code (ruling on PR 45)",
-	"internal/core/learn -> go.yaml.in/yaml/v3":                 "PR 16: Render moves out once calibrate.go shrinks",
-	"internal/core/learn -> internal/journal":                   "journal.Outcomes moves to core/record",
 	"internal/app/peer -> internal/rex":                         "the Pane port, moved out of PR 29 to a later task",
 }
 
 // maxKnownViolations is the length of knownViolations. It may only go down.
-const maxKnownViolations = 6
+const maxKnownViolations = 4
 
 // Reasons of the allowed edges, one per target.
 const (

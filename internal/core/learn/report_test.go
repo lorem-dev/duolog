@@ -7,19 +7,19 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/journal"
+	"github.com/lorem-dev/duolog/internal/core/record"
 )
 
 func reportConfig(t *testing.T) *config.Config {
 	t.Helper()
 	return defaultConfig(t)
 }
-func reportRun(id, class, role, entry string, step int) journal.Delegation {
-	return journal.Delegation{ID: id, Task: "t1", Class: class, Ladder: class, Role: role, Entry: entry, Step: step, USD: 1, Priced: true, Done: true}
+func reportRun(id, class, role, entry string, step int) record.Delegation {
+	return record.Delegation{ID: id, Task: "t1", Class: class, Ladder: class, Role: role, Entry: entry, Step: step, USD: 1, Priced: true, Done: true}
 }
 func TestOffersAtMostTwo(t *testing.T) {
 	cfg := reportConfig(t)
-	ds := []journal.Delegation{reportRun("d3", "tests", "tests", "codex/terra/medium", 3), reportRun("d1", "debug", "debug_hard", "codex/terra/medium", 1), reportRun("d2", "debug", "debug_hard", "codex/terra/medium", 2)}
+	ds := []record.Delegation{reportRun("d3", "tests", "tests", "codex/terra/medium", 3), reportRun("d1", "debug", "debug_hard", "codex/terra/medium", 1), reportRun("d2", "debug", "debug_hard", "codex/terra/medium", 2)}
 	got := Offers(cfg, ds, nil, nil)
 	if len(got) != 2 || got[0].Delegation != "d1" || got[1].Delegation != "d2" {
 		t.Fatal(got)
@@ -32,7 +32,7 @@ func TestOfferPrefersCheaperCloseEntry(t *testing.T) {
 	cfg := reportConfig(t)
 	d := reportRun("d1", "debug", "debug_hard", "codex/sol/medium", 1)
 	st := Stats{"debug": {"codex/sol/medium": {Delegations: 2, USD: 1}, "codex/terra/medium": {Delegations: 2, USD: 0.2}}}
-	got := Offers(cfg, []journal.Delegation{d}, st, nil)
+	got := Offers(cfg, []record.Delegation{d}, st, nil)
 	if len(got) != 1 || got[0].To != "codex/terra/medium" || got[0].Reason != "cheaper and close to the best" {
 		t.Fatal(got)
 	}
@@ -40,7 +40,7 @@ func TestOfferPrefersCheaperCloseEntry(t *testing.T) {
 func TestOfferEstimateUsesPriceRatio(t *testing.T) {
 	cfg := reportConfig(t)
 	d := reportRun("d1", "review", "review_final", "codex/sol/medium", 1)
-	got := Offers(cfg, []journal.Delegation{d}, nil, nil)
+	got := Offers(cfg, []record.Delegation{d}, nil, nil)
 	if len(got) != 1 || got[0].USD != 4 {
 		t.Fatal(got)
 	}
@@ -67,7 +67,7 @@ func TestUnclassifiedGetsNoOffer(t *testing.T) {
 		case "replay":
 			d.ProfileOf = "original"
 		}
-		if got := Offers(cfg, []journal.Delegation{d}, nil, nil); len(got) != 0 {
+		if got := Offers(cfg, []record.Delegation{d}, nil, nil); len(got) != 0 {
 			t.Fatal(kind, got)
 		}
 	}
@@ -76,7 +76,7 @@ func TestPersonChoiceGetsNoOffer(t *testing.T) {
 	cfg := reportConfig(t)
 	d := reportRun("d1", "debug", "debug_hard", "codex/terra/medium", 1)
 	d.Why = "person"
-	if got := Offers(cfg, []journal.Delegation{d}, nil, nil); len(got) != 0 {
+	if got := Offers(cfg, []record.Delegation{d}, nil, nil); len(got) != 0 {
 		t.Fatal(got)
 	}
 }
@@ -84,8 +84,8 @@ func TestOfferUsesObservedReplayAndJudgeMeans(t *testing.T) {
 	cfg := reportConfig(t)
 	d := reportRun("d1", "review", "review_final", "codex/sol/medium", 1)
 	st := Stats{"review": {"claude/opus/high": {Delegations: 1, USD: 0.5}}}
-	vs := []journal.Verdict{{Kind: "verdict", JudgeUSD: 0.2}, {Kind: "decision", JudgeUSD: 99}, {Kind: "verdict", JudgeUSD: 0.4}}
-	got := Offers(cfg, []journal.Delegation{d}, st, vs)
+	vs := []record.Verdict{{Kind: "verdict", JudgeUSD: 0.2}, {Kind: "decision", JudgeUSD: 99}, {Kind: "verdict", JudgeUSD: 0.4}}
+	got := Offers(cfg, []record.Delegation{d}, st, vs)
 	if len(got) != 1 || got[0].USD != 0.8 {
 		t.Fatal(got)
 	}
@@ -95,7 +95,7 @@ func TestTableMarksEscalated(t *testing.T) {
 	e := reportRun("d2", "debug", "debug_hard", "codex/sol/medium", 2)
 	e.EscalatedFrom = d.ID
 	var b bytes.Buffer
-	if err := WriteTable(&b, []journal.Delegation{d, e}); err != nil {
+	if err := WriteTable(&b, []record.Delegation{d, e}); err != nil {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(b.String()), "\n")
@@ -111,7 +111,7 @@ func TestTableSkipsReplaysAndMarksInfra(t *testing.T) {
 	p.Entry = "replay-only"
 	p.ProfileOf = d.ID
 	var b bytes.Buffer
-	if err := WriteTable(&b, []journal.Delegation{d, p}); err != nil {
+	if err := WriteTable(&b, []record.Delegation{d, p}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(b.String(), "replay-only") || !strings.HasSuffix(strings.TrimSpace(b.String()), "infra") {
@@ -131,7 +131,7 @@ func TestTableOutcomes(t *testing.T) {
 			d.RunHere = true
 		}
 		var b bytes.Buffer
-		if err := WriteTable(&b, []journal.Delegation{d}); err != nil || !strings.HasSuffix(strings.TrimSpace(b.String()), want) {
+		if err := WriteTable(&b, []record.Delegation{d}); err != nil || !strings.HasSuffix(strings.TrimSpace(b.String()), want) {
 			t.Fatal(want, b.String(), err)
 		}
 	}
@@ -140,7 +140,7 @@ func TestWriteReportFixedWording(t *testing.T) {
 	cfg := reportConfig(t)
 	d := reportRun("d1", "review", "review_final", "codex/sol/medium", 1)
 	var b bytes.Buffer
-	err := WriteReport(&b, cfg, journal.OpenTask{ID: "t1"}, []journal.Delegation{d}, Offers(cfg, []journal.Delegation{d}, nil, nil), true, true)
+	err := WriteReport(&b, cfg, record.OpenTask{ID: "t1"}, []record.Delegation{d}, Offers(cfg, []record.Delegation{d}, nil, nil), true, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestWriteReportFixedWording(t *testing.T) {
 		}
 	}
 	b.Reset()
-	if err := WriteReport(&b, cfg, journal.OpenTask{ID: "t1"}, nil, nil, false, false); err != nil || !strings.Contains(b.String(), "Profiling offers: none\n") {
+	if err := WriteReport(&b, cfg, record.OpenTask{ID: "t1"}, nil, nil, false, false); err != nil || !strings.Contains(b.String(), "Profiling offers: none\n") {
 		t.Fatal(b.String(), err)
 	}
 }
@@ -163,7 +163,7 @@ func TestReportPropagatesWriterErrors(t *testing.T) {
 	if err := WriteTable(reportBadWriter{}, nil); err == nil {
 		t.Fatal("table swallowed error")
 	}
-	if err := WriteReport(reportBadWriter{}, cfg, journal.OpenTask{}, nil, nil, false, false); err == nil {
+	if err := WriteReport(reportBadWriter{}, cfg, record.OpenTask{}, nil, nil, false, false); err == nil {
 		t.Fatal("report swallowed error")
 	}
 }
@@ -172,7 +172,7 @@ func TestOfferSkipsUnpricedCandidateAndContinues(t *testing.T) {
 	cfg := reportConfig(t)
 	delete(cfg.Models, "sol")
 	d := reportRun("d1", "debug", "debug_hard", "codex/terra/medium", 1)
-	got := Offers(cfg, []journal.Delegation{d}, nil, nil)
+	got := Offers(cfg, []record.Delegation{d}, nil, nil)
 	if len(got) != 1 || got[0].To != "claude/opus/high" {
 		t.Fatal(got)
 	}
@@ -185,7 +185,7 @@ func TestOffersWithoutJudge(t *testing.T) {
 		t.Fatal(got)
 	}
 	d := reportRun("d1", "debug", "debug_hard", "codex/terra/medium", 1)
-	if got := Offers(cfg, []journal.Delegation{d}, nil, nil); len(got) != 0 {
+	if got := Offers(cfg, []record.Delegation{d}, nil, nil); len(got) != 0 {
 		t.Fatal(got)
 	}
 }
@@ -195,12 +195,12 @@ func TestOfferOnlyNeedsPricesForRatios(t *testing.T) {
 	cfg.Models = nil
 	d := reportRun("d1", "review", "review_final", "codex/sol/medium", 1)
 	st := Stats{"review": {"claude/opus/high": {Delegations: 1, USD: 0.5}}}
-	vs := []journal.Verdict{{Kind: "verdict", JudgeUSD: 0.25}}
-	got := Offers(cfg, []journal.Delegation{d}, st, vs)
+	vs := []record.Verdict{{Kind: "verdict", JudgeUSD: 0.25}}
+	got := Offers(cfg, []record.Delegation{d}, st, vs)
 	if len(got) != 1 || got[0].USD != 0.75 {
 		t.Fatal(got)
 	}
-	if got := Offers(cfg, []journal.Delegation{d}, nil, vs); len(got) != 0 {
+	if got := Offers(cfg, []record.Delegation{d}, nil, vs); len(got) != 0 {
 		t.Fatal(got)
 	}
 }

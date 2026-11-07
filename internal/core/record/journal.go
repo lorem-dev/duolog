@@ -61,6 +61,10 @@ const (
 	OutcomeLead = "lead"
 )
 
+// Outcomes scores the outcome a person records for a task, from accepted (3)
+// to dropped (0).
+var Outcomes = map[string]float64{"accepted": 3, "small_fixes": 2, "reworked": 1, "dropped": 0}
+
 // QualityRun excludes returns to the lead, interruptions and questions. A real
 // worker failure remains eligible; only that failure says something on quality.
 func (d Delegation) QualityRun() bool {

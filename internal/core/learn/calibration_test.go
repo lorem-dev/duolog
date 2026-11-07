@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/journal"
+	"github.com/lorem-dev/duolog/internal/core/record"
 )
 
 const (
@@ -19,24 +19,24 @@ const (
 
 var calTime = time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)
 
-func calResult(run, task, class, entry string, passed bool) journal.CalibrationResult {
-	return journal.CalibrationResult{Kind: "result", Time: calTime, Run: run, Task: task, Class: class, Ladder: class,
+func calResult(run, task, class, entry string, passed bool) record.CalibrationResult {
+	return record.CalibrationResult{Kind: "result", Time: calTime, Run: run, Task: task, Class: class, Ladder: class,
 		Entry: entry, Verification: "hidden", Passed: passed, Source: "calibration"}
 }
 
 // calVerdict is a calibration verdict on a task, A against B with one
 // criterion, and its decision when decision is not empty.
-func calVerdict(id, run, task, a, b string, sa, sb int, decision string) []journal.Verdict {
-	vs := []journal.Verdict{{Kind: "verdict", ID: id, Source: "calibration", Run: run, Task: task, Class: "tests", Ladder: "tests",
-		Original: a, Profile: b, Scores: []journal.Score{{Criterion: "a", Original: sa, Profile: sb}}}}
+func calVerdict(id, run, task, a, b string, sa, sb int, decision string) []record.Verdict {
+	vs := []record.Verdict{{Kind: "verdict", ID: id, Source: "calibration", Run: run, Task: task, Class: "tests", Ladder: "tests",
+		Original: a, Profile: b, Scores: []record.Score{{Criterion: "a", Original: sa, Profile: sb}}}}
 	if decision != "" {
-		vs = append(vs, journal.Verdict{Kind: "decision", ID: id, Decision: decision})
+		vs = append(vs, record.Verdict{Kind: "decision", ID: id, Decision: decision})
 	}
 	return vs
 }
 
 func TestAggregateCheckFailureCountsWithoutConfirmation(t *testing.T) {
-	cs := []journal.CalibrationResult{calResult("r1", "t1", "tests", calC, false)}
+	cs := []record.CalibrationResult{calResult("r1", "t1", "tests", calC, false)}
 	s := AggregateAll(nil, nil, nil, nil, cs)["tests"][calC]
 	if s.Quality != 0 || s.Weight != 1 || s.CalibrationTasks != 1 {
 		t.Fatal(s)
@@ -44,7 +44,7 @@ func TestAggregateCheckFailureCountsWithoutConfirmation(t *testing.T) {
 }
 
 func TestAggregateOneObservationPerTaskEntry(t *testing.T) {
-	cs := []journal.CalibrationResult{
+	cs := []record.CalibrationResult{
 		calResult("r1", "t1", "tests", calA, true),
 		calResult("r1", "t1", "tests", calB, true),
 		calResult("r1", "t1", "tests", calC, true),
@@ -60,7 +60,7 @@ func TestAggregateOneObservationPerTaskEntry(t *testing.T) {
 }
 
 func TestAggregateJudgeOnlyHalfWeight(t *testing.T) {
-	cs := []journal.CalibrationResult{calResult("r1", "t1", "tests", calA, true), calResult("r1", "t1", "tests", calB, true)}
+	cs := []record.CalibrationResult{calResult("r1", "t1", "tests", calA, true), calResult("r1", "t1", "tests", calB, true)}
 	for i := range cs {
 		cs[i].Verification = "judge_only"
 	}
@@ -72,7 +72,7 @@ func TestAggregateJudgeOnlyHalfWeight(t *testing.T) {
 }
 
 func TestAggregateUnconfirmedVerdictIgnored(t *testing.T) {
-	cs := []journal.CalibrationResult{calResult("r1", "t1", "tests", calA, true), calResult("r1", "t1", "tests", calB, true)}
+	cs := []record.CalibrationResult{calResult("r1", "t1", "tests", calA, true), calResult("r1", "t1", "tests", calB, true)}
 	vs := calVerdict("v1", "r1", "t1", calA, calB, 3, 1, "")
 	s := AggregateAll(nil, nil, nil, vs, cs)["tests"][calA]
 	// Both passed, so the task waits for the person's verdict before it
@@ -83,13 +83,13 @@ func TestAggregateUnconfirmedVerdictIgnored(t *testing.T) {
 }
 
 func TestAggregateLatestRunReplacesClass(t *testing.T) {
-	r1 := []journal.CalibrationResult{
+	r1 := []record.CalibrationResult{
 		calResult("r1", "t1", "implement", calC, false),
 		calResult("r1", "t2", "implement", calC, false),
 		calResult("r1", "t3", "tests", calC, false),
 	}
 	// terra's pass is evidence because sol failed the same task.
-	r2 := []journal.CalibrationResult{calResult("r2", "t4", "implement", calC, true), calResult("r2", "t4", "implement", calB, false)}
+	r2 := []record.CalibrationResult{calResult("r2", "t4", "implement", calC, true), calResult("r2", "t4", "implement", calB, false)}
 	r2[0].Time = calTime.Add(24 * time.Hour)
 	r2[1].Time = r2[0].Time
 	st := AggregateAll(nil, nil, nil, nil, slices.Concat(r1, r2))
@@ -102,7 +102,7 @@ func TestAggregateLatestRunReplacesClass(t *testing.T) {
 }
 
 func TestAggregateDroppedTaskIgnored(t *testing.T) {
-	cs := []journal.CalibrationResult{
+	cs := []record.CalibrationResult{
 		calResult("r1", "t1", "tests", calA, true),
 		calResult("r1", "t1", "tests", calB, true),
 		calResult("r1", "t2", "tests", calB, false),
@@ -119,8 +119,8 @@ func TestAggregateDroppedTaskIgnored(t *testing.T) {
 }
 
 func TestAggregateLiveUnchanged(t *testing.T) {
-	ds := []journal.Delegation{live()}
-	vs := decidedScores([]journal.Score{{Criterion: "a", Original: 3, Profile: 1}}, nil, "confirm")
+	ds := []record.Delegation{live()}
+	vs := decidedScores([]record.Score{{Criterion: "a", Original: 3, Profile: 1}}, nil, "confirm")
 	withCal := slices.Concat(vs, calVerdict("v2", "r1", "t1", calA, calB, 3, 1, "confirm"))
 	want := Aggregate(nil, ds, accepted(), vs)
 	if got := Aggregate(nil, ds, accepted(), withCal); !reflect.DeepEqual(got, want) {
@@ -132,8 +132,8 @@ func TestAggregateLiveUnchanged(t *testing.T) {
 }
 
 // failedTerra has terra fail and sol pass n tests tasks.
-func failedTerra(n int) []journal.CalibrationResult {
-	var cs []journal.CalibrationResult
+func failedTerra(n int) []record.CalibrationResult {
+	var cs []record.CalibrationResult
 	for i := range n {
 		task := fmt.Sprintf("t%d", i+1)
 		cs = append(cs, calResult("r1", task, "tests", calC, false), calResult("r1", task, "tests", calB, true))
@@ -162,8 +162,8 @@ func TestProposeGatedNeedsThreeTasks(t *testing.T) {
 // pass that no other entry matched is evidence without a verdict.
 func TestCalibrationTasksNeedEvidence(t *testing.T) {
 	cfg := &config.Config{Learning: defaults(t)}
-	var cs []journal.CalibrationResult
-	var vs []journal.Verdict
+	var cs []record.CalibrationResult
+	var vs []record.Verdict
 	for i := range 3 {
 		task := fmt.Sprintf("t%d", i+1)
 		cs = append(cs, calResult("r1", task, "tests", calC, true), calResult("r1", task, "tests", calB, true))
@@ -190,7 +190,7 @@ func TestCalibrationTasksNeedEvidence(t *testing.T) {
 // result on it, as when the others were cut to cap, and pass t2 where terra
 // failed: only t2 compares anything, so only t2 is evidence for sol.
 func TestLonePassNeedsAnotherResult(t *testing.T) {
-	cs := []journal.CalibrationResult{
+	cs := []record.CalibrationResult{
 		calResult("r1", "t1", "tests", calB, true),
 		calResult("r1", "t2", "tests", calB, true),
 		calResult("r1", "t2", "tests", calC, false),
@@ -211,7 +211,7 @@ func TestProposeGatedSeedOnlyWithoutPersonal(t *testing.T) {
 	if got := p.Ladders["tests"].Order; len(got) == 0 || got[0] != calB {
 		t.Fatalf("seed without personal results: order %v", got)
 	}
-	cs := []journal.CalibrationResult{calResult("r1", "t1", "tests", calB, true)}
+	cs := []record.CalibrationResult{calResult("r1", "t1", "tests", calB, true)}
 	p, st, _ := ProposeGated(cfg, nil, nil, nil, cs, seed)
 	// The lone pass compares nothing, so it is no task with evidence;
 	// the seed's 3 would show if it were added.

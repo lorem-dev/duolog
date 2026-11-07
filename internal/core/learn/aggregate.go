@@ -6,7 +6,6 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/record"
-	"github.com/lorem-dev/duolog/internal/journal"
 )
 
 // Stats holds the observations for each ladder and entry.
@@ -79,7 +78,7 @@ func AggregateAll(cfg *config.Config, ds []record.Delegation, ts []record.Task, 
 			if !d.Done || escalated[d.ID] > i {
 				s.Failures++
 				observe(s, 0, 0.5)
-			} else if q, ok := journal.Outcomes[outcomes[d.Task]]; ok {
+			} else if q, ok := record.Outcomes[outcomes[d.Task]]; ok {
 				observe(s, q, 0.5)
 			}
 		})

@@ -142,7 +142,7 @@ func learnOrder(cmd *cobra.Command, root string, cfg *config.Config, ds []journa
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	data, err := learn.Render(p)
+	data, err := configfile.RenderLearnedRouting(p)
 	if err != nil {
 		return err
 	}

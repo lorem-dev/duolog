@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/app/calibrate"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/core/budget"
@@ -1092,7 +1093,7 @@ func newCalibrateProposeCommand(d *cmdDeps) *cobra.Command {
 			if err != nil && !os.IsNotExist(err) {
 				return err
 			}
-			data, err := learn.Render(p)
+			data, err := configfile.RenderLearnedRouting(p)
 			if err != nil {
 				return err
 			}

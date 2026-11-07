@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/lorem-dev/duolog/internal/journal"
+	"github.com/lorem-dev/duolog/internal/core/record"
 )
 
 func TestReviewNonQualityRunsGetNoQualityOrOffers(t *testing.T) {
@@ -16,10 +16,10 @@ func TestReviewNonQualityRunsGetNoQualityOrOffers(t *testing.T) {
 				t.Fatal(err)
 			}
 			d.Done = false
-			if st := Aggregate(cfg, []journal.Delegation{d}, accepted(), nil); len(st) != 0 {
+			if st := Aggregate(cfg, []record.Delegation{d}, accepted(), nil); len(st) != 0 {
 				t.Fatalf("non-quality run counted: %+v", st)
 			}
-			if offers := Offers(cfg, []journal.Delegation{d}, nil, nil); len(offers) != 0 {
+			if offers := Offers(cfg, []record.Delegation{d}, nil, nil); len(offers) != 0 {
 				t.Fatal(offers)
 			}
 		})
@@ -30,7 +30,7 @@ func TestReviewCappedStatsUseActualEffort(t *testing.T) {
 	d := live()
 	d.Entry = "codex/sol/high"
 	d.EffortCapped, d.Effort = true, "medium"
-	st := Aggregate(nil, []journal.Delegation{d}, accepted(), nil)["debug"]
+	st := Aggregate(nil, []record.Delegation{d}, accepted(), nil)["debug"]
 	if st["codex/sol/medium"].Delegations != 1 || st[d.Entry].Delegations != 0 {
 		t.Fatal(st)
 	}
