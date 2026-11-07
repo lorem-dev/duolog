@@ -60,7 +60,8 @@ func TestPeerListPlainIsTwoFields(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			lines := strings.Split(strings.TrimSpace(out), "\n")
+			body, _ := listBody(t, out)
+			lines := strings.Split(strings.TrimSpace(body), "\n")
 			if len(lines) != 1 {
 				t.Fatalf("%q", out)
 			}
@@ -78,6 +79,67 @@ func TestPeerListPlainIsTwoFields(t *testing.T) {
 				t.Fatalf("%s %v", out, err)
 			}
 		})
+	}
+}
+
+// listBody is the output of `peer list` without its last line, the load line,
+// and that line. The load line is the last line of a list that prints one.
+func listBody(t *testing.T, out string) (body, load string) {
+	t.Helper()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) == 0 || !strings.HasPrefix(lines[len(lines)-1], "duolog peers: ") {
+		t.Fatalf("no load line at the end of %q", out)
+	}
+	return strings.Join(lines[:len(lines)-1], "\n"), lines[len(lines)-1]
+}
+
+func TestPeerListEndsWithTheLoadLine(t *testing.T) {
+	clearModelMarkers(t)
+	asTerminal(t, true)
+	root, _ := peerProject(t, testbin.Scenario{Stdout: claudeIdleScreen()})
+	recordListPeer(t, root)
+	out, err := executeBusCommand(t, "peer", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, line := listBody(t, out)
+	if body != "peer-list ready" {
+		t.Fatalf("body %q", body)
+	}
+	for _, want := range []string{"claude 1 running (1 idle) of 3", "codex 0 of 3", "idle: peer-list"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("load line %q lacks %q", line, want)
+		}
+	}
+	// The line reads no quota, and no read is cached: the window is unknown.
+	if strings.Contains(line, "5h") {
+		t.Fatalf("load line %q has a window without a read", line)
+	}
+	// Another lead's item is not this lead's queue.
+	queue := filepath.Join(root, ".duolog", "peer-queue.ndjson")
+	if err := os.WriteFile(queue, []byte(`{"id":"q-other","lead":"other-lead","state":"queued"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err = executeBusCommand(t, "peer", "list")
+	if _, line = listBody(t, out); err != nil || strings.Contains(line, "queue") && !strings.Contains(line, "queue add") {
+		t.Fatalf("another lead's item counted: %q %v", out, err)
+	}
+	// This lead's queued item is counted, and the free sessions go to a run.
+	if err := os.WriteFile(filepath.Join(root, "task.md"), []byte("## Goal\nx\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := executeBusCommand(t, "peer", "queue", "add", "implement", "--cwd", root, "--task", "task.md"); err != nil {
+		t.Fatalf("%q %v", out, err)
+	}
+	out, err = executeBusCommand(t, "peer", "list")
+	if _, line = listBody(t, out); err != nil || !strings.Contains(line, "; queue 1;") || !strings.Contains(line, "sessions free: duolog peer queue run") || strings.Contains(line, "start independent work") {
+		t.Fatalf("%q %v", out, err)
+	}
+	// JSON stays a plain list.
+	out, err = executeBusCommand(t, "peer", "list", "--json")
+	var peers []map[string]any
+	if err != nil || json.Unmarshal([]byte(out), &peers) != nil {
+		t.Fatalf("%s %v", out, err)
 	}
 }
 
@@ -116,11 +178,12 @@ func TestPeerListAfterRexRestartShowsGonePeers(t *testing.T) {
 	recordListPeer(t, root)
 	restartRex(t, root)
 	out, err := executeBusCommand(t, "peer", "list")
-	if err != nil || strings.TrimSpace(out) != "peer-list gone" {
+	if body, _ := listBody(t, out); err != nil || body != "peer-list gone" {
 		t.Fatalf("%q %v", out, err)
 	}
 	out, err = executeBusCommand(t, "peer", "list", "--long")
-	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	body, _ := listBody(t, out)
+	lines := strings.Split(body, "\n")
 	if err != nil || len(lines) != 2 || !strings.Contains(lines[1], "gone") {
 		t.Fatalf("%q %v", out, err)
 	}
@@ -153,8 +216,11 @@ func TestPeerCloseGonePeerSaysSoAndAsksRexForNoClose(t *testing.T) {
 	if entries, _ := reg.Entries(); len(entries) != 0 {
 		t.Fatalf("record stays: %+v", entries)
 	}
-	if out, err = executeBusCommand(t, "peer", "list"); err != nil || strings.TrimSpace(out) != "" {
-		t.Fatalf("%q %v", out, err)
+	if out, err = executeBusCommand(t, "peer", "list"); err != nil {
+		t.Fatal(err)
+	}
+	if body, _ := listBody(t, out); body != "" {
+		t.Fatalf("%q", out)
 	}
 }
 
@@ -167,7 +233,8 @@ func TestPeerListLong(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	body, _ := listBody(t, out)
+	lines := strings.Split(body, "\n")
 	if len(lines) != 2 {
 		t.Fatalf("%q", out)
 	}

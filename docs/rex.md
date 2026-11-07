@@ -47,7 +47,7 @@ register a lead.
 | 4 | `duolog peer wait <id>` | Keeps waiting for the session. The default limit is 30 minutes |
 | 5 | `duolog peer status <id>` | Prints the state in one line |
 | 6 | `duolog peer close <id>` | Closes the pane. Changed files stay. A pane that is already gone is not closed again; the line says so |
-| 7 | `duolog peer list [--long]` | Lists your peers. Plain output is `<id> <state>`; `--long` adds role, agent, task, last activity and tab. It presses no key |
+| 7 | `duolog peer list [--long]` | Lists your peers. Plain output is `<id> <state>`; `--long` adds role, agent, task, last activity and tab. The last line is the load line. It presses no key |
 | 8 | `duolog peer show <id> [--lines N]` | Prints the last lines of the peer's screen (40 by default, 1 to 200). It refuses inside an agent |
 | 9 | `duolog peer view <id> [--client C]` | Switches your Rex client to the peer's tab and prints one line |
 
@@ -181,11 +181,70 @@ same task sends it. Each message is one line, and the lead's hooks
 deliver it with the next prompt or tool call. Answer with `peer status`,
 `peer send` or `peer close`.
 
+### The peer-idle and peer-exit events
+
+Two more messages tell the lead that a peer needs a look, whatever its task:
+
+| Event | Message to the lead on the bus |
+|---|---|
+| The peer ends a turn | kind `peer-idle`: `<peer-id> idle in <folder>`, then the first line of its last message, up to 160 characters, when the hook knows it |
+| `duolog peer list` sees the peer's process exited or gone | kind `peer-exit`: `<peer-id> exited in <folder>` |
+
+`<folder>` is the peer's checkout relative to the project, `.` for the
+project itself. The `Stop` hook sends one `peer-idle` per turn: it remembers
+the transcript length, so a hook that runs again for the same turn sends
+nothing. When it cannot read the transcript, it remembers the last message
+with the number of turns the peer began since its last `peer send`, which
+the peer's prompt hook counts, so two turns that end with the same message
+still send two. The
+lead's next prompt or tool hook sends `peer-exit`, once per peer; a peer you
+closed with `peer close` sends none. Both show as one short line,
+like other bus messages. When the lead's hooks deliver a `peer-idle`, they
+start the lead's queue run (see
+[How to queue peers](#how-to-queue-peers-that-open-when-a-session-is-free)).
+The peer's own `Stop` hook runs as a worker and opens nothing.
+
 The `Stop` hook runs only where duolog's hooks run in the peer. An older
 install gets it when you update the plugin or run `duolog install` again.
 A Codex peer runs it
 only after you approve the hooks in `/hooks`; the auto-answer
 `Continue without trusting` leaves them off.
+
+## How the lead sees how many peers it can run
+
+A lead that sizes its peers by habit leaves sessions unused. So duolog adds
+one line to the lead's context. It shows the lead's live peers, the session
+limit of each agent and the 5-hour window:
+
+```text
+duolog peers: claude 3 running (1 idle) of 12; codex 0 of 3; 5h 41%
+```
+
+- `3 running (1 idle) of 12` counts the lead's own live peers. An idle peer
+  finished its turn with nothing queued, and it still holds a session. The
+  line names idle peers as `idle: peer-ab12cd, ...`. The limit is the one
+  that `duolog quota` prints as `<agent> sessions N of M`, which counts the
+  sessions of all leads. duolog counts them once, from the same account state.
+- The line reads no quota itself. A hook has no quota read of its own, so the
+  limit is that of the session tier that admission recorded last, and the
+  window is the one that the latest admission measured, if that was at most
+  30 minutes ago. An agent with no session limit is left out. So is a window
+  that duolog does not know.
+- `queue 2`, after the agents, counts the items of the lead's ready queue
+  that wait to open. While items wait and a session is free, the line ends
+  with `- <n> <agent> sessions free: duolog peer queue run`.
+- When an agent has at least half of its sessions free, the window is known
+  and under 70% and the lead's ready queue is empty, the line ends with
+  `- <n> <agent> sessions free: start independent work or stack it on open
+  pull request branches (duolog peer queue add)`.
+
+The `UserPromptSubmit` hook adds the line to every prompt. The `PostToolUse`
+hook adds it only to a bus delivery, and at most once in 5 minutes unless a
+number changed. Only a registered lead gets it. Workers and peers never do.
+If duolog cannot work the line out within 2 seconds, it prints nothing and
+the hook goes on.
+`duolog peer list` prints the same line as its last line, except with
+`--json`.
 
 ## How to run several peers at once
 
@@ -200,6 +259,54 @@ branch. Start the work while its dependency's CI runs.
 Run each wait as its own background command: one for each peer and one for
 each CI run. Do not chain them. New peer tabs stay in the detached project
 session and keep the person's current window and pane focused.
+
+## How to queue peers that open when a session is free
+
+The ready queue holds the peers that the lead wants to run next. duolog opens
+them by itself when a session is free, so the number of peers does not depend
+on how many the lead remembers to open.
+
+| Command | What it does |
+|---|---|
+| `duolog peer queue add <role> --task <file> [--cwd <dir>] [--after <peer-id>]` | Adds an item. `--cwd`, the current folder by default, must be in the project or one of its linked worktrees. `--task` is a file path relative to `--cwd`, with no `..`, and must be a file in the checkout of `--cwd`. Symlinks are followed before both checks. It works only in a Rex pane, where the run can open the item |
+| `duolog peer queue list` | Prints `<id> <role> <cwd> <task> <state>` for each item, in order. The state is `queued`, `opening`, `opened <peer-id>` or `failed: <reason>` |
+| `duolog peer queue remove <id>` | Drops an item. An item that a run is opening stays while that run goes. Removing another item never holds up a run |
+| `duolog peer queue run` | Opens the queued items in order, then prints the list |
+
+A run opens each item in its `--cwd` as `peer open` does there, with the same
+session limits, window headroom and paid-run rules, but only on the free
+variant: a run never opens a paid peer, even where `paid_runs` allows one.
+It stops at the first item
+that `peer open` refuses for now and leaves that item queued: admission, a
+lead in plan mode with a role that writes, or no agent available to the
+role. A later close or reset can let it open. A run checks the folder and the
+task again before it opens an item. An item whose check, open or send fails
+for another reason is marked `failed`, the lead gets
+`queue: <id> failed: <reason>`, and the run goes on. Each opened peer gets its
+task as `peer send` sends it, and the lead gets one bus line:
+`queue: opened <peer-id> (<role>) in <cwd> for <task>`. An item with `--after`
+waits until that peer is idle or closed; the items behind it do not wait.
+
+duolog starts a run in a separate process when the lead has queued items:
+
+- after `duolog peer close` closes a peer. Its line then ends with
+  `; queue run started`.
+- at each of the lead's prompts, while the load line shows a free session
+  for a queued item's agent, or for any agent when the item's role names none.
+- when the lead's hooks deliver a `peer-idle` message, so a peer that
+  finished lets the next item start, with the same check.
+
+The hooks also start a run when an item was left `opening` and no run is
+going, whatever the load line says.
+
+A lock in `.duolog` lets one run per lead go at a time, and a second run exits
+at once. A run that ended in the middle, for example when its process was
+killed, can leave an item `opening`. The next run marks it `failed` and tells
+the lead, since its peer may be open. `queue remove` drops it when no run is
+going. The items are in `.duolog/peer-queue.ndjson`. Runs started this way
+write to `.duolog/peer-queue-run.log`, which each run empties once it holds
+the lock. On Windows the run has a hidden console of its own, so neither it
+nor the git and rex it calls opens a window.
 
 ## How to see what a peer shows
 

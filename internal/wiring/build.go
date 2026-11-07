@@ -5,6 +5,7 @@ package wiring
 import (
 	"context"
 	"crypto/rand"
+	"os"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/kit"
@@ -78,6 +79,8 @@ func PeerDeps(d delegate.Deps) peer.Deps {
 		HeldGate: func(agent, root string, env []string) error {
 			return delegate.HeldGate(d, agent, root, env)
 		},
+		Executable:    os.Executable,
+		StartDetached: runner.StartDetached,
 	}
 }
 

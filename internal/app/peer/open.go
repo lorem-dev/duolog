@@ -20,6 +20,31 @@ import (
 
 func newID() string { return "peer-" + strings.ToLower(rand.Text()[:6]) }
 
+// route resolves where role runs for lead, as Open places it. Both agents
+// limited, and a lead in plan mode with a role that writes, refuse the open
+// for now (ErrRefused): the same open may pass once a limit resets or the
+// lead leaves plan mode. The route comes back with the plan refusal, so the
+// caller knows its agent.
+func (e *env) route(ctx context.Context, role string, lead leadInfo) (coreroute.Route, error) {
+	unavailable, err := e.reg.Unavailable()
+	if err != nil {
+		return coreroute.Route{}, err
+	}
+	route, err := coreroute.Resolve(e.cfg, role, unavailable, coreroute.Options{Lead: lead.target, AllowManualModel: e.opts.AllowManualModel,
+		Balance: paidruns.DefaultPaceBalance(ctx, e.cfg)})
+	if errors.Is(err, coreroute.ErrNoAgent) {
+		return coreroute.Route{}, refused(err.Error())
+	}
+	if err != nil {
+		return coreroute.Route{}, err
+	}
+	paidruns.SaveDefaultPaceState(route.Ahead)
+	if lead.mode == mode.Plan && route.Sandbox != "read-only" {
+		return route, refused(fmt.Sprintf("mode plan refuses write role %s", role))
+	}
+	return route, nil
+}
+
 // Open starts a peer for the role, or returns the live one. It records the ID
 // right after rex split, then waits until the session is ready, asks a
 // question, has ended or the start time is over. The pane is never closed here.
@@ -34,19 +59,10 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	unavailable, err := e.reg.Unavailable()
-	if err != nil {
-		return Entry{}, err
-	}
-	route, err := coreroute.Resolve(e.cfg, role, unavailable, coreroute.Options{Lead: lead.target, AllowManualModel: e.opts.AllowManualModel,
-		Balance: paidruns.DefaultPaceBalance(ctx, e.cfg)})
-	if err != nil {
-		return Entry{}, err
-	}
-	paidruns.SaveDefaultPaceState(route.Ahead)
+	route, err := e.route(ctx, role, lead)
 	agent = route.Agent
-	if lead.mode == mode.Plan && route.Sandbox != "read-only" {
-		return Entry{}, fmt.Errorf("mode plan refuses write role %s", role)
+	if err != nil {
+		return Entry{}, err
 	}
 	if route.InLead {
 		here := delegate.Placement{Where: "subagent", Model: route.Model, Effort: route.Effort}
@@ -79,7 +95,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 		}
 	}
 	if limit := e.cfg.Limits.MaxLiveSessions; limit > 0 && len(here) >= limit {
-		return Entry{}, fmt.Errorf("max_live_sessions is %d and %s session %s is still open; close it with duolog peer close %s first", limit, route.Agent, here[0].ID, here[0].ID)
+		return Entry{}, refused(fmt.Sprintf("max_live_sessions is %d and %s session %s is still open; close it with duolog peer close %s first", limit, route.Agent, here[0].ID, here[0].ID))
 	}
 	model, err := e.opts.Deps.ResolveModel(ctx, e.cfg, filepath.Join(e.dir, "cache"), route.Target)
 	if err != nil {

@@ -50,4 +50,10 @@ type Deps struct {
 	// HeldGate shows that the gate of a pane that only it keeps read-only runs,
 	// as delegate.HeldGate does.
 	HeldGate func(agent, root string, env []string) error
+	// Executable is the duolog that a detached queue run starts.
+	Executable func() (string, error)
+	// StartDetached starts argv in dir as a process of its own that the caller
+	// does not wait for, its output appended to logPath, as
+	// runner.StartDetached does.
+	StartDetached func(argv []string, dir, logPath string) error
 }

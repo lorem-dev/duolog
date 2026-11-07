@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"os"
 	"slices"
 	"strings"
@@ -91,42 +92,69 @@ func (st State) held() []Held {
 // the report comes back with the read's error. Run evidence that settled
 // after the read, such as a run on paid overage, counts as for admission.
 func (g *Gate) Report(ctx context.Context, in workerenv.ProcessInput) (Report, error) {
-	if g.Store == nil || g.Cache == nil || g.Config == nil {
-		return Report{}, errors.New("paid runs: the gate needs a store, a cache and a config")
-	}
-	in.Config = g.Config
+	return g.report(ctx, in, false)
+}
+
+// assess builds the process that in describes and judges it, as Report does:
+// a worker or a peer against a read through the cache, or with cached against
+// the agent's latest read there, and a lead against that latest read. readErr
+// is the read's failure, which still gives an assessment; err gives none.
+func (g *Gate) assess(ctx context.Context, in workerenv.ProcessInput, cached bool) (p workerenv.Process, s quota.Snapshot, a Assessment, readErr, err error) {
 	agent := in.Agent
-	var (
-		p       workerenv.Process
-		s       quota.Snapshot
-		a       Assessment
-		readErr error
-	)
 	switch in.Shape {
 	case workerenv.Worker, workerenv.Peer:
-		p, s, a, readErr = g.Cache.Get(ctx, g.build(ctx, Request{Input: in}), g.Config, quota.RunEvidence{}, false)
-		if a.Agent == "" {
-			return Report{}, readErr
+		if !cached {
+			p, s, a, readErr = g.Cache.Get(ctx, g.build(ctx, Request{Input: in}), g.Config, quota.RunEvidence{}, false)
+			if a.Agent == "" {
+				return p, s, a, readErr, readErr
+			}
+			return p, s, a, readErr, nil
+		}
+		if p, err = g.build(ctx, Request{Input: in})(); err != nil {
+			return p, s, a, nil, err
+		}
+		var ok bool
+		if s, ok = g.Cache.Latest(agent); !ok {
+			readErr = fmt.Errorf("no quota read of %s in the cache", agent)
 		}
 	case workerenv.Lead:
 		if g.Layers != nil {
-			layers, err := g.Layers(ctx, in)
-			if err != nil {
-				return Report{}, err
+			if in.Layers, err = g.Layers(ctx, in); err != nil {
+				return p, s, a, nil, err
 			}
-			in.Layers = layers
 		}
-		var err error
 		if p, err = workerenv.Build(in); err != nil {
-			return Report{}, err
+			return p, s, a, nil, err
 		}
 		var ok bool
 		if s, ok = g.Cache.Latest(agent); !ok {
 			readErr = fmt.Errorf("no free quota read of %s to judge the lead's route with", agent)
 		}
-		a = Evaluate(p, s, readErr, quota.RunEvidence{}, g.Config, g.now())
 	default:
-		return Report{}, fmt.Errorf("paid runs: unknown shape %q", in.Shape)
+		return p, s, a, nil, fmt.Errorf("paid runs: unknown shape %q", in.Shape)
+	}
+	return p, s, Evaluate(p, s, readErr, quota.RunEvidence{}, g.Config, g.now()), readErr, nil
+}
+
+// ReportCached is Report without a quota read: a worker or a peer is judged
+// against the agent's latest read in the cache, as a lead is, and the
+// verdict is paid when there is none. Without one, its sessions are those of
+// the tier admission recorded last, not the small tier a paid verdict
+// forces: nothing was read that could have changed it. The lead's hooks use
+// it, so that a prompt never waits for a read.
+func (g *Gate) ReportCached(ctx context.Context, in workerenv.ProcessInput) (Report, error) {
+	return g.report(ctx, in, true)
+}
+
+func (g *Gate) report(ctx context.Context, in workerenv.ProcessInput, cached bool) (Report, error) {
+	if g.Store == nil || g.Cache == nil || g.Config == nil {
+		return Report{}, errors.New("paid runs: the gate needs a store, a cache and a config")
+	}
+	in.Config = g.Config
+	agent := in.Agent
+	p, s, a, readErr, err := g.assess(ctx, in, cached)
+	if err != nil {
+		return Report{}, err
 	}
 
 	var view State
@@ -148,16 +176,71 @@ func (g *Gate) Report(ctx context.Context, in workerenv.ProcessInput) (Report, e
 	if paid := g.Config.PaidRuns.Agent(agent); paid.Allow {
 		r.CapUSD = paid.DailyCapUSD
 	}
-	fingerprint := Fingerprint(agent, view.AccountKeys[agent+"/"+quota.IdentityAccount], s)
-	samples := slices.DeleteFunc(slices.Clone(view.Samples), func(x RateSample) bool {
-		return x.Agent != agent || x.Fingerprint != fingerprint
-	})
-	r.Sessions = SelectTier(a, s, samples, view.Tiers[agent], g.Config)
+	r.Sessions = g.reportTier(view, agent, a, s, cached && in.Shape != workerenv.Lead)
 	r.Sessions.Live, r.TotalLive = view.sessions(agent)
 	if readErr != nil {
 		r.ReadError = readErr.Error()
 	}
 	return r, readErr
+}
+
+// reportTier is the session tier a report shows for assessment a on read s:
+// the tier s and the agent's rate samples give, or, for a cached report of a
+// worker or a peer with no read in the cache, the tier admission recorded
+// last.
+func (g *Gate) reportTier(view State, agent string, a Assessment, s quota.Snapshot, cached bool) TierResult {
+	if cached && s.ReadAt.IsZero() {
+		return lastTier(view.Tiers[agent], g.Config)
+	}
+	fingerprint := Fingerprint(agent, view.AccountKeys[agent+"/"+quota.IdentityAccount], s)
+	samples := slices.DeleteFunc(slices.Clone(view.Samples), func(x RateSample) bool {
+		return x.Agent != agent || x.Fingerprint != fingerprint
+	})
+	return SelectTier(a, s, samples, view.Tiers[agent], g.Config)
+}
+
+// lastTier is the tier admission recorded last for an agent, with the
+// session limit cfg gives that tier now. With none recorded, it is the small
+// tier every agent starts at.
+func lastTier(last TierResult, cfg *config.Config) TierResult {
+	tiers, _ := tierSettings(cfg)
+	if !slices.Contains(tierOrder, last.Tier) {
+		return TierResult{Tier: TierSmall, Reason: "no tier recorded yet", Limit: tiers.Limit(TierSmall)}
+	}
+	reason := "admission's last tier"
+	if last.Reason != "" {
+		reason += ": " + last.Reason
+	}
+	return TierResult{Tier: last.Tier, Reason: reason, Rates: last.Rates, Limit: tiers.Limit(last.Tier)}
+}
+
+// SessionWindow is the use of the agent's five-hour window, in percent, as
+// the latest admission the account state keeps measured it, and whether it
+// is known: an admission no older than maxAge whose window has not reset
+// since. It reads no quota.
+func (g *Gate) SessionWindow(ctx context.Context, agent string, maxAge time.Duration) (float64, bool, error) {
+	if g.Store == nil {
+		return 0, false, errors.New("paid runs: the gate needs a store")
+	}
+	var view State
+	if err := g.Store.View(ctx, func(st State) error { view = st; return nil }); err != nil {
+		return 0, false, err
+	}
+	now := g.now()
+	var at time.Time
+	used, known := 0.0, false
+	for _, r := range view.Reservations {
+		if r.Agent != agent || now.Sub(r.Created) > maxAge || r.Created.After(now) || !r.Created.After(at) {
+			continue
+		}
+		for _, w := range r.Estimate.Windows {
+			if w.Key.Kind == "session" && w.Key.Family == "" && w.Key.Reset.After(now) {
+				// Used is the read's percent over 100: round off the float error.
+				at, used, known = r.Created, math.Round(w.Used*1e4)/1e2, true
+			}
+		}
+	}
+	return used, known, nil
 }
 
 // Read reads the free quota of the worker or peer that in describes through
