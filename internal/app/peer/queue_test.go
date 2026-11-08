@@ -39,7 +39,7 @@ func (r *rig) queue() []QueueItem {
 // openAndSend is the screen sequence of one queued item: two ready samples
 // for the open, then a clean send of the rig's task.
 func openAndSend() []string {
-	return append([]string{codexIdle(""), codexIdle("")}, sendOK("task.md")...)
+	return []string{codexIdle(""), codexIdle(""), codexIdle(""), codexIdle(""), codexIdle(lineNext("task.md")), working()}
 }
 
 func TestQueueAddChecksCwdAndTask(t *testing.T) {
@@ -357,7 +357,7 @@ func TestQueueRunWaitsForAfterPeer(t *testing.T) {
 	if _, err := r.reg.Update(busy.ID, func(x *session.Entry) { x.Closed = true }); err != nil {
 		t.Fatal(err)
 	}
-	r.panes(withScreens(claudeIdle(""), claudeIdle(""), claudeIdle(""), claudeIdle(""), claudeIdle(line("task.md")), working()))
+	r.panes(withScreens(claudeIdle(""), claudeIdle(""), claudeIdle(""), claudeIdle(""), claudeIdle(lineNext("task.md")), working()))
 	if err := RunQueue(r.ctx); err != nil {
 		t.Fatal(err)
 	}

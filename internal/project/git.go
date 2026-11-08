@@ -5,20 +5,25 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/journal"
 )
 
 // Git runs git with args and returns its standard output. env is the whole
-// environment of the process when it is not nil, and the caller's own when it
-// is nil. Standard input is not set. When git fails, the error is an
-// *exec.ExitError whose Stderr holds the start of git's error output.
+// environment of the process when it is not nil. When it is nil, git gets the
+// caller's own without the Git variables (CleanGitEnv), so that git -C answers
+// for the folder it is given and not for the repository of a Git hook that
+// started the caller. Standard input is not set. When git fails, the error is
+// an *exec.ExitError whose Stderr holds the start of git's error output.
 func Git(ctx context.Context, env []string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
-	if env != nil {
-		cmd.Env = env
+	if env == nil {
+		env = configfile.CleanGitEnv(os.Environ())
 	}
+	cmd.Env = env
 	return cmd.Output()
 }
 

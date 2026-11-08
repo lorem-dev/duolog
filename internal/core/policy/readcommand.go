@@ -7,7 +7,6 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"github.com/lorem-dev/duolog/internal/core/pathutil"
 )
 
 // The options listed here only change what is printed. Anything else, in a
@@ -364,38 +363,6 @@ func readTargetDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action, 
 // ExecOutside, which keeps the quotes, finds the path too.
 func readAskStands(a Action, asked *Decision, uncertain bool) bool {
 	return asked != nil && (!uncertain || PersonOnly(*asked) && ExecOutside(a))
-}
-
-// gitTargets lists what a Git read names. A word may be a revision instead of a
-// path, which read rules allow, and rev:path reads that path from the history.
-// git diff and git log with no path still show tracked denied files: like plain
-// rg, that is a search the gate cannot see into.
-func gitTargets(args []string) ([]string, string) {
-	if len(args) == 0 {
-		return nil, ""
-	}
-	var targets []string
-	literal := false
-	for i := 1; i < len(args); i++ {
-		word := args[i]
-		switch {
-		case literal:
-			targets = append(targets, word)
-		case word == "--":
-			literal = true
-		case gitPatternOption(word):
-			// The next word is a pattern, not a path. A bare --pretty takes
-			// none, and --format and --pretty take theirs only after =.
-			i++
-		case strings.HasPrefix(word, "-"):
-		default:
-			if _, path, found := strings.Cut(word, ":"); found && !pathutil.IsAbs(word) {
-				word = path
-			}
-			targets = append(targets, word)
-		}
-	}
-	return checkTargets(targets)
 }
 
 // gitPatternOption reports whether a Git read option takes the next word as a

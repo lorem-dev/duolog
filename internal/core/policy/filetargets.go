@@ -397,10 +397,14 @@ func attachedValues(program string, args []string) []string {
 
 // attachedValue returns the text after the option letters of a single-dash
 // word, after an optional @, when it looks like a path: it starts with /, ~,
-// . or a Windows drive, or it holds a / or a \ anywhere.
+// . or a Windows drive, or it holds a / or a \ anywhere. Of git's -L with a
+// plain range it is the file (gitRangeFile).
 func attachedValue(program, word string) string {
 	if !strings.HasPrefix(word, "-") || strings.HasPrefix(word, "--") {
 		return ""
+	}
+	if file := gitRangeFile(program, word); file != "" {
+		return file
 	}
 	end := 1
 	for end < len(word) && isOptionLetter(word[end]) {

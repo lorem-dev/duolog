@@ -184,8 +184,8 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 		}
 	}
 
-	if report {
-		return decision(Allow, "the peer's own report file", RuleReport)
+	if reason, rule := peerAllow(a, report); rule != "" {
+		return decision(Allow, reason, rule)
 	}
 	if a.Kind == "internal" || a.Kind == "answer" {
 		return decision(Allow, "returns the worker answer", "answer tool")
@@ -886,9 +886,9 @@ func readCommandDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action,
 	if shell == "powershell" {
 		shell = "windows"
 	}
-	var asked *Decision
-	if unquotedRgGlob(a.Target, a.Shell) {
-		asked = &Decision{Kind: Ask, Reason: "a shell glob in an rg option can expand onto denied files; quote the glob", Rule: "read command", Mode: m}
+	asked, denied := readGlobAsk(p, lead, a, m, parts)
+	if denied {
+		return *asked, true
 	}
 	for _, part := range parts {
 		if !readOnlyCommand(part) {

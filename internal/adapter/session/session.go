@@ -421,6 +421,14 @@ func observeField[T any](current *T, observedAt *time.Time, value *T, started ti
 	}
 }
 
+// LeadRegisteredAt returns when the registry first saw the lead's process, the
+// start of the hook that registered it, or the zero time when it does not know.
+func (r *Registry) LeadRegisteredAt(id string) (time.Time, error) {
+	var at time.Time
+	err := r.access(false, func(s *state) error { at = s.Observations[id].PID; return nil })
+	return at, err
+}
+
 func (r *Registry) Lead(id string) (Lead, bool, error) {
 	var l Lead
 	var ok bool

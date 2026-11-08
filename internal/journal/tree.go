@@ -9,18 +9,24 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 )
 
 // GitCommand runs git in dir with line-ending conversion off, so that trees
 // hash the bytes on disk and patches apply byte for byte whatever the
-// person's core.autocrlf (true on Windows by default).
+// person's core.autocrlf (true on Windows by default). It answers for the
+// folder dir, not for a repository that the caller's Git variables name.
 func GitCommand(ctx context.Context, dir string, args ...string) *exec.Cmd {
-	return exec.CommandContext(ctx, "git", append([]string{"-C", dir, "-c", "core.autocrlf=false"}, args...)...)
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir, "-c", "core.autocrlf=false"}, args...)...)
+	cmd.Env = configfile.CleanGitEnv(os.Environ())
+	return cmd
 }
 
+// git runs git for the folder root; env adds the variables of this call.
 func git(root string, env []string, stdin []byte, args ...string) ([]byte, error) {
 	cmd := GitCommand(context.Background(), root, args...)
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = append(cmd.Env, env...)
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}

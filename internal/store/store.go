@@ -58,12 +58,13 @@ func Open(root string) (*Store, error) {
 // delegation returns, so a week leaves room for a resumed session.
 const KeepFor = 7 * 24 * time.Hour
 
-// Prune removes what duolog no longer reads: task folders and artifacts that
-// nothing changed for KeepFor. The hooks call it when a lead session starts, so
-// the folder stays small without anyone running a command. Errors are ignored:
-// a file that cannot go now goes at a later start.
+// Prune removes what duolog no longer reads: task folders, artifacts and the
+// restart markers of lead sessions that nothing changed for KeepFor. The hooks
+// call it when a lead session starts, so the folder stays small without anyone
+// running a command. Errors are ignored: a file that cannot go now goes at a
+// later start.
 func Prune(dir string, now time.Time) {
-	for _, sub := range []string{"tasks", "artifacts"} {
+	for _, sub := range []string{"tasks", "artifacts", "restart"} {
 		parent := filepath.Join(dir, sub)
 		entries, err := os.ReadDir(parent)
 		if err != nil {

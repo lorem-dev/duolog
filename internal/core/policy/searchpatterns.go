@@ -3,6 +3,9 @@ package policy
 import (
 	"slices"
 	"strings"
+
+	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/core/mode"
 )
 
 // searchSyntax describes the options of a search program, so that the word
@@ -259,6 +262,116 @@ func expandsWords(words []string, program string, patterns map[int]bool) bool {
 			continue
 		}
 		if skip, next := skipsPatternValue(program, strings.Trim(words[i-1], `'"`)); i <= last || skip && next || !plainStart(words[i]) {
+			return true
+		}
+	}
+	return false
+}
+
+// shellGlobInRead reports whether a POSIX line holds a command, other than
+// find, with an argument that has a *, ? or [ outside quotes. The shell
+// expands such a word before the program runs, so a glob where a command
+// takes its pattern can become several words, and every word after the first
+// is a file that the program reads: grep /x/pa* f reads /x/passwd- when
+// /x/passwd comes first. A glob that names a path reaches the same reading
+// through the read rules. find cannot read this way, since it refuses a path
+// after its expression.
+func shellGlobInRead(a Action) bool {
+	return a.Shell != "powershell" && a.Shell != "windows" && slices.ContainsFunc(rawExecParts(a.Target), func(part string) bool {
+		words, _ := shellWords(commandAfterKeywords(part))
+		return len(words) > 1 && programName(words[0].text) != "find" && slices.ContainsFunc(words[1:], shellWord.hasGlob)
+	})
+}
+
+// readGlobWords returns the words of a POSIX line's read commands that hold a
+// *, ? or [ outside quotes, wherever the command takes them. The shell expands
+// such a word before the program runs, so even a glob where the program takes
+// a pattern can become files, and each word gets the decision of a glob in a
+// path: grep .e* f reads .env when .editorconfig comes first. find is left out
+// for the reason shellGlobInRead gives, and outside Git a word that starts with
+// - because it is an option's own value, as --include=*.go is. On Git such a
+// word counts (gitOptionGlob). The command is judged by its words as the shell
+// passes them on, so 'grep' is grep.
+func readGlobWords(a Action) []string {
+	var globs []string
+	for _, words := range readCommandWords(a) {
+		git := programName(words[0].text) == "git"
+		for _, word := range words[1:] {
+			if word.hasGlob() && (git || !strings.HasPrefix(word.text, "-")) {
+				globs = append(globs, word.text)
+			}
+		}
+	}
+	return globs
+}
+
+// readCommandWords returns the words of each read command of a POSIX line that
+// has an argument, as the shell passes them on, find left out.
+func readCommandWords(a Action) [][]shellWord {
+	if a.Shell == "powershell" || a.Shell == "windows" {
+		return nil
+	}
+	var commands [][]shellWord
+	for _, part := range rawExecParts(a.Target) {
+		words, _ := shellWords(commandAfterKeywords(part))
+		if len(words) > 1 && programName(words[0].text) != "find" && readOnlyCommand(wordsLine(words)) {
+			commands = append(commands, words)
+		}
+	}
+	return commands
+}
+
+// wordsLine writes parsed words as one line of a part, each word whole.
+func wordsLine(words []shellWord) string {
+	texts := make([]string, len(words))
+	for i, word := range words {
+		texts[i] = strings.ReplaceAll(word.text, " ", quotedSpace)
+	}
+	return strings.Join(texts, " ")
+}
+
+// unmatchedDenied reports whether on_unmatched denies a part of the line, one
+// that no rule takes: an ask must not stand in for that deny.
+func unmatchedDenied(p config.Policy, a Action, parts []string) bool {
+	return p.OnUnmatched == Deny && slices.ContainsFunc(parts, func(part string) bool {
+		partAction := a
+		partAction.Target = part
+		_, ruled := firstRule(p, a, partAction)
+		return !ruled
+	})
+}
+
+// readGlobAsk is the decision that the globs of a's read commands give the
+// line, nil for none, and denied is true when it is a deny: a pathspec glob
+// aimed at a denied name, or an unquoted glob that can name duolog state, is
+// denied wherever it stands, and an option-shaped glob on Git where only sure
+// reads may run. Any other unquoted glob asks, unless on_unmatched denies the
+// line.
+func readGlobAsk(p config.Policy, lead LeadRules, a Action, m mode.Mode, parts []string) (asked *Decision, denied bool) {
+	if unquotedRgGlob(a.Target, a.Shell) {
+		asked = reasonAsk(a, m, "a shell glob in an rg option can expand onto denied files; quote the glob")
+	}
+	if gitGlobDenied(p, lead, a, parts) {
+		return &Decision{Kind: Deny, Reason: "a Git pathspec glob can match a file that policy denies; name the files", Rule: "read command", Mode: m}, true
+	}
+	if d := gitOptionGlobDeny(p, lead, a, m); d != nil {
+		return d, true
+	}
+	for _, glob := range readGlobWords(a) {
+		if statePattern(workTarget(a, glob)) {
+			return &Decision{Kind: Deny, Reason: "duolog state is not readable by workers", Rule: RuleState, Mode: m}, true
+		}
+		if asked == nil && !unmatchedDenied(p, a, parts) {
+			asked = reasonAsk(a, m, "a shell glob can expand onto files that policy denies; search for a pattern without * ? [ or name the files")
+		}
+	}
+	return asked, false
+}
+
+// hasGlob reports whether a word holds a *, ? or [ outside quotes.
+func (w shellWord) hasGlob() bool {
+	for i := 0; i < len(w.text); i++ {
+		if !w.quoted[i] && strings.IndexByte("*?[", w.text[i]) >= 0 {
 			return true
 		}
 	}

@@ -68,6 +68,9 @@ is live in that worktree, so two independent tasks of one role run side by
 side. It keeps the session limits: with `max_live_sessions` reached it is
 refused as any open is.
 For peers, `max_live_sessions` applies per lead, agent and work root.
+`duolog peer send` refuses a task file that is not under the peer's own work
+root, so a task cannot run in the wrong worktree. A relative path is read from
+the worktree you run the command in.
 
 The first peer creates a separate Rex session for the project, named
 `duolog | <project folder name>`. It stays detached: duolog does not show it
@@ -132,7 +135,12 @@ worktree that is the worktree's own `.duolog`, not the main checkout's. The
 gate allows that write for that peer only, even in plan mode or a read-only
 role; every other path under `.duolog` and every other peer's report stay
 denied. The peer's prompt hook tells it to put its final answer there, short,
-with the result first; the typed task line stays short for an 80-column pane.
+with the result first. The task line `peer send` types also names that exact
+path (`Write the answer to .duolog/tasks/<peer-id>/report.md.`), so a peer
+learns it whatever its agent or role, even if its hook does not run. The line
+wraps onto a second row of an 80-column pane.
+A peer may print its own id with `echo "$DUOLOG_PEER"` or `printenv
+DUOLOG_PEER` without an ask; no other variable and no longer line is covered.
 `peer send` removes the report of the task before, so a report is always the
 current task's. `peer wait` and `peer status` add `report <path>` to their line
 once the file exists, then print the report's first lines, at most 15 lines

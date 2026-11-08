@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 )
 
@@ -97,20 +98,8 @@ func parseWorktrees(list string) []string {
 // cleanGit runs git in dir with the caller's git variables removed.
 func cleanGit(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = cleanGitEnv(os.Environ())
+	cmd.Env = configfile.CleanGitEnv(os.Environ())
 	cmd.Stdin = strings.NewReader("")
 	out, err := cmd.Output()
 	return string(out), err
-}
-
-// cleanGitEnv drops every GIT_ variable, so that git answers for the folder it
-// is given and not for a repository the caller's environment points at.
-func cleanGitEnv(environ []string) []string {
-	clean := make([]string, 0, len(environ))
-	for _, kv := range environ {
-		if !strings.HasPrefix(strings.ToUpper(kv), "GIT_") {
-			clean = append(clean, kv)
-		}
-	}
-	return clean
 }

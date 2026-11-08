@@ -97,7 +97,7 @@ var projectRestrictors = []func(base, layer *yaml.Node, file string) ([]config.C
 func sharedLocal(root string) string {
 	var stderr bytes.Buffer
 	cmd := exec.Command("git", "-C", root, "ls-files", "-z", "--", localFile)
-	cmd.Env = append(cmd.Environ(), "LC_ALL=C")
+	cmd.Env = append(CleanGitEnv(cmd.Environ()), "LC_ALL=C")
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	var exit *exec.ExitError

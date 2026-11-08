@@ -161,8 +161,10 @@ func TestPruneRemovesOldTasksAndArtifacts(t *testing.T) {
 	write("artifacts/oldhash", old)
 	write("artifacts/newhash", now)
 	write("journal/tasks/t-1/d-1/task.md", old)
+	write("restart/lead-old", old)
+	write("restart/lead-new", now)
 	Prune(dir, now)
-	for rel, want := range map[string]bool{"tasks/task-old": false, "tasks/task-new": true, "tasks/task-busy": true, "artifacts/oldhash": false, "artifacts/newhash": true, "journal/tasks/t-1": true} {
+	for rel, want := range map[string]bool{"tasks/task-old": false, "tasks/task-new": true, "tasks/task-busy": true, "artifacts/oldhash": false, "artifacts/newhash": true, "journal/tasks/t-1": true, "restart/lead-old": false, "restart/lead-new": true} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); (err == nil) != want {
 			t.Errorf("%s: kept=%v, want %v", rel, err == nil, want)
 		}

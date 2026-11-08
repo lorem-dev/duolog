@@ -136,6 +136,10 @@ func newRig(t *testing.T, script map[string]peertest.Reply) *rig {
 	t.Setenv("DUOLOG_LEAD", "")
 	r := &rig{t: t, root: t.TempDir()}
 	t.Chdir(r.root)
+	// A test may build its screens before newRig runs, so the id count starts
+	// again when a test ends.
+	idSeq = 0
+	t.Cleanup(func() { idSeq = 0 })
 	var err error
 	if r.cfg, err = configfile.Load(r.root); err != nil {
 		t.Fatal(err)
@@ -192,6 +196,9 @@ func newRig(t *testing.T, script map[string]peertest.Reply) *rig {
 		StartDetached: func([]string, string, string) error {
 			return errors.New("this test starts no detached run")
 		},
+		// Ids run peer-t00001, peer-t00002, ..., so that a test can build the
+		// line typed for a peer, which names the peer's report.
+		NewID: func() string { idSeq++; return testID(idSeq) },
 	}
 	r.useDeps(func(*Deps) {})
 	return r
@@ -407,9 +414,18 @@ func sendOK(task string) []string {
 
 // line is the text sent for a task, named from the pane's folder: the rig's
 // task file sits at the root, so its reference is task.md.
-func line(ref string) string {
-	return "Read " + ref + " and do it. Do not call rex. Reply \"done\"."
+func line(ref string) string { return lineFor(max(idSeq, 1), ref) }
+
+// lineNext is the line for the peer that opens next, after n peers opened.
+func lineNext(ref string) string { return lineFor(idSeq+1, ref) }
+
+func lineFor(n int, ref string) string {
+	return "Read " + ref + " and do it. Do not call rex. Write the answer to " + policy.ReportPath(testID(n)) + ". Reply \"done\"."
 }
+
+var idSeq int
+
+func testID(n int) string { return fmt.Sprintf("peer-t%05d", n) }
 
 func working() string {
 	return "• Working (3s • esc to interrupt)\n" + codexIdle("")
@@ -983,8 +999,8 @@ func TestSendLineForbidsRexUse(t *testing.T) {
 }
 
 // A fresh Claude pane is 80 columns wide. The line names the task file from the
-// pane's folder and stays short, so a usual task path keeps it on one row.
-func TestSendLineFitsEightyColumns(t *testing.T) {
+// pane's folder, not by its full path, and names the peer's report exactly.
+func TestSendLineNamesTheReportAndNotTheRoot(t *testing.T) {
 	r := newRig(t, baseScript())
 	e := r.ready()
 	rel := filepath.Join(".superpowers", "tasks", "task.md")
@@ -1003,8 +1019,7 @@ func TestSendLineFitsEightyColumns(t *testing.T) {
 	}
 	sent := r.named("send")[0]
 	text := sent[len(sent)-1]
-	// 80 columns less the two-column input marker and a two-column margin.
-	if len(text) > 76 || strings.Contains(text, r.root) || !strings.Contains(text, rel) || !strings.Contains(text, "Do not call rex") {
+	if strings.Contains(text, r.root) || !strings.Contains(text, rel) || !strings.Contains(text, "Do not call rex") || !strings.Contains(text, " "+policy.ReportPath(e.ID)+".") {
 		t.Fatalf("%d bytes: %q", len(text), text)
 	}
 	// The registry and the bus keep the full path.
@@ -1652,9 +1667,10 @@ func commandPrompt(command string, no bool) string {
 
 func TestPeerCommandGate(t *testing.T) {
 	for _, tc := range []struct{ command, decision, keys string }{
-		{"CHECK=1 go test ./...", "allow", "enter"},
+		{"go test ./...", "allow", "enter"},
 		{"CHECK=1 git push", "deny", "down,down,enter"},
 		{"unknown-command", "ask", ""},
+		{"CHECK=1 go test ./...", "ask", ""},
 	} {
 		t.Run(tc.decision, func(t *testing.T) {
 			first := commandPrompt(tc.command, false)

@@ -193,7 +193,9 @@ func mainCheckout(root string) string {
 	// Hooks call this on most tool calls, so a stuck git must not hold them.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--git-common-dir").Output()
+	cmd := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--git-common-dir")
+	cmd.Env = CleanGitEnv(os.Environ())
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}

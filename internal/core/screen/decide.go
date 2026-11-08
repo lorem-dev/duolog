@@ -39,18 +39,24 @@ func OperationOutcome(state State, err error) string {
 
 // StuckInput reports an idle input line that still holds the sent task line.
 func StuckInput(s Screen, root, taskPath string) bool {
-	return s.Composer && !s.Working && s.Input != "" && strings.HasPrefix(Squash(strings.Join(s.Rows, "")), Squash(probe(TaskLine(root, taskPath))))
+	return s.Composer && !s.Working && s.Input != "" && strings.HasPrefix(Squash(strings.Join(s.Rows, "")), Squash(probe(TaskLine(root, taskPath, ""))))
 }
 
 // TaskLine is the line typed into the pane. It names the task file from the
 // pane's folder and stays short, so a usual task path keeps it on one row of
-// an 80-column pane.
-func TaskLine(root, path string) string {
+// an 80-column pane. A report path, when given, is named exactly, so that a
+// peer knows where its final answer goes whatever its agent or role and
+// whether or not its prompt hook ran.
+func TaskLine(root, path, report string) string {
 	ref := path
 	if rel, err := filepath.Rel(root, path); err == nil && filepath.IsLocal(rel) {
 		ref = rel
 	}
-	return "Read " + ref + " and do it. Do not call rex. Reply \"done\"."
+	line := "Read " + ref + " and do it. Do not call rex."
+	if report != "" {
+		line += " Write the answer to " + report + "."
+	}
+	return line + " Reply \"done\"."
 }
 
 // probe is the start of a line: enough to tell it from a line that lost its start.

@@ -367,7 +367,7 @@ func TestTelemetryEndToEnd(t *testing.T) {
 		t.Setenv("DUOLOG_LEAD", e2eLead)
 		peerRex(t, claudeIdleScreen())
 		id, _, _ := strings.Cut(peerLine(t, "peer", "open", "plan"), " ")
-		line := "Read task.md and do it. Do not call rex. Reply \"done\"."
+		line := "Read task.md and do it. Do not call rex. Write the answer to " + policy.ReportPath(id) + ". Reply \"done\"."
 		peerRex(t, claudeIdleScreen(), claudeIdleScreen(), claudeHolding(line), claudeAtWork())
 		peerLine(t, "peer", "send", id, filepath.Join(checkout, "task.md"))
 		peerRex(t, claudeAtWork(), claudeIdleScreen(), claudeIdleScreen())

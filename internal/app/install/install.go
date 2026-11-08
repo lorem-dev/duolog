@@ -11,7 +11,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/store"
@@ -115,6 +117,44 @@ type edit struct {
 	// plain is a file duolog wrote, such as a skill file at user scope: it
 	// is replaced with no backup.
 	plain bool
+	// restart marks the MCP server entry and the user skills: a session that
+	// is already running does not load them until it restarts.
+	restart bool
+}
+
+// RestartNote is the line install prints when it added or changed the MCP
+// server entry or the user skills, and the line a lead's hook prints when
+// they are newer than its session.
+const RestartNote = "Restart running Claude Code and Codex sessions to load the duolog MCP server and skills."
+
+// wroteEdit reports whether a file in report.Files was an edit that which
+// picks.
+func wroteEdit(edits []edit, report Report, which func(edit) bool) bool {
+	written := map[string]bool{}
+	for _, f := range report.Files {
+		written[f] = true
+	}
+	return slices.ContainsFunc(edits, func(e edit) bool { return which(e) && written[e.path] })
+}
+
+// restartNeeded reports whether a written file in report.Files was an edit
+// marked restart.
+func restartNeeded(edits []edit, report Report) bool {
+	return wroteEdit(edits, report, func(e edit) bool { return e.restart })
+}
+
+// stampServer records that install wrote the MCP server entry, for the check
+// of a lead started earlier (Deps.NewerThan). The time is the content too, so
+// that the file changes on every write. It cannot fail an install that is
+// already written: without the stamp that lead is only not told.
+func stampServer(home string) {
+	if home == "" {
+		return
+	}
+	path := serverStamp(home)
+	if os.MkdirAll(filepath.Dir(path), 0o700) == nil {
+		_ = os.WriteFile(path, []byte(time.Now().UTC().Format(time.RFC3339Nano)+"\n"), 0o600)
+	}
 }
 
 // Run installs hooks, the skill and, in project scope, a starter config.
@@ -148,7 +188,14 @@ func (d Deps) Run(o Options) (Report, error) {
 			return report, err
 		}
 	}
+	restart := restartNeeded(edits, report)
+	if wroteEdit(edits, report, func(e edit) bool { return e.restart && e.state }) {
+		stampServer(o.Home)
+	}
 	if o.Scope == "user" {
+		if restart {
+			report.Notes = append(report.Notes, RestartNote)
+		}
 		return report, nil
 	}
 	// The skills are at user scope now; take the unchanged copies an earlier
@@ -157,6 +204,9 @@ func (d Deps) Run(o Options) (Report, error) {
 	files, notes, err := d.finishInstall(agents, o)
 	report.Files = append(report.Files, files...)
 	report.Notes = append(report.Notes, notes...)
+	if restart {
+		report.Notes = append(report.Notes, RestartNote)
+	}
 	return report, err
 }
 

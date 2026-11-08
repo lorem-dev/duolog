@@ -96,6 +96,10 @@ type Env struct {
 	// returns a line that says so, or nothing. It never fails the hook. Nil
 	// means no refresh.
 	RefreshSkills func(root string) string
+	// RestartNote returns the line that tells a lead to restart when install
+	// wrote the user skills or the MCP server entry after since, the start of
+	// its process, or nothing. It only stats local files. Nil means no note.
+	RestartNote func(since time.Time) string
 }
 
 // loadConfig loads the config of the project at e.Root, through e.Config
@@ -334,7 +338,7 @@ func SessionStart(ctx context.Context, e Env) Output {
 		var lines []string
 		// The skills are refreshed before the install is checked, so the note
 		// sees them current.
-		for _, line := range []string{telemetryStart(ctx, e), syncStart(e), compactStart(ctx, e), refreshSkills(e, s), installNote(e, s)} {
+		for _, line := range []string{telemetryStart(ctx, e), syncStart(e), compactStart(ctx, e), refreshSkills(e, s), installNote(e, s), restartNote(e, s, true)} {
 			if line != "" {
 				lines = append(lines, line)
 			}
@@ -373,6 +377,63 @@ func installNote(e Env, s *state) (note string) {
 	return e.InstallNote(e.Root)
 }
 
+// realStart reports whether a session start is a start of the agent's process,
+// which loads the skills and the MCP server. A compaction or a clear goes on
+// in the running process.
+func realStart(e Env) bool {
+	var h input
+	return json.Unmarshal(e.Input, &h) == nil && slices.Contains([]string{"", "startup", "resume"}, h.Source)
+}
+
+// restartNote tells a registered lead once to restart when install wrote the
+// user skills or the MCP server entry after its process started. A real start
+// records the time in a marker file under .duolog/restart, and a prompt
+// compares what install wrote with it, then moves the marker so the line comes
+// once per install. A lead with no marker, as one started before markers
+// existed, counts from its registered start, and without one it is told
+// nothing; the marker is written either way. Any failure is no line, so a
+// marker that cannot be written or a file dated in the future cannot repeat it.
+func restartNote(e Env, s *state, start bool) (note string) {
+	if s == nil || e.RestartNote == nil || s.lead.ID == "" {
+		return ""
+	}
+	defer func() {
+		if recover() != nil {
+			note = ""
+		}
+	}()
+	marker := filepath.Join(e.Root, ".duolog", "restart", filepath.Base(s.lead.ID))
+	touch := func() bool {
+		return os.MkdirAll(filepath.Dir(marker), 0o750) == nil && os.WriteFile(marker, nil, 0o600) == nil
+	}
+	if start {
+		if realStart(e) {
+			touch()
+		}
+		return ""
+	}
+	var since time.Time
+	info, err := os.Stat(marker)
+	if err == nil {
+		since = info.ModTime()
+	} else if since, err = s.reg.LeadRegisteredAt(s.lead.ID); err != nil || since.IsZero() {
+		touch()
+		return ""
+	}
+	line := e.RestartNote(since)
+	if line == "" {
+		if info == nil {
+			touch()
+		}
+		return ""
+	}
+	// What is dated after this moment was not written by an install.
+	if !touch() || e.RestartNote(time.Now()) != "" {
+		return ""
+	}
+	return line
+}
+
 // prune lets a lead's session start remove the delegation folders and
 // artifacts that nothing reads any more. A worker never removes state.
 func prune(e Env) {
@@ -388,7 +449,7 @@ func Prompt(ctx context.Context, e Env) Output {
 	countTurn(ctx, e)
 	return deliver(ctx, e, "UserPromptSubmit", e.Agent == "codex", false, startTime(e), func(s *state, _ []byte) string {
 		startQueue(ctx, e, s)
-		return strings.Join(slices.DeleteFunc([]string{loadLine(ctx, e, s, false), peerReportNote(e)}, func(l string) bool { return l == "" }), "\n")
+		return strings.Join(slices.DeleteFunc([]string{loadLine(ctx, e, s, false), peerReportNote(e), restartNote(e, s, false)}, func(l string) bool { return l == "" }), "\n")
 	})
 }
 func PostTool(ctx context.Context, e Env) Output {

@@ -42,6 +42,23 @@
 
 ## Development
 
+### Added
+
+- `install` and a lead's next prompt tell you to restart running sessions when
+  the MCP server or skills are new to them.
+
+### Fixed
+
+- `duolog peer` ignores the caller's Git variables, refuses a task outside the
+  peer's worktree, and judges a pane's command from that worktree.
+- A peer can run `echo "$DUOLOG_PEER"` and `printenv DUOLOG_PEER` to learn its
+  own id without an ask.
+
+### Security
+
+- A search-pattern glob is judged like a path glob; `git log -L` and pathspec
+  magic like their file; a pathspec glob spelling a denied name is denied.
+
 ## 1.6.0
 
 ### Added

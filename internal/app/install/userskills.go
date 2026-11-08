@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/lorem-dev/duolog/plugin"
 )
@@ -299,7 +300,7 @@ func skillWrites(agent, name, dir string) ([]edit, error) {
 		if err != nil {
 			return nil, err
 		}
-		edits = append(edits, edit{path: filepath.Join(dir, filepath.FromSlash(rel)), data: data, plain: true})
+		edits = append(edits, edit{path: filepath.Join(dir, filepath.FromSlash(rel)), data: data, plain: true, restart: true})
 	}
 	return edits, nil
 }
@@ -590,4 +591,39 @@ func dropProjectCopies(agents []Agent, o Options) ([]string, error) {
 // duolog did not write.
 func keptNote(skill string) string {
 	return "left " + skill + ": it has files duolog did not write; duolog keeps its skills at user scope now, so remove this copy when you no longer need it"
+}
+
+// serverStamp is the file that install writes when it writes the MCP server
+// entry. The entry's own file says nothing by its time: the agent rewrites it
+// all the time.
+func serverStamp(home string) string {
+	return filepath.Join(home, ".duolog", "mcp-server-written")
+}
+
+// NewerThan reports whether a user skill file of any agent, or the stamp that
+// install writes with the MCP server entry, was written after since. A lead
+// whose process started before that has not loaded them. The server file is
+// not compared: the agent rewrites it all the time. It stats a few files and
+// fails closed: any error is false.
+func (d Deps) NewerThan(home string, since time.Time) bool {
+	if home == "" {
+		return false
+	}
+	newer := func(path string) bool {
+		info, err := os.Stat(path)
+		return err == nil && info.ModTime().After(since)
+	}
+	if newer(serverStamp(home)) {
+		return true
+	}
+	for _, a := range d.Agents {
+		if dir := userSkillDir(a, home); dir != "" {
+			for _, name := range plugin.Skills {
+				if newer(filepath.Join(dir, name, "SKILL.md")) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

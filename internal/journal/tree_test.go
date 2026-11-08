@@ -1,6 +1,7 @@
 package journal
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +28,32 @@ func write(t *testing.T, dir, name, content string) {
 	}
 	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Git variables of the caller, as a Git hook exports them, do not say which
+// repository a folder is in.
+func TestGitIgnoresGitVariablesOfTheCaller(t *testing.T) {
+	wanted, other := repo(t), repo(t)
+	write(t, other, "b.txt", "other\n")
+	run(t, other, "add", ".")
+	run(t, other, "commit", "-q", "-m", "other")
+	head := strings.TrimSpace(run(t, wanted, "rev-parse", "HEAD"))
+	tree, err := Capture(wanted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_DIR", filepath.Join(other, ".git"))
+	t.Setenv("GIT_WORK_TREE", other)
+	if got, err := Head(wanted); err != nil || got != head {
+		t.Errorf("Head = %q, %v; want %q", got, err, head)
+	}
+	if got, err := Capture(wanted); err != nil || got != tree {
+		t.Errorf("Capture = %q, %v; want %q", got, err, tree)
+	}
+	out, err := GitCommand(context.Background(), wanted, "rev-parse", "HEAD").Output()
+	if got := strings.TrimSpace(string(out)); err != nil || got != head {
+		t.Errorf("GitCommand = %q, %v; want %q", got, err, head)
 	}
 }
 

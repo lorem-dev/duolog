@@ -185,6 +185,13 @@ func HookEnv(env hook.Env) hook.Env {
 		line, _ := InstallDeps().RefreshSkills(root, home)
 		return line
 	}
+	env.RestartNote = func(since time.Time) string {
+		home, err := os.UserHomeDir()
+		if err != nil || !InstallDeps().NewerThan(home, since) {
+			return ""
+		}
+		return install.RestartNote
+	}
 	return env
 }
 

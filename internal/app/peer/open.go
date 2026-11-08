@@ -20,7 +20,13 @@ import (
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
-func newID() string { return "peer-" + strings.ToLower(rand.Text()[:6]) }
+// newID is the ID of a new peer: the dependencies' choice, else a random one.
+func (e *env) newID() string {
+	if e.opts.Deps.NewID != nil {
+		return e.opts.Deps.NewID()
+	}
+	return "peer-" + strings.ToLower(rand.Text()[:6])
+}
 
 // route resolves where role runs for lead, as Open places it. Both agents
 // limited, and a lead in plan mode with a role that writes, refuse the open
@@ -123,7 +129,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	}
 	noted := withNotice(strings.TrimSpace(strings.Join(append(notices, route.Reason), " ")))
 	// The ID goes into the pane's environment, so it is chosen before the pane exists.
-	id := newID()
+	id := e.newID()
 	// So is the run id, the pane's DUOLOG_RUN.
 	run = delegate.NewRunID()
 	// The account gate admits the pane before it exists: one live slot and its

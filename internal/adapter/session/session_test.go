@@ -242,6 +242,26 @@ func TestLeadObservationsOrderEachFieldIndependently(t *testing.T) {
 	}
 }
 
+// A lead's registered start is when its process id was first observed; later
+// observations leave it, and an unknown lead has none.
+func TestLeadRegisteredAt(t *testing.T) {
+	r := registry(t)
+	start := time.Unix(100, 0)
+	pid, low := os.Getpid(), "low"
+	if _, err := r.ObserveLead(LeadObservation{ID: "lead", Agent: "claude", PID: &pid}, start); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.ObserveLead(LeadObservation{ID: "lead", Agent: "claude", Effort: &low}, start.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.LeadRegisteredAt("lead"); err != nil || !got.Equal(start) {
+		t.Fatalf("registered at %v, %v; want %v", got, err, start)
+	}
+	if got, err := r.LeadRegisteredAt("nobody"); err != nil || !got.IsZero() {
+		t.Fatalf("an unknown lead: %v, %v", got, err)
+	}
+}
+
 func TestEqualLeadObservationTimesKeepLowerMode(t *testing.T) {
 	for _, modes := range [][]mode.Mode{{mode.Plan, mode.Full}, {mode.Full, mode.Plan}} {
 		t.Run(fmt.Sprint(modes), func(t *testing.T) {

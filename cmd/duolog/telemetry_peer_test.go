@@ -12,6 +12,7 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/peer"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/core/record"
 	"github.com/lorem-dev/duolog/internal/telemetry"
 	"github.com/lorem-dev/duolog/internal/testbin"
@@ -129,7 +130,7 @@ func TestTelemetryPeerOperations(t *testing.T) {
 		if peers, runs := peerEvents(t, root); len(runs) != 0 || len(peers) != 2 {
 			t.Fatalf("opening is no run: %+v %+v", peers, runs)
 		}
-		line := "Read task.md and do it. Do not call rex. Reply \"done\"."
+		line := "Read task.md and do it. Do not call rex. Write the answer to " + policy.ReportPath(id) + ". Reply \"done\"."
 		peerRex(t, claudeIdleScreen(), claudeIdleScreen(), claudeHolding(line), claudeAtWork())
 		if out := peerLine(t, "peer", "send", id, taskPath); out != id+" sent "+taskPath {
 			t.Fatal(out)
@@ -209,7 +210,7 @@ func TestTelemetryPeerOperations(t *testing.T) {
 			t.Fatal("sent to a busy peer")
 		}
 		// A task that is closed unfinished is a run that was interrupted.
-		line := "Read task.md and do it. Do not call rex. Reply \"done\"."
+		line := "Read task.md and do it. Do not call rex. Write the answer to " + policy.ReportPath(id) + ". Reply \"done\"."
 		peerRex(t, claudeIdleScreen(), claudeIdleScreen(), claudeHolding(line), claudeAtWork())
 		peerLine(t, "peer", "send", id, taskPath)
 		peerLine(t, "peer", "close", id)
@@ -260,7 +261,7 @@ func TestTelemetryPeerOperations(t *testing.T) {
 		if state != "ready" {
 			t.Fatal(opened)
 		}
-		line := "Read task.md and do it. Do not call rex. Reply \"done\"."
+		line := "Read task.md and do it. Do not call rex. Write the answer to " + policy.ReportPath(id) + ". Reply \"done\"."
 		peerRex(t, claudeIdleScreen(), claudeIdleScreen(), claudeHolding(line), claudeAtWork())
 		if out := peerLine(t, "peer", "send", id, taskPath); out != id+" sent "+taskPath {
 			t.Fatal(out)

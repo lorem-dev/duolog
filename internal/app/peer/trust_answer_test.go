@@ -391,7 +391,7 @@ func TestClaudeFolderTrustQuestionIsAnsweredWhenAWarningBlockPushesTheHeadingOff
 func TestTrustWordsInEarlierOutputDoNotBlockTheGateOrARule(t *testing.T) {
 	quote := "• Read trust.go\nAccessing workspace: is what the dialog says\nQuick safety check\n"
 	t.Run("command prompt", func(t *testing.T) {
-		prompt := quote + commandPrompt("CHECK=1 go test ./...", false)
+		prompt := quote + commandPrompt("go test ./...", false)
 		r := newRig(t, withScreens(prompt, prompt, codexIdle(""), codexIdle("")))
 		r.cfg.Policy.Rules = append(r.cfg.Policy.Rules, config.Rule{Action: "exec", Match: "go test *", Decision: "allow", Roles: []string{"implement"}})
 		e := r.open("implement")
@@ -415,7 +415,7 @@ func TestTrustWordsInEarlierOutputDoNotBlockTheGateOrARule(t *testing.T) {
 // question: the gate must not read its command and answer the trust screen,
 // even when the trust screen's first option is the gate's "allow" label.
 func TestStaleCommandPromptAboveATrustScreenSendsNoKeys(t *testing.T) {
-	stale := commandPrompt("CHECK=1 go test ./...", false)
+	stale := commandPrompt("go test ./...", false)
 	trust := "Folder access\n  /tmp/some/folder\n\nTrust this folder?\n\n› 1. Yes, proceed\n  2. Quit\n"
 	screen := stale + "\n• Ran go test\n  ok\n\n" + trust
 	r := newRig(t, withScreens(screen, screen))

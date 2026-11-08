@@ -307,7 +307,7 @@ func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Ent
 				}
 				break
 			}
-			if corescreen.StuckInput(screen, e.root, entry.Task) {
+			if corescreen.StuckInput(screen, e.peerRoot(entry), entry.Task) {
 				if stuck++; stuck >= 2 {
 					return Entry{ID: entry.ID, State: Ready, Note: ErrStuck.Error()}, fmt.Errorf("peer %s: %w", entry.ID, ErrStuck)
 				}
@@ -428,7 +428,7 @@ func (e *env) changedFiles(entry session.Entry) (int, bool) {
 	if entry.Base == nil {
 		return 0, false
 	}
-	now, err := delegate.Snapshot(e.root)
+	now, err := delegate.Snapshot(e.peerRoot(entry))
 	if err != nil || now == nil {
 		return 0, false
 	}

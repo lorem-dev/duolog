@@ -123,7 +123,11 @@ func excerpt(text string) string {
 // of the task before is gone.
 func (e *env) freshTaskLine(entry session.Entry, path string) string {
 	e.dropReport(entry)
-	return corescreen.TaskLine(e.root, path)
+	report := ""
+	if policy.ReportTarget(entry.ID, policy.ReportPath(entry.ID)) {
+		report = policy.ReportPath(entry.ID)
+	}
+	return corescreen.TaskLine(e.peerRoot(entry), path, report)
 }
 
 // dropReport removes the report an earlier task left, so that a report found

@@ -16,6 +16,11 @@ needed, then open a terminal in your project and run:
 duolog install --scope project
 ```
 
+When install adds or changes the duolog MCP server or the user skills, restart
+Claude Code and Codex sessions that are already running, as they load both only
+at start; install prints a line to say so, and a lead started earlier is told
+once at its next prompt.
+
 The Linux binaries are static, so they need no libc of a given version. CI
 runs the amd64 binary on Alpine 3.10 and 3.20, Ubuntu 14.04 and 16.04,
 Debian 9 and CentOS 7, and the arm64 binary on Alpine 3.20 and Ubuntu 16.04.

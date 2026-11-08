@@ -308,7 +308,11 @@ A wildcard rule for read commands grants reads only, for every role. `find`
 and `rg` pass with known read options, so `find . -delete` or an unknown `rg`
 option does not. Paths named by a read command follow the read rules, so
 `cat .env` is denied and `cat /outside/notes.txt` asks. A shell glob in a
-path asks because it can expand onto denied files. Recursive `grep` and `rg`
+path asks because it can expand onto denied files. So does an unquoted glob
+where a read command takes a pattern, because the shell can turn it into a
+pattern and files to read: `grep .e* f` reads `.env` when `.editorconfig` comes
+first, so it asks as `cat .e*` does, and `grep .duolog/* f` is denied as
+`cat .duolog/*` is. Recursive `grep` and `rg`
 with `--hidden`, `-u` or `--no-ignore` ask unless their roots reach duolog
 state. The state checks below deny those recursive commands. Plain `rg` can
 still search a denied file that is neither hidden nor git-ignored. Claude's
@@ -316,6 +320,15 @@ still search a denied file that is neither hidden nor git-ignored. Claude's
 `.env` that is not git-ignored. Keep such files out of the tree or ignore
 them. `git diff` and `git log` with
 no path can also show a denied file that Git tracks, so do not commit one.
+A file named by `git log -L1,1:.env` or by pathspec magic such as `':(top).env'`
+gets the decision of the plain path. A pathspec glob that spells a denied name
+is denied even when quoted, as Git expands it: `git log -p -- '.en?'`,
+`'sec*/x'` or `'a.p*'`. Spelling takes literal text of the name: three
+characters, or the dot and a letter of an extension such as `.pem`. Any other
+glob asks, as `'src/*'`, `'se*/a.go'` and `'a.*'` do, unless it can name
+`.duolog`, which the state rule denies. The lead's answer decides those.
+An unquoted glob in an option of a Git read, such as `git log -*`, asks too,
+and is denied in plan mode and for a read-only role.
 
 A `--glob` option of `rg`, or the glob of the `Grep` tool, asks when it
 matches the name of a read deny, such as `.env`. The check is not complete:
@@ -397,6 +410,9 @@ the person. Quotes elsewhere in a word do not change this: in
 other glob, with each bracket
 expression such as `[!x]` or `[[:alpha:]]` matching any one character, so a
 match through a symlink that leads out needs the person too.
+This also holds for a glob where a search takes its pattern, because the shell
+can expand it into a pattern and files to read: `grep /x/pa* f` and
+`git log -G /x/pa* x` need the person, and `grep '/x/pa*' f` stays a pattern.
 The expansion of one command line may look at 10,000 names and take half a
 second. A glob that needs more, as one through a symlink loop can, needs the
 person.

@@ -89,6 +89,39 @@ func gitRepo(t *testing.T, root string, args ...[]string) {
 	}
 }
 
+// A local layer is the person's own only by what the repository of its folder
+// tracks. A caller's GIT_DIR must not make a tracked layer look untracked,
+// which would let it turn spending on, or the other way round.
+func TestSharedLocalIgnoresGitVariablesOfTheCaller(t *testing.T) {
+	track := []string{"add", "-f", localFile}
+	repo := func(tracked bool) string {
+		root := filepath.Join(t.TempDir(), "repo")
+		writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), "limits: {}\n")
+		if tracked {
+			gitRepo(t, root, track)
+		} else {
+			gitRepo(t, root)
+		}
+		return root
+	}
+	for _, tc := range []struct {
+		name    string
+		tracked bool
+		want    string
+	}{
+		{"a tracked layer stays shared", true, trackedLocal},
+		{"an untracked layer stays the person's", false, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, other := repo(tc.tracked), repo(!tc.tracked)
+			t.Setenv("GIT_DIR", filepath.Join(other, ".git"))
+			if got := sharedLocal(root); got != tc.want {
+				t.Fatalf("sharedLocal = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestLocalConfigOutsideGitIsShared is re-review finding N3: outside a Git
 // checkout, as in a downloaded archive, nothing proves that a
 // .duolog/config.local.yaml is the person's own, so it may only tighten. Its

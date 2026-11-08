@@ -49,7 +49,7 @@ func mcpSentPeer(t *testing.T) (root, id string) {
 	t.Helper()
 	root, _ = peerProject(t, sequence(claudeIdleScreen()))
 	id = mustMCPPeer(t, mcp.PeerInput{Action: "open", Role: "plan"}).ID
-	line := "Read .duolog/tasks/" + id + "/task.md and do it. Do not call rex. Reply \"done\"."
+	line := "Read .duolog/tasks/" + id + "/task.md and do it. Do not call rex. Write the answer to " + policy.ReportPath(id) + ". Reply \"done\"."
 	peerRex(t, claudeIdleScreen(), claudeIdleScreen(), claudeHolding(line), claudeAtWork())
 	mustMCPPeer(t, mcp.PeerInput{Action: "send", ID: id, Task: mcpTaskFixture(t, root)})
 	return root, id
@@ -67,7 +67,7 @@ func TestMCPPeerSendWritesTaskFile(t *testing.T) {
 	root, _ := peerProject(t, sequence(claudeIdleScreen()))
 	id := mustMCPPeer(t, mcp.PeerInput{Action: "open", Role: "plan"}).ID
 	rel := ".duolog/tasks/" + id + "/task.md"
-	line := "Read " + rel + " and do it. Do not call rex. Reply \"done\"."
+	line := "Read " + rel + " and do it. Do not call rex. Write the answer to " + policy.ReportPath(id) + ". Reply \"done\"."
 	peerRex(t, claudeIdleScreen(), claudeIdleScreen(), claudeHolding(line), claudeAtWork())
 	rex, err := exec.LookPath("rex")
 	if err != nil {

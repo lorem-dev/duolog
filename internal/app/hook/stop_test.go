@@ -167,6 +167,11 @@ func TestPeerStopPeerIdleStaysQuiet(t *testing.T) {
 // The lead's next prompt hook posts peer-exit once for a peer that exited or
 // is gone, and not for a live one or a closed one.
 func TestLeadHookPostsPeerExitOnce(t *testing.T) {
+	// One hook run shares one store.NoticeWait among all the peers it tells. On
+	// a slow runner the default 300ms ran out after the first peer, and the
+	// second one was told by the next hook, as designed. The test checks both
+	// lines in one run, so it gives the run time that only a stall would use.
+	noticeWait(t, time.Minute)
 	e, r, _ := setup(t, "claude")
 	SessionStart(context.Background(), e)
 	l := lead(t, r, e)

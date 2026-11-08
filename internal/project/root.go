@@ -8,12 +8,17 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 )
 
 func gitRoot(cwd, flag string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", flag)
+	// The folder says which checkout this is, not GIT_DIR or GIT_WORK_TREE
+	// from the caller, as a Git hook exports them.
+	cmd.Env = configfile.CleanGitEnv(os.Environ())
 	cmd.Stdin = strings.NewReader("")
 	data, err := cmd.Output()
 	if err != nil {

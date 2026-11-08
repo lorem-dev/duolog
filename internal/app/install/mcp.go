@@ -68,7 +68,7 @@ func planMCP(p *agentPlan, a Agent, o Options, base string) error {
 		if note != "" {
 			p.notes = append(p.notes, path+": "+note)
 		}
-		p.mcp = []edit{{path: path, data: data, state: true}}
+		p.mcp = []edit{{path: path, data: data, state: true, restart: true}}
 	}
 	// Without a hook edit the file is missing: Run writes one for the plugin
 	// whenever the file is there.

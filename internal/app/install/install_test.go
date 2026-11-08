@@ -92,12 +92,12 @@ func run(t *testing.T, o Options) Report {
 func TestProjectScopeWritesProjectFilesOnly(t *testing.T) {
 	home, root := setup(t)
 	run(t, Options{Scope: "project", Agent: "both", Home: home, Root: root})
-	// The MCP server entry and the skills are the files at user scope:
-	// Claude lists servers there, and the skills serve every project.
+	// The MCP server entry, its stamp and the skills are the files at user
+	// scope: Claude lists servers there, and the skills serve every project.
 	for path := range snapshot(t, home) {
 		rel, _ := filepath.Rel(home, path)
 		rel = filepath.ToSlash(rel)
-		if rel != ".claude.json" && !strings.HasPrefix(rel, ".claude/skills/duolog") && !strings.HasPrefix(rel, ".agents/skills/duolog") {
+		if rel != ".claude.json" && rel != ".duolog/mcp-server-written" && !strings.HasPrefix(rel, ".claude/skills/duolog") && !strings.HasPrefix(rel, ".agents/skills/duolog") {
 			t.Errorf("home changed: %s", rel)
 		}
 	}

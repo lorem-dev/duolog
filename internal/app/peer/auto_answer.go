@@ -105,8 +105,18 @@ func (e *env) commandChoice(entry session.Entry, screen Screen, facts agent.Pane
 	if role, ok := e.cfg.Roles[entry.Role]; ok {
 		rules.RoleSandbox = role.Sandbox
 	}
-	action := policy.Action{Kind: "exec", Target: stripAssignments(command), Role: entry.Role, Work: e.root, Cwd: e.root}
-	decision := policy.Evaluate(e.cfg.Policy, rules, mode.Lower(lead.mode, entry.Mode), action)
+	root := e.peerRoot(entry)
+	action := policy.Action{Kind: "exec", Target: command, Role: entry.Role, Work: root, Cwd: root}
+	level := mode.Lower(lead.mode, entry.Mode)
+	decision := policy.Evaluate(e.cfg.Policy, rules, level, action)
+	// The line is judged as the pane shows it, since an assignment can point
+	// it at another repository. An assignment cannot excuse what the command
+	// after it is denied for.
+	plain := action
+	plain.Target = stripAssignments(command)
+	if d := policy.Evaluate(e.cfg.Policy, rules, level, plain); d.Kind == policy.Deny {
+		action, decision = plain, d
+	}
 	chosen := answerChoice{action: action, decision: decision}
 	switch decision.Kind {
 	case policy.Allow:

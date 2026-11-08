@@ -168,4 +168,7 @@ type Deps struct {
 	// does not wait for, its output appended to logPath, as
 	// kit.StartDetached does.
 	StartDetached func(argv []string, dir, logPath string) error
+	// NewID chooses the ID of a new peer. Nil gives a random one; a test sets
+	// it to know the ID before the peer opens.
+	NewID func() string
 }

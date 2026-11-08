@@ -1,8 +1,10 @@
 package config
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -33,6 +35,48 @@ func TestMainCheckoutIsEmptyInTheMainCheckout(t *testing.T) {
 	}
 	if got := mainCheckout(work); got == "" {
 		t.Error("mainCheckout(worktree) found nothing")
+	}
+}
+
+// Git variables of the caller, as a Git hook exports them, do not say which
+// repository a folder is in.
+func TestMainCheckoutIgnoresGitVariablesOfTheCaller(t *testing.T) {
+	main, work := linkedWorktree(t)
+	other, _ := linkedWorktree(t)
+	t.Setenv("GIT_DIR", filepath.Join(other, ".git"))
+	got := mainCheckout(work)
+	a, errA := os.Stat(got)
+	b, errB := os.Stat(main)
+	if errA != nil || errB != nil || !os.SameFile(a, b) {
+		t.Fatalf("mainCheckout(worktree) = %q, want %q", got, main)
+	}
+}
+
+// CleanGitEnv takes out every Git variable that names a repository.
+func TestCleanGitEnvDropsGitVariablesButTheCeiling(t *testing.T) {
+	got := CleanGitEnv([]string{"PATH=/bin", "GIT_DIR=/x", "git_work_tree=/y", "HOME=/h", "GIT_CEILING_DIRECTORIES=/"})
+	if want := []string{"PATH=/bin", "HOME=/h", "GIT_CEILING_DIRECTORIES=/"}; !slices.Equal(got, want) {
+		t.Fatalf("%q, want %q", got, want)
+	}
+}
+
+// The ceiling is the person's limit on how far up Git looks, so it stays.
+func TestMainCheckoutKeepsTheCeiling(t *testing.T) {
+	main, _ := linkedWorktree(t)
+	sub := filepath.Join(main, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if mainCheckout(sub) == "" {
+		t.Fatal("a folder of the main checkout found nothing without a ceiling")
+	}
+	real, err := filepath.EvalSymlinks(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CEILING_DIRECTORIES", real)
+	if got := mainCheckout(sub); got != "" {
+		t.Fatalf("mainCheckout past the ceiling = %q", got)
 	}
 }
 

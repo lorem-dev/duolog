@@ -94,13 +94,15 @@ func firstRule(p config.Policy, a, partAction Action) (config.Rule, bool) {
 // command only through a wildcard while the command names a path outside the
 // work root. Such a rule names programs, not paths, so the person decides.
 // A read command that a read-command rule allows is left out: its paths
-// passed the read rules, and its patterns are not paths. ExecOutside runs
-// once, for the first such rule.
+// passed the read rules, and its patterns are not paths. A line with a glob
+// that the shell expands is not left out (shellGlobInRead), since a pattern
+// with a glob can become files. ExecOutside runs once, for the first such
+// rule.
 func wildcardAllowsOutside(a Action) func(rule config.Rule, part string) bool {
 	known, outside := false, false
 	return func(rule config.Rule, part string) bool {
 		if a.Kind != "exec" || rule.Decision != Allow || !strings.Contains(rule.Match, "*") ||
-			readOnlyRule(rule.Match) && readOnlyCommand(part) {
+			readOnlyRule(rule.Match) && readOnlyCommand(part) && !shellGlobInRead(a) {
 			return false
 		}
 		if !known {

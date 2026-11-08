@@ -13,6 +13,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/core/agent"
+	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
 	"github.com/lorem-dev/duolog/internal/core/taskspec"
 )
@@ -29,6 +30,34 @@ func taskFile(root, ref string) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+// peerRoot is the checkout the peer works in. A peer recorded before work
+// roots has none, and counts as working in the caller's.
+func (e *env) peerRoot(entry session.Entry) string {
+	if entry.WorkRoot != "" {
+		return entry.WorkRoot
+	}
+	return e.root
+}
+
+// peerTaskFile is taskFile for the peer's own checkout. A relative ref is read
+// from the caller's checkout, as the lead wrote it; the file must then lie
+// under the peer's work root, or the peer would run it in the wrong checkout.
+// Only the folders are resolved here: a link as the file itself stays for
+// taskFile to refuse.
+func (e *env) peerTaskFile(entry session.Entry, ref string) (string, error) {
+	work := e.peerRoot(entry)
+	abs := pathutil.Native(ref)
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(e.root, abs)
+	}
+	real := filepath.Join(pathutil.Resolved(filepath.Dir(abs)), filepath.Base(abs))
+	rel, err := filepath.Rel(pathutil.Resolved(work), real)
+	if err != nil || !filepath.IsLocal(rel) {
+		return "", fmt.Errorf("task %s is not under the work root %s of peer %s, so nothing was sent; put the task there, or open a peer for this checkout with duolog peer open %s", abs, work, entry.ID, entry.Role)
+	}
+	return taskFile(work, rel)
 }
 
 // Send passes one line, a reference to the task file, to a ready session.
@@ -50,7 +79,7 @@ func Send(ctx context.Context, id, taskRef string) (err error) {
 			return errors.New("slash commands are never sent to a peer: /model and /effort change the user's settings")
 		}
 	}
-	path, err := taskFile(e.root, ref)
+	path, err := e.peerTaskFile(entry, ref)
 	if err != nil {
 		return err
 	}
@@ -68,7 +97,7 @@ func Send(ctx context.Context, id, taskRef string) (err error) {
 	if _, err := e.taskEnded(ctx, entry); err != nil {
 		return err
 	}
-	before, err := delegate.Snapshot(e.root)
+	before, err := delegate.Snapshot(e.peerRoot(entry))
 	if err != nil {
 		return err
 	}

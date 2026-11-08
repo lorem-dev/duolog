@@ -81,7 +81,7 @@ func TestQueueRunStartsWhenAfterPeerIsIdle(t *testing.T) {
 	idle := r.ready()
 	r.task()
 	r.queued("plan", r.root, idle.ID)
-	r.panes(withScreens(codexIdle(""), claudeIdle(""), claudeIdle(""), claudeIdle(""), claudeIdle(""), claudeIdle(line("task.md")), working()))
+	r.panes(withScreens(codexIdle(""), claudeIdle(""), claudeIdle(""), claudeIdle(""), claudeIdle(""), claudeIdle(lineNext("task.md")), working()))
 	if err := RunQueue(r.ctx); err != nil {
 		t.Fatal(err)
 	}
