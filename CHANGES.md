@@ -42,6 +42,8 @@
 
 ## Development
 
+## 1.5.2
+
 ### Added
 
 - `install` keeps one marked block in the instruction files, with a usage line

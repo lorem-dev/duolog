@@ -54,11 +54,11 @@ the newest release.
 To pin a different version on macOS/Linux, or on Windows:
 
 ```sh
-curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.5.1
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.5.2
 ```
 
 ```powershell
-$env:DUOLOG_VERSION = 'v1.5.1'
+$env:DUOLOG_VERSION = 'v1.5.2'
 irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
 ```
 
