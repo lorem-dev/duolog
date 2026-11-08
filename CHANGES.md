@@ -46,13 +46,10 @@
 
 - `install` keeps one marked block in the instruction files, with a usage line
   for agents, and replaces it on each run; `doctor` and `--check` report it.
-- `install` gives the Claude lead the compact window of your plan in
-  `.claude/settings.local.json`, and keeps a value you set yourself.
+- Codex trusts the lead's own linked worktrees and duolog's hooks there by
+  itself, when their `.codex/` matches the root that Codex already trusts.
 
 ### Changed
-
-- `workers.compact_window: auto` gives a plan that is not listed, or not read,
-  the smallest ladder value instead of Claude's default, which can be 1M.
 
 - Claude workers and peers start in `auto`, not `acceptEdits`, under a lead at
   level `full` or a Claude lead in `auto`.
@@ -60,36 +57,32 @@
   `status` print the report's start, or say that the task had none.
 - Claude workers and peers are told to batch their reads into one turn and to
   use no `node -e` or `python -c`, which cuts their turns and cost.
-- The gate reads `$(go env GOROOT)/bin/go` as `go` and skips an inert
-  here-document; `go env -w` and `go env -u` ask the person in every mode.
-- The lead's hooks show each open ask again until it ends, with
-  `duolog allow <n>` and the seconds left before it expires.
+- An unknown plan gets the smallest compact window, not Claude's 1M default,
+  and `install` gives the lead the same window in `.claude/settings.local.json`.
+- The lead's hooks repeat each open ask until it ends; the gate reads
+  `$(go env GOROOT)/bin/go` as `go`, and `go env -w` asks the person.
+- A quota refusal names its window; `doctor` warns about unapproved project
+  MCP servers; `peer open --new` opens a second peer of a role.
 
 ### Fixed
 
 - A lead registered in a submodule's main checkout is found from its linked
   worktrees; `--lead` names the state folder when it finds no live lead.
-- `peer send` no longer refuses an idle Claude peer that shows only a dim
-  suggestion: the capture asks Rex for the vt format, which keeps styles.
+- `peer send` no longer refuses an idle Claude peer with a dim suggestion, and
+  a dead queue run's lock no longer blocks `peer queue`.
 - `peer close` removes the peer's `coauthor-<id>.model` file, and `peer open`
   removes the ones that closed peers of older versions left behind.
-- `go test`, `ls` or `git add` on a path ending in `claude` or `codex` is no
-  longer denied as a start of the agent.
+- Workers are no longer refused or asked for `go test` on a `./x/claude` path, a
+  local `DOCKER_HOST`, `rg` on a `.duolog` attachment, or their own temp files.
 - On Windows a telemetry prune no longer fails when another duolog creates the
   prune stamp at the same moment, and a failed prune now names its cause.
 - A Claude peer in your own project no longer stops at its folder-trust and new
   MCP server prompts; trust and servers follow what you already decided.
-- A worker's write, list or new folder in its own Claude temp folder no longer
-  asks the person, in a line without a substitution, `exec` or `eval`.
-- A path after `cd`, or a write through a dangling symlink, that leaves the
-  work root needs the person again, not the lead.
 
 ### Security
 
-- `..` after a symlink (`cat link/../secret`) is judged where the kernel goes,
-  and a script that `sh` or `bash` runs from outside needs the person.
-- A path in `x=$(cat /x)`, a `grep` behind `xargs`, or a `grep` pattern next to
-  `$P`, `*` or `~` counts as a path; the gate allowed some of them before.
+- A path out of the work root after `cd`, `..` after a symlink, a dangling link,
+  `x=$(cat /x)` or a `grep` next to `$P` or `*` needs the person again.
 
 ## 1.5.1
 
