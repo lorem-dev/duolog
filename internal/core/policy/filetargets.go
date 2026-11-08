@@ -342,7 +342,9 @@ var fileVariables = []string{
 func assignmentTargets(words []string) fileTargets {
 	var t fileTargets
 	for _, word := range words {
-		if !execAssignment.MatchString(word) {
+		// A local Docker socket is an address the client connects to, not a
+		// file the command reads or writes.
+		if !execAssignment.MatchString(word) || localDockerHost(word) {
 			continue
 		}
 		name, value, _ := strings.Cut(word, "=")

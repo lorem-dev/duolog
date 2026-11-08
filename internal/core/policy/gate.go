@@ -651,7 +651,7 @@ func shellParts(command string, reads bool) ([]string, bool) {
 		if strings.HasPrefix(strings.TrimSpace(part), "rg ") {
 			part = unquoteRgGlobs(part)
 		}
-		words := strings.Fields(part)
+		words := dropLocalDockerHost(strings.Fields(part))
 		quoted := false
 		// Only literal words can be matched safely without interpreting a shell.
 		if len(words) == 0 {
@@ -661,7 +661,7 @@ func shellParts(command string, reads bool) ([]string, bool) {
 		if strings.ContainsAny(part, "'\"\\$`<>()") {
 			// A backslash and a newline continue the line: the shell removes both.
 			stripped := strings.NewReplacer("\\\n", "", "'", "", "\"", "", "\\", "").Replace(part)
-			words = strings.Fields(stripped)
+			words = dropLocalDockerHost(strings.Fields(stripped))
 			switch {
 			case literalQuotes(part, false) && len(words) > 0:
 			case reads && literalQuotes(part, true) && readOnlyCommand(strings.Join(quotedWords(part), " ")):

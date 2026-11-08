@@ -304,6 +304,20 @@ lets PowerShell find its modules without a slow search; in one check, each
 cmdlet that loaded a module took 18 to 30 seconds without it. An explicit
 `env_passthrough` replaces these defaults.
 The worker always gets `DUOLOG_DEPTH=1`, its `DUOLOG_LEAD` and `DUOLOG_ROLE`.
+
+Any other variable of your shell is dropped, `DOCKER_HOST` among them. With
+Colima or another daemon at a socket of its own, a worker's Docker-backed
+tests then cannot find it. List the defaults again with `DOCKER_HOST` in
+`.duolog/config.yaml`:
+
+```yaml
+env_passthrough: [PATH, HOME, USER, CODEX_HOME, CLAUDE_CONFIG_DIR, DOCKER_HOST]
+```
+
+A worker may also set it in front of a command, as
+`DOCKER_HOST=unix:///<home>/.colima/default/docker.sock go test ./...`; the
+gate judges that as `go test ./...`. See
+[Permissions](permissions.md#the-default-rules).
 Codex trust, hooks and capabilities read `CODEX_HOME` when set. Claude hooks,
 permissions and capabilities read `CLAUDE_CONFIG_DIR` when set. Home lookups
 use the OS home directory, including USERPROFILE on Windows.

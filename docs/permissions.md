@@ -370,6 +370,20 @@ count the same, and so does an assignment that stands alone, which a later
 `export` hands on. So `export GIT_DIR=../peer/repo; git log` and
 `GIT_DIR=../peer/repo; export GIT_DIR; git log` need the person.
 
+`DOCKER_HOST` in front of a program, pointing at a Docker daemon on this
+machine, is the one assignment the gate looks past. The value must be a
+`unix://` socket at an absolute path with no `~`, `$`, glob, `.` or `..` in
+it, or `tcp://` to `localhost`, `127.0.0.1` or `[::1]`, with or without a
+port. The Docker client connects to that socket and does not read or write it
+as a file, so the gate judges the command after the assignment as if it stood
+alone. `DOCKER_HOST=unix:///<home>/.colima/default/docker.sock go test ./...`
+is decided as `go test ./...`, and a `docker` command after it as `docker`
+alone. A remote daemon, such as `tcp://build-host:2375` or `ssh://`, still
+needs the person, and so does every other assignment, `PATH`, `LD_*`,
+`DYLD_*`, `GIT_*`, `DUOLOG_*`, `CLAUDE_*` and `CODEX_*` among them. To hand
+`DOCKER_HOST` from your own shell to every worker instead, see
+[What workers inherit](configuration.md#what-workers-inherit).
+
 Workers cannot start `claude` or `codex` themselves (rule `agent launch`).
 The gate denies them by any program path or Windows launcher, behind
 prefixes such as `env`, `timeout` or `sudo`, and through package runners
