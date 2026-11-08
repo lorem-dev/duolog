@@ -225,12 +225,54 @@ func searchWords(a Action, command []string) (patterns map[int]bool, named bool)
 
 // expandsWords reports whether a word of a command, its program at
 // words[0] and its words as written, may expand to an option once the shell
-// reads it, so that no word can be known to be a search pattern or the value
-// of a pattern option: grep /x $P with P=-ex reads /x as a file. Such a word
-// holds a $ that starts an expansion outside single quotes, or a glob
-// character, *, ? or [, or a ~ outside quotes.
-func expandsWords(words []string) bool {
-	return len(words) > 1 && mayExpand(strings.Join(words[1:], " "))
+// reads it, or shift which word is a pattern, so that no word can be known to
+// be a search pattern or the value of a pattern option: grep /x $P with
+// P=-ex reads /x as a file, and grep -A 1* /x f with files 10 and 11 makes 11
+// the pattern and /x a file. Such a word holds a $ that starts an expansion
+// outside single quotes, or a glob character, *, ? or [, or a ~ outside
+// quotes. A glob alone, after every pattern word of patterns and not the
+// value of a pattern option of program, whose word starts with a plain
+// character, expands only to names that start with it: never to an option,
+// so it changes no pattern, as in grep -c '\bLoad\(' internal/*_test.go.
+// The gate judges it as a path as written.
+func expandsWords(words []string, program string, patterns map[int]bool) bool {
+	if len(words) < 2 {
+		return false
+	}
+	dollar, glob, _ := expansions(strings.Join(words[1:], " "))
+	if dollar || !glob {
+		return dollar
+	}
+	last := 0
+	for i, pattern := range patterns {
+		if pattern {
+			last = max(last, i)
+		}
+	}
+	for i := 1; i < len(words); i++ {
+		_, glob, closed := expansions(words[i])
+		if !closed {
+			// A quote that spans words leaves each word's reading unsure.
+			return true
+		}
+		if !glob {
+			continue
+		}
+		if skip, next := skipsPatternValue(program, strings.Trim(words[i-1], `'"`)); i <= last || skip && next || !plainStart(words[i]) {
+			return true
+		}
+	}
+	return false
+}
+
+// plainStart reports whether word, as written, starts with a character that
+// the shell keeps as it is: a letter, a digit, _, . or /.
+func plainStart(word string) bool {
+	if word == "" {
+		return false
+	}
+	c := word[0]
+	return isNameByte(c) || c == '.' || c == '/'
 }
 
 // surePatterns returns program and patterns, the program of a command and
@@ -239,7 +281,7 @@ func expandsWords(words []string) bool {
 // (expandsWords), no word is a pattern, and a program with pattern options
 // becomes "", so that the value of none is skipped.
 func surePatterns(words []string, program string, patterns map[int]bool) (string, map[int]bool) {
-	if !expandsWords(words) {
+	if !expandsWords(words, program, patterns) {
 		return program, patterns
 	}
 	if _, known := patternOptions[program]; known {
@@ -248,9 +290,10 @@ func surePatterns(words []string, program string, patterns map[int]bool) (string
 	return program, nil
 }
 
-// mayExpand reports whether text, as written, holds a $ that starts an
-// expansion outside single quotes, or a *, ?, [ or ~ outside quotes.
-func mayExpand(text string) bool {
+// expansions reads text as written: dollar is true when it holds a $ that
+// starts an expansion outside single quotes, glob when it holds a *, ?, [ or
+// ~ outside quotes, and closed when every quote it opens ends in it.
+func expansions(text string) (dollar, glob, closed bool) {
 	quote := byte(0)
 	for i := 0; i < len(text); i++ {
 		c := text[i]
@@ -263,7 +306,7 @@ func mayExpand(text string) bool {
 			i++ // The next character is escaped.
 		case c == '$':
 			if i+1 < len(text) && (isNameByte(text[i+1]) || strings.IndexByte("{(@*#?!$-", text[i+1]) >= 0) {
-				return true
+				dollar = true
 			}
 		case quote == '"':
 			if c == '"' {
@@ -272,10 +315,10 @@ func mayExpand(text string) bool {
 		case c == '\'' || c == '"':
 			quote = c
 		case strings.IndexByte("*?[~", c) >= 0:
-			return true
+			glob = true
 		}
 	}
-	return false
+	return dollar, glob, quote == 0
 }
 
 // isNameByte reports whether c may stand in a shell variable name, or be a

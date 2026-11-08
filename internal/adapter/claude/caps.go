@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/kit"
 	"github.com/lorem-dev/duolog/internal/core/caps"
+	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/project"
@@ -107,12 +110,13 @@ func scanClaude(ctx context.Context, root string, f kit.Folders) []caps.Item {
 	var project servers
 	var user struct {
 		servers
-		Projects map[string]servers `json:"projects"`
+		Projects map[string]claudeProject `json:"projects"`
 	}
 	kit.ReadJSON(filepath.Join(root, ".mcp.json"), &project)
 	kit.ReadJSON(f.ClaudeState(), &user)
+	local, _, _ := projectEntry(user.Projects, root)
 	// Only the keys are used: the values hold env and headers.
-	for _, set := range []map[string]json.RawMessage{project.MCP, user.MCP, user.Projects[root].MCP, user.Projects[filepath.ToSlash(root)].MCP} {
+	for _, set := range []map[string]json.RawMessage{project.MCP, user.MCP, local.MCP} {
 		for name := range set {
 			items = append(items, caps.Item{Kind: caps.KindMCP, Name: name})
 		}
@@ -176,8 +180,38 @@ type claudeProject struct {
 	EnableAllMCPServer *bool                      `json:"enableAllProjectMcpServers"`
 }
 
+// projectEntry finds root's entry in the projects of Claude's user state.
+// Claude keys an entry by the folder it ran in, with forward slashes on
+// Windows. A key spelled as root, or as root with forward slashes, is taken
+// first. Otherwise the entry whose key names the same folder once aliases are
+// resolved is taken: symlinks, Windows 8.3 short names such as RUNNER~1 and,
+// on Windows, letter case. found is false when no key names root. ambiguous
+// is true when several keys with different entries name it, since which one
+// Claude reads is unknown; the entry is then empty.
+func projectEntry(projects map[string]claudeProject, root string) (entry claudeProject, found, ambiguous bool) {
+	entry, found = projects[root]
+	if local, ok := projects[filepath.ToSlash(root)]; ok && entry.MCP == nil {
+		entry, found = local, true
+	}
+	if found || root == "" {
+		return entry, found, false
+	}
+	want := pathutil.Clean(pathutil.Resolved(root))
+	for _, key := range slices.Sorted(maps.Keys(projects)) {
+		if key == "" || pathutil.Clean(pathutil.Resolved(pathutil.Native(key))) != want {
+			continue
+		}
+		if found && !reflect.DeepEqual(entry, projects[key]) {
+			return claudeProject{}, false, true
+		}
+		entry, found = projects[key], true
+	}
+	return entry, found, false
+}
+
 // claudeServers applies Claude's precedence: local, then project, then user.
-// The whole entry of the winning scope is used; fields are not merged.
+// The whole entry of the winning scope is used; fields are not merged. When
+// several project entries name root, no project server counts as approved.
 func claudeServers(root string, f kit.Folders) map[string]caps.Server {
 	var state struct {
 		MCP      map[string]json.RawMessage `json:"mcpServers"`
@@ -185,10 +219,7 @@ func claudeServers(root string, f kit.Folders) map[string]caps.Server {
 	}
 	statePath := f.ClaudeState()
 	kit.ReadJSON(statePath, &state)
-	project := state.Projects[root]
-	if local, ok := state.Projects[filepath.ToSlash(root)]; ok && project.MCP == nil {
-		project = local
-	}
+	project, _, ambiguous := projectEntry(state.Projects, root)
 	out := make(map[string]caps.Server)
 	for name, raw := range state.MCP {
 		out[name] = parseClaude(name, "user", statePath+" mcpServers", raw)
@@ -200,7 +231,7 @@ func claudeServers(root string, f kit.Folders) map[string]caps.Server {
 	kit.ReadJSON(mcpJSON, &file)
 	for name, raw := range file.MCP {
 		s := parseClaude(name, "project", mcpJSON, raw)
-		if !claudeApproved(name, root, f, project) {
+		if ambiguous || !claudeApproved(name, root, f, project) {
 			// Claude asks before it starts a server from a project file; a
 			// server the user never approved must not start in another agent,
 			// and it does not hide the user's server of the same name.
@@ -293,9 +324,9 @@ func (c Caps) PendingProjectServers(root string, environ []string) []string {
 		Projects map[string]claudeProject `json:"projects"`
 	}
 	kit.ReadJSON(f.ClaudeState(), &state)
-	project := state.Projects[root]
-	if local, ok := state.Projects[filepath.ToSlash(root)]; ok && project.MCP == nil {
-		project = local
+	project, _, ambiguous := projectEntry(state.Projects, root)
+	if ambiguous {
+		return nil
 	}
 	var pending []string
 	for dir := root; ; dir = filepath.Dir(dir) {

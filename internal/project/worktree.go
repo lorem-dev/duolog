@@ -17,8 +17,10 @@ func SameProject(root, folder string) bool {
 	if root == "" || folder == "" {
 		return false
 	}
+	// pathutil.Clean writes forward slashes on every system, and on Windows
+	// compares without case.
 	root, folder = pathutil.Clean(pathutil.Resolved(root)), pathutil.Clean(pathutil.Resolved(folder))
-	if folder == root || strings.HasPrefix(folder, strings.TrimSuffix(root, string(filepath.Separator))+string(filepath.Separator)) {
+	if folder == root || strings.HasPrefix(folder, strings.TrimSuffix(root, "/")+"/") {
 		return true
 	}
 	// The folder must be listed by the lead's repository and agree: its own

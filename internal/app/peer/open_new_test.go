@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -49,6 +50,9 @@ func TestOpenNewRespectsTheSessionLimit(t *testing.T) {
 // A run lock whose recorded holder is gone does not stop a new run, even
 // when something else still holds the old file.
 func TestQueueRunIgnoresADeadRunsLock(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows removes no file another handle holds open, and Go's handles there are not inherited, so a held lock has a live holder")
+	}
 	r := newRig(t, baseScript())
 	r.task()
 	r.queued("implement", r.root, "")
@@ -58,7 +62,7 @@ func TestQueueRunIgnoresADeadRunsLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	lock := queueRunLock(r.root+"/.duolog", "lead-1")
-	if err := os.WriteFile(lock, []byte(strconv.Itoa(dead.ProcessState.Pid())), 0o600); err != nil {
+	if err := os.WriteFile(runLockPid(lock), []byte(strconv.Itoa(dead.ProcessState.Pid())), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	r.panes(withScreens(openAndSend()...))
@@ -92,10 +96,32 @@ func TestQueueRunKeepsALiveRunsLock(t *testing.T) {
 	r.task()
 	r.queued("implement", r.root, "")
 	r.holdRunLock()
-	if err := os.WriteFile(queueRunLock(r.root+"/.duolog", "lead-1"), []byte(strconv.Itoa(os.Getppid())), 0o600); err != nil {
+	if err := os.WriteFile(runLockPid(queueRunLock(r.root+"/.duolog", "lead-1")), []byte(strconv.Itoa(os.Getppid())), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := RunQueue(r.ctx); !errors.Is(err, ErrQueueBusy) {
 		t.Fatal(err)
+	}
+}
+
+// A run records its pid next to the lock, not in it, and removes it before
+// it lets the lock go.
+func TestRunLockHolderPidSitsBesideTheLock(t *testing.T) {
+	lock := queueRunLock(t.TempDir(), "lead-1")
+	unlocked := false
+	release := recordRunLockHolder(lock, func() error {
+		if _, err := os.Stat(runLockPid(lock)); !os.IsNotExist(err) {
+			t.Errorf("the pid outlived the lock: %v", err)
+		}
+		unlocked = true
+		return nil
+	})
+	data, err := os.ReadFile(runLockPid(lock))
+	if err != nil || string(data) != strconv.Itoa(os.Getpid()) {
+		t.Fatalf("%q %v", data, err)
+	}
+	release()
+	if !unlocked {
+		t.Fatal("release kept the lock")
 	}
 }

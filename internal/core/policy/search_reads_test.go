@@ -203,6 +203,48 @@ func TestSearchPatternIsNoPath(t *testing.T) {
 	})
 }
 
+// A glob after the pattern, starting with a plain character, expands only to
+// names that start with it, never to an option, so the pattern stays no path.
+// With a Windows work root a pattern such as \bLoad\( read as a path is
+// rooted at the drive, so the glob once made the line ask only the person
+// there and not on Linux. A glob that may expand to an option, or into more
+// words at or before a pattern, still leaves every word to be judged as a
+// path, so ExecOutside finds the path outside.
+func TestGlobAfterThePatternKeepsThePattern(t *testing.T) {
+	p := policy(t)
+	for _, root := range []string{t.TempDir(), `C:\work`} {
+		for _, command := range []string{
+			`grep -c -E '\bLoad\(' internal/config/*_test.go; head -3 internal/config/*_test.go | grep -E 'package|==>'`,
+			`grep -c -E '\bLoad\(' internal/config/*_test.go`,
+			`grep -n '\.Dir' ./internal/*.go`,
+			`rg -n '\bx\(' internal/[a-c]*`,
+			`git log -G '\bx' -- internal/*.go`,
+		} {
+			if a, d := searchCase(t, p, root, command); PersonOnly(d) || ExecOutside(a) {
+				t.Errorf("%s: %q: %+v; want no person-only ask", root, command, d)
+			}
+		}
+		for _, command := range []string{
+			`grep '\bLoad\(' /elsewhere/*.go`,
+			`grep '\bLoad\(' ../*.go`,
+			`grep /elsewhere/pa* f`,
+			`grep -e /elsewhere/pa* f`,
+			`grep -A 1* /elsewhere/x f`,
+			`grep /elsewhere/x f -*`,
+			`grep /elsewhere/x f *`,
+			`grep /elsewhere/x f "-"*`,
+			`grep /elsewhere/x f a$X*`,
+			`grep /elsewhere/x f ~*`,
+			`git log -G /elsewhere/pa* x`,
+		} {
+			command = strings.ReplaceAll(command, "/elsewhere", absoluteTestPath(root, "/elsewhere"))
+			if a, _ := searchCase(t, p, root, command); !ExecOutside(a) {
+				t.Errorf("%s: %q: not outside", root, command)
+			}
+		}
+	}
+}
+
 // A line of search and read commands on paths inside the work root is a
 // read; one that ends in a shell or writes stays with the lead or the person.
 func TestSearchPipelineIntoShellIsNoRead(t *testing.T) {

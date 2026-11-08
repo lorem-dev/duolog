@@ -1,8 +1,9 @@
 package screen
 
 import (
-	"path/filepath"
 	"strings"
+
+	"github.com/lorem-dev/duolog/internal/core/pathutil"
 )
 
 // startsLine reports whether some line of text begins with marker, spaces
@@ -46,7 +47,7 @@ func folderPaths(text, heading, stop string) []string {
 		switch {
 		case !in:
 			in = strings.HasPrefix(line, heading)
-			if rest := strings.TrimSpace(strings.TrimPrefix(line, heading)); in && filepath.IsAbs(rest) {
+			if rest := strings.TrimSpace(strings.TrimPrefix(line, heading)); in && pathutil.IsAbs(rest) {
 				paths = append(paths, rest)
 			}
 		case line == "":
@@ -55,7 +56,9 @@ func folderPaths(text, heading, stop string) []string {
 			}
 		case strings.HasPrefix(line, stop):
 			return paths
-		case !filepath.IsAbs(line):
+		// The screen shows the agent's paths, which may be POSIX or Windows
+		// paths whatever this host is.
+		case !pathutil.IsAbs(line):
 			// A path longer than the dialog wraps onto the next line, which
 			// holds no space. Anything else ends the list.
 			if len(paths) == 0 || strings.ContainsAny(line, " \t") {

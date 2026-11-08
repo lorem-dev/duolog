@@ -38,7 +38,13 @@ func (r *startRig) write(path, body string) {
 // state writes Claude's user state with the project entry of the lead root.
 func (r *startRig) state(entry map[string]any) {
 	r.t.Helper()
-	data, err := json.Marshal(map[string]any{"projects": map[string]any{r.lead: entry}})
+	r.writeProjects(map[string]any{r.lead: entry})
+}
+
+// writeProjects writes Claude's user state with the project entries given.
+func (r *startRig) writeProjects(projects map[string]any) {
+	r.t.Helper()
+	data, err := json.Marshal(map[string]any{"projects": projects})
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -46,7 +52,13 @@ func (r *startRig) state(entry map[string]any) {
 }
 
 func (r *startRig) settings() map[string]any {
-	return Pane{}.Settings(agent.PaneStart{LeadRoot: r.lead, Folder: r.folder, Environ: []string{"HOME=" + r.home}})
+	return Pane{}.Settings(agent.PaneStart{LeadRoot: r.lead, Folder: r.folder, Environ: r.environ()})
+}
+
+// environ names the rig's home as Claude reads it on every system: HOME, and
+// USERPROFILE on Windows.
+func (r *startRig) environ() []string {
+	return []string{"HOME=" + r.home, "USERPROFILE=" + r.home}
 }
 
 func (r *startRig) lists() (enabled, disabled []string) {
@@ -165,7 +177,7 @@ func TestPaneSettingsIgnoreProjectSettingsOfAnUntrustedLeadRoot(t *testing.T) {
 
 func TestPaneTrustsFolderWhenClaudeTrustsTheRootOrAParent(t *testing.T) {
 	r := newStartRig(t)
-	environ := []string{"HOME=" + r.home}
+	environ := r.environ()
 	if (Pane{}).TrustsFolder(r.lead, environ) {
 		t.Fatal("trusted with no state")
 	}

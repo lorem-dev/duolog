@@ -442,8 +442,7 @@ func verbatimOutside(a Action, part string, own []string) (handled, outside bool
 	if ownedCommand(texts, own) {
 		return true, false
 	}
-	fields := withoutRedirects(strings.Fields(part))
-	program, patterns := surePatterns(fields[max(execOperandStart(fields)-1, 0):], programName(words[0].text), patterns)
+	program, patterns := verbatimPatterns(part, words, patterns)
 	options := true
 	for i := 1; i < len(words); i++ {
 		word := words[i]
@@ -462,6 +461,24 @@ func verbatimOutside(a Action, part string, own []string) (handled, outside bool
 		}
 	}
 	return true, false
+}
+
+// verbatimPatterns is surePatterns for a verbatim part, whose patterns count
+// its shell words. The words as written are the part's blank-separated
+// fields; when the blanks split a quoted word, the fields and the shell words
+// differ, so every glob counts as one before a pattern word.
+func verbatimPatterns(part string, words []shellWord, patterns map[int]bool) (string, map[int]bool) {
+	fields := withoutRedirects(strings.Fields(part))
+	command := fields[max(execOperandStart(fields)-1, 0):]
+	order := patterns
+	if len(command) != len(words) {
+		order = map[int]bool{len(command): true}
+	}
+	program, sure := surePatterns(command, programName(words[0].text), order)
+	if sure == nil {
+		return program, nil
+	}
+	return program, patterns
 }
 
 // verbatimFilesOutside reports whether a file that a redirect of a verbatim

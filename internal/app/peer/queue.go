@@ -91,12 +91,48 @@ func queueRunLock(dir, lead string) string {
 	return filepath.Join(dir, "peer-queue-run-"+safe+".lock")
 }
 
+// runLockPid is the file next to a run lock that names the run holding it.
+// The pid stays out of the lock file itself: on Windows the lock covers the
+// file's bytes, so a write or read through another handle fails.
+func runLockPid(lock string) string {
+	return lock + ".pid"
+}
+
+// recordRunLockHolder writes this process's pid next to lock, which it holds,
+// and returns the release that removes the pid before it unlocks, so a run
+// that takes the lock next never loses its own pid. Best effort: the pid only
+// lets the next run tell a dead holder from a live one.
+func recordRunLockHolder(lock string, unlock func() error) (release func()) {
+	pidFile := runLockPid(lock)
+	tmp, err := os.CreateTemp(filepath.Dir(lock), filepath.Base(pidFile)+".*.tmp")
+	if err == nil {
+		_, err = tmp.WriteString(strconv.Itoa(os.Getpid()))
+		if cerr := tmp.Close(); err == nil {
+			err = cerr
+		}
+		if err == nil {
+			err = store.Rename(tmp.Name(), pidFile)
+		}
+		if err != nil {
+			_ = os.Remove(tmp.Name())
+		}
+	}
+	return func() {
+		_ = os.Remove(pidFile)
+		_ = unlock()
+	}
+}
+
 // dropStaleRunLock removes a run lock whose recorded holder is gone. The
 // kernel frees a dead process's lock, but a child that inherited the file
 // keeps it held, and then every new run would exit as busy. A new file has a
-// new lock. A lock with no pid, or with a live holder, stays.
+// new lock. A lock with no pid, or with a live holder, stays. On Windows a
+// file another handle holds open is not removed, so the lock stays held
+// there; Go opens files there without inheritance, so a held lock has a live
+// holder.
 func dropStaleRunLock(path string) {
-	data, err := os.ReadFile(path)
+	pidFile := runLockPid(path)
+	data, err := store.ReadFile(pidFile)
 	if err != nil {
 		return
 	}
@@ -104,7 +140,9 @@ func dropStaleRunLock(path string) {
 	if err != nil || pid <= 0 || pid == os.Getpid() || session.ProcessAlive(pid) {
 		return
 	}
-	_ = os.Remove(path)
+	if err := os.Remove(path); err == nil || os.IsNotExist(err) {
+		_ = os.Remove(pidFile)
+	}
 }
 
 // setupQueue is the setup of the queue commands that open nothing: add, list,
@@ -394,9 +432,7 @@ func RunQueue(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = unlock() }()
-	// Best effort: the pid lets the next run tell a dead holder from a live one.
-	_ = os.WriteFile(lock, []byte(strconv.Itoa(os.Getpid())), 0o600)
+	defer recordRunLockHolder(lock, unlock)()
 	if err := os.Truncate(filepath.Join(e.dir, queueRunLog), 0); err != nil && !os.IsNotExist(err) {
 		return err
 	}

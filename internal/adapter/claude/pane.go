@@ -89,9 +89,10 @@ func mcpDecisions(start agent.PaneStart) (enabled, disabled []string) {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return enabled, names
 	}
-	project := state.Projects[start.LeadRoot]
-	if local, ok := state.Projects[filepath.ToSlash(start.LeadRoot)]; ok && project.MCP == nil {
-		project = local
+	// Entries that disagree may hold a disable: nothing is enabled then.
+	project, _, ambiguous := projectEntry(state.Projects, start.LeadRoot)
+	if ambiguous {
+		return []string{}, names
 	}
 	for _, name := range names {
 		approved, err := claudeApproval(name, start.LeadRoot, f, project)

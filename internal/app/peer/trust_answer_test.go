@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -76,7 +77,13 @@ func (r *trustRig) trust(root string) {
 }
 
 func (r *trustRig) allowed(folder string) bool {
-	return trustAllowed(claudePane(), r.lead, folder, []string{"HOME=" + r.home})
+	return trustAllowed(claudePane(), r.lead, folder, r.environ())
+}
+
+// environ names the rig's home as Claude reads it on every system: HOME, and
+// USERPROFILE on Windows.
+func (r *trustRig) environ() []string {
+	return []string{"HOME=" + r.home, "USERPROFILE=" + r.home}
 }
 
 func TestTrustAllowedForTheLeadRootASubfolderAndALinkedWorktree(t *testing.T) {
@@ -135,6 +142,9 @@ func TestTrustRefusedForAFolderThatClaimsToBeAWorktree(t *testing.T) {
 // A worktree path may hold a newline. Listed raw, it could add any folder to
 // the list, so the list is read NUL-separated.
 func TestTrustRefusedForAFolderNamedInsideAWorktreePath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows allows no newline in a file name")
+	}
 	r := newTrustRig(t)
 	r.trust(r.lead)
 	evil := r.linked + "-x\nworktree " + r.other
@@ -249,7 +259,7 @@ func TestTrustRefusedForTheOuterRepositoryOfTheLeadRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.trust(lead)
-	environ := []string{"HOME=" + r.home}
+	environ := r.environ()
 	if !trustAllowed(claudePane(), lead, lead, environ) {
 		t.Fatal("the lead root itself was refused")
 	}
