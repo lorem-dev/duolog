@@ -29,8 +29,10 @@ type Action struct {
 	Role   string `json:"role"`
 	Shell  string `json:"shell,omitempty"`
 	// Work and Cwd resolve the paths inside a read command. They are not logged.
-	Work string `json:"-"`
-	Cwd  string `json:"-"`
+	Work, Cwd string `json:"-"`
+	// WideRead says that a resolved agent skill root is too wide to read. The
+	// gate sets it; without it no skill tree is granted.
+	WideRead func(string) bool `json:"-"`
 	// State is the project root whose .duolog folder recursive reads must avoid.
 	State  string `json:"-"`
 	Search bool   `json:"-"`
@@ -55,8 +57,10 @@ type Action struct {
 	// named read commands may read them.
 	Reads []string `json:"-"`
 	// taskRead marks a read that a named read command makes of a path in
-	// Reads, as written in the command; see taskReadWord.
-	taskRead bool
+	// Reads, as written in the command; see taskReadWord. agentRead marks a
+	// named read command's operand inside an agent skill tree. It grants no
+	// execution or write permission.
+	taskRead, agentRead bool
 	// revision marks an operand of a Git read command, which may name a
 	// revision such as HEAD~1 rather than a path, so the 8.3 check skips it.
 	// asWritten marks a line that plainDecision judges as written, which
@@ -500,7 +504,7 @@ func literalQuotes(part string, spaces bool) bool {
 			unsafe = strings.Replace(unsafe, " ", "", 1)
 		}
 		end := strings.IndexByte(part[i+1:], c)
-		if end <= 0 || strings.ContainsAny(part[i+1:i+1+end], unsafe) {
+		if end <= 0 || quotedRunUnsafe(part[i+1:i+1+end], unsafe) {
 			return false
 		}
 		i += end + 1
@@ -894,7 +898,7 @@ func readCommandDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action,
 		if !readOnlyCommand(part) {
 			continue
 		}
-		targets, reason := readCommandTargets(part)
+		targets, reason := judgedTargets(p, lead, m, a, part)
 		words := commandWords(part)
 		if words[0] == "rg" && readGlobMatchesDeny(p, lead, a, rgGlobs(words[1:])) && asked == nil {
 			asked = &Decision{Kind: Ask, Reason: "a search glob can read a file that policy denies; name the files", Rule: "read command", Mode: m}

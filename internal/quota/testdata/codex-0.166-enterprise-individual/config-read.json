@@ -1,0 +1,17 @@
+{
+ "id": 3,
+ "result": {
+  "config": {
+   "model": "sol",
+   "model_provider": null,
+   "model_providers": {},
+   "service_tier": null,
+   "profile": null,
+   "forced_login_method": null,
+   "forced_chatgpt_workspace_id": null,
+   "sandbox_mode": null,
+   "sandbox_workspace_write": null,
+   "approval_policy": null
+  }
+ }
+}

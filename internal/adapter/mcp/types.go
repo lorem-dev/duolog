@@ -67,6 +67,7 @@ type PeerInput struct {
 	Action         string `json:"action"` // open|send|wait|answer|status|close|list
 	ID             string `json:"id,omitempty"`
 	Role           string `json:"role,omitempty"`
+	Worktree       string `json:"worktree,omitempty"` // for open: path or name under .worktrees
 	Task           *Task  `json:"task,omitempty"`
 	Option         string `json:"option,omitempty"`
 	Reason         string `json:"reason,omitempty"`

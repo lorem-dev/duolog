@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -318,6 +319,26 @@ func TestQuotaWeeklyFamilyKindLabels(t *testing.T) {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("missing %q:\n%s", want, out.String())
 		}
+	}
+}
+
+// A Codex individual limit prints as a window line, the shape that scripts
+// reading duolog quota match: two spaces, a label, a share and "% used".
+func TestQuotaIndividualLimitLine(t *testing.T) {
+	var out bytes.Buffer
+	now := time.Now()
+	err := appquota.Print(&out, map[string]appquota.Result{
+		"claude": {Unavailable: "not installed"},
+		"codex": {Snapshot: &quota.Snapshot{Windows: []quota.Window{
+			{Kind: "individual", UsedPercent: 11.48, ResetsAt: now.Add(86*time.Hour + 30*time.Minute)},
+		}}},
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, section, found := strings.Cut(out.String(), "codex")
+	if !found || !regexp.MustCompile(`(?m)^  individual 11\.48% used, resets in 3d 14h`).MatchString(section) {
+		t.Fatalf("no individual window line:\n%s", out.String())
 	}
 }
 

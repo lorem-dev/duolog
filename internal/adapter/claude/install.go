@@ -120,6 +120,8 @@ func events(timeout int) []install.Event {
 	gate := func(name string) install.Group {
 		h := handler("gate --agent claude --event " + name)
 		h.Timeout = timeout
+		// Without it Claude lets the tool run when it kills the hook.
+		h.OnFailure = "block"
 		return install.Group{Hooks: []install.Handler{h}}
 	}
 	wake := handler("hook wake --agent claude")
@@ -129,7 +131,7 @@ func events(timeout int) []install.Event {
 		{Name: "SessionEnd", Groups: []install.Group{hook("SessionEnd")}},
 		{Name: "UserPromptSubmit", Groups: []install.Group{hook("UserPromptSubmit")}},
 		{Name: "PostToolUse", Groups: []install.Group{hook("PostToolUse")}},
-		// A peer's turn end; a lead's Stop does nothing.
+		// A peer's turn end; a lead must keep a wait for its busy peers.
 		{Name: "Stop", Groups: []install.Group{hook("Stop")}},
 		{Name: "PreToolUse", Groups: []install.Group{gate("PreToolUse")}},
 		{Name: "PermissionRequest", Groups: []install.Group{gate("PermissionRequest")}},

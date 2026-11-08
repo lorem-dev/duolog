@@ -22,11 +22,18 @@ import (
 // the process's CacheKey, and the assessment made from it. It holds and
 // serializes only snapshots, assessments and names: never a process's
 // environment, settings or argv. It is safe for concurrent use.
+//
+// The entries live as long as the process. With Dir set, each read made now
+// also goes to a file there, so that the next duolog process can use it in
+// place of a read that fails for a passing reason, as Get says.
 type Cache struct {
 	// Read reads the quota a process sees, quota.Reader.ReadProcess.
 	Read func(context.Context, launch.Process) (account.Snapshot, error)
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
+	// Dir is the folder of the file of recent good reads, the account state
+	// folder; empty keeps no read beyond the process.
+	Dir string
 
 	mu      sync.Mutex
 	entries map[string]cacheEntry
@@ -53,7 +60,11 @@ type cacheEntry struct {
 //
 // A failed read drops the key's entry, so no older and cheaper verdict is
 // used after it; the assessment is then paid and Get returns the read's
-// error with it. An error from build returns nothing else.
+// error with it. The one exception is a transient failure, for a caller that
+// did not set fresh and is still waiting, when Dir holds a good read of this
+// same key within the quota age limit: that read is used, marked Recalled,
+// and judged as it was, so a read that said paid or rejected still does. An
+// error from build returns nothing else.
 func (c *Cache) Get(ctx context.Context,
 	build func() (launch.Process, error), cfg *config.Config,
 	evidence account.RunEvidence, fresh bool) (launch.Process, account.Snapshot, paidrules.Assessment, error) {
@@ -70,10 +81,11 @@ func (c *Cache) Get(ctx context.Context,
 			return launch.Process{}, account.Snapshot{}, paidrules.Assessment{}, err
 		}
 		knownPlan := plans[p.Agent]
-		s, cached := c.lookup(p.CacheKey, fresh || rebuilt, paidrules.QuotaMaxAge(cfg))
+		maxAge, readNow := paidrules.QuotaMaxAge(cfg), fresh || rebuilt
+		s, cached := c.lookup(p.CacheKey, readNow, maxAge)
 		var readErr error
 		if !cached {
-			s, readErr = c.Read(ctx, p)
+			s, readErr = c.readOrRecall(ctx, p, readNow, maxAge)
 		}
 		if key := s.Billing.ProviderEnvKey; key != "" && key != p.ProviderEnvKey {
 			c.mu.Lock()
@@ -95,6 +107,9 @@ func (c *Cache) Get(ctx context.Context,
 		}
 		a := paidrules.Evaluate(p, s, readErr, evidence, cfg, c.now())
 		c.store(p.CacheKey, s, a, readErr)
+		if !cached {
+			c.remember(p.CacheKey, s, readErr, maxAge)
+		}
 		return p, s, a, readErr
 	}
 }
@@ -135,12 +150,14 @@ func (c *Cache) knownPlans() map[string]string {
 // and keeps the read for the next Get of p's key. When the read of p's key
 // is still younger than the quota age limit, it reads nothing and fresh is
 // true. A read that names a provider env_key p was not built with is not
-// kept and is an error, as in Get.
+// kept and is an error, as in Get. No earlier read ever stands in for a
+// failed one here: the caller measures what changed since the run.
 func (c *Cache) After(ctx context.Context, p launch.Process, cfg *config.Config) (s account.Snapshot, fresh bool, err error) {
 	if c.Read == nil {
 		return account.Snapshot{}, false, errors.New("paid runs: cache has no reader")
 	}
-	if s, ok := c.lookup(p.CacheKey, false, paidrules.QuotaMaxAge(cfg)); ok {
+	maxAge := paidrules.QuotaMaxAge(cfg)
+	if s, ok := c.lookup(p.CacheKey, false, maxAge); ok {
 		return s, true, nil
 	}
 	s, err = c.Read(ctx, p)
@@ -148,6 +165,7 @@ func (c *Cache) After(ctx context.Context, p launch.Process, cfg *config.Config)
 		return account.Snapshot{}, false, errors.New("paid runs: the process was built without the provider env_key the read found")
 	}
 	c.store(p.CacheKey, s, paidrules.Evaluate(p, s, err, account.RunEvidence{}, cfg, c.now()), err)
+	c.remember(p.CacheKey, s, err, maxAge)
 	return s, false, err
 }
 
@@ -188,8 +206,7 @@ func (c *Cache) lookup(key string, fresh bool, maxAge time.Duration) (account.Sn
 	if !ok || fresh {
 		return account.Snapshot{}, false
 	}
-	age := c.now().Sub(entry.Snapshot.ReadAt)
-	if entry.Snapshot.ReadAt.IsZero() || age < 0 || age > maxAge {
+	if !within(entry.Snapshot.ReadAt, c.now(), maxAge) {
 		return account.Snapshot{}, false
 	}
 	return entry.Snapshot, true

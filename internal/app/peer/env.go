@@ -41,6 +41,9 @@ type env struct {
 	leadSession    string
 	leadID         string
 	watchQuestions bool
+	// afterAsk is a gate ask already relayed to the person. Its answer or
+	// expiry resumes the watch; a different ask still returns immediately.
+	afterAsk int64
 	// gate is the account gate, opened on first use by accounts.
 	gate *paidruns.Gate
 }
@@ -253,8 +256,8 @@ func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Ent
 	var idle, stuck int
 	worked := false
 	for {
-		if question, err := pendingAsk(e.dir, e.address(e.leadID), entry.ID); err != nil {
-			return Entry{}, err
+		if question, err := e.newQuestion(ctx, entry); err != nil {
+			return Entry{ID: entry.ID, State: Question}, err
 		} else if question != "" {
 			return Entry{ID: entry.ID, State: Question, Question: question}, nil
 		}
@@ -611,13 +614,16 @@ func (e *env) selectOption(ctx context.Context, entry session.Entry, screen Scre
 // Only an ask whose ref names this peer stops its wait. An ask that names no
 // peer, from a worker outside a pane or from a pane opened before asks named
 // their peer, belongs to no peer's wait; the lead's hook still delivers it.
-func pendingAsk(dir, address, peer string) (string, error) {
+//
+// It reports any new ask first, or waiting when only afterAsk remains pending;
+// zero names no ask. Reading neither answers an ask nor advances the inbox.
+func pendingAsk(dir, address, peer string, afterAsk int64) (string, bool, error) {
 	f, err := os.Open(filepath.Join(dir, "bus.ndjson"))
 	if os.IsNotExist(err) {
-		return "", nil
+		return "", false, nil
 	}
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	defer f.Close()
 	pending := map[string]string{}
@@ -628,11 +634,11 @@ func pendingAsk(dir, address, peer string) (string, error) {
 			break
 		}
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
 		var m bus.Message
 		if err := json.Unmarshal(line, &m); err != nil {
-			return "", err
+			return "", false, err
 		}
 		if m.K == "ask" && m.To == address && strings.HasPrefix(m.From, "duolog/ask.") && m.Ref == peer && !gate.AskExpired(m) {
 			pending[strconv.FormatInt(m.N, 10)] = fmt.Sprintf("ask %d: %s", m.N, m.S)
@@ -644,8 +650,26 @@ func pendingAsk(dir, address, peer string) (string, error) {
 			delete(pending, m.Ref)
 		}
 	}
+	key := strconv.FormatInt(afterAsk, 10)
+	waiting := pending[key] != ""
+	delete(pending, key)
 	for _, question := range pending {
-		return question, nil
+		return question, false, nil
 	}
-	return "", nil
+	return "", waiting, nil
+}
+
+// newQuestion is a new ask about this peer, or "". While only the ask already
+// relayed is open it keeps polling: a prompt behind the running gate hook is
+// not idle.
+func (e *env) newQuestion(ctx context.Context, entry session.Entry) (string, error) {
+	for {
+		question, waiting, err := pendingAsk(e.dir, e.address(e.leadID), entry.ID, e.afterAsk)
+		if err != nil || !waiting {
+			return question, err
+		}
+		if err := e.opts.Deps.Clock.Sleep(ctx, e.opts.Deps.Pauses.Poll); err != nil {
+			return "", err
+		}
+	}
 }

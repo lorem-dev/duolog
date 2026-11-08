@@ -20,6 +20,7 @@ type Handler struct {
 	CommandWindows string   `json:"commandWindows,omitempty"`
 	Args           []string `json:"args,omitempty"`
 	Timeout        int      `json:"timeout,omitempty"`
+	OnFailure      string   `json:"onFailure,omitempty"`
 	AsyncRewake    bool     `json:"asyncRewake,omitempty"`
 }
 

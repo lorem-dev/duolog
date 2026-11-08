@@ -27,6 +27,40 @@ func TestGitRunsGit(t *testing.T) {
 	}
 }
 
+// A Git hook that started the caller exports GIT_DIR, which would point git at
+// its repository and not at dir.
+func TestGitBatchNilEnvDropsGitVariables(t *testing.T) {
+	needGit(t)
+	dir := t.TempDir()
+	ctx := context.Background()
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "one"},
+	} {
+		if out, err := Git(ctx, nil, append([]string{"-C", dir}, args...)...); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	t.Setenv("GIT_DIR", filepath.Join(t.TempDir(), "missing"))
+	b, err := GitBatch(ctx, dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.In.Write([]byte("HEAD\n")); err != nil {
+		t.Fatal(err)
+	}
+	header, err := b.Out.ReadString('\n')
+	if err != nil {
+		t.Fatalf("no answer from git: %v", err)
+	}
+	if !strings.Contains(header, " commit ") {
+		t.Fatalf("header = %q, want the commit of dir", header)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGitBatchReadsBlob(t *testing.T) {
 	needGit(t)
 	dir := t.TempDir()

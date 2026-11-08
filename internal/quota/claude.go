@@ -1,13 +1,26 @@
 package quota
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"strings"
 	"time"
+
+	"github.com/lorem-dev/duolog/internal/core/account"
 )
+
+// The read errors of a /usage that printed no report. It said nothing about
+// the account, so they are transient, unlike the same words after a report.
+const (
+	errUsageSilent account.TransientError = "usage read failed; check login"
+	errQuotaSilent account.TransientError = "no quota data; check login"
+)
+
+// errNoReport is the parse error of a line that holds no usage report.
+var errNoReport = errors.New("no usage report")
 
 func readClaude(ctx context.Context, run runner) (Snapshot, error) {
 	cmd := run.command(ctx, "-p", "/usage", "--output-format", "stream-json", "--verbose", "--no-session-persistence")
@@ -21,38 +34,17 @@ func readClaude(ctx context.Context, run runner) (Snapshot, error) {
 	}
 	closeOnCancel := context.AfterFunc(ctx, func() { _ = stdout.Close() })
 	defer closeOnCancel()
-	// Keep the last report with windows; every report's billing evidence,
-	// such as rate_limits_available false, counts, whatever its order.
-	var found, evidence *Snapshot
-	var billing BillingFacts
 	scanner := scanLines(stdout)
-	for scanner.Scan() {
-		s, err := parseClaudeUsage(scanner.Bytes())
-		if err != nil {
-			continue
-		}
-		mergeClaudeUsage(&billing, s.Billing)
-		if len(s.Windows) > 0 {
-			found = &s
-		} else {
-			evidence = &s
-		}
-	}
+	usage := scanClaudeUsage(scanner)
 	readErr := scanner.Err()
 	if readErr != nil {
 		_ = cmd.Process.Kill()
 	}
 	waitErr := cmd.Wait()
 	if readErr != nil || waitErr != nil {
-		return Snapshot{}, errors.New("usage read failed; check login")
+		return claudeFailedRead(ctx, run, usage)
 	}
-	s := Snapshot{}
-	if found != nil {
-		s = *found
-	} else if evidence != nil {
-		s = *evidence
-	}
-	s.Billing = billing
+	s := usage.snapshot()
 	loggedIn, err := readClaudeAuth(ctx, run, &s)
 	if err != nil {
 		return Snapshot{Billing: s.Billing}, err
@@ -60,10 +52,89 @@ func readClaude(ctx context.Context, run runner) (Snapshot, error) {
 	if !loggedIn {
 		return Snapshot{Billing: s.Billing}, errors.New("not logged in")
 	}
-	if found == nil {
-		return Snapshot{Billing: s.Billing}, errors.New("no quota data; check login")
+	if usage.found == nil {
+		return Snapshot{Billing: s.Billing}, usage.noQuota(s.Billing)
 	}
 	return s, nil
+}
+
+// claudeFailedRead is the result of a /usage run that did not end well. One
+// that printed no report is transient only while auth status still names a
+// subscription, as for a run that ended well without windows: a login that is
+// out, on an API key, on another provider or unreadable is an answer, and no
+// kept read may stand in for it. A read out of time leaves no time to ask.
+func claudeFailedRead(ctx context.Context, run runner, usage claudeReports) (Snapshot, error) {
+	failure := usage.failed()
+	if !account.IsTransient(failure) || ctx.Err() != nil {
+		return Snapshot{}, failure
+	}
+	s := usage.snapshot()
+	loggedIn, err := readClaudeAuth(ctx, run, &s)
+	switch {
+	case err != nil:
+		return Snapshot{Billing: s.Billing}, err
+	case !loggedIn:
+		return Snapshot{Billing: s.Billing}, errors.New("not logged in")
+	case len(s.Billing.RouteSignals) > 0:
+		return Snapshot{Billing: s.Billing}, errors.New(failure.Error())
+	}
+	return Snapshot{Billing: s.Billing}, failure
+}
+
+// claudeReports is what the lines of one /usage run held: the last report
+// with windows, the last without, every report's billing evidence, such as
+// rate_limits_available false, whatever its order, and whether any line held
+// a usage report, even an invalid one.
+type claudeReports struct {
+	found, evidence *Snapshot
+	billing         BillingFacts
+	reported        bool
+}
+
+func scanClaudeUsage(scanner *bufio.Scanner) claudeReports {
+	var r claudeReports
+	for scanner.Scan() {
+		s, err := parseClaudeUsage(scanner.Bytes())
+		r.reported = r.reported || !errors.Is(err, errNoReport)
+		if err != nil {
+			continue
+		}
+		mergeClaudeUsage(&r.billing, s.Billing)
+		if len(s.Windows) > 0 {
+			r.found = &s
+		} else {
+			r.evidence = &s
+		}
+	}
+	return r
+}
+
+// snapshot is the best report with the billing evidence of all of them.
+func (r claudeReports) snapshot() Snapshot {
+	s := Snapshot{}
+	if r.found != nil {
+		s = *r.found
+	} else if r.evidence != nil {
+		s = *r.evidence
+	}
+	s.Billing = r.billing
+	return s
+}
+
+// failed is the error of a /usage run that did not end well.
+func (r claudeReports) failed() error {
+	if !r.reported {
+		return errUsageSilent
+	}
+	return errors.New("usage read failed; check login")
+}
+
+// noQuota is the error of a /usage run without windows, on billing b.
+func (r claudeReports) noQuota(b BillingFacts) error {
+	if !r.reported && len(b.RouteSignals) == 0 {
+		return errQuotaSilent
+	}
+	return errors.New("no quota data; check login")
 }
 
 // mergeClaudeUsage folds the billing evidence of one /usage report into b:
@@ -190,7 +261,7 @@ type claudeNamedWindow struct {
 func parseClaudeUsage(data []byte) (Snapshot, error) {
 	var usage claudeUsage
 	if json.Unmarshal(data, &usage) != nil || usage.Report == nil {
-		return Snapshot{}, errors.New("no usage report")
+		return Snapshot{}, errNoReport
 	}
 	s := Snapshot{}
 	s.Billing.WindowsAvailable = usage.Report.Available

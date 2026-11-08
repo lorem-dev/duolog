@@ -787,7 +787,11 @@
         },
         "ask_timeout_seconds": {
           "type": "integer",
-          "description": "Seconds to wait for a permission answer; defaults to 120."
+          "description": "Seconds to wait for a permission answer a lead can give; defaults to 120, at most 120."
+        },
+        "person_ask_timeout_seconds": {
+          "type": "integer",
+          "description": "Seconds to wait for a permission answer only the person can give; defaults to 600, at most 600."
         },
         "rules": {
           "items": {

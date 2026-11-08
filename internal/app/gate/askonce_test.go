@@ -27,7 +27,7 @@ func writeMemo(t *testing.T, dir, key string, m askMemo) {
 // escalate runs EscalateOnce with an ask that denies and counts its calls.
 func escalate(t *testing.T, dir, key string, asked *int) Decision {
 	t.Helper()
-	return EscalateOnce(context.Background(), dir, key, 2*time.Second, func() (Decision, bool) {
+	return EscalateOnce(context.Background(), dir, key, 2*time.Second, func(time.Duration) (Decision, bool) {
 		*asked++
 		return Decision{Kind: Deny, Reason: "asked"}, true
 	})
@@ -36,11 +36,11 @@ func escalate(t *testing.T, dir, key string, asked *int) Decision {
 func TestAskRecordWaitIsCapped(t *testing.T) {
 	dir := t.TempDir()
 	key := AskKey("session", "toolu_1", "exec ls", false)
-	start := time.Now().UTC().Add(-MaxAskWait - 10*time.Second)
+	start := time.Now().UTC().Add(-MaxPersonAskWait - 10*time.Second)
 	writeMemo(t, dir, key, askMemo{Done: true, Start: start, Wait: 999999999, Kind: Allow})
 	asked := 0
 	if d := escalate(t, dir, key, &asked); d.Kind != Deny || asked != 1 {
-		t.Fatalf("decision %+v, asked %d: a wait past MaxAskWait was trusted", d, asked)
+		t.Fatalf("decision %+v, asked %d: a wait past MaxPersonAskWait was trusted", d, asked)
 	}
 }
 
@@ -66,6 +66,34 @@ func TestQuestionKeyIsReusedOnce(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "asks", key+".json")); !os.IsNotExist(err) {
 		t.Fatalf("record left after its reuse: %v", err)
+	}
+}
+
+// A key from the question can name another call, so a person's long wait does
+// not make its answer last longer: reuse ends 120 seconds after the ask began.
+// A tool_use_id names one call, and keeps the whole wait.
+func TestQuestionKeyReuseStaysWithinTheOldWait(t *testing.T) {
+	question := AskKey("session", "", "exec ls", true)
+	call := AskKey("session", "toolu_1", "exec ls", true)
+	for _, tc := range []struct {
+		name, key string
+		age       time.Duration
+		reused    bool
+	}{
+		{"question, five minutes", question, 5 * time.Minute, false},
+		{"question, past the bound", question, questionReuse + time.Second, false},
+		{"question, inside the bound", question, questionReuse - 30*time.Second, true},
+		{"tool use id, five minutes", call, 5 * time.Minute, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeMemo(t, dir, tc.key, askMemo{Done: true, Start: time.Now().UTC().Add(-tc.age), Wait: 600, Kind: Allow})
+			asked := 0
+			d := escalate(t, dir, tc.key, &asked)
+			if tc.reused && (d.Kind != Allow || asked != 0) || !tc.reused && (d.Kind != Deny || asked != 1) {
+				t.Fatalf("decision %+v, asked %d, want reused=%v", d, asked, tc.reused)
+			}
+		})
 	}
 }
 

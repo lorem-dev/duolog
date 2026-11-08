@@ -9,6 +9,15 @@ import (
 // Events renders Claude Code's hook output and reads its permission mode.
 type Events struct{}
 
+// BlockStop asks the lead to continue instead of ending its turn.
+func (Events) BlockStop(reason string) []byte {
+	if reason == "" {
+		return nil
+	}
+	encoded, _ := json.Marshal(map[string]string{"decision": "block", "reason": reason})
+	return append(encoded, '\n')
+}
+
 // Render wraps text in the hookSpecificOutput envelope that Claude Code reads
 // from a synchronous hook. asyncRewake instead requires exit 2 and plain
 // stderr, so it does not come through here.

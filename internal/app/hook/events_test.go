@@ -24,11 +24,21 @@ var (
 // Caps of the registered agents, which read the temporary home the tests set.
 func withAgent(e Env, name string) Env {
 	e.Agent, e.Events, e.Lead = name, fakeAgent{name}, fakeAgent{name}
+	if name == "claude" {
+		e.Events = fakeStopAgent{fakeAgent{name}}
+	}
 	e.Caps = map[string]roster.Caps{}
 	for agent, c := range launchtest.AllCaps() {
 		e.Caps[agent] = c
 	}
 	return e
+}
+
+type fakeStopAgent struct{ fakeAgent }
+
+func (fakeStopAgent) BlockStop(reason string) []byte {
+	encoded, _ := json.Marshal(map[string]string{"decision": "block", "reason": reason})
+	return append(encoded, '\n')
 }
 
 func (fakeAgent) Render(event string, text []byte) []byte {

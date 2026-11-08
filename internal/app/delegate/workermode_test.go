@@ -518,7 +518,7 @@ func TestHeldWorkerAcceptsTheDevLauncherHook(t *testing.T) {
 // Re-review 5, N2: Claude does not wait for an async gate hook, and runs the
 // tool when a hook times out, so a held Claude worker starts only when its
 // gate hook is neither async nor asyncRewake and has no timeout below the 150
-// seconds install writes. Without a timeout, Claude's default applies.
+// seconds a lead's ask needs. Without a timeout, Claude's default applies.
 func TestHeldWorkerRefusesAnAsyncOrShortGateHook(t *testing.T) {
 	hook := func(extra string) string {
 		return `{"permissions":{"allow":["Write","Edit","Bash(*)"]},"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"duolog","args":["gate","--agent","claude","--event","PreToolUse"]` + extra + `}]}]}}`

@@ -679,3 +679,156 @@ func TestCodexNullablePermissionAndSpend(t *testing.T) {
 		}
 	})
 }
+
+// An enterprise seat's individual limit is its permission when the reply
+// sends ordinaryUsageAllowed null, and only then: an explicit false
+// anywhere, a reached spend control or reached type, or a full limit keeps
+// ordinary usage refused or unknown.
+func TestCodexIndividualLimitPermission(t *testing.T) {
+	limits := func(reply map[string]any) (account, duplicate map[string]any) {
+		return reply["rateLimits"].(map[string]any), reply["rateLimitsByLimitId"].(map[string]any)["codex"].(map[string]any)
+	}
+	for _, tc := range []struct {
+		name     string
+		change   func(reply map[string]any)
+		want     *bool
+		rejected bool
+		spend    bool
+	}{
+		{"null permission", func(map[string]any) {}, flag(true), false, false},
+		{"no permission key", func(r map[string]any) { delete(r, "ordinaryUsageAllowed") }, nil, false, false},
+		{"reached type none", func(r map[string]any) { a, _ := limits(r); a["rateLimitReachedType"] = "none" }, flag(true), false, false},
+		{"reply true", func(r map[string]any) { r["ordinaryUsageAllowed"] = true }, flag(true), false, false},
+		{"reply false", func(r map[string]any) { r["ordinaryUsageAllowed"] = false }, flag(false), true, false},
+		{"reply snake false", func(r map[string]any) { r["ordinary_usage_allowed"] = false }, flag(false), true, false},
+		{"limit false", func(r map[string]any) { a, _ := limits(r); a["ordinaryUsageAllowed"] = false }, flag(false), true, false},
+		{"duplicate false", func(r map[string]any) { _, d := limits(r); d["ordinaryUsageAllowed"] = false }, flag(false), true, false},
+		{"spend control reached", func(r map[string]any) { a, _ := limits(r); a["spendControlReached"] = true }, nil, true, true},
+		{"duplicate spend control reached", func(r map[string]any) { _, d := limits(r); d["spend_control_reached"] = true }, nil, true, false},
+		{"reached type", func(r map[string]any) {
+			a, _ := limits(r)
+			a["rateLimitReachedType"] = "workspace_member_usage_limit_reached"
+		}, nil, true, false},
+		{"beside a primary window", func(r map[string]any) {
+			a, _ := limits(r)
+			a["primary"] = map[string]any{"usedPercent": 10, "windowDurationMins": 300, "resetsAt": 1794441600}
+		}, nil, false, false},
+		{"limit used up", func(r map[string]any) {
+			setIndividual(r, "individualLimit", map[string]any{"limit": "400.00", "used": "400.00", "remainingPercent": 0, "resetsAt": 1794441600})
+		}, nil, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reply := codexIndividualReply(t)
+			tc.change(reply)
+			s, err := parseCodex(codexJSON(t, reply))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := s.Billing.OrdinaryUsageAllowed
+			if (got == nil) != (tc.want == nil) || got != nil && *got != *tc.want || s.Rejected != tc.rejected || s.SpendControlReached != tc.spend {
+				t.Fatalf("ordinary usage %v, rejected %t, spend control %t", got, s.Rejected, s.SpendControlReached)
+			}
+		})
+	}
+	// A scoped limit's individual limit never grants the account's usage.
+	f := loadCodexBilling(t)
+	f.limit()["ordinaryUsageAllowed"] = nil
+	f.byID("sol")["individualLimit"] = map[string]any{"limit": "400", "used": "10", "remainingPercent": 97, "resetsAt": 4070908800}
+	s, err := parseCodex(codexJSON(t, f.RateLimits))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Billing.OrdinaryUsageAllowed != nil || len(s.ModelLimits["sol"]) != 2 {
+		t.Fatalf("scoped individual limit: %+v", s)
+	}
+}
+
+// The whole enterprise read through a fake app-server: a chatgpt login on
+// the built-in provider, a workspace by its name, one individual window and
+// ordinary usage allowed by the individual limit. Credits make overage on.
+func TestCodexEnterpriseIndividualRead(t *testing.T) {
+	s := readCodexSeat(t, nil)
+	b := s.Billing
+	if !b.RouteKnown || len(b.RouteSignals) != 0 || b.AccountType != "chatgpt" || b.AuthMethod != "chatgpt" {
+		t.Fatalf("route: %+v", b)
+	}
+	if b.OrdinaryUsageAllowed == nil || !*b.OrdinaryUsageAllowed || s.Rejected || s.SpendControlReached || !b.OverageEnabled {
+		t.Fatalf("permission: %+v", s)
+	}
+	if !slices.Equal(b.WorkspaceReasons, []string{"workspace_name", "workspace_plan"}) {
+		t.Fatalf("workspace: %v", b.WorkspaceReasons)
+	}
+	if len(s.Windows) != 1 || s.Windows[0].Kind != "individual" || s.Windows[0].UsedPercent != 11.48 {
+		t.Fatalf("windows: %+v", s.Windows)
+	}
+	if data := strings.ToLower(string(codexJSON(t, s))); strings.Contains(data, "example") || strings.Contains(data, "00000000") {
+		t.Fatal(data)
+	}
+}
+
+// readCodexSeat reads the anonymised enterprise seat through a fake
+// app-server; change edits the account of `account/read`.
+func readCodexSeat(t *testing.T, change func(account map[string]any)) Snapshot {
+	t.Helper()
+	isolate(t)
+	dir := "testdata/codex-0.166-enterprise-individual/"
+	reply := func(file string, id int) string {
+		data, err := os.ReadFile(dir + file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var msg map[string]any
+		if err := json.Unmarshal(data, &msg); err != nil {
+			t.Fatal(err)
+		}
+		if file == "account-read.json" && change != nil {
+			change(msg["result"].(map[string]any)["account"].(map[string]any))
+		}
+		msg["jsonrpc"], msg["id"] = "2.0", id
+		return string(codexJSON(t, msg))
+	}
+	testbin.Install(t, "codex", testbin.Scenario{RPCResponses: map[string]string{
+		"initialize":              `{"jsonrpc":"2.0","id":1,"result":{}}`,
+		"account/rateLimits/read": reply("rate-limits-read.json", codexRateLimitsID),
+		"account/read":            reply("account-read.json", codexAccountID),
+		"config/read":             reply("config-read.json", codexConfigID),
+		"getAuthStatus":           reply("get-auth-status.json", codexAuthID),
+	}})
+	s, err := (Reader{Version: "test", Timeout: 5 * time.Second}).Read(context.Background(), "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// The account read decides too: the grant needs a chatgpt route, and no plan
+// on the account that is personal or billed by use.
+func TestCodexSeatNeedsChatgptRouteAndSeatPlan(t *testing.T) {
+	set := func(key, value string) func(map[string]any) {
+		return func(a map[string]any) { a[key] = value }
+	}
+	for name, change := range map[string]func(map[string]any){
+		"api key route": set("type", "apiKey"),
+		"plus account":  set("planType", "plus"),
+		"free account":  set("planType", "free"),
+		"usage based":   set("planType", "enterprise_cbp_usage_based"),
+		"pay as you go": set("planType", "pay-as-you-go"),
+		"empty plan":    set("planType", ""),
+		"no plan":       func(a map[string]any) { delete(a, "planType") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := readCodexSeat(t, change).Billing.OrdinaryUsageAllowed; got != nil {
+				t.Fatalf("granted ordinary usage: %v", *got)
+			}
+		})
+	}
+	t.Run("unknown plan and no workspace name", func(t *testing.T) {
+		s := readCodexSeat(t, func(a map[string]any) { delete(a, "workspaceName") })
+		if got := s.Billing.OrdinaryUsageAllowed; got == nil || !*got {
+			t.Fatalf("no grant: %v", got)
+		}
+		if !slices.Equal(s.Billing.WorkspaceReasons, []string{"workspace_plan"}) {
+			t.Fatalf("workspace: %v", s.Billing.WorkspaceReasons)
+		}
+	})
+}

@@ -1,0 +1,12 @@
+{
+ "id": 2,
+ "result": {
+  "account": {
+   "type": "chatgpt",
+   "email": "person@example.com",
+   "planType": "ent26",
+   "workspaceName": "Example Workspace"
+  },
+  "requiresOpenaiAuth": true
+ }
+}

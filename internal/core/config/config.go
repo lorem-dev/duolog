@@ -217,9 +217,10 @@ type Sessions struct {
 }
 
 type Policy struct {
-	OnUnmatched       string `yaml:"on_unmatched" jsonschema_description:"Decision for an action with no matching rule; defaults to ask." jsonschema:"enum=allow,enum=deny,enum=ask"`
-	AskTimeoutSeconds int    `yaml:"ask_timeout_seconds" jsonschema_description:"Seconds to wait for a permission answer; defaults to 120."`
-	Rules             []Rule `yaml:"rules" jsonschema_description:"Permission rules for actions and paths; defaults allow routine work and deny sensitive operations."`
+	OnUnmatched             string `yaml:"on_unmatched" jsonschema_description:"Decision for an action with no matching rule; defaults to ask." jsonschema:"enum=allow,enum=deny,enum=ask"`
+	AskTimeoutSeconds       int    `yaml:"ask_timeout_seconds" jsonschema_description:"Seconds to wait for a permission answer a lead can give; defaults to 120, at most 120."`
+	PersonAskTimeoutSeconds int    `yaml:"person_ask_timeout_seconds" jsonschema_description:"Seconds to wait for a permission answer only the person can give; defaults to 600, at most 600."`
+	Rules                   []Rule `yaml:"rules" jsonschema_description:"Permission rules for actions and paths; defaults allow routine work and deny sensitive operations."`
 }
 
 type Rule struct {

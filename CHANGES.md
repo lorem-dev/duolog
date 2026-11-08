@@ -46,18 +46,41 @@
 
 - `install` and a lead's next prompt tell you to restart running sessions when
   the MCP server or skills are new to them.
+- `quota` reads a Codex enterprise seat's per-person `individualLimit` as an
+  `individual` window, so its workers run on it instead of as paid.
+- Claude's `Stop` hook catches unwatched busy peers; `peer wait --after-ask N`
+  waits through a relayed gate ask's answer or expiry.
+
+### Changed
+
+- An ask only the person can answer waits 10 minutes; run `duolog install` for
+  the longer hook timeouts, then approve the Codex hooks again.
 
 ### Fixed
 
+- `duolog doctor` names each `AWS_BEARER_TOKEN_*` variable that makes every
+  Claude worker paid, even when empty, and never prints its value.
 - `duolog peer` ignores the caller's Git variables, refuses a task outside the
   peer's worktree, and judges a pane's command from that worktree.
 - A peer can run `echo "$DUOLOG_PEER"` and `printenv DUOLOG_PEER` to learn its
   own id without an ask.
+- Workers and peers read installed agent skills without a person-only ask;
+  writes outside the work root still need approval.
+- The lead brings peer changes back to its starting checkout before reporting
+  done, preserving existing work and following requested branch or PR workflows.
+- `doctor` no longer calls a Rex CLI binary a script or says it skips the
+  same Rex path it uses.
+- The MCP `peer` tool opens in a named worktree and sends tasks to the peer's
+  registered checkout, even when the lead runs elsewhere.
+- Repository searches with quoted regex alternatives no longer trigger the
+  lead's person-only telemetry guard.
+- `duolog quota` and peers survive a passing Claude `/usage` failure: one retry,
+  then a good read within `balance.max_age_seconds`; else still `paid`.
 
 ### Security
 
-- A search-pattern glob is judged like a path glob; `git log -L` and pathspec
-  magic like their file; a pathspec glob spelling a denied name is denied.
+- Search and Git pathspec globs are judged by what they can expand to; reads of
+  duolog state behind a wrapper are denied; built paths need the person.
 
 ## 1.6.0
 

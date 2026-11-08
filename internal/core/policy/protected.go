@@ -14,10 +14,30 @@ import (
 )
 
 // RuleProtected keeps workers out of the private usage stores: the telemetry
-// root and balance's state.
+// root, balance's state and the account state.
 const RuleProtected = "private usage store"
 
-const protectedReason = "duolog telemetry and balance stores are closed to workers"
+const protectedReason = "duolog telemetry, balance and account stores are closed to workers"
+
+// AccountRoot is the folder of the user's account state: the seats, the pace
+// and the kept quota reads (paidruns.OpenUserState makes it).
+func AccountRoot() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "duolog", "accounts"), nil
+}
+
+// closedRoots lists the stores closed to a: its protected roots and the
+// account state. A caller with no roots, as a lead is, has none closed.
+func closedRoots(a Action) []string {
+	account, err := AccountRoot()
+	if err != nil || len(a.ProtectedRoots) == 0 {
+		return a.ProtectedRoots
+	}
+	return append(slices.Clone(a.ProtectedRoots), account)
+}
 
 // protectedDecision is the deny beside the spawn deny. It comes before policy,
 // modes and asks, so no rule or mode can open the stores to a worker. Paths are
@@ -43,8 +63,9 @@ func protectedDecision(a Action, m mode.Mode) (Decision, bool) {
 	if base == "" {
 		return deny("the gate cannot place paths without a work root; " + protectedReason)
 	}
-	roots := make([]protectedRoot, len(a.ProtectedRoots))
-	for i, root := range a.ProtectedRoots {
+	closed := closedRoots(a)
+	roots := make([]protectedRoot, len(closed))
+	for i, root := range closed {
 		roots[i] = placeRoot(root)
 	}
 	reaches := func(target string, search bool) bool {
@@ -144,6 +165,14 @@ func protectedWords(command, shell string) [][]string {
 		}
 		lists = append(lists, words)
 	}
+	return append(lists, unquotedWords(command, shell)...)
+}
+
+// unquotedWords splits a command line ignoring its quotes, at every separator,
+// an escaped one too: under eval or sh -c the outer shell removes the
+// backslash, so the separator is real by the time the command runs.
+func unquotedWords(command, shell string) [][]string {
+	var lists [][]string
 	var words []string
 	flush := func() {
 		if len(words) > 0 {
@@ -154,20 +183,31 @@ func protectedWords(command, shell string) [][]string {
 	start := -1
 	for i, r := range command + "\n" {
 		separator := strings.ContainsRune(";|&(){}`\n", r)
-		if unicode.IsSpace(r) || separator || strings.ContainsRune(`'"<>`, r) {
-			if start >= 0 {
-				words = append(words, command[start:i])
-				start = -1
+		if !unicode.IsSpace(r) && !separator && !strings.ContainsRune(`'"<>`, r) {
+			if start < 0 {
+				start = i
 			}
-			if separator {
-				flush()
-			}
-		} else if start < 0 {
-			start = i
+			continue
+		}
+		if start >= 0 && !escapeOfSeparator(command[start:i], r, shell) {
+			words = append(words, command[start:i])
+		}
+		start = -1
+		if separator {
+			flush()
 		}
 	}
 	flush()
 	return lists
+}
+
+// escapeOfSeparator reports a word that is only the backslash of an escaped
+// separator. It is the last word before the split, so it could only count as
+// a search root: splitting '"sol"\|sol:' would otherwise invent a bare \ root,
+// which path placement treats as /. A backslash before a line end continues
+// the line, and on Windows \ is the root of the drive, so those stay.
+func escapeOfSeparator(word string, next rune, shell string) bool {
+	return word == `\` && next != '\n' && strings.ContainsRune(";|&(){}`", next) && shell != "powershell" && shell != "windows"
 }
 
 // protectedWord returns the path a command word can name: an operand, the

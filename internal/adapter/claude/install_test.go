@@ -34,7 +34,7 @@ func checkGolden(t *testing.T, name string, got []byte) {
 }
 
 func TestHooksJSONGolden(t *testing.T) {
-	data, err := HooksJSON(150)
+	data, err := HooksJSON(install.GateTimeout)
 	if err != nil {
 		t.Fatal(err)
 	}

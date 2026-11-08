@@ -146,3 +146,66 @@ func TestDoctorRexInventoryUnavailable(t *testing.T) {
 		})
 	}
 }
+
+func TestDoctorRexShadowWarning(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Rex has no Windows build")
+	}
+	for _, tc := range []struct {
+		name     string
+		header   string
+		symlink  bool
+		override bool
+		wantWarn bool
+	}{
+		{name: "Mach-O arm64", header: "\xcf\xfa\xed\xfe\x0c\x00\x00\x01"},
+		{name: "ELF", header: "\x7fELF\x02\x01\x01\x00"},
+		{name: "symlink to Mach-O", header: "\xcf\xfa\xed\xfe\x0c\x00\x00\x01", symlink: true},
+		{name: "symlink to ELF", header: "\x7fELF\x02\x01\x01\x00", symlink: true},
+		{name: "shell script", header: "#!/bin/sh\nexit 99\n", wantWarn: true},
+		{name: "symlink to script", header: "#!/bin/sh\nexit 99\n", symlink: true, wantWarn: true},
+		{name: "explicit script override", header: "#!/bin/sh\nexit 99\n", override: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolatedRouteConfig(t)
+			t.Chdir(t.TempDir())
+			fallback := fakeRexFirst(t)
+			t.Setenv("REX_BIN_DIR", filepath.Dir(fallback))
+			dir := t.TempDir()
+			path := filepath.Join(dir, "rex")
+			if tc.symlink {
+				target := filepath.Join(t.TempDir(), "rex-cli")
+				if err := os.WriteFile(target, []byte(tc.header), 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, path); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.WriteFile(path, []byte(tc.header), 0755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", dir)
+			if tc.override {
+				t.Setenv("REX_BIN_DIR", dir)
+			}
+			wantBin := path
+			if tc.wantWarn {
+				wantBin = fallback
+			}
+			if bin, ok := testDeps(t).LocateRex(); !ok || bin != wantBin {
+				t.Fatalf("located rex=%q (%t), want %q", bin, ok, wantBin)
+			}
+			out, err := executeBusCommand(t, "doctor")
+			if err != nil {
+				t.Fatal(err)
+			}
+			warning := "rex in PATH (" + path + ") is a script, not the Rex CLI; duolog skips it."
+			if strings.Contains(out, warning) != tc.wantWarn {
+				t.Fatalf("want shadow warning=%t, got:\n%s", tc.wantWarn, out)
+			}
+			if tc.wantWarn && !strings.Contains(out, "duolog uses "+fallback) {
+				t.Fatalf("warning must name the selected fallback:\n%s", out)
+			}
+		})
+	}
+}

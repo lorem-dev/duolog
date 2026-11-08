@@ -32,7 +32,9 @@ func gateSetup(t *testing.T, m mode.Mode) (*session.Registry, string) {
 	if err = r.RegisterLead(session.Lead{ID: "lead-123456", Target: config.Target{Agent: "codex"}, Mode: m}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".duolog/config.yaml"), []byte("policy:\n  ask_timeout_seconds: 1\n"), 0600); err != nil {
+	// An ask only the person can answer has a wait of its own, 600 seconds by
+	// default, which every unanswered one would sit out.
+	if err := os.WriteFile(filepath.Join(root, ".duolog/config.yaml"), []byte("policy:\n  ask_timeout_seconds: 1\n  person_ask_timeout_seconds: 5\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	return r, root
@@ -43,7 +45,7 @@ func gateSetup(t *testing.T, m mode.Mode) (*session.Registry, string) {
 // answer could come after the wait.
 func shortAskWait(t *testing.T) {
 	t.Helper()
-	testDeps(t).AskWait = func(int) time.Duration { return 50 * time.Millisecond }
+	testDeps(t).AskWait = func(int, bool, time.Duration) time.Duration { return 50 * time.Millisecond }
 }
 
 func gateCommand(t *testing.T, input string, args ...string) (string, error) {
@@ -445,6 +447,7 @@ func TestGateReadsLeadTranscriptAtDecisionTime(t *testing.T) {
 // One answer covers a whole patch, so the question and its log name every path.
 func TestMultiPathPatchAsksAboutEveryPath(t *testing.T) {
 	_, root := gateSetup(t, mode.Ask)
+	shortAskWait(t)
 	patch := "*** Begin Patch\n*** Update File: a.go\n*** Update File: ../../home/.zshrc\n*** End Patch"
 	data, _ := json.Marshal(map[string]any{"tool_name": "apply_patch", "cwd": root, "tool_input": map[string]string{"patch": patch}})
 	if _, err := gateCommand(t, string(data), "gate", "--agent", "codex", "--event", "PreToolUse"); err != nil {

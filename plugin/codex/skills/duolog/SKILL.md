@@ -35,11 +35,12 @@ Stop unless this project has `.duolog/config.yaml`.
 
 ## Hand over
 
-Do settled steps without explaining them; report results. Batch small
-changes into one pull request unless the user asks otherwise.
+Do settled steps without explaining them; report results.
+If a PR is requested or required, batch small changes into one.
 
 1. Give whole features to `planner`; do small fixes yourself.
-2. Write `.duolog/task.md`: Goal, Read, Write, Limits, Check.
+2. Before handoff, record the starting checkout, branch and existing edits.
+   Write `.duolog/task.md`: Goal, Read, Write, Limits, Check.
    List file ranges and edited docs under Write.
 3. Run `duolog delegate <role> --task .duolog/task.md` in the background;
    wait for its notice.
@@ -77,6 +78,15 @@ For ordinary asks use `duolog allow <n>` or `duolog deny <n>`, or
 Answer `duolog peer wait` with
 `duolog peer answer <id> <option>`. Run each peer or CI wait as its own
 background command. Run independent tasks in parallel, one worker per
-`.worktrees/` worktree; stack dependent work on the open PR branch.
+`.worktrees/` worktree; stack dependent work on that task's branch.
+
+Before reporting done, review and bring the peer's task changes into the
+starting checkout on its original branch, unless the person requested another
+branch or PR. Peer worktrees are staging areas, not the delivery destination.
+Use merge, cherry-pick or apply the task diff as appropriate. Keep changes
+uncommitted unless a commit was requested or required; preserve existing
+staged, unstaged and untracked work. If integration conflicts, report the
+blocker instead of completion. Verify the integrated result there and tell
+the person its path, branch and commit status.
 
 Never send `/model` or `/effort` to a Claude pane; they change its session.

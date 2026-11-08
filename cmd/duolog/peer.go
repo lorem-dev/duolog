@@ -107,10 +107,28 @@ func openLine(ctx context.Context, role string, fresh bool) (string, error) {
 	return entryLine(e), nil
 }
 
+// peerWaitFlags are the flags of `duolog peer wait`.
+type peerWaitFlags struct {
+	timeout  time.Duration
+	afterAsk int64
+}
+
+func (w *peerWaitFlags) bind(cmd *cobra.Command) {
+	cmd.Flags().DurationVar(&w.timeout, "timeout", 30*time.Minute, "Longest time to wait for the session")
+	cmd.Flags().Int64Var(&w.afterAsk, "after-ask", 0, "Keep waiting through this relayed gate ask's answer or expiry")
+}
+
+func (w *peerWaitFlags) wait(ctx context.Context, id string) (peer.Entry, error) {
+	if w.afterAsk < 0 {
+		return peer.Entry{}, errors.New("--after-ask must be a positive ask number")
+	}
+	return peer.WaitAfterAsk(ctx, id, w.afterAsk)
+}
+
 func newPeerCommand(d *cmdDeps) *cobra.Command {
 	var lead string
 	var allowManual, openNew bool
-	var timeout time.Duration
+	var waitFlags peerWaitFlags
 	root := &cobra.Command{Use: "peer", Short: "Open and drive a second agent session in a Rex pane"}
 	if runtime.GOOS == "windows" {
 		root.Args = cobra.ArbitraryArgs
@@ -144,15 +162,15 @@ func newPeerCommand(d *cmdDeps) *cobra.Command {
 	open.Flags().BoolVar(&allowManual, "allow-manual-model", false, "Allow models reserved for manual selection")
 	open.Flags().BoolVar(&openNew, "new", false, "Open another session of the role even when one is live in this checkout")
 	wait := &cobra.Command{Use: "wait <id>", Short: "Keep waiting for a session after an answer or a task", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		ctx, cancel, err := peerContext(d, cmd, lead, allowManual, timeout)
+		ctx, cancel, err := peerContext(d, cmd, lead, allowManual, waitFlags.timeout)
 		if err != nil {
 			return err
 		}
 		defer cancel()
-		e, err := peer.Wait(ctx, args[0])
+		e, err := waitFlags.wait(ctx, args[0])
 		if errors.Is(err, context.DeadlineExceeded) && e.ID != "" {
 			// Report where the session stands; the pane stays open.
-			e.Note, err = fmt.Sprintf("still %s after waiting %s", e.State, timeout), nil
+			e.Note, err = fmt.Sprintf("still %s after waiting %s", e.State, waitFlags.timeout), nil
 		}
 		if err != nil {
 			return err
@@ -160,7 +178,7 @@ func newPeerCommand(d *cmdDeps) *cobra.Command {
 		_, err = fmt.Fprintln(cmd.OutOrStdout(), entryLine(e))
 		return err
 	}}
-	wait.Flags().DurationVar(&timeout, "timeout", 30*time.Minute, "Longest time to wait for the session")
+	waitFlags.bind(wait)
 	send := run("send <id> <task>", "Send a one-line reference to a task file to a ready session", cobra.ExactArgs(2), func(ctx context.Context, _ *cobra.Command, args []string) (string, error) {
 		err := peer.Send(ctx, args[0], args[1])
 		var here *peer.RunHereError

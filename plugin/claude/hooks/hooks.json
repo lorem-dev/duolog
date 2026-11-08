@@ -13,7 +13,8 @@
               "--event",
               "PermissionRequest"
             ],
-            "timeout": 150
+            "timeout": 630,
+            "onFailure": "block"
           }
         ]
       }
@@ -63,7 +64,8 @@
               "--event",
               "PreToolUse"
             ],
-            "timeout": 150
+            "timeout": 630,
+            "onFailure": "block"
           }
         ]
       }

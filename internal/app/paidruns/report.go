@@ -42,7 +42,10 @@ type Report struct {
 	FastPinned      bool                  `json:"fast_pinned"`
 	Notices         []config.ConfigNotice `json:"notices,omitempty"`
 	ReadError       string                `json:"read_error,omitempty"`
-	Held            []Held                `json:"held,omitempty"`
+	// ReusedReadSeconds is the age of the earlier good read the verdict used
+	// because the read made now failed for a passing reason; 0 without one.
+	ReusedReadSeconds int64  `json:"reused_read_seconds,omitempty"`
+	Held              []Held `json:"held,omitempty"`
 }
 
 // Held is a hold of any agent that reconciliation keeps without a
@@ -92,7 +95,8 @@ func (st State) held() []Held {
 // lead's verdict is paid, never the worker's.
 //
 // A failed read keeps the route evidence it found, the verdict is paid, and
-// the report comes back with the read's error. Run evidence that settled
+// the report comes back with the read's error, unless the cache used a recent
+// good read in its place, which the report says. Run evidence that settled
 // after the read, such as a run on paid overage, counts as for admission.
 func (g *Gate) Report(ctx context.Context, in launch.ProcessInput) (Report, error) {
 	return g.report(ctx, in, false)
@@ -184,7 +188,17 @@ func (g *Gate) report(ctx context.Context, in launch.ProcessInput, cached bool) 
 	if readErr != nil {
 		r.ReadError = readErr.Error()
 	}
+	r.ReusedReadSeconds = reusedSeconds(s, now)
 	return r, readErr
+}
+
+// reusedSeconds is the age at now of a read used in place of a failed one, at
+// least 1, and 0 for a read made now.
+func reusedSeconds(s account.Snapshot, now time.Time) int64 {
+	if !s.Recalled {
+		return 0
+	}
+	return max(1, int64(now.Sub(s.ReadAt)/time.Second))
 }
 
 // reportTier is the session tier a report shows for assessment a on read s:
@@ -271,7 +285,7 @@ func (r Report) Lines() []string {
 			head += "; duolog will not spend without paid_runs." + a.Agent
 		}
 	}
-	lines := []string{head}
+	lines := append([]string{head}, r.reusedLines(who)...)
 	has := func(name string) bool {
 		return slices.ContainsFunc(a.Signals, func(s launch.Signal) bool { return s.Name == name })
 	}
@@ -309,6 +323,14 @@ func (r Report) Lines() []string {
 	}
 	t := r.Sessions
 	return append(lines, fmt.Sprintf("%s sessions %d of %d (tier %s: %s)", a.Agent, t.Live, t.Limit, t.Tier, t.Reason))
+}
+
+// reusedLines says that the verdict rests on an earlier read, if it does.
+func (r Report) reusedLines(who string) []string {
+	if r.ReusedReadSeconds <= 0 {
+		return nil
+	}
+	return []string{fmt.Sprintf("%s: this read failed; using a good read %d s old", who, r.ReusedReadSeconds)}
 }
 
 // AccountLines are what no single agent owns: the live sessions of all

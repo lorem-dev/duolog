@@ -414,6 +414,10 @@ switch is caught too:
 | Claude | `ANTHROPIC_` names that end with `_KEY`, `_TOKEN` or `_BASE_URL`; names that start with `CLAUDE_CODE_USE_` or `AWS_BEARER_TOKEN_`; `ANTHROPIC_PROFILE` and `ANTHROPIC_FEDERATION_RULE_ID` |
 | Codex | `CODEX_API_KEY`; `OPENAI_` names that end with `_KEY`, `_TOKEN` or `_BASE_URL`; `OPENAI_FEDERATION_RULE_ID`; the key that the default provider names |
 
+An `AWS_BEARER_TOKEN_*` variable counts even when its value is empty, so one
+set globally makes every Claude worker paid. `duolog doctor` prints one line
+for each, with the name only.
+
 `CLAUDE_CODE_OAUTH_TOKEN` is a subscription login, so a free run gets it when
 `env_passthrough` lists it. A Claude base URL passes too when it matches an
 entry of `paid_runs.claude.subscription_endpoints`. Only a paid run of an
@@ -500,6 +504,35 @@ its layer, never its value.
 | `paid_runs.usable_share` | `0.5` | The share of each window duolog uses on a workspace account, above 0 and at most 1 |
 | `paid_runs.claude.subscription_endpoints` | none | Named base URLs that count as your subscription, such as a company gateway in front of the claude.ai login |
 
+A Codex enterprise or workspace seat on a per-person spend limit works by
+default, with no setting: duolog treats it as a subscription. Its limit,
+`individualLimit`, is the seat's own spend limit, and duolog stops before it.
+
+Codex sends that limit instead of the five-hour and weekly windows, and sends
+the ordinary usage permission as null. A seat counts only with all of these:
+
+- a chatgpt route, and the permission present and null
+- no primary or secondary window
+- an `individualLimit` with a positive numeric `limit`, a numeric `used`, a
+  reset in the future and room left
+- a plan name on the account and on its limit that is not a personal one
+  (`plus` and the like) and does not name usage-based or pay-as-you-go billing;
+  a name duolog does not know counts, so a new enterprise plan works
+
+Anything else stays unknown, which counts as `paid`: a missing permission, an
+empty or missing plan, a
+`limit` of `0` or `unlimited`, no amount, or only `remainingPercent`. A
+permission that says `false` always wins, even from a duplicate with other
+numbers. A spend control or reached limit also refuses runs.
+
+duolog shows the limit as the `individual` window, at the higher of `used`
+over `limit` and 100 minus `remainingPercent`. Its length is unknown, so it
+keeps the weekly lead reserve. An open limit is workspace evidence, so a seat
+is a workspace account even with no workspace name, and duolog uses only
+`usable_share` of it. When Codex reports credits on the seat, the verdict is
+`subscription_overage`. A bad limit beside another window is left out; with no
+other window the read fails.
+
 The cap covers the last 24 hours, not a calendar day, so it cannot be spent
 twice around midnight. A paid run starts only when the spend of the last 24
 hours, the runs in flight at their estimates and this run's estimate stay
@@ -536,11 +569,23 @@ worker, peer and lead, with the signals, the account kind and a line such as
 
 A quota read that does not end in time is read once more, with twice the
 time. A busy machine can take seconds to start the agent's CLI, and a Claude
-read starts it twice in a row: for `/usage` and for `auth status`. A second
-read that also fails is a failed read, so the verdict is `paid`, as before.
-duolog never uses an older read in its place. The read for
-`routing.balance: pace` is not read again: an agent whose read fails is left
-out of the balance.
+read starts it twice in a row: for `/usage` and for `auth status`. A Claude
+`/usage` that fails or ends without a report, on a login that still names a
+subscription, is read once more too. The read for `routing.balance: pace` is
+not read again: an agent whose read fails is left out of the balance.
+
+When that second read also fails, duolog can use the last good read of the
+same route, for as long as `balance.max_age_seconds` allows, counted from
+that read: 120 seconds by default. `duolog quota` and `duolog doctor` then say
+`this read failed; using a good read N s old`. The earlier read keeps what it
+said, so a read that was paid or rejected stays so. Without such a read the
+verdict is `paid`. A failed read that shows anything about the account also
+stays `paid`, whatever came before: a report that refuses windows, a login
+that is out, on an API key, on another provider or unreadable, which duolog
+learns from `auth status` after a failed `/usage`. So does a request that needs
+a read made now, such as one that waited for a slot. The good reads are kept in
+`quota-reads.json`, next to the account state, with names and numbers only.
+Workers cannot read or write that folder.
 
 duolog frees a slot and its estimate only when it can prove that the run or
 the pane ended. A hold it cannot settle, such as a pane whose `peer open`

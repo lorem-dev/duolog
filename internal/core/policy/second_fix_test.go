@@ -59,7 +59,7 @@ func TestReadDenyProbesCheckAllRgGlobForms(t *testing.T) {
 	p := policy(t)
 	root := t.TempDir()
 	for _, command := range []string{
-		"rg . -g *.key", "rg . -g *.go", "rg --iglob='*.KEY' x .",
+		"rg . -g *.key", "rg --iglob='*.KEY' x .",
 		"rg --glob '*.key' x .", "rg -g'*.key' x .",
 		"rg -g '*.go' -g '*.key' x .",
 	} {

@@ -3,6 +3,7 @@ package policy
 import (
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -193,8 +194,39 @@ func programTargets(name string, args, env []string, split []scriptWord, depth i
 	case "find":
 		t.paths = attachedValues(name, args)
 		t.add(findExecTargets(split, env, depth))
+	case "jq":
+		t.paths = attachedValues(name, args)
+		t.add(jqSearchTargets(args))
 	default:
 		t.paths = attachedValues(name, args)
+	}
+	return t
+}
+
+var (
+	jqModule    = regexp.MustCompile(`\b(import|include)\b`)
+	jqSearchKey = regexp.MustCompile(`"?\bsearch"?\s*:\s*(\[[^\]]*\]|"(?:[^"\\]|\\.)*"|[^\s,;}]+)`)
+	jqString    = regexp.MustCompile(`"((?:[^"\\]|\\.)*)"`)
+)
+
+// jqSearchTargets lists the folders that the search key of a jq import or
+// include names, the module path it reads code and data from. A value that is
+// not plain strings, or a string with an escape, names a folder the gate
+// cannot read, so it is unknown.
+func jqSearchTargets(args []string) fileTargets {
+	var t fileTargets
+	for _, arg := range args {
+		if !jqModule.MatchString(arg) {
+			continue
+		}
+		for _, search := range jqSearchKey.FindAllStringSubmatch(arg, -1) {
+			folders := jqString.FindAllStringSubmatch(search[1], -1)
+			t.unknown = t.unknown || len(folders) == 0
+			for _, folder := range folders {
+				t.unknown = t.unknown || strings.Contains(folder[1], `\`)
+				t.reads = append(t.reads, folder[1])
+			}
+		}
 	}
 	return t
 }

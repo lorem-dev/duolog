@@ -80,6 +80,19 @@ func TestAnswerAskIsNeverAllowed(t *testing.T) {
 	}
 }
 
+func TestPeerSchemaAcceptsOptionalWorktree(t *testing.T) {
+	var schema struct {
+		Properties map[string]struct{ Type string } `json:"properties"`
+		Required   []string                         `json:"required"`
+	}
+	if err := json.Unmarshal([]byte(peerSchema), &schema); err != nil {
+		t.Fatal(err)
+	}
+	if schema.Properties["worktree"].Type != "string" || slices.Contains(schema.Required, "worktree") {
+		t.Fatal("peer open must accept an optional worktree string")
+	}
+}
+
 func jsonFields(t reflect.Type) []string {
 	var out []string
 	for i := range t.NumField() {

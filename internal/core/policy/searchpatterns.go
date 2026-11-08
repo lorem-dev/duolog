@@ -290,14 +290,23 @@ func shellGlobInRead(a Action) bool {
 // path: grep .e* f reads .env when .editorconfig comes first. find is left out
 // for the reason shellGlobInRead gives, and outside Git a word that starts with
 // - because it is an option's own value, as --include=*.go is. On Git such a
-// word counts (gitOptionGlob). The command is judged by its words as the shell
+// word counts (gitOptionGlob). The value of a glob option written apart counts
+// only when the shell can make more than one word of it (globStaysOneWord), or
+// when it can name state. The command is judged by its words as the shell
 // passes them on, so 'grep' is grep.
 func readGlobWords(a Action) []string {
 	var globs []string
+	budget := newGlobBudget()
 	for _, words := range readCommandWords(a) {
-		git := programName(words[0].text) == "git"
-		for _, word := range words[1:] {
-			if word.hasGlob() && (git || !strings.HasPrefix(word.text, "-")) {
+		program := programName(words[0].text)
+		literal := false
+		for i, word := range words[1:] {
+			literal = literal || word.text == "--"
+			if !word.hasGlob() || program != "git" && strings.HasPrefix(word.text, "-") {
+				continue
+			}
+			value := !literal && separateGlobOption(program, words[i].text)
+			if !value || statePattern(workTarget(a, word.text)) || !globStaysOneWord(a, word.text, budget) {
 				globs = append(globs, word.text)
 			}
 		}
@@ -348,13 +357,16 @@ func unmatchedDenied(p config.Policy, a Action, parts []string) bool {
 // reads may run. Any other unquoted glob asks, unless on_unmatched denies the
 // line.
 func readGlobAsk(p config.Policy, lead LeadRules, a Action, m mode.Mode, parts []string) (asked *Decision, denied bool) {
-	if unquotedRgGlob(a.Target, a.Shell) {
+	if unquotedRgGlob(a) {
 		asked = reasonAsk(a, m, "a shell glob in an rg option can expand onto denied files; quote the glob")
 	}
 	if gitGlobDenied(p, lead, a, parts) {
 		return &Decision{Kind: Deny, Reason: "a Git pathspec glob can match a file that policy denies; name the files", Rule: "read command", Mode: m}, true
 	}
 	if d := gitOptionGlobDeny(p, lead, a, m); d != nil {
+		return d, true
+	}
+	if d := wrappedReadDeny(p, lead, m, a); d != nil {
 		return d, true
 	}
 	for _, glob := range readGlobWords(a) {

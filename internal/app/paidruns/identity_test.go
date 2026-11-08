@@ -19,6 +19,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/paidstore"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/paidrules"
+	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"github.com/lorem-dev/duolog/internal/workerenv"
@@ -323,6 +324,10 @@ func TestAccountStateUserWideAndAtomic(t *testing.T) {
 		}
 		if st.Dir != filepath.Join(userDir, "duolog", "accounts") {
 			t.Fatalf("default folder %s", st.Dir)
+		}
+		// The gate closes this folder to workers by its own copy of the path.
+		if closed, err := policy.AccountRoot(); err != nil || closed != st.Dir {
+			t.Fatalf("the gate closes %s (%v), the state is in %s", closed, err, st.Dir)
 		}
 		err = st.Update(ctx, func(s *State) error {
 			if s.NextTicket != uint64(i) {

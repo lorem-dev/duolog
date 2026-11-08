@@ -213,7 +213,7 @@ func TestStaleCodexApprovalAfterReinstall(t *testing.T) {
 	key := filepath.Join(root, ".codex", "hooks.json") + ":pre_tool_use:0:0"
 	trustFixture(t, fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = \"old-hash\"\n", key))
 	home := os.Getenv("HOME")
-	generated, err := HooksJSON(150)
+	generated, err := HooksJSON(install.GateTimeout)
 	if err != nil {
 		t.Fatal(err)
 	}

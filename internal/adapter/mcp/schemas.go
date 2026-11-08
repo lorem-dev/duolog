@@ -36,6 +36,7 @@ const (
 		`"action":{"type":"string","enum":["open","send","wait","answer","status","close","list"]},` +
 		`"id":{"type":"string"},` +
 		`"role":{"type":"string"},` +
+		`"worktree":{"type":"string","description":"For open: path or name under .worktrees"},` +
 		`"task":` + taskSchema + `,` +
 		`"option":{"type":"string"},` +
 		`"reason":{"type":"string"},` +

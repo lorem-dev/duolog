@@ -20,7 +20,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
-// Stop runs in a peer's pane when the agent ends a turn. When the peer's task
+// Stop guards a Claude lead's stop with leadStop. In a peer's pane, when its task
 // is still unfinished by the rule of duolog peer status, and no duolog peer
 // wait watches the peer and so will report the turn itself, it puts one
 // status line on the bus for the lead, whose hooks deliver it, once per sent
@@ -32,6 +32,9 @@ import (
 // wait starts: parsing it takes most of a line's work, and a wait spent on it
 // would leave a line that got its lock late no time to send.
 func Stop(ctx context.Context, e Env) Output {
+	if !worker(e) {
+		return leadStop(ctx, e)
+	}
 	peer := value(environment(e), "DUOLOG_PEER")
 	if ctx.Err() != nil || peer == "" || !worker(e) || !served(e) {
 		return Output{}

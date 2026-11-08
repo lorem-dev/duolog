@@ -22,6 +22,8 @@ import (
 const (
 	fiveHourMinutes = 300
 	weeklyMinutes   = 10080
+	// individualKind is the window kind of a Codex individual limit.
+	individualKind = "individual"
 )
 
 // Accounts is calibration's view of the user's accounts: one account gate,
@@ -203,15 +205,24 @@ func (a *Accounts) Budgets(ctx context.Context) (map[string]budget.BillingBudget
 // admission keeps the reserve in the ones of the cell's model too. A window
 // the account refuses counts as used up. Percentages are taken as the agent
 // reports them, in points of the whole window, once.
+//
+// A Codex individual limit, the per-person spend limit of an enterprise or
+// workspace seat, has no length and is the account's long limit: it maps to
+// the weekly kind, so it gets the weekly lead reserve and cap of the usable
+// share, and calibration can run on an account that has no other window.
+// Next to a weekly window of the same scope it is left out, since budget
+// keeps one window of each kind; paid runs admission still holds every
+// step's worker to it.
 func Windows(s account.Snapshot) []budget.Window {
 	var ws []budget.Window
 	add := func(model string, windows []account.Window) {
+		weekly := slices.ContainsFunc(windows, func(w account.Window) bool { return w.DurationMinutes == weeklyMinutes })
 		for _, w := range windows {
 			var kind string
-			switch w.DurationMinutes {
-			case fiveHourMinutes:
+			switch {
+			case w.DurationMinutes == fiveHourMinutes:
 				kind = budget.KindFiveHour
-			case weeklyMinutes:
+			case w.DurationMinutes == weeklyMinutes, w.Kind == individualKind && !weekly:
 				kind = budget.KindWeekly
 			default:
 				continue

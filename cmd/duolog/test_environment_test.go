@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/app/gate"
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/wiring/wiringtest"
 )
@@ -29,6 +30,34 @@ func TestMainClearsWorkerEnvironment(t *testing.T) {
 	cmd.Env = append(os.Environ(), "DUOLOG_TEST_CHECK_ENV=1", "DUOLOG_DEPTH=2", "DUOLOG_LEAD=other", "DUOLOG_ROLE=implement")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%s %v", out, err)
+	}
+}
+
+func TestMainClearsPaidEnvironment(t *testing.T) {
+	keys := []string{
+		"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+		"ANTHROPIC_PROFILE", "ANTHROPIC_FEDERATION_RULE_ID",
+		"CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
+		"AWS_BEARER_TOKEN_BEDROCK", "AWS_BEARER_TOKEN_TEST",
+		"OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_FEDERATION_RULE_ID", "CODEX_API_KEY",
+	}
+	if os.Getenv("DUOLOG_TEST_CHECK_PAID_ENV") == "1" {
+		for _, key := range keys {
+			if _, ok := os.LookupEnv(key); ok {
+				t.Errorf("inherited %s", key)
+			}
+		}
+		return
+	}
+	for _, value := range []string{"test-credential", ""} {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestMainClearsPaidEnvironment$")
+		cmd.Env = append(os.Environ(), "DUOLOG_TEST_CHECK_PAID_ENV=1")
+		for _, key := range keys {
+			cmd.Env = append(cmd.Env, key+"="+value)
+		}
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%s %v", out, err)
+		}
 	}
 }
 
@@ -50,6 +79,7 @@ func TestDoctorTestsRefuseMachineRex(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
+	launchtest.ClearPaidEnvironment()
 	// Each test process starts as an independent lead; tests set worker roles explicitly.
 	for _, key := range []string{"DUOLOG_DEPTH", "DUOLOG_LEAD", "DUOLOG_ROLE"} {
 		if err := os.Unsetenv(key); err != nil {

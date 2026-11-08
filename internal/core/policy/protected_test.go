@@ -3,6 +3,7 @@ package policy
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -136,6 +137,8 @@ func TestProtectedWorkerPaths(t *testing.T) {
 		"cat $HOME":            exec(`cat "$HOME/state/duolog/telemetry/salt"`),
 		"cat private":          exec("cat " + slash(private)),
 		"grep -r":              exec("grep -r token " + slash(h.telemetry)),
+		"grep regex pipeline":  exec(`grep -rn '"sol"\|sol:' ` + slash(h.telemetry) + ` 2>/dev/null | sort -u`),
+		"wrapped grep":         exec(`sh -c 'grep -rn "sol\|model" ` + slash(h.balance) + `'`),
 		"rg":                   exec("rg token " + slash(h.balance)),
 		"find":                 exec("find " + slash(h.telemetry) + " -name '*.ndjson'"),
 		"glob":                 exec("cat " + slash(h.telemetry) + "/v1/*/*.ndjson"),
@@ -184,6 +187,8 @@ func TestProtectedAncestorSearch(t *testing.T) {
 	}
 	for name, a := range map[string]Action{
 		"grep -r home":     exec("grep -r token "+slash(h.home), h.work),
+		"grep regex cwd":   exec(`grep -rn '"sol"\|sol:'`, h.home),
+		"grep regex root":  exec(`grep -rn '"sol"\|sol:' /`, h.work),
 		"grep -R parent":   exec("grep -R token ..", h.work),
 		"rg base":          exec("rg token "+slash(h.base), h.work),
 		"rg hidden home":   exec("rg --hidden token ~", h.work),
@@ -212,6 +217,91 @@ func TestProtectedAncestorSearch(t *testing.T) {
 	}
 }
 
+func TestProtectedRepositorySearch(t *testing.T) {
+	h := newProtectedHome(t)
+	p := broadPolicy(t, h.home)
+	for _, command := range []string{
+		`grep -rn '"sol"\|sol:' --include='*.go' --include='*.yaml' internal assets 2>/dev/null | grep -iv _test | grep -i 'gpt\|model' | head -8; git log -5 --format='%b' | grep -i 'co-authored\|AI-Assisted' | sort -u`,
+		`grep -rn x internal assets`,
+		`git log -5 --format=%b`,
+		`grep -rn x internal assets | sort -u`,
+		`grep -rn x internal assets 2>/dev/null`,
+		`grep -rn '"sol"\|sol:' internal assets`,
+		`grep -rn '"sol"\|' internal assets`,
+		`grep -rn 'sol \|model' internal assets`,
+		`grep -rn '"sol"\|sol:'`,
+		`sh -c 'grep -rn "sol\|model" internal assets'`,
+	} {
+		t.Run(command, func(t *testing.T) {
+			a := Action{Kind: "exec", Target: command, Work: h.work, Cwd: h.work, ProtectedRoots: h.roots()}
+			if d, ok := protectedDecision(a, mode.Full); ok {
+				for _, words := range protectedWords(command, "") {
+					t.Logf("words=%q search roots=%q", words, searchRoots(words))
+				}
+				t.Fatalf("ordinary project read guarded: %+v", d)
+			}
+			assertNormal(t, p, a)
+		})
+	}
+}
+
+// Under eval or sh -c the outer shell removes the backslash, so an escaped
+// separator is a real one by the time the command runs. Both readings count.
+func TestEscapedSeparatorsStayDenied(t *testing.T) {
+	h := newProtectedHome(t)
+	p := broadPolicy(t, h.home)
+	action := func(command string) Action {
+		return Action{Kind: "exec", Target: command, Role: "implement", Work: h.work, Cwd: h.work, ProtectedRoots: h.roots()}
+	}
+	for _, command := range []string{
+		`eval true\;duolog telemetry show`,
+		`eval true\|duolog telemetry show`,
+		`eval true\&duolog telemetry show`,
+		"eval echo \\`duolog telemetry show\\`",
+		`eval echo \$\(duolog telemetry show\)`,
+		`sh -c true\;duolog\ telemetry\ show`,
+		`bash -c true\;duolog\ balance`,
+		`sh -c 'eval true\;duolog telemetry show'`,
+	} {
+		t.Run(command, func(t *testing.T) { assertProtected(t, p, action(command)) })
+	}
+	for _, command := range []string{`eval true\;claude -p hi`, `sh -c true\;codex\ exec\ hi`} {
+		t.Run(command, func(t *testing.T) {
+			for _, m := range allModes {
+				if d := Evaluate(p, LeadRules{}, m, action(command)); d.Kind != Deny || d.Rule != RuleAgentLaunch {
+					t.Errorf("%s: %+v, want an agent launch deny", m, d)
+				}
+			}
+		})
+	}
+}
+
+// A bare backslash before a separator is the tail of a quoted regex, not a
+// search of the drive root. Everywhere else it keeps counting.
+func TestBareBackslashSearchRoot(t *testing.T) {
+	roots := func(command, shell string) []string {
+		var all []string
+		for _, words := range protectedWords(command, shell) {
+			all = append(all, searchRoots(words)...)
+		}
+		return all
+	}
+	has := func(list []string) bool { return slices.Contains(list, `\`) }
+	if got := roots(`grep -rn '"sol"\|sol:' internal assets`, ""); has(got) {
+		t.Errorf("a regex alternative searched the root: %q", got)
+	}
+	for _, tc := range []struct{ command, shell string }{
+		{`rg token \| sort`, "powershell"},
+		{`rg token \| sort`, "windows"},
+		{"grep -r token \\\nsrc", ""},
+		{`grep -r token \ src`, ""},
+	} {
+		if got := roots(tc.command, tc.shell); !has(got) {
+			t.Errorf("%q in %q: the backslash stopped counting: %q", tc.command, tc.shell, got)
+		}
+	}
+}
+
 func TestProtectedCommandForms(t *testing.T) {
 	for _, tc := range []struct{ command, shell string }{
 		{"duolog telemetry", ""},
@@ -228,6 +318,7 @@ func TestProtectedCommandForms(t *testing.T) {
 		{`duolog "telemetry" show`, ""},
 		{"env DUOLOG_X=1 duolog telemetry status", ""},
 		{"sh -c 'duolog telemetry show'", ""},
+		{`sh -c 'script="duolog telemetry show"; eval "$script"'`, ""},
 		{`bash -c "duolog balance"`, ""},
 		{"time duolog balance", ""},
 		{"nohup duolog telemetry show", ""},

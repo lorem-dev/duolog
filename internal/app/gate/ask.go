@@ -239,20 +239,42 @@ func askSummary(text string, budget int) string {
 	return text[:head] + marker + text[tail:]
 }
 
-// MaxAskWait fits below the 150-second timeout of every shipped gate hook.
-const MaxAskWait = 120 * time.Second
+const (
+	// MaxAskWait is the longest wait for an ask a lead can answer: a lead that
+	// works sees it within a turn, and its worker should not stall for longer.
+	MaxAskWait = 120 * time.Second
+	// MaxPersonAskWait is the longest wait for an ask only the person can
+	// answer. With HookMargin it fits the timeout install writes.
+	MaxPersonAskWait = 10 * time.Minute
+	// HookMargin is how long before its hook's timeout a gate stops waiting.
+	// An agent that kills a hook can let the tool run, so the gate has to
+	// answer with a deny first.
+	HookMargin = 30 * time.Second
+	// LegacyHookBudget is the gate hook timeout that earlier installs wrote. It
+	// stands in when no hooks file shows the hook's own timeout.
+	LegacyHookBudget = MaxAskWait + HookMargin
+)
 
 // AskExpired reports that no gate can still be waiting for this ask: its asker's
 // wait has passed. An ask from before asks carried their wait keeps the hook
 // budget, which also covers a worker that was killed.
 func AskExpired(m bus.Message) bool {
 	at, err := time.Parse(time.RFC3339Nano, m.T)
-	wait := MaxAskWait + 30*time.Second
+	wait := LegacyHookBudget
 	if m.W > 0 {
 		wait = time.Duration(m.W) * time.Second
 	}
 	return err == nil && time.Since(at) > wait
 }
 
-// AskWait clamps project settings to the shipped hook budget.
-func AskWait(seconds int) time.Duration { return min(time.Duration(seconds)*time.Second, MaxAskWait) }
+// AskWait is how long one ask waits: the configured seconds, within the cap of
+// its kind and with HookMargin to spare inside hook, the timeout of the hook
+// that runs this gate. A hook too short to wait in gives no wait, so the ask
+// denies at once.
+func AskWait(seconds int, person bool, hook time.Duration) time.Duration {
+	ceiling := MaxAskWait
+	if person {
+		ceiling = MaxPersonAskWait
+	}
+	return max(0, min(time.Duration(seconds)*time.Second, ceiling, hook-HookMargin))
+}

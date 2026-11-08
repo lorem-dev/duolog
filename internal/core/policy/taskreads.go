@@ -41,14 +41,16 @@ func TaskReads(value string) []string {
 }
 
 // outsideReadAllow allows a read outside the work root that is the worker's
-// own, as OwnResult says, or that its task lists under Read, unless the read
-// rules asked about the read. Every deny has been judged before.
+// own, as OwnResult says, an agent skill, or one its task lists under Read,
+// unless the read rules asked about the read. Every deny was judged before.
 func outsideReadAllow(p config.Policy, lead LeadRules, a Action, readAsk *Decision, decision func(kind, reason, rule string) Decision) (Decision, bool) {
 	switch {
 	case a.Kind != "read" || !outside(a.Target):
 		return Decision{}, false
 	case a.OwnResult:
 		return decision(Allow, "the worker's own saved tool result or session temp file", "own tool results"), true
+	case readAsk == nil && (a.agentRead || agentReadTool(a, searchable(p, lead, a))):
+		return decision(Allow, "the agent's own skill files", "agent skills"), true
 	case readAsk == nil && (a.taskRead || taskReadTool(a, searchable(p, lead, a))):
 		return decision(Allow, "a path the task lists under Read", RuleTaskRead), true
 	}
@@ -89,7 +91,7 @@ func searchable(p config.Policy, lead LeadRules, a Action) func(dir string) bool
 			}
 			return nil
 		})
-		return err == nil && !slices.ContainsFunc(a.ProtectedRoots, func(root string) bool { return within(dir, pathutil.Resolved(root)) })
+		return err == nil && !slices.ContainsFunc(closedRoots(a), func(root string) bool { return within(dir, pathutil.Resolved(root)) })
 	}
 }
 

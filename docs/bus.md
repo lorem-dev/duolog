@@ -93,6 +93,11 @@ which also reports a question. A worker's question to an idle lead that is doing
 neither is denied after its wait. The Codex lead has no wake hook. A Codex lead
 sees mail on its next prompt.
 
+Keep a background `duolog peer wait <id>` with a completion notification for
+each busy peer. After relaying gate ask N, use `--after-ask N` to keep waiting
+through its answer or expiry. Claude's `Stop` hook reminds a lead that has no
+live wait for a busy peer. It also delivers mail that arrived before Stop.
+
 ## Known limits
 
 - A whole-file reference cost more than the same content in our saved

@@ -48,8 +48,11 @@ type CmdDeps struct {
 	// Lead is what lead register reaches: each agent's Lead, the registry and
 	// the agent process above the command's shell.
 	Lead lead.Deps
-	// AskWait turns policy.ask_timeout_seconds into the wait for an answer.
-	AskWait func(seconds int) time.Duration
+	// AskWait turns the configured seconds of an ask into the wait for an
+	// answer, given the timeout of the hook that runs the gate.
+	AskWait func(seconds int, person bool, hook time.Duration) time.Duration
+	// HookLimit reads the timeout of the gate hook that runs for agent and event.
+	HookLimit func(agent, event, root, work string, environ []string) time.Duration
 	// ObserveLead returns an observation of how agent's lead itself was started.
 	ObserveLead func(agent string) (session.LeadRoute, bool)
 	// AgentAncestor names a Claude or Codex process above this one.
@@ -83,6 +86,7 @@ func Cmd() CmdDeps {
 		LocateRex:       func() (string, bool) { return rex.Locate(os.Getenv("REX_BIN_DIR"), rex.BundleGlobs()) },
 		Lead:            LeadDeps(),
 		AskWait:         gate.AskWait,
+		HookLimit:       HookAskLimit,
 		// duolog has no source for an observation of the lead's start yet, and
 		// its own environment never stands for the lead, so the lead reports
 		// unknown.

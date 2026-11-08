@@ -1,6 +1,9 @@
 package policy
 
 import (
+	"cmp"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -149,34 +152,158 @@ func icasePathspec(word string) bool {
 	return icase && !excluded
 }
 
+// gitTop returns the top of the repository a's command runs in: the nearest
+// folder from the working folder up that holds .git, a linked worktree's file
+// too, or the work root when none does.
+func gitTop(a Action) string {
+	folder := workingFolder(a)
+	for dir := folder; dir != ""; dir = filepath.Dir(dir) {
+		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		if dir == filepath.Dir(dir) {
+			break
+		}
+	}
+	return a.Work
+}
+
+// workingFolder is the folder a's command runs in.
+func workingFolder(a Action) string {
+	return cmp.Or(a.Cwd, a.Work)
+}
+
+// topPathspec reports whether word is a pathspec that Git reads from the top
+// of the repository, wherever it runs: :(top)x or its short form :/x.
+func topPathspec(word string) bool {
+	rest, magic := strings.CutPrefix(word, ":")
+	if !magic {
+		return false
+	}
+	if long, ok := strings.CutPrefix(rest, "("); ok {
+		names, _, closed := strings.Cut(long, ")")
+		return closed && slices.Contains(strings.Split(names, ","), "top")
+	}
+	return strings.Contains(rest[:len(rest)-len(strings.TrimLeft(rest, "/!^"))], "/")
+}
+
+// gitTopPaths returns the paths of the top pathspecs of a Git read, its
+// subcommand at args[0], as gitTargets reads its operands.
+func gitTopPaths(args []string) []string {
+	var paths []string
+	literal := false
+	for i := 1; i < len(args); i++ {
+		switch word := args[i]; {
+		case literal || !strings.HasPrefix(word, "-"):
+			if topPathspec(word) {
+				paths = append(paths, pathspecPaths(word)...)
+			}
+		case word == "--":
+			literal = true
+		case gitPatternOption(word), word == "-L":
+			i++
+		}
+	}
+	return paths
+}
+
+// withTopPathspecs adds to the targets of a Git read, words being its own,
+// each path that a top pathspec reads, placed from the working folder. The
+// plain spelling stays among the targets, so what it denied stays denied.
+func withTopPathspecs(a Action, words, targets []string) []string {
+	if len(words) < 2 || !strings.EqualFold(words[0], "git") {
+		return targets
+	}
+	paths := gitTopPaths(words[1:])
+	folder := workingFolder(a)
+	top := gitTop(a)
+	if len(paths) == 0 || folder == top {
+		return targets
+	}
+	for _, path := range paths {
+		if rel, err := filepath.Rel(folder, filepath.Join(top, pathutil.Native(path))); err == nil {
+			targets = append(targets, filepath.ToSlash(rel))
+		}
+	}
+	return targets
+}
+
 // gitGlobDenied reports whether a Git read among parts names a pathspec glob
-// aimed at a name policy denies (globAimedAtDeny). Git expands *, ? and [ of a
+// aimed at a name policy denies (pathspecDenied). Git expands *, ? and [ of a
 // pathspec itself, so quoting one does not help, and git log -p prints what it
-// matches. Any other glob is left to ask, or to the state rule.
+// matches. Any other glob is left to ask, or to the state rule. A top pathspec
+// is also judged against the tree at the top of the repository, where Git
+// reads it.
 func gitGlobDenied(p config.Policy, lead LeadRules, a Action, parts []string) bool {
 	denies := readDenyPatterns(p, lead, a)
+	denied := func(from Action) func(string) bool {
+		return func(target string) bool {
+			return strings.ContainsAny(target, "*?[") && pathspecDenied(p, lead, from, target, denies)
+		}
+	}
+	fromTop := a
+	fromTop.Cwd = gitTop(a)
 	return slices.ContainsFunc(parts, func(part string) bool {
 		words := commandWords(part)
 		if len(words) < 2 || !strings.EqualFold(words[0], "git") || !readOnlyCommand(part) {
 			return false
 		}
 		targets, _ := gitTargets(words[1:])
-		return slices.ContainsFunc(targets, func(target string) bool {
-			return strings.ContainsAny(target, "*?[") && globAimedAtDeny(target, denies)
-		})
+		return slices.ContainsFunc(targets, denied(a)) || slices.ContainsFunc(gitTopPaths(words[1:]), denied(fromTop))
 	})
 }
 
 // gitOptionGlob reports whether a Git read of a POSIX line has a word that
-// starts with - and holds a *, ? or [ outside quotes. The shell makes options
-// of the files such a word matches, and a file named -L1,1:.env or
-// --output=x is enough to read a denied file or to write one.
+// starts with - and holds a *, ? or [ outside quotes, or, before a --, a word
+// whose glob can start with - (globStartsOption). The shell makes options of
+// the files such a word matches, and a file named -L1,1:.env or --output=x is
+// enough to read a denied file or to write one.
 func gitOptionGlob(a Action) bool {
 	return slices.ContainsFunc(readCommandWords(a), func(words []shellWord) bool {
-		return programName(words[0].text) == "git" && slices.ContainsFunc(words[1:], func(word shellWord) bool {
-			return word.hasGlob() && strings.HasPrefix(word.text, "-")
+		if programName(words[0].text) != "git" {
+			return false
+		}
+		operands := false
+		return slices.ContainsFunc(words[1:], func(word shellWord) bool {
+			operands = operands || word.text == "--"
+			return word.hasGlob() && (strings.HasPrefix(word.text, "-") || !operands && globStartsOption(word))
 		})
 	})
+}
+
+// globStartsOption reports whether an unquoted glob at the start of a word can
+// match a name that starts with -: a ?, a bracket expression that admits -, or
+// a *, unless a plain ending shows a file name is meant, as in *.go, whose
+// ordinary reading the gate leaves to the lead.
+func globStartsOption(word shellWord) bool {
+	if word.text == "" || word.quoted[0] {
+		return false
+	}
+	switch word.text[0] {
+	case '?':
+		return true
+	case '[':
+		end := bracketEnd(word.text, 0)
+		if end == 0 {
+			return false
+		}
+		class := word.text[1:end]
+		negated := strings.HasPrefix(class, "!") || strings.HasPrefix(class, "^")
+		return negated != strings.Contains(class, "-")
+	case '*':
+		return strings.TrimLeft(word.text[1:], "*") != "" && !plainEnding(word.text[1:]) || strings.Trim(word.text, "*") == ""
+	}
+	return false
+}
+
+// plainEnding reports whether text holds only what a file name's end holds.
+func plainEnding(text string) bool {
+	for i := 0; i < len(text); i++ {
+		if !isNameByte(text[i]) && strings.IndexByte("./-", text[i]) < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // gitOptionGlobDeny is the deny of a Git read with such a word where only reads

@@ -5,6 +5,9 @@ package launchtest
 
 import (
 	"context"
+	"os"
+	"runtime"
+	"strings"
 
 	"github.com/lorem-dev/duolog/internal/adapter/claude"
 	"github.com/lorem-dev/duolog/internal/adapter/codex"
@@ -17,6 +20,24 @@ import (
 	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
+
+// ClearPaidEnvironment removes ambient paid-route signals before TestMain
+// runs tests. Use Unsetenv: even an empty value is a signal. Tests that need
+// credentials set their own with t.Setenv after this baseline is established.
+func ClearPaidEnvironment() {
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		key := name
+		if runtime.GOOS == "windows" {
+			key = strings.ToUpper(key)
+		}
+		if workerenv.RouteName("claude", key, "") || workerenv.RouteName("codex", key, "") {
+			if err := os.Unsetenv(name); err != nil {
+				panic(err)
+			}
+		}
+	}
+}
 
 // Build is workerenv.Build, the value of every Deps.Build.
 func Build(in launch.ProcessInput) (launch.Process, error) { return workerenv.Build(in) }

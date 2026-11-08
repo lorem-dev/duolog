@@ -100,8 +100,8 @@ func TestSkillsCheckBinaryAndRules(t *testing.T) {
 				if copied != shipped {
 					t.Fatal("installed skill differs from plugin")
 				}
-				if len(strings.Fields(shipped)) >= 400 {
-					t.Fatal("skill must stay under 400 words")
+				if len(strings.Fields(shipped)) >= 500 {
+					t.Fatal("skill must stay under 500 words")
 				}
 				for _, want := range []string{"Run `duolog version`", "not found", "tell the user", "only if they agree", "Run `duolog doctor` once per session", "rules are off", "what it names", "`/hooks`"} {
 					if !strings.Contains(shipped, want) {
@@ -163,7 +163,7 @@ func TestReinstallUpgradesOlderClaudeHooks(t *testing.T) {
 		}
 		write(t, path, string(raw))
 		run(t, Options{Scope: "project", Agent: "claude", Home: home, Root: root})
-		hooks, _ := HooksJSON("claude", 150)
+		hooks, _ := HooksJSON("claude", GateTimeout)
 		// install adds the MCP allow entries to the same file.
 		want, _ := testDeps().Agents[0].Installer.(MCPServers).Allow(hooks, mcpAllowed, true)
 		if read(t, path) != string(want) {

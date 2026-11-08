@@ -239,3 +239,19 @@ func TestTierUpgradeMarginAndImmediateDowngrade(t *testing.T) {
 		t.Errorf("workspace: %+v", got)
 	}
 }
+
+// An individual limit of unknown length votes with the stricter weekly cuts,
+// and a workspace account stays small whatever it measures.
+func TestTierIndividualLimit(t *testing.T) {
+	cfg := tierConfig()
+	s := individualSnapshot(10)
+	codex := subscriber("codex")
+	samples := []RateSample{rate("codex", "sol", "individual", .01, 3)}
+	if got := SelectTier(codex, s, samples, TierResult{Tier: TierLarge}, cfg); got.Tier != TierMedium || !strings.Contains(got.Reason, "individual") {
+		t.Fatalf("personal individual limit: %+v, want medium at the weekly cuts", got)
+	}
+	codex.Account, codex.UsableShare = "workspace", 0.5
+	if got := SelectTier(codex, s, samples, TierResult{Tier: TierLarge}, cfg); got.Tier != TierSmall || !strings.Contains(got.Reason, "workspace account") {
+		t.Fatalf("workspace individual limit: %+v", got)
+	}
+}

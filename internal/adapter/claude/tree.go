@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/lorem-dev/duolog/internal/core/agent"
+	"github.com/lorem-dev/duolog/internal/install"
 )
 
 // localSettings is the personal Claude settings file, where a calibration tree
@@ -15,7 +16,7 @@ const localSettings = ".claude/settings.local.json"
 
 // gateTimeout is the gate's hook timeout in seconds, as duolog install writes
 // it.
-const gateTimeout = 150
+const gateTimeout = install.GateTimeout
 
 // Tree guards a calibration tree or judge slot for a Claude worker.
 type Tree struct{}

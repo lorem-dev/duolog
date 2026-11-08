@@ -26,6 +26,9 @@ type Deps struct {
 	// DroppedKeys lists the route names an agent's workers no longer get:
 	// workerenv.DroppedKeys.
 	DroppedKeys launch.DroppedKeys
+	// PaidClaudeRoute reports whether a variable name can move Claude's runs
+	// onto a paid route: workerenv.RouteName for Claude. Nil names none.
+	PaidClaudeRoute func(name string) bool
 	// Names lists the registered agents in registry order; doctor loops over
 	// them where it reports each agent.
 	Names []string

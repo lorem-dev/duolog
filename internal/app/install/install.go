@@ -21,8 +21,9 @@ import (
 )
 
 // GateTimeout is the timeout, in seconds, that install writes for a gate
-// hook: longer than the gate's longest wait.
-const GateTimeout = 150
+// hook: longer than the gate's longest wait, the ten minutes of an ask only
+// the person can answer.
+const GateTimeout = 630
 
 // Installer is what Run and Remove ask of one agent.
 //
@@ -286,7 +287,7 @@ func pluginEdits(a Agent, o Options, base, path string) (edits []edit, note stri
 		}
 		edits = append(edits, edit{path: path, data: data})
 	}
-	note = strings.ToUpper(a.Name[:1]) + a.Name[1:] + ": the " + pluginKey + " plugin is enabled, so its hooks and skill are used and none were installed here. Gate waits are capped at 120 seconds."
+	note = strings.ToUpper(a.Name[:1]) + a.Name[1:] + ": the " + pluginKey + " plugin is enabled, so its hooks and skill are used and none were installed here. Gate waits fit the plugin's hook timeouts."
 	return edits, note, true, nil
 }
 

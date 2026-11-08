@@ -57,8 +57,8 @@ const (
 var errIdentity = errors.New("account identity not recorded")
 
 // ErrTimedOut is the error of a read that did not end in its budget, or
-// whose caller gave up on it.
-var ErrTimedOut = errors.New("read timed out or canceled")
+// whose caller gave up on it. It found nothing, so it is transient.
+var ErrTimedOut error = account.TransientError("read timed out or canceled")
 
 // Read returns the agent's quota as a free worker sees it: the process that
 // workerenv.Build makes from duolog's environment and the default
@@ -73,8 +73,13 @@ func (r Reader) Read(ctx context.Context, agent string) (Snapshot, error) {
 	return r.ReadProcess(ctx, p)
 }
 
-// retryFactor lengthens the budget of the one retry of a timed-out read.
-const retryFactor = 2
+const (
+	// retryFactor lengthens the budget of the one retry of a timed-out read.
+	retryFactor = 2
+	// retryPause is the wait before the retry of a read that failed at once,
+	// long enough for another read of the same account to end.
+	retryPause = 500 * time.Millisecond
+)
 
 // ReadProcess returns the quota that process p sees. Every read runs p's
 // argv, its prefix and settings included, with exactly p's environment, and
@@ -84,19 +89,38 @@ const retryFactor = 2
 // A read that runs past its own budget, or whose Claude auth status runs
 // past its bound, is read once more with both budgets retryFactor times as
 // long: on a loaded machine each cold start of the CLI can take seconds,
-// and a Claude read starts it twice in a row. A caller that ends ctx, or a
-// Reader with Once set, gets no retry. A retry that fails again is a failed
-// read, as the first one was.
+// and a Claude read starts it twice in a row. Any other transient failure is
+// read once more after retryPause, with the same budgets. A caller that ends
+// ctx, or a Reader with Once set, gets no retry. A retry that fails again is
+// a failed read, as the first one was.
 func (r Reader) ReadProcess(ctx context.Context, p workerenv.Process) (Snapshot, error) {
 	timeout := r.Timeout
 	if timeout <= 0 {
 		timeout = 15 * time.Second
 	}
 	s, err := r.readOnce(ctx, p, timeout, claudeAuthTimeout)
-	if !r.Once && ctx.Err() == nil && (errors.Is(err, ErrTimedOut) || err == nil && timedOut(s.Billing)) {
-		s, err = r.readOnce(ctx, p, retryFactor*timeout, retryFactor*claudeAuthTimeout)
+	if r.Once || ctx.Err() != nil {
+		return s, err
+	}
+	switch {
+	case errors.Is(err, ErrTimedOut) || err == nil && timedOut(s.Billing):
+		return r.readOnce(ctx, p, retryFactor*timeout, retryFactor*claudeAuthTimeout)
+	case account.IsTransient(err) && pause(ctx, retryPause):
+		return r.readOnce(ctx, p, timeout, claudeAuthTimeout)
 	}
 	return s, err
+}
+
+// pause waits for d and reports false when ctx ended first.
+func pause(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
 }
 
 // readOnce is one read of p, bounded by timeout, with auth status bounded by
@@ -312,11 +336,11 @@ func (r Reader) readCodex(ctx context.Context, run runner) (Snapshot, error) {
 	// opt-in capability. A failed account, config or auth read is missing
 	// route evidence; only the rate limit read decides whether the read
 	// failed.
-	account := unreadFacts("account:unread", codexAccountLayer)
+	account, accountPlan := unreadFacts("account:unread", codexAccountLayer), ""
 	config := unreadFacts("provider:unread", codexConfigLayer)
 	auth := unreadFacts("auth:unread", codexAuthLayer)
 	if data, err := call(codexAccountID, "account/read", map[string]any{"refreshToken": false}); err == nil {
-		account, _ = parseCodexAccount(data)
+		account, accountPlan = readCodexAccount(data)
 		if err := run.identify(codexIdentity(data)); err != nil {
 			return Snapshot{Billing: codexBilling(BillingFacts{}, account, config, auth)}, err
 		}
@@ -332,7 +356,7 @@ func (r Reader) readCodex(ctx context.Context, run runner) (Snapshot, error) {
 		return Snapshot{Billing: codexBilling(BillingFacts{}, account, config, auth)}, limitsErr
 	}
 	s, err := parseCodex(data)
-	s.Billing = codexBilling(s.Billing, account, config, auth)
+	s.Billing = codexBilling(settleCodexSeat(s.Billing, data, account, accountPlan), account, config, auth)
 	return s, err
 }
 
@@ -376,7 +400,13 @@ func (l codexLimit) blocked() bool {
 	return l.facts.spendReached || (o != nil && !*o) || (v != "" && v != "null" && v != `"none"` && v != `""`)
 }
 
-func (l codexLimit) windows() ([]Window, error) {
+func (l codexLimit) windows() ([]Window, error) { return l.windowsBeside(false) }
+
+// windowsBeside reads the limit's windows. A bad individual limit beside a
+// valid window, this limit's or, with others, one of the reply's, is left out,
+// so that it cannot stop an account that works. With no other window it fails
+// the read.
+func (l codexLimit) windowsBeside(others bool) ([]Window, error) {
 	var result []Window
 	for _, w := range []*codexWindow{l.Primary, l.Secondary} {
 		if w == nil {
@@ -397,6 +427,15 @@ func (l codexLimit) windows() ([]Window, error) {
 			reset = time.Unix(w.ResetsAt, 0).UTC()
 		}
 		result = append(result, Window{Kind: kind, DurationMinutes: w.WindowDurationMins, UsedPercent: *w.UsedPercent, ResetsAt: reset})
+	}
+	if l.facts.individual != nil {
+		w, err := l.facts.individual.window()
+		if err != nil && len(result) == 0 && !others {
+			return nil, err
+		}
+		if err == nil {
+			result = append(result, w)
+		}
 	}
 	return result, nil
 }
@@ -441,7 +480,7 @@ func parseCodex(data []byte) (Snapshot, error) {
 	slices.Sort(ids)
 	for _, id := range ids {
 		limit := reply.ByID[id]
-		ws, err := limit.windows()
+		ws, err := limit.windowsBeside(len(windows) > 0)
 		if err != nil {
 			return Snapshot{}, err
 		}
@@ -469,5 +508,5 @@ func parseCodex(data []byte) (Snapshot, error) {
 		}
 		s.ModelLimits[family] = append(s.ModelLimits[family], ws...)
 	}
-	return s, nil
+	return allowIndividualSeat(s, l, readCodexPermission(top), reply.ByID), nil
 }

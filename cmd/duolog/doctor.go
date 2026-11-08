@@ -42,7 +42,9 @@ func newDoctorCommand(d *cmdDeps) *cobra.Command {
 			return err
 		}
 		opts := doctor.Options{Root: root, Registry: reg, Probe: probe}
-		opts.RexShadow, _ = rex.Shadow()
+		if shadow, ok := rex.Shadow(); ok {
+			opts.RexShadow = shadow
+		}
 		var inventoryFindings []doctor.Finding
 		if bin, ok := d.LocateRex(); ok && runtime.GOOS != "windows" {
 			opts.RexBin = bin

@@ -55,11 +55,11 @@ func (f readsFixture) word(name string) string { return filepath.ToSlash(f.path(
 
 // read is a read tool's action as the hook builds it, relative to the work root.
 func (f readsFixture) read(target string, reads ...string) Action {
-	return Action{Kind: "read", Target: RelativeTarget(f.work, f.work, target), Role: "review_final", Work: f.work, Reads: reads}
+	return Action{Kind: "read", Target: RelativeTarget(f.work, f.work, target), Role: "review_final", Work: f.work, Reads: reads, WideRead: wideSkillRoot}
 }
 
 func (f readsFixture) exec(command string, reads ...string) Action {
-	return Action{Kind: "exec", Target: command, Role: "review_final", Work: f.work, Cwd: f.work, State: f.work, Reads: reads}
+	return Action{Kind: "exec", Target: command, Role: "review_final", Work: f.work, Cwd: f.work, State: f.work, Reads: reads, WideRead: wideSkillRoot}
 }
 
 // A path that the task lists under Read is readable for a read-only worker,

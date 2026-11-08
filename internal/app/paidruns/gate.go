@@ -213,9 +213,10 @@ func SessionWait(cfg *config.Config) time.Duration {
 //
 // A paid verdict is admitted only in the paid variant of an agent that
 // opted in with a cap; for a calibration cell, also with calibrate. A failed
-// read is paid. A run that used overage keeps the next admissions at
-// subscription_overage until a successful read made after it. A refusal is
-// a *Refusal; other errors mean the state or the build failed.
+// read is paid, unless Cache.Get used a recent good read of the same route
+// in place of a transient failure. A run that used overage keeps the next
+// admissions at subscription_overage until a successful read made after it.
+// A refusal is a *Refusal; other errors mean the state or the build failed.
 func (g *Gate) Acquire(ctx context.Context, req Request) (Permit, error) {
 	if err := g.check(req); err != nil {
 		return Permit{}, err

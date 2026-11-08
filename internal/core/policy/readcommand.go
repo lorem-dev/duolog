@@ -223,6 +223,10 @@ func commandWords(part string) []string {
 	return words
 }
 
+// recursiveSearchReason is the reason of readCommandTargets for a recursive
+// search, which filteredGrepReads can take back.
+const recursiveSearchReason = "a recursive search can read files that policy denies; name the files or use rg without --hidden, -u or --no-ignore"
+
 // readCommandTargets lists the paths a read-only command reads. A non-empty
 // reason means that a person has to decide, even when named paths are known.
 func readCommandTargets(command string) (targets []string, reason string) {
@@ -254,7 +258,7 @@ func readCommandTargets(command string) (targets []string, reason string) {
 	if recursive {
 		defer func() {
 			if reason == "" {
-				reason = "a recursive search can read files that policy denies; name the files or use rg without --hidden, -u or --no-ignore"
+				reason = recursiveSearchReason
 			}
 		}()
 	}
@@ -298,7 +302,7 @@ func readCommandTargets(command string) (targets []string, reason string) {
 			// -g X and --glob X: the next word is the option's value, not a path.
 			if separateValue(name, word) && i+1 < len(args) {
 				i++
-				if strings.ContainsAny(args[i], "*?[{") || strings.HasPrefix(args[i], "~") {
+				if globbedOptionValue(name, word, args[i]) || strings.HasPrefix(args[i], "~") {
 					return nil, "a shell glob or brace in an option value can expand onto files that policy denies; name the files"
 				}
 				// Only -f/--file names a file; -e, -g, -A and the like take a pattern or a number.
@@ -352,7 +356,12 @@ func readTargetDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action, 
 		return Decision{Kind: Deny, Reason: "duolog state is not readable by workers", Rule: RuleState, Mode: m}, true
 	}
 	own := ownTempRead(a, written) || ownTempTarget(a, words, written)
-	d := Evaluate(p, lead, m, Action{Kind: "read", Target: target, Role: a.Role, Shell: shell, OwnResult: own, taskRead: taskReadWord(a, written, searchable(p, lead, a)), revision: revision})
+	d := Evaluate(p, lead, m, Action{
+		Kind: "read", Target: target, Role: a.Role, Shell: shell, OwnResult: own,
+		taskRead:  taskReadWord(a, written, searchable(p, lead, a)),
+		agentRead: outside(target) && agentReadWord(a, written, searchable(p, lead, a)),
+		revision:  revision,
+	})
 	d.Reason = "read command: " + d.Reason
 	return d, d.Kind == Deny || d.Kind != Allow && !device
 }

@@ -147,8 +147,8 @@ Claude peer:
   `exec "$CLAUDE_PROJECT_DIR"/scripts/dev/bin/duolog gate --agent claude
   --event PreToolUse` counts too, exactly so, when that file is the dev
   launcher. The hook must not be `async` or `asyncRewake`, and must have no
-  `timeout` below the 150 seconds that install writes: Claude does not wait
-  for an async hook, and runs the tool when a hook times out. Claude's
+  `timeout` below 150 seconds: Claude does not wait for an async hook, and
+  runs the tool when a hook times out without `onFailure: "block"`. Claude's
   managed settings count too: when they set `allowManagedHooksOnly` or
   `disableAllHooks`, only a gate in the managed settings themselves counts.
   Otherwise the message names the hook and its file and says to run
@@ -156,8 +156,8 @@ Claude peer:
 - Codex: the folder is trusted, and an approved gate hook runs duolog's own
   gate command. Codex skips a hook whose command changed after approval, so
   an approval of another command does not count. When `duolog install`
-  changes the gate command, the approval Codex held then does not count
-  either; approve the hook again in `/hooks`. A linked worktree of the
+  changes the gate command or its timeout, the approval Codex held then does
+  not count either; approve the hook again in `/hooks`. A linked worktree of the
   project gets the project's trust and approvals first; see
   [below](#how-a-linked-worktree-gets-codex-trust).
 - The `duolog` binary is on the worker's PATH.
@@ -321,27 +321,57 @@ still search a denied file that is neither hidden nor git-ignored. Claude's
 them. `git diff` and `git log` with
 no path can also show a denied file that Git tracks, so do not commit one.
 A file named by `git log -L1,1:.env` or by pathspec magic such as `':(top).env'`
-gets the decision of the plain path. A pathspec glob that spells a denied name
+gets the decision of the plain path. Git reads `':(top)x'` and `':/x'` from the
+top of the repository, so the gate also checks them from there, in whichever
+folder the command runs. A pathspec glob that spells a denied name
 is denied even when quoted, as Git expands it: `git log -p -- '.en?'`,
-`'sec*/x'` or `'a.p*'`. Spelling takes literal text of the name: three
-characters, or the dot and a letter of an extension such as `.pem`. Any other
-glob asks, as `'src/*'`, `'se*/a.go'` and `'a.*'` do, unless it can name
-`.duolog`, which the state rule denies. The lead's answer decides those.
+`'sec*/x'` or `'a.p*'`. Git's `*` and `?` match a `/` too, so `'secrets*'`,
+`'sec*x'`, `'sub?.env'` and `'.duolog?bus*'` count. Spelling takes literal text
+of the name: three characters, or the dot and a letter of an extension such as
+`.pem`. The gate then looks at the working tree. `'main.p*'` asks when files
+match it and none is denied, as with only `main.py`. A shorter glob, such as
+`'.e*'`, `'se*'` or `'a*m'`, is denied when it matches a denied file whose name
+it spells, and asks otherwise. Git can also match a file that only its history
+holds, which the tree does not show, so those asks are the lead's to judge. Any
+other glob asks, as `'src/*'`, `'*.go'` and `'a.*'` do, unless it can name
+`.duolog`, which the state rule denies.
 An unquoted glob in an option of a Git read, such as `git log -*`, asks too,
-and is denied in plan mode and for a read-only role.
+and is denied in plan mode and for a read-only role. So is a word before `--`
+whose glob can start with `-`, such as `[-]*`, `?L*` or `*`. `*.go` is a file
+name and only asks.
 
 A `--glob` option of `rg`, or the glob of the `Grep` tool, asks when it
 matches the name of a read deny, such as `.env`. The check is not complete:
 `rg -g '*.go'` can still read a denied hidden file such as `.env.go`.
+
+An option of a search that takes a glob needs no quotes: `--include`,
+`--exclude` and `--exclude-dir` of `grep`, and `-g`, `--glob` and `--iglob` of
+`rg`. The shell can only turn `--include=*.go` into `--include=` and a file's
+name, which the glob matches anyway. Written as its own word, as in
+`rg -g *.go x`, the glob must match at most one name in the working folder.
+With more, the extra names become a pattern and files to read, and the line
+asks. A value that names a file to read, such as `--file=*.go`, asks.
+
+A recursive `grep` with one of those options is a plain read when the gate can
+show that it reads only allowed files: it walks the roots up to the bound of a
+glob expansion and judges every file below them. So
+`grep -rn x cmd --include=*.go` runs, and it asks when `cmd/.env`,
+`cmd/secrets/a.go` or a symlink is below `cmd`, whatever the glob says. None of
+these options narrows the check: BSD grep also matches `--include` against the
+path, and an expansion can change what `--exclude` and `--exclude-dir` leave
+out. A search of the project's top folder usually asks, since `.duolog` holds
+denied files; name the folders to search. Without such an option a recursive
+`grep` asks as before.
 
 Quotes that only group literal text read as that text, so
 `grep -n "TODO" a.go` and `git log --format="%h"` are plain reads. Read
 commands can also quote literal patterns and paths with spaces, such as
 `grep "a b" README.md`. Other commands with quoted spaces ask. Quoted text with
 a glob, a brace, a tilde or a backslash still asks, and so does an empty
-quoted word or `$` and a backtick inside double quotes. The shell would expand
-such text, so the gate cannot read the words it passes on. A read-only role
-may be denied instead of asked. A brace anywhere in a command asks for the
+quoted word or `$` and a backtick inside double quotes. Only the tilde of a
+Windows short name, between a letter and a digit, is plain. The shell would
+expand such text, so the gate cannot read the words it passes on. A read-only
+role may be denied instead of asked. A brace anywhere in a command asks for the
 same reason. Quoted `rg` glob options follow the glob check above.
 
 `sed` reads only as `sed -n 'N,Mp' file`. Other `sed` scripts ask. The gate
@@ -535,8 +565,25 @@ as `DUOLOG~1`, is denied on every host; use the long name.
 
 One exception: a Claude worker may read the large tool outputs Claude saved
 for its own session, under `projects/<project>/<its session id>/tool-results`
-in Claude's config folder. Another session's folder and every other path under
-`~/.claude` still ask, and denies still apply.
+in Claude's config folder. Another session's folder still asks, and denies
+still apply.
+
+Workers and peers may also read their agents' own skill trees without asking:
+`~/.agent/skills`, `~/.agents/skills`, `~/.codex/skills` and `~/.claude/skills`.
+This includes each agent's plugin cache skill trees:
+`plugins/cache/<marketplace>/<plugin>/<version>/skills`.
+`CODEX_HOME` and `CLAUDE_CONFIG_DIR` replace the corresponding config folder.
+Read tools and named read commands use this exception. It grants no
+write or execution permission. Other config files, credentials and session
+history still ask. Denies still apply. A symlink may not lead out of a skill
+tree. Recursive reads must pass the same checks as paths a task lists under
+Read.
+
+Inside a skill tree, a hidden file and a credential or config file still go
+to you: `.netrc`, `auth.json`, `.mcp.json`, `settings.json` and the like, and
+a folder or glob that holds one. A skill root that links to a folder too wide
+to read, such as your home folder or an agent's config folder, grants nothing.
+A link to another folder of your own keeps working.
 
 A Claude worker's own session temp folder, where Claude keeps its scratchpad,
 is the worker's own too. A read tool or a named read command may read it. A
@@ -637,7 +684,11 @@ readable:
 
 All other reads under `.duolog` are denied. These include logs, session files,
 cursors, the journal, `routing.learned.yaml` and task output captures.
-The rule covers read tools and paths named by read commands such as `cat`.
+The rule covers read tools and paths named by read commands such as `cat`,
+also behind an assignment or a wrapper, as in `LC_ALL=C cat .duolog/bus.ndjson`
+and `env grep .d*/* f`, behind a program path or with an option the gate does
+not know. An input redirect counts: `grep S <.du*/bus.ndjson` is denied, and
+`cat < .en?` too, as it spells a denied name.
 
 A file inside a `.duolog` folder is readable only when it is a regular file.
 No part of its path from the `.duolog` folder down may be a symlink, so it
@@ -666,7 +717,9 @@ The gate denies every worker tool request and command path that it can see
 reaching the [telemetry](telemetry.md) folder or the balance folder beside
 it. The rule is
 `private usage store`. It comes before policy, modes and questions, so no rule
-or mode opens the folders, and the gate asks no one.
+or mode opens the folders, and the gate asks no one. The same deny covers the
+account state, `duolog/accounts` in the user config folder, which holds the
+seats, the pace and the kept quota reads in `quota-reads.json`.
 
 The deny covers read and write tools, paths that commands name, and recursive
 searches whose roots contain either folder. The gate compares resolved paths,
@@ -695,9 +748,12 @@ Claude runs two gate hooks for a tool call, PreToolUse and PermissionRequest.
 Both reach the same question, but the lead is asked once. The first hook sends
 the ask; the second waits for it and takes its answer, keyed by the session and
 the tool call. Only a reply from the lead is shared, and only inside the ask's
-wait. A deny stays a deny, and an ask that timed out, went unanswered or whose
-record is missing or expired is never an allow: the hook asks for itself, or
-denies when its own wait ends. The person-only flag is set on the one ask.
+wait. A hook input with no tool call id is keyed by the question instead,
+which can name another call, so that reply is reused once and only within 120
+seconds of the start of the ask, however long the wait is. A deny stays a
+deny, and an ask that timed out, went unanswered or whose record is missing
+or expired is never an allow: the hook asks for itself, or denies when its own
+wait ends. The person-only flag is set on the one ask.
 
 ## Reads and writes outside the work root need the person
 
@@ -756,6 +812,13 @@ person. The script that `sh`, `bash` or `zsh` runs is a path too:
 A line with bash's `$'...'` or `$"..."` quoting, or a brace expansion outside
 quotes such as `{..,.}` or `{a..c}`, needs the person in every mode, since
 the gate does not expand them: `cat $'.env'` and `cat {..,.}/peer/f` do.
+So does a path that starts with a variable, as `cat $HOME/.ssh/x` and
+`cat $PWD/../x` do, and any word with `$IFS`, as `cat x$IFS.env` does. A
+variable whose values the line shows stays with the lead: `for d in a b; do
+cat $d/x; done` and `d=sub; cat $d/x`. `src/$X` stays with the lead too. The
+`search` of a `jq` `import` or `include` is a folder that jq reads, so
+`{search:"/x"}` needs the person, and so does a `search` value the gate cannot
+read.
 
 The lead's own hook guards shell commands that may run `duolog allow N`.
 For a Claude lead, it asks Claude Code to prompt the person. For a Codex lead,
@@ -916,10 +979,30 @@ the line above.
 ## How a worker asks the lead
 
 For an `ask` decision, duolog sends a numbered request to the lead on the bus
-and waits up to `ask_timeout_seconds` (120 by default). Set it under `policy`
-in `.duolog/config.yaml`. The wait is capped at 120 seconds, below every
-shipped gate hook's timeout of 150 seconds. Doctor warns about larger
-settings. Timeout and cancellation always deny.
+and waits. Timeout and cancellation always deny. Set the waits under `policy`
+in `.duolog/config.yaml`; doctor warns about a value above its cap:
+
+| Key | Waits for | Default and cap |
+| --- | --- | --- |
+| `ask_timeout_seconds` | An ask the lead can answer | 120 seconds |
+| `person_ask_timeout_seconds` | An ask only the person can answer | 600 seconds |
+
+Every wait ends at least 30 seconds before the gate hook's own timeout, so the
+gate answers with a deny before the agent kills it. `duolog install` writes a
+timeout of 630 seconds. When a hook has a shorter one, as a hook from an
+earlier install has, the gate shortens the wait to fit: 120 seconds under a
+timeout of 150. Run `duolog install` to get the full wait; `duolog install
+--check` reports the old value. Codex then needs the hook approved again in
+`/hooks`, because its approval covers the timeout.
+
+An agent treats a hook it kills as a failed hook, and the tool call can go on:
+
+- Claude Code blocks the call only when the hook sets `onFailure: "block"`,
+  which `duolog install` writes on the gate hooks and which needs Claude Code
+  2.1.295 or later. It also blocks every tool call when the `duolog` program
+  cannot start, so a project that commits these hooks needs duolog on each
+  contributor's `PATH`.
+- Codex has no such setting. The gate's own earlier deny is the only guard.
 
 While the worker waits, every hook of the lead shows the request again, with
 how to answer it and the seconds left:

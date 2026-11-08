@@ -526,6 +526,13 @@ Claude also shows extra usage. Codex also shows credits and per-model limits
 when available. The command does not spend credits to reset limits. It asks
 each agent's CLI for quota and does not parse the agent's auth files itself.
 
+A Codex seat of an enterprise or workspace plan can have a per-person spend
+limit instead of the five-hour and weekly windows. duolog shows it as the
+`individual` window: the share of the limit used and its reset time, such as
+`individual 11.48% used, resets in 3d 14h`. See
+[Configuration](configuration.md#how-paid-runs-are-allowed-and-capped) for
+how runs use it.
+
 Each read has a 15-second timeout. If an agent is missing, signed out or fails
 to answer, its block says `unavailable` and gives the reason. The other agent
 still prints. Exit code 0 means at least one read worked; 1 means neither did.

@@ -48,7 +48,7 @@ func TestPendingAskNeedsThePerson(t *testing.T) {
 		if person {
 			want = fmt.Sprintf("ask %d (needs the person): read ../notes.txt", n)
 		}
-		if got, err := pendingAsk(dir, "codex/lead.test", "peer-test"); err != nil || got != want {
+		if got, _, err := pendingAsk(dir, "codex/lead.test", "peer-test", 0); err != nil || got != want {
 			t.Fatal(got, err)
 		}
 	}

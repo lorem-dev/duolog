@@ -52,10 +52,14 @@ func (b *Batch) Close() error {
 }
 
 // GitBatch starts `git cat-file --batch` in dir, with line-ending conversion
-// off as journal.GitCommand has it, and with env as the process environment
-// when env is not nil.
+// off as journal.GitCommand has it. env is the whole environment of the
+// process when it is not nil; when it is nil, git gets the caller's own
+// without the Git variables, as in Git.
 func GitBatch(ctx context.Context, dir string, env []string) (*Batch, error) {
 	cmd := journal.GitCommand(ctx, dir, "cat-file", "--batch")
+	if env == nil {
+		env = configfile.CleanGitEnv(os.Environ())
+	}
 	cmd.Env = env
 	in, err := cmd.StdinPipe()
 	if err != nil {

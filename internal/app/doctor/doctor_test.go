@@ -90,6 +90,16 @@ func TestDoctorTestsFindFakeRex(t *testing.T) {
 		t.Fatalf("doctor ran rex: %v", err)
 	}
 }
+func TestDoctorWarnsAboutAPersonWaitPastTheCap(t *testing.T) {
+	for seconds, want := range map[int]bool{600: false, 601: true} {
+		cfg, opts, _ := setup(t)
+		cfg.Policy.PersonAskTimeoutSeconds = seconds
+		if got := strings.Contains(findings(t, cfg, opts), "person_ask_timeout_seconds"); got != want {
+			t.Errorf("%d seconds: warned %v, want %v", seconds, got, want)
+		}
+	}
+}
+
 func findings(t *testing.T, cfg *config.Config, opts Options) string {
 	t.Helper()
 	var text []string

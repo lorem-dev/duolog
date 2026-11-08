@@ -239,18 +239,19 @@ func TestBadExistingJSONRefused(t *testing.T) {
 
 func TestHookTimeoutAboveAskTimeout(t *testing.T) {
 	home, root := setup(t)
-	write(t, filepath.Join(root, ".duolog/config.yaml"), "version: 1\npolicy:\n  ask_timeout_seconds: 300\n")
+	write(t, filepath.Join(root, ".duolog/config.yaml"), "version: 1\npolicy:\n  ask_timeout_seconds: 300\n  person_ask_timeout_seconds: 900\n")
 	run(t, Options{Scope: "project", Agent: "both", Home: home, Root: root})
 	cfg, err := launchtest.LoadConfig(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := min(cfg.Policy.AskTimeoutSeconds, 120) + 30
-	for _, rel := range []string{".claude/settings.json", ".codex/hooks.json"} {
+	want := max(min(cfg.Policy.AskTimeoutSeconds, 120), min(cfg.Policy.PersonAskTimeoutSeconds, 600)) + 30
+	for rel, onFailure := range map[string]string{".claude/settings.json": "block", ".codex/hooks.json": ""} {
 		var doc struct {
 			Hooks map[string][]struct {
 				Hooks []struct {
-					Timeout int `json:"timeout"`
+					Timeout   int    `json:"timeout"`
+					OnFailure string `json:"onFailure"`
 				} `json:"hooks"`
 			} `json:"hooks"`
 		}
@@ -261,6 +262,9 @@ func TestHookTimeoutAboveAskTimeout(t *testing.T) {
 			groups := doc.Hooks[event]
 			if len(groups) != 1 || groups[0].Hooks[0].Timeout < want {
 				t.Errorf("%s %s: timeout %v, want at least %d", rel, event, groups, want)
+			}
+			if len(groups) == 1 && groups[0].Hooks[0].OnFailure != onFailure {
+				t.Errorf("%s %s: onFailure %q, want %q", rel, event, groups[0].Hooks[0].OnFailure, onFailure)
 			}
 		}
 	}
@@ -336,14 +340,48 @@ func words(s string) int { return len(strings.Fields(s)) }
 func TestSkillIsShort(t *testing.T) {
 	for _, agent := range []string{"claude", "codex"} {
 		text := skillText(t, agent)
-		if n := words(text); n >= 400 {
+		if n := words(text); n >= 500 {
 			t.Errorf("%s skill has %d words", agent, n)
 		}
-		for _, rule := range []string{"Batch small\nchanges into one pull request unless the user asks otherwise.", "Do settled steps without explaining them; report results.", "duolog delegate", "task.md", "Goal", "Read", "Write", "Limits", "Check", "range", "run here: self", "run here: subagent", "duolog allow", "duolog deny", "duolog peer", "/model", "/effort"} {
+		for _, rule := range []string{"If a PR is requested or required, batch small changes into one.", "Do settled steps without explaining them; report results.", "duolog delegate", "task.md", "Goal", "Read", "Write", "Limits", "Check", "range", "run here: self", "run here: subagent", "duolog allow", "duolog deny", "duolog peer", "/model", "/effort"} {
 			if !strings.Contains(text, rule) {
 				t.Errorf("%s skill lacks %q", agent, rule)
 			}
 		}
+	}
+}
+
+// Worktree isolation must not change the lead's delivery destination. Check
+// the shipped text for both agents; the situation plan tests model behavior.
+func TestSkillDeliversPeerChangesToStartingCheckout(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		t.Run(agent, func(t *testing.T) {
+			text := skillText(t, agent)
+			for _, rule := range []string{
+				"record the starting checkout, branch and existing edits",
+				"Before reporting done, review and bring the peer's task changes into the",
+				"starting checkout on its original branch",
+				"unless the person requested another\nbranch or PR",
+				"Keep changes\nuncommitted unless a commit was requested or required",
+				"preserve existing\nstaged, unstaged and untracked work",
+				"If integration conflicts, report the\nblocker instead of completion",
+				"Verify the integrated result there",
+				"its path, branch and commit status",
+			} {
+				if !strings.Contains(text, rule) {
+					t.Errorf("skill lacks delivery rule %q", rule)
+				}
+			}
+			for _, old := range []string{
+				"one pull request unless the user asks otherwise",
+				"stack dependent work on the PR branch",
+				"stack dependent work on the open PR branch",
+			} {
+				if strings.Contains(text, old) {
+					t.Errorf("skill still assumes a PR: %q", old)
+				}
+			}
+		})
 	}
 }
 
@@ -378,12 +416,12 @@ func TestPluginHooksFileMatchesGenerated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := HooksJSON("claude", 150)
+	want, err := HooksJSON("claude", GateTimeout)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(data) != string(want) {
-		t.Fatalf("plugin/claude/hooks/hooks.json is stale; regenerate it from install.HooksJSON(\"claude\", 150)\n%s", want)
+		t.Fatalf("plugin/claude/hooks/hooks.json is stale; regenerate it from install.HooksJSON(\"claude\", GateTimeout)\n%s", want)
 	}
 }
 
@@ -409,7 +447,7 @@ func TestManifests(t *testing.T) {
 
 func TestGuards(t *testing.T) {
 	for _, agent := range []string{"claude", "codex"} {
-		data, err := HooksJSON(agent, 150)
+		data, err := HooksJSON(agent, GateTimeout)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -447,7 +485,7 @@ func TestStopHookInstalled(t *testing.T) {
 // hookCommands returns the command of every hook for one event.
 func hookCommands(t *testing.T, agent, event string) []testbin.HookCommand {
 	t.Helper()
-	data, err := HooksJSON(agent, 150)
+	data, err := HooksJSON(agent, GateTimeout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -663,7 +701,7 @@ func TestSkillNamesTaskStart(t *testing.T) {
 				t.Errorf("%s skill lacks %q", agent, want)
 			}
 		}
-		if n := words(text); n >= 400 {
+		if n := words(text); n >= 500 {
 			t.Errorf("%s skill has %d words", agent, n)
 		}
 	}

@@ -63,6 +63,12 @@ func Cache(read func(context.Context, launch.Process) (account.Snapshot, error))
 	return &paidstore.Cache{Read: read}
 }
 
+// KeepingCache is Cache that keeps its good reads in dir, as the next duolog
+// command's cache finds them.
+func KeepingCache(read func(context.Context, launch.Process) (account.Snapshot, error), dir string) *paidstore.Cache {
+	return &paidstore.Cache{Read: read, Dir: dir}
+}
+
 // Subscription is a read of p's agent on a first-party subscription login,
 // overage off, with a five-hour and a weekly window that reset later.
 func Subscription(_ context.Context, p launch.Process) (account.Snapshot, error) {

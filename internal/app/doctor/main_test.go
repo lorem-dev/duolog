@@ -13,6 +13,7 @@ import (
 var testDeps Deps
 
 func TestMain(m *testing.M) {
+	launchtest.ClearPaidEnvironment()
 	// Each test process starts as an independent lead; tests set worker roles explicitly.
 	for _, key := range []string{"DUOLOG_DEPTH", "DUOLOG_LEAD", "DUOLOG_ROLE"} {
 		if err := os.Unsetenv(key); err != nil {
@@ -27,7 +28,8 @@ func TestMain(m *testing.M) {
 	}
 	testDeps = Deps{PaidGate: paidrunstest.Factory(accounts), GateBinary: launchtest.GateBinary,
 		Build: launchtest.Build, DroppedKeys: launchtest.DroppedKeys,
-		ClaudeFolder: launchtest.ClaudeFolder, Names: []string{"claude", "codex"}, Agents: map[string]Agent{}}
+		PaidClaudeRoute: func(name string) bool { return launchtest.RouteName("claude", name, "") },
+		ClaudeFolder:    launchtest.ClaudeFolder, Names: []string{"claude", "codex"}, Agents: map[string]Agent{}}
 	installers, all := launchtest.Installers(), launchtest.AllCaps()
 	for name, t := range launchtest.Trusts() {
 		testDeps.Agents[name] = Agent{Trust: t, Installer: installers[name], Caps: all[name]}

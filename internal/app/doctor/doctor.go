@@ -51,14 +51,31 @@ type Options struct {
 	Lead map[string]session.LeadRoute
 }
 
+// shadowsRex reports a rex on PATH that is not the Rex CLI duolog uses.
+func shadowsRex(opts Options) bool {
+	return opts.RexShadow != "" && opts.RexShadow != opts.RexBin
+}
+
+// askWaitWarnings names each ask wait set above what its hook allows.
+func askWaitWarnings(cfg *config.Config) []string {
+	var out []string
+	if time.Duration(cfg.Policy.AskTimeoutSeconds)*time.Second > gate.MaxAskWait {
+		out = append(out, "policy.ask_timeout_seconds exceeds the safe hook budget; waits are capped at 120 seconds")
+	}
+	if time.Duration(cfg.Policy.PersonAskTimeoutSeconds)*time.Second > gate.MaxPersonAskWait {
+		out = append(out, "policy.person_ask_timeout_seconds exceeds the safe hook budget; waits are capped at 600 seconds")
+	}
+	return out
+}
+
 func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Finding {
 	// Bound metadata and probe calls even when the caller has no deadline.
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	var out []Finding
 	add := func(level, message string) { out = append(out, Finding{level, message}) }
-	if time.Duration(cfg.Policy.AskTimeoutSeconds)*time.Second > gate.MaxAskWait {
-		add("warning", "policy.ask_timeout_seconds exceeds the safe hook budget; waits are capped at 120 seconds")
+	for _, message := range askWaitWarnings(cfg) {
+		add("warning", message)
 	}
 	root := opts.Root
 	if root == "" {
@@ -100,7 +117,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 	} else if opts.RexBin == "" {
 		add("warning", "Rex unavailable; pane connectivity cannot be checked")
 	}
-	if opts.RexShadow != "" && runtime.GOOS != "windows" {
+	if shadowsRex(opts) && runtime.GOOS != "windows" {
 		uses := "set REX_BIN_DIR to the folder of the Rex CLI or put that folder first in PATH"
 		if opts.RexBin != "" {
 			uses = "duolog uses " + opts.RexBin + "; to run it as rex, put its folder first in PATH"
@@ -135,7 +152,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 		}
 	}
 	add("info", bridgeLine(d, cfg, root, available))
-	out = append(append(out, installFindings(d, root)...), workerModeFindings(d, cfg, root)...)
+	out = append(append(append(out, installFindings(d, root)...), workerModeFindings(d, cfg, root)...), d.paidRouteFindings(os.Environ())...)
 	out = append(out, billing(ctx, d, cfg, root, available, opts.Lead)...)
 	// Said every time while the person sets or lists a key that paid runs do
 	// not let through, so the change is never silent. Names only, never

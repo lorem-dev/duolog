@@ -49,6 +49,10 @@ type Snapshot struct {
 	SpendControlReached bool                `json:"spend_control_reached,omitempty"`
 	Billing             BillingFacts        `json:"billing"`
 	ReadAt              time.Time           `json:"read_at"`
+	// Recalled says this is an earlier good read of the same route, used
+	// because the read made now failed for a passing reason. ReadAt stays the
+	// time of that earlier read.
+	Recalled bool `json:"recalled,omitempty"`
 }
 
 // Healthy requires current, explicit headroom in every reported window.

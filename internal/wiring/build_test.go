@@ -23,7 +23,7 @@ func TestPeerDepsDefaultPauses(t *testing.T) {
 	if p := ProfileDeps(DelegateDeps()); p.Delegate == nil || p.Rand == nil || p.RunCheck == nil {
 		t.Fatalf("a field of profile.Deps is empty: %+v", p)
 	}
-	if o := DoctorDeps(DelegateDeps()); o.PaidGate == nil || o.GateBinary == nil || o.Available == nil || o.InstallCheck == nil || len(o.Probes) != len(Agents()) {
+	if o := DoctorDeps(DelegateDeps()); o.PaidGate == nil || o.GateBinary == nil || o.PaidClaudeRoute == nil || !o.PaidClaudeRoute("AWS_BEARER_TOKEN_BEDROCK") || o.PaidClaudeRoute("PATH") || o.Available == nil || o.InstallCheck == nil || len(o.Probes) != len(Agents()) {
 		t.Fatalf("a field of doctor.Deps is empty: %+v", o)
 	}
 }

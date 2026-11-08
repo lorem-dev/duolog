@@ -1,0 +1,56 @@
+{
+ "id": 3,
+ "result": {
+  "ordinaryUsageAllowed": null,
+  "rateLimits": {
+   "limitId": "codex",
+   "limitName": null,
+   "normalModelSlug": null,
+   "primary": null,
+   "secondary": null,
+   "credits": {
+    "hasCredits": true,
+    "unlimited": false,
+    "balance": null
+   },
+   "individualLimit": {
+    "limit": "400.00",
+    "used": "45.901320576667786",
+    "remainingPercent": 89,
+    "resetsAt": 1794441600
+   },
+   "spendControlReached": false,
+   "planType": "ent26",
+   "rateLimitReachedType": null
+  },
+  "rateLimitsByLimitId": {
+   "codex": {
+    "limitId": "codex",
+    "limitName": null,
+    "normalModelSlug": null,
+    "primary": null,
+    "secondary": null,
+    "credits": {
+     "hasCredits": true,
+     "unlimited": false,
+     "balance": null
+    },
+    "individualLimit": {
+     "limit": "400.00",
+     "used": "45.901320576667786",
+     "remainingPercent": 89,
+     "resetsAt": 1794441600
+    },
+    "spendControlReached": false,
+    "planType": "ent26",
+    "rateLimitReachedType": null
+   }
+  },
+  "rateLimitResetCredits": {
+   "availableCount": 0,
+   "credits": []
+  },
+  "accountId": "00000000-0000-4000-8000-000000000002",
+  "rateLimitUpsell": null
+ }
+}

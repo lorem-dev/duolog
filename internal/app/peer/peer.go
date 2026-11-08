@@ -107,6 +107,14 @@ func WithOptions(ctx context.Context, opts Options) context.Context {
 	return context.WithValue(ctx, optionsKey{}, opts)
 }
 
+// WithWorkDir selects a checkout for this operation without changing the
+// process's working folder or the other peer options.
+func WithWorkDir(ctx context.Context, dir string) context.Context {
+	opts, _ := ctx.Value(optionsKey{}).(Options)
+	opts.WorkDir = dir
+	return WithOptions(ctx, opts)
+}
+
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // interruptedNote tells the lead that the peer stopped, for example after a

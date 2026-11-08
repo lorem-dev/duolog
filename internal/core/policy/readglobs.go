@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -56,19 +57,39 @@ func globLastSegment(pattern string) string {
 	return pattern[strings.LastIndex(pattern, "/")+1:]
 }
 
-func unquotedRgGlob(command, shell string) bool {
+// unquotedRgGlob reports whether an rg glob option of a's line is written so
+// that the shell can turn it into something else.
+func unquotedRgGlob(a Action) bool {
 	// Mask quoted option values before looking for shell expansions.
-	masked := quotedRgGlob.ReplaceAllString(command, "${1}literal")
-	parts, _ := readShellParts(masked, shell)
-	for _, part := range parts {
+	masked := quotedRgGlob.ReplaceAllString(a.Target, "${1}literal")
+	parts, _ := readShellParts(masked, a.Shell)
+	budget := newGlobBudget()
+	return slices.ContainsFunc(parts, func(part string) bool {
 		words := commandWords(part)
-		if len(words) == 0 || words[0] != "rg" {
-			continue
-		}
-		for _, glob := range rgGlobs(words[1:]) {
-			if strings.ContainsAny(glob, "*?[{") {
+		return len(words) > 0 && words[0] == "rg" && rgGlobsMoveWords(a, words[1:], budget)
+	})
+}
+
+// rgGlobsMoveWords reports whether a glob option among an rg command's
+// arguments can change which word is what. A value in the option's own word
+// cannot, unless a glob stands before it: the shell keeps -g or --glob= and
+// can only fill in a file's name after it. A brace makes more words of it, and
+// a value written apart must stay one word (globStaysOneWord).
+func rgGlobsMoveWords(a Action, args []string, budget *globBudget) bool {
+	for i := 0; i < len(args) && args[i] != "--"; i++ {
+		value, separate, ok := rgGlobOption(args[i])
+		switch {
+		case ok && separate:
+			i++
+			if i < len(args) && strings.ContainsAny(args[i], "*?[{") && !globStaysOneWord(a, args[i], budget) {
 				return true
 			}
+		case ok:
+			if strings.Contains(value, "{") || strings.ContainsAny(args[i][:len(args[i])-len(value)], "*?[") {
+				return true
+			}
+		case separateValue("rg", args[i]):
+			i++
 		}
 	}
 	return false

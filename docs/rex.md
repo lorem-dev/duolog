@@ -191,7 +191,38 @@ The peer's answer stays in its pane, and in any files it
 wrote. duolog reads the pane only to learn its state. When the lead needs the
 answer as data, use `duolog delegate`, which returns it and records its spend.
 
+## How to bring a peer's changes back
+
+Before handing off work, the lead records its starting checkout, branch and
+existing edits. Each peer can work in its own worktree. That isolation does
+not change where the person expects the result.
+
+Unless the person requests another branch or a pull request, the lead brings
+the peer's task changes into the starting checkout on its original branch.
+This can be a linked worktree; it need not be the repository's main checkout.
+The lead reviews the task changes, then merges, cherry-picks or applies their
+diff as appropriate. Changes stay uncommitted unless a commit was requested
+or required. Existing staged, unstaged and untracked work must survive.
+
+The lead verifies the integrated result in that checkout before reporting
+completion. If integration conflicts, it preserves the person's work and
+reports the blocker. Its final answer gives the result's path, branch and
+commit status. A peer going idle alone does not mean the result is delivered.
+
 ## What the lead is told when a peer stops
+
+Keep each `duolog peer wait <id>` in its own background command with a
+completion notification. Saying that you are waiting starts no wait.
+After relaying gate ask N, restart it as
+`duolog peer wait <id> --after-ask N`. It waits through that ask's answer or
+expiry, then watches the peer again. It still reports new asks. It never
+answers an ask itself, including one only the person may answer.
+
+Claude's `Stop` hook blocks the lead's first stop when its peer is starting,
+updating or asking without a live wait. It tells the lead to start one.
+It also delivers unread mail, so a completion just before Stop gets noticed.
+A live wait allows the lead to yield. A repeated stop, a worker, a subagent,
+an unknown lead or a failed state check stays unblocked to avoid stop loops.
 
 A peer's task stays unfinished until a `peer wait` sees the peer go idle
 after it. With no wait running, the peer can sit `ready` while
@@ -402,6 +433,19 @@ instead of the `duolog peer` commands. The `action` field picks the step:
 | `answer` | Picks an option for a question in the peer's screen |
 | `status`, `list` | Shows one peer, or all of them |
 | `close` | Closes the peer |
+
+For `open`, set `worktree` to a path or a name under `.worktrees/`. A plain
+name tries `.worktrees/<name>` first. Relative paths start at the server's
+working folder. A folder that is not a checkout of this repository, such as
+a subfolder of the project, is refused. Without `worktree`, the peer opens in
+the server's checkout. For example:
+
+```json
+{"action":"open","role":"implement","worktree":"feature"}
+```
+
+`send` writes the task in the target peer's registered checkout, even when
+the lead runs elsewhere. Its `task_path` is relative to that checkout.
 
 A `wait` returns after `timeout_minutes` (10 by default and at most), so the
 lead calls it again and is never blocked for good. It returns the peer's

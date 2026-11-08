@@ -17,6 +17,27 @@ import (
 
 func setup(ctx context.Context) (*env, error) { return setupFor(ctx, true) }
 
+// WorkRoot returns the peer's registered checkout. Older entries without
+// one keep the caller's checkout, as before.
+func WorkRoot(ctx context.Context, id string) (string, error) {
+	opts, err := callerOptions(ctx)
+	if err != nil {
+		return "", err
+	}
+	e, err := openRecords(opts, true)
+	if err != nil {
+		return "", err
+	}
+	entry, err := e.find(id)
+	if err != nil {
+		return "", err
+	}
+	if entry.WorkRoot != "" {
+		return entry.WorkRoot, nil
+	}
+	return e.root, nil
+}
+
 func setupFor(ctx context.Context, requireLead bool) (*env, error) {
 	e, err := setupRecords(ctx, requireLead)
 	if err != nil {

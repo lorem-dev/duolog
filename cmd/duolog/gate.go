@@ -217,13 +217,22 @@ func evaluateHook(deps *cmdDeps, cmd *cobra.Command, root, agent, event string, 
 		// One answer covers the whole tool call, so the question names every path.
 		a.Target = strings.Join(asked, " ")
 		key := gate.AskKey(envelope.SessionID, envelope.ToolUseID, askQuestion(a.Kind, asked, envelope.Cwd), person)
-		resolved, err := askLead(cmd.Context(), deps.AskWait, cfg, root, reg.Dir, lead.ID, key, a, d, initial, person)
+		resolved, err := askLead(cmd.Context(), deps.AskWait(askSeconds(cfg, person), person, deps.HookLimit(agent, event, root, work, os.Environ())), cfg, root, reg.Dir, lead.ID, key, a, d, initial, person)
 		if err != nil {
 			return a, d, err
 		}
 		d = resolved
 	}
 	return a, d, nil
+}
+
+// askSeconds is the configured wait of an ask that the lead or only the person
+// can answer.
+func askSeconds(cfg *config.Config, person bool) int {
+	if person {
+		return cfg.Policy.PersonAskTimeoutSeconds
+	}
+	return cfg.Policy.AskTimeoutSeconds
 }
 
 // askQuestion is the text that keys an ask record: the kind, each asked path
@@ -241,7 +250,7 @@ func askQuestion(kind string, asked []string, cwd string) string {
 // askLead sends the ask of one tool call to the lead. PreToolUse and
 // PermissionRequest both reach it for one Claude tool call: the first asks and
 // the other takes its answer. Only a reply is shared.
-func askLead(ctx context.Context, askWait func(int) time.Duration, cfg *config.Config, root, stateDir, leadID, key string, a policy.Action, d, initial policy.Decision, person bool) (policy.Decision, error) {
+func askLead(ctx context.Context, wait time.Duration, cfg *config.Config, root, stateDir, leadID, key string, a policy.Action, d, initial policy.Decision, person bool) (policy.Decision, error) {
 	b, err := bus.Open(stateDir, cfg.Wire)
 	if err != nil {
 		return d, err
@@ -249,8 +258,7 @@ func askLead(ctx context.Context, askWait func(int) time.Duration, cfg *config.C
 	if err := gate.LogRequest(&store.Store{Dir: stateDir}, a, d); err != nil {
 		return d, err
 	}
-	wait := askWait(cfg.Policy.AskTimeoutSeconds)
-	resolved := gate.EscalateOnce(ctx, stateDir, key, wait, func() (policy.Decision, bool) {
+	resolved := gate.EscalateOnce(ctx, stateDir, key, wait, func(left time.Duration) (policy.Decision, bool) {
 		var replied bool
 		// The store opens only once an ask has ended: allows and denies never
 		// reach telemetry.
@@ -261,7 +269,7 @@ func askLead(ctx context.Context, askWait func(int) time.Duration, cfg *config.C
 				recordGate(tel, a, initial, r)
 			}
 		})
-		return gate.Escalate(observed, b, leadID, a, wait, person), replied
+		return gate.Escalate(observed, b, leadID, a, left, person), replied
 	})
 	resolved.Mode = d.Mode
 	return resolved, nil
@@ -311,9 +319,14 @@ func workerFiles(action *policy.Action, first bool, agent, work string, e hookEn
 	raw := []string{e.Input.File, e.Input.Path, e.Input.Pattern, e.Input.Glob}
 	if !slices.ContainsFunc(raw, dotDot) {
 		action.Reads = gateReads(os.Getenv(policy.TaskReadsEnv))
+		action.WideRead = wideSkillRoot
 	}
 	ownClaudeFiles(action, first, agent, work, e)
 }
+
+// wideSkillRoot reports a resolved agent skill root that is too wide to read,
+// by the check the Read list of a task gets.
+func wideSkillRoot(path string) bool { return configfile.RefuseRead(path) != "" }
 
 // gateReads are the entries of a DUOLOG_READ value that are not too wide to
 // read (configfile.RefuseRead), judged again here after the symlinks of each

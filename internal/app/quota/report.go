@@ -82,12 +82,12 @@ func Collect(ctx context.Context, r Request) (map[string]Result, int) {
 		} else {
 			read++
 			result.Snapshot = &s
-			if r.Observe != nil {
+			if r.observes(s) {
 				r.Observe(Observation(agent, s))
 			}
 			if r.RegistryErr != nil {
 				result.RegistryError = "cannot read session registry"
-			} else if r.Unavailable[agent] && s.Healthy(time.Now()) {
+			} else if r.Unavailable[agent] && healthyNow(s) {
 				if r.Marks.ClearUnavailable(agent) != nil {
 					result.RegistryError = "cannot clear unavailable mark"
 				} else {
@@ -115,6 +115,14 @@ func Collect(ctx context.Context, r Request) (map[string]Result, int) {
 	}
 	return results, read
 }
+
+// observes reports whether s goes to telemetry: an earlier read used in place
+// of a failed one is no new observation.
+func (r Request) observes(s account.Snapshot) bool { return r.Observe != nil && !s.Recalled }
+
+// healthyNow reports whether s shows the agent healthy now. An earlier read
+// used in place of a failed one proves nothing new.
+func healthyNow(s account.Snapshot) bool { return !s.Recalled && s.Healthy(time.Now()) }
 
 // Print writes the results as duolog quota shows them, at now.
 func Print(w io.Writer, results map[string]Result, now time.Time) error {

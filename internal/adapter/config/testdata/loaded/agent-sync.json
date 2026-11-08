@@ -292,6 +292,7 @@
   "Policy": {
     "OnUnmatched": "ask",
     "AskTimeoutSeconds": 120,
+    "PersonAskTimeoutSeconds": 600,
     "Rules": [
       {
         "Action": "mcp",

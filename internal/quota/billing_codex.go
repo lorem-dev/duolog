@@ -4,9 +4,13 @@ import (
 	"cmp"
 	"encoding/json"
 	"errors"
+	"maps"
+	"math"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/workerenv"
 )
@@ -352,14 +356,33 @@ func codexBilling(windows BillingFacts, routes ...BillingFacts) BillingFacts {
 var codexOrdinaryUsage = []string{"ordinaryUsageAllowed", "ordinary_usage_allowed"}
 
 // codexPermission is one ordinary usage flag of a reply: seen says the reply
-// had the key, value is nil for null or a wrong type.
+// had the key, value is nil for null or a wrong type, and null says that every
+// spelling sent was null.
 type codexPermission struct {
 	value *bool
 	seen  bool
+	null  bool
 }
 
 func readCodexPermission(f fields) codexPermission {
-	return codexPermission{value: f.boolean(codexOrdinaryUsage...), seen: f.has(codexOrdinaryUsage...)}
+	null := f.has(codexOrdinaryUsage...) && !slices.ContainsFunc(codexOrdinaryUsage, func(name string) bool {
+		raw, ok := f[name]
+		return ok && string(raw) != "null"
+	})
+	return codexPermission{value: f.boolean(codexOrdinaryUsage...), seen: f.has(codexOrdinaryUsage...), null: null}
+}
+
+// permissionNull reports a permission that the reply sent, and sent as null
+// wherever it sent one.
+func permissionNull(flags ...codexPermission) bool {
+	seen := false
+	for _, p := range flags {
+		if p.seen && !p.null {
+			return false
+		}
+		seen = seen || p.seen
+	}
+	return seen
 }
 
 // joinPermissions keeps the strictest flag sent: false wins, then null or a
@@ -397,10 +420,15 @@ type codexLimitFacts struct {
 	reachedType   json.RawMessage
 	credits       bool
 	resetCredits  *int
+	// plan is the limit's plan name as sent, under either spelling.
+	plan string
+	// individual is the limit's individualLimit, nil when absent or null.
+	individual *codexIndividual
 }
 
 func readCodexLimitFacts(f fields) codexLimitFacts {
 	l := codexLimitFacts{ordinary: readCodexPermission(f), workspacePlan: f.workspacePlan()}
+	l.plan, _ = f.text("planType", "plan_type")
 	// A spend control key that is there, even false, is only a fact: a
 	// personal account sends spendControlReached false too.
 	l.spendPresent = slices.ContainsFunc([]string{"spendControlReached", "spend_control_reached", "spendControl", "spend_control"}, func(name string) bool {
@@ -417,6 +445,9 @@ func readCodexLimitFacts(f fields) codexLimitFacts {
 	credits := f.object("credits")
 	for _, flag := range []*bool{credits.boolean("hasCredits", "has_credits"), credits.boolean("unlimited")} {
 		l.credits = l.credits || (flag != nil && *flag)
+	}
+	if o := f.object("individualLimit", "individual_limit"); o != nil {
+		l.individual = &codexIndividual{o}
 	}
 	for _, name := range []string{"resetCredits", "reset_credits"} {
 		var n *int
@@ -454,4 +485,182 @@ func addCodexLimit(b *BillingFacts, l codexLimitFacts) {
 			addWorkspaceReason(b, "workspace_member_usage_limit_reached")
 		}
 	}
+}
+
+// number reads the first spelling that holds a finite number, sent as a
+// JSON number or as a string such as "400.00".
+func (f fields) number(names ...string) (float64, bool) {
+	for _, name := range names {
+		var n json.Number
+		if json.Unmarshal(f[name], &n) != nil || n == "" {
+			continue
+		}
+		if v, err := strconv.ParseFloat(string(n), 64); err == nil && !math.IsNaN(v) && !math.IsInf(v, 0) {
+			return v, true
+		}
+	}
+	return 0, false
+}
+
+// codexIndividualKind is the window kind of an individual limit.
+const codexIndividualKind = "individual"
+
+// codexIndividual is a rate limit's individualLimit: the per-person spend
+// limit of an enterprise or workspace seat, which Codex 0.166 sends instead
+// of primary and secondary windows. limit and used are amounts in credits,
+// often as strings; remainingPercent and resetsAt come beside them.
+type codexIndividual struct{ f fields }
+
+// window turns the individual limit into a window of unknown length, at the
+// higher of used over limit, when both are numbers and the limit is above 0,
+// and 100 minus remainingPercent. Spend past the limit counts as full. A
+// negative amount, a remaining share outside 0 to 100 or no usable value is an
+// invalid window, as for primary and secondary. Its length stays 0, so the window
+// gets the stricter terms of a window of unknown length; a reset at or
+// before the read makes it full or no window, as for any other window.
+func (c codexIndividual) window() (Window, error) {
+	percent, err := c.usedPercent()
+	if err != nil {
+		return Window{}, err
+	}
+	// Two decimals keep duolog quota readable; the error is below 0.005
+	// points of the window.
+	w := Window{Kind: codexIndividualKind, UsedPercent: math.Round(percent*100) / 100}
+	// Seconds since 1970; a value past year 33000 is no reset time.
+	if at, ok := c.f.number("resetsAt", "resets_at"); ok && at > 0 && at < 1e12 {
+		w.ResetsAt = time.Unix(int64(at), 0).UTC()
+	}
+	return w, nil
+}
+
+// usedPercent is the share of the limit used: the higher of what limit and
+// used say, when the limit is above zero, and what remainingPercent says.
+func (c codexIndividual) usedPercent() (float64, error) {
+	invalid := errors.New("invalid quota window")
+	remaining, hasRemaining := c.f.number("remainingPercent", "remaining_percent")
+	if hasRemaining && (remaining < 0 || remaining > 100) {
+		return 0, invalid
+	}
+	limit, hasLimit := c.f.number("limit")
+	used, hasUsed := c.f.number("used")
+	if hasLimit && limit < 0 || hasUsed && used < 0 {
+		return 0, invalid
+	}
+	percent, known := 0.0, false
+	if hasLimit && hasUsed && limit > 0 {
+		percent, known = min(used/limit*100, 100), true
+	}
+	if hasRemaining {
+		percent, known = max(percent, 100-remaining), true
+	}
+	if !known {
+		return 0, invalid
+	}
+	return percent, nil
+}
+
+// open reports an individual limit with room left: a positive numeric limit, a
+// numeric used, a reset time, below 100% used, and a remainingPercent, when
+// sent, above 0. Whether the reset lies ahead is the verdict's check, at its
+// own time: a window past its reset is no window, which is paid. A nil limit
+// is not open.
+func (c *codexIndividual) open() bool {
+	if c == nil {
+		return false
+	}
+	limit, hasLimit := c.f.number("limit")
+	if _, hasUsed := c.f.number("used"); !hasLimit || !hasUsed || limit <= 0 {
+		return false
+	}
+	w, err := c.window()
+	if err != nil || w.ResetsAt.IsZero() || w.UsedPercent >= 100 {
+		return false
+	}
+	remaining, ok := c.f.number("remainingPercent", "remaining_percent")
+	return !ok || remaining > 0
+}
+
+// codexPersonalPlans are the plan names Codex gives a person's own account.
+var codexPersonalPlans = []string{"free", "go", "plus", "pro", "max", "ultra"}
+
+// codexByUseWords name billing by use, as the words a peer's pricing question
+// is judged by (internal/app/peer/paid_runs.go), with _ and - read as spaces.
+var codexByUseWords = []string{"usage based", "pay as you go", "extra usage"}
+
+func codexPersonalPlan(plan string) bool {
+	return slices.Contains(codexPersonalPlans, strings.ToLower(plan))
+}
+
+// codexSeatPlan reports a plan name that may be a seat: one that is there, not
+// a person's own plan, and not one that names billing by use. Unknown names
+// may be: Codex renames its enterprise plans, as ent26 shows.
+func codexSeatPlan(plan string) bool {
+	name := strings.NewReplacer("_", " ", "-", " ").Replace(strings.ToLower(plan))
+	return strings.TrimSpace(plan) != "" && !codexPersonalPlan(plan) && !slices.ContainsFunc(codexByUseWords, func(word string) bool { return strings.Contains(name, word) })
+}
+
+// refusesSeat reports a limit that names a plan no seat has. A limit of one
+// model names no plan in Codex's replies, and says nothing about the seat.
+func (l codexLimit) refusesSeat() bool {
+	return l.facts.plan != "" && !codexSeatPlan(l.facts.plan)
+}
+
+// allowIndividualSeat treats an enterprise or workspace seat on a per-person
+// spend limit as a subscription, as the project chose: duolog must work with
+// such a seat by default. As Codex 0.166 reports one, it sends
+// ordinaryUsageAllowed null and no primary or secondary window, and its
+// individualLimit is the permission. An open limit is workspace evidence,
+// unless the plan is a person's own, so an unknown plan name never reads as a
+// personal account.
+//
+// Only that exact shape turns no permission into one: the flag present and
+// null, no primary or secondary window, an open limit, a seat plan on every
+// limit, and nothing that refuses runs. Any other shape keeps an unknown
+// permission, which the verdict counts as paid. A false from any entry of the
+// reply wins over the grant, even one with other numbers. A scoped limit never
+// grants. readCodex settles the route and the account's plan afterwards.
+func allowIndividualSeat(s Snapshot, l *codexLimit, top codexPermission, byID map[string]codexLimit) Snapshot {
+	if l.facts.individual.open() && !codexPersonalPlan(l.facts.plan) {
+		addWorkspaceReason(&s.Billing, "workspace_plan")
+	}
+	if s.Billing.OrdinaryUsageAllowed != nil || l.Primary != nil || l.Secondary != nil || !l.facts.individual.open() || s.Rejected || s.SpendControlReached || !permissionNull(top, l.facts.ordinary) {
+		return s
+	}
+	limits := slices.Collect(maps.Values(byID))
+	if slices.ContainsFunc(limits, func(x codexLimit) bool { return x.facts.ordinary.value != nil && !*x.facts.ordinary.value }) {
+		refused := false
+		s.Billing.OrdinaryUsageAllowed, s.Rejected = &refused, true
+		return s
+	}
+	if !codexSeatPlan(l.facts.plan) || slices.ContainsFunc(limits, codexLimit.refusesSeat) {
+		return s
+	}
+	allowed := true
+	s.Billing.OrdinaryUsageAllowed = &allowed
+	return s
+}
+
+// settleCodexSeat takes back a seat grant that the account read rules out: a
+// route other than a chatgpt account, or a plan on the account that is no
+// seat's. The rate limit read alone cannot say. A permission the reply sent as
+// true is no grant and stays.
+func settleCodexSeat(b BillingFacts, rateLimits []byte, account BillingFacts, plan string) BillingFacts {
+	if b.OrdinaryUsageAllowed == nil || !*b.OrdinaryUsageAllowed || account.AccountType == "chatgpt" && codexSeatPlan(plan) {
+		return b
+	}
+	var reply fields
+	if json.Unmarshal(rateLimits, &reply) == nil && permissionNull(readCodexPermission(reply), readCodexPermission(reply.object("rateLimits"))) {
+		b.OrdinaryUsageAllowed = nil
+	}
+	return b
+}
+
+// readCodexAccount is parseCodexAccount with the account's plan name, which
+// only the seat check reads and which is never kept.
+func readCodexAccount(data []byte) (BillingFacts, string) {
+	b, _ := parseCodexAccount(data)
+	var reply fields
+	_ = json.Unmarshal(data, &reply)
+	plan, _ := reply.object("account").text("planType", "plan_type")
+	return b, plan
 }

@@ -32,11 +32,12 @@ func readDenyPatterns(p config.Policy, lead LeadRules, a Action) []string {
 // a.* and *.go ask. Aimed means that the glob's own literal text spells enough
 // of the denied name (literalsNeeded), in the place where that name stands: its
 // last segment on a file name, as a.p?m on *.pem, or an earlier segment on a
-// folder name, as sec*/x on secrets/**.
-func globAimedAtDeny(glob string, denies []string) bool {
+// folder name, as sec*/x on secrets/**. With strict, a dot and one letter of an
+// extension, as a.p* has, are not enough.
+func globAimedAtDeny(glob string, denies []string, strict bool) bool {
 	for _, pattern := range expandBraces(strings.ToLower(pathutil.Slashes(glob))) {
 		segments := strings.Split(pattern, "/")
-		if slices.ContainsFunc(denies, func(deny string) bool { return segmentsMeetDeny(segments, deny) }) {
+		if slices.ContainsFunc(denies, func(deny string) bool { return segmentsMeetDeny(segments, deny, strict) }) {
 			return true
 		}
 	}
@@ -45,7 +46,7 @@ func globAimedAtDeny(glob string, denies []string) bool {
 
 // segmentsMeetDeny reports whether a segment of a glob, in the place the deny
 // pattern's name stands, meets that name and spells enough of it.
-func segmentsMeetDeny(segments []string, deny string) bool {
+func segmentsMeetDeny(segments []string, deny string, strict bool) bool {
 	name, folder := deniedName(deny)
 	if name == "" {
 		return false
@@ -56,7 +57,40 @@ func segmentsMeetDeny(segments []string, deny string) bool {
 		places = segments[:len(segments)-1]
 	}
 	needed := literalsNeeded(denied)
+	if strict {
+		needed = max(needed, min(3, literalCount(denied)))
+	}
 	return slices.ContainsFunc(places, func(segment string) bool { return tokensMeet(globTokens(segment), denied) >= needed })
+}
+
+// slashVariants returns a pathspec glob and its spellings with a slash where a
+// wildcard stands, since Git's * and ? match a slash outside :(glob): one
+// wildcard at a time, and all of them at once. secrets* can name secrets/x as
+// secrets*/*, and sub?.env can name sub/.env.
+func slashVariants(glob string) []string {
+	variants := []string{glob}
+	crossing := map[byte]string{'*': "*/*", '?': "/"}
+	var all strings.Builder
+	for i := 0; i < len(glob); i++ {
+		if glob[i] == '[' {
+			if end := bracketEnd(glob, i); end > 0 {
+				all.WriteString(glob[i : end+1])
+				i = end
+				continue
+			}
+		}
+		slash, wild := crossing[glob[i]]
+		if !wild {
+			all.WriteByte(glob[i])
+			continue
+		}
+		all.WriteString(slash)
+		variants = append(variants, glob[:i]+slash+glob[i+1:])
+	}
+	if len(variants) > 1 {
+		variants = append(variants, all.String())
+	}
+	return variants
 }
 
 // literalsNeeded is how many literal characters of a denied name a glob must
@@ -68,8 +102,12 @@ func literalsNeeded(denied []string) int {
 	if len(denied) > 1 && denied[0] == "*" && denied[1] == "." {
 		needed = 2
 	}
-	literals := len(slices.DeleteFunc(slices.Clone(denied), func(token string) bool { return !literalToken(token) }))
-	return max(1, min(needed, literals))
+	return max(1, min(needed, literalCount(denied)))
+}
+
+// literalCount is how many tokens are one literal character.
+func literalCount(tokens []string) int {
+	return len(slices.DeleteFunc(slices.Clone(tokens), func(token string) bool { return !literalToken(token) }))
 }
 
 // literalToken reports whether a token is one literal character.

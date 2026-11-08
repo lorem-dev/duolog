@@ -178,11 +178,13 @@ sessions:
 
 # Decided by the duolog binary, not by a model, so an ordinary decision costs no tokens.
 # A worker never gets more than the lead's own settings allow, and it never delegates.
-# An unanswered question is denied when ask_timeout_seconds ends.
+# An unanswered question is denied when ask_timeout_seconds ends, or
+# person_ask_timeout_seconds for one only the person can answer.
 # The lead's mode adds to this: denies first, then the role's limit, then the mode.
 policy:
   on_unmatched: ask
   ask_timeout_seconds: 120
+  person_ask_timeout_seconds: 600
   rules:
     # CodeGraph reads only the code index. Exact names cover every role and
     # Codex's folded MCP names; a wildcard does not match those tool names.

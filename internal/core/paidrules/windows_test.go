@@ -312,3 +312,40 @@ func TestUsableHeadroomReservesAndScopedLimits(t *testing.T) {
 		}
 	})
 }
+
+// An individual limit has no length: it gets the weekly reserve and the
+// five-hour bound, so a task is refused as it nears full, on the usable
+// share of a workspace account as any other window.
+func TestIndividualLimitWindow(t *testing.T) {
+	costs := func(used float64) []WindowCost {
+		t.Helper()
+		c, err := WindowCosts(individualSnapshot(used), "sol", task, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	w := costOf(t, costs(11.48), "individual", "")
+	if w.Reserve != reserveWeekly || w.Cost != boundFiveHour || !near(w.Used, 0.1148) {
+		t.Fatalf("individual = %+v", w)
+	}
+	for _, c := range []struct {
+		used float64
+		u    float64
+		want bool
+	}{
+		{11.48, 0.5, true},
+		{40, 0.5, false}, // .8 + .1 + .15 of the usable half
+		{40, 1, true},
+		{80, 1, true}, // .8 + .05 + .15
+		{80.1, 1, false},
+		{100, 1, false},
+	} {
+		if got := FitsWindows(costs(c.used), c.u); got != c.want {
+			t.Errorf("%v%% used at share %v: fits %t, want %t", c.used, c.u, got, c.want)
+		}
+	}
+	if got := WindowShortfall("codex", costs(40), 0.5); got != "codex individual window 80% used, above the reserve" {
+		t.Fatalf("shortfall = %q", got)
+	}
+}

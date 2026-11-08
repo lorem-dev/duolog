@@ -17,6 +17,8 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/app/peer"
+	"github.com/lorem-dev/duolog/internal/core/pathutil"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -51,11 +53,7 @@ func (d *cmdDeps) mcpPeer(ctx context.Context, in mcp.PeerInput) (mcp.PeerOutput
 	defer done()
 	switch in.Action {
 	case "open":
-		e, err := peer.Open(pctx, in.Role)
-		if err != nil {
-			return mcp.PeerOutput{}, err
-		}
-		return entryOutput(e), nil
+		return mcpPeerOpen(pctx, in)
 	case "send":
 		return mcpPeerSend(pctx, in)
 	case "wait":
@@ -73,6 +71,65 @@ func (d *cmdDeps) mcpPeer(ctx context.Context, in mcp.PeerInput) (mcp.PeerOutput
 	default: // list; checkPeerInput refused every other action
 		return mcpPeerList(pctx)
 	}
+}
+
+// mcpPeerOpen is `duolog peer open <role>`, in the named worktree when the
+// input has one.
+func mcpPeerOpen(ctx context.Context, in mcp.PeerInput) (mcp.PeerOutput, error) {
+	if in.Worktree != "" {
+		work, err := mcpPeerWorktree(in.Worktree)
+		if err != nil {
+			return mcp.PeerOutput{}, err
+		}
+		ctx = peer.WithWorkDir(ctx, work)
+	}
+	e, err := peer.Open(ctx, in.Role)
+	if err != nil {
+		return mcp.PeerOutput{}, err
+	}
+	return entryOutput(e), nil
+}
+
+// mcpPeerWorktree resolves a plain name under the server checkout's .worktrees
+// folder first, then as a path from the server's cwd. Only a checkout of this
+// repository qualifies: a linked worktree or the main checkout, at its root,
+// so a peer cannot land in a subfolder and edit the wrong tree.
+func mcpPeerWorktree(ref string) (string, error) {
+	root, err := projectRoot()
+	if err != nil {
+		return "", err
+	}
+	dir := ref
+	if ref != "." && ref != ".." && !strings.ContainsAny(ref, `/\`) {
+		named := filepath.Join(workRoot(root), ".worktrees", ref)
+		if info, err := os.Stat(named); err == nil && info.IsDir() {
+			dir = named
+		}
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	if info, err := os.Stat(abs); err != nil || !info.IsDir() {
+		return "", fmt.Errorf("worktree %q is not a folder", ref)
+	}
+	if !project.SameProject(root, abs) {
+		return "", fmt.Errorf("worktree %q is outside the project and its linked worktrees", ref)
+	}
+	if !repositoryCheckout(root, abs) {
+		return "", fmt.Errorf("worktree %q is not a checkout of this repository", ref)
+	}
+	return abs, nil
+}
+
+// repositoryCheckout reports whether dir is the root of a checkout that shares
+// the state of root's repository.
+func repositoryCheckout(root, dir string) bool {
+	same := func(a, b string) bool {
+		return pathutil.Clean(pathutil.Resolved(a)) == pathutil.Clean(pathutil.Resolved(b))
+	}
+	top := project.WorkRoot(dir, "")
+	return top != "" && same(top, dir) && same(project.StateRoot(dir), project.StateRoot(root))
 }
 
 // mcpPeerList is `duolog peer list --json` as rows.
@@ -127,11 +184,12 @@ func mcpPeerTimeout(minutes int) time.Duration {
 // mcpPeerSend writes the task file under the peer's own task folder and sends
 // its path, as `duolog peer send <id> <path>` does.
 func mcpPeerSend(ctx context.Context, in mcp.PeerInput) (mcp.PeerOutput, error) {
-	root, err := projectRoot()
+	work, err := peer.WorkRoot(ctx, in.ID)
 	if err != nil {
 		return mcp.PeerOutput{}, err
 	}
-	rel, err := writeTaskFile(workRoot(root), in.ID, *in.Task)
+	ctx = peer.WithWorkDir(ctx, work)
+	rel, err := writeTaskFile(work, in.ID, *in.Task)
 	if err != nil {
 		return mcp.PeerOutput{}, err
 	}

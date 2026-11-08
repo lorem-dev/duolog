@@ -33,22 +33,56 @@ type HookGroup struct {
 // pluginKey is the enabledPlugins key of the duolog Claude plugin.
 const pluginKey = "duolog@duolog"
 
-// GateTimeout is the timeout, in seconds, that install writes for a gate
-// hook: longer than the gate's longest wait.
-const GateTimeout = 150
+const (
+	// GateTimeout is the timeout, in seconds, that install writes for a gate
+	// hook: longer than the gate's longest wait, the ten minutes of an ask only
+	// the person can answer.
+	GateTimeout = 630
+	// MinGateTimeout is the shortest gate hook timeout, in seconds, that still
+	// gives an ask a lead can answer its whole wait. A hook of an earlier
+	// install has it, and the gate shortens a person's wait to fit such a hook.
+	MinGateTimeout = 150
+	// AgentHookDefault is the timeout, in seconds, that Claude Code and Codex
+	// both give a command hook that sets none.
+	AgentHookDefault = 600
+)
 
 // GateWaits reports whether Claude waits for handler i's decision as long
 // as the gate may need: it is not async and its timeout, if set, is at least
-// GateTimeout. Otherwise it says why not.
+// MinGateTimeout. Otherwise it says why not.
 func (g HookGroup) GateWaits(i int) (string, bool) {
 	h := g.Hooks[i]
 	switch {
 	case h.Async || h.AsyncRewake:
 		return "it runs in the background (async), and Claude does not wait for its decision", false
-	case h.Timeout != nil && *h.Timeout < GateTimeout:
-		return fmt.Sprintf("its timeout of %g seconds is below the %d that duolog install writes, and Claude runs the tool when a hook times out", *h.Timeout, GateTimeout), false
+	case h.Timeout != nil && *h.Timeout < MinGateTimeout:
+		return fmt.Sprintf("its timeout of %g seconds is below the %d the gate needs, and Claude runs the tool when a hook times out", *h.Timeout, MinGateTimeout), false
 	}
 	return "", true
+}
+
+// GateHookSeconds returns the shortest timeout, in seconds, of the gate hooks
+// for event in files, and false when none of them holds one. A gate hook that
+// sets no timeout has the agent's default.
+func GateHookSeconds(files []string, event string) (float64, bool) {
+	shortest, found := 0.0, false
+	for _, path := range files {
+		for _, group := range ReadHooks(path)[event] {
+			for i, h := range group.Hooks {
+				if !group.IsGate(i) {
+					continue
+				}
+				seconds := float64(AgentHookDefault)
+				if h.Timeout != nil {
+					seconds = *h.Timeout
+				}
+				if !found || seconds < shortest {
+					shortest, found = seconds, true
+				}
+			}
+		}
+	}
+	return shortest, found
 }
 
 // ReadHooks returns the hooks of a settings file. A missing or broken file has none.

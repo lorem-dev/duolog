@@ -107,7 +107,7 @@ func TestPeerWaitSkipsAskPastItsAskersWait(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "bus.ndjson"), append(line, '\n'), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := pendingAsk(dir, address, "peer-test"); err != nil || got != "" {
+	if got, _, err := pendingAsk(dir, address, "peer-test", 0); err != nil || got != "" {
 		t.Fatalf("an ask past its asker's wait is pending: %q %v", got, err)
 	}
 }
@@ -183,11 +183,11 @@ func TestExpiredAskIsNoLongerPending(t *testing.T) {
 		}
 	}
 	write(time.Now().Add(-(gate.MaxAskWait+30*time.Second)-time.Second), 1)
-	if got, err := pendingAsk(dir, address, "peer-test"); err != nil || got != "" {
+	if got, _, err := pendingAsk(dir, address, "peer-test", 0); err != nil || got != "" {
 		t.Fatal(got, err)
 	}
 	write(time.Now(), 2)
-	if got, err := pendingAsk(dir, address, "peer-test"); err != nil || got == "" {
+	if got, _, err := pendingAsk(dir, address, "peer-test", 0); err != nil || got == "" {
 		t.Fatal(got, err)
 	}
 }

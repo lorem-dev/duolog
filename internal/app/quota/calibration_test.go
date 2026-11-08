@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
@@ -48,5 +49,32 @@ func TestBudgetsSkipsASwitchedOffAgent(t *testing.T) {
 	}
 	if b, ok := budgets["claude"]; !ok || b.Verdict != budget.VerdictSubscription {
 		t.Errorf("budgets = %+v, want claude's subscription", budgets)
+	}
+}
+
+// A Codex individual limit is calibration's weekly window when the read has
+// no weekly window, so its lead reserve and cap hold calibration back as the
+// limit nears full; next to a weekly window it is left out.
+func TestWindowsMapsAnIndividualLimit(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	reset := now.Add(80 * time.Hour)
+	individual := account.Window{Kind: "individual", UsedPercent: 42, ResetsAt: reset}
+	ws := quota.Windows(account.Snapshot{Windows: []account.Window{individual}})
+	if len(ws) != 1 || ws[0] != (budget.Window{Kind: budget.KindWeekly, UsedPercent: 42, ResetsAt: reset}) {
+		t.Fatalf("windows = %+v", ws)
+	}
+	cfg := config.Calibration{MaxWeeklyShare: 0.10, MaxWindowShare: 0.5}
+	spend := budget.Spend{WeeklyPct: map[string]float64{}}
+	cost := budget.CellCost{WeeklyPct: 1, WindowPct: 5}
+	if d := budget.AdmitBilled("codex", budget.BillingBudget{Verdict: budget.VerdictSubscription, Account: "workspace", UsableShare: 0.5}, ws, cost, spend, cfg, 0, now); d.Stop != "lead reserve" {
+		t.Fatalf("42%% of a workspace individual limit, above (100-15)*0.5: %+v, want the lead reserve", d)
+	}
+	if d := budget.AdmitBilled("codex", budget.BillingBudget{Verdict: budget.VerdictSubscription, Account: "personal", UsableShare: 1}, ws, cost, spend, cfg, 0, now); !d.Admit {
+		t.Fatalf("42%% of a personal individual limit: %+v", d)
+	}
+	weekly := account.Window{Kind: "weekly_all", DurationMinutes: 10080, UsedPercent: 20, ResetsAt: reset}
+	ws = quota.Windows(account.Snapshot{Windows: []account.Window{weekly, individual}})
+	if len(ws) != 1 || ws[0].UsedPercent != 20 {
+		t.Fatalf("windows next to a weekly one = %+v", ws)
 	}
 }

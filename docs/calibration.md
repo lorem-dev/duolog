@@ -281,6 +281,9 @@ without a new approval, a looser one only after you plan and approve again.
 On a workspace account the caps and the lead reserve apply to the usable
 part of each window, `paid_runs.usable_share`, `0.5` by default. The default
 caps are then 5% of the real weekly window and 25% of a five-hour window.
+A Codex individual limit, the per-person limit of an enterprise or
+workspace seat, counts as the weekly window when the read has no weekly
+window.
 
 Each step takes an account slot when its worker starts, like a delegation;
 see [Configuration](configuration.md#how-many-sessions-run-at-once). It

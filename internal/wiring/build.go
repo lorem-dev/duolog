@@ -158,17 +158,18 @@ func DoctorDeps(d delegate.Deps) doctor.Deps {
 		probes[a.Facts.Name] = a.Probe
 	}
 	return doctor.Deps{
-		PaidGate:     func(cfg *config.Config) (*paidruns.Gate, error) { return d.PaidGate(cfg) },
-		GateBinary:   workerenv.GateBinary,
-		Build:        workerenv.Build,
-		DroppedKeys:  workerenv.DroppedKeys,
-		Names:        Names(),
-		Agents:       doctorAgents(),
-		ClaudeFolder: claude.ClaudeFolder,
-		Probes:       probes,
-		Available:    func(agent string) bool { _, err := exec.LookPath(agent); return err == nil },
-		InstallCheck: installCheck,
-		LeadCompact:  leadCompact,
+		PaidGate:        func(cfg *config.Config) (*paidruns.Gate, error) { return d.PaidGate(cfg) },
+		GateBinary:      workerenv.GateBinary,
+		Build:           workerenv.Build,
+		DroppedKeys:     workerenv.DroppedKeys,
+		PaidClaudeRoute: func(name string) bool { return workerenv.RouteName(claude.Facts.Name, name, "") },
+		Names:           Names(),
+		Agents:          doctorAgents(),
+		ClaudeFolder:    claude.ClaudeFolder,
+		Probes:          probes,
+		Available:       func(agent string) bool { _, err := exec.LookPath(agent); return err == nil },
+		InstallCheck:    installCheck,
+		LeadCompact:     leadCompact,
 	}
 }
 
@@ -184,5 +185,5 @@ func paidGate(cfg *config.Config) (*paidruns.Gate, error) {
 		_, err := st.Identity(agent, kind, raw)
 		return err
 	})
-	return &paidruns.Gate{Store: st, Cache: &paidstore.Cache{Read: readers.Read}, Config: cfg, Layers: paidruns.ReadLayers}, nil
+	return &paidruns.Gate{Store: st, Cache: &paidstore.Cache{Read: readers.Read, Dir: st.Dir}, Config: cfg, Layers: paidruns.ReadLayers}, nil
 }

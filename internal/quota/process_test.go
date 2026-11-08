@@ -138,8 +138,10 @@ func TestQuotaReadUsesBuiltProcess(t *testing.T) {
 	}
 	sameEnv(t, claude, p.Env) // auth status, the last call
 
-	// A failed /usage stops before auth status, so the fake's environment is
-	// that of /usage. Its stderr and exit never reach the error.
+	// A failed /usage that printed no report reads auth status too, through
+	// the same process. The login here cannot be read, so that is the answer
+	// and the read is not tried again. Its stderr and exit never reach the
+	// error.
 	failing := testbin.Install(t, "claude", testbin.Scenario{Stderr: droppedSecret + " " + inheritedMarker, Exit: 3})
 	hide()
 	pf := build("claude", filepath.Dir(failing))
@@ -147,7 +149,7 @@ func TestQuotaReadUsesBuiltProcess(t *testing.T) {
 	if err == nil || strings.Contains(err.Error(), droppedSecret) || strings.Contains(err.Error(), inheritedMarker) {
 		t.Fatalf("failing read: %v", err)
 	}
-	if calls := recordedCalls(t, failing); len(calls) != 1 || !slices.Equal(calls[0], pf.Argv(usage...)[1:]) {
+	if calls := recordedCalls(t, failing); len(calls) != 2 || !slices.Equal(calls[0], pf.Argv(usage...)[1:]) || !slices.Equal(calls[1], pf.Argv(auth...)[1:]) {
 		t.Fatalf("failing calls = %q", calls)
 	}
 	sameEnv(t, failing, pf.Env)

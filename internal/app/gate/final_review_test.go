@@ -156,7 +156,7 @@ func TestAskSummaryAndForegroundWait(t *testing.T) {
 	if waiting, err := reg.IsWaiting("first-123456"); err != nil || waiting {
 		t.Fatal(waiting, err)
 	}
-	if AskWait(900) != MaxAskWait || AskWait(2) != 2*time.Second {
+	if AskWait(900, false, LegacyHookBudget) != MaxAskWait || AskWait(2, false, LegacyHookBudget) != 2*time.Second {
 		t.Fatal("hook wait exceeds budget")
 	}
 	// The summary stays valid when non-ASCII actions are supplied.

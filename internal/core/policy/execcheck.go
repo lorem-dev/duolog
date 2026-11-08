@@ -349,8 +349,8 @@ func ExecOutside(a Action) bool {
 
 // execOutsideFrom is ExecOutside with relative paths judged from a.Cwd alone.
 func execOutsideFrom(a Action) bool {
-	// $'...' or a brace expansion can make any word name a file outside.
-	if unexpandedLine(a) {
+	// $'...', a brace expansion or a variable can make a word name a file outside.
+	if unexpandedLine(a) || expansionBuildsPath(a) {
 		return true
 	}
 	// A script or an option can name a file inside one word.

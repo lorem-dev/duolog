@@ -45,6 +45,8 @@ func TestTelemetryLeadAccess(t *testing.T) {
 		shell("true && duolog.exe telemetry purge --yes; echo done"), shell(`"duolog" --lead L telemetry show`),
 		shell("cat " + quote(filepath.Join(telemetryRoot, "salt"))), shell("head " + quote(filepath.Join(telemetryRoot, "v1", "_account", "2026-11-01.ndjson"))),
 		shell("grep -r claude " + quote(filepath.Dir(telemetryRoot))), shell("ls " + quote(balanceRoot)),
+		shell(`grep -rn '"sol"\|sol:' ` + quote(telemetryRoot) + ` 2>/dev/null | sort -u`),
+		shell(`grep -rn '"sol"\|sol:' ` + quote(balanceRoot) + ` 2>/dev/null | sort -u`),
 		shell("cat " + quote(filepath.Join(balanceRoot, "samples.ndjson"))),
 		{"Read", map[string]string{"file_path": filepath.Join(telemetryRoot, "salt")}},
 		{"Read", map[string]string{"file_path": filepath.Join(balanceRoot, "state.json")}},
@@ -52,6 +54,9 @@ func TestTelemetryLeadAccess(t *testing.T) {
 		{"Grep", map[string]string{"pattern": "claude", "path": balanceRoot}},
 	}
 	open := []call{
+		shell(`grep -rn '"sol"\|sol:' --include='*.go' --include='*.yaml' internal assets 2>/dev/null | grep -iv _test | grep -i 'gpt\|model' | head -8; git log -5 --format='%b' | grep -i 'co-authored\|AI-Assisted' | sort -u`),
+		shell("grep -rn x internal assets"), shell("git log -5 --format=%b"),
+		shell("grep -rn x internal assets | sort -u"), shell("grep -rn x internal assets 2>/dev/null"),
 		shell("duolog doctor"), shell("go test ./..."), shell("cat notes.txt"), shell("duolog delegate implement --task telemetry.md"),
 		{"Read", map[string]string{"file_path": filepath.Join(root, "README.md")}},
 		{"Grep", map[string]string{"pattern": "telemetry", "path": root}},

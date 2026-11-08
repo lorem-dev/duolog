@@ -55,7 +55,8 @@ func ApprovalPath(key string) (path, position string, ok bool) {
 }
 
 // GateCommands lists the gate handlers of a Codex hooks file with their
-// positions and commands; it changes exactly when a gate command changes.
+// positions, commands and timeouts; it changes exactly when one of those
+// changes. Codex hashes the timeout into a hook's approval too.
 func GateCommands(data []byte) string {
 	var doc struct {
 		Hooks map[string][]HookGroup `json:"hooks"`
@@ -67,7 +68,11 @@ func GateCommands(data []byte) string {
 	for i, group := range doc.Hooks["PreToolUse"] {
 		for j, h := range group.Hooks {
 			if group.IsGate(j) {
-				fmt.Fprintf(&b, "%d:%d %q %q %q %q\n", i, j, group.Matcher, h.Command, h.CommandWindows, h.Args)
+				timeout := "default"
+				if h.Timeout != nil {
+					timeout = fmt.Sprint(*h.Timeout)
+				}
+				fmt.Fprintf(&b, "%d:%d %q %q %q %q %s\n", i, j, group.Matcher, h.Command, h.CommandWindows, h.Args, timeout)
 			}
 		}
 	}

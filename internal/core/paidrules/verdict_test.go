@@ -437,3 +437,42 @@ func TestAccountEvidenceAndUsableShare(t *testing.T) {
 		})
 	}
 }
+
+// individualSnapshot is a Codex enterprise seat as internal/quota reads it:
+// one individual limit window of unknown length, a chatgpt login, workspace
+// evidence and ordinary usage that the limit allowed.
+func individualSnapshot(used float64) coreaccount.Snapshot {
+	s := snapshot("codex")
+	s.Plan = ""
+	s.Windows = []coreaccount.Window{{Kind: "individual", UsedPercent: used, ResetsAt: now.Add(80 * time.Hour)}}
+	s.Billing.WorkspaceReasons = []string{"workspace_name"}
+	return s
+}
+
+func TestVerdictCodexIndividualLimit(t *testing.T) {
+	cfg := testConfig()
+	eval := func(s coreaccount.Snapshot) Assessment {
+		return Evaluate(process("codex", launch.Worker, launch.Free), s, nil, coreaccount.RunEvidence{}, cfg, now)
+	}
+	a := eval(individualSnapshot(11.48))
+	if a.Verdict != Subscription || len(a.Signals) != 0 || a.Account != "workspace" || a.UsableShare != 0.5 {
+		t.Fatalf("individual limit: %s %v %s u=%v", a.Verdict, signalNames(a), a.Account, a.UsableShare)
+	}
+	s := individualSnapshot(11.48)
+	s.Billing.OverageEnabled = true
+	if a := eval(s); a.Verdict != SubscriptionOverage || !hasSignal(a, "overage:enabled") {
+		t.Fatalf("credits: %s %v", a.Verdict, signalNames(a))
+	}
+	for name, permission := range map[string]*bool{"refused": no(), "unknown": nil} {
+		s := individualSnapshot(11.48)
+		s.Billing.OrdinaryUsageAllowed = permission
+		if a := eval(s); a.Verdict != Paid || !hasSignal(a, "read:ordinary-usage") {
+			t.Fatalf("%s permission: %s %v", name, a.Verdict, signalNames(a))
+		}
+	}
+	s = individualSnapshot(11.48)
+	s.Windows[0].ResetsAt = now.Add(-time.Minute)
+	if a := eval(s); a.Verdict != Paid || !hasSignal(a, "read:no-window") {
+		t.Fatalf("reset individual limit: %s %v", a.Verdict, signalNames(a))
+	}
+}

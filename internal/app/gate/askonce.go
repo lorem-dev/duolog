@@ -33,13 +33,18 @@ type askMemo struct {
 }
 
 // until is when the memo stops counting: an answer is reused only within the
-// wait of the ask it answers, and never past MaxAskWait.
+// wait of the ask it answers, and never past MaxPersonAskWait.
 func (m askMemo) until() time.Time {
-	return m.Start.Add(min(time.Duration(m.Wait)*time.Second, MaxAskWait))
+	return m.Start.Add(min(time.Duration(m.Wait)*time.Second, MaxPersonAskWait))
 }
 
 // questionKey starts a key made from the question, which is not hex.
 const questionKey = "q"
+
+// questionReuse bounds the reuse of a reply under a question key, counted from
+// the start of its ask, however long the person may take. Such a key can name
+// another call that asks the same, so a longer wait must not widen it.
+const questionReuse = 120 * time.Second
 
 // AskKey names the ask of one tool call: its session and tool_use_id, or, when
 // the hook input has no tool_use_id, the session and the question itself. It
@@ -70,9 +75,12 @@ func AskKey(sessionID, toolUseID, question string, person bool) string {
 // is never shared, so nothing here turns a deny into an allow or lets an
 // unanswered ask through.
 //
-// ask returns the decision and whether a reply gave it; only a reply is shared.
-func EscalateOnce(ctx context.Context, dir, key string, wait time.Duration, ask func() (policy.Decision, bool)) policy.Decision {
-	own := func() policy.Decision { d, _ := ask(); return d }
+// ask gets what is left of wait, so that a hook that first waited on another
+// hook still ends inside its own timeout. It returns the decision and whether
+// a reply gave it; only a reply is shared.
+func EscalateOnce(ctx context.Context, dir, key string, wait time.Duration, ask func(left time.Duration) (policy.Decision, bool)) policy.Decision {
+	deadline := time.Now().Add(wait)
+	own := func() policy.Decision { d, _ := ask(time.Until(deadline)); return d }
 	if key == "" {
 		return own()
 	}
@@ -85,9 +93,10 @@ func EscalateOnce(ctx context.Context, dir, key string, wait time.Duration, ask 
 	waitCtx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
 	for {
-		pending, err := claim(path, wait)
+		left := time.Until(deadline)
+		pending, err := claim(path, left)
 		if err == nil {
-			d, replied := ask()
+			d, replied := ask(left)
 			record(path, d, replied, pending)
 			return d
 		}
@@ -138,15 +147,15 @@ func sharedDecision(path string, once bool) (policy.Decision, bool) {
 	case !ok:
 	case m.Start.After(now) || m.Wait < 0:
 		_ = os.Remove(path)
-	case reusable(m, now) && !once:
+	case reusable(m, now, once) && !once:
 		return policy.Decision{Kind: m.Kind, Reason: m.Reason, Rule: m.Rule}, true
-	case reusable(m, now):
+	case reusable(m, now, once):
 		taken := path + "." + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(now.UnixNano(), 36) + ".used"
 		if os.Rename(path, taken) != nil {
 			return policy.Decision{}, false
 		}
 		defer os.Remove(taken)
-		if m, ok := readMemo(taken); ok && !m.Start.After(now) && m.Wait >= 0 && reusable(m, now) {
+		if m, ok := readMemo(taken); ok && !m.Start.After(now) && m.Wait >= 0 && reusable(m, now, once) {
 			return policy.Decision{Kind: m.Kind, Reason: m.Reason, Rule: m.Rule}, true
 		}
 	case m.Done || now.After(m.until().Add(askGrace)):
@@ -155,8 +164,12 @@ func sharedDecision(path string, once bool) (policy.Decision, bool) {
 	return policy.Decision{}, false
 }
 
-// reusable reports a reply that is still inside the wait of its ask.
-func reusable(m askMemo, now time.Time) bool {
+// reusable reports a reply that is still inside the wait of its ask and, for a
+// once record, a question key's, inside questionReuse too.
+func reusable(m askMemo, now time.Time, once bool) bool {
+	if once && !now.Before(m.Start.Add(questionReuse)) {
+		return false
+	}
 	return m.Done && now.Before(m.until()) && (m.Kind == policy.Allow || m.Kind == policy.Deny)
 }
 
@@ -205,7 +218,7 @@ func forgetStale(folder string) {
 	}
 	for _, e := range entries {
 		path := filepath.Join(folder, e.Name())
-		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > MaxAskWait+time.Minute {
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > MaxPersonAskWait+time.Minute {
 			_ = os.Remove(path)
 		}
 	}

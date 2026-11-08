@@ -11,8 +11,19 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/mode"
 )
 
+// WaitAfterAsk keeps the watch alive through the answer or expiry of a gate
+// ask the lead has already relayed. Other asks still return immediately.
+// It never answers an ask. With ask zero it is the same as Wait.
+func WaitAfterAsk(ctx context.Context, id string, ask int64) (Entry, error) {
+	return wait(ctx, id, ask)
+}
+
 // Wait continues the wait for a session, for example after an answer.
 func Wait(ctx context.Context, id string) (Entry, error) {
+	return wait(ctx, id, 0)
+}
+
+func wait(ctx context.Context, id string, afterAsk int64) (Entry, error) {
 	e, err := setup(ctx)
 	if err != nil {
 		return Entry{}, err
@@ -26,6 +37,7 @@ func Wait(ctx context.Context, id string) (Entry, error) {
 		return Entry{ID: entry.ID, State: Closed, Note: line}, err
 	}
 	e.watchQuestions = true
+	e.afterAsk = afterAsk
 	got, err := e.watchMarked(ctx, entry)
 	if got.ID != "" {
 		got.Report = e.reportLine(entry)
