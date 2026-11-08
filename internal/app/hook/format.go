@@ -26,19 +26,16 @@ const (
 	summaryRunes = 80
 )
 
-// clock is the time the lines count an ask's wait from; tests set it.
-var clock = time.Now
-
 // line is one short plain line for a message, in place of its JSON. An ask
-// ends in how to answer it and, when it carries its wait, the seconds left
-// before its asker is denied.
+// ends in how to answer it and, when it carries its wait, the seconds left at
+// now before its asker is denied.
 //
 //	ask 15287 peer-x: exec go test ./...; duolog allow 15287 or duolog deny 15287, 95s left
 //	ask 7 peer-x: exec cat ../x (person); the person runs duolog allow 7 or duolog deny 7, 95s left
 //	status peer-x: pane closed
 //	notice duolog/plugin: plugin offered
 //	done 6 codex/review: finished
-func line(m bus.Message) string {
+func line(m bus.Message, now time.Time) string {
 	who := m.Ref
 	if who == "" {
 		who = m.From
@@ -54,7 +51,7 @@ func line(m bus.Message) string {
 			answer = "the person runs " + answer
 		}
 		out += "; " + answer
-		if left, ok := askLeft(m); ok {
+		if left, ok := askLeft(m, now); ok {
 			out += ", " + strconv.Itoa(left) + "s left"
 		}
 		return out
@@ -77,13 +74,13 @@ func expires(m bus.Message) bool {
 }
 
 // askLeft returns the whole seconds, rounded up, before the asker of m stops
-// waiting. ok is false for an ask that does not carry its wait or time.
-func askLeft(m bus.Message) (int, bool) {
+// waiting at now. ok is false for an ask that does not carry its wait or time.
+func askLeft(m bus.Message, now time.Time) (int, bool) {
 	at, err := time.Parse(time.RFC3339Nano, m.T)
 	if err != nil || m.W <= 0 {
 		return 0, false
 	}
-	left := at.Add(time.Duration(m.W) * time.Second).Sub(clock())
+	left := at.Add(time.Duration(m.W) * time.Second).Sub(now)
 	return max(0, int((left+time.Second-1)/time.Second)), true
 }
 
@@ -150,7 +147,7 @@ func entries(lines [][]byte) (out []entry, asks bool) {
 // or expires; one without a time to expire from is shown once. More than showAll other new messages show only the newest
 // showNewest of them; the rest join the held lines. While any of those other
 // lines is held, the text ends in one line that counts them.
-func present(dir string, held, unread [][]byte) (text []byte, keep [][]byte) {
+func present(dir string, held, unread [][]byte, now time.Time) (text []byte, keep [][]byte) {
 	old, oldAsks := entries(held)
 	fresh, freshAsks := entries(unread)
 	var answered map[string]bool
@@ -167,7 +164,7 @@ func present(dir string, held, unread [][]byte) (text []byte, keep [][]byte) {
 		case e.m.K != policy.Ask:
 			others = append(others, e.raw)
 		case !closed(e.m):
-			out.WriteString(line(e.m) + "\n")
+			out.WriteString(line(e.m, now) + "\n")
 			if expires(e.m) {
 				asks = append(asks, e.raw)
 			}
@@ -175,7 +172,7 @@ func present(dir string, held, unread [][]byte) (text []byte, keep [][]byte) {
 	}
 	shown, newlyHeld := capOthers(fresh, closed)
 	for _, e := range shown {
-		out.WriteString(line(e.m) + "\n")
+		out.WriteString(line(e.m, now) + "\n")
 		if e.m.K == policy.Ask && expires(e.m) {
 			asks = append(asks, e.raw)
 		}

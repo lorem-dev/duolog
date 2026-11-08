@@ -332,10 +332,11 @@ going, whatever the load line says.
 
 A lock in `.duolog` lets one run per lead go at a time, and a second run exits
 at once. The lock records the run's process id; a lock whose process is gone
-is dropped and does not block a new run. A run that ended in the middle, for example when its process was
-killed, can leave an item `opening`. The next run marks it `failed` and tells
-the lead, since its peer may be open. `queue remove` drops it when no run is
-going. The items are in `.duolog/peer-queue.ndjson`. Runs started this way
+is dropped and does not block a new run. A run that ended in the middle, for
+example when its process was killed, can leave an item `opening`. The next
+run marks it `failed` and tells the lead, since its peer may be open.
+`queue remove` drops it when no run is going. The items are in
+`.duolog/peer-queue.ndjson`. Runs started this way
 write to `.duolog/peer-queue-run.log`, which each run empties once it holds
 the lock. On Windows the run has a hidden console of its own, so neither it
 nor the git and rex it calls opens a window.

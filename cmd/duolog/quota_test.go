@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -19,12 +20,23 @@ import (
 	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"github.com/lorem-dev/duolog/internal/workerenv"
+	"go.yaml.in/yaml/v3"
 )
 
 // freeClaudeRead is the reply key of a Claude quota read: the free worker's
-// --settings prefix, then args.
+// --settings prefix, then args. The read runs the process a worker gets
+// before any read names the plan, so its settings carry the compact window
+// that the default config gives an unknown plan, the bounded fallback.
 func freeClaudeRead(args string) string {
-	return "--settings " + workerenv.ClaudeSettings("", false, nil) + " " + args
+	var cfg config.Config
+	if err := yaml.Unmarshal(config.DefaultYAML(), &cfg); err != nil {
+		panic(err)
+	}
+	var extra map[string]any
+	if window := cfg.Workers.Window(""); window > 0 {
+		extra = map[string]any{"env": map[string]any{"CLAUDE_CODE_AUTO_COMPACT_WINDOW": strconv.Itoa(window)}}
+	}
+	return "--settings " + workerenv.ClaudeSettings("", false, extra) + " " + args
 }
 
 // realQuotaGate gives this test's commands the real quota reader, through

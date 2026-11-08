@@ -86,7 +86,7 @@ func TestInstallSetsTheLeadWindowOfThePlanAndUninstallRemovesIt(t *testing.T) {
 	if _, env := localEnv(t, root); env[CompactVar] != "500000" {
 		t.Fatalf("env %v", env)
 	}
-	if !hasNote(r, "claude lead", "500000", "plan max", ".claude/settings.local.json") {
+	if !hasNote(r, "claude lead", "500000", "plan max", filepath.Join(".claude", "settings.local.json")) {
 		t.Fatalf("notes %q", r.Notes)
 	}
 	s := claudeStatus(t, d, o)
@@ -164,8 +164,10 @@ func TestLeadWindowKeepsThePersonsOwnValue(t *testing.T) {
 		name, file, where string
 		environ           []string
 	}{
-		{name: "local", file: ".claude/settings.local.json", where: ".claude/settings.local.json"},
-		{name: "project", file: ".claude/settings.json", where: ".claude/settings.json"},
+		// The notes name a file in the project as shown does, with the
+		// separator of the OS.
+		{name: "local", file: ".claude/settings.local.json", where: filepath.Join(".claude", "settings.local.json")},
+		{name: "project", file: ".claude/settings.json", where: filepath.Join(".claude", "settings.json")},
 		{name: "user", file: "HOME/.claude/settings.json", where: "settings.json"},
 		{name: "environment", environ: []string{CompactVar + "=300000"}, where: "the environment"},
 	} {
@@ -257,7 +259,7 @@ func TestInstallCheckNamesAMissingLeadWindow(t *testing.T) {
 	}
 	d, _ := leadDeps(t, home, LeadWindow{Window: 500000, Plan: "max"})
 	s := claudeStatus(t, d, o)
-	if !s.Stale() || !strings.Contains(s.Line(root), "lead compact window not set in .claude/settings.local.json") {
+	if !s.Stale() || !strings.Contains(s.Line(root), "lead compact window not set in "+filepath.Join(".claude", "settings.local.json")) {
 		t.Fatalf("line %q", s.Line(root))
 	}
 	if line := d.LeadLine(root, home); line != "" {

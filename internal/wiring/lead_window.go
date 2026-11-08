@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/claude"
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/app/install"
 	"github.com/lorem-dev/duolog/internal/quota"
@@ -20,7 +21,7 @@ const leadReadTimeout = 45 * time.Second
 var leadPlan = func() string {
 	ctx, cancel := context.WithTimeout(context.Background(), leadReadTimeout)
 	defer cancel()
-	s, err := quota.Reader{Once: true}.Read(ctx, "claude")
+	s, err := quota.Reader{Once: true}.Read(ctx, claude.Facts.Name)
 	if err != nil {
 		return ""
 	}

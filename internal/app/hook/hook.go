@@ -255,7 +255,7 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 func receive(s *state) (data []byte, idle []string, err error) {
 	err = s.bus.Consume(session.Address(s.lead), func(held, unread [][]byte) [][]byte {
 		var keep [][]byte
-		data, keep = present(s.bus.Directory(), held, unread)
+		data, keep = present(s.bus.Directory(), held, unread, time.Now())
 		idle = idlePeers(unread)
 		return keep
 	})

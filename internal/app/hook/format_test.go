@@ -32,7 +32,7 @@ func TestLineForAsk(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := line(c.m)
+			got := line(c.m, time.Now())
 			if got != c.want {
 				t.Fatalf("got %q, want %q", got, c.want)
 			}
@@ -57,16 +57,13 @@ func TestAskLineCountsSecondsLeft(t *testing.T) {
 		{119*time.Second + 500*time.Millisecond, ", 1s left"},
 		{130 * time.Second, ", 0s left"},
 	} {
-		at := sent.Add(c.after)
-		clock = func() time.Time { return at }
 		want := "ask 3 peer-x: exec go test ./...; duolog allow 3 or duolog deny 3" + c.want
-		if got := line(m); got != want {
+		if got := line(m, sent.Add(c.after)); got != want {
 			t.Errorf("after %s: got %q, want %q", c.after, got, want)
 		}
 	}
-	clock = time.Now
 	m.W = 0
-	if got := line(m); strings.Contains(got, "left") {
+	if got := line(m, sent); strings.Contains(got, "left") {
 		t.Errorf("an ask without its wait: %q", got)
 	}
 }
@@ -96,10 +93,11 @@ func TestLineForStatusAndNotice(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := line(c.m); got != c.want {
+			got := line(c.m, time.Now())
+			if got != c.want {
 				t.Fatalf("got %q, want %q", got, c.want)
 			}
-			if strings.Contains(line(c.m), "\n") || strings.Contains(line(c.m), `{"`) {
+			if strings.Contains(got, "\n") || strings.Contains(got, `{"`) {
 				t.Fatal("not one plain line")
 			}
 		})
@@ -329,7 +327,7 @@ func TestAnswerAfterABadBusLineCounts(t *testing.T) {
 	write(t, filepath.Join(b.Directory(), "bus.ndjson"), raw)
 	// The bus reader refuses the bad line, so present gets the asks directly.
 	lines := strings.SplitAfter(raw, "\n")
-	text, _ := present(b.Directory(), nil, [][]byte{[]byte(lines[0]), []byte(lines[1])})
+	text, _ := present(b.Directory(), nil, [][]byte{[]byte(lines[0]), []byte(lines[1])}, time.Now())
 	if leftless(string(text)) != asked(1, "exec open")+"\n" {
 		t.Fatalf("got %q", text)
 	}
@@ -345,14 +343,14 @@ func TestAskWithoutTimeIsShownOnce(t *testing.T) {
 	timed := fmt.Sprintf(`{"n":1,"t":%q,"from":"claude/worker","to":%q,"k":"ask","ref":"peer-x","s":"exec timed","w":120}`+"\n", now, a)
 	for _, at := range []string{`"t":"yesterday",`, ``} {
 		untimed := fmt.Sprintf(`{"n":2,%s"from":"claude/worker","to":%q,"k":"ask","ref":"peer-x","s":"exec untimed","w":120}`+"\n", at, a)
-		text, keep := present(b.Directory(), nil, [][]byte{[]byte(timed), []byte(untimed)})
+		text, keep := present(b.Directory(), nil, [][]byte{[]byte(timed), []byte(untimed)}, time.Now())
 		if leftless(string(text)) != asked(1, "exec timed")+"\n"+asked(2, "exec untimed")+"\n" {
 			t.Fatalf("got %q", text)
 		}
 		if len(keep) != 1 || string(keep[0]) != timed {
 			t.Fatalf("held %q", keep)
 		}
-		if text, keep = present(b.Directory(), [][]byte{[]byte(untimed)}, nil); len(text) == 0 || len(keep) != 0 {
+		if text, keep = present(b.Directory(), [][]byte{[]byte(untimed)}, nil, time.Now()); len(text) == 0 || len(keep) != 0 {
 			t.Fatalf("a held untimed ask: %q, held %q", text, keep)
 		}
 	}
