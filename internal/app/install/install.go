@@ -72,8 +72,17 @@ type Agent struct {
 
 // Deps is what install reaches outside the package: the registered agents in
 // order. The wiring package fills it with the real adapters.
+//
+// LeadWindow reads the compact window of the lead in the project at root: the
+// workers.compact_window rule for the Claude plan the quota read names, with
+// the bounded fallback when it names none. A project install writes it for
+// each agent whose Installer is a LeadEnv; nil leaves the lead alone, and
+// Check compares none. Environ is the environment the person's own value is
+// looked up in; nil means duolog's own.
 type Deps struct {
-	Agents []Agent
+	Agents     []Agent
+	LeadWindow func(root string) (LeadWindow, error)
+	Environ    []string
 }
 
 // Options selects what to install and where. Scope is "project" (default) or
@@ -159,10 +168,23 @@ func (d Deps) Run(o Options) (Report, error) {
 		}
 	}
 	// The skills are in the configured folder now; take duolog's own out of the
-	// default one. Any other file there stays.
-	notes, err := dropDefaultSkills(agents, o, base)
+	// default one. Any other file there stays. Then the lead's window.
+	files, notes, err := d.finishInstall(agents, o, base)
+	report.Files = append(report.Files, files...)
 	report.Notes = append(report.Notes, notes...)
 	return report, err
+}
+
+// finishInstall removes duolog's skills from the default folder and, in
+// project scope, sets the lead's compact window. It returns the files it
+// changed and the notes.
+func (d Deps) finishInstall(agents []Agent, o Options, base string) ([]string, []string, error) {
+	notes, err := dropDefaultSkills(agents, o, base)
+	if err != nil {
+		return nil, notes, err
+	}
+	files, leadNotes, err := d.installLead(agents, o)
+	return files, append(notes, leadNotes...), err
 }
 
 // pluginEdits reports whether the plugin of agent a is enabled for base. The
@@ -357,9 +379,19 @@ func (d Deps) Remove(o Options) error {
 		return err
 	}
 	if o.Scope != "user" {
-		return d.removeInstructions(o.Root)
+		return d.removeProject(agents, o.Root)
 	}
 	return nil
+}
+
+// removeProject removes what a project install added beside the hooks and
+// skills: the lead's compact window that install wrote, and the instruction
+// blocks.
+func (d Deps) removeProject(agents []Agent, root string) error {
+	if err := removeLead(agents, root); err != nil {
+		return err
+	}
+	return d.removeInstructions(root)
 }
 
 // removeSkills deletes the bundled skill files of agent a from skills, the

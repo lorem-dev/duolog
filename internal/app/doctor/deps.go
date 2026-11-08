@@ -43,6 +43,10 @@ type Deps struct {
 	// under home with what this duolog writes, and returns a line for each
 	// install that is out of date or could not be checked. Nil checks none.
 	InstallCheck func(root, home string) []string
+	// LeadCompact says what the project install at root set as the lead's
+	// compact window, or the person's own value; "" for none. A window that
+	// is missing is one of InstallCheck's lines. Nil reports none.
+	LeadCompact func(root, home string) string
 }
 
 // Trust reads what an agent's settings and approvals say about duolog's

@@ -1145,7 +1145,7 @@
               "minimum": 100000
             }
           ],
-          "description": "Context size in tokens at which Claude workers and peers compact, set as CLAUDE_CODE_AUTO_COMPACT_WINDOW in their settings. auto, the default, takes it from compact_ladder by the Claude plan read at worker start; 0 leaves Claude's own default; otherwise 100000 to 1000000. The lead and Codex workers are not changed."
+          "description": "Context size in tokens at which Claude workers and peers compact, set as CLAUDE_CODE_AUTO_COMPACT_WINDOW in their settings, and for the lead by duolog install in .claude/settings.local.json. auto, the default, takes it from compact_ladder by the Claude plan the quota read names; 0 leaves Claude's own default; otherwise 100000 to 1000000. Codex is not changed."
         },
         "compact_ladder": {
           "additionalProperties": {
@@ -1162,7 +1162,7 @@
             ]
           },
           "type": "object",
-          "description": "The window compact_window auto picks, by Claude plan (free, pro, max, ultra, team, business, enterprise or edu). Each value is 0 or 100000 to 1000000; a plan that is not listed gets 0, which leaves Claude's own default."
+          "description": "The window compact_window auto picks, by Claude plan (free, pro, max, ultra, team, business, enterprise or edu). Each value is 0 (Claude's own default) or 100000 to 1000000; a plan that is not listed, or one the read could not name, gets the smallest value above 0."
         }
       },
       "additionalProperties": false,

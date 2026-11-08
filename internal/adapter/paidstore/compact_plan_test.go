@@ -2,6 +2,7 @@ package paidstore
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -38,6 +39,34 @@ func TestCacheGivesTheWorkerTheCompactWindowOfThePlanRead(t *testing.T) {
 	}
 	if reads != 1 || cache.Plan("claude") != "max" {
 		t.Fatalf("%d reads, plan %q", reads, cache.Plan("claude"))
+	}
+}
+
+// A read that fails, or that names no plan, leaves the worker or peer on the
+// bounded fallback, the smallest ladder value, and never on Claude's own
+// default.
+func TestCacheGivesTheFallbackWindowWhenTheReadNamesNoPlan(t *testing.T) {
+	cfg := &config.Config{EnvPassthrough: []string{"HOME"}}
+	cfg.Workers = config.Workers{CompactWindow: "auto", CompactLadder: map[string]int{"pro": 250000, "max": 500000}}
+	for name, read := range map[string]func(context.Context, launch.Process) (account.Snapshot, error){
+		"failed": func(context.Context, launch.Process) (account.Snapshot, error) {
+			return account.Snapshot{}, errors.New("usage read failed; check login")
+		},
+		"no plan": func(context.Context, launch.Process) (account.Snapshot, error) {
+			return account.Snapshot{ReadAt: time.Now()}, nil
+		},
+	} {
+		for _, shape := range []launch.Shape{launch.Worker, launch.Peer} {
+			cache := &Cache{Now: time.Now, Read: read}
+			build := func() (launch.Process, error) {
+				return workerenv.Build(launch.ProcessInput{Agent: "claude", Shape: shape, Variant: launch.Free, PeerID: "p1",
+					Config: cfg, Plan: cache.Plan("claude"), Environ: []string{"HOME=/h"}, Locations: launch.Locations{GOOS: "linux"}})
+			}
+			p, _, _, _ := cache.Get(context.Background(), build, cfg, account.RunEvidence{}, false)
+			if !strings.Contains(p.Settings, `"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"250000"`) {
+				t.Fatalf("%s read, %s: settings %s", name, shape, p.Settings)
+			}
+		}
 	}
 }
 

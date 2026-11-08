@@ -135,11 +135,12 @@ var (
 	_ install.Approvals = codex.Installer{}
 	_ install.HookParts = claude.Installer{}
 	_ install.HookParts = codex.Installer{}
+	_ install.LeadEnv   = claude.Installer{}
 )
 
 // InstallDeps gives install the Installer of each registered agent, in order.
 func InstallDeps() install.Deps {
-	var d install.Deps
+	d := install.Deps{LeadWindow: leadWindow}
 	for _, a := range Agents() {
 		d.Agents = append(d.Agents, install.Agent{Name: a.Facts.Name, Installer: a.Installer})
 	}
@@ -155,7 +156,8 @@ func ConfiguredInstall(d install.Deps, dirs map[string]string) install.Deps {
 			agents[i].Installer = c.WithSkillsDir(dirs[a.Name])
 		}
 	}
-	return install.Deps{Agents: agents}
+	d.Agents = agents
+	return d
 }
 
 // HookEnv fills the Events and Lead of env.Agent, and the names and Caps of
@@ -195,6 +197,13 @@ func projectInstall(root string) (install.Deps, bool) {
 func installCheck(root, home string) []string {
 	d, _ := projectInstall(root)
 	return d.StaleLines(root, home)
+}
+
+// leadCompact is doctor's LeadCompact: the lead's compact window in the
+// project at root, as install --check reports it.
+func leadCompact(root, home string) string {
+	d, _ := projectInstall(root)
+	return d.LeadLine(root, home)
 }
 
 // RosterCaps gives each registered agent's Caps by name, as roster takes them.

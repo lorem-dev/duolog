@@ -228,7 +228,7 @@ The lead's own settings are the ceiling:
 | `sync` | How agents and skills are generated. `sync.agents.model_map` maps a Claude alias to a Codex alias; `sync.agents.model_rows` lists the aliases that stand for one another, one row per model with a key per agent, such as `{claude: opus, codex: sol}`. A pair that `model_map` and `model_rows` map differently is an error. See [Sync](sync.md) |
 | `env_passthrough` | The only variables a worker inherits. A free run still drops names that bill per token |
 | `workers.inherit_plugins` | `false` (default): a Claude worker or peer turns off every plugin your user and project settings enable, except duolog's own. `true`: it loads them all, as your own sessions do. See [below](#what-workers-inherit) |
-| `workers.compact_window` | `auto` (default): Claude workers and peers compact at the size `workers.compact_ladder` gives for your plan. `0`: Claude's own default. `100000` to `1000000`: the context size in tokens at which they compact. See [below](#what-workers-inherit) |
+| `workers.compact_window` | `auto` (default): Claude workers, peers and the lead compact at the size `workers.compact_ladder` gives for your plan. `0`: Claude's own default. `100000` to `1000000`: the context size in tokens at which they compact. See [below](#what-workers-inherit) |
 | `lead.compact_notes` | `true` (default): the lead's compaction keeps the open peers, asks, branches and pull requests, and lists the live peers again afterwards. `false` turns both off. See [below](#how-the-lead-keeps-its-state-through-compaction) |
 | `rex` | Timeouts and capture settings for live sessions. See [Rex](rex.md) |
 | `rex.stuck_notify_minutes` | Minutes before `peer wait` sends one reminder for an unanswered question. Default: `5`; `0` disables reminders |
@@ -347,16 +347,18 @@ their plugins. Set `workers.inherit_plugins: true` to keep the old behavior.
 Codex workers are not changed here.
 
 `workers.compact_window` sets the context size, in tokens, at which Claude
-workers and peers compact. When it is not `0`, duolog sets
+workers, peers and the lead compact. When it is not `0`, duolog sets
 `CLAUDE_CODE_AUTO_COMPACT_WINDOW` to it in the `env` block of the `--settings`
 that every Claude worker and peer gets. It is `auto` (the default), `0`
-(Claude's own default) or a number from `100000` to `1000000`. The lead is not
-touched: set the lead's own threshold with Claude's `/autocompact`. Codex
-workers are not changed.
+(Claude's own default) or a number from `100000` to `1000000`. Codex workers
+are not changed.
 
 `auto` reads your Claude plan at worker start, from the same quota read that
 admits the worker, and takes the window from `workers.compact_ladder`. A plan
-that is not in the map, or one the read could not name, gets `0`: no entry.
+that is not in the map, or one the read could not name, gets the smallest
+value in the map above `0`: `250000` with the defaults. That keeps a session
+from running to Claude's own default, which on Opus can be the whole
+1M-token context. A plan the map lists with `0` gets Claude's own default.
 The values below are first guesses and will be set again after a measurement.
 
 | Plan | `workers.compact_ladder` default |
@@ -374,7 +376,27 @@ or from `100000` to `1000000`.
 
 A project layer, or a local layer that counts as shared, may only lower
 `compact_window` and `compact_ladder` values and set `inherit_plugins` to
-`false`; duolog ignores any other `workers` value there and names it.
+`false`; duolog ignores any other `workers` value there and names it. A plan
+such a layer adds may not go above the smallest value of the layers below it,
+which that plan got before.
+
+The lead gets the same window. `duolog install` (project scope, Claude) reads
+your plan with the same quota read, takes the window by the same rule, and
+writes `CLAUDE_CODE_AUTO_COMPACT_WINDOW` into the `env` block of
+`.claude/settings.local.json`, the project's local settings that Claude keeps
+out of Git. When the read fails, the lead gets the smallest ladder value. Run
+install again after you change plan. A window of `0` writes nothing. duolog
+records the value it wrote in `.duolog/lead-compact.json`, and
+`duolog uninstall` removes only that value: one you set or changed stays.
+
+If you set `CLAUDE_CODE_AUTO_COMPACT_WINDOW` yourself, install keeps your value
+and says where it found it: in `.claude/settings.local.json`, in another
+settings file the lead reads (user, project, a folder above, managed policy),
+or in the environment when no settings file sets it. A value duolog wrote
+earlier is then removed, because the local file applies over your other
+settings. `duolog install --check` and `duolog doctor` print the window that
+applies and who set it, and name a project install that has not set one yet.
+The lead's window takes effect in the next Claude session.
 
 A free run never gets a name that can bill per token, even when
 `env_passthrough` lists it. A free run is one that must stay on your

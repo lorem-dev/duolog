@@ -62,7 +62,9 @@ func TestCompactWindowWritesTheEnvEntryForWorkersAndPeers(t *testing.T) {
 
 func TestCompactWindowAutoFollowsThePlan(t *testing.T) {
 	for _, c := range []struct{ plan, want string }{
-		{"pro", "250000"}, {"max", "500000"}, {"ultra", "700000"}, {"enterprise", ""}, {"", ""},
+		// A plan the ladder does not list, or none read, gets the smallest
+		// ladder value, never Claude's own default.
+		{"pro", "250000"}, {"max", "500000"}, {"ultra", "700000"}, {"enterprise", "250000"}, {"", "250000"},
 	} {
 		env := compactEnv(t, "claude", Worker, Free, "auto", c.plan, nil)
 		if got, ok := env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"]; got != c.want || ok != (c.want != "") {

@@ -46,8 +46,13 @@
 
 - `install` keeps one marked block in the instruction files, with a usage line
   for agents, and replaces it on each run; `doctor` and `--check` report it.
+- `install` gives the Claude lead the compact window of your plan in
+  `.claude/settings.local.json`, and keeps a value you set yourself.
 
 ### Changed
+
+- `workers.compact_window: auto` gives a plan that is not listed, or not read,
+  the smallest ladder value instead of Claude's default, which can be 1M.
 
 - Claude workers and peers start in `auto`, not `acceptEdits`, under a lead at
   level `full` or a Claude lead in `auto`.

@@ -3,10 +3,12 @@ package claude
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/trusthome"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 )
 
 // Installer writes duolog's hooks and skill for Claude Code: the hooks in
@@ -66,6 +68,28 @@ func (Installer) InstructionFiles(root string) (current string, all []string) {
 		current = filepath.Join(".claude", "CLAUDE.md")
 	}
 	return filepath.Join(root, current), []string{filepath.Join(root, "CLAUDE.md"), filepath.Join(root, ".claude", "CLAUDE.md")}
+}
+
+// LocalSettings is the project's local settings file, .claude/settings.local.json
+// under root, which Claude keeps out of Git and which applies over the user
+// and project settings. Install writes the lead's compact window there.
+func (Installer) LocalSettings(root string) string {
+	return filepath.Join(root, ".claude", "settings.local.json")
+}
+
+// OtherSettings lists every other settings file a Claude lead at root reads,
+// as workerenv.SettingsLayers finds them for home and environ, from the lowest
+// precedence to the highest: the user file, the project and local files of
+// root and the folders above it, and managed policy.
+func (i Installer) OtherSettings(root, home string, environ []string) []string {
+	local := filepath.Clean(i.LocalSettings(root))
+	var paths []string
+	for _, layer := range workerenv.SettingsLayers("claude", workerenv.Locations{Home: home, Root: root, GOOS: runtime.GOOS, Environ: environ}) {
+		if layer.Path != "" && filepath.Clean(layer.Path) != local {
+			paths = append(paths, layer.Path)
+		}
+	}
+	return paths
 }
 
 // Enabled reports whether the duolog plugin is enabled for a Claude process

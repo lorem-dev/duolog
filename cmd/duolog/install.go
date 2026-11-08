@@ -94,6 +94,9 @@ func installCheck(cmd *cobra.Command, d install.Deps, o install.Options) error {
 		if s.Err == nil && !s.Stale() {
 			lines = append(lines, settledLine(s))
 		}
+		if line := s.LeadLine(o.Root); line != "" {
+			lines = append(lines, line)
+		}
 		for _, line := range lines {
 			if _, err := fmt.Fprintln(cmd.OutOrStdout(), line); err != nil {
 				return err

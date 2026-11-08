@@ -42,19 +42,36 @@ type Config struct {
 
 type Workers struct {
 	InheritPlugins bool           `yaml:"inherit_plugins" jsonschema_description:"Let Claude workers and peers load every plugin enabled in the user and project settings; defaults to false, which turns them off except duolog's own, since each adds tokens to every request."`
-	CompactWindow  string         `yaml:"compact_window" jsonschema_description:"Context size in tokens at which Claude workers and peers compact, set as CLAUDE_CODE_AUTO_COMPACT_WINDOW in their settings. auto, the default, takes it from compact_ladder by the Claude plan read at worker start; 0 leaves Claude's own default; otherwise 100000 to 1000000. The lead and Codex workers are not changed."`
-	CompactLadder  map[string]int `yaml:"compact_ladder" jsonschema_description:"The window compact_window auto picks, by Claude plan (free, pro, max, ultra, team, business, enterprise or edu). Each value is 0 or 100000 to 1000000; a plan that is not listed gets 0, which leaves Claude's own default."`
+	CompactWindow  string         `yaml:"compact_window" jsonschema_description:"Context size in tokens at which Claude workers and peers compact, set as CLAUDE_CODE_AUTO_COMPACT_WINDOW in their settings, and for the lead by duolog install in .claude/settings.local.json. auto, the default, takes it from compact_ladder by the Claude plan the quota read names; 0 leaves Claude's own default; otherwise 100000 to 1000000. Codex is not changed."`
+	CompactLadder  map[string]int `yaml:"compact_ladder" jsonschema_description:"The window compact_window auto picks, by Claude plan (free, pro, max, ultra, team, business, enterprise or edu). Each value is 0 (Claude's own default) or 100000 to 1000000; a plan that is not listed, or one the read could not name, gets the smallest value above 0."`
 }
 
-// Window is the compact window in tokens for a Claude worker or peer on plan,
-// 0 for none. An unset compact_window and an unknown plan give 0. The value is
-// the one Load has checked.
+// Window is the compact window in tokens for a Claude session on plan, 0 for
+// none. With auto, a plan the ladder lists gets its value, 0 included; any
+// other plan, or none ("" when the quota read could not name it), gets
+// FallbackWindow, so that it never runs to Claude's own default. An unset
+// compact_window gives 0. The value is the one Load has checked.
 func (w Workers) Window(plan string) int {
 	if w.CompactWindow == "auto" {
-		return w.CompactLadder[plan]
+		if n, ok := w.CompactLadder[plan]; ok {
+			return n
+		}
+		return w.FallbackWindow()
 	}
 	n, _ := strconv.Atoi(w.CompactWindow)
 	return n
+}
+
+// FallbackWindow is the window auto gives a plan that compact_ladder does not
+// list: the smallest value above 0 in the ladder, 0 when it holds none.
+func (w Workers) FallbackWindow() int {
+	least := 0
+	for _, n := range w.CompactLadder {
+		if n > 0 && (least == 0 || n < least) {
+			least = n
+		}
+	}
+	return least
 }
 
 // ValidCompactWindow reports whether n is 0 or within the compact window bounds.

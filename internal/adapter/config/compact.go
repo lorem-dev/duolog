@@ -84,10 +84,16 @@ func (r *workersRule) window(value *yaml.Node) bool {
 	return true
 }
 
-// lowerLadder removes each compact_ladder value larger than the base's.
+// lowerLadder removes each compact_ladder value larger than the base's. A plan
+// the base does not list gets the base's fallback window, its smallest value
+// above 0, so a new plan may not go above that.
 func (r *workersRule) lowerLadder(ladder *yaml.Node) {
 	if ladder.Kind != yaml.MappingNode {
 		return
+	}
+	fallback := math.MaxInt
+	for _, limit := range r.ladder {
+		fallback = min(fallback, limit)
 	}
 	ladder.Content, _ = keepEntries(ladder.Content, func(plan string, n *yaml.Node) (bool, error) {
 		limit, ok := windowLimit(n.Value)
@@ -96,7 +102,7 @@ func (r *workersRule) lowerLadder(ladder *yaml.Node) {
 		}
 		baseLimit, listed := r.ladder[plan]
 		if !listed {
-			baseLimit = math.MaxInt
+			baseLimit = fallback
 		}
 		if limit > baseLimit {
 			r.lowerOnly("workers.compact_ladder."+plan, n.Value, windowText(baseLimit))
@@ -150,8 +156,9 @@ func windowLowers(value, base string, baseLadder map[string]int) bool {
 	}
 	baseLimit, baseOK := windowLimit(base)
 	if value == "auto" {
-		// A plan the ladder does not list gets 0, so auto only stays under
-		// no limit.
+		// A plan the ladder lists with 0 gets Claude's own default, and the
+		// ladder's largest value may exceed any number, so auto only stays
+		// under no limit.
 		return !baseOK && base != "auto" || baseLimit == math.MaxInt
 	}
 	limit, ok := windowLimit(value)

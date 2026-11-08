@@ -60,14 +60,30 @@ type Status struct {
 	// SharesWith names that other agent, on the first of the two only, so the
 	// clash is reported once.
 	SharesWith string
+	// Lead is the lead's compact window, for an agent whose project install
+	// sets one; nil for any other.
+	Lead *LeadStatus
 	// Err is why the install could not be compared.
 	Err error
 }
 
 // Stale reports whether Run would change the install: a file it writes is
-// missing or has other content, or a file it removes is there.
+// missing or has other content, or a file it removes is there, or the lead's
+// compact window of an install is not set.
 func (s Status) Stale() bool {
-	return s.Err == nil && len(s.Changed) > 0
+	return s.Err == nil && (len(s.Changed) > 0 || s.leadMissing())
+}
+
+func (s Status) leadMissing() bool { return s.Installed && s.Lead != nil && s.Lead.Missing }
+
+// LeadLine is what install --check says of the lead's compact window: the
+// value that applies and who set it. It is empty when none is checked, or
+// it is missing, which Line names.
+func (s Status) LeadLine(root string) string {
+	if s.Lead == nil || s.Err != nil {
+		return ""
+	}
+	return s.Lead.line(s.Agent, root)
 }
 
 // Lines are what doctor and install --check print for the install: the line
@@ -114,6 +130,9 @@ func (s Status) Line(root string) string {
 	if len(changed) > 0 {
 		parts = append(parts, shown(root, changed))
 	}
+	if s.leadMissing() {
+		parts = append(parts, "lead compact window not set in "+shown(root, []string{s.Lead.File}))
+	}
 	parts = append(parts, "run duolog install --scope "+s.Scope+" --agent "+s.Agent)
 	return head + "is out of date: " + strings.Join(parts, "; ")
 }
@@ -150,6 +169,7 @@ func (d Deps) Check(o Options) ([]Status, error) {
 		s := checkAgent(a, o, base, scope, o.HooksOnly || shared[i] != "")
 		s.SharedDir, s.SharesWith = shared[i], with[i]
 		checkInstruction(&s, a, o, base)
+		d.addLead(&s, a, o)
 		out = append(out, s)
 	}
 	return out, nil

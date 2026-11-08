@@ -12,9 +12,10 @@ coauthors:
   claude: "{name} <noreply@anthropic.com>"
   codex: "OpenAI Codex {model} <noreply@openai.com>"
 
-# Claude workers and peers compact at this context size (tokens). auto reads
-# the Claude plan at worker start and takes the window from compact_ladder; 0
-# leaves Claude's own default. The lead is not changed.
+# Claude workers, peers and the lead (set by duolog install) compact at this
+# context size (tokens). auto reads the Claude plan and takes the window from
+# compact_ladder; a plan not listed, or none read, gets the smallest value. 0
+# leaves Claude's own default.
 workers:
   compact_window: auto
   compact_ladder:

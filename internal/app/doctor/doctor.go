@@ -221,15 +221,20 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 }
 
 // installFindings warns of each install that is out of date: a binary upgrade
-// leaves the installed hooks and skills as they were.
+// leaves the installed hooks and skills as they were. It also says what the
+// lead's compact window is.
 func installFindings(d Deps, root string) []Finding {
-	if d.InstallCheck == nil {
-		return nil
-	}
 	home, _ := os.UserHomeDir()
 	var out []Finding
-	for _, line := range d.InstallCheck(root, home) {
-		out = append(out, Finding{"warning", line})
+	if d.InstallCheck != nil {
+		for _, line := range d.InstallCheck(root, home) {
+			out = append(out, Finding{"warning", line})
+		}
+	}
+	if d.LeadCompact != nil {
+		if line := d.LeadCompact(root, home); line != "" {
+			out = append(out, Finding{"info", line})
+		}
 	}
 	return out
 }

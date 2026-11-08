@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/app/install"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/wiring"
@@ -24,14 +25,23 @@ import (
 //     share it;
 //   - no agent counts as running above the test, so a test that answers an
 //     ask in this process plays the person's terminal, whatever agent runs
-//     the tests; a test of the walk starts duolog itself.
+//     the tests; a test of the walk starts duolog itself;
+//   - install gives the lead the fallback window of LeadWindow and reads no
+//     quota.
 func Cmd(t *testing.T) wiring.CmdDeps {
 	t.Helper()
 	d := wiring.Cmd()
 	d.LocateRex = GuardRex(d.LocateRex)
 	d.Delegate.PaidGate = paidrunstest.ByWorkingDir(t.TempDir())
 	d.AgentAbove = func([]string) bool { return false }
+	d.Install.LeadWindow = LeadWindow
 	return d
+}
+
+// LeadWindow is install's LeadWindow for tests: the default fallback, with no
+// plan read, so that no Claude binary starts.
+func LeadWindow(string) (install.LeadWindow, error) {
+	return install.LeadWindow{Window: 250000}, nil
 }
 
 // GuardRex wraps a rex lookup for tests: a rex outside the temporary folder

@@ -42,7 +42,8 @@ func TestWorkersCompactLadder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for plan, want := range map[string]int{"pro": 250000, "max": 500000, "ultra": 700000, "free": 0, "": 0} {
+	// A plan the defaults do not list, or none read, gets the smallest value.
+	for plan, want := range map[string]int{"pro": 250000, "max": 500000, "ultra": 700000, "free": 250000, "": 250000} {
 		if got := cfg.Workers.Window(plan); got != want {
 			t.Errorf("auto on %q: got %d, want %d", plan, got, want)
 		}
@@ -53,7 +54,9 @@ func TestWorkersCompactLadder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for plan, want := range map[string]int{"pro": 300000, "max": 500000, "team": 0} {
+	// A listed 0 is the person's choice of Claude's own default; the fallback
+	// is the smallest value above 0.
+	for plan, want := range map[string]int{"pro": 300000, "max": 500000, "team": 0, "enterprise": 300000} {
 		if got := cfg.Workers.Window(plan); got != want {
 			t.Errorf("merged ladder on %q: got %d, want %d", plan, got, want)
 		}
@@ -91,9 +94,11 @@ func TestSharedLayersOnlyLowerWorkers(t *testing.T) {
 		{name: "raise a number", user: "compact_window: 400000", shared: "compact_window: 500000",
 			window: "400000", notices: []string{"workers.compact_window"}},
 		{name: "any number over 0", user: "compact_window: 0", shared: "compact_window: 900000", window: "900000"},
-		{name: "ladder", shared: "compact_ladder: {pro: 200000, max: 600000, ultra: 0, team: 300000, free: 0}",
-			window: "auto", ladder: map[string]int{"pro": 200000, "max": 500000, "ultra": 700000, "team": 300000, "free": 0},
-			notices: []string{"workers.compact_ladder.max", "workers.compact_ladder.ultra"}},
+		// A plan the base does not list gets the base's fallback, its
+		// smallest value, so a new plan may only go under that.
+		{name: "ladder", shared: "compact_ladder: {pro: 200000, max: 600000, ultra: 0, team: 300000, free: 0, edu: 150000}",
+			window: "auto", ladder: map[string]int{"pro": 200000, "max": 500000, "ultra": 700000, "team": 0, "free": 0, "edu": 150000},
+			notices: []string{"workers.compact_ladder.free", "workers.compact_ladder.max", "workers.compact_ladder.team", "workers.compact_ladder.ultra"}},
 		{name: "plugins on", shared: "inherit_plugins: true",
 			window: "auto", notices: []string{"workers.inherit_plugins"}},
 		{name: "plugins off", user: "inherit_plugins: true", shared: "inherit_plugins: false", window: "auto"},
