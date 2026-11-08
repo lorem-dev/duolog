@@ -237,6 +237,14 @@ func claudeApproved(name, root string, f kit.Folders, project claudeProject) boo
 // claudeApproval is claudeApproved that also reports a settings file that
 // exists but cannot be read or decoded, whose decisions are then unknown.
 func claudeApproval(name, root string, f kit.Folders, project claudeProject) (bool, error) {
+	approved, _, err := claudeChoice(name, root, f, project)
+	return approved, err
+}
+
+// claudeChoice is claudeApproval that also reports whether Claude has decided
+// on the server at all, by enabling or disabling it or by enabling every
+// project server. An undecided server is one Claude asks about.
+func claudeChoice(name, root string, f kit.Folders, project claudeProject) (approved, decided bool, err error) {
 	var unreadable error
 	all := project.EnableAllMCPServer != nil && *project.EnableAllMCPServer
 	enabled := slices.Contains(project.Enabled, name)
@@ -268,7 +276,47 @@ func claudeApproval(name, root string, f kit.Folders, project claudeProject) (bo
 		enabled = enabled || slices.Contains(s.Enabled, name)
 		disabled = disabled || slices.Contains(s.Disabled, name)
 	}
-	return !disabled && (all || enabled), unreadable
+	return !disabled && (all || enabled), disabled || all || enabled, unreadable
+}
+
+// PendingProjectServers lists the servers of the .mcp.json in root, or in a
+// parent folder, that Claude has neither enabled nor disabled for root. Claude
+// stops a session started there at its "new MCP servers found" dialog. It reads
+// the settings as claudeServers does. A choice that cannot be read counts as
+// made, so doctor never warns on a doubt.
+func (c Caps) PendingProjectServers(root string, environ []string) []string {
+	f, err := kit.FoldersIn(c.Home, environ)
+	if err != nil {
+		return nil
+	}
+	var state struct {
+		Projects map[string]claudeProject `json:"projects"`
+	}
+	kit.ReadJSON(f.ClaudeState(), &state)
+	project := state.Projects[root]
+	if local, ok := state.Projects[filepath.ToSlash(root)]; ok && project.MCP == nil {
+		project = local
+	}
+	var pending []string
+	for dir := root; ; dir = filepath.Dir(dir) {
+		var file struct {
+			MCP map[string]json.RawMessage `json:"mcpServers"`
+		}
+		kit.ReadJSON(filepath.Join(dir, ".mcp.json"), &file)
+		for name := range file.MCP {
+			if _, own := project.MCP[name]; own {
+				continue
+			}
+			if _, decided, err := claudeChoice(name, root, f, project); !decided && err == nil && !slices.Contains(pending, name) {
+				pending = append(pending, name)
+			}
+		}
+		if filepath.Dir(dir) == dir {
+			break
+		}
+	}
+	slices.Sort(pending)
+	return pending
 }
 
 func parseClaude(name, scope, file string, raw json.RawMessage) caps.Server {

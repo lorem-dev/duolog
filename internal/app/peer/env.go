@@ -289,7 +289,7 @@ func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Ent
 			if e.watchQuestions && e.cfg.Rex.StuckNotifyMinutes > 0 && !entry.QuestionNotified {
 				break
 			}
-			return Entry{ID: entry.ID, State: Question, Question: screen.Question}, nil
+			return Entry{ID: entry.ID, State: Question, Question: startupQuestion(screen, startup)}, nil
 		case Limited:
 			line, err := e.runHere(entry, entry.Task, screen.Text)
 			return Entry{ID: entry.ID, State: Limited, Note: line}, err
@@ -349,6 +349,16 @@ func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Ent
 			return Entry{ID: entry.ID, State: last}, err
 		}
 	}
+}
+
+// startupQuestion is the screen's question for the line a lead reads. A
+// startup screen the pane cannot answer is named first, such as folder trust,
+// so the line says what the peer waits on.
+func startupQuestion(screen Screen, startup bool) string {
+	if name := corescreen.StartupName(screen); startup && name != "" {
+		return name + ": " + screen.Question
+	}
+	return screen.Question
 }
 
 // ask sends a question to the lead once. Nothing is pressed in the pane.

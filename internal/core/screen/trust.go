@@ -120,6 +120,20 @@ func OffersFolderTrust(s Screen) bool {
 	return false
 }
 
+// StartupName names the startup screen a question is, for a line that says
+// what a peer waits on: "folder trust" or "new MCP servers" (Claude's dialog
+// about the .mcp.json servers it has no decision for). It is "" for any other
+// question.
+func StartupName(s Screen) string {
+	switch {
+	case OffersFolderTrust(s):
+		return "folder trust"
+	case s.State == Question && (startsLine(s.Text, "New MCP server found") || startsLine(s.Text, "New MCP servers found")):
+		return "new MCP servers"
+	}
+	return ""
+}
+
 // ClaudeFolderTrust reads Claude Code's "Accessing workspace" question and
 // gives the label that trusts the folder.
 func ClaudeFolderTrust(s Screen) (string, bool) {

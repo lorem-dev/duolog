@@ -128,6 +128,51 @@ func FitsWindows(costs []WindowCost, usableShare float64) bool {
 	return true
 }
 
+// WindowShortfall names, for a refusal, the window of costs that leaves no
+// headroom at usable share u, and why: the agent, the window and the share of
+// it used. It picks the first window that does not fit, else the fullest. It
+// words only the rule FitsWindows applies and decides nothing.
+func WindowShortfall(agent string, costs []WindowCost, usableShare float64) string {
+	u := usableShare
+	if !finite(u) || u <= 0 || u > 1 {
+		u = 1
+	}
+	load := func(c WindowCost) float64 { return (c.Used+c.Reserved+c.Cost)/u + c.Reserve }
+	pick := -1
+	for i, c := range costs {
+		if load(c) > 1+fitSlack {
+			pick = i
+			break
+		}
+		if pick < 0 || load(c) > load(costs[pick]) {
+			pick = i
+		}
+	}
+	if pick < 0 {
+		return ""
+	}
+	c := costs[pick]
+	name := windowName(c.Key)
+	used := int(math.Round(c.Used / u * 100))
+	return fmt.Sprintf("%s %s %d%% used, above the reserve", agent, name, used)
+}
+
+// windowName words a window key: "weekly window", "5h window", and with the
+// model family it limits, "weekly sonnet window".
+func windowName(k WindowKey) string {
+	kind := k.Kind
+	switch {
+	case strings.Contains(kind, "weekly"):
+		kind = "weekly"
+	case kind == "session" || strings.Contains(kind, "five_hour") || strings.Contains(kind, "5h"):
+		kind = "5h"
+	}
+	if k.Family != "" && k.Family != kind {
+		kind += " " + k.Family
+	}
+	return kind + " window"
+}
+
 // windowTerms are a window's reserve and unmeasured bound: weekly terms for a
 // window of a week or longer, five-hour terms for a shorter one, and the
 // larger of each for a window of unknown length.

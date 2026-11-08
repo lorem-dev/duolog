@@ -72,6 +72,12 @@ type Caps interface {
 	HasDuolog(root string, environ []string) bool
 }
 
+// pendingServers is a Caps that can name the project MCP servers its agent
+// would ask about when a session starts in root. Only Claude has it.
+type pendingServers interface {
+	PendingProjectServers(root string, environ []string) []string
+}
+
 // Agent holds what doctor asks of one registered agent. A nil port fails
 // closed: an agent with no Trust reads as untrusted, one with no Installer has
 // no instruction file to check, and one with no Caps has no duolog hooks and

@@ -434,6 +434,12 @@ decided for its root, so the new MCP servers dialog never shows: every
 `.mcp.json` server the lead has not enabled is disabled, and so are all of them
 when the settings cannot be read. As in Claude, approval is by server name: a
 branch that changes the command of a server the lead enabled keeps it enabled.
+`duolog doctor` warns when the project's `.mcp.json`, or a parent folder's, has
+servers that Claude has neither enabled nor disabled for the folder, because a
+Claude peer opened by hand there stops at the "new MCP servers found" dialog.
+When `peer open` or `peer wait` stops at a startup screen it cannot answer, its
+line starts with the screen's name, `folder trust` or `new MCP servers`, when
+duolog recognises it.
 
 Codex command prompts go to the duolog permission gate with the peer's role.
 The gate judges the command after leading `NAME=value` assignments. An allow

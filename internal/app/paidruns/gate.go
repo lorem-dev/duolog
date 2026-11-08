@@ -171,7 +171,9 @@ func (r *Refusal) Error() string {
 	case r.Verdict == paidrules.SubscriptionOverage:
 		b.WriteString("; paid overage is on; duolog stops before it")
 	}
-	if r.Limit > 0 {
+	// A window refusal is not about sessions; their counts would read like a
+	// Rex window or pane limit.
+	if r.Limit > 0 && r.Reason != ReasonWindow {
 		fmt.Fprintf(&b, "; %s sessions %d of %d (tier %s)", r.Agent, r.Live, r.Limit, r.Tier)
 		if r.Waited > 0 {
 			fmt.Fprintf(&b, "; waited %d s", int(r.Waited.Round(time.Second)/time.Second))
@@ -436,11 +438,20 @@ func (g *Gate) attemptOnce(ctx context.Context, req Request, id string, l *line,
 		return Permit{Process: p, Assessment: a, Reservation: e.Reservation, Snapshot: s,
 			calibration: req.Calibration}, in, nil, nil
 	}
-	r := refuse(a, e.Reason, "")
+	r := refuse(a, e.Reason, windowDetail(e.Reason, agent, est, a))
 	r.EstimateUSD, r.EstimateSource = est.USD, est.Source
 	r.Tier, r.Live, r.Limit = tier.Tier, e.agentLive, in.AgentLimit
 	r.TotalLive, r.TotalLimit = e.totalLive, in.TotalLimit
 	return Permit{}, in, r, nil
+}
+
+// windowDetail names the window that left no headroom when reason is
+// ReasonWindow, and is empty for any other reason.
+func windowDetail(reason, agent string, est paidrules.Estimate, a paidrules.Assessment) string {
+	if reason != ReasonWindow {
+		return ""
+	}
+	return paidrules.WindowShortfall(agent, est.Windows, a.UsableShare)
 }
 
 // turn checks, on the account state alone, whether a waiter's turn came:

@@ -70,7 +70,7 @@ func newDelegateCommand(d *cmdDeps) *cobra.Command {
 	cmd.Flags().StringVar(&lead, "lead", "", "Registered lead session ID (defaults to DUOLOG_LEAD)")
 	cmd.Flags().StringVar(&features, "features", "", "Task features for learning mode, as name=value pairs separated by commas")
 	cmd.Flags().StringVar(&class, "class", "", "Task class for learning mode, instead of the one the features give")
-	cmd.Flags().StringVar(&use, "use", "", "Run on this target, as agent/model/effort, instead of the routed one")
+	cmd.Flags().StringVar(&use, "use", "", "Run on this target, as agent/model/effort, instead of the routed one; it does not bypass the quota reserve")
 	cmd.Flags().StringVar(&escalateFrom, "escalate-from", "", "In learning mode, the delegation id to leave for the next entry of its class ladder")
 	cmd.Flags().StringVar(&reason, "reason", "", "Why the delegation is left: "+strings.Join(learn.EscalationReasons, ", "))
 	cmd.Flags().BoolVar(&allowManual, "allow-manual-model", false, "Allow models reserved for manual selection")

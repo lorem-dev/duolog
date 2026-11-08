@@ -124,7 +124,10 @@ reason: implement -> claude sonnet: codex 61% of the week at 44% elapsed
 ```
 
 On a workspace account the used share is the share of the usable part of the
-window. A task you pin with `--use` or a profile is never moved.
+window. A task you pin with `--use` or a profile is never moved to another
+agent. `--use` picks the target but does not bypass the quota reserve: when a
+window of that agent has no headroom, the task is refused with a line that
+names the window, such as `codex weekly window 85% used, above the reserve`.
 
 | Key | Default | Meaning |
 |---|---|---|

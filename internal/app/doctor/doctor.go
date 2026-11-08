@@ -92,15 +92,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 		}
 	}
 	add("info", fmt.Sprintf("Codex hooks approved=%t folder trusted=%t", hooks.Trusted, folder))
-	if home, err := os.UserHomeDir(); err != nil {
-		add("info", "Claude folder trust: unknown")
-	} else if trusted, known := d.ClaudeFolder(home, root); !known {
-		add("info", "Claude folder trust: unknown (Claude's user state could not be read)")
-	} else if trusted {
-		add("info", "Claude folder trust: trusted")
-	} else {
-		add("warning", "Claude folder trust: not trusted; Claude ignores this project's .claude/settings.json permissions.allow until you run Claude Code in this folder once and accept the trust dialog")
-	}
+	out = append(out, claudeFolderFindings(d, root)...)
 	add("warning", "Hooks changed after review cannot be detected here; Codex itself will skip changed hooks. Review /hooks.")
 	if runtime.GOOS == "windows" {
 		add("info", peer.WindowsNotice)
@@ -218,6 +210,30 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 		}
 	}
 	return append(out, d.instructionNotes(root)...)
+}
+
+// claudeFolderFindings reports whether Claude trusts the folder root, and the
+// project MCP servers it has neither enabled nor disabled there: a Claude peer
+// stops at the dialog about those.
+func claudeFolderFindings(d Deps, root string) []Finding {
+	var out []Finding
+	add := func(level, message string) { out = append(out, Finding{level, message}) }
+	if home, err := os.UserHomeDir(); err != nil {
+		add("info", "Claude folder trust: unknown")
+	} else if trusted, known := d.ClaudeFolder(home, root); !known {
+		add("info", "Claude folder trust: unknown (Claude's user state could not be read)")
+	} else if trusted {
+		add("info", "Claude folder trust: trusted")
+	} else {
+		add("warning", "Claude folder trust: not trusted; Claude ignores this project's .claude/settings.json permissions.allow until you run Claude Code in this folder once and accept the trust dialog")
+	}
+	if p, ok := d.Agents["claude"].Caps.(pendingServers); ok {
+		if names := p.PendingProjectServers(root, os.Environ()); len(names) > 0 {
+			add("warning", "Claude has not enabled or disabled the project MCP servers "+strings.Join(names, ", ")+
+				" from .mcp.json; a Claude peer stops at the new MCP servers dialog. Fix: run claude once in this folder and choose, or set enabledMcpjsonServers or disabledMcpjsonServers in .claude/settings.local.json")
+		}
+	}
+	return out
 }
 
 // installFindings warns of each install that is out of date: a binary upgrade

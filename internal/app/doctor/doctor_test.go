@@ -422,3 +422,31 @@ func TestDoctorReportsClaudeFolderTrust(t *testing.T) {
 		})
 	}
 }
+
+func TestDoctorWarnsOfUndecidedProjectMCPServers(t *testing.T) {
+	cfg, opts, _ := setup(t)
+	if err := os.WriteFile(filepath.Join(opts.Root, ".mcp.json"), []byte(`{"mcpServers":{"alpha":{"command":"x"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var text []string
+	for _, f := range Run(context.Background(), testDeps, cfg, opts) {
+		text = append(text, f.Level+": "+f.Message)
+	}
+	got := strings.Join(text, "\n")
+	contains(t, got, "warning: Claude has not enabled or disabled the project MCP servers alpha")
+	contains(t, got, "a Claude peer stops at the new MCP servers dialog")
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := fmt.Sprintf(`{"projects":{%q:{"enabledMcpjsonServers":["alpha"]}}}`, opts.Root)
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(state), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range Run(context.Background(), testDeps, cfg, opts) {
+		if strings.Contains(f.Message, "MCP servers") {
+			t.Fatalf("decided server still warned: %+v", f)
+		}
+	}
+}
