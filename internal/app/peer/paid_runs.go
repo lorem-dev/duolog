@@ -21,6 +21,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	corepane "github.com/lorem-dev/duolog/internal/core/pane"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
+	"github.com/lorem-dev/duolog/internal/project"
 )
 
 // accountTimeout bounds an account state write that must happen even after
@@ -126,18 +127,32 @@ func (e *env) admitPane(ctx context.Context, route coreroute.Route, lead leadInf
 			return nil, err
 		}
 		h := &hold{gate: g, permit: permit}
-		// A Claude pane at level plan or in a read-only role starts in
-		// Claude's default mode, so only the gate keeps it read-only: it opens
-		// only where that gate is shown to run, from the pane's own
-		// environment. Nothing has started, so the hold goes back.
-		if mode.GateHeld(route.Agent, lead.mode, route.Sandbox) {
-			if err := e.opts.Deps.HeldGate(route.Agent, e.root, permit.Process.Env); err != nil {
-				return nil, errors.Join(err, h.release(ctx))
-			}
+		// Nothing has started, so a pane that may not open gives its hold back.
+		if err := e.paneTrust(route, lead, permit.Process.Env); err != nil {
+			return nil, errors.Join(err, h.release(ctx))
 		}
 		return h, nil
 	}
 	return nil, admissionRefused(fmt.Sprintf("%s -> lead: %s", role, strings.Join(refusals, "; ")))
+}
+
+// paneTrust readies the agent trust of a pane of route whose environment is
+// env, and says why it may not open. A pane in a linked worktree of the
+// lead's checkout gets the agent trust and hook approvals the lead's checkout
+// has, before anything reads them; a worktree that changed since it got that
+// trust loses it, and the pane does not open. A Claude pane at level plan or
+// in a read-only role starts in Claude's default mode, so only the gate keeps
+// it read-only: it opens only where that gate is shown to run.
+func (e *env) paneTrust(route coreroute.Route, lead leadInfo, env []string) error {
+	if adopt := e.opts.Deps.AdoptWorktree; adopt != nil {
+		if err := adopt(route.Agent, project.CurrentWorkRoot(filepath.Dir(e.dir)), e.root, env); err != nil {
+			return err
+		}
+	}
+	if mode.GateHeld(route.Agent, lead.mode, route.Sandbox) {
+		return e.opts.Deps.HeldGate(route.Agent, e.root, env)
+	}
+	return nil
 }
 
 // ErrRefused marks an open that admission refused: a session limit, the

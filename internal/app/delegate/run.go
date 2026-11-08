@@ -474,7 +474,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		// own environment selects, not duolog's.
 		protected := append(slices.Clone(opts.ProtectedRoots), filepath.Join(root, ".duolog"), s.Dir)
 		agentTrust := d.Agents[route.Agent].Trust
-		state, folder, trustErr := gateState(agentTrust, root, pre.Env)
+		state, folder, trustErr := workerGateState(d, s.Dir, route.Agent, root, pre.Env, opts)
 		noHome := errors.Is(trustErr, coreagent.ErrNoHome)
 		switch {
 		case noHome && wm.needsPreflight():

@@ -206,6 +206,13 @@ Codex needs two approvals that duolog cannot give. Open `/hooks` in Codex and
 press `t` to trust the hooks. Trust the project folder too. Without them,
 Codex skips the hooks and prints no warning.
 
+You give these approvals once, in the project folder. A linked worktree of
+the project, such as one under `.worktrees/`, is a new folder to Codex.
+Before `delegate` or `peer open` runs Codex in one, duolog copies the
+project's folder trust and its approvals of duolog's own hooks to that
+worktree. See
+[Permissions](permissions.md#how-a-linked-worktree-gets-codex-trust).
+
 Sign in to the agents you will use before you send a task. Workers do not
 get `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, and Claude workers start with
 fast mode off; both are new in 1.4.0. If an agent signs in only with a key,

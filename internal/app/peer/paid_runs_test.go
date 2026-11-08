@@ -195,6 +195,29 @@ func TestPeerOpenReservationTransfersOnce(t *testing.T) {
 	}
 }
 
+// A pane in a worktree whose agent folder changed since duolog trusted it
+// does not open, and its hold goes back.
+func TestPeerOpenRefusedInAChangedWorktree(t *testing.T) {
+	r := newRig(t, baseScript())
+	changed := errors.New("the worktree changed")
+	var calls int
+	r.useDeps(func(d *Deps) {
+		d.AdoptWorktree = func(string, string, string, []string) error {
+			calls++
+			return changed
+		}
+	})
+	if _, err := Open(r.ctx, "implement"); !errors.Is(err, changed) {
+		t.Fatalf("open = %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("adopted %d times", calls)
+	}
+	if st := r.accounts(); len(st.Reservations) != 0 {
+		t.Fatalf("a refused pane kept its hold: %+v", st.Reservations)
+	}
+}
+
 // Observations of the same task, by Status, Wait or Send, and by command
 // processes that race, settle its generation once. Ready ends the task but
 // keeps the pane's slot; a busy, questioning or unknown screen keeps the task

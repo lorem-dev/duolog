@@ -152,6 +152,11 @@ type Deps struct {
 	// HeldGate shows that the gate of a pane that only it keeps read-only runs,
 	// as delegate.HeldGate does.
 	HeldGate func(agent, root string, env []string) error
+	// AdoptWorktree gives the agent of a pane in root, a linked worktree of
+	// the lead's checkout lead, the trust it holds for lead, as
+	// delegate.AdoptWorktree does; an error, a worktree that changed since,
+	// refuses the pane. Nil does nothing.
+	AdoptWorktree func(agent, lead, root string, env []string) error
 	// Build makes a pane's process: workerenv.Build, the one Build.
 	Build launch.Build
 	// DroppedKeys lists the route names an agent's panes no longer get:

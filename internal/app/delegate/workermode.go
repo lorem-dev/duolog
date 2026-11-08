@@ -3,6 +3,7 @@ package delegate
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,6 +17,7 @@ import (
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
+	"github.com/lorem-dev/duolog/internal/project"
 )
 
 // workerMode is the native permission mode one delegate worker starts in.
@@ -119,6 +121,58 @@ func gateState(t Trust, root string, env []string) (coreagent.TrustState, bool, 
 	}
 	folder, err := t.Folder(root, env)
 	return state, folder, err
+}
+
+// WorktreeTrust is a Trust that can give a linked worktree of the lead's
+// repository the folder trust and the approvals of duolog's own hooks that
+// its agent holds for the lead root: Codex's. AdoptWorktree changes nothing
+// unless every check passes, and returns the lines that say what it wrote.
+type WorktreeTrust interface {
+	AdoptWorktree(lead, dir string, environ []string) ([]string, error)
+}
+
+// AdoptWorktree lets the agent of a worker or pane in dir, a linked worktree
+// of the lead root lead, trust dir and run duolog's hooks there as it does in
+// lead, before the gate checks read its trust; env is the environment of that
+// process, whose agent config is the one changed. It tells w what it wrote,
+// or why it could not; the checks then read the config as it is. A worktree
+// whose agent folder changed since duolog gave it that trust loses it again,
+// and the error, which wraps coreagent.ErrWorktreeChanged, stops the run.
+func AdoptWorktree(d Deps, agent, lead, dir string, env []string, w io.Writer) error {
+	t, ok := d.Agents[agent].Trust.(WorktreeTrust)
+	if !ok || lead == "" || dir == "" {
+		return nil
+	}
+	if w == nil {
+		w = io.Discard
+	}
+	lines, err := t.AdoptWorktree(lead, dir, env)
+	for _, line := range lines {
+		fmt.Fprintln(w, "duolog: "+line)
+	}
+	if err == nil {
+		return nil
+	}
+	fmt.Fprintf(w, "duolog: %s in %s: %v\n", agent, dir, err)
+	if errors.Is(err, coreagent.ErrWorktreeChanged) {
+		return err
+	}
+	return nil
+}
+
+// workerGateState is gateState for a worker of agent in root: a root that is a
+// linked worktree of the lead's checkout first gets the trust the lead's
+// checkout has (AdoptWorktree). stateDir is the project's .duolog folder. A
+// calibration tree is its own repository outside the project and gets none.
+func workerGateState(d Deps, stateDir, agent, root string, env []string, opts Options) (coreagent.TrustState, bool, error) {
+	if !opts.Calibration {
+		if base, err := filepath.Abs(filepath.Dir(stateDir)); err == nil {
+			if err := AdoptWorktree(d, agent, project.CurrentWorkRoot(base), root, env, opts.Stderr); err != nil {
+				return coreagent.TrustState{}, false, err
+			}
+		}
+	}
+	return gateState(d.Agents[agent].Trust, root, env)
 }
 
 // trustProblem says why the gate of agent cannot be shown to run from its

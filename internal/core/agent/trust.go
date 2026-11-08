@@ -7,6 +7,11 @@ import "errors"
 // port and the code that asks it share one sentinel.
 var ErrNoHome = errors.New("the environment names no home folder")
 
+// ErrWorktreeChanged is the error of a linked worktree whose agent config
+// folder no longer matches the checkout whose trust duolog gave it. The agent
+// does not run there until the person trusts the folder.
+var ErrWorktreeChanged = errors.New("the worktree changed since duolog gave it the trust of the lead's checkout")
+
 // TrustState is what an agent's settings and approvals say about duolog's
 // hooks for one folder and one process environment.
 type TrustState struct {

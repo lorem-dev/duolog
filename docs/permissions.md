@@ -157,7 +157,9 @@ Claude peer:
   gate command. Codex skips a hook whose command changed after approval, so
   an approval of another command does not count. When `duolog install`
   changes the gate command, the approval Codex held then does not count
-  either; approve the hook again in `/hooks`.
+  either; approve the hook again in `/hooks`. A linked worktree of the
+  project gets the project's trust and approvals first; see
+  [below](#how-a-linked-worktree-gets-codex-trust).
 - The `duolog` binary is on the worker's PATH.
 - No writable root overlaps a protected folder, checked again at launch.
 
@@ -179,6 +181,74 @@ that it never does, and warns when the gate cannot be shown to run for an
 entry that needs it. The delegate result line names the native mode when an
 entry applies. `duolog decisions` and the usage records name it for every
 run.
+
+### How a linked worktree gets Codex trust
+
+duolog gives a linked worktree of the lead's checkout the Codex trust that
+the checkout has. Codex keeps folder trust and hook approvals per folder in
+`config.toml` of its home, `CODEX_HOME` or `~/.codex`. A new worktree is a
+new folder to Codex, so without this you would open `/hooks` in each one.
+
+Before `delegate` or `peer open` runs Codex in a worktree, duolog checks
+these things:
+
+- The worktree is a linked worktree of the lead's repository. duolog runs
+  `git` without any `GIT_` variable, and `git worktree list` of the lead's
+  checkout names the worktree, not as prunable or bare. The worktree's common
+  Git folder is the lead's. A folder with a copied `.git` file does not
+  count.
+- Codex trusts the lead's checkout, or the main checkout, and has approved
+  duolog's `PreToolUse` gate hook there.
+- Each approval that duolog copies is of a hook that `duolog install` writes.
+  The hook stands at the same place in both `.codex/hooks.json` files, and
+  is the same in both. An approval that install made stale is not copied.
+- Before it writes trust, the worktree's `.codex/` folder holds the same as
+  the `.codex/` folder of the checkout whose trust is copied, apart from
+  `hooks.json`. Both have the same names, and each file is the same, byte for
+  byte. A link or any other special file in either folder counts as a
+  difference, and so does a `.codex` that is itself a link. A `.codex` that
+  is absent in both is the same. Codex loads this folder only where it trusts
+  the project, its `config.toml` can name any file in it, and another branch
+  may change it. When the folders differ, duolog writes nothing and names the
+  first path that differs.
+
+Then duolog appends the missing tables to `config.toml`: the worktree's
+`trust_level = "trusted"`, and the same `trusted_hash` for each copied
+approval. It changes nothing else in the file and keeps its comments and its
+line endings. It never changes a sandbox or an approval policy. Before the
+first change it saves `config.toml.duolog.bak`; an empty backup counts as
+none. It replaces the file in one rename. It holds the lock file
+`config.toml.duolog.lock` from reading the file to replacing it, so two
+worktrees that start at once both get their tables. When Codex changes the
+file meanwhile, duolog reads it and plans once more. The command prints one
+`duolog:` line for each entry it wrote. A `# duolog:` comment above the
+tables and a `# duolog: end` comment below them mark them as duolog's.
+
+duolog compares the two `.codex/` folders again before each `delegate` or
+`peer open` in a worktree that it gave trust. A worker, a checkout or a new
+worktree at the same path can change that folder later. When the folders
+differ, duolog takes its own tables for that worktree out of `config.toml`:
+the trust and the copied approvals, under the same lock and backup rules.
+It takes only the tables between its two comments that still hold what it
+wrote, and stops at the first one that differs. A trust or approval that you
+or Codex added later stays. It prints why, and the run or pane does not
+start. Codex runs in that worktree again once you have checked it and
+trusted the folder yourself in `/hooks`. duolog never removes a trust that
+it did not write.
+
+duolog checks the folders again only when it uses that worktree. Until then
+the trust stays in `config.toml`. If you run `codex` in the worktree
+yourself after its `.codex/` folder changed, Codex still trusts it. The same
+holds for a new folder made at the path of a removed worktree. Check
+`.codex/` before you run Codex there by hand, or remove the worktree's
+tables between the two `# duolog:` comments yourself.
+
+If a check fails, duolog writes nothing, and the message stays
+`Codex hooks are not approved; open /hooks`. It also writes nothing when you
+set another trust level for the worktree. Hooks that are not
+`duolog install`'s own, such as the dev hooks in duolog's own checkout, need
+`/hooks` in each worktree. Claude needs no hook approval, so duolog writes
+nothing for Claude.
 
 ### What a Codex entry can add
 
