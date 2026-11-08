@@ -42,6 +42,8 @@
 
 ## Development
 
+## 1.6.0
+
 ### Added
 
 - `install` adds `duolog mcp`, a lead-only MCP server with `delegate`, `peer`,
