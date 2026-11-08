@@ -3,6 +3,8 @@ package hook
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,19 +27,14 @@ func peerOrWorker(e Env) bool {
 // A prompt always shows the line. A bus delivery (quiet) shows it only when it
 // is due: a number changed, or 5 minutes passed since the lead last saw it.
 func loadLine(ctx context.Context, e Env, s *state, quiet bool) (line string) {
-	if s == nil || e.Load == nil || peerOrWorker(e) {
+	if s == nil {
 		return ""
 	}
-	defer func() {
-		if recover() != nil {
-			line = ""
-		}
-	}()
-	dir := filepath.Join(e.Root, ".duolog")
-	line = e.Load(ctx, s.lead.ID).Line()
+	line, _ = computeLoad(ctx, e, s.lead.ID)
 	if line == "" {
 		return ""
 	}
+	dir := filepath.Join(e.Root, ".duolog")
 	now := time.Now()
 	if quiet && !loadDue(dir, s.lead.ID, line, now) {
 		return ""
@@ -46,6 +43,32 @@ func loadLine(ctx context.Context, e Env, s *state, quiet bool) (line string) {
 		loadMark(dir, s.lead.ID, line, now)
 	}
 	return line
+}
+
+// computeLoad is the lead's load line from e.Load, "" when there is none. A
+// panic in Load comes back as an error.
+func computeLoad(ctx context.Context, e Env, leadID string) (line string, err error) {
+	if e.Load == nil || peerOrWorker(e) {
+		return "", nil
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			line, err = "", fmt.Errorf("load line: %v", r)
+		}
+	}()
+	return e.Load(ctx, leadID).Line(), nil
+}
+
+// LoadLine is the load line of the lead whose session id is in e.Input, as
+// the prompt hook shows it, for a caller outside the hooks. It has no side
+// effects: it reads no bus line, moves no cursor, marks no line as shown and
+// starts no queue run. It is "" for a peer, a worker or when e has no Load.
+func LoadLine(ctx context.Context, e Env) (string, error) {
+	var h input
+	if err := json.Unmarshal(e.Input, &h); err != nil || h.ID == "" {
+		return "", errors.New("load line: the input carries no session_id")
+	}
+	return computeLoad(ctx, e, h.ID)
 }
 
 // loadEvery is how long the same load line stays quiet on a bus delivery.

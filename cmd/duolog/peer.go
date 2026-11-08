@@ -21,9 +21,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// peerContext refuses workers before it reads anything: a worker never drives
-// a terminal.
+// peerContext is peerCtx for a cobra command: the command's context is the
+// parent.
 func peerContext(d *cmdDeps, cmd *cobra.Command, lead string, allowManual bool, timeout time.Duration) (context.Context, context.CancelFunc, error) {
+	ctx, done, err := d.peerCtx(cmd.Context(), lead, allowManual, timeout)
+	return ctx, done, err
+}
+
+// peerCtx refuses workers before it reads anything: a worker never drives a
+// terminal. It returns parent with the peer options of this project, which
+// the CLI and the MCP server's peer tool both use.
+func (d *cmdDeps) peerCtx(parent context.Context, lead string, allowManual bool, timeout time.Duration) (context.Context, func(), error) {
 	if isWorker() {
 		return nil, nil, errors.New("workers cannot open or control peer sessions")
 	}
@@ -43,7 +51,7 @@ func peerContext(d *cmdDeps, cmd *cobra.Command, lead string, allowManual bool, 
 		opts.Observe, opts.ObserveAttempt = observePeer(tel), observeAttempt(tel, cfg)
 		done = func() { _ = tel.Close() }
 	}
-	ctx := peer.WithOptions(cmd.Context(), opts)
+	ctx := peer.WithOptions(parent, opts)
 	if timeout > 0 {
 		ctx, cancel := context.WithTimeout(ctx, timeout)
 		return ctx, func() { cancel(); done() }, nil

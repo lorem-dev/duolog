@@ -44,7 +44,7 @@ func TestCalibrateSkillIsExplicitOnly(t *testing.T) {
 		if head.Name != "duolog-calibrate" {
 			t.Errorf("%s: name %q", agent, head.Name)
 		}
-		if head.Description != "Calibrate duolog routing for this project. Use only when the person asks for calibration by name; never suggest it." {
+		if head.Description != "Use only in a project that has .duolog/config.yaml, and only when the person asks for calibration by name; never suggest it. Calibrates duolog routing for this project." {
 			t.Errorf("%s: description %q", agent, head.Description)
 		}
 		if agent == "claude" && !strings.Contains(front, "disable-model-invocation: true") {

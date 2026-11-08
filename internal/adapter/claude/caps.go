@@ -368,6 +368,9 @@ func parseClaude(name, scope, file string, raw json.RawMessage) caps.Server {
 	}
 	s.Command, s.Args, s.URL = def.Command, def.Args, def.URL
 	s.Env, s.Headers = caps.Pairs(def.Env), caps.Pairs(def.Headers)
+	if leadOnly(s) {
+		s.Why = leadOnlyWhy
+	}
 	switch def.Type {
 	case "", "stdio":
 		s.Transport = "stdio"
@@ -403,7 +406,24 @@ func (Caps) Refusal(root string, s caps.Server, _ []string) string {
 	return refusal(s, root)
 }
 
+// leadOnlyWhy is the reason duolog's own MCP server never goes to a worker.
+const leadOnlyWhy = "lead only: it is duolog's own MCP server, which workers and peers never get"
+
+// leadOnly reports whether s starts duolog's own MCP server, `duolog mcp`,
+// whatever name the config gives it. The command is judged by its base name,
+// so the dev launcher and a full path count too.
+func leadOnly(s caps.Server) bool {
+	if len(s.Args) == 0 || s.Args[0] != "mcp" {
+		return false
+	}
+	base := strings.ToLower(filepath.Base(strings.ReplaceAll(s.Command, `\`, "/")))
+	return base == "duolog" || base == "duolog.exe"
+}
+
 func refusal(s caps.Server, root string) string {
+	if leadOnly(s) {
+		return leadOnlyWhy
+	}
 	if s.Why != "" {
 		return s.Why
 	}

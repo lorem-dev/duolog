@@ -109,6 +109,12 @@ type edit struct {
 	data []byte
 	// backup is where the old file goes; empty means next to it.
 	backup string
+	// state marks an agent's own state file, which is written in place with
+	// no backup (see writeState).
+	state bool
+	// plain is a file duolog wrote, such as a skill file at user scope: it
+	// is replaced with no backup.
+	plain bool
 }
 
 // Run installs hooks, the skill and, in project scope, a starter config.
@@ -117,18 +123,58 @@ func (d Deps) Run(o Options) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
+	edits, regated, notes, err := planAgents(agents, o, base)
+	if err != nil {
+		return Report{}, err
+	}
+	report := Report{Notes: notes}
+	if o.Scope != "user" {
+		project, err := d.projectEdits(o.Root)
+		if err != nil {
+			return Report{}, err
+		}
+		edits = append(edits, project...)
+		// A backup next to a project file lands in the work tree, where git add
+		// -A picks it up. .duolog/ is ignored, so project backups go there.
+		for i := range edits {
+			edits[i].backup = projectBackup(o.Root, edits[i].path)
+		}
+	}
+	if err := writeEdits(edits, &report); err != nil {
+		return report, err
+	}
+	for _, r := range regated {
+		if err := r.approvals.MarkStale(o.Home, r.path); err != nil {
+			return report, err
+		}
+	}
+	if o.Scope == "user" {
+		return report, nil
+	}
+	// The skills are at user scope now; take the unchanged copies an earlier
+	// install wrote out of the project. Any other file there stays. Then the
+	// lead's window.
+	files, notes, err := d.finishInstall(agents, o)
+	report.Files = append(report.Files, files...)
+	report.Notes = append(report.Notes, notes...)
+	return report, err
+}
+
+// planAgents plans the writes of every agent in agents for o under base,
+// with the hooks files whose gate command changes and the notes to print.
+func planAgents(agents []Agent, o Options, base string) ([]edit, []regate, []string, error) {
 	var edits []edit
-	var report Report
-	var regated []regate // hooks files whose gate command changes
+	var notes []string
+	var regated []regate
 	for _, a := range agents {
 		p, err := planAgent(a, o, base)
 		if err != nil {
-			return Report{}, err
+			return nil, nil, nil, err
 		}
 		if p.hook != nil {
 			edits = append(edits, *p.hook)
 		}
-		report.Notes = append(report.Notes, p.notes...)
+		notes = append(notes, p.notes...)
 		if approvals, ok := a.Installer.(Approvals); ok && !p.plugin {
 			// The agent skips a hook whose command changed after approval, and its
 			// trusted_hash stays; trust must not count that hash for the new
@@ -138,48 +184,31 @@ func (d Deps) Run(o Options) (Report, error) {
 			}
 		}
 		edits = append(edits, p.skills...)
+		edits = append(edits, p.mcp...)
 	}
-	if o.Scope != "user" {
-		project, err := d.projectEdits(o.Root)
-		if err != nil {
-			return Report{}, err
-		}
-		edits = append(edits, project...)
-	}
-	// A backup next to a project file lands in the work tree, where git add -A
-	// picks it up. .duolog/ is ignored, so project backups go there.
-	if o.Scope != "user" {
-		for i := range edits {
-			edits[i].backup = projectBackup(o.Root, edits[i].path)
-		}
-	}
+	return edits, regated, notes, nil
+}
+
+// writeEdits writes each edit and adds the path of each file that changed to
+// report.
+func writeEdits(edits []edit, report *Report) error {
 	for _, e := range edits {
-		changed, err := apply(e)
+		changed, err := e.write()
 		if err != nil {
-			return report, err
+			return err
 		}
 		if changed {
 			report.Files = append(report.Files, e.path)
 		}
 	}
-	for _, r := range regated {
-		if err := r.approvals.MarkStale(o.Home, r.path); err != nil {
-			return report, err
-		}
-	}
-	// The skills are in the configured folder now; take duolog's own out of the
-	// default one. Any other file there stays. Then the lead's window.
-	files, notes, err := d.finishInstall(agents, o, base)
-	report.Files = append(report.Files, files...)
-	report.Notes = append(report.Notes, notes...)
-	return report, err
+	return nil
 }
 
-// finishInstall removes duolog's skills from the default folder and, in
-// project scope, sets the lead's compact window. It returns the files it
-// changed and the notes.
-func (d Deps) finishInstall(agents []Agent, o Options, base string) ([]string, []string, error) {
-	notes, err := dropDefaultSkills(agents, o, base)
+// finishInstall ends a project install: it removes the unchanged copies of
+// duolog's skills that an earlier install wrote into the project, and sets
+// the lead's compact window. It returns the files it changed and the notes.
+func (d Deps) finishInstall(agents []Agent, o Options) ([]string, []string, error) {
+	notes, err := dropProjectCopies(agents, o)
 	if err != nil {
 		return nil, notes, err
 	}
@@ -252,10 +281,24 @@ type agentPlan struct {
 	plugin bool
 	skills []edit
 	notes  []string
+	// mcp is the write of the agent's MCP server entry, for an agent that
+	// has one (see MCPServers); its allow entries are in hook.
+	mcp []edit
 }
 
-// planAgent plans the writes of agent a for o under base. It writes nothing.
+// planAgent plans the writes of agent a for o under base: its hooks and
+// skills, then its MCP server and allow entries. It writes nothing.
 func planAgent(a Agent, o Options, base string) (agentPlan, error) {
+	p, err := planHooks(a, o, base)
+	if err != nil {
+		return p, err
+	}
+	err = planMCP(&p, a, o, base)
+	return p, err
+}
+
+// planHooks plans the hooks and skills of agent a for o under base.
+func planHooks(a Agent, o Options, base string) (agentPlan, error) {
 	p := agentPlan{hookFile: a.Installer.HookFile(o.Scope, base, o.Home)}
 	dropped, note, enabled, err := pluginEdits(a, o, base, p.hookFile)
 	if err != nil {
@@ -278,7 +321,8 @@ func planAgent(a Agent, o Options, base string) (agentPlan, error) {
 		return p, fmt.Errorf("%s: %w", p.hookFile, err)
 	}
 	p.old, p.hook, p.notes = old, &edit{path: p.hookFile, data: data}, notes
-	p.skills, err = skillEdits(a, o, base)
+	skills, more, err := userSkillEdits(a, o.Home)
+	p.skills, p.notes = skills, append(p.notes, more...)
 	return p, err
 }
 
@@ -301,26 +345,6 @@ func readIfExists(path string) ([]byte, error) {
 	return data, err
 }
 
-// skillEdits plans the writes of every bundled skill of agent a.
-func skillEdits(a Agent, o Options, base string) ([]edit, error) {
-	var edits []edit
-	for _, name := range plugin.Skills {
-		files, err := skillFiles(a.Name, name)
-		if err != nil {
-			return nil, err
-		}
-		dir := filepath.Join(a.Installer.SkillDir(o.Scope, base, o.Home), name)
-		for _, rel := range files {
-			data, err := plugin.FS.ReadFile(a.Name + "/skills/" + name + "/" + rel)
-			if err != nil {
-				return nil, err
-			}
-			edits = append(edits, edit{path: filepath.Join(dir, filepath.FromSlash(rel)), data: data})
-		}
-	}
-	return edits, nil
-}
-
 // calibrationIgnoreEdit appends store.CalibrationIgnore to a .duolog/.gitignore
 // written before calibration, so the project part goes to Git. It reports false
 // when the file already shares the project part. Existing lines stay.
@@ -341,52 +365,69 @@ func calibrationIgnoreEdit(root string) (edit, bool, error) {
 	return edit{path: path, data: append(data, store.CalibrationIgnore...)}, true, nil
 }
 
-// Remove deletes only what Run added: our hook entries and our skill files.
-// Foreign hooks, the config file and everything else stay.
+// Remove deletes only what Run added: our hook entries, allow entries and
+// skill files, and the MCP server entry (see Uninstall). Foreign hooks, the
+// config file and everything else stay.
 func (d Deps) Remove(o Options) error {
+	_, err := d.Uninstall(o)
+	return err
+}
+
+// Uninstall is Remove with its report: the files it changed, and notes. The
+// MCP server entry and the skills are at the agent's user scope, so an
+// uninstall at either scope removes them for every project and says so; an
+// entry under duolog's name that runs something else stays, with a note, and
+// so does a skill folder duolog did not write.
+func (d Deps) Uninstall(o Options) (Report, error) {
 	agents, base, err := d.resolve(o)
 	if err != nil {
-		return err
+		return Report{}, err
 	}
-	var edits []edit
-	for _, a := range agents {
-		path := a.Installer.HookFile(o.Scope, base, o.Home)
-		if old, err := os.ReadFile(path); err == nil {
-			data, _, err := a.Installer.Hooks(old, 0)
-			if err != nil {
-				return fmt.Errorf("%s: %w", path, err)
-			}
-			edits = append(edits, edit{path: path, data: data})
-		}
+	edits, notes, err := removalEdits(agents, o, base)
+	if err != nil {
+		return Report{}, err
 	}
+	report := Report{Notes: notes}
 	if o.Scope != "user" {
 		for i := range edits {
 			edits[i].backup = projectBackup(o.Root, edits[i].path)
 		}
 	}
-	for _, e := range edits {
-		if _, err := apply(e); err != nil {
-			return err
-		}
+	if err := writeEdits(edits, &report); err != nil {
+		return report, err
 	}
+	if err := dropAllowRecords(agents, o, base); err != nil {
+		return report, err
+	}
+	// The skills are at user scope for every project: they go, with a note,
+	// as the MCP server entry does.
+	removed := false
 	for _, a := range agents {
-		if err := removeSkills(a, a.Installer.SkillDir(o.Scope, base, o.Home)); err != nil {
-			return err
+		gone, kept, err := removeUserSkills(a, o.Home)
+		report.Notes = append(report.Notes, kept...)
+		if err != nil {
+			return report, err
 		}
+		removed = removed || gone
 	}
-	// An earlier install may have used the default folder.
-	if _, err := dropDefaultSkills(agents, o, base); err != nil {
-		return err
+	if removed {
+		report.Notes = append(report.Notes, SkillsRemovedNote)
 	}
-	if o.Scope != "user" {
-		return d.removeProject(agents, o.Root)
+	if o.Scope == "user" {
+		return report, nil
 	}
-	return nil
+	// An earlier install may have put copies into the project.
+	notes, err = dropProjectCopies(agents, o)
+	report.Notes = append(report.Notes, notes...)
+	if err != nil {
+		return report, err
+	}
+	return report, d.removeProject(agents, o.Root)
 }
 
-// removeProject removes what a project install added beside the hooks and
-// skills: the lead's compact window that install wrote, and the instruction
-// blocks.
+// removeProject removes what a project install added beside the hooks, the
+// skills and the MCP server: the lead's compact window that install wrote,
+// and the instruction blocks.
 func (d Deps) removeProject(agents []Agent, root string) error {
 	if err := removeLead(agents, root); err != nil {
 		return err
@@ -394,45 +435,31 @@ func (d Deps) removeProject(agents []Agent, root string) error {
 	return d.removeInstructions(root)
 }
 
-// removeSkills deletes the bundled skill files of agent a from skills, the
-// skills folder. A file with other content is not the one Run wrote, so it
-// stays. Folders go only when empty, from the file's up to the skill's.
-func removeSkills(a Agent, skills string) error {
-	for _, name := range plugin.Skills {
-		if err := removeSkill(a, name, skills); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// removeSkill deletes the files of the bundled skill name of agent a from the
-// skills folder. Folders go only when empty, from the file's up to the skill's.
-func removeSkill(a Agent, name, skills string) error {
-	files, err := skillFiles(a.Name, name)
-	if err != nil {
-		return err
-	}
-	dir := filepath.Join(skills, name)
-	for _, rel := range files {
-		path := filepath.Join(dir, filepath.FromSlash(rel))
-		ours, err := plugin.FS.ReadFile(a.Name + "/skills/" + name + "/" + rel)
-		if err != nil {
-			return err
-		}
-		if have, err := os.ReadFile(path); err != nil || !bytes.Equal(have, ours) {
-			continue
-		}
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		for parent := filepath.Dir(path); parent != filepath.Dir(dir); parent = filepath.Dir(parent) {
-			if os.Remove(parent) != nil {
-				break
+// removalEdits plans what Uninstall writes for agents: each hooks or settings
+// file without duolog's hooks and allow entries, and each state file without
+// duolog's MCP server, with the notes to print.
+func removalEdits(agents []Agent, o Options, base string) ([]edit, []string, error) {
+	var edits []edit
+	var notes []string
+	for _, a := range agents {
+		path := a.Installer.HookFile(o.Scope, base, o.Home)
+		if old, err := os.ReadFile(path); err == nil {
+			data, _, err := a.Installer.Hooks(old, 0)
+			if err == nil {
+				data, err = dropAllow(a, data, allowRecord(a, o, base))
 			}
+			if err != nil {
+				return nil, nil, fmt.Errorf("%s: %w", path, err)
+			}
+			edits = append(edits, edit{path: path, data: data})
 		}
+		server, note, err := serverRemoval(a, o)
+		if err != nil {
+			return nil, nil, err
+		}
+		edits, notes = append(edits, server...), append(notes, note...)
 	}
-	return nil
+	return edits, notes, nil
 }
 
 // pruneUp removes dir when it is empty, then the folders above it that are
@@ -530,38 +557,46 @@ func apply(e edit) (bool, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return false, err
 	}
-	if err == nil {
-		backup := e.backup
-		if backup == "" {
-			backup = path + backupSuffix
-		} else if err := os.MkdirAll(filepath.Dir(backup), 0o755); err != nil {
-			return false, err
-		}
-		if err := writeBackup(backup, old, mode); err != nil {
+	if err == nil && !e.plain {
+		if err := keepBackup(e, path, old, mode); err != nil {
 			return false, err
 		}
 	}
-	// A new file in the folder: a fixed name could follow a link planted there.
+	return true, replaceFile(path, e.data, mode)
+}
+
+// keepBackup saves old, the bytes of the file at path that e replaces, at
+// e.backup, or next to the file when that is empty.
+func keepBackup(e edit, path string, old []byte, mode os.FileMode) error {
+	backup := e.backup
+	if backup == "" {
+		backup = path + backupSuffix
+	} else if err := os.MkdirAll(filepath.Dir(backup), 0o755); err != nil {
+		return err
+	}
+	return writeBackup(backup, old, mode)
+}
+
+// replaceFile writes data to path with mode, through a new file in the same
+// folder: a fixed name could follow a link planted there.
+func replaceFile(path string, data []byte, mode os.FileMode) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
 	if err != nil {
-		return false, err
+		return err
 	}
 	defer os.Remove(tmp.Name())
-	_, writeErr := tmp.Write(e.data)
+	_, writeErr := tmp.Write(data)
 	closeErr := tmp.Close()
 	if writeErr != nil {
-		return false, writeErr
+		return writeErr
 	}
 	if closeErr != nil {
-		return false, closeErr
+		return closeErr
 	}
 	if err := os.Chmod(tmp.Name(), mode); err != nil {
-		return false, err
+		return err
 	}
-	if err := store.Rename(tmp.Name(), path); err != nil {
-		return false, err
-	}
-	return true, nil
+	return store.Rename(tmp.Name(), path)
 }
 
 // writeBackup keeps the first backup, and refuses to follow a link in its place.

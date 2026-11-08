@@ -27,7 +27,7 @@ func newRootCommand(d *cmdDeps) *cobra.Command {
 		_, err := fmt.Fprintln(cmd.OutOrStdout(), version)
 		return err
 	}})
-	cmd.AddCommand(newConfigCommand(), newRouteCommand(), newSendCommand(), newInboxCommand(), newPutCommand(), newRefCommand(), newReadCommand(), newDelegateCommand(d), newDoctorCommand(d), newRosterCommand(d), newStatsCommand(), newGateCommand(d), newDecideCommand("allow", d), newDecideCommand("deny", d), newRememberCommand(), newModeCommand(), newLeadCommand(d), newDecisionsCommand(), newHookCommand(d), newSyncCommand(d), newInstallCommand(d), newUninstallCommand(d), newPeerCommand(d), newCapsCommand(), newTaskCommand(), newLearnCommand(), newProfileCommand(d), newVerdictCommand(), newTelemetryCommand(d))
+	cmd.AddCommand(newConfigCommand(), newRouteCommand(), newSendCommand(), newInboxCommand(), newPutCommand(), newRefCommand(), newReadCommand(), newDelegateCommand(d), newDoctorCommand(d), newRosterCommand(d), newStatsCommand(), newGateCommand(d), newDecideCommand("allow", d), newDecideCommand("deny", d), newRememberCommand(), newModeCommand(), newLeadCommand(d), newDecisionsCommand(), newHookCommand(d), newSyncCommand(d), newInstallCommand(d), newUninstallCommand(d), newPeerCommand(d), newCapsCommand(), newTaskCommand(), newLearnCommand(), newProfileCommand(d), newVerdictCommand(), newTelemetryCommand(d), newMCPCommand(d))
 	return cmd
 }
 

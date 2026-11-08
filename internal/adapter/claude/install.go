@@ -92,6 +92,10 @@ func (i Installer) OtherSettings(root, home string, environ []string) []string {
 	return paths
 }
 
+// ServesMCP says Claude's lead gets the duolog MCP server, so its instruction
+// block carries the MCP line. Task 10's install.MCPServers replaces it.
+func (Installer) ServesMCP() bool { return true }
+
 // Enabled reports whether the duolog plugin is enabled for a Claude process
 // whose environment is environ: project and local settings apply after user
 // settings, and an explicit project disable overrides an enabled user plugin.

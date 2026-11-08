@@ -33,6 +33,33 @@ func TestSessionStartCurrentInstallHasNoNote(t *testing.T) {
 	}
 }
 
+func TestSessionStartRefreshesSkillsBeforeTheNote(t *testing.T) {
+	e, _, _ := setup(t, "claude")
+	var order []string
+	e.RefreshSkills = func(root string) string {
+		order = append(order, "refresh "+root)
+		return "duolog: updated the duolog skills to 9.9.9"
+	}
+	e.InstallNote = func(string) string {
+		order = append(order, "note")
+		return ""
+	}
+	c := content(t, SessionStart(context.Background(), e), "SessionStart")
+	if !strings.Contains(c, "duolog: updated the duolog skills to 9.9.9") || strings.Join(order, ",") != "refresh "+e.Root+",note" {
+		t.Fatalf("context %q, order %v", c, order)
+	}
+}
+
+func TestWorkerSessionStartSkipsSkillRefresh(t *testing.T) {
+	e, _, _ := setup(t, "codex")
+	e.Environ = append(e.Environ, "DUOLOG_DEPTH=1")
+	e.RefreshSkills = func(string) string {
+		t.Fatal("a worker refreshed the skills")
+		return ""
+	}
+	silent(t, SessionStart(context.Background(), e))
+}
+
 func TestWorkerSessionStartSkipsInstallNote(t *testing.T) {
 	e, _, _ := setup(t, "claude")
 	e.Environ = append(e.Environ, "DUOLOG_DEPTH=1")

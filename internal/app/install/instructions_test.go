@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/core/agent"
+	"github.com/lorem-dev/duolog/plugin"
 )
 
 func TestInstructionLifecycle(t *testing.T) {
@@ -125,6 +126,128 @@ func TestInstructionUnpairedMarkersLeaveFilesAlone(t *testing.T) {
 				t.Fatal("uninstall changed a file")
 			}
 		})
+	}
+}
+
+func TestInstallWritesMCPLineInClaudeFileOnly(t *testing.T) {
+	home, root := setup(t)
+	o := Options{Home: home, Root: root, Scope: "project"}
+	run(t, o)
+	if got := read(t, filepath.Join(root, "CLAUDE.md")); !strings.Contains(got, agent.MCPNote) {
+		t.Fatalf("CLAUDE.md has no MCP line: %q", got)
+	}
+	if got := read(t, filepath.Join(root, "AGENTS.md")); strings.Contains(got, agent.MCPNote) || !strings.Contains(got, Block) {
+		t.Fatalf("AGENTS.md changed: %q", got)
+	}
+	statuses, err := testDeps().Check(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range statuses {
+		for _, f := range s.Changed {
+			if filepath.Base(f) == "AGENTS.md" || filepath.Base(f) == "CLAUDE.md" {
+				t.Fatalf("fresh install reports %s", f)
+			}
+		}
+	}
+	// A CLAUDE.md with the block of an earlier version is outdated.
+	claude := filepath.Join(root, "CLAUDE.md")
+	write(t, claude, Block)
+	stale := false
+	if statuses, err = testDeps().Check(o); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range statuses {
+		for _, f := range s.Changed {
+			stale = stale || f == claude
+		}
+	}
+	if !stale {
+		t.Fatal("a Claude block without the MCP line is not reported")
+	}
+	run(t, o)
+	if !strings.Contains(read(t, claude), agent.MCPNote) {
+		t.Fatal("reinstall kept the old block")
+	}
+}
+
+func TestUninstallRemovesBlockWithMCPLine(t *testing.T) {
+	home, root := setup(t)
+	o := Options{Home: home, Root: root, Scope: "project"}
+	claude := filepath.Join(root, "CLAUDE.md")
+	write(t, claude, "# Rules\nkeep\n")
+	run(t, o)
+	if !strings.Contains(read(t, claude), agent.MCPNote) {
+		t.Fatal("no MCP line after install")
+	}
+	if err := Remove(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, claude); got != "# Rules\nkeep\n" {
+		t.Fatalf("uninstall left %q", got)
+	}
+}
+
+func TestSharedInstructionFileGetsClaudeBlock(t *testing.T) {
+	home, root := setup(t)
+	o := Options{Home: home, Root: root, Scope: "project"}
+	agents := filepath.Join(root, "AGENTS.md")
+	write(t, agents, "# Rules\nkeep\n")
+	if err := os.Symlink("AGENTS.md", filepath.Join(root, "CLAUDE.md")); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	run(t, o)
+	want := "# Rules\n" + agent.BlockFor(true) + "keep\n"
+	if got := read(t, agents); got != want {
+		t.Fatalf("want %q got %q", want, got)
+	}
+	run(t, o)
+	if got := read(t, agents); got != want {
+		t.Fatalf("second install changed the file: %q", got)
+	}
+	statuses, err := testDeps().Check(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range statuses {
+		for _, f := range s.Changed {
+			if filepath.Base(f) == "AGENTS.md" || filepath.Base(f) == "CLAUDE.md" {
+				t.Fatalf("shared file reported %s", f)
+			}
+		}
+	}
+	if err := Remove(o); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, agents); got != "# Rules\nkeep\n" {
+		t.Fatalf("uninstall left %q", got)
+	}
+}
+
+func TestClaudeSkillNamesTheTools(t *testing.T) {
+	lines := []string{
+		"With the duolog MCP tools loaded, use `delegate`, `peer`, `answer_ask` and `status` instead of the commands below; they return `run_here` as data.",
+		"Use the CLI only if a tool is missing or fails.",
+	}
+	claude, err := plugin.FS.ReadFile("claude/skills/duolog/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	codex, err := plugin.FS.ReadFile("codex/skills/duolog/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range lines {
+		if !strings.Contains(string(claude), line) {
+			t.Errorf("Claude skill lacks %q", line)
+		}
+		if strings.Contains(string(codex), line) || strings.Contains(string(codex), "MCP") {
+			t.Errorf("Codex skill names the tools: %q", line)
+		}
+	}
+	_, hand, _ := strings.Cut(string(claude), "## Hand over\n")
+	if i, j := strings.Index(hand, "With the duolog MCP tools"), strings.Index(hand, "1. Give whole features"); i < 0 || j < 0 || i > j {
+		t.Error("the tool lines are not at the top of Hand over")
 	}
 }
 

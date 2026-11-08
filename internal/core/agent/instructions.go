@@ -26,6 +26,26 @@ const UsageNote = "This project uses duolog. Hand work to Claude and Codex worke
 // instruction file and doctor looks for: the markers and the lines between.
 const Block = InstructionBegin + "\n" + InstallOffer + "\n" + UsageNote + "\n" + InstructionEnd + "\n"
 
+// MCPNote is the block line for an agent whose lead gets the duolog MCP
+// server. It follows UsageNote.
+const MCPNote = "A Claude lead uses the duolog MCP tools (`delegate`, `peer`, `answer_ask`, `status`) for every hand-over, wait and ask, and the CLI only where a tool is missing or fails; workers and peers never get these tools."
+
+// BlockFor is the block for an agent: Block, with MCPNote when mcp is true.
+func BlockFor(mcp bool) string {
+	if !mcp {
+		return Block
+	}
+	return InstructionBegin + "\n" + InstallOffer + "\n" + UsageNote + "\n" + MCPNote + "\n" + InstructionEnd + "\n"
+}
+
+// ServesMCP reports whether installer i is that of an agent whose lead gets
+// the duolog MCP server, that is, whether it has a ServesMCP method that says
+// so. Until the installer port names it, this keeps the check in one place.
+func ServesMCP(i any) bool {
+	s, ok := i.(interface{ ServesMCP() bool })
+	return ok && s.ServesMCP()
+}
+
 // LegacyOfferMarker starts the one-line install offer of earlier versions.
 // Install replaces such a line with the block, and uninstall removes it.
 const LegacyOfferMarker = "<!-- duolog -->"
@@ -64,10 +84,15 @@ func FindBlock(data []byte) (start, end int, found bool, err error) {
 // writes it, with LF and CRLF line endings taken as equal. present is false
 // when it holds no block.
 func BlockCurrent(data []byte) (current, present bool, err error) {
+	return BlockCurrentFor(data, false)
+}
+
+// BlockCurrentFor is BlockCurrent against BlockFor(mcp).
+func BlockCurrentFor(data []byte, mcp bool) (current, present bool, err error) {
 	start, end, found, err := FindBlock(data)
 	if err != nil || !found {
 		return false, false, err
 	}
 	have := strings.ReplaceAll(string(data[start:end]), "\r\n", "\n")
-	return strings.TrimRight(have, "\n") == strings.TrimRight(Block, "\n"), true, nil
+	return strings.TrimRight(have, "\n") == strings.TrimRight(BlockFor(mcp), "\n"), true, nil
 }

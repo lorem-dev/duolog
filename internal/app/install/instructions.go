@@ -40,6 +40,30 @@ func (d Deps) instructionPaths(root string) (current, all []string) {
 	return current, all
 }
 
+// realPath resolves links in path, so that CLAUDE.md and AGENTS.md count as
+// one file when one is a link to the other; a path that does not resolve
+// stays as it is.
+func realPath(path string) string {
+	if p, err := filepath.EvalSymlinks(path); err == nil {
+		return p
+	}
+	return path
+}
+
+// mcpFiles are the instruction files, by resolved path, that an agent with
+// the duolog MCP server reads now. Their block carries the MCP line, also
+// when another agent reads the same file.
+func (d Deps) mcpFiles(root string) map[string]bool {
+	files := map[string]bool{}
+	for _, a := range d.Agents {
+		if agent.ServesMCP(a.Installer) {
+			file, _ := a.Installer.InstructionFiles(root)
+			files[realPath(file)] = true
+		}
+	}
+	return files
+}
+
 func contains(list []string, s string) bool {
 	for _, x := range list {
 		if x == s {
@@ -81,7 +105,7 @@ func rebuild(data, block []byte) (out []byte, placed bool, err error) {
 	return out, placed, nil
 }
 
-func insertOffer(data []byte) ([]byte, bool) {
+func insertOffer(data []byte, block string) ([]byte, bool) {
 	offset := 0
 	fenced := false
 	fence := ""
@@ -107,12 +131,12 @@ func insertOffer(data []byte) ([]byte, bool) {
 			if added {
 				prefix = append(prefix, '\n')
 			}
-			prefix = append(prefix, []byte(agent.Block)...)
+			prefix = append(prefix, []byte(block)...)
 			return append(prefix, data[offset:]...), added
 		}
 		previous = text
 	}
-	return append([]byte(agent.Block), data...), false
+	return append([]byte(block), data...), false
 }
 
 func (d Deps) instructionEdits(root string) ([]edit, error) {
@@ -123,7 +147,9 @@ func (d Deps) instructionEdits(root string) ([]edit, error) {
 	}
 	var edits []edit
 	paths, _ := d.instructionPaths(root)
+	mcp := d.mcpFiles(root)
 	for _, path := range paths {
+		block := agent.BlockFor(mcp[realPath(path)])
 		rel, _ := filepath.Rel(root, path)
 		old, err := os.ReadFile(path)
 		if err != nil && !os.IsNotExist(err) {
@@ -133,13 +159,13 @@ func (d Deps) instructionEdits(root string) ([]edit, error) {
 		if !known {
 			entry.Created = os.IsNotExist(err)
 		}
-		data, placed, err := rebuild(old, []byte(agent.Block))
+		data, placed, err := rebuild(old, []byte(block))
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
 		if !placed {
 			var added bool
-			data, added = insertOffer(old)
+			data, added = insertOffer(old, block)
 			entry.AddedNewline = added
 			entry.SeparatorPrefix = ""
 			if added {

@@ -72,28 +72,30 @@ func TestCheckFreshInstallIsCurrent(t *testing.T) {
 	}
 }
 
-func TestCheckEditedSkillIsStale(t *testing.T) {
-	o, root := installed(t)
-	path := filepath.Join(root, ".claude", "skills", "duolog", "SKILL.md")
+// A skill the person edited is theirs: install leaves it, so it is a line
+// for the person and not an install that is out of date.
+func TestCheckEditedSkillIsLeft(t *testing.T) {
+	o, _ := installed(t)
+	path := userSkill(o.Home, "claude", "duolog")
 	write(t, path, read(t, path)+"\nA line added by hand.\n")
-	before := snapshot(t, root)
+	before := snapshot(t, o.Home)
 	got := check(t, o)
-	if want := []string{".claude/skills/duolog/SKILL.md"}; strings.Join(rel(t, root, got["claude"].Changed), ",") != strings.Join(want, ",") {
-		t.Fatalf("changed: %v", got["claude"].Changed)
+	if s := got["claude"]; s.Stale() || !slices.Equal(s.Edited, []string{filepath.Dir(path)}) {
+		t.Fatalf("status %+v", s)
 	}
 	current(t, got["codex"])
-	if !equal(before, snapshot(t, root)) {
+	if !equal(before, snapshot(t, o.Home)) {
 		t.Fatal("Check wrote a file")
 	}
 }
 
 func TestCheckMissingSkillIsStale(t *testing.T) {
-	o, root := installed(t)
-	if err := os.RemoveAll(filepath.Join(root, ".agents", "skills", "duolog-peers")); err != nil {
+	o, _ := installed(t)
+	if err := os.RemoveAll(filepath.Join(o.Home, ".agents", "skills", "duolog-peers")); err != nil {
 		t.Fatal(err)
 	}
 	got := check(t, o)
-	if changed := rel(t, root, got["codex"].Changed); len(changed) != 1 || changed[0] != ".agents/skills/duolog-peers/SKILL.md" {
+	if changed := rel(t, o.Home, got["codex"].Changed); len(changed) != 1 || changed[0] != ".agents/skills/duolog-peers/SKILL.md" {
 		t.Fatalf("changed: %v", changed)
 	}
 	current(t, got["claude"])
@@ -134,13 +136,13 @@ func TestCheckIgnoresForeignHooksSettingsAndSkills(t *testing.T) {
 	write(t, codex, strings.Replace(read(t, codex), `"hooks": {`, `"hooks": {"Notification": [{"hooks": [{"type": "command", "command": "other"}]}],`, 1))
 	// A skill that is not duolog's, and an install backup or a folder file the
 	// system adds inside duolog's own.
-	write(t, filepath.Join(root, ".claude", "skills", "other", "SKILL.md"), "other\n")
+	write(t, filepath.Join(o.Home, ".claude", "skills", "other", "SKILL.md"), "other\n")
 	write(t, filepath.Join(root, ".agents", "skills", "mine", "SKILL.md"), "mine\n")
-	write(t, filepath.Join(root, ".claude", "skills", "duolog", "SKILL.md"+backupSuffix), "old\n")
-	write(t, filepath.Join(root, ".claude", "skills", "duolog", ".DS_Store"), "x")
+	write(t, filepath.Join(o.Home, ".claude", "skills", "duolog", "SKILL.md"+backupSuffix), "old\n")
+	write(t, filepath.Join(o.Home, ".claude", "skills", "duolog", ".DS_Store"), "x")
 	// The files an editor leaves beside the one it edits.
 	for _, name := range []string{"SKILL.md~", ".SKILL.md.swp", "#SKILL.md#"} {
-		write(t, filepath.Join(root, ".agents", "skills", "duolog", name), "x")
+		write(t, filepath.Join(o.Home, ".agents", "skills", "duolog", name), "x")
 	}
 	got := check(t, o)
 	current(t, got["claude"])
@@ -152,28 +154,31 @@ func TestCheckIgnoresForeignHooksSettingsAndSkills(t *testing.T) {
 	}
 }
 
-// install never removes a file it does not ship, so such a file is a line for
-// the person, and not an install that is out of date.
+// install never removes a file it does not ship, here one an earlier duolog
+// shipped, so such a file is a line for the person, and not an install that
+// is out of date.
 func TestCheckExtraFileInDuologSkillIsNotStale(t *testing.T) {
 	o, root := installed(t)
-	write(t, filepath.Join(root, ".claude", "skills", "duolog-calibrate", "notes.md"), "mine\n")
+	notes := filepath.Join(o.Home, ".claude", "skills", "duolog-calibrate", "notes.md")
+	withKnown(t, "what an earlier duolog shipped\n")
+	write(t, notes, "what an earlier duolog shipped\n")
 	got := check(t, o)
 	s := got["claude"]
-	if extra := rel(t, root, s.Extra); len(extra) != 1 || extra[0] != ".claude/skills/duolog-calibrate/notes.md" || len(s.Changed) != 0 {
+	if extra := rel(t, o.Home, s.Extra); len(extra) != 1 || extra[0] != ".claude/skills/duolog-calibrate/notes.md" || len(s.Changed) != 0 {
 		t.Fatalf("%+v", s)
 	}
 	current(t, s)
 	if line := s.Line(root); line != "" {
 		t.Fatalf("line %q", line)
 	}
-	want := []string{"claude project install: remove " + filepath.Join(".claude", "skills", "duolog-calibrate", "notes.md") + ", which duolog does not ship"}
+	want := []string{"claude project install: remove " + notes + ", which duolog does not ship"}
 	if lines := s.Lines(root); !slices.Equal(lines, want) {
 		t.Fatalf("lines %q, want %q", lines, want)
 	}
 	if note := testDeps().ProjectNote(root, o.Home); note != "" {
 		t.Fatalf("extra files gave a note: %q", note)
 	}
-	if lines := testDeps().StaleLines(root, ""); !slices.Equal(lines, want) {
+	if lines := testDeps().StaleLines(root, o.Home); !slices.Equal(lines, want) {
 		t.Fatalf("doctor lines %q", lines)
 	}
 }
@@ -182,7 +187,7 @@ func TestCheckExtraFileInDuologSkillIsNotStale(t *testing.T) {
 // duolog skills there. That is no stale install: install cannot fix it.
 func TestCheckSharedSkillsFolder(t *testing.T) {
 	o, root := installed(t)
-	codex := filepath.Join(root, ".agents", "skills")
+	codex := filepath.Join(o.Home, ".agents", "skills")
 	if err := os.RemoveAll(codex); err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +197,7 @@ func TestCheckSharedSkillsFolder(t *testing.T) {
 	got := check(t, o)
 	current(t, got["claude"])
 	current(t, got["codex"])
-	want := "claude and codex share " + filepath.Join(".claude", "skills") + "; duolog writes each agent's own skills there, so keep them apart"
+	want := "claude and codex share " + filepath.Join(o.Home, ".claude", "skills") + "; duolog writes each agent's own skills there, so keep them apart"
 	var lines []string
 	for _, agent := range []string{"claude", "codex"} {
 		lines = append(lines, got[agent].Lines(root)...)
@@ -214,7 +219,7 @@ func TestCheckSharedSkillsFolder(t *testing.T) {
 // hooks alone in CI.
 func TestCheckHooksOnly(t *testing.T) {
 	o, root := installed(t)
-	for _, dir := range []string{filepath.Join(root, ".claude", "skills"), filepath.Join(root, ".agents", "skills")} {
+	for _, dir := range []string{filepath.Join(o.Home, ".claude", "skills"), filepath.Join(o.Home, ".agents", "skills")} {
 		if err := os.RemoveAll(dir); err != nil {
 			t.Fatal(err)
 		}
@@ -242,12 +247,12 @@ func TestCheckHooksOnly(t *testing.T) {
 	}
 }
 
-// A repository can commit duolog's hooks and ignore its skill folders, so
-// that each machine writes them. A fresh clone then has the hooks and none of
-// the skills: that is a stale install, not a missing one.
+// A repository can commit duolog's hooks. A fresh clone on a machine that
+// never ran duolog install has the hooks and none of the user skills: that
+// is a stale install, not a missing one.
 func TestCheckHooksWithoutSkillsIsStale(t *testing.T) {
 	o, root := installed(t)
-	for _, dir := range []string{filepath.Join(root, ".claude", "skills"), filepath.Join(root, ".agents", "skills")} {
+	for _, dir := range []string{filepath.Join(o.Home, ".claude", "skills"), filepath.Join(o.Home, ".agents", "skills")} {
 		if err := os.RemoveAll(dir); err != nil {
 			t.Fatal(err)
 		}
@@ -260,7 +265,7 @@ func TestCheckHooksWithoutSkillsIsStale(t *testing.T) {
 		}
 		var want []string
 		for _, name := range []string{"duolog", "duolog-skill-check", "duolog-calibrate", "duolog-peers"} {
-			want = append(want, filepath.Join(filepath.FromSlash(dir), name))
+			want = append(want, filepath.Join(o.Home, filepath.FromSlash(dir), name))
 		}
 		line := agent + " project install is out of date: duolog skills missing: " + strings.Join(want, ", ") + "; run duolog install --scope project --agent " + agent
 		if got := s.Line(root); got != line {
@@ -268,7 +273,7 @@ func TestCheckHooksWithoutSkillsIsStale(t *testing.T) {
 		}
 	}
 	note := testDeps().ProjectNote(root, o.Home)
-	if note != "duolog: this project's duolog skills are missing; run duolog install --scope project" {
+	if note != "duolog: the duolog skills are missing; run duolog install --scope project" {
 		t.Fatalf("note %q", note)
 	}
 }
@@ -279,7 +284,10 @@ func TestProjectNote(t *testing.T) {
 		t.Fatalf("a current install has a note: %q", note)
 	}
 	write(t, filepath.Join(root, ".codex", "hooks.json"), `{"hooks":{}}`+"\n")
-	write(t, filepath.Join(root, ".claude", "skills", "duolog", "SKILL.md"), "old\n")
+	path := userSkill(o.Home, "claude", "duolog")
+	older := strings.Replace(read(t, path), Version(), "1.0.0", 1) + "older text\n"
+	withKnown(t, older)
+	write(t, path, older)
 	if note := testDeps().ProjectNote(root, o.Home); note != "duolog: this project's duolog install is out of date; run duolog install --scope project" {
 		t.Fatalf("note %q", note)
 	}
@@ -315,21 +323,22 @@ func TestCheckDevLauncherHooksAreNotCompared(t *testing.T) {
 
 func TestCheckLineNamesFilesAndFix(t *testing.T) {
 	o, root := installed(t)
-	skill := filepath.Join(root, ".claude", "skills", "duolog", "SKILL.md")
-	write(t, skill, "old skill\n")
+	skill := userSkill(o.Home, "claude", "duolog")
+	withKnown(t, "---\nmetadata:\n  duolog-version: \"1.0.0\"\n---\nold skill\n")
+	write(t, skill, "---\nmetadata:\n  duolog-version: \"1.0.0\"\n---\nold skill\n")
 	settings := filepath.Join(root, ".claude", "settings.json")
 	write(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"duolog","args":["hook","Stop","--agent","claude"]}]}]}}`)
 	got := check(t, o)
-	want := "claude project install is out of date: " + filepath.Join(".claude", "settings.json") + ", " + filepath.Join(".claude", "skills", "duolog", "SKILL.md") + "; run duolog install --scope project --agent claude"
+	want := "claude project install is out of date: " + filepath.Join(".claude", "settings.json") + ", " + skill + "; run duolog install --scope project --agent claude"
 	if line := got["claude"].Line(root); line != want {
 		t.Fatalf("line %q, want %q", line, want)
 	}
 }
 
 func TestCheckCRLFSkillIsCurrent(t *testing.T) {
-	o, root := installed(t)
-	// Git on Windows can check out a committed skill with CRLF line endings.
-	path := filepath.Join(root, ".agents", "skills", "duolog", "SKILL.md")
+	o, _ := installed(t)
+	// A skill copied on Windows can have CRLF line endings.
+	path := userSkill(o.Home, "codex", "duolog")
 	write(t, path, strings.ReplaceAll(read(t, path), "\n", "\r\n"))
 	current(t, check(t, o)["codex"])
 }
@@ -370,7 +379,7 @@ func TestCheckUserScope(t *testing.T) {
 
 func TestCheckBadHooksFileIsAnError(t *testing.T) {
 	o, root := installed(t)
-	write(t, filepath.Join(root, ".codex", "hooks.json"), "not json")
+	write(t, filepath.Join(root, ".codex", "hooks.json"), `{"hooks": "duolog`)
 	s := check(t, o)["codex"]
 	if s.Err == nil || !strings.HasPrefix(s.Line(root), "codex project install could not be checked: ") {
 		t.Fatalf("%+v %q", s, s.Line(root))
@@ -383,7 +392,8 @@ func TestCheckClaudePluginEnabledIsCurrent(t *testing.T) {
 	// settings file without them is what it would write.
 	path := filepath.Join(root, ".claude", "settings.json")
 	withHooks := strings.Replace(read(t, path), "{", `{"enabledPlugins":{"duolog@duolog":true},`, 1)
-	write(t, path, `{"enabledPlugins":{"duolog@duolog":true}}`)
+	// install still writes the MCP allow entries beside the plugin.
+	write(t, path, `{"enabledPlugins":{"duolog@duolog":true},"permissions":{"allow":["mcp__duolog__delegate","mcp__duolog__peer","mcp__duolog__status"]}}`)
 	current(t, check(t, o)["claude"])
 	// Committed hooks beside the plugin run twice. install would delete them
 	// from a shared file, so this is a line for the person, not a stale

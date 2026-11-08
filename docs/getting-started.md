@@ -126,16 +126,17 @@ The command writes these files and prints each path:
 | File | Content |
 |---|---|
 | `.claude/settings.json` | Claude Code hooks, merged with yours |
-| `.claude/skills/duolog/SKILL.md` | The skill that teaches the lead to delegate |
-| `.claude/skills/duolog-skill-check/` | The skill that offers [skill tests](skills.md) after a change |
-| `.claude/skills/duolog-calibrate/` | The skill that runs [calibration](calibration.md) when you ask |
-| `.claude/skills/duolog-peers/` | The skill that lists [peers](rex.md) and switches your Rex view to one |
 | `.codex/hooks.json` | Codex hooks, merged with yours |
-| `.agents/skills/duolog/SKILL.md` | The same skill for Codex |
-| `.agents/skills/duolog-skill-check/`, `.agents/skills/duolog-calibrate/` and `.agents/skills/duolog-peers/` | The other three skills for Codex |
+| `~/.claude/skills/duolog/SKILL.md` | The skill that teaches the lead to delegate, at user scope |
+| `~/.claude/skills/duolog-skill-check/` | The skill that offers [skill tests](skills.md) after a change |
+| `~/.claude/skills/duolog-calibrate/` | The skill that runs [calibration](calibration.md) when you ask |
+| `~/.claude/skills/duolog-peers/` | The skill that lists [peers](rex.md) and switches your Rex view to one |
+| `~/.agents/skills/duolog/`, `~/.agents/skills/duolog-skill-check/`, `~/.agents/skills/duolog-calibrate/` and `~/.agents/skills/duolog-peers/` | The same four skills for Codex |
+| `~/.claude.json` | The `mcpServers.duolog` entry, at user scope (`.claude.json` under `CLAUDE_CONFIG_DIR` if set) |
+| `.claude/settings.json` | Also three `permissions.allow` entries for the duolog MCP tools |
 | `.duolog/config.yaml` | A starter config, only if none exists |
 | `AGENTS.md` | A marked block: offer to install on a machine without duolog, and work through duolog |
-| `.claude/CLAUDE.md` or `CLAUDE.md` | The same block; uses the nested file if it exists |
+| `.claude/CLAUDE.md` or `CLAUDE.md` | The same block, with one more line about the MCP tools; uses the nested file if it exists |
 
 Use `--agent claude` or `--agent codex` to install for one agent. Use
 `--scope user` to install in your home folder for all projects. SessionStart
@@ -143,6 +144,42 @@ then creates `.duolog/` in a new project and registers its lead.
 
 User scope honors `CODEX_HOME` and `CLAUDE_CONFIG_DIR`. If they are unset,
 Go's native home lookup supplies `.codex` and `.claude` under your home.
+
+### Where duolog keeps its skills
+
+Every install, at either scope, writes the duolog skills at user scope:
+under `~/.claude/skills` for Claude, or `skills` under `CLAUDE_CONFIG_DIR`,
+and under `~/.agents/skills` for Codex. One copy serves every project, so a
+project needs no copy of its own. Each skill's description starts with
+"Use only in a project that has .duolog/config.yaml", and its first line
+tells the agent to stop elsewhere. In other projects only the skill's
+one-line listing is in the agent's context. Where the Claude plugin is
+enabled, the plugin supplies Claude's skills and install writes none.
+
+Each `SKILL.md` names the duolog version that wrote it, as
+`duolog-version` under `metadata` in its frontmatter. `duolog install`
+replaces a duolog skill whose files differ from the binary's, such as one
+of another version, when every file in it is one that some duolog release
+wrote, unchanged. A lead's session start in a duolog project replaces such
+a skill when an older duolog wrote it. So a new binary updates the skills
+with no step of yours. Neither touches any other skill folder of the same
+name:
+
+- a skill you changed, or added a file to, even one that names a version;
+- a folder that duolog did not write: its `SKILL.md` names no version and
+  its files match no duolog release;
+- a folder that is a link, or holds a link at any depth.
+
+Install prints a note for each, and `duolog install --check` and
+`duolog doctor` print a line for it. To get duolog's skill back, keep your
+changes elsewhere, remove the folder and run `duolog install`.
+
+Older versions wrote the skills into the project, under `.claude/skills`
+and `.agents/skills` or the folder that `agents.codex.skills_dir` names.
+`duolog install --scope project` removes such a copy when every file in it
+is one that some duolog release wrote, unchanged. A copy with a file you
+changed or added stays, and install prints a note. Remove it when you no
+longer need it.
 
 Codex hooks store a POSIX command and `commandWindows` together. Claude
 hooks use `command: "duolog"` with `args` and no shell on every OS, including
@@ -167,14 +204,33 @@ A hook cannot offer the install when its binary is missing.
 If a file already exists and changes, duolog first copies it. A project file
 goes to the same path under `.duolog/backup/`, which Git ignores, so
 `git add -A` does not pick it up. A file in your home folder goes to
-`<file>.duolog.bak`. `duolog uninstall` removes only the hook entries and the
-skill file that duolog added. It also removes the marked block. An
-instruction file is deleted only if duolog created it and it is now empty.
+`<file>.duolog.bak`. A duolog skill is replaced with no backup.
+`duolog uninstall` removes only the hook entries and the skill files that
+duolog added. A skill file you changed or added stays, with a note. It also
+removes the marked block. An instruction file is deleted only if duolog
+created it and it is now empty.
 
-A new duolog binary does not change the hooks and skills that an older one
-installed. `duolog doctor` names each install that is out of date, with its
-files and the command that fixes it. The lead's session start says so too.
-To check without writing anything, run:
+Install records the `permissions.allow` entries that it adds, and
+uninstall removes only those. An entry you had before install stays. A
+project keeps the record in `.duolog/claude-allow-entries.json`; a user
+install keeps it in `duolog-allow-entries.json` beside the user
+`settings.json`.
+
+If `mcpServers.duolog` in `~/.claude.json` runs something other than
+`duolog mcp`, it is yours: install and uninstall leave it and print a
+note, and `duolog install --check` and `duolog doctor` print a line for it.
+Rename it and run `duolog install` to get the duolog tools.
+
+Uninstall at either scope removes the duolog skills at user scope, so every
+project loses them, and it says so: `duolog skills removed for all projects;
+other duolog projects get them back with duolog install`. This is the rule
+for the duolog MCP server entry too. Knowing whether another project still
+uses duolog would mean searching your folders.
+
+A new duolog binary does not change the hooks that an older one installed.
+`duolog doctor` names each install that is out of date, with its files and
+the command that fixes it. The lead's session start says so too. To check
+without writing anything, run:
 
 ```bash
 duolog install --check
@@ -189,14 +245,21 @@ settings and skills do not.
 | 0 | Current, or not installed: a folder with no duolog hooks or skills |
 | 1 | Out of date, so `duolog install` would change it, or it could not be checked |
 
-Some lines need you, not `duolog install`, and do not change the exit code.
-Such a line names a file to remove from a duolog skill folder. It can also
-say that duolog hooks in `.claude/settings.json` run twice beside the
-plugin, or that two agents share one skills folder.
+A missing duolog skill at user scope, or one that another duolog version
+wrote, makes the install out of date, at either scope. An unchanged copy in
+the project does too, since install removes it.
 
-Hooks without the duolog skills are out of date. Some repositories commit
-the hooks and keep the duolog skills out of Git. A CI job for such a
-repository checks the hooks only:
+Some lines need you, not `duolog install`, and do not change the exit code.
+Such a line names a file to remove from a duolog skill folder, a duolog
+skill you changed, a skill folder of duolog's name that duolog did not
+write, or a project copy that you changed. It can also say that duolog
+hooks in `.claude/settings.json` run twice beside the plugin, that two
+agents share one skills folder, or that `mcpServers.duolog` runs something
+else.
+
+A repository can commit the hooks. A clone on a machine that never ran
+`duolog install` has the hooks and no user skills, which is out of date. A
+CI job for such a repository checks the hooks only:
 
 ```bash
 duolog install --check --hooks-only
@@ -220,6 +283,42 @@ workers fail its login check. To let paid runs use the key, under a daily
 cap, see [Configuration](configuration.md#if-you-use-an-api-key-on-purpose).
 Local telemetry is on by default; run `duolog telemetry off` to stop it. See
 [Telemetry](telemetry.md).
+
+## How the lead uses the duolog MCP server
+
+A Claude lead gets `duolog mcp`, an MCP server with four tools. Each tool
+calls the same code as the CLI command it stands for, so it can do no more
+than the lead's shell can. Codex leads keep the skill and the CLI.
+
+| Tool | What it does |
+|---|---|
+| `delegate` | Hands a task to a worker from typed fields; returns the answer, or `run_here` as data |
+| `peer` | Drives a live [Rex peer](rex.md#how-to-drive-peers-with-the-mcp-tool): open, send, wait, answer, status, close, list |
+| `answer_ask` | Allows or denies a worker's or a peer's permission ask by its number |
+| `status` | Lists peers, open asks, delegations, load and quota |
+
+Install adds the server as one entry at Claude's user scope, from either
+`--scope`. It also adds `mcp__duolog__delegate`, `mcp__duolog__peer` and
+`mcp__duolog__status` to `permissions.allow` of the install scope, so the first
+call does not ask. It never adds `mcp__duolog__answer_ask`: the lead's guard or
+you decide that call, as for `duolog allow`. The marked block in `CLAUDE.md`
+tells the lead to use the tools and the CLI only where a tool is missing.
+
+Only the lead gets the tools. Outside a folder with `.duolog/config.yaml`, and
+in a worker or a peer, the server lists no tools, so they cost nothing there.
+
+Keep deferred tool loading on, which is Claude Code's default. Claude then
+loads a tool's schema only when it needs it. We measured about 12 tokens per
+tool per turn, and about 155 tokens once per tool when its schema loads. With
+`ENABLE_TOOL_SEARCH=false`, Claude adds about 17,000 tokens to every turn.
+`duolog doctor` says so when the setting is off.
+
+`duolog uninstall` removes the allow entries at its scope. It always removes
+the server entry, and says `duolog MCP server removed for all projects; other
+duolog projects get it back with duolog install`. An entry you changed stays,
+with a note. To remove the server by hand, delete `mcpServers.duolog` from
+`~/.claude.json`. `duolog install --check` and `duolog doctor` report a
+missing or different entry and missing allow entries.
 
 ## How to install the plugins from the duolog marketplace
 

@@ -91,6 +91,11 @@ type Env struct {
 	// project install at root is out of date, or nothing. It only reads local
 	// files, and says nothing when its check fails. Nil means no note.
 	InstallNote func(root string) string
+	// RefreshSkills replaces the duolog skills at user scope that an older
+	// duolog wrote, for a lead's session start in the project at root, and
+	// returns a line that says so, or nothing. It never fails the hook. Nil
+	// means no refresh.
+	RefreshSkills func(root string) string
 }
 
 // loadConfig loads the config of the project at e.Root, through e.Config
@@ -327,13 +332,30 @@ func SessionStart(ctx context.Context, e Env) Output {
 	return deliver(ctx, e, "SessionStart", true, true, startTime(e), func(s *state, _ []byte) string {
 		prune(e)
 		var lines []string
-		for _, line := range []string{telemetryStart(ctx, e), syncStart(e), compactStart(ctx, e), installNote(e, s)} {
+		// The skills are refreshed before the install is checked, so the note
+		// sees them current.
+		for _, line := range []string{telemetryStart(ctx, e), syncStart(e), compactStart(ctx, e), refreshSkills(e, s), installNote(e, s)} {
 			if line != "" {
 				lines = append(lines, line)
 			}
 		}
 		return strings.Join(lines, "\n")
 	})
+}
+
+// refreshSkills brings the user skills up to this duolog for a registered
+// lead's session start, so that an update of the binary updates them. A
+// worker and an unregistered session leave them, and a panic is no line.
+func refreshSkills(e Env, s *state) (line string) {
+	if s == nil || e.RefreshSkills == nil {
+		return ""
+	}
+	defer func() {
+		if recover() != nil {
+			line = ""
+		}
+	}()
+	return e.RefreshSkills(e.Root)
 }
 
 // installNote is the note of a registered lead's session start when the

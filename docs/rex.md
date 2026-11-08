@@ -380,6 +380,31 @@ command yourself: in Claude Code with the `!` prefix, such as
 For Codex, no turn-free path is confirmed; do not rely on one. From a Codex
 lead, run these commands outside the sandbox.
 
+## How to drive peers with the MCP tool
+
+A Claude lead drives peers with the `peer` tool of the
+[duolog MCP server](getting-started.md#how-the-lead-uses-the-duolog-mcp-server)
+instead of the `duolog peer` commands. The `action` field picks the step:
+
+| Action | What it does |
+|---|---|
+| `open` | Opens a peer for a role |
+| `send` | Writes the task file from the `task` fields and sends it |
+| `wait` | Waits for the peer, at most `timeout_minutes` |
+| `answer` | Picks an option for a question in the peer's screen |
+| `status`, `list` | Shows one peer, or all of them |
+| `close` | Closes the peer |
+
+A `wait` returns after `timeout_minutes` (10 by default and at most), so the
+lead calls it again and is never blocked for good. It returns the peer's
+`state`, its `question` if one is open, the `open_asks` with their numbers, and
+the `report` field: the first lines of the peer's report file.
+
+`answer_ask` answers a gate ask by its number. It has the rights of
+`duolog allow` and `duolog deny`. For an ask that only you may answer, the
+lead's guard asks you, and a lead in `bypassPermissions` or `auto` answers its
+own asks. Workers and peers never get these tools.
+
 ## How duolog settles routine questions
 
 Peers start with Codex's `tui.notifications=false` and `notify=[]`, or Claude's

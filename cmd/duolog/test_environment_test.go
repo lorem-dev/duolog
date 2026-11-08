@@ -56,10 +56,31 @@ func TestMain(m *testing.M) {
 			panic(err)
 		}
 	}
+	// A lead's session start refreshes the duolog skills under the home: no
+	// test may reach the real one. A test that needs a home sets its own. An
+	// agent folder under the temporary folder is one a parent test made for
+	// this process, so it stays.
+	for _, key := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME"} {
+		if dir := os.Getenv(key); dir != "" && !strings.HasPrefix(dir, os.TempDir()) {
+			if err := os.Unsetenv(key); err != nil {
+				panic(err)
+			}
+		}
+	}
+	home, err := os.MkdirTemp("", "duolog-test-home-")
+	if err != nil {
+		panic(err)
+	}
+	for _, key := range []string{"HOME", "USERPROFILE"} {
+		if err := os.Setenv(key, home); err != nil {
+			panic(err)
+		}
+	}
 	// A gate ask reads its reply every 10 ms instead of every half second; the
 	// answers in these tests come at once.
 	gate.AskPoll = 10 * time.Millisecond
 	code := m.Run()
+	_ = os.RemoveAll(home)
 	if duologBuild.dir != "" {
 		_ = os.RemoveAll(duologBuild.dir)
 	}

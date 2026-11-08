@@ -325,10 +325,14 @@ func TestInstructionBlockIsInfoOnly(t *testing.T) {
 	for _, tc := range []struct{ state, text string }{
 		{"missing", "# Rules\n"},
 		{"outdated", coreagent.InstructionBegin + "\nold\n" + coreagent.InstructionEnd + "\n"},
-		{"current", "# Rules\n" + coreagent.Block},
+		{"current", "# Rules\n"},
 	} {
 		for _, path := range testDeps.instructionPaths(opts.Root) {
-			if err := os.WriteFile(path, []byte(tc.text), 0644); err != nil {
+			text := tc.text
+			if tc.state == "current" {
+				text += coreagent.BlockFor(filepath.Base(path) == "CLAUDE.md")
+			}
+			if err := os.WriteFile(path, []byte(text), 0644); err != nil {
 				t.Fatal(err)
 			}
 		}

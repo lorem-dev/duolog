@@ -66,8 +66,9 @@ Sync does not overwrite a target that you edited by hand. It prints `refused:`
 and exits with code 1. Fix the source, or use `--force` if you want the
 generated version.
 
-Sync never reads or writes the `duolog` skill folder on either side, because
-`duolog install` owns it.
+Sync never reads or writes duolog's own skill folders, such as `duolog`, on
+either side. `duolog install` owns them and keeps them at user scope. See
+[Getting started](getting-started.md#where-duolog-keeps-its-skills).
 
 Backslashes in `--path` work on all hosts. In PowerShell, use for example
 `duolog sync --path .claude\agents\review.md`.

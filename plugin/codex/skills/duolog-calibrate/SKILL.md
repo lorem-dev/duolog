@@ -1,7 +1,11 @@
 ---
 name: duolog-calibrate
-description: Calibrate duolog routing for this project. Use only when the person asks for calibration by name; never suggest it.
+description: Use only in a project that has .duolog/config.yaml, and only when the person asks for calibration by name; never suggest it. Calibrates duolog routing for this project.
+metadata:
+  duolog-version: "1.5.2"
 ---
+
+Stop unless this project has `.duolog/config.yaml`.
 
 # Calibrate duolog for this project
 

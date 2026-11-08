@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"sort"
@@ -386,22 +387,40 @@ func (d Deps) metadata(ctx context.Context, agent string, args ...string) ([]byt
 // instructionNotes says, for each instruction file the agents read in the
 // project at root, whether it holds duolog's block as this version writes it.
 func (d Deps) instructionNotes(root string) []Finding {
+	// A file an agent with the MCP server reads holds the block with the MCP
+	// line, also when another agent reads the same file.
+	mcp := map[string]bool{}
+	for _, a := range d.Agents {
+		if a.Installer != nil && coreagent.ServesMCP(a.Installer) {
+			current, _ := a.Installer.InstructionFiles(root)
+			mcp[realPath(current)] = true
+		}
+	}
 	var notes []Finding
 	for _, path := range d.instructionPaths(root) {
-		notes = append(notes, instructionFinding(path))
+		notes = append(notes, instructionFinding(path, mcp[realPath(path)]))
 	}
 	return notes
+}
+
+// realPath resolves links in path, so that two names for one file count as
+// one; a path that does not resolve stays as it is.
+func realPath(path string) string {
+	if p, err := filepath.EvalSymlinks(path); err == nil {
+		return p
+	}
+	return path
 }
 
 // instructionFinding says whether the instruction file at path holds duolog's
 // block as this version writes it: current, outdated (install replaces it), or
 // missing. Unpaired markers are a warning, as install refuses such a file.
-func instructionFinding(path string) Finding {
+func instructionFinding(path string, mcp bool) Finding {
 	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return Finding{"warning", fmt.Sprintf("duolog instructions in %s: %v", path, err)}
 	}
-	current, present, err := coreagent.BlockCurrent(data)
+	current, present, err := coreagent.BlockCurrentFor(data, mcp)
 	switch {
 	case err != nil:
 		return Finding{"warning", fmt.Sprintf("duolog instructions in %s: %v; fix the markers, then run duolog install", path, err)}

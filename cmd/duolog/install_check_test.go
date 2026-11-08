@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/app/install"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -42,8 +43,13 @@ func TestInstallCheckCurrentExitsZero(t *testing.T) {
 
 func TestInstallCheckStaleExitsOne(t *testing.T) {
 	root, home := installedProject(t)
-	skill := filepath.Join(root, ".claude", "skills", "duolog", "SKILL.md")
-	if err := os.WriteFile(skill, []byte("an older skill\n"), 0o644); err != nil {
+	skill := filepath.Join(home, ".claude", "skills", "duolog", "SKILL.md")
+	data, err := os.ReadFile(skill)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The skill as an older release wrote it, with its version in every place.
+	if err := os.WriteFile(skill, []byte(strings.ReplaceAll(string(data), install.Version(), "1.0.0")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	before, homeBefore := treeState(t, root), treeState(t, home)
@@ -51,7 +57,7 @@ func TestInstallCheckStaleExitsOne(t *testing.T) {
 	if err == nil || exitCode(err) != 1 {
 		t.Fatalf("err %v, output %q", err, out)
 	}
-	want := "claude project install is out of date: " + filepath.Join(".claude", "skills", "duolog", "SKILL.md") + "; run duolog install --scope project --agent claude"
+	want := "claude project install is out of date: " + skill + "; run duolog install --scope project --agent claude"
 	if !strings.Contains(out, want+"\n") || !strings.Contains(out, "codex project install is current") {
 		t.Fatalf("output %q missing %q", out, want)
 	}
@@ -64,11 +70,11 @@ func TestInstallCheckStaleExitsOne(t *testing.T) {
 	}
 }
 
-// A clone of a repository that commits duolog's hooks and ignores its skill
-// folders has the hooks and no skills.
+// A clone of a repository that commits duolog's hooks, on a machine that
+// never ran duolog install, has the hooks and no skills.
 func TestInstallCheckCommittedHooksWithoutSkills(t *testing.T) {
-	root, _ := installedProject(t)
-	for _, dir := range []string{filepath.Join(root, ".claude", "skills"), filepath.Join(root, ".agents", "skills")} {
+	_, home := installedProject(t)
+	for _, dir := range []string{filepath.Join(home, ".claude", "skills"), filepath.Join(home, ".agents", "skills")} {
 		if err := os.RemoveAll(dir); err != nil {
 			t.Fatal(err)
 		}
@@ -77,17 +83,17 @@ func TestInstallCheckCommittedHooksWithoutSkills(t *testing.T) {
 	if err == nil || exitCode(err) != 1 {
 		t.Fatalf("err %v, output %q", err, out)
 	}
-	for _, want := range []string{"claude project install is out of date: duolog skills missing: " + filepath.Join(".claude", "skills", "duolog") + ", ", "codex project install is out of date: duolog skills missing: " + filepath.Join(".agents", "skills", "duolog") + ", ", "; run duolog install --scope project --agent codex\n"} {
+	for _, want := range []string{"claude project install is out of date: duolog skills missing: " + filepath.Join(home, ".claude", "skills", "duolog") + ", ", "codex project install is out of date: duolog skills missing: " + filepath.Join(home, ".agents", "skills", "duolog") + ", ", "; run duolog install --scope project --agent codex\n"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output %q missing %q", out, want)
 		}
 	}
 }
 
-// With agents.codex.skills_dir set, the check compares the folder the key
-// selects, and a file left in duolog's skill folders in .agents/skills counts
-// as install treats it: install removes every one of them, whatever its
-// content, and leaves other skills alone.
+// With agents.codex.skills_dir set, the check looks for old copies of
+// duolog's skills in the folder the key selects and in .agents/skills, as
+// install treats them: install removes the unchanged ones and leaves changed
+// ones and other skills alone.
 func TestInstallCheckHonoursSkillsDir(t *testing.T) {
 	root := skillsDirProject(t)
 	if out, err := executeBusCommand(t, "install", "--scope", "project", "--agent", "codex"); err != nil {
@@ -98,7 +104,7 @@ func TestInstallCheckHonoursSkillsDir(t *testing.T) {
 		t.Fatalf("err %v, output %q", err, out)
 	}
 	// An earlier install with the default folder left duolog's skill there.
-	skill, err := os.ReadFile(filepath.Join(root, ".codex", "skills", "duolog", "SKILL.md"))
+	skill, err := os.ReadFile(filepath.Join(os.Getenv("HOME"), ".agents", "skills", "duolog", "SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,8 +129,9 @@ func TestInstallCheckHonoursSkillsDir(t *testing.T) {
 	if _, err := os.Stat(leftover); !os.IsNotExist(err) {
 		t.Fatalf("install left %s: %v", leftover, err)
 	}
-	// A changed file in a duolog skill folder there goes too, so it is stale;
-	// a skill of another name there is the person's.
+	// A copy with a file duolog did not write is the person's: install leaves
+	// it, so it is a line for them and not a stale install; a skill of another
+	// name there is the person's too.
 	for path, data := range map[string]string{
 		filepath.Join(root, ".agents", "skills", "duolog-peers", "notes.md"): "an older file\n",
 		filepath.Join(root, ".agents", "skills", "mine", "SKILL.md"):         "mine\n",
@@ -137,15 +144,18 @@ func TestInstallCheckHonoursSkillsDir(t *testing.T) {
 		}
 	}
 	out, err = executeBusCommand(t, "install", "--check", "--agent", "codex")
-	want = "codex project install is out of date: " + filepath.Join(".agents", "skills", "duolog-peers", "notes.md") + "; run duolog install --scope project --agent codex\n"
-	if err == nil || !strings.Contains(out, want) {
+	want = "codex project install: " + filepath.Join(".agents", "skills", "duolog-peers") + " holds changed copies of duolog skills"
+	if err != nil || !strings.Contains(out, want) || !strings.Contains(out, "codex project install is current") {
 		t.Fatalf("err %v, output %q, want %q", err, out, want)
 	}
-	if out, err := executeBusCommand(t, "install", "--scope", "project", "--agent", "codex"); err != nil {
+	if out, err := executeBusCommand(t, "install", "--scope", "project", "--agent", "codex"); err != nil || !strings.Contains(out, "left "+filepath.Join(root, ".agents", "skills", "duolog-peers")) {
 		t.Fatal(out, err)
 	}
-	if out, err := executeBusCommand(t, "install", "--check", "--agent", "codex"); err != nil {
-		t.Fatalf("after install: %v %q", err, out)
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "duolog-peers", "notes.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(root, ".agents", "skills", "duolog-peers")); err != nil {
+		t.Fatal(err)
 	}
 	// Doctor reads the key the same way.
 	codex := testbin.Install(t, "codex", testbin.Scenario{Stdout: "{}"})
@@ -158,7 +168,7 @@ func TestInstallCheckHonoursSkillsDir(t *testing.T) {
 }
 
 // When the configured folder is a link to .agents/skills, both names are one
-// folder: install keeps the skills there, and the check finds no leftover.
+// folder: install writes nothing there, and the check finds no leftover.
 func TestInstallCheckSkillsDirLinkedToDefault(t *testing.T) {
 	root := skillsDirProject(t)
 	if err := os.MkdirAll(filepath.Join(root, ".agents", "skills"), 0o755); err != nil {
@@ -173,8 +183,8 @@ func TestInstallCheckSkillsDirLinkedToDefault(t *testing.T) {
 	if out, err := executeBusCommand(t, "install", "--scope", "project", "--agent", "codex"); err != nil {
 		t.Fatal(out, err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "duolog", "SKILL.md")); err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "duolog")); !os.IsNotExist(err) {
+		t.Fatalf("a skill in the project: %v", err)
 	}
 	out, err := executeBusCommand(t, "install", "--check", "--agent", "codex")
 	if err != nil || !strings.Contains(out, "codex project install is current") {
@@ -213,15 +223,16 @@ func TestInstallCheckSkipsLinkedOldSkill(t *testing.T) {
 	}
 }
 
-// A file that duolog does not ship in its skill folder is for the person to
-// remove; install would not, so --check still passes.
+// A file the person adds to a duolog skill folder makes the skill theirs;
+// install leaves it, so --check names it and still passes.
 func TestInstallCheckExtraFileExitsZero(t *testing.T) {
-	root, _ := installedProject(t)
-	if err := os.WriteFile(filepath.Join(root, ".claude", "skills", "duolog", "notes.md"), []byte("mine\n"), 0o644); err != nil {
+	_, home := installedProject(t)
+	notes := filepath.Join(home, ".claude", "skills", "duolog", "notes.md")
+	if err := os.WriteFile(notes, []byte("mine\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out, err := executeBusCommand(t, "install", "--check")
-	want := "claude project install: remove " + filepath.Join(".claude", "skills", "duolog", "notes.md") + ", which duolog does not ship\n"
+	want := "claude: " + filepath.Dir(notes) + " has changes to a duolog skill, so duolog leaves it; keep your changes elsewhere, remove it and run duolog install\n"
 	if err != nil || !strings.Contains(out, want) || !strings.Contains(out, "claude project install is current") {
 		t.Fatalf("err %v, output %q", err, out)
 	}
@@ -229,7 +240,7 @@ func TestInstallCheckExtraFileExitsZero(t *testing.T) {
 
 func TestInstallCheckCouldNotCheck(t *testing.T) {
 	root, _ := installedProject(t)
-	if err := os.WriteFile(filepath.Join(root, ".codex", "hooks.json"), []byte("not json"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".codex", "hooks.json"), []byte(`{"hooks": "duolog`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out, err := executeBusCommand(t, "install", "--check")
@@ -238,10 +249,11 @@ func TestInstallCheckCouldNotCheck(t *testing.T) {
 	}
 }
 
-// A CI job of a repository that commits the hooks and ignores the skills.
+// A CI job of a repository that commits the hooks, on a machine without the
+// skills.
 func TestInstallCheckHooksOnly(t *testing.T) {
-	root, _ := installedProject(t)
-	for _, dir := range []string{filepath.Join(root, ".claude", "skills"), filepath.Join(root, ".agents", "skills")} {
+	root, home := installedProject(t)
+	for _, dir := range []string{filepath.Join(home, ".claude", "skills"), filepath.Join(home, ".agents", "skills")} {
 		if err := os.RemoveAll(dir); err != nil {
 			t.Fatal(err)
 		}

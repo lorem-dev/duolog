@@ -34,3 +34,34 @@ func TestBlockCurrent(t *testing.T) {
 		}
 	}
 }
+
+func TestBlockForMCPAddsLine(t *testing.T) {
+	got := BlockFor(true)
+	want := InstructionBegin + "\n" + InstallOffer + "\n" + UsageNote + "\n" + MCPNote + "\n" + InstructionEnd + "\n"
+	if got != want {
+		t.Fatalf("want %q got %q", want, got)
+	}
+}
+
+func TestBlockForNoMCPIsBlock(t *testing.T) {
+	if BlockFor(false) != Block {
+		t.Fatalf("BlockFor(false) = %q", BlockFor(false))
+	}
+}
+
+func TestBlockCurrentForOldBlockIsStale(t *testing.T) {
+	current, present, err := BlockCurrentFor([]byte("# x\n"+Block), true)
+	if err != nil || current || !present {
+		t.Fatalf("old block against MCP: current=%t present=%t err=%v", current, present, err)
+	}
+	current, present, err = BlockCurrentFor([]byte("# x\n"+BlockFor(true)), true)
+	if err != nil || !current || !present {
+		t.Fatalf("MCP block: current=%t present=%t err=%v", current, present, err)
+	}
+	if current, _, _ := BlockCurrentFor([]byte(BlockFor(true)), false); current {
+		t.Fatal("MCP block is current without MCP")
+	}
+	if current, _, _ := BlockCurrent([]byte(Block)); !current {
+		t.Fatal("BlockCurrent changed")
+	}
+}

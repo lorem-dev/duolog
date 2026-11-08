@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
@@ -127,5 +130,116 @@ func TestDelegateEscalationFlags(t *testing.T) {
 		if e == nil || ran != 1 || strings.Count(out, "\n") != 1 || !strings.Contains(out, "--escalate-from and --reason go together") {
 			t.Fatal(args, out, e)
 		}
+	}
+}
+
+// resultFileRun runs `duolog delegate implement --task task.md --result-file
+// <record>` over a running record, with RunDelegate returning out and runErr.
+// It returns what the command printed, the running record, the record after
+// the run and the command's error.
+func resultFileRun(t *testing.T, out delegate.Outcome, runErr error, extra ...string) (string, delegate.Record, delegate.Record, error) {
+	t.Helper()
+	isolatedRouteConfig(t)
+	t.Chdir(t.TempDir())
+	t.Setenv("DUOLOG_DEPTH", "")
+	t.Setenv("DUOLOG_LEAD", "")
+	testDeps(t).RunDelegate = func(context.Context, delegate.Request) (delegate.Outcome, error) { return out, runErr }
+	path := filepath.Join(t.TempDir(), "d-abcdef.json")
+	base := delegate.Record{ID: "d-abcdef", Role: "implement", Lead: "lead-a", TaskPath: "task.md", WorkRoot: "/work", State: "running", Started: time.Unix(1, 0).UTC()}
+	if err := delegate.WriteRecord(path, base); err != nil {
+		t.Fatal(err)
+	}
+	printed, err := executeBusCommand(t, append([]string{"delegate", "implement", "--task", "task.md", "--result-file", path}, extra...)...)
+	got, readErr := delegate.ReadRecord(path, nil)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	return printed, base, got, err
+}
+
+// sameBase reports whether got keeps the fields of the running record, has
+// the PID of the run (this process) and an end time.
+func sameBase(got, base delegate.Record) bool {
+	return got.ID == base.ID && got.Role == base.Role && got.Lead == base.Lead && got.TaskPath == base.TaskPath && got.WorkRoot == base.WorkRoot && got.PID == os.Getpid() && got.Started.Equal(base.Started) && !got.Ended.IsZero()
+}
+
+func TestDelegateResultFileRecordsDone(t *testing.T) {
+	printed, base, got, err := resultFileRun(t, delegate.Outcome{Line: "done=true summary=Fixed."}, nil)
+	if err != nil || printed != "done=true summary=Fixed.\n" {
+		t.Fatal(printed, err)
+	}
+	if got.State != "done" || got.Line != "done=true summary=Fixed." || !sameBase(got, base) {
+		t.Fatalf("%+v", got)
+	}
+	// The flag is for the server only.
+	if help, err := executeBusCommand(t, "delegate", "--help"); err != nil || strings.Contains(help, "result-file") {
+		t.Fatal(help, err)
+	}
+}
+
+func TestDelegateResultFileRecordsRunHere(t *testing.T) {
+	p := delegate.Placement{Where: "subagent", Model: "sonnet", Effort: "high", Task: "task.md"}
+	printed, base, got, err := resultFileRun(t, delegate.Outcome{RunHere: &p, Line: p.String()}, nil)
+	if err != nil || printed != p.String()+"\n" {
+		t.Fatal(printed, err)
+	}
+	if got.State != "run_here" || got.RunHere == nil || *got.RunHere != p || got.Line != p.String() || !sameBase(got, base) {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestDelegateResultFileRecordsNeeds(t *testing.T) {
+	printed, base, got, err := resultFileRun(t, delegate.Outcome{Needs: []string{"mcp:figma"}, Line: "needs: mcp:figma"}, nil)
+	var needs *needsExit
+	if !errors.As(err, &needs) || printed != "needs: mcp:figma\n" {
+		t.Fatal(printed, err)
+	}
+	if got.State != "needs" || !slices.Equal(got.Needs, []string{"mcp:figma"}) || !sameBase(got, base) {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestDelegateResultFileRecordsFailure(t *testing.T) {
+	printed, base, got, err := resultFileRun(t, delegate.Outcome{}, errors.New("worker crashed; see the log"))
+	if err == nil || err.Error() != "worker crashed; see the log" || printed != "" {
+		t.Fatal(printed, err)
+	}
+	if got.State != "failed" || got.Line != "worker crashed; see the log" || !sameBase(got, base) {
+		t.Fatalf("%+v", got)
+	}
+	// A refusal before the run, here of the flags, fails the record too, so
+	// that it never reads as running or lost.
+	printed, _, got, err = resultFileRun(t, delegate.Outcome{Line: "done=true"}, nil, "--use", "sol/high")
+	if err == nil || strings.Count(printed, "\n") != 1 || got.State != "failed" || !strings.Contains(got.Line, "agent/model/effort") {
+		t.Fatal(printed, err, got)
+	}
+}
+
+// The detached run puts its own PID in the running record when it starts,
+// before the delegation runs, so the server never writes the record after
+// starting it.
+func TestDelegateResultFileWritesItsPIDAtStart(t *testing.T) {
+	isolatedRouteConfig(t)
+	t.Chdir(t.TempDir())
+	t.Setenv("DUOLOG_DEPTH", "")
+	t.Setenv("DUOLOG_LEAD", "")
+	path := filepath.Join(t.TempDir(), "d-abcdef.json")
+	if err := delegate.WriteRecord(path, delegate.Record{ID: "d-abcdef", Role: "implement", State: "running", Started: time.Unix(1, 0).UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	var during delegate.Record
+	testDeps(t).RunDelegate = func(context.Context, delegate.Request) (delegate.Outcome, error) {
+		during, _ = delegate.ReadRecord(path, nil)
+		return delegate.Outcome{Line: "done=true"}, nil
+	}
+	if _, err := executeBusCommand(t, "delegate", "implement", "--task", "task.md", "--result-file", path); err != nil {
+		t.Fatal(err)
+	}
+	if during.State != "running" || during.PID != os.Getpid() {
+		t.Fatalf("record during the run: %+v", during)
+	}
+	got, err := delegate.ReadRecord(path, nil)
+	if err != nil || got.State != "done" || got.PID != os.Getpid() {
+		t.Fatalf("%+v %v", got, err)
 	}
 }

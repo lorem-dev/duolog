@@ -163,7 +163,9 @@ func TestReinstallUpgradesOlderClaudeHooks(t *testing.T) {
 		}
 		write(t, path, string(raw))
 		run(t, Options{Scope: "project", Agent: "claude", Home: home, Root: root})
-		want, _ := HooksJSON("claude", 150)
+		hooks, _ := HooksJSON("claude", 150)
+		// install adds the MCP allow entries to the same file.
+		want, _ := testDeps().Agents[0].Installer.(MCPServers).Allow(hooks, mcpAllowed, true)
 		if read(t, path) != string(want) {
 			t.Fatal("legacy hook was not replaced", read(t, path))
 		}

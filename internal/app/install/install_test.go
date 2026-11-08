@@ -92,10 +92,16 @@ func run(t *testing.T, o Options) Report {
 func TestProjectScopeWritesProjectFilesOnly(t *testing.T) {
 	home, root := setup(t)
 	run(t, Options{Scope: "project", Agent: "both", Home: home, Root: root})
-	if got := snapshot(t, home); len(got) != 0 {
-		t.Fatalf("home changed: %v", got)
+	// The MCP server entry and the skills are the files at user scope:
+	// Claude lists servers there, and the skills serve every project.
+	for path := range snapshot(t, home) {
+		rel, _ := filepath.Rel(home, path)
+		rel = filepath.ToSlash(rel)
+		if rel != ".claude.json" && !strings.HasPrefix(rel, ".claude/skills/duolog") && !strings.HasPrefix(rel, ".agents/skills/duolog") {
+			t.Errorf("home changed: %s", rel)
+		}
 	}
-	for _, rel := range []string{".claude/settings.json", ".claude/skills/duolog/SKILL.md", ".codex/hooks.json", ".agents/skills/duolog/SKILL.md", ".duolog/config.yaml"} {
+	for _, rel := range []string{".claude/settings.json", ".codex/hooks.json", ".duolog/config.yaml"} {
 		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
 			t.Errorf("missing %s: %v", rel, err)
 		}
@@ -204,7 +210,7 @@ func TestUninstallRemovesOnlyOurs(t *testing.T) {
 		t.Fatalf("settings after uninstall:\n%s", got)
 	}
 	for _, rel := range []string{".claude/skills/duolog", ".agents/skills/duolog"} {
-		if _, err := os.Stat(filepath.Join(root, rel)); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(home, rel)); !os.IsNotExist(err) {
 			t.Errorf("%s still there", rel)
 		}
 	}
@@ -533,7 +539,8 @@ func TestClaudePluginEnabledSkipsHooks(t *testing.T) {
 	home, root := setup(t)
 	write(t, filepath.Join(home, ".claude/settings.json"), `{"enabledPlugins":{"duolog@duolog":true}}`)
 	r := run(t, Options{Scope: "project", Agent: "claude", Home: home, Root: root})
-	if _, err := os.Stat(filepath.Join(root, ".claude/settings.json")); err == nil {
+	// The settings file holds the MCP allow entries, and no hooks.
+	if data, err := os.ReadFile(filepath.Join(root, ".claude/settings.json")); err == nil && strings.Contains(string(data), `"hooks"`) {
 		t.Error("hooks were written although the plugin is enabled")
 	}
 	if len(r.Notes) == 0 || !strings.Contains(r.Notes[0], "plugin") {
@@ -637,13 +644,14 @@ func TestInstallKeepsFileModeAndLinks(t *testing.T) {
 
 func TestUninstallKeepsASkillItDidNotWrite(t *testing.T) {
 	home, root := setup(t)
-	path := filepath.Join(root, ".claude/skills/duolog/SKILL.md")
-	write(t, path, "my own notes")
-	if err := Remove(Options{Scope: "project", Agent: "claude", Home: home, Root: root}); err != nil {
-		t.Fatal(err)
-	}
-	if read(t, path) != "my own notes" {
-		t.Fatal("uninstall removed a skill it did not write")
+	for _, path := range []string{filepath.Join(root, ".claude/skills/duolog/SKILL.md"), filepath.Join(home, ".claude/skills/duolog/SKILL.md")} {
+		write(t, path, "my own notes")
+		if err := Remove(Options{Scope: "project", Agent: "claude", Home: home, Root: root}); err != nil {
+			t.Fatal(err)
+		}
+		if read(t, path) != "my own notes" {
+			t.Fatal("uninstall removed a skill it did not write: " + path)
+		}
 	}
 }
 

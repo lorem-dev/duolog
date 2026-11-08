@@ -1,14 +1,18 @@
 ---
 name: duolog
 description: >-
-  Delegate bounded tasks to Claude or Codex with duolog for
-  short answers or second opinions.
+  Use only in a project that has .duolog/config.yaml. Delegate bounded
+  tasks to Claude or Codex for short answers or second opinions.
 allowed-tools: Bash(duolog version), Bash(duolog doctor), Bash(duolog roster), Bash(duolog route *), Bash(duolog caps), Bash(duolog caps *), Bash(duolog stats), Bash(duolog inbox *), Bash(duolog peer status *), Bash(duolog peer wait *)
+metadata:
+  duolog-version: "1.5.2"
 ---
+
+Stop unless this project has `.duolog/config.yaml`.
 
 # duolog
 
-## Before you start
+## First
 
 1. Run `duolog version`. If not found, tell the user and offer the command
    below; run it only if they agree.
@@ -19,7 +23,7 @@ allowed-tools: Bash(duolog version), Bash(duolog doctor), Bash(duolog roster), B
    curl -fsSL https://github.com/lorem-dev/duolog/releases/download/v1.5.2/install.sh | sh -s -- --version v1.5.2 && duolog install --scope project
    ```
 
-   Windows PowerShell:
+   PowerShell:
 
    ```powershell
    $env:DUOLOG_VERSION = 'v1.5.2'; irm https://github.com/lorem-dev/duolog/releases/download/v1.5.2/install.ps1 | iex
@@ -28,18 +32,20 @@ allowed-tools: Bash(duolog version), Bash(duolog doctor), Bash(duolog roster), B
    Windows: add the printed directory to PATH; run
    `duolog install --scope project`.
 2. Run `duolog doctor` once per session. If rules are off, tell the user
-   what it names (`/hooks`) before delegating.
+   what it names (`/hooks`) first.
 
 ## Hand over
 
 Do settled steps without explaining them; report results. Batch small
 changes into one pull request unless the user asks otherwise.
 
+With the duolog MCP tools loaded, use `delegate`, `peer`, `answer_ask` and `status` instead of the commands below; they return `run_here` as data.
+Use the CLI only if a tool is missing or fails.
+
 1. Give whole features to `planner`; do small fixes yourself.
 2. Write `.duolog/task.md`: Goal, Read, Write, Limits, Check.
    List file ranges and edited docs under Write.
-3. Run `duolog delegate <role> --task .duolog/task.md` in the background;
-   wait for its notice.
+3. Run `duolog delegate <role> --task .duolog/task.md` in the background.
 4. Read summary, `git diff --stat`, marked hunks and `answer.json`'s
    `decisions=` only; skip full suites.
 5. Keep hard parts; finish with `review_final`.
@@ -48,27 +54,24 @@ Put worker rules in `.duolog/brief.md`. With several leads, pass
 `--lead <id>` from SessionStart. Learning mode: run `duolog task start` first.
 Same-vendor subagents use your tools, not duolog.
 
-## When duolog says `run here`
+## On `run here`
 
 - `run here: self`: read only the listed ranges.
-- `run here: subagent model=M effort=E`: use the Agent tool with model M, effort
-  E and the task text. Never start another duolog session.
+- `run here: subagent model=M effort=E`: use the Agent tool with model M,
+  effort E and the task text, not duolog.
 
-## Permission requests
+## Asks
 
-For `"p":true` bus asks, tell the person to answer; rewrite the task if needed,
-but never answer yourself.
+For `"p":true` asks, tell the person; never answer yourself.
+Foreground delegates deny asks; workers then list commands in `needs`.
+Use `duolog allow <n>`, `duolog deny <n>` or, with approval,
+`duolog remember '<command>'`.
 
-Foreground delegates deny asks; workers retry, then list commands in `needs`.
-For ordinary asks use `duolog allow <n>` or `duolog deny <n>`, or
-`duolog remember '<command>'` after the user's approval.
+## Live sessions (Rex)
 
-## Live sessions
+Answer `duolog peer wait` with
+`duolog peer answer <id> <option>`; background each wait.
+Run independent tasks in parallel, one worker per `.worktrees/` worktree;
+stack dependent work on the PR branch.
 
-Live sessions need Rex. Answer `duolog peer wait` with
-`duolog peer answer <id> <option>`. Run each peer or CI wait as its own
-background command. Run independent tasks in parallel, one worker per
-`.worktrees/` worktree; stack dependent work on the open PR branch.
-
-Never send `/model` or `/effort` to a Claude pane; they change your
-session.
+Never send `/model` or `/effort` to a Claude pane.

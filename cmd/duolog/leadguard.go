@@ -1,11 +1,8 @@
 package main
 
 import (
-	"cmp"
 	"encoding/json"
 	"fmt"
-	"io"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,6 +22,7 @@ import (
 // may allow another lead's ask, with --lead or without, still asks the
 // person: --lead names a lead and proves nothing about who runs the command.
 func guardLeadCall(stateDir, agent string, input []byte) (policy.Decision, bool) {
+	input = mcpAnswerInput(input)
 	d, ok := leadGuard(stateDir, agent, input)
 	if !ok {
 		return d, false
@@ -33,6 +31,54 @@ func guardLeadCall(stateDir, agent string, input []byte) (policy.Decision, bool)
 		return policy.Decision{}, false
 	}
 	return d, true
+}
+
+// answerAskTool is the Claude name of the MCP server's answer_ask tool, as
+// the lead's hook sees it (mcp.AnswerAskTool).
+const answerAskTool = "mcp__duolog__answer_ask"
+
+// mcpAnswerInput rewrites a lead's mcp__duolog__answer_ask call as the Bash
+// call `duolog allow|deny <n>` that the guard already judges, keeping cwd.
+// An ask that is not a positive integer, or a decision other than allow or
+// deny, becomes `duolog allow` with no number, which the guard treats as one
+// that may hide a person-only ask. Any other input comes back unchanged.
+func mcpAnswerInput(input []byte) []byte {
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(input, &envelope) != nil {
+		return input
+	}
+	var tool string
+	if json.Unmarshal(envelope["tool_name"], &tool) != nil || tool != answerAskTool {
+		return input
+	}
+	// The other envelope keys (session_id, permission_mode, agent_id, cwd)
+	// stay as they came: leadDecides and staysInProject read them.
+	command := "duolog allow"
+	var call struct {
+		Ask      json.RawMessage `json:"ask"`
+		Decision json.RawMessage `json:"decision"`
+	}
+	var decision string
+	if json.Unmarshal(envelope["tool_input"], &call) == nil && json.Unmarshal(call.Decision, &decision) == nil && (decision == "allow" || decision == "deny") {
+		// A JSON string, fraction or exponent does not parse here.
+		if n, err := strconv.ParseInt(string(call.Ask), 10, 64); err == nil && n > 0 {
+			command = "duolog " + decision + " " + strconv.FormatInt(n, 10)
+		}
+	}
+	name, err := json.Marshal("Bash")
+	if err != nil {
+		return input
+	}
+	toolInput, err := json.Marshal(map[string]string{"command": command})
+	if err != nil {
+		return input
+	}
+	envelope["tool_name"], envelope["tool_input"] = name, toolInput
+	out, err := json.Marshal(envelope)
+	if err != nil {
+		return input
+	}
+	return out
 }
 
 // staysInProject reports whether every duolog command in the lead's call runs
@@ -562,28 +608,9 @@ func pendingPersonAsk(stateDir string) (bus.Message, bool, error) {
 // pendingPersonAsks returns every person-only ask that is still unanswered
 // and unexpired, oldest first.
 func pendingPersonAsks(stateDir string) ([]bus.Message, error) {
-	f, err := os.Open(filepath.Join(stateDir, "bus.ndjson"))
+	asks, err := gate.OpenAsks(stateDir)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
-	pending := map[string]bus.Message{}
-	decoder := json.NewDecoder(f)
-	for {
-		var m bus.Message
-		if err := decoder.Decode(&m); err == io.EOF {
-			break
-		} else if err != nil {
-			return nil, err
-		}
-		if m.K == policy.Ask && m.P && !gate.AskExpired(m) {
-			pending[strconv.FormatInt(m.N, 10)] = m
-		}
-		if m.K == policy.Allow || m.K == policy.Deny {
-			delete(pending, m.Ref)
-		}
-	}
-	asks := slices.Collect(maps.Values(pending))
-	slices.SortFunc(asks, func(a, b bus.Message) int { return cmp.Compare(a.N, b.N) })
-	return asks, nil
+	return slices.DeleteFunc(asks, func(m bus.Message) bool { return !m.P }), nil
 }

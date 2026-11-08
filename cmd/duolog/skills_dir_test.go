@@ -51,9 +51,25 @@ func TestSyncCommandHonoursSkillsDir(t *testing.T) {
 	}
 }
 
+// Install puts the skills at user scope, whatever the key says, and both
+// install and uninstall take an unchanged old copy out of the folder the key
+// names.
 func TestInstallCommandHonoursSkillsDir(t *testing.T) {
 	root := skillsDirProject(t)
+	old := filepath.Join(root, ".codex/skills/duolog/SKILL.md")
 	for _, verb := range []string{"install", "uninstall"} {
+		if verb == "uninstall" {
+			data, err := os.ReadFile(filepath.Join(os.Getenv("HOME"), ".agents/skills/duolog/SKILL.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(old, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
 		cmd := newRootCommand(testDeps(t))
 		var out bytes.Buffer
 		cmd.SetOut(&out)
@@ -61,9 +77,8 @@ func TestInstallCommandHonoursSkillsDir(t *testing.T) {
 		if err := cmd.Execute(); err != nil {
 			t.Fatal(err)
 		}
-		_, err := os.Stat(filepath.Join(root, ".codex/skills/duolog/SKILL.md"))
-		if (verb == "install") != (err == nil) {
-			t.Errorf("after %s: stat err = %v", verb, err)
+		if _, err := os.Stat(old); !os.IsNotExist(err) {
+			t.Errorf("after %s: the copy stays: %v", verb, err)
 		}
 		if _, err := os.Stat(filepath.Join(root, ".agents")); !os.IsNotExist(err) {
 			t.Errorf("after %s: .agents exists", verb)

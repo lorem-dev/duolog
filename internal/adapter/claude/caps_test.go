@@ -6,10 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/core/caps"
+	"github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -191,5 +194,77 @@ func TestClaudeCapabilityConfigOverride(t *testing.T) {
 	got := strings.Join(itemNames(inv), "\n")
 	if strings.Contains(got, "ignored") || !strings.Contains(got, "visible") || !strings.Contains(got, "override-server") {
 		t.Fatal(got)
+	}
+}
+
+const duologServerJSON = `{"type":"stdio","command":"duolog","args":["mcp"]}`
+
+// The duolog server in the user's config is listed, marked lead only, and
+// never reaches a worker, whatever name it has.
+func TestBridgeNeverCarriesDuologServer(t *testing.T) {
+	cp, home, root := capsEnv(t)
+	claudeState(t, home, root, `{"duolog":`+duologServerJSON+`,"renamed":{"command":"/opt/bin/duolog.exe","args":["mcp"]},"svc":{"command":"svc-bin","args":["serve"]}}`, "")
+	servers := cp.Servers(root, os.Environ())
+	for _, name := range []string{"duolog", "renamed"} {
+		if why := servers[name].Why; !strings.Contains(why, "lead only") {
+			t.Fatalf("%s: Why = %q", name, why)
+		}
+	}
+	if servers["svc"].Why != "" {
+		t.Fatalf("svc: %+v", servers["svc"])
+	}
+	// The servers of a lead go to a worker of another agent.
+	for name, s := range servers {
+		s.Agent = "codex"
+		servers[name] = s
+	}
+	m, failed := cp.Import(root, servers, nil, nil)
+	if m == nil || strings.Join(m.Names, ",") != "svc" {
+		t.Fatalf("bridged = %+v", m)
+	}
+	if strings.Contains(string(m.ClaudeConfig), "duolog") {
+		t.Fatalf("config = %s", m.ClaudeConfig)
+	}
+	for _, name := range []string{"duolog", "renamed"} {
+		if !strings.Contains(failed[name], "lead only") {
+			t.Fatalf("failed[%s] = %q", name, failed[name])
+		}
+	}
+}
+
+// A server of another agent that runs duolog mcp is refused the same way.
+func TestRefusalNamesDuologServerLeadOnly(t *testing.T) {
+	cp, _, root := capsEnv(t)
+	s := caps.Server{Name: "x", Agent: "codex", Transport: "stdio", Command: "/usr/local/bin/duolog", Args: []string{"mcp"}}
+	if why := cp.Refusal(root, s, nil); !strings.Contains(why, "lead only") {
+		t.Fatalf("Refusal = %q", why)
+	}
+	s.Args = []string{"status"}
+	if why := cp.Refusal(root, s, nil); why != "" {
+		t.Fatalf("a duolog command that is not the server: %q", why)
+	}
+}
+
+// A worker that does not keep the user's servers starts strict, and the
+// config it is handed has no duolog entry.
+func TestStrictWorkerArgvHasNoDuologServer(t *testing.T) {
+	cp, home, root := capsEnv(t)
+	claudeState(t, home, root, `{"duolog":`+duologServerJSON+`,"svc":{"command":"svc-bin"}}`, "")
+	servers := cp.Servers(root, os.Environ())
+	for name, s := range servers {
+		s.Agent = "codex"
+		servers[name] = s
+	}
+	m, _ := cp.Import(root, servers, nil, nil)
+	if m == nil {
+		t.Fatal("svc was not bridged")
+	}
+	m.ConfigPath = filepath.Join(t.TempDir(), "mcp.json")
+	args := claudeArgv(run.Spec{MCP: m, Process: &launch.Process{}})
+	if !slices.Contains(args, "--strict-mcp-config") {
+		t.Fatalf("argv = %v", args)
+	}
+	if strings.Contains(strings.Join(args, " "), "duolog") || strings.Contains(string(m.ClaudeConfig), `"duolog"`) {
+		t.Fatalf("argv = %v, config = %s", args, m.ClaudeConfig)
 	}
 }

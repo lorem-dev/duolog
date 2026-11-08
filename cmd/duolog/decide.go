@@ -26,33 +26,40 @@ func newDecideCommand(kind string, d *cmdDeps) *cobra.Command {
 		if err != nil || n < 1 {
 			return fmt.Errorf("invalid request number %q", args[0])
 		}
-		b, err := openBus()
-		if err != nil {
-			return err
-		}
-		reg, err := session.Open(b.Directory())
-		if err != nil {
-			return err
-		}
-		request, err := openRequest(d, reg, b.Directory(), n)
-		if err != nil {
-			return err
-		}
-		lead, ok, err := reg.LeadByAddress(request.To)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return fmt.Errorf("lead is unavailable or has ended")
-		}
-		if err := checkCaller(d, reg, lead, n, leadFlag); err != nil {
-			return err
-		}
-		_, err = b.Send(bus.Message{From: session.Address(lead), To: request.From, K: kind, Ref: strconv.FormatInt(n, 10), S: kind})
-		return err
+		return d.decide(kind, n, leadFlag)
 	}}
 	cmd.Flags().StringVar(&leadFlag, "lead", "", "Optional check: lead session ID or bus address that must own the request")
 	return cmd
+}
+
+// decide answers permission request n with kind (allow or deny) as the lead
+// that owns it. It is what duolog allow and duolog deny do after they parse
+// the number, and what the MCP answer_ask tool calls. It prints nothing.
+func (d *cmdDeps) decide(kind string, n int64, leadFlag string) error {
+	b, err := openBus()
+	if err != nil {
+		return err
+	}
+	reg, err := session.Open(b.Directory())
+	if err != nil {
+		return err
+	}
+	request, err := openRequest(d, reg, b.Directory(), n)
+	if err != nil {
+		return err
+	}
+	lead, ok, err := reg.LeadByAddress(request.To)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("lead is unavailable or has ended")
+	}
+	if err := checkCaller(d, reg, lead, n, leadFlag); err != nil {
+		return err
+	}
+	_, err = b.Send(bus.Message{From: session.Address(lead), To: request.From, K: kind, Ref: strconv.FormatInt(n, 10), S: kind})
+	return err
 }
 
 // openRequest returns permission request n from the bus in dir when it may

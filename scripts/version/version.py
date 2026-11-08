@@ -58,6 +58,12 @@ PLACES: tuple[Place, ...] = (
     Place("plugin/codex/skills/duolog/SKILL.md", rf"releases/download/v{VERSION}/install"),
     Place("plugin/codex/skills/duolog/SKILL.md", rf"--version v{VERSION}"),
     Place("plugin/codex/skills/duolog/SKILL.md", rf"DUOLOG_VERSION = 'v{VERSION}'"),
+    # The version marker that install compares with the binary's version.
+    *(
+        Place(f"plugin/{agent}/skills/{skill}/SKILL.md", rf'duolog-version: "{VERSION}"')
+        for agent in ("claude", "codex")
+        for skill in ("duolog", "duolog-skill-check", "duolog-calibrate", "duolog-peers")
+    ),
 )
 
 

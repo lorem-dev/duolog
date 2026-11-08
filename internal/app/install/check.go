@@ -39,13 +39,29 @@ type Status struct {
 	// Changed are the files Run would write: missing, or with other content.
 	// For the hooks file only duolog's own hooks count.
 	Changed []string
-	// MissingSkills are duolog's skill folders that are not there at all.
-	// Their files are in Changed too.
+	// MissingSkills are duolog's skill folders at user scope that are not
+	// there at all. Their files are in Changed too.
 	MissingSkills []string
 	// Extra are files in duolog's skill folders that this duolog does not
 	// ship. Run leaves them, so the person removes them; they do not make the
 	// install stale.
 	Extra []string
+	// Foreign are skill folders at user scope under duolog's names that
+	// duolog did not write, or that are or hold links. Run leaves them, so
+	// the person moves them away.
+	Foreign []string
+	// Edited are duolog's skill folders at user scope that the person
+	// changed: a file duolog wrote has other text, or the person added one.
+	// Run leaves them, so they do not make the install stale.
+	Edited []string
+	// Kept are copies of duolog's skills in the project that hold files
+	// duolog did not write. Run leaves them, so the person removes them; the
+	// unchanged copies Run removes are in Changed.
+	Kept []string
+	// ForeignServer is the agent's MCP server file when the server entry
+	// under duolog's name there runs something else. Run leaves it, so the
+	// person renames it; until then the lead has no duolog tools.
+	ForeignServer string
 	// HookFile is the agent's hooks or settings file at the scope.
 	HookFile string
 	// PluginHooks says the agent's plugin is enabled and duolog's hooks are in
@@ -102,6 +118,18 @@ func (s Status) Lines(root string) []string {
 	}
 	if len(s.Extra) > 0 {
 		lines = append(lines, s.Agent+" "+s.Scope+" install: remove "+shown(root, s.Extra)+", which duolog does not ship")
+	}
+	if len(s.Foreign) > 0 {
+		lines = append(lines, s.Agent+": "+shown(root, s.Foreign)+" is not duolog's skill, so duolog leaves it; move it away and run duolog install")
+	}
+	if len(s.Edited) > 0 {
+		lines = append(lines, s.Agent+": "+shown(root, s.Edited)+" has changes to a duolog skill, so duolog leaves it; keep your changes elsewhere, remove it and run duolog install")
+	}
+	if len(s.Kept) > 0 {
+		lines = append(lines, s.Agent+" "+s.Scope+" install: "+shown(root, s.Kept)+" holds changed copies of duolog skills, which live at user scope now; remove them when you no longer need them")
+	}
+	if s.ForeignServer != "" {
+		lines = append(lines, s.Agent+": mcpServers.duolog in "+shown(root, []string{s.ForeignServer})+" runs something else, so duolog leaves it and the lead has no duolog tools; rename it and run duolog install")
 	}
 	return lines
 }
@@ -165,10 +193,12 @@ func (d Deps) Check(o Options) ([]Status, error) {
 	}
 	shared, with := sharedSkillDirs(agents, o, base)
 	out := make([]Status, 0, len(agents))
+	mcp := d.mcpFiles(base)
 	for i, a := range agents {
-		s := checkAgent(a, o, base, scope, o.HooksOnly || shared[i] != "")
+		s := checkAgent(a, d.Agents, o, base, scope, o.HooksOnly || shared[i] != "")
 		s.SharedDir, s.SharesWith = shared[i], with[i]
-		checkInstruction(&s, a, o, base)
+		checkMCP(&s, a, o)
+		checkInstruction(&s, a, o, base, mcp)
 		d.addLead(&s, a, o)
 		out = append(out, s)
 	}
@@ -182,11 +212,11 @@ func sharedSkillDirs(agents []Agent, o Options, base string) (shared, with []str
 	shared, with = make([]string, len(agents)), make([]string, len(agents))
 	dirs := make([]string, len(agents))
 	for i, a := range agents {
-		dirs[i] = a.Installer.SkillDir(o.Scope, base, o.Home)
+		dirs[i] = userSkillDir(a, o.Home)
 	}
 	for i := range agents {
 		for j := i + 1; j < len(agents); j++ {
-			if !sameDir(dirs[i], dirs[j]) {
+			if dirs[i] == "" || !sameDir(dirs[i], dirs[j]) {
 				continue
 			}
 			shared[i], shared[j] = dirs[i], dirs[i]
@@ -198,12 +228,18 @@ func sharedSkillDirs(agents []Agent, o Options, base string) (shared, with []str
 	return shared, with
 }
 
-// checkAgent compares agent a's install for o under base. hooksOnly leaves
-// its skills out.
-func checkAgent(a Agent, o Options, base, scope string, hooksOnly bool) Status {
+// checkAgent compares agent a's install for o under base; all are the
+// registered agents. hooksOnly leaves its skills out.
+func checkAgent(a Agent, all []Agent, o Options, base, scope string, hooksOnly bool) Status {
 	s := Status{Agent: a.Name, Scope: scope}
-	dir := a.Installer.SkillDir(o.Scope, base, o.Home)
-	skills := !hooksOnly && (hasSkills(dir) || hasSkills(defaultSkillDir(a, o, base)))
+	// Every install writes the user skills, so only the copies of an earlier
+	// project install make one.
+	skills := false
+	if !hooksOnly && scope == "project" {
+		for _, dir := range projectCopyDirs(a, all, o) {
+			skills = skills || hasSkills(dir)
+		}
+	}
 	p, have, err := readPlan(a, o, base)
 	s.HookFile = p.hookFile
 	if err != nil {
@@ -224,9 +260,7 @@ func checkAgent(a Agent, o Options, base, scope string, hooksOnly bool) Status {
 	}
 	s.PluginHooks = p.plugin && len(have) > 0
 	if s.Changed, s.Err = changedFiles(parts, p, have, hooksOnly); s.Err == nil && !hooksOnly {
-		var leftover []string
-		s.MissingSkills, s.Extra, leftover, s.Err = skillState(a, o, base, dir, p.plugin)
-		s.Changed = append(s.Changed, leftover...)
+		s.Err = checkSkills(&s, a, all, o, p.plugin)
 	}
 	return s
 }
@@ -234,8 +268,9 @@ func checkAgent(a Agent, o Options, base, scope string, hooksOnly bool) Status {
 // checkInstruction adds agent a's project instruction file to s.Changed when
 // it does not hold the current duolog block: missing, outdated or without
 // one. It leaves an install that is not there, runs the dev launcher or could
-// not be read, and a check of hooks alone.
-func checkInstruction(s *Status, a Agent, o Options, root string) {
+// not be read, and a check of hooks alone. mcp holds the files whose block
+// carries the MCP line, as mcpFiles returns them.
+func checkInstruction(s *Status, a Agent, o Options, root string, mcp map[string]bool) {
 	if !s.Installed || s.Dev || s.Err != nil || s.Scope != "project" || o.HooksOnly {
 		return
 	}
@@ -245,7 +280,7 @@ func checkInstruction(s *Status, a Agent, o Options, root string) {
 		s.Err = err
 		return
 	}
-	current, _, err := agent.BlockCurrent(data)
+	current, _, err := agent.BlockCurrentFor(data, mcp[realPath(path)])
 	switch {
 	case err != nil:
 		s.Err = fmt.Errorf("%s: %w", path, err)
@@ -260,20 +295,67 @@ func hasSkills(dir string) bool {
 	return dir != "" && slices.ContainsFunc(plugin.Skills, func(name string) bool { return isDir(filepath.Join(dir, name)) })
 }
 
-// skillState compares duolog's skill folders of agent a in dir, the folder
-// the scope selects, as skillFolders does, unless the agent's plugin supplies
-// the skills. leftover are the files of duolog's skill folders in the default
-// folder, when a config key moved the skills to another one: Run removes
-// them whatever their content. A skill there behind a link is not one: Run
-// leaves it, so it is no difference.
-func skillState(a Agent, o Options, base, dir string, pluginOn bool) (missing, extra, leftover []string, err error) {
-	if !pluginOn {
-		if missing, extra, err = skillFolders(a.Name, dir); err != nil {
-			return nil, nil, nil, err
+// checkSkills adds to s how agent a's skill folders compare: at user scope,
+// as skillFolders does, unless the agent's plugin supplies the skills, with
+// the folders duolog did not write in Foreign; in the project, the files of
+// the unchanged copies an earlier install wrote, which Run removes, in
+// Changed, and the changed copies in Kept. A copy behind a link is no
+// difference: Run leaves it.
+func checkSkills(s *Status, a Agent, all []Agent, o Options, pluginOn bool) error {
+	if dir := userSkillDir(a, o.Home); dir != "" && !pluginOn {
+		if err := checkUserSkills(s, a, dir); err != nil {
+			return err
 		}
 	}
-	leftover, err = defaultSkillFiles(defaultSkillDir(a, o, base), base)
-	return missing, extra, leftover, err
+	if s.Scope != "project" {
+		return nil
+	}
+	ours, kept, _, err := projectCopies(a, all, o)
+	if err != nil {
+		return err
+	}
+	for _, skill := range ours {
+		files, err := copyFiles(skill)
+		if err != nil {
+			return err
+		}
+		s.Changed = append(s.Changed, files...)
+	}
+	s.Kept = kept
+	return nil
+}
+
+// checkUserSkills adds to s how agent a's skill folders in dir, its user
+// skills folder, compare: the missing ones, the files in duolog's that it
+// does not ship, the folders the person changed and the folders duolog did
+// not write.
+func checkUserSkills(s *Status, a Agent, dir string) error {
+	missing, extra, err := skillFolders(a.Name, dir)
+	if err != nil {
+		return err
+	}
+	s.MissingSkills = missing
+	for _, name := range plugin.Skills {
+		folder := filepath.Join(dir, name)
+		state, _, err := readUserSkill(a.Name, name, folder)
+		if err != nil {
+			return err
+		}
+		switch state {
+		case skillForeign:
+			s.Foreign = append(s.Foreign, folder)
+			continue
+		case skillEdited:
+			s.Edited = append(s.Edited, folder)
+			continue
+		}
+		for _, path := range extra {
+			if strings.HasPrefix(path, folder+string(filepath.Separator)) {
+				s.Extra = append(s.Extra, path)
+			}
+		}
+	}
+	return nil
 }
 
 // readPlan plans agent a's install and reads duolog's hooks in its hooks
@@ -381,9 +463,15 @@ func isDir(path string) bool {
 
 // StaleLines checks the project install at root and the user install under
 // home, every agent, and returns the lines of each install that is out of
-// date, could not be checked or needs the person (see Status.Lines). An
-// empty home skips the user scope.
+// date, could not be checked or needs the person (see Status.Lines), then
+// DeferredOffLine when an installed duolog MCP server loads in full every
+// turn. An empty home skips the user scope.
 func (d Deps) StaleLines(root, home string) []string {
+	return append(d.installLines(root, home), d.deferredLines(root, home)...)
+}
+
+// installLines are the lines of StaleLines for each install.
+func (d Deps) installLines(root, home string) []string {
 	var lines []string
 	for _, scope := range []string{"project", "user"} {
 		if scope == "user" && home == "" {
@@ -395,7 +483,12 @@ func (d Deps) StaleLines(root, home string) []string {
 			continue
 		}
 		for _, s := range statuses {
-			lines = append(lines, s.Lines(root)...)
+			// A line on a user-scope file can come from both scopes.
+			for _, line := range s.Lines(root) {
+				if !slices.Contains(lines, line) {
+					lines = append(lines, line)
+				}
+			}
 		}
 	}
 	return lines
@@ -423,7 +516,7 @@ func (d Deps) ProjectNote(root, home string) string {
 	}
 	switch {
 	case missing:
-		return "duolog: this project's duolog skills are missing; run duolog install --scope project"
+		return "duolog: the duolog skills are missing; run duolog install --scope project"
 	case stale:
 		return "duolog: this project's duolog install is out of date; run duolog install --scope project"
 	}

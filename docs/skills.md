@@ -97,8 +97,9 @@ other settings. The default is `ask`. With `always`, runs need no new
 confirmation. With `never`, the command skips tests, even with `--yes`.
 This repository sets `always` in `.duolog/config.yaml`.
 
-`duolog install` installs this skill beside the duolog skill for both agents.
-The plugins include it too. Uninstall removes unchanged installed copies.
+`duolog install` installs this skill beside the duolog skill for both agents,
+at user scope. The plugins include it too. Uninstall removes it. See
+[Getting started](getting-started.md#where-duolog-keeps-its-skills).
 
 ## The calibration skill is installed the same way
 

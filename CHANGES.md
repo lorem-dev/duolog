@@ -42,6 +42,13 @@
 
 ## Development
 
+### Added
+
+- `install` adds `duolog mcp`, a lead-only MCP server with `delegate`, `peer`,
+  `answer_ask` and `status`; see getting-started.
+- `install` writes the duolog skills at user scope and refreshes them when the
+  binary is newer, keeping one you edited; `uninstall` removes them everywhere.
+
 ## 1.5.2
 
 ### Added

@@ -21,57 +21,24 @@ func isLink(t *testing.T, path string) bool {
 	return err == nil && info.Mode()&os.ModeSymlink != 0
 }
 
-// A backup of the same file may exist already, from an earlier install. A hand
-// edit must not be lost behind it: it goes to a new name.
-func TestSkillsDirLeftoverKeepsEarlierBackup(t *testing.T) {
+// A copy with a hand edit is the person's now: install leaves it as it is,
+// keeps no backup of it, and says so.
+func TestSkillsDirHandEditedCopyStays(t *testing.T) {
 	home, root := setup(t)
 	write(t, filepath.Join(root, ".agents/skills/duolog/SKILL.md"), "a hand edit")
-	write(t, filepath.Join(root, ".duolog/backup/.agents/skills/duolog/SKILL.md"), "an earlier backup")
 	o := Options{Scope: "project", Agent: "codex", Home: home, Root: root}
-	if _, err := codexIn(".codex/skills").Run(o); err != nil {
+	rep, err := codexIn(".codex/skills").Run(o)
+	if err != nil {
 		t.Fatal(err)
-	}
-	if isThere(root, ".agents/skills/duolog/SKILL.md") {
-		t.Error("the leftover was not removed")
-	}
-	dir := filepath.Join(root, ".duolog/backup/.agents/skills/duolog")
-	if got := read(t, filepath.Join(dir, "SKILL.md")); got != "an earlier backup" {
-		t.Errorf("the earlier backup changed to %q", got)
-	}
-	if got := read(t, filepath.Join(dir, "SKILL.md.1")); got != "a hand edit" {
-		t.Errorf("the hand edit is saved as %q", got)
-	}
-}
-
-// A backup with the same content is enough: no second copy.
-func TestSkillsDirLeftoverSameBackupWritesNoCopy(t *testing.T) {
-	home, root := setup(t)
-	write(t, filepath.Join(root, ".agents/skills/duolog/SKILL.md"), "same")
-	write(t, filepath.Join(root, ".duolog/backup/.agents/skills/duolog/SKILL.md"), "same")
-	o := Options{Scope: "project", Agent: "codex", Home: home, Root: root}
-	if _, err := codexIn(".codex/skills").Run(o); err != nil {
-		t.Fatal(err)
-	}
-	if isThere(root, ".duolog/backup/.agents/skills/duolog/SKILL.md.1") {
-		t.Error("a copy of an identical backup was written")
-	}
-}
-
-// With no backup, the file stays and the install fails.
-func TestSkillsDirLeftoverStaysWhenBackupFails(t *testing.T) {
-	home, root := setup(t)
-	write(t, filepath.Join(root, ".agents/skills/duolog/SKILL.md"), "a hand edit")
-	// A folder in the place of the backup file cannot be read or replaced.
-	if err := os.MkdirAll(filepath.Join(root, ".duolog/backup/.agents/skills/duolog/SKILL.md"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	o := Options{Scope: "project", Agent: "codex", Home: home, Root: root}
-	_, err := codexIn(".codex/skills").Run(o)
-	if err == nil {
-		t.Error("install did not fail")
 	}
 	if got := read(t, filepath.Join(root, ".agents/skills/duolog/SKILL.md")); got != "a hand edit" {
-		t.Errorf("the file was removed or changed: %q", got)
+		t.Errorf("the copy changed to %q", got)
+	}
+	if isThere(root, ".duolog/backup/.agents") {
+		t.Error("a backup was written")
+	}
+	if !strings.Contains(strings.Join(rep.Notes, "\n"), "left "+filepath.Join(root, ".agents/skills/duolog")+": ") {
+		t.Errorf("no note in %v", rep.Notes)
 	}
 }
 

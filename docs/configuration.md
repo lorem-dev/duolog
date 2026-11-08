@@ -242,9 +242,9 @@ The lead's own settings are the ceiling:
 
 ## Where Codex keeps its project skills
 
-By default, `duolog install` and `duolog sync` put Codex's project skills in
-`.agents/skills`. Set `agents.codex.skills_dir` to use another folder. Codex
-loads skills from `.codex/skills` too, so a repository can drop `.agents/`:
+By default, `duolog sync` puts Codex's project skills in `.agents/skills`.
+Set `agents.codex.skills_dir` to use another folder. Codex loads skills from
+`.codex/skills` too, so a repository can drop `.agents/`:
 
 ```yaml
 agents:
@@ -263,12 +263,15 @@ In a linked worktree, duolog reads the key from the worktree's own project
 config, because the worktree holds the files it writes. A worktree has no
 `config.local.yaml`, so duolog reads the one of the main checkout.
 
-Install, uninstall, sync and `duolog caps` all use the folder. When you change
-the key, the next `duolog sync` writes the skills to the new folder. It removes
-the files it owns from the old folder, and removes that folder when it is
-empty. `duolog install --scope project` does the same for duolog's own skills.
-Install also backs up the old duolog skill folders under `.duolog/backup/`
-and removes them, whatever files they hold, so Codex does not load two copies.
+Sync and `duolog caps` use the folder. When you change the key, the next
+`duolog sync` writes the skills to the new folder. It removes the files it
+owns from the old folder, and removes that folder when it is empty.
+
+duolog's own skills are at user scope, in `~/.agents/skills` for Codex. See
+[Getting started](getting-started.md#where-duolog-keeps-its-skills). Install
+and uninstall look in this folder and in `.agents/skills` for the copies
+that older versions wrote there. They remove an unchanged copy and leave one
+you changed.
 A backup with other content gets a new name ending in `.1`, `.2` and so on.
 If a backup cannot be written, the file stays and install fails. A skill
 folder that is a link, or sits below a link, is left alone with a note.

@@ -177,6 +177,14 @@ func HookEnv(env hook.Env) hook.Env {
 		}
 		return d.ProjectNote(root, home)
 	}
+	env.RefreshSkills = func(root string) string {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		line, _ := InstallDeps().RefreshSkills(root, home)
+		return line
+	}
 	return env
 }
 

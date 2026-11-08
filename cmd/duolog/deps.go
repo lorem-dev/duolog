@@ -37,11 +37,15 @@ type cmdDeps struct {
 	// peer.StartQueueRun does: peer close and the lead's hooks call it, the
 	// hooks with the free sessions of the load line.
 	StartQueueRun func(ctx context.Context, free func(agent string) bool) (bool, error)
+	// startDetached starts argv in dir as a detached process with its output
+	// appended to the file at log: the MCP delegate tool's run, which
+	// outlives the server and writes its own PID to its record.
+	startDetached func(argv []string, dir, log string) error
 }
 
 // newCmdDeps wraps the dependencies of the commands that wiring built.
 func newCmdDeps(w wiring.CmdDeps) *cmdDeps {
-	d := &cmdDeps{CmdDeps: w, MineGH: runGH, StartQueueRun: peer.StartQueueRun}
+	d := &cmdDeps{CmdDeps: w, MineGH: runGH, StartQueueRun: peer.StartQueueRun, startDetached: startDetachedLogged}
 	d.SurveyChecks, d.CellChecks, d.MineChecks = d.profileChecks, d.profileChecks, d.profileChecks
 	return d
 }

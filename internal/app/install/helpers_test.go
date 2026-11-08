@@ -56,8 +56,8 @@ func HooksJSON(agent string, timeout int) ([]byte, error) {
 	return launchtest.HooksJSON(agent, timeout)
 }
 
-// installedSkillPath is where the bundled duolog skill of agent goes for o
-// under base.
-func installedSkillPath(o Options, base, agent string) string {
-	return filepath.Join(launchtest.Installers()[agent].SkillDir(o.Scope, base, o.Home), "duolog", "SKILL.md")
+// installedSkillPath is where the bundled duolog skill of agent goes for o:
+// at user scope under o.Home, whatever the scope.
+func installedSkillPath(o Options, _, agent string) string {
+	return filepath.Join(launchtest.Installers()[agent].SkillDir("user", o.Home, o.Home), "duolog", "SKILL.md")
 }

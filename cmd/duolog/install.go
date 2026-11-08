@@ -134,7 +134,11 @@ func newUninstallCommand(d *cmdDeps) *cobra.Command {
 		// A config that does not load must not block an uninstall: the default
 		// folder is cleaned, and a custom folder stays for the person to remove.
 		deps, _ := configuredInstall(d, o)
-		return deps.Remove(o)
+		report, err := deps.Uninstall(o)
+		for _, n := range report.Notes {
+			fmt.Fprintln(cmd.OutOrStdout(), n)
+		}
+		return err
 	}}
 	cmd.Flags().StringVar(&scope, "scope", "project", "Where to uninstall: project or user")
 	cmd.Flags().StringVar(&agent, "agent", "both", agentFlagHelp("both"))
