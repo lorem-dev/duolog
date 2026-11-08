@@ -182,6 +182,18 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	return noted(e.watch(ctx, entry, true))
 }
 
+// OpenNew is Open that never returns the role's live peer: it starts another
+// pane, within the same session limits, so that two independent tasks of one
+// role run side by side.
+func OpenNew(ctx context.Context, role string) (Entry, error) {
+	opts, err := callerOptions(ctx)
+	if err != nil {
+		return Entry{}, err
+	}
+	opts.NewOnly = true
+	return Open(WithOptions(ctx, opts), role)
+}
+
 // reusable is the role's live peer in this checkout, among peers, which Open
 // returns instead of a new pane; none when the options ask for a new pane.
 func (e *env) reusable(peers []session.Entry, role string) (session.Entry, bool) {

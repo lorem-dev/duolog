@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -88,6 +89,22 @@ func queueRunLock(dir, lead string) string {
 		return '_'
 	}, lead)
 	return filepath.Join(dir, "peer-queue-run-"+safe+".lock")
+}
+
+// dropStaleRunLock removes a run lock whose recorded holder is gone. The
+// kernel frees a dead process's lock, but a child that inherited the file
+// keeps it held, and then every new run would exit as busy. A new file has a
+// new lock. A lock with no pid, or with a live holder, stays.
+func dropStaleRunLock(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 || pid == os.Getpid() || session.ProcessAlive(pid) {
+		return
+	}
+	_ = os.Remove(path)
 }
 
 // setupQueue is the setup of the queue commands that open nothing: add, list,
@@ -312,6 +329,7 @@ func QueueRemove(ctx context.Context, id string) error {
 	held := false
 	if slices.ContainsFunc(items, func(q QueueItem) bool { return q.ID == id && q.State == QueueOpening }) {
 		// Holding the run lock keeps a run from starting while the item goes.
+		dropStaleRunLock(queueRunLock(e.dir, e.leadID))
 		unlock, free, err := store.TryLockFile(queueRunLock(e.dir, e.leadID))
 		if err != nil {
 			return err
@@ -365,8 +383,10 @@ func RunQueue(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	lock := queueRunLock(e.dir, e.leadID)
+	dropStaleRunLock(lock)
 	try, cancel := context.WithTimeout(ctx, queueRunWait)
-	unlock, err := store.LockFileContext(try, queueRunLock(e.dir, e.leadID), 10*time.Millisecond)
+	unlock, err := store.LockFileContext(try, lock, 10*time.Millisecond)
 	cancel()
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, store.ErrLockUnavailable) {
 		return ErrQueueBusy
@@ -375,6 +395,8 @@ func RunQueue(ctx context.Context) error {
 		return err
 	}
 	defer func() { _ = unlock() }()
+	// Best effort: the pid lets the next run tell a dead holder from a live one.
+	_ = os.WriteFile(lock, []byte(strconv.Itoa(os.Getpid())), 0o600)
 	if err := os.Truncate(filepath.Join(e.dir, queueRunLog), 0); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -623,6 +645,7 @@ func StartQueueRun(ctx context.Context, free func(agent string) bool) (bool, err
 // item's agent gives it no work.
 func (e *env) runDue(ctx context.Context, items []QueueItem, free func(agent string) bool) (bool, error) {
 	if slices.ContainsFunc(items, func(q QueueItem) bool { return q.State == QueueOpening }) {
+		dropStaleRunLock(queueRunLock(e.dir, e.leadID))
 		unlock, unheld, err := store.TryLockFile(queueRunLock(e.dir, e.leadID))
 		if err == nil && unheld {
 			_ = unlock()

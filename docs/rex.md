@@ -63,6 +63,10 @@ it as a `held:` line. Close the pane in Rex, then run
 
 A peer belongs to its role and work root. Opening that role again in the same
 worktree reuses the peer. Opening it in another worktree starts a new peer.
+`duolog peer open <role> --new` opens another peer of the role even when one
+is live in that worktree, so two independent tasks of one role run side by
+side. It keeps the session limits: with `max_live_sessions` reached it is
+refused as any open is.
 For peers, `max_live_sessions` applies per lead, agent and work root.
 
 The first peer creates a separate Rex session for the project, named
@@ -322,7 +326,8 @@ The hooks also start a run when an item was left `opening` and no run is
 going, whatever the load line says.
 
 A lock in `.duolog` lets one run per lead go at a time, and a second run exits
-at once. A run that ended in the middle, for example when its process was
+at once. The lock records the run's process id; a lock whose process is gone
+is dropped and does not block a new run. A run that ended in the middle, for example when its process was
 killed, can leave an item `opening`. The next run marks it `failed` and tells
 the lead, since its peer may be open. `queue remove` drops it when no run is
 going. The items are in `.duolog/peer-queue.ndjson`. Runs started this way

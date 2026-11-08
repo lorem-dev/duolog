@@ -86,9 +86,22 @@ func entryLine(e peer.Entry) string {
 	return line
 }
 
+// openLine opens a peer for role, a second one when fresh, and returns its line.
+func openLine(ctx context.Context, role string, fresh bool) (string, error) {
+	open := peer.Open
+	if fresh {
+		open = peer.OpenNew
+	}
+	e, err := open(ctx, role)
+	if err != nil {
+		return "", err
+	}
+	return entryLine(e), nil
+}
+
 func newPeerCommand(d *cmdDeps) *cobra.Command {
 	var lead string
-	var allowManual bool
+	var allowManual, openNew bool
 	var timeout time.Duration
 	root := &cobra.Command{Use: "peer", Short: "Open and drive a second agent session in a Rex pane"}
 	if runtime.GOOS == "windows" {
@@ -118,13 +131,10 @@ func newPeerCommand(d *cmdDeps) *cobra.Command {
 		}}
 	}
 	open := run("open <role>", "Open a session for a role and wait until it is ready or asks a question", cobra.ExactArgs(1), func(ctx context.Context, _ *cobra.Command, args []string) (string, error) {
-		e, err := peer.Open(ctx, args[0])
-		if err != nil {
-			return "", err
-		}
-		return entryLine(e), nil
+		return openLine(ctx, args[0], openNew)
 	})
 	open.Flags().BoolVar(&allowManual, "allow-manual-model", false, "Allow models reserved for manual selection")
+	open.Flags().BoolVar(&openNew, "new", false, "Open another session of the role even when one is live in this checkout")
 	wait := &cobra.Command{Use: "wait <id>", Short: "Keep waiting for a session after an answer or a task", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel, err := peerContext(d, cmd, lead, allowManual, timeout)
 		if err != nil {
