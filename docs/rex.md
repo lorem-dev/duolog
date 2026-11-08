@@ -121,6 +121,11 @@ duolog reads the input line with `rex capture --format vt`, because Rex's
 default format drops the styles; without them, duolog takes the text for
 typed text and refuses to send.
 
+A peer reads inside the checkout it works in. Put its task file and the
+files the task attaches in that checkout's `.duolog` folder as Markdown. In a
+linked worktree that is the worktree's own `.duolog`. Peers get no Read list,
+so a read of the main checkout asks the person.
+
 Every peer may write one file under `.duolog`: its report at
 `.duolog/tasks/<peer-id>/report.md` in the checkout it works in. In a linked
 worktree that is the worktree's own `.duolog`, not the main checkout's. The

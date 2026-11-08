@@ -323,6 +323,12 @@ folder or glob in Read, or one that starts with `~`, lets the worker read
 those files outside the project; see
 [Permissions](permissions.md#a-worker-reads-what-its-task-lists).
 
+Put files that a task attaches, such as a contract or notes, in the work
+root's `.duolog` folder as Markdown, for example `.duolog/s5/contracts.md`.
+A worker reads inside its own work root. In a linked worktree that is the
+worktree, so a read of the main checkout asks the person unless the task
+lists the absolute path under Read.
+
 Send the task to a role:
 
 ```bash

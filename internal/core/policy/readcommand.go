@@ -347,6 +347,11 @@ func readTargetDecision(p config.Policy, lead LeadRules, m mode.Mode, a Action, 
 		}
 		return Decision{}, false
 	}
+	// A symlink, folder or special file inside a .duolog folder can lead to
+	// state whatever its name, so only a plain file is judged by its name.
+	if stateFile(a.Work, a.Cwd, written) == stateOther {
+		return Decision{Kind: Deny, Reason: "duolog state is not readable by workers", Rule: RuleState, Mode: m}, true
+	}
 	own := ownTempRead(a, written) || ownTempTarget(a, words, written)
 	d := Evaluate(p, lead, m, Action{Kind: "read", Target: target, Role: a.Role, Shell: shell, OwnResult: own, taskRead: taskReadWord(a, written, searchable(p, lead, a)), revision: revision})
 	d.Reason = "read command: " + d.Reason

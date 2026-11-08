@@ -508,6 +508,16 @@ asks. A path written with `..`, and a folder with a symlink below it that
 leads out, are not covered either. A listed glob covers files, not folders,
 and a shell glob in a command still asks. Peers do not get the list.
 
+A worker reads inside its own work root: the project, or the linked worktree
+it runs in. A read outside it asks the person, unless the task lists the path
+under Read. A worker in a linked worktree under `.worktrees/` has the main
+checkout outside its work root. So a read of the main checkout's files or its
+`.duolog` folder asks the person unless the task lists them. Put a task's
+attachments, such as a contract or a brief, in the worktree's own `.duolog`
+folder as Markdown, or list their absolute paths under Read. A relative Read
+entry names a path in the work root, so the state rule still judges a
+`.duolog` path in it: listing `.duolog/bus.ndjson` does not make it readable.
+
 A search, a listing or a glob of a listed folder counts only when everything
 below the search root is something a search may read. A symlink anywhere
 below it does not count, since `rg -L` or `grep -R` follows it, even to a
@@ -543,9 +553,18 @@ All other reads under `.duolog` are denied. These include logs, session files,
 cursors, the journal, `routing.learned.yaml` and task output captures.
 The rule covers read tools and paths named by read commands such as `cat`.
 
+A file inside a `.duolog` folder is readable only when it is a regular file.
+No part of its path from the `.duolog` folder down may be a symlink, so it
+cannot lead out of the folder. A symlink there is denied whatever its name,
+even `notes.md` that leads to `bus.ndjson`. So are a folder, a socket or a
+device, and a path written with `..` that stays inside the folder.
+
 Recursive `grep` and unrestricted `rg` searches are denied when their roots
 contain the project's state folder. Searches rooted inside any `.duolog`
-folder are denied too, including plain `rg token .duolog`.
+folder are denied too, including plain `rg token .duolog`. A search of one
+readable file, such as `rg -n token .duolog/brief.md` or Claude's Grep on
+that file, is judged like `cat` and the Read tool. A glob, a folder or a
+file that the state rule denies is still denied.
 Plain `rg token .` stays allowed because it skips hidden and ignored state.
 A recursive search with unknown roots is denied when its working folder
 contains state. Other recursive searches still ask.
