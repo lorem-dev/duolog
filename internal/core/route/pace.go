@@ -99,11 +99,12 @@ type Decision struct {
 // fallback only when it is ahead of pace and the fallback is another agent
 // that is not ahead of pace and runs on a subscription. Unknown or stale
 // quota, a paid or overage route, a fallback that is ahead too, and a role
-// without a named fallback leave use in place.
+// without a named fallback leave use in place, and so does a role with
+// balance set to false.
 func (b Balance) Decide(role string, spec config.Role) Decision {
 	d := Decision{Ahead: map[string]bool{}}
 	use, fb := spec.Use, spec.Fallback
-	if b.Mode != "pace" || use.Agent == "" {
+	if b.Mode != "pace" || use.Agent == "" || !spec.Balanced() {
 		return d
 	}
 	u, ok := b.Pace[use.Agent]

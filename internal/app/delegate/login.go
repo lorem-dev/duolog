@@ -247,6 +247,11 @@ func (c *loginChecker) Forget(p Problem) {
 func fromNeeds(agent string, needs []string) []Problem {
 	var out []Problem
 	for _, need := range needs {
+		// A message from another session is the lead's to read, whatever it
+		// says: it is never a login request.
+		if len(OwnNeeds([]string{need})) == 0 {
+			continue
+		}
 		rest, ok := strings.CutPrefix(strings.TrimSpace(need), "auth:")
 		if !ok {
 			continue

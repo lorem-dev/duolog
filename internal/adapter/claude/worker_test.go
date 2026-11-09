@@ -35,7 +35,7 @@ func TestWorkerAndPeerGetTheBatchReadsRule(t *testing.T) {
 	r := route.Route{Target: config.Target{Agent: "claude", Model: "opus"}}
 	argvs := map[string][]string{
 		"worker": Worker{}.Argv(run.Spec{Route: r, Process: &p}),
-		"peer":   Pane{}.Argv(r, mode.Ask, p),
+		"peer":   Pane{}.Argv(r, mode.Ask, p, ""),
 	}
 	for name, args := range argvs {
 		i := slices.Index(args, "--append-system-prompt")

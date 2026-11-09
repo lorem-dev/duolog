@@ -108,6 +108,7 @@ roles:
     sandbox: workspace-write
     context: minimal
     session: resume
+    balance: false          # stays on Codex while it can run; pace never moves it
   implement:
     use: {agent: codex, model: sol, effort: medium}
     fallback: {agent: claude, model: sonnet, effort: medium}
@@ -146,6 +147,15 @@ roles:
     sandbox: read-only
     context: project
     session: fresh
+  # Reviews what the other vendor wrote, at the end of a large batch. Pace never
+  # moves it off Codex while Codex can run.
+  review_cross:
+    use: {agent: codex, model: sol, effort: high}
+    fallback: {agent: claude, model: opus, effort: high}
+    sandbox: read-only
+    context: project
+    session: fresh
+    balance: false
   # Finding a cause by reading one repository. In the cost study sol found it on
   # four hard bugs at every effort, for a third to a sixteenth of what opus cost.
   debug:

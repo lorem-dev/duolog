@@ -226,6 +226,18 @@ func escalated(j *journal.Journal, leadID string, opts Options) (journal.Delegat
 	return left, nil
 }
 
+// keepsOwnRoute reports whether role stays on its own routing under class: the
+// task is unclassified, or the role stays on its own agent (balance: false),
+// such as review_cross, and the class does not list it, so that no class
+// ladder or learned order moves it.
+func keepsOwnRoute(cfg *config.Config, role, class string) bool {
+	if class == learn.Unclassified {
+		return true
+	}
+	spec, ok := cfg.Roles[role]
+	return ok && !spec.Balanced() && !slices.Contains(cfg.Learning.Classes[class].Roles, role)
+}
+
 // route picks the class's ladder entry as the target, or after an escalation
 // the next entry after the one the lead left. With no class, or no entry
 // whose agent is available, the role's own routing applies; an escalation
@@ -236,7 +248,7 @@ func (lr *learnRun) route(cfg *config.Config, role string, unavailable map[strin
 		return nil
 	}
 	lr.next = learnRoute{why: "role"}
-	if lr.rec.Class == learn.Unclassified {
+	if keepsOwnRoute(cfg, role, lr.rec.Class) {
 		return nil
 	}
 	cursor := lr.after
@@ -389,7 +401,7 @@ func (lr *learnRun) finish(root, dir, copyPath string, out Outcome) error {
 	rec.Interrupted = out.Result.Interrupted
 	rec.Needs = out.Needs
 	if len(rec.Needs) == 0 {
-		rec.Needs = out.Result.Needs
+		rec.Needs = OwnNeeds(out.Result.Needs)
 	}
 	if !lr.ran || rec.RunHere || rec.Interrupted || len(rec.Needs) > 0 {
 		rec.Outcome = journal.OutcomeLead

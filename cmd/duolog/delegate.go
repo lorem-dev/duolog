@@ -35,7 +35,7 @@ func newDelegateCommand(d *cmdDeps) *cobra.Command {
 		if f.resultFile == "" {
 			return f.run(cmd, args[0], d.runDelegate)
 		}
-		return runRecorded(cmd.ErrOrStderr(), f.resultFile, args[0], f.taskPath, d.runDelegate, func(run delegateFunc) error {
+		return runRecorded(cmd.ErrOrStderr(), f.resultFile, args[0], f.taskPath, d.runDelegateRecording(f.resultFile), func(run delegateFunc) error {
 			return f.run(cmd, args[0], run)
 		})
 	}}

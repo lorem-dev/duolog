@@ -23,7 +23,7 @@ func testPane(agent string) PaneSupport { return testPanes()[agent] }
 
 // argvFor is the argv of route's pane under a lead in mode m.
 func argvFor(route coreroute.Route, m mode.Mode, p corelaunch.Process) []string {
-	return testPane(route.Agent).Agent.Argv(route, m, p)
+	return testPane(route.Agent).Agent.Argv(route, m, p, "")
 }
 
 // settingsFor are the extra settings route's agent adds to its pane.

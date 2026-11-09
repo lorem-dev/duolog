@@ -15,7 +15,7 @@ type Pane struct{}
 // argv, then the pane's own flags, none of which grants a permission. Updates
 // are off through the process, in its prefix. Codex reads have only the gate,
 // so the lead's mode does not change the argv.
-func (Pane) Argv(r route.Route, _ mode.Mode, p corelaunch.Process) []string {
+func (Pane) Argv(r route.Route, _ mode.Mode, p corelaunch.Process, _ string) []string {
 	args := p.LaunchArgv("-m", r.Model)
 	if r.Effort != "" {
 		args = append(args, "-c", `model_reasoning_effort="`+r.Effort+`"`)

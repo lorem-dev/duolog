@@ -111,10 +111,12 @@ See [Calibration](calibration.md) for its own approvals and cost limits.
 ## The peers skill lists and shows peers
 
 `duolog install` and the plugins also include `duolog-peers`. It runs
-`duolog peer list --long` and, when you ask, `duolog peer view <id>` for
-the lead. Claude runs `peer view` without asking, but only when you ask to
-see a peer. See
-[How to see what a peer shows](rex.md#how-to-see-what-a-peer-shows).
+`duolog runs --long`, which lists live peers and delegate runs in one table,
+and, when you ask, `duolog watch --tab <id>` for the lead. For a peer id that
+is `duolog peer view <id>`. Claude runs `watch --tab` without asking, but only
+when you ask to see a peer or a delegate run. See
+[How to see what a peer shows](rex.md#how-to-see-what-a-peer-shows) and
+[How to watch a delegate run](rex.md#how-to-watch-a-delegate-run).
 
 ## Related pages
 

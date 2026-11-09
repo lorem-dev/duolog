@@ -125,7 +125,7 @@ func workerOutcome(r run.Result, err error) (outcome, code string) {
 		return "infra", code
 	case err != nil, r.AuthFailed:
 		return "failed", code
-	case len(r.Needs) > 0:
+	case len(OwnNeeds(r.Needs)) > 0:
 		return "needs", code
 	case r.Done:
 		return "done", code

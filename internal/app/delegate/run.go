@@ -578,7 +578,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 			// The admitted process (current.launch sets it) already holds the
 			// resolved native flags and the Codex sandbox pins; the runner
 			// refuses it if this spec asks for other ones.
-			spec := workerSpec(d, cfg, opts, route, wm, dir, root, stdin, bridged, pre.Env)
+			spec := workerSpec(d, cfg, opts, route, wm, dir, root, stdin, bridged, pre.Env, workerName(d, role, lead))
 			var entry *session.Entry
 			if route.Session == "resume" {
 				entry, _, err = reg.Lookup(leadID, route.Agent, role, thread)
@@ -766,7 +766,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 				}
 				needs := ""
 				if len(out.Result.Needs) > 0 {
-					out.Needs = out.Result.Needs
+					out.Needs = OwnNeeds(out.Result.Needs)
 					needs = " needs=" + strings.Join(out.Result.Needs, ",")
 				}
 				if len(out.Result.Decisions) > 0 {

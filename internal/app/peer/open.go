@@ -14,6 +14,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
+	corelead "github.com/lorem-dev/duolog/internal/core/lead"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	corepane "github.com/lorem-dev/duolog/internal/core/pane"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
@@ -26,6 +27,16 @@ func (e *env) newID() string {
 		return e.opts.Deps.NewID()
 	}
 	return "peer-" + strings.ToLower(rand.Text()[:6])
+}
+
+// sessionName is the name a pane starts under: what it is, its role and its
+// lead. A lead whose name cannot be read is named by its id; this never fails.
+func (e *env) sessionName(role string, lead leadInfo) string {
+	leadName := ""
+	if read := e.opts.Deps.LeadName; read != nil && lead.target != nil {
+		leadName = read(lead.target.Agent, lead.pid)
+	}
+	return corelead.SessionLabel("peer", role, leadName, lead.id)
 }
 
 // route resolves where role runs for lead, as Open places it. Both agents
@@ -147,7 +158,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 		_ = os.Remove(envFile)
 		return noted(Entry{}, errors.Join(err, pane.release(ctx)))
 	}
-	block, rexSession, err := e.openProjectPeer(ctx, tabLabel(route.Agent, role), launchArgv(exe, envFile, agentPane.Agent.Argv(route, lead.mode, pane.permit.Process)))
+	block, rexSession, err := e.openProjectPeer(ctx, tabLabel(route.Agent, role), launchArgv(exe, envFile, agentPane.Agent.Argv(route, lead.mode, pane.permit.Process, e.sessionName(role, lead))))
 	e.opts.Deps.OnEnvFile(envFile)
 	if err != nil {
 		// Rex's own refusal shows that no pane holds the reservation. So does

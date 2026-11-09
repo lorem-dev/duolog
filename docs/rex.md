@@ -395,8 +395,9 @@ model turn and the lines it prints.
 `peer show` refuses when a model may read its output: a Claude or Codex
 marker variable, output that is not a terminal, a worker, or a Claude or
 Codex process above it. The lead hook also stops a lead's tool call that
-names `duolog peer show`, behind any wrapper: Claude asks you, Codex denies
-it. A Claude lead that runs in `bypassPermissions` or `auto` is not asked;
+names `duolog peer show`, also behind a known wrapper such as `env` or
+`sh -c`: Claude asks you, Codex denies it. A Claude lead that runs in
+`bypassPermissions` or `auto` is not asked;
 `peer show`'s own refusal still applies. These refusals guard against
 accidents. They are not a barrier: no check can prove that a terminal is
 yours, and a model that ignored them would have to work around them on
@@ -411,13 +412,82 @@ with Remote Control on, in its Settings under Rex Server; without it,
 what you type goes to the peer. To return, use Previous Session in Rex, or
 pick your session in the sidebar.
 
-The `duolog-peers` skill runs `peer list --long` and `peer view` for the
-lead. Claude runs `peer view` without asking, but only when you ask to see
-a peer. The skill costs one model turn. For a path with no turn, type the
+`duolog runs` and `duolog watch` take a peer id as well as a delegate run's id
+(see [How to watch a delegate run](#how-to-watch-a-delegate-run)), so one
+interface shows all workers. The three peer commands above stay.
+
+The `duolog-peers` skill runs `runs --long` and `watch --tab` for the lead.
+Claude runs `watch --tab` without asking, but only when you ask to see a peer
+or a run. The skill costs one model turn. For a path with no turn, type the
 command yourself: in Claude Code with the `!` prefix, such as
-`! duolog peer list --long`. That this starts no turn is not checked yet.
+`! duolog runs --long`. That this starts no turn is not checked yet.
 For Codex, no turn-free path is confirmed; do not rely on one. From a Codex
 lead, run these commands outside the sandbox.
+
+## How to watch a delegate run
+
+A worker that the lead starts with the `delegate` tool of the MCP server
+writes only raw JSON to its log, `.duolog/tasks/<task>/stdout.log`. Two
+commands show it to you in a readable form. They need no Rex, except for
+`--tab`.
+
+| Command | Who runs it | Prints |
+|---|---|---|
+| `duolog runs [--long\|--json]` | You, or the lead | The project's live peers, then its delegate runs: the running ones first, then the last five that ended. Plain output is `<id> <state>`; `--long` is a table with kind (`peer` or `delegate`), role, agent and model, age and the worktree's name; `--json` is the rows as JSON |
+| `duolog watch [id]` | You, in your own terminal | For a delegate run: the worker's messages and one short line per tool call, such as `> Bash go test ./...`. Tool output is left out. For a peer id: what `peer show` prints, with `--lines` |
+| `duolog watch --tab [id]` | You, or the lead when you ask | One line; for a delegate run, your Rex client shows a tab that runs `duolog watch <id>`; for a peer id, what `peer view` does |
+
+A peer's state in `runs` is the one `peer list` gives; `--lead` names the lead
+whose peers are listed, as for `peer list` (default `DUOLOG_LEAD`). Without
+Rex, or when the peers cannot be read, `runs` lists the delegate runs and
+prints `peers not listed: <reason>` on stderr. A peer has no recorded start
+time or model, so its `started` is `null` and its `model` is empty.
+
+`duolog runs --json` prints one list of rows with the same keys for peers and
+delegate runs, always all of them:
+
+| Key | Value |
+|---|---|
+| `id` | The peer or run id |
+| `kind` | `peer` or `delegate` |
+| `role` | The role |
+| `agent`, `model` | The agent and model; `model` is empty when not known |
+| `state` | A delegate run's state, or the peer state as in `peer list --json` |
+| `started` | The start time (RFC 3339), or `null` |
+| `worktree` | The absolute path of the work root |
+| `task_dir` | The absolute path of the folder of the run's task and log, or empty |
+
+Without an id, `watch` follows the newest running run. It starts at the
+beginning of the log, keeps reading while the log grows, reads both Claude's
+stream JSON and Codex's JSON events, skips an event it does not know, and
+ends with a line `ended: <state>` when the run ends. Ctrl-C stops it at any
+time without touching the run. A run appears in the list only when the MCP
+tool started it; a `duolog delegate` that you or the lead start by hand
+leaves no record to list.
+
+`watch` is for you, to keep a worker's stream and a peer's screen out of the
+lead's context. It is not a barrier: a lead can still read a worker's
+`stdout.log`. It refuses
+under the same checks as `peer show`: a Claude or Codex marker variable,
+output that is not a terminal, a worker, or a Claude or Codex process above
+it. The lead hook also stops a lead's tool call that runs `duolog watch`
+without `--tab`, at the start of a shell command, after leading `NAME=value`
+words, or behind a known wrapper such as `env` or `sh -c`; a command that only
+mentions the words, such as `rg "duolog watch" docs` or a commit message with a
+`;` or `|` before them, is not stopped. A `--tab` that is the value of `--lead`
+or `--client` does not count. Claude asks you, Codex denies it. A
+Claude lead in `bypassPermissions` or `auto` is not asked; the command's own
+refusal still applies. `duolog runs` prints no worker output, so a lead may
+run it. A worker may run neither.
+
+`watch --tab` opens the tab in duolog's own Rex session, the one that holds
+peer tabs, and moves your Rex client to it, as `peer view` does. The tab is
+read-only in effect: the program reads no key, so what you type goes nowhere.
+It needs `REX_SESSION` and a client to move (`--client`, or else the only
+client that shows your session). To return, use Previous Session in Rex. The
+tab ends with the run. Closing a project's last peer also closes a
+`watch --tab` tab in the project session. Without Rex the command prints the
+`duolog watch <id>` line for you to run in your own terminal instead.
 
 ## How to drive peers with the MCP tool
 

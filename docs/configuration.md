@@ -111,6 +111,20 @@ The task moves only when all of these hold:
 - Both quota reads are fresh. Unknown or stale quota means no balancing, and
   the task stays on `use`.
 
+A role may set `balance: false`. Pace balancing then never moves it to its
+`fallback`. The ladder `use`, then `fallback` still applies when the `use`
+agent is unavailable or out of quota. The default is `true`. The default
+`planner` and `review_cross` set `balance: false`, so they stay on Codex as
+long as Codex can run, while code moves to Claude when Codex runs low.
+
+`review_cross` reviews what the other vendor wrote. It runs `sol` on Codex at
+`high` effort, falls back to `opus` on Claude, reads only (`read-only`), and
+has the gate rights of `review_final`. The lead ends a large batch with it;
+`review_final` stays for the rest. A project or shared local layer changes
+`balance` or `review_cross` like any other role field. No learned class lists
+`review_cross`, and a class named for it does not move it: it stays on Codex
+while Codex can run.
+
 Once a task has moved away, later tasks stay away until the `use` agent falls
 below pace minus the margin. This keeps work from flipping back and forth at
 the edge. duolog keeps this one flag per agent in its account state folder.

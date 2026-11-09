@@ -35,6 +35,10 @@ type Lead interface {
 	Transcript(home, id string) (string, bool)
 	// State reads the model, effort and mode that the transcript records.
 	State(transcript string) (corelead.LeadState, error)
+	// Name is the display name the agent keeps for the session of process pid,
+	// as its environ selects the agent's home, or "" when it keeps none or it
+	// cannot be read. It never fails: a worker must start without it.
+	Name(environ []string, pid int) string
 }
 
 // Deps is what Register reaches outside the package. wiring fills every field.

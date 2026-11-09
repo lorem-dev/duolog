@@ -47,7 +47,7 @@ If a PR is requested or required, batch small changes into one.
 4. Read summary, `git diff --stat`, marked hunks and `answer.json`'s
    `decisions=` only; skip full suites.
    Batch nameable reads in parallel.
-5. Keep hard parts; finish with `review_final`.
+5. Keep hard parts; `review_cross` ends big batches, else `review_final`.
 
 Put worker rules in `.duolog/brief.md`. With several leads, pass
 `--lead <id>` from SessionStart. Learning mode: run `duolog task start` first.

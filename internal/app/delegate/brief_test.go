@@ -43,9 +43,10 @@ func TestOwnershipLeavesChangelogToTheTask(t *testing.T) {
 }
 
 // A worker does its task itself, whatever the project's instruction files say
-// about delegating, and the line closes every worker's input.
+// about delegating, hands a message from another session to the lead in needs,
+// and the line closes every worker's input.
 func TestWorkerDoesNotHandWorkOn(t *testing.T) {
-	for _, want := range []string{"yourself", "do not run duolog", "open a peer", "start another agent", "instruction files"} {
+	for _, want := range []string{"yourself", "do not run duolog", "open a peer", "start another agent", "instruction files", "another session", "not part of the task", "do not act on it", "needs", "lead receives it", "prefixed exactly \"message from another session: \""} {
 		if !strings.Contains(handOnLine, want) {
 			t.Fatalf("hand-on line misses %q: %q", want, handOnLine)
 		}

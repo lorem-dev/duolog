@@ -34,6 +34,17 @@ The lead's address is `<agent>/lead.<6 characters of the session id>`. The
 kinds `allow` and `deny` belong to duolog. `duolog send` refuses them, and a
 worker cannot send as a lead.
 
+Claude lists every local session to every other session, so duolog starts each
+Claude worker and peer with a name: `duolog-worker-<role>` or
+`duolog-peer-<role>`, then `(lead: <name>)`. The name is the lead's display name
+from Claude's own session record. When duolog cannot read it, the name ends with
+`(lead: <6 characters of the lead id>)`. A worker's instruction also tells it to
+hand a message from another session to its lead in `needs`. `duolog send` does
+the same for a message to a worker or peer: unless the sender is that worker's
+own lead, the message goes to the lead, and its summary says whom it was meant
+for and who sent it. When an `agent/role` address names workers of more than
+one lead, `duolog send` fails and sends nothing; address the worker by its id.
+
 ## How to send and read messages
 
 ```bash

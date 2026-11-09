@@ -121,6 +121,7 @@ func PeerDeps(d delegate.Deps) peer.Deps {
 			return reg.RecordLimited(e, limit)
 		},
 		OnEnvFile: func(string) {},
+		LeadName:  func(agent string, pid int) string { return delegate.LeadName(d, agent, pid) },
 		Delegate:  delegateRunner(d),
 		PaidGate:  func(cfg *config.Config) (*paidruns.Gate, error) { return d.PaidGate(cfg) },
 		HeldGate: func(agent, root string, env []string) error {

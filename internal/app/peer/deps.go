@@ -34,8 +34,9 @@ type ModelResolver interface {
 type PaneAgent interface {
 	// Argv is the interactive command of a pane: the admitted process's launch
 	// argv, then the pane's own flags. m is the lead's mode the pane opened
-	// under.
-	Argv(r route.Route, m mode.Mode, p corelaunch.Process) []string
+	// under. name is the session name the pane starts under, for an agent that
+	// shows one to its other sessions; empty gives none.
+	Argv(r route.Route, m mode.Mode, p corelaunch.Process, name string) []string
 	// Settings are the extra settings the pane's process gets, or nil.
 	Settings(start agent.PaneStart) map[string]any
 	// Offer reads the agent's own question whether to install a plugin.
@@ -145,6 +146,9 @@ type Deps struct {
 	// OnEnvFile runs once rex answered an open, before the pane's env file is
 	// checked; tests replace it to stand for a launcher that took the file.
 	OnEnvFile func(path string)
+	// LeadName reads the display name the lead's agent keeps for the session
+	// of process pid; "" when it has none. Nil reads none.
+	LeadName func(agent string, pid int) string
 	// Delegate runs one delegation: delegate.Run bound to its Deps.
 	Delegate delegate.Runner
 	// PaidGate opens the account admission gate that delegate uses.

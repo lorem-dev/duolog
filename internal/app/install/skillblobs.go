@@ -19,6 +19,8 @@ package install
 // id here; TestEveryBundledSkillFileIsAKnownBlob names it. Never remove one:
 // a later duolog must know every text an earlier one wrote.
 var writtenBlobs = map[string]bool{
+	"00a28226bf58d73d2c5820975f1bbdc9e9604b27": true, // claude/skills/duolog-peers/SKILL.md
+	"70fa230d0228fbc6570a24c1603ecfd54e9b9661": true, // codex/skills/duolog-peers/SKILL.md
 	"08f4ea26d84e7d8978da3dd0fe4725f8717facb2": true, // codex/skills/duolog-calibrate/SKILL.md
 	"0ca031574857b7f17bbf12f15c4f6841bb6b1154": true, // claude/skills/duolog-peers/SKILL.md
 	"13bdeefb71fdcde053ca45ec6aa29883122b57e6": true, // claude/skills/duolog-calibrate/SKILL.md
@@ -79,4 +81,10 @@ var writtenBlobs = map[string]bool{
 	"fe55bc57a2eaa0f5ab5961f6366fe6b9b9dcb11e": true, // claude/skills/duolog/SKILL.md
 	"f5746d8674265be02c69034e42515428e7d6d4c2": true, // claude/skills/duolog/SKILL.md
 	"ba2c8c7b4d397ee6f2c3e082611f722fb301bd2c": true, // codex/skills/duolog/SKILL.md
+	"1cb69ff5b3b7b73e15a2cc0ebff87ce17ad1ed49": true, // claude/skills/duolog-peers/SKILL.md
+	"b4a557a87b43b0fa98ee10272514de732de69708": true, // codex/skills/duolog-peers/SKILL.md
+	"3cd70daf2ccb6e866563e8da18418a8c73372d79": true, // claude/skills/duolog-peers/SKILL.md
+	"7b9638c48bd7d0319b1281be722006a09bd0494c": true, // codex/skills/duolog-peers/SKILL.md
+	"8ca5df6db4eee6f958279aa162e308efd0551d61": true, // claude/skills/duolog/SKILL.md
+	"b7e054f1adc3da2236203508b9bb23ec4fe76046": true, // codex/skills/duolog/SKILL.md
 }

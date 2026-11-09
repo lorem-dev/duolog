@@ -3,7 +3,9 @@ package claude
 import (
 	"errors"
 	"path/filepath"
+	"strconv"
 
+	"github.com/lorem-dev/duolog/internal/adapter/kit"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	corelead "github.com/lorem-dev/duolog/internal/core/lead"
 	"github.com/lorem-dev/duolog/internal/trusthome"
@@ -44,6 +46,27 @@ func (Lead) Transcript(home, id string) (string, bool) {
 	matches, _ := filepath.Glob(filepath.Join(trusthome.Claude(home), "projects", "*", id+".jsonl"))
 	path := session.Newest(matches)
 	return path, path != ""
+}
+
+// Name is the display name Claude keeps for the session of process pid, the
+// name field of its own record, <claude home>/sessions/<pid>.json. It is empty
+// when there is no such record, the field is missing or the file cannot be
+// read: the caller falls back to the session id.
+func (Lead) Name(environ []string, pid int) string {
+	if pid <= 0 {
+		return ""
+	}
+	home, err := trusthome.HomeIn(environ)
+	if err != nil && trusthome.Getenv(environ, "CLAUDE_CONFIG_DIR") == "" {
+		return ""
+	}
+	var record struct {
+		Name string `json:"name"`
+	}
+	if !kit.ReadRecordJSON(filepath.Join(trusthome.ClaudeIn(home, environ), "sessions", strconv.Itoa(pid)+".json"), &record) {
+		return ""
+	}
+	return record.Name
 }
 
 // State reads the model and effort of the last reply and the permission mode

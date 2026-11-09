@@ -117,7 +117,8 @@
       },
       "Sandbox": "read-only",
       "Context": "project",
-      "Session": "resume"
+      "Session": "resume",
+      "Balance": null
     },
     "debug_hard": {
       "Use": {
@@ -132,7 +133,8 @@
       },
       "Sandbox": "workspace-write",
       "Context": "project",
-      "Session": "resume"
+      "Session": "resume",
+      "Balance": null
     },
     "docs": {
       "Use": {
@@ -147,7 +149,8 @@
       },
       "Sandbox": "workspace-write",
       "Context": "minimal",
-      "Session": "fresh"
+      "Session": "fresh",
+      "Balance": null
     },
     "implement": {
       "Use": {
@@ -162,7 +165,8 @@
       },
       "Sandbox": "workspace-write",
       "Context": "project",
-      "Session": "fresh"
+      "Session": "fresh",
+      "Balance": null
     },
     "implement_complex": {
       "Use": {
@@ -177,7 +181,8 @@
       },
       "Sandbox": "workspace-write",
       "Context": "project",
-      "Session": "fresh"
+      "Session": "fresh",
+      "Balance": null
     },
     "mechanical": {
       "Use": {
@@ -192,7 +197,8 @@
       },
       "Sandbox": "workspace-write",
       "Context": "minimal",
-      "Session": "fresh"
+      "Session": "fresh",
+      "Balance": null
     },
     "plan": {
       "Use": {
@@ -207,7 +213,8 @@
       },
       "Sandbox": "read-only",
       "Context": "project",
-      "Session": "resume"
+      "Session": "resume",
+      "Balance": null
     },
     "planner": {
       "Use": {
@@ -222,7 +229,8 @@
       },
       "Sandbox": "workspace-write",
       "Context": "minimal",
-      "Session": "resume"
+      "Session": "resume",
+      "Balance": false
     },
     "review": {
       "Use": {
@@ -237,7 +245,24 @@
       },
       "Sandbox": "",
       "Context": "",
-      "Session": ""
+      "Session": "",
+      "Balance": null
+    },
+    "review_cross": {
+      "Use": {
+        "Agent": "codex",
+        "Model": "sol",
+        "Effort": "high"
+      },
+      "Fallback": {
+        "Agent": "claude",
+        "Model": "opus",
+        "Effort": "high"
+      },
+      "Sandbox": "read-only",
+      "Context": "project",
+      "Session": "fresh",
+      "Balance": false
     },
     "review_final": {
       "Use": {
@@ -252,7 +277,8 @@
       },
       "Sandbox": "read-only",
       "Context": "project",
-      "Session": "fresh"
+      "Session": "fresh",
+      "Balance": null
     },
     "review_intermediate": {
       "Use": {
@@ -267,7 +293,8 @@
       },
       "Sandbox": "read-only",
       "Context": "project",
-      "Session": "fresh"
+      "Session": "fresh",
+      "Balance": null
     },
     "security_review": {
       "Use": {
@@ -282,7 +309,8 @@
       },
       "Sandbox": "read-only",
       "Context": "project",
-      "Session": "fresh"
+      "Session": "fresh",
+      "Balance": null
     },
     "tests": {
       "Use": {
@@ -297,7 +325,8 @@
       },
       "Sandbox": "workspace-write",
       "Context": "project",
-      "Session": "fresh"
+      "Session": "fresh",
+      "Balance": null
     }
   },
   "Sessions": {

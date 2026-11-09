@@ -43,11 +43,11 @@ func TestPaneOffer(t *testing.T) {
 func TestPaneArgvDisallowsSubagents(t *testing.T) {
 	p := corelaunch.Process{Prefix: []string{"claude"}}
 	r := route.Route{Target: config.Target{Agent: "claude", Model: "opus"}}
-	args := Pane{}.Argv(r, mode.Ask, p)
+	args := Pane{}.Argv(r, mode.Ask, p, "")
 	if !slices.Contains(args, "--disallowedTools=Agent,Task") {
 		t.Fatalf("%v", args)
 	}
-	held := Pane{}.Argv(r, mode.Plan, p)
+	held := Pane{}.Argv(r, mode.Plan, p, "")
 	if i := slices.IndexFunc(held, func(a string) bool { return strings.HasPrefix(a, "--disallowedTools=") }); i < 0 || !strings.Contains(held[i], "NotebookEdit") {
 		t.Fatalf("a pane the gate holds read-only keeps its write tools: %v", held)
 	}

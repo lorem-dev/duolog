@@ -53,7 +53,7 @@ Use the CLI only if a tool is missing or fails.
 4. Read summary, `git diff --stat`, marked hunks and `answer.json`'s
    `decisions=` only; skip full suites.
    Batch nameable reads in parallel.
-5. Keep hard parts; finish with `review_final`.
+5. Keep hard parts; `review_cross` ends big batches, else `review_final`.
 
 Worker rules: `.duolog/brief.md`. With several leads, pass `--lead <id>`. Learning mode: run `duolog task start` first.
 Same-vendor subagents use your tools.
@@ -67,7 +67,7 @@ Same-vendor subagents use your tools.
 ## Asks
 
 For `"p":true` asks, tell the person; never answer yourself.
-Foreground delegates deny asks; workers then list commands in `needs`.
+Foreground delegates deny asks; workers list commands in `needs`.
 Use `duolog allow <n>`, `duolog deny <n>` or, with approval,
 `duolog remember '<command>'`.
 

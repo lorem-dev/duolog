@@ -27,7 +27,7 @@ func TestPaneOfferContract(t *testing.T) {
 func TestPaneArgvPinsNotificationsAndContext(t *testing.T) {
 	p := corelaunch.Process{Prefix: []string{"codex"}}
 	r := route.Route{Target: config.Target{Agent: "codex", Model: "gpt-6.1-sol", Effort: "high"}, Context: "minimal"}
-	args := Pane{}.Argv(r, mode.Ask, p)
+	args := Pane{}.Argv(r, mode.Ask, p, "")
 	for _, want := range []string{"tui.notifications=false", "notify=[]", `model_reasoning_effort="high"`, "project_doc_max_bytes=0"} {
 		if !slices.Contains(args, want) {
 			t.Errorf("%q missing from %v", want, args)

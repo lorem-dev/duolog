@@ -67,6 +67,20 @@ func writeConfig(t *testing.T, path, contents string) {
 	}
 }
 
+func TestProjectLayerChangesRoleBalance(t *testing.T) {
+	root := isolatedRoot(t)
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "roles:\n  planner:\n    balance: true\n  implement:\n    balance: false\n")
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]bool{"planner": true, "implement": false, "review_cross": false, "review_final": true} {
+		if got := cfg.Roles[name].Balanced(); got != want {
+			t.Errorf("role %s: Balanced() = %v, want %v", name, got, want)
+		}
+	}
+}
+
 func TestLayersLaterWins(t *testing.T) {
 	root := isolatedRoot(t)
 	userDir, err := os.UserConfigDir()
@@ -80,7 +94,7 @@ func TestLayersLaterWins(t *testing.T) {
 		t.Fatal(err)
 	}
 	role := cfg.Roles["review_intermediate"]
-	if role.Use.Effort != "low" || role.Use.Model != "sol" || role.Fallback.Model != "sonnet" || len(cfg.Roles) != 12 {
+	if role.Use.Effort != "low" || role.Use.Model != "sol" || role.Fallback.Model != "sonnet" || len(cfg.Roles) != 13 {
 		t.Fatalf("layers lost or failed to override fields: %+v", cfg.Roles)
 	}
 	// Without the project layer, the user layer must win over embedded defaults.
@@ -114,8 +128,8 @@ func TestEmbeddedDefaultsAreValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Roles) != 12 {
-		t.Fatalf("got %d roles, want 12", len(cfg.Roles))
+	if len(cfg.Roles) != 13 {
+		t.Fatalf("got %d roles, want 13", len(cfg.Roles))
 	}
 	if cfg.Models["sol"].Family != "sol" || cfg.Models["sol"].PricedFor != "gpt-6.1-sol" || cfg.Models["haiku"].Note == "" {
 		t.Fatal("model metadata was lost")

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/core/policy"
+	"github.com/lorem-dev/duolog/internal/store"
 )
 
 // Record is the result of one detached delegation. The server writes it with
@@ -25,6 +26,12 @@ type Record struct {
 	TaskPath string `json:"task_path"` // relative to WorkRoot
 	WorkRoot string `json:"work_root"`
 	PID      int    `json:"pid,omitempty"`
+	// Agent and Model are the worker's, and Log is its stdout.log (relative to
+	// WorkRoot when it is under it). The run writes them when its worker
+	// starts, for duolog runs and duolog watch; they stay empty until then.
+	Agent string `json:"agent,omitempty"`
+	Model string `json:"model,omitempty"`
+	Log   string `json:"log,omitempty"`
 	// Use, AskedNeeds, Force and SkipPreflight are the options the MCP call
 	// started the run with; a second call that differs in one is another run.
 	Use           string     `json:"use,omitempty"`
@@ -74,7 +81,7 @@ func WriteRecord(path string, r Record) error {
 		err = closeErr
 	}
 	if err == nil {
-		err = os.Rename(name, path)
+		err = store.Rename(name, path)
 	}
 	if err != nil {
 		_ = os.Remove(name)
@@ -85,7 +92,7 @@ func WriteRecord(path string, r Record) error {
 // ReadRecord reads one record. A running record whose PID alive says is gone
 // reads with State "lost". A nil alive counts every process as alive.
 func ReadRecord(path string, alive func(pid int) bool) (Record, error) {
-	data, err := os.ReadFile(path)
+	data, err := store.ReadFile(path)
 	if err != nil {
 		return Record{}, err
 	}

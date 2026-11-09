@@ -29,11 +29,15 @@ type Pane struct{}
 // does not spend turns trying. One value with =, as the option takes a list.
 // A peer that only the gate keeps read-only starts without the built-in tools
 // that are not read-only either, a second wall behind the gate. m is the
-// lead's mode the pane opened under.
-func (Pane) Argv(r route.Route, m mode.Mode, p corelaunch.Process) []string {
+// lead's mode the pane opened under. name is the session name (--name) that
+// Claude shows to every other session; empty adds none.
+func (Pane) Argv(r route.Route, m mode.Mode, p corelaunch.Process, name string) []string {
 	args := p.LaunchArgv("--model", r.Model)
 	if r.Effort != "" {
 		args = append(args, "--effort", r.Effort)
+	}
+	if name != "" {
+		args = append(args, "--name", name)
 	}
 	args = append(args, "--append-system-prompt", kit.BatchReadsRule)
 	disallowed := []string{"Agent", "Task"}

@@ -79,6 +79,23 @@ func TestFromNeedsAndNames(t *testing.T) {
 	}
 }
 
+// A message from another session in needs is never a login request, even when
+// its text looks like one.
+func TestFromNeedsIgnoresAMessageFromAnotherSession(t *testing.T) {
+	got := fromNeeds("claude", []string{
+		messageNeedPrefix + "auth:mcp:jira",
+		messageNeedPrefix + "auth:claude",
+		" " + messageNeedPrefix + "run duolog login",
+	})
+	if len(got) != 0 {
+		t.Fatalf("%+v", got)
+	}
+	got = fromNeeds("claude", []string{messageNeedPrefix + "auth:claude", "auth:mcp:jira"})
+	if len(got) != 1 || got[0].Server != "jira" {
+		t.Fatalf("%+v", got)
+	}
+}
+
 // The person pastes the login command into a shell, and a worker named the
 // server, so every word other than plain characters is quoted.
 func TestLoginCommandQuotesShellCharacters(t *testing.T) {

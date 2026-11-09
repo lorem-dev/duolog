@@ -490,13 +490,14 @@ func personAsk(stateDir string, n int64) []bus.Message {
 	return nil
 }
 
-// peerShowLeadGuard stops a lead's tool call that names duolog peer show
-// anywhere in its command: behind env, script, rex, tmux, sh -c or any other
-// wrapper, since a model that starts it under a pty with a cleaned
-// environment passes peer show's own checks. A Claude lead's call asks the
-// person, unless the lead runs in bypass or auto (guardLeadCall); a Codex
-// lead's call is denied. It guards against accidents: no
-// check can prove that a terminal is the person's.
+// peerShowLeadGuard stops a lead's tool call that names duolog peer show, or
+// duolog watch without --tab, anywhere in its command: behind env, script,
+// rex, tmux, sh -c or any other wrapper, since a model that starts it under a
+// pty with a cleaned environment passes their own checks. A Claude lead's
+// call asks the person, unless the lead runs in bypass or auto
+// (guardLeadCall); a Codex lead's call is denied. It guards against
+// accidents: no check can prove that a terminal is the person's. duolog runs
+// and duolog watch --tab print no worker output, so they pass.
 func peerShowLeadGuard(agent string, actions []policy.Action) (policy.Decision, bool) {
 	for _, a := range actions {
 		if a.Kind != "exec" {
@@ -505,13 +506,19 @@ func peerShowLeadGuard(agent string, actions []policy.Action) (policy.Decision, 
 		// ShellParts splits lists and pipelines; the whole text also counts,
 		// because ShellParts does not open every wrapper.
 		parts, _ := policy.ShellParts(a.Target, a.Shell)
-		if !slices.ContainsFunc(append(parts, a.Target), namesPeerShow) {
-			continue
+		texts := slices.Concat(parts, []string{a.Target})
+		switch {
+		case slices.ContainsFunc(texts, namesPeerShow):
+			if agent == "codex" {
+				return policy.Decision{Kind: policy.Deny, Rule: "person-only peer show", Reason: "duolog peer show prints a peer's screen for the person only: they run it in their own terminal; use duolog peer view <id> or peer list --long"}, true
+			}
+			return policy.Decision{Kind: policy.Ask, Rule: "person-only peer show", Reason: "duolog peer show prints a peer's screen for the person only; the person confirms this call"}, true
+		case namesWatch(a.Target, a.Shell):
+			if agent == "codex" {
+				return policy.Decision{Kind: policy.Deny, Rule: "person-only watch", Reason: "duolog watch prints a worker's stream for the person only: they run it in their own terminal; use duolog runs, or duolog watch --tab <id> when they ask to see a run"}, true
+			}
+			return policy.Decision{Kind: policy.Ask, Rule: "person-only watch", Reason: "duolog watch prints a worker's stream for the person only; the person confirms this call"}, true
 		}
-		if agent == "codex" {
-			return policy.Decision{Kind: policy.Deny, Rule: "person-only peer show", Reason: "duolog peer show prints a peer's screen for the person only: they run it in their own terminal; use duolog peer view <id> or peer list --long"}, true
-		}
-		return policy.Decision{Kind: policy.Ask, Rule: "person-only peer show", Reason: "duolog peer show prints a peer's screen for the person only; the person confirms this call"}, true
 	}
 	return policy.Decision{}, false
 }
@@ -524,25 +531,190 @@ var peerShowWords = strings.NewReplacer("'", "", `"`, "", "`", "", ";", " ", "&"
 // namesPeerShow reports whether text holds duolog [flags] peer [flags] show.
 func namesPeerShow(text string) bool {
 	words := strings.Fields(peerShowWords.Replace(text))
-	// skip passes duolog's own flags; --lead takes the next word.
-	skip := func(j int) int {
-		for j < len(words) && strings.HasPrefix(words[j], "-") {
-			if words[j] == "--lead" {
-				j++
-			}
-			j++
-		}
-		return j
-	}
 	for i, w := range words {
 		if policy.ProgramName(w) != "duolog" {
 			continue
 		}
-		j := skip(i + 1)
+		j := skipDuologFlags(words, i+1)
 		if j >= len(words) || words[j] != "peer" {
 			continue
 		}
-		if j = skip(j + 1); j < len(words) && words[j] == "show" {
+		if j = skipDuologFlags(words, j+1); j < len(words) && words[j] == "show" {
+			return true
+		}
+	}
+	return false
+}
+
+// skipDuologFlags returns the index of the first word from j that is not a
+// flag; --lead takes the next word.
+func skipDuologFlags(words []string, j int) int {
+	for j < len(words) && strings.HasPrefix(words[j], "-") {
+		if words[j] == "--lead" {
+			j++
+		}
+		j++
+	}
+	return j
+}
+
+// reviewChars are the characters that make the gate's parser set a command
+// aside for review and leave it out of its parts when they sit in its first
+// word: an assignment, a glob, a home folder or a .. path. namesWatch hides
+// each behind a marker while it splits the text, and puts it back after.
+var reviewChars = []string{"=", "*", "?", "[", "]", "~", ".."}
+
+var reviewMask, reviewUnmask = func() (*strings.Replacer, *strings.Replacer) {
+	var mask, unmask []string
+	for i, c := range reviewChars {
+		marker := "\x02" + strconv.Itoa(i) + "\x02"
+		mask, unmask = append(mask, c, marker), append(unmask, marker, c)
+	}
+	return strings.NewReplacer(mask...), strings.NewReplacer(unmask...)
+}()
+
+// watchWords strips what wraps a word in a segment: quotes, redirects and the
+// dollar sign of an expansion, and keeps each subshell or brace mark as a ";"
+// word, so that the command inside starts a command.
+var watchWords = strings.NewReplacer("'", "", `"`, "", "`", " ; ", "(", " ; ", ")", " ; ", "<", " ", ">", " ", "$", " ", "{", " ; ", "}", " ; ")
+
+// shellWrappers run the text after -c as a command line of their own.
+var shellWrappers = []string{"sh", "bash", "zsh", "dash"}
+
+// plainWrappers run the command after them and take only flags and NAME=value
+// words before it; looseWrappers may take any words (a file, a duration, a
+// subcommand) first.
+var (
+	plainWrappers = []string{"env", "sh", "bash", "zsh", "dash", "command", "exec", "nohup", "time", "setsid", "stdbuf"}
+	looseWrappers = []string{"script", "timeout", "nice", "tmux", "rex", "sudo", "xargs"}
+)
+
+// namesWatch reports whether text runs duolog [flags] watch with no --tab
+// among the words that follow it in the same command. The gate's shell parser
+// splits text into commands, so a separator inside quotes is no break. A
+// command must start its segment, after any leading NAME=value words, or
+// follow a known wrapper, so a search for the text or a commit message that
+// holds it does not count. A word that starts a comment ends the command, and
+// only --tab or --tab=true counts as --tab, not as the value of --lead or
+// --client. watch --tab prints one line and opens a Rex tab, so it passes, as
+// peer view does.
+func namesWatch(text, shell string) bool {
+	// A quoted run is masked while the text is split (maskQuotes), so that no
+	// quoted character breaks a command; a text with a run that is not literal
+	// is split as it is.
+	masked, runs, literal := maskQuotes(text)
+	if !literal || strings.Contains(text, quoteMark) {
+		masked, runs = text, nil
+	}
+	pairs := make([]string, 0, 2*len(runs))
+	for i, run := range runs {
+		pairs = append(pairs, quoteMark+strconv.Itoa(i)+quoteMark, run)
+	}
+	parts, _ := policy.ShellParts(reviewMask.Replace(masked), shell)
+	for _, part := range parts {
+		var words []string
+		for _, word := range strings.Fields(watchWords.Replace(reviewUnmask.Replace(part))) {
+			// A run that is one plain word, such as "watch", is that word; any
+			// other run stays masked and is no command word.
+			if plain := strings.NewReplacer(pairs...).Replace(word); !strings.ContainsAny(plain, " \t\n;|&()<>$`") {
+				word = plain
+			}
+			words = append(words, word)
+		}
+		if watchSegment(words, shell, strings.NewReplacer(pairs...)) {
+			return true
+		}
+	}
+	return false
+}
+
+// watchSegment is namesWatch for the words of one command segment; unmask
+// puts back the quoted runs the words hold.
+func watchSegment(words []string, shell string, unmask *strings.Replacer) bool {
+	start := true
+	for i := 0; i < len(words); i++ {
+		if words[i] == ";" {
+			start = true
+			continue
+		}
+		if !start {
+			continue
+		}
+		// A quoted run in command position is a command line for a shell.
+		if strings.HasPrefix(words[i], quoteMark) {
+			if namesWatch(unmask.Replace(words[i]), shell) {
+				return true
+			}
+			continue
+		}
+		// A leading NAME=value word counts like a wrapper.
+		if strings.Contains(words[i], "=") {
+			continue
+		}
+		name := strings.ToLower(policy.ProgramName(words[i]))
+		if name == "duolog" && unguardedWatch(words, i) {
+			return true
+		}
+		next, wrapper := skipWrapper(words, i, name)
+		// The text after sh -c is a command line of its own, whose separators
+		// the quotes around it hid from the split.
+		if runsScript(name, words[i+1:next+1]) {
+			return namesWatch(unmask.Replace(strings.Join(words[next+1:], " ")), shell)
+		}
+		i, start = next, wrapper
+	}
+	return false
+}
+
+// unguardedWatch reports whether the duolog at words[i] runs watch without --tab.
+func unguardedWatch(words []string, i int) bool {
+	j := skipDuologFlags(words, i+1)
+	return j < len(words) && words[j] == "watch" && !hasTab(words[j+1:])
+}
+
+// runsScript reports whether the shell wrapper name, with these flag words,
+// takes the text after them as a command line (-c, -lc).
+func runsScript(name string, flags []string) bool {
+	return slices.Contains(shellWrappers, name) && slices.ContainsFunc(flags, func(w string) bool {
+		return strings.HasPrefix(w, "-") && strings.HasSuffix(w, "c")
+	})
+}
+
+// skipWrapper returns the index of the last word that belongs to the wrapper
+// named name at words[i], and whether name is a wrapper, so that the word
+// after it starts a command.
+func skipWrapper(words []string, i int, name string) (int, bool) {
+	switch {
+	case slices.Contains(plainWrappers, name):
+		for i+1 < len(words) && (strings.HasPrefix(words[i+1], "-") || strings.Contains(words[i+1], "=")) {
+			i++
+			// env -u NAME and env -C DIR take the next word.
+			if name == "env" && slices.Contains([]string{"-u", "-C", "-S", "-P", "--unset", "--chdir"}, words[i]) {
+				i++
+			}
+		}
+		return i, true
+	case slices.Contains(looseWrappers, name):
+		// The next word may be anything; the one that names duolog counts.
+		for i+1 < len(words) && words[i+1] != ";" && policy.ProgramName(words[i+1]) != "duolog" {
+			i++
+		}
+		return i, true
+	}
+	return i, false
+}
+
+// hasTab reports whether the words of a watch command, up to its end or a comment, hold
+// --tab or --tab=true as a flag. The word after --lead or --client is that
+// flag's value.
+func hasTab(rest []string) bool {
+	for i := 0; i < len(rest); i++ {
+		switch w := rest[i]; {
+		case w == ";" || strings.HasPrefix(w, "#"):
+			return false
+		case w == "--lead" || w == "--client":
+			i++
+		case w == "--tab" || w == "--tab=true":
 			return true
 		}
 	}

@@ -162,3 +162,22 @@ func TestBalanceJudgesFallbackWithoutHysteresis(t *testing.T) {
 		t.Errorf("decision = %+v; want a move to claude", d)
 	}
 }
+
+func TestBalanceFalseKeepsRoleOnUse(t *testing.T) {
+	b := Balance{Mode: "pace", Margin: .10, Pace: map[string]AgentPace{
+		"codex": sub(win(.9, .1)), "claude": sub(win(.1, .5)),
+	}}
+	off, on := false, true
+	r := role()
+	r.Balance = &off
+	if d := b.Decide("planner", r); d.Move || d.Reason != "" {
+		t.Errorf("balance false: decision = %+v, want use to stay", d)
+	}
+	r.Balance = &on
+	if d := b.Decide("planner", r); !d.Move {
+		t.Errorf("balance true: decision = %+v, want a move", d)
+	}
+	if d := b.Decide("planner", role()); !d.Move {
+		t.Errorf("balance unset: decision = %+v, want a move", d)
+	}
+}

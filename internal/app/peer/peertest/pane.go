@@ -20,7 +20,7 @@ import (
 // peer.PaneAgent, which a test of package peer cannot import from here
 // without a cycle.
 type PaneAgent interface {
-	Argv(r route.Route, m mode.Mode, p corelaunch.Process) []string
+	Argv(r route.Route, m mode.Mode, p corelaunch.Process, name string) []string
 	Settings(start agent.PaneStart) map[string]any
 	Offer(s screen.Screen) (screen.Offer, bool)
 	FolderTrust(s screen.Screen) (string, []string, bool)
@@ -38,6 +38,7 @@ type ArgvCall struct {
 	Route   route.Route
 	Mode    mode.Mode
 	Process corelaunch.Process
+	Name    string
 }
 
 // Fake is a PaneAgent that records its calls and returns scripted results.
@@ -63,8 +64,8 @@ type Fake struct {
 	TrustedChecks []string
 }
 
-func (f *Fake) Argv(r route.Route, m mode.Mode, p corelaunch.Process) []string {
-	f.ArgvCalls = append(f.ArgvCalls, ArgvCall{r, m, p})
+func (f *Fake) Argv(r route.Route, m mode.Mode, p corelaunch.Process, name string) []string {
+	f.ArgvCalls = append(f.ArgvCalls, ArgvCall{r, m, p, name})
 	args := p.LaunchArgv("--model", r.Model)
 	if r.Effort != "" {
 		args = append(args, "--effort", r.Effort)
@@ -103,7 +104,7 @@ func PaneAgentContract(t *testing.T, newPane func(t *testing.T) PaneAgent) {
 	t.Run("argv holds model and effort", func(t *testing.T) {
 		p := corelaunch.Process{Prefix: []string{"agent-bin"}, Launch: []string{"--launch-word"}}
 		r := route.Route{Target: config.Target{Model: "sol-model", Effort: "high"}}
-		args := newPane(t).Argv(r, mode.Ask, p)
+		args := newPane(t).Argv(r, mode.Ask, p, "")
 		if len(args) < 2 || args[0] != "agent-bin" || args[1] != "--launch-word" {
 			t.Fatalf("argv %v does not start with the admitted prefix and launch words", args)
 		}
@@ -116,7 +117,7 @@ func PaneAgentContract(t *testing.T, newPane func(t *testing.T) PaneAgent) {
 	})
 	t.Run("argv without effort", func(t *testing.T) {
 		p := corelaunch.Process{Prefix: []string{"agent-bin"}}
-		args := newPane(t).Argv(route.Route{Target: config.Target{Model: "sol-model"}}, mode.Ask, p)
+		args := newPane(t).Argv(route.Route{Target: config.Target{Model: "sol-model"}}, mode.Ask, p, "")
 		if !slices.Contains(strings.Fields(strings.Join(args, " ")), "sol-model") {
 			t.Fatalf("argv %v lacks the model", args)
 		}
@@ -125,8 +126,8 @@ func PaneAgentContract(t *testing.T, newPane func(t *testing.T) PaneAgent) {
 		p := corelaunch.Process{Prefix: []string{"agent-bin"}, Launch: []string{"--launch-word"}}
 		pane := newPane(t)
 		r := route.Route{Target: config.Target{Model: "m", Effort: "low"}}
-		first := pane.Argv(r, mode.Plan, p)
-		second := pane.Argv(r, mode.Plan, p)
+		first := pane.Argv(r, mode.Plan, p, "a name")
+		second := pane.Argv(r, mode.Plan, p, "a name")
 		if !slices.Equal(first, second) {
 			t.Fatalf("argv differs between calls: %v then %v", first, second)
 		}

@@ -33,6 +33,9 @@ func claudeArgv(s runSpec) []string {
 	if s.Route.Effort != "" {
 		args = append(args, "--effort", s.Route.Effort)
 	}
+	if s.SessionName != "" {
+		args = append(args, "--name", s.SessionName)
+	}
 	// stream-json carries the rate limit events that tell whether the run spent
 	// paid overage; -p accepts it only with --verbose.
 	args = append(args, "--output-format", "stream-json", "--verbose", "--json-schema", answerSchema)

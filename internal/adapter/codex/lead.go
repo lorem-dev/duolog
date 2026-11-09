@@ -30,6 +30,10 @@ func (Lead) Interactive(_ []string, transcript string) bool {
 // interactive thread, its rollout does.
 func (Lead) RefuseShell([]string) error { return nil }
 
+// Name is empty: Codex keeps no display name for a session in a record that
+// is read by process.
+func (Lead) Name([]string, int) string { return "" }
+
 // RefuseTranscript refuses thread id when its rollout is missing or was not
 // started by the Codex terminal UI.
 func (l Lead) RefuseTranscript(id, transcript string) error {

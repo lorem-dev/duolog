@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -129,6 +130,27 @@ func SkillsIn(dir string) []caps.Item {
 func ReadJSON(path string, into any) bool {
 	data, err := os.ReadFile(path)
 	return err == nil && json.Unmarshal(data, into) == nil
+}
+
+// maxRecordBytes is the largest record ReadRecordJSON reads.
+const maxRecordBytes = 64 << 10
+
+// ReadRecordJSON reads the JSON file at path into into, for a file another
+// process writes, such as a session record: only a regular file (not a link,
+// a FIFO or a device, which could block the caller) of at most 64 KiB. It
+// reports false when it cannot.
+func ReadRecordJSON(path string, into any) bool {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxRecordBytes {
+		return false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxRecordBytes+1))
+	return err == nil && len(data) <= maxRecordBytes && json.Unmarshal(data, into) == nil
 }
 
 // ServerItems are unmarked mcp items for the servers, so that a scan lists

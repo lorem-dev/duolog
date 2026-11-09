@@ -184,7 +184,12 @@ type Role struct {
 	Sandbox  string `yaml:"sandbox" jsonschema_description:"Maximum file access for the role; defaults to read-only for reviews and workspace-write for edits." jsonschema:"enum=read-only,enum=workspace-write"`
 	Context  string `yaml:"context" jsonschema_description:"Project instruction scope; defaults to project for code work and minimal for small tasks." jsonschema:"enum=minimal,enum=project"`
 	Session  string `yaml:"session" jsonschema_description:"Thread reuse policy; defaults to fresh except plan, debug and debug_hard, which resume." jsonschema:"enum=fresh,enum=resume"`
+	Balance  *bool  `yaml:"balance,omitempty" jsonschema_description:"Whether pace balancing may move this role to its fallback; defaults to true. false keeps the role on use unless that agent is unavailable or out of quota."`
 }
+
+// Balanced reports whether pace balancing may move the role to its fallback.
+// An unset balance means true.
+func (r Role) Balanced() bool { return r.Balance == nil || *r.Balance }
 
 type Wire struct {
 	MaxSummaryBytes int `yaml:"max_summary_bytes" jsonschema_description:"Maximum summary size in bytes; defaults to 200."`

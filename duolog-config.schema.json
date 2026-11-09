@@ -868,6 +868,10 @@
             "resume"
           ],
           "description": "Thread reuse policy; defaults to fresh except plan, debug and debug_hard, which resume."
+        },
+        "balance": {
+          "type": "boolean",
+          "description": "Whether pace balancing may move this role to its fallback; defaults to true. false keeps the role on use unless that agent is unavailable or out of quota."
         }
       },
       "additionalProperties": false,

@@ -34,6 +34,10 @@ type Fake struct {
 	// Checks are the refusal checks in the order they were asked: "shell",
 	// then "transcript <path>".
 	Checks []string
+	// DisplayName is what Name returns, and NamePIDs are the processes it was
+	// asked for.
+	DisplayName string
+	NamePIDs    []int
 }
 
 // errShell is RefuseShell's refusal when ShellErr is nil.
@@ -73,6 +77,12 @@ func (f *Fake) RefuseShell(environ []string) error {
 func (f *Fake) RefuseTranscript(_, transcript string) error {
 	f.Checks = append(f.Checks, "transcript "+transcript)
 	return f.TranscriptErr
+}
+
+// Name returns DisplayName and records pid.
+func (f *Fake) Name(_ []string, pid int) string {
+	f.NamePIDs = append(f.NamePIDs, pid)
+	return f.DisplayName
 }
 
 // Transcript returns the scripted path, or <home>/<id>.jsonl when it exists.

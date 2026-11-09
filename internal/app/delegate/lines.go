@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/lorem-dev/duolog/internal/core/runview"
 )
 
 // absentFrom lists the notices line does not hold yet.
@@ -98,7 +100,7 @@ func resultLine(done bool, needs, summary, files, warning, pointer string) strin
 	line := func(summary, files string) string {
 		return oneLine(fmt.Sprintf("done=%t%s summary=%s files=%s%s", done, needs, summary, files, warning))
 	}
-	summary = oneLine(summary)
+	summary = oneLine(runview.Clean(summary))
 	if over := len(line(summary, files)) - maxLine; over > 0 {
 		cut := " ... [cut; " + pointer + "]"
 		summary = short(summary, max(0, len(summary)-over-len(cut))) + cut

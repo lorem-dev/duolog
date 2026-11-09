@@ -7,25 +7,103 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/bus"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
 
 func openBus() (*bus.Bus, error) {
+	b, _, err := openBusWire()
+	return b, err
+}
+
+// openBusWire is openBus with the wire limits it was opened under.
+func openBusWire() (*bus.Bus, config.Wire, error) {
 	root, err := projectRoot()
 	if err != nil {
-		return nil, err
+		return nil, config.Wire{}, err
 	}
 	cfg, err := configfile.Load(root, wiring.ConfigOptions())
 	if err != nil {
-		return nil, err
+		return nil, config.Wire{}, err
 	}
 	s, err := store.Open(root)
 	if err != nil {
-		return nil, err
+		return nil, config.Wire{}, err
 	}
-	return bus.Open(s.Dir, cfg.Wire)
+	b, err := bus.Open(s.Dir, cfg.Wire)
+	return b, cfg.Wire, err
+}
+
+// redirectToWorkersLead applies the rule for a message to a worker or peer:
+// from anyone but its own lead it goes to that lead, with a note of whom it was
+// meant for and who sent it, because nobody watches a worker's own inbox. The
+// recipient is a live worker or peer, by its id or its agent/role address. A
+// message from the lead, one to any other recipient and one for a worker whose
+// lead is gone are as sent. An address that names workers of more than one
+// lead is an error, and nothing is sent. The second result is the lead's address when the
+// message moved, "" otherwise.
+func redirectToWorkersLead(reg *session.Registry, m bus.Message, wire config.Wire) (bus.Message, string, error) {
+	entries, err := reg.Entries()
+	if err != nil {
+		return m, "", err
+	}
+	var target string
+	for _, e := range entries {
+		if e.Closed || e.Lead == "" || m.To != e.ID && m.To != e.Agent+"/"+e.Role {
+			continue
+		}
+		lead, ok, err := reg.Lead(e.Lead)
+		if err != nil {
+			return m, "", err
+		}
+		if !ok {
+			continue
+		}
+		address := session.Address(lead)
+		if target != "" && address != target {
+			return m, "", fmt.Errorf("%s names workers of more than one lead (%s and %s); send to a worker by its id, or to its lead; nothing was sent", m.To, target, address)
+		}
+		target = address
+	}
+	if target == "" || target == m.From {
+		return m, "", nil
+	}
+	note := "for " + m.To + " from " + m.From + ": " + m.S
+	if len(note) > wire.MaxSummaryBytes {
+		return m, "", bus.ErrTooLong
+	}
+	m.To, m.S = target, note
+	return m, target, nil
+}
+
+// deliver sends m on the project bus, to the lead of the worker it names when
+// that is not its own lead's message, and prints its number.
+func deliver(cmd *cobra.Command, m bus.Message) error {
+	b, wire, err := openBusWire()
+	if err != nil {
+		return err
+	}
+	reg, err := session.Open(b.Directory())
+	if err != nil {
+		return err
+	}
+	sent, lead, err := redirectToWorkersLead(reg, m, wire)
+	if err != nil {
+		return err
+	}
+	n, err := b.Send(sent)
+	if err != nil {
+		return err
+	}
+	if lead != "" {
+		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "%s belongs to the lead %s: the message went to that lead\n", m.To, lead); err != nil {
+			return err
+		}
+	}
+	_, err = fmt.Fprintln(cmd.OutOrStdout(), n)
+	return err
 }
 
 func newSendCommand() *cobra.Command {
@@ -43,17 +121,8 @@ func newSendCommand() *cobra.Command {
 					return fmt.Errorf("workers cannot send as a lead address")
 				}
 			}
-			b, err := openBus()
-			if err != nil {
-				return err
-			}
 			m.S = args[0]
-			n, err := b.Send(m)
-			if err != nil {
-				return err
-			}
-			_, err = fmt.Fprintln(cmd.OutOrStdout(), n)
-			return err
+			return deliver(cmd, m)
 		},
 	}
 	cmd.Flags().StringVar(&m.From, "from", "", "Sender address")

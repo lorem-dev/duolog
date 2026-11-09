@@ -38,6 +38,9 @@ type Spec struct {
 	Persistent                     bool
 	// KeepMCP keeps the agent's MCP servers for a task that needs one.
 	KeepMCP bool
+	// SessionName is the name a Claude worker starts under (--name), which
+	// Claude shows to every other session. Codex ignores it.
+	SessionName string
 	// KeepSkills keeps the skill list of a minimal worker whose task needs a skill.
 	KeepSkills bool
 	Timeout    time.Duration
