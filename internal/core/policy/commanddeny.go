@@ -77,25 +77,46 @@ var operandPrograms = map[string][]string{
 // runningOptions are options whose value is a program the command runs.
 var runningOptions = []string{"-exec", "-toolexec", "-vettool", "--pager", "-O", "--open-files-in-pager", "--ext-diff"}
 
+// namesRunningOption reports whether a word among words is an option of
+// runningOptions. The go command takes -exec and --exec alike.
+func namesRunningOption(words []string) bool {
+	return slices.ContainsFunc(words, func(w string) bool {
+		name, _, _ := strings.Cut(strings.Trim(w, `"'`), "=")
+		return slices.Contains(runningOptions, name) || slices.Contains(runningOptions, strings.TrimPrefix(name, "-"))
+	})
+}
+
 // operandOnly reports whether the words before a word are a program that never
 // runs its operands, with its subcommand, such as go test or git diff. An
 // option that runs a program (-exec, --pager) anywhere before, or an option
 // right before the word whose value it may be, keeps the word a candidate.
 func operandOnly(before []string) bool {
 	subs, ok := operandPrograms[ProgramName(strings.Trim(before[0], `"'`))]
-	if !ok {
+	if !ok || namesRunningOption(before[1:]) {
 		return false
-	}
-	for _, w := range before[1:] {
-		name, _, _ := strings.Cut(strings.Trim(w, `"'`), "=")
-		if slices.Contains(runningOptions, name) {
-			return false
-		}
 	}
 	if len(before) > 1 && strings.HasPrefix(before[len(before)-1], "-") {
 		return false
 	}
 	return subs == nil || len(before) > 1 && slices.Contains(subs, before[1])
+}
+
+// testNameOptions are the options of go test whose value is a test name.
+var testNameOptions = []string{"-run", "-skip"}
+
+// goTestNameValue reports whether words[i] is the test name of go test -run
+// or -skip, the word after the option or its value after =, which go test
+// matches and never runs. A value with shell syntax, or a go test with an
+// option that runs a program, is left to the deny check.
+func goTestNameValue(words []string, i int) bool {
+	if i < 2 || len(words) < 3 || ProgramName(words[0]) != "go" || words[1] != "test" || namesRunningOption(words) {
+		return false
+	}
+	name, value := words[i-1], words[i]
+	if option, attached, found := strings.Cut(words[i], "="); found && strings.HasPrefix(words[i], "-") {
+		name, value = option, attached
+	}
+	return slices.Contains(testNameOptions, name) && !strings.ContainsAny(value, "$`()<>\\\"'")
 }
 
 // innerCommandDeny holds the exec denies for every command that the words of
@@ -110,6 +131,9 @@ func innerCommandDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, pa
 		tail := strings.TrimLeft(strings.Join(words[i:], " "), "$(`<>")
 		if agent && i > 0 && tail == words[i] && operandOnly(words[:i]) {
 			continue // a plain operand of a program that never runs it, as in go test ./pkg
+		}
+		if agent && goTestNameValue(words, i) {
+			continue
 		}
 		for _, rule := range denyRules(p, lead) {
 			if rule.Action == "exec" && agentRule(rule) == agent && roleApplies(rule, a.Role) && denyMatchesCommand(rule.Match, tail) {

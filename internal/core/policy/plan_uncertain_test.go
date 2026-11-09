@@ -31,6 +31,8 @@ func TestPlanAsksAboutAnUncertainReadLine(t *testing.T) {
 		{`rg -n "a\b" . >> out.txt`, Deny},
 		{`rg -n "a\b" . 2>err.txt`, Deny},
 		{`rg -n Lead internal`, Allow},
+		// A backslash before a ( in a double-quoted rg pattern is read for sure.
+		{`rg -n "Lead\(" internal`, Allow},
 	} {
 		check(t, p, LeadRules{}, mode.Plan, Action{Kind: "exec", Target: c.command, Role: "implement"}, c.want)
 	}
@@ -50,7 +52,7 @@ func TestPlanDeniesAnUncertainReadLineWithAParenthesis(t *testing.T) {
 			`ls **/*(.)`,
 			`cat *.go(N)`,
 			`ls @(a|b)`,
-			`rg -n "Lead\(" internal`,
+			`rg -n "a\b(" internal`,
 		} {
 			check(t, p, LeadRules{}, mode.Plan, Action{Kind: "exec", Target: command, Role: "implement", Shell: shell}, Deny)
 		}

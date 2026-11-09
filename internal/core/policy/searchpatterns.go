@@ -3,6 +3,8 @@ package policy
 import (
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
@@ -66,6 +68,102 @@ var (
 		stopAtOperand: true,
 	}
 )
+
+// patternEscapable are the characters before which a backslash in a double
+// quoted rg pattern is allowed. The shell keeps such a backslash, so rg gets it.
+const patternEscapable = "|()*;&"
+
+// deniedInPattern are the names of the default read denies and of duolog state.
+// A quoted pattern that names one is left to the plain quote rules.
+var deniedInPattern = []string{".duolog", ".env", ".pem", ".key", "secrets"}
+
+// rgPatternEscapes turns each allowed escape of patternEscapable into its
+// character, so that quotedRunUnsafe finds only a backslash that is not allowed.
+var rgPatternEscapes = strings.NewReplacer(`\|`, "|", `\(`, "(", `\)`, ")", `\*`, "*", `\;`, ";", `\&`, "&")
+
+// shellEscape reports whether the backslash at command[i], inside the quote
+// quote or none, escapes the next character: never in single quotes, and in
+// double quotes not before one of patternEscapable, where the shell keeps it.
+// A part that holds such a backslash stays uncertain unless rgQuotedPattern
+// reads it, since literalQuotes refuses every backslash.
+func shellEscape(command string, i int, quote byte) bool {
+	if quote == '\'' {
+		return false
+	}
+	return quote != '"' || i+1 == len(command) || strings.IndexByte(patternEscapable, command[i+1]) < 0
+}
+
+// readQuotes reports whether a read command's quotes only group literal text,
+// with quoted spaces allowed and the search pattern of rg read as data.
+func readQuotes(part string) bool {
+	return literalQuotes(part, true) || rgQuotedPattern(part)
+}
+
+// rgQuotedPattern reports whether an rg command's quotes only group literal
+// text once a * is allowed in the quoted text of its search pattern, and a
+// backslash before one of patternEscapable in double quotes. Nothing else is
+// widened: a pattern given by an option, a path and any other word keep the
+// rules of literalQuotes, since the checks after this one read such a word as
+// a glob. A $ or backtick in double quotes still counts, and so does a pattern
+// that names a denied name.
+func rgQuotedPattern(part string) bool {
+	words := quotedWords(part)
+	if len(words) < 2 || words[0] != "rg" {
+		return false
+	}
+	// Without the pattern options, only the pattern operand is marked.
+	syntax := rgSyntax
+	syntax.patternShorts, syntax.patternLong = "", nil
+	patterns, _ := syntax.patterns(words, 1)
+	wordIndex, inWord := -1, false
+	for i := 0; i < len(part); i++ {
+		r, size := utf8.DecodeRuneInString(part[i:])
+		if unicode.IsSpace(r) {
+			inWord = false
+			i += size - 1
+			continue
+		}
+		if !inWord {
+			wordIndex, inWord = wordIndex+1, true
+		}
+		c := part[i]
+		if c != '\'' && c != '"' {
+			if strings.IndexByte("\\$`<>()", c) >= 0 {
+				return false
+			}
+			continue
+		}
+		end := strings.IndexByte(part[i+1:], c)
+		if end <= 0 || !quotedRunData(part[i+1:i+1+end], c, patterns[wordIndex] && !namesDenied(words[wordIndex])) {
+			return false
+		}
+		i += end + 1
+	}
+	return true
+}
+
+// quotedRunData reports whether a quoted run of rgQuotedPattern, in the quote
+// quote, holds no text the shell would read differently. pattern allows what
+// the search pattern may hold.
+func quotedRunData(run string, quote byte, pattern bool) bool {
+	unsafe := strings.Replace(quotedLiteralUnsafe, " ", "", 1)
+	if quote == '"' {
+		unsafe += "$`"
+	}
+	if !pattern {
+		return !quotedRunUnsafe(run, unsafe)
+	}
+	if quote == '"' {
+		run = rgPatternEscapes.Replace(run)
+	}
+	return !quotedRunUnsafe(run, strings.Replace(unsafe, "*", "", 1))
+}
+
+// namesDenied reports whether text names one of deniedInPattern, in any case.
+func namesDenied(text string) bool {
+	lower := strings.ToLower(text)
+	return slices.ContainsFunc(deniedInPattern, func(name string) bool { return strings.Contains(lower, name) })
+}
 
 // searchOption is what one option word of a search command means.
 type searchOption struct {

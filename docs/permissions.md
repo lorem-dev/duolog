@@ -290,6 +290,7 @@ worker's MCP tool calls are checked" below.
 | exec | Check tools of each ecosystem, for write roles: `node_modules/.bin/eslint`, `.venv/bin/ruff`, `python -m pytest`, `go vet`, `cargo clippy`, `cmake --build`, offline `gradle` and `mvn`, `dotnet test --no-restore` and the like | allow |
 | exec | Read commands: `cat`, `head`, `tail`, `ls`, `wc`, `rg`, `grep`, `find`, `sed -n 'N,Mp'`, `jq`, `sort`, `stat`, `tree`, `cmp A B` and others | allow |
 | exec | `git status`, `git diff`, `git log`, `git show`, and `git worktree list` | allow |
+| exec | `git branch --show-current` and `git rev-parse --abbrev-ref HEAD`, exactly so | allow |
 | exec | `git push`, `git reset --hard`, `git clean`, `git rebase` | deny |
 | exec | `rm -rf *` | deny |
 | exec | `claude` and `codex`, with or without arguments | deny |
@@ -406,6 +407,15 @@ Windows short name, between a letter and a digit, is plain. The shell would
 expand such text, so the gate cannot read the words it passes on. A read-only
 role may be denied instead of asked. A brace anywhere in a command asks for the
 same reason. Quoted `rg` glob options follow the glob check above.
+
+The quoted search pattern of `rg`, the first operand when no option gives the
+pattern, is data, and gets the decision of the same `rg` with a plain pattern.
+So it may hold a `*`, as in `rg -F 'func (r *Registry)' a.go`, and, in double
+quotes, a backslash before one of `|`, `(`, `)`, `*`, `;` or `&`, as in
+`rg "Root\(|Dir" a.go`. A `$` or a backtick in double quotes still asks. The
+pattern of `-e`, a quoted path and any other word follow the rules above, and
+so does a quoted pattern that names `.duolog`, `.env`, `.pem`, `.key` or
+`secrets`.
 
 `sed` reads only as `sed -n 'N,Mp' file`. Other `sed` scripts ask. The gate
 judges the files of the `r`, `R`, `w` and `W` commands and the `s///w` flag,
@@ -554,6 +564,11 @@ here-document, or `${` in double quotes. Only the rules that name `claude` or
 another one; every unquoted word still counts. All other rules read the line
 as written, so a report line such as `git push` is still refused, and so is
 `echo 'git push' > x.sh; sh x.sh`.
+
+The value of `go test -run` or `-skip` is a test name, not a command, so
+`go test -run TestX/claude ./...` starts nothing. This does not hold for a value
+with a substitution or for a `go test` with an option that runs a program, such
+as `-exec`, `-toolexec` or `-vettool`.
 
 The gate reads two common shell forms as the plain commands they run, so they
 need no ask. It judges the line as written first, and a deny of it stands.

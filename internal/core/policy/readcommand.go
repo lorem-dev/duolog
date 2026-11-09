@@ -153,12 +153,19 @@ func rgShortsKnown(cluster string) bool {
 	return true
 }
 
+// gitExactReads are Git commands that are reads only exactly as written here.
+// Other uses of branch and rev-parse can write or name files.
+var gitExactReads = []string{"git branch --show-current", "git rev-parse --abbrev-ref HEAD"}
+
 // gitReadPattern reports whether the words of a rule pattern that starts with
 // git name a read: status, diff, log, show or worktree list, each with an
-// optional trailing *.
+// optional trailing *, or one of gitExactReads.
 func gitReadPattern(fields []string) bool {
 	if len(fields) < 2 {
 		return false
+	}
+	if slices.ContainsFunc(gitExactReads, func(read string) bool { return strings.EqualFold(read, strings.Join(fields, " ")) }) {
+		return true
 	}
 	worktreeList := len(fields) > 2 && fields[1] == "worktree" && strings.TrimSuffix(fields[2], "*") == "list"
 	return worktreeList || slices.Contains([]string{"status", "diff", "log", "show"}, strings.TrimSuffix(fields[1], "*"))
@@ -166,8 +173,11 @@ func gitReadPattern(fields []string) bool {
 
 // gitRead reports whether a Git command, its lower-case words given, only
 // reads: status, diff, log, show or worktree list, without an option that
-// writes a file or runs a program.
+// writes a file or runs a program, or one of gitExactReads, compared as written.
 func gitRead(command string, words []string) bool {
+	if slices.Contains(gitExactReads, strings.Join(strings.Fields(command), " ")) {
+		return true
+	}
 	worktreeList := len(words) > 2 && words[1] == "worktree" && words[2] == "list"
 	return len(words) > 1 && (slices.Contains([]string{"status", "diff", "log", "show"}, words[1]) || worktreeList) && !strings.Contains(command, "--output") && !strings.Contains(command, "--ext-diff") && !strings.Contains(command, "--textconv") && !strings.Contains(command, "--no-index")
 }

@@ -668,7 +668,7 @@ func shellParts(command string, reads bool) ([]string, bool) {
 			words = dropLocalDockerHost(strings.Fields(stripped))
 			switch {
 			case literalQuotes(part, false) && len(words) > 0:
-			case reads && literalQuotes(part, true) && readOnlyCommand(strings.Join(quotedWords(part), " ")):
+			case reads && readQuotes(part) && readOnlyCommand(strings.Join(quotedWords(part), " ")):
 				words = quotedWords(part)
 			default:
 				uncertain = true
@@ -723,7 +723,7 @@ func shellParts(command string, reads bool) ([]string, bool) {
 			escaped = false
 			continue
 		}
-		if c == '\\' && quote != '\'' {
+		if c == '\\' && shellEscape(command, i, quote) {
 			uncertain = true
 			escaped = true
 			continue

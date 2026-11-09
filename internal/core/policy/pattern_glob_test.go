@@ -103,7 +103,8 @@ func TestPatternGlobThatStaysKeepsItsDecision(t *testing.T) {
 		{`grep "/elsewhere/pa*" f`, Ask},
 		{`grep \/elsewhere/pa\* f`, Ask},
 		{`grep -n '../pa*' f`, Ask},
-		{`rg '/elsewhere/pa*' f`, Ask},
+		// The quoted search pattern of rg is data, as a plain pattern is.
+		{`rg '/elsewhere/pa*' f`, Allow},
 		{`git log -G '/elsewhere/pa*' x`, Ask},
 		{`git log -S "/elsewhere/pa*" x`, Ask},
 		{`git log --grep '/elsewhere/pa*' x`, Ask},
