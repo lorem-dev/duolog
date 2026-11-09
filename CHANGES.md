@@ -42,40 +42,44 @@
 
 ## Development
 
+## 1.7.0
+
 ### Added
 
 - `install` and a lead's next prompt tell you to restart running sessions when
   the MCP server or skills are new to them.
-- `quota` reads a Codex enterprise seat's per-person `individualLimit` as an
-  `individual` window, so its workers run on it instead of as paid.
-- Claude's `Stop` hook catches unwatched busy peers; `peer wait --after-ask N`
-  waits through a relayed gate ask's answer or expiry.
+- `quota` reads a Codex enterprise seat's `individualLimit` as an `individual`
+  window, and retries a passing Claude `/usage` failure.
+- `duolog runs` lists live peers and delegate runs in one table; `duolog watch`
+  follows one for the person, in the terminal or a Rex tab.
+- A role with `balance: false` stays on its agent under pace balancing, as
+  `planner` does; `review_cross` is a Codex review for a large batch.
+- A lead with a large context is told to offer a fresh session when no worker
+  runs; set `lead.fresh_session_hint`, or `0` to turn it off.
 
 ### Changed
 
 - An ask only the person can answer waits 10 minutes; run `duolog install` for
   the longer hook timeouts, then approve the Codex hooks again.
+- The MCP `delegate` tool waits and returns the whole result; with `wait: false`
+  it returns at once, and a repeat of a running task returns that run.
+- `delegate` names blocked Check commands before a worker starts; a task within
+  `routing.small_task_files` answers `run here` (`--skip-preflight`, `--force`).
+- Codex workers get Go caches under the temp folder, one per project, so Go
+  builds need no `writable_roots`. A worker no longer hands its task on.
+- Workers and peers are named after their role and lead; `duolog send` to a
+  worker from anyone else goes to its lead.
 
 ### Fixed
 
-- `duolog doctor` names each `AWS_BEARER_TOKEN_*` variable that makes every
-  Claude worker paid, even when empty, and never prints its value.
-- `duolog peer` ignores the caller's Git variables, refuses a task outside the
-  peer's worktree, and judges a pane's command from that worktree.
-- A peer can run `echo "$DUOLOG_PEER"` and `printenv DUOLOG_PEER` to learn its
-  own id without an ask.
-- Workers and peers read installed agent skills without a person-only ask;
-  writes outside the work root still need approval.
-- The lead brings peer changes back to its starting checkout before reporting
-  done, preserving existing work and following requested branch or PR workflows.
-- `doctor` no longer calls a Rex CLI binary a script or says it skips the
-  same Rex path it uses.
-- The MCP `peer` tool opens in a named worktree and sends tasks to the peer's
-  registered checkout, even when the lead runs elsewhere.
-- Repository searches with quoted regex alternatives no longer trigger the
-  lead's person-only telemetry guard.
-- `duolog quota` and peers survive a passing Claude `/usage` failure: one retry,
-  then a good read within `balance.max_age_seconds`; else still `paid`.
+- `doctor` names each `AWS_BEARER_TOKEN_*` variable that makes Claude workers
+  paid, and no longer calls a Rex CLI binary a script.
+- `duolog peer` and the MCP `peer` tool work in the peer's worktree and ignore
+  the caller's Git variables; a peer can print its own id without an ask.
+- The lead waits for busy peers (`peer wait --after-ask N`, the `Stop` hook) and
+  brings their changes back to its starting checkout before reporting done.
+- Workers read installed agent skills, and quoted `rg` patterns, `cmp` and
+  `git worktree list` no longer stop them; `remember` keeps `learned.yaml`.
 
 ### Security
 
