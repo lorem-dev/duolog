@@ -300,9 +300,41 @@ A read-only role can execute only commands named by a read-only allow rule,
 such as `git status`, `git diff`, `cat` or `rg`. Build and test rules apply to
 write roles. This limit holds in `full` too.
 
-The default rules do not allow `go run`, `uv run` or `npm run deploy`, because
-they can start any program. These commands ask. A test or build still runs the
-project's own code, so a write role is only as safe as the code it can edit.
+The default rules do not allow `go run`, `uv run <script>` or `npm run deploy`,
+because they can start any program. These commands ask. A test or build still
+runs the project's own code, so a write role is only as safe as the code it can
+edit.
+
+`uv run` is allowed for `pytest`, `ruff`, `ty`, `mypy`, `pyright` and
+`basedpyright`, for write roles only, as `.venv/bin/` is. Any other `uv run`
+command asks.
+
+### Preflight of the Check commands
+
+Before a worker starts in a write role, `duolog delegate` takes each command in
+the task's `## Check` section and judges it with the decision code the gate
+uses for that role in that work root. A command is a line, or list item, that is
+one backtick span, or a line inside a fenced block. In a fenced block a line
+that starts with `#` is a comment and is skipped, and a line that ends in `\`
+joins the next into one command. The MCP `delegate` tool writes each `check`
+item as one backtick span. The judgment is made for the route that starts, in
+that route's worker mode: a blocked first route is left for the fallback, and
+the task is refused only when no route can run it. A replay and a judge run are
+not judged. If any answer is `ask` or `deny`, no worker starts and the command
+exits non-zero. The message names each blocked command with its decision, and
+for `ask` shows `duolog remember '<command>'`, which the person may run to
+approve it. The MCP `delegate` tool returns the same list in the `blocked`
+field, with `remember` on each `ask`.
+
+A preflight only reports. It allows nothing and remembers nothing. A Check line
+that cannot be read as a command is not a block: it is named in the output, and
+in `skipped_checks` over MCP, on a refusal and on every run that starts. A
+read-only role runs no Check command, so it is not judged. Pass
+`--skip-preflight`, or `skip_preflight` over MCP, to start the worker anyway.
+
+`duolog doctor` and `duolog install --check` print the project's own test and
+lint commands, from the survey `duolog calibrate` does, that the gate would not
+allow for `implement`. They only print.
 
 A wildcard rule for read commands grants reads only, for every role. `find`
 and `rg` pass with known read options, so `find . -delete` or an unknown `rg`

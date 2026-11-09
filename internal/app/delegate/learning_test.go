@@ -43,6 +43,7 @@ func (h *harness) enableLearning() {
 	if h.cfg, err = configfile.Load(h.root); err != nil {
 		h.t.Fatal(err)
 	}
+	h.cfg.Routing.SmallTaskFiles = 0
 }
 
 // learning enables learning, makes the project a Git repository with one
@@ -663,6 +664,7 @@ func TestCalibrationNeedsTheGateInTheWorkersEnvironment(t *testing.T) {
 			if h.cfg, err = configfile.Load(h.root); err != nil {
 				t.Fatal(err)
 			}
+			h.cfg.Routing.SmallTaskFiles = 0
 			tc.setup(h, t.TempDir())
 			h.lead("claude", mode.Edits, "high")
 			e := *target(tc.entry)

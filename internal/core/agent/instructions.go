@@ -28,7 +28,7 @@ const Block = InstructionBegin + "\n" + InstallOffer + "\n" + UsageNote + "\n" +
 
 // MCPNote is the block line for an agent whose lead gets the duolog MCP
 // server. It follows UsageNote.
-const MCPNote = "A Claude lead uses the duolog MCP tools (`delegate`, `peer`, `answer_ask`, `status`) for every hand-over, wait and ask, and the CLI only where a tool is missing or fails; workers and peers never get these tools."
+const MCPNote = "A Claude lead uses the duolog MCP tools (`delegate`, `peer`, `answer_ask`, `status`) for every hand-over, wait and ask (one waiting `delegate` call returns the whole result), and the CLI only where a tool is missing or fails; workers and peers never get these tools."
 
 // BlockFor is the block for an agent: Block, with MCPNote when mcp is true.
 func BlockFor(mcp bool) string {

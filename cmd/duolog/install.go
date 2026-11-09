@@ -103,6 +103,11 @@ func installCheck(cmd *cobra.Command, d install.Deps, o install.Options) error {
 			}
 		}
 	}
+	if o.Scope != "user" {
+		if err := printBlockedProjectChecks(cmd.Context(), cmd.OutOrStdout(), o.Root); err != nil {
+			return err
+		}
+	}
 	switch {
 	case broken:
 		return errors.New("the duolog install could not be checked")

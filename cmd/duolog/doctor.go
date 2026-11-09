@@ -45,26 +45,36 @@ func newDoctorCommand(d *cmdDeps) *cobra.Command {
 		if shadow, ok := rex.Shadow(); ok {
 			opts.RexShadow = shadow
 		}
-		var inventoryFindings []doctor.Finding
-		if bin, ok := d.LocateRex(); ok && runtime.GOOS != "windows" {
-			opts.RexBin = bin
-			opts.Panes, err = doctorPanes(cmd.Context(), bin, os.Getenv("REX_SESSION"), reg)
-			if err != nil {
-				inventoryFindings = append(inventoryFindings, doctor.Finding{Level: "warning", Message: "Rex pane inventory unavailable: " + err.Error()})
-			} else {
-				inventoryFindings = append(inventoryFindings, doctor.Finding{Level: "info", Message: "Rex pane inventory checked"})
-			}
-		}
+		inventoryFindings := doctorRexPanes(cmd.Context(), d, reg, &opts)
 		for _, finding := range append(inventoryFindings, doctor.Run(cmd.Context(), d.doctorDeps(), cfg, opts)...) {
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", finding.Level, finding.Message); err != nil {
 				return err
 			}
+		}
+		if err := printBlockedProjectChecks(cmd.Context(), cmd.OutOrStdout(), root); err != nil {
+			return err
 		}
 		_, err = fmt.Fprint(cmd.OutOrStdout(), doctorTelemetry(d, cmd, cfg, root))
 		return err
 	}}
 	cmd.Flags().BoolVar(&probe, "probe", false, "Make a minimal model call from an empty temporary folder")
 	return cmd
+}
+
+// doctorRexPanes sets the Rex binary and the pane inventory in opts when Rex is
+// there, and returns the finding that says whether the inventory could be read.
+func doctorRexPanes(ctx context.Context, d *cmdDeps, reg *session.Registry, opts *doctor.Options) []doctor.Finding {
+	bin, ok := d.LocateRex()
+	if !ok || runtime.GOOS == "windows" {
+		return nil
+	}
+	var err error
+	opts.RexBin = bin
+	opts.Panes, err = doctorPanes(ctx, bin, os.Getenv("REX_SESSION"), reg)
+	if err != nil {
+		return []doctor.Finding{{Level: "warning", Message: "Rex pane inventory unavailable: " + err.Error()}}
+	}
+	return []doctor.Finding{{Level: "info", Message: "Rex pane inventory checked"}}
 }
 
 // doctorConfigError reports a config that does not load as doctor's first

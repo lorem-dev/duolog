@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -45,6 +46,44 @@ var accountLimits = []accountLimit{
 		func(c *config.Config) float64 { return c.Routing.Margin }},
 }
 
+// personLimits are the numeric limits that only the person's own layers may
+// set: a shared layer's value is removed whole by restrictProjectPersonLimits,
+// so they are checked like the account limits but never compared with a base.
+var personLimits = []accountLimit{
+	// A project must not keep work out of the workers.
+	{"routing.small_task_files", false, atLeast(0), "must be 0 or more", false,
+		func(c *config.Config) float64 { return float64(c.Routing.SmallTaskFiles) }},
+}
+
+// checkedLimits are the limits that are checked for a bound.
+func checkedLimits() []accountLimit {
+	return append(slices.Clone(accountLimits), personLimits...)
+}
+
+// restrictProjectPersonLimits removes each person-only limit from a shared
+// layer and names it. The nodes are resolved mappings.
+func restrictProjectPersonLimits(_, layer *yaml.Node, projectFile string) ([]config.ConfigNotice, error) {
+	var notices []config.ConfigNotice
+	for _, l := range personLimits {
+		cut := strings.LastIndex(l.key, ".")
+		parent, err := limitNode(layer, l.key[:cut])
+		if err != nil {
+			return nil, err
+		}
+		name := l.key[cut+1:]
+		value := mappingValue(parent, name)
+		if value == nil {
+			continue
+		}
+		parent.Content, _ = keepEntries(parent.Content, func(key string, _ *yaml.Node) (bool, error) {
+			return key != name, nil
+		})
+		notices = append(notices, config.ConfigNotice{Key: l.key, Reason: fmt.Sprintf(
+			"%s in %s is ignored: only the user config or a local config of your own may set this", value.Value, projectFile)})
+	}
+	return notices, nil
+}
+
 func atLeast(n float64) func(float64) bool {
 	return func(v float64) bool { return v >= n }
 }
@@ -53,7 +92,7 @@ func atLeast(n float64) func(float64) bool {
 // so that a wrong type or value is named by its full key: a count must be a
 // whole number in its bound and a fraction a finite one.
 func checkAccountLimitNodes(root *yaml.Node) error {
-	for _, l := range accountLimits {
+	for _, l := range checkedLimits() {
 		node, err := limitNode(root, l.key)
 		if err != nil {
 			return err
@@ -97,7 +136,7 @@ func limitNode(root *yaml.Node, key string) (*yaml.Node, error) {
 // validateAccountLimits checks the merged account limits, and with them the
 // compact window of the workers, which is checked at the same point.
 func validateAccountLimits(cfg *config.Config) error {
-	for _, l := range accountLimits {
+	for _, l := range checkedLimits() {
 		if !l.valid(l.get(cfg)) {
 			return fmt.Errorf("%s: %s", l.key, l.want)
 		}

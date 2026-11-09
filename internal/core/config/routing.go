@@ -15,7 +15,14 @@ type Routing struct {
 	// own takes one: the first agent that is registered, enabled, available
 	// and not the use agent.
 	AgentOrder []string `yaml:"agent_order" jsonschema_description:"Order in which an agent is taken when a role has no fallback agent of its own: the first registered, enabled, available agent that is not the role's use agent; defaults to claude, codex."`
+	// SmallTaskFiles is the most files a write task may name in its Write
+	// section and still run in the lead; 0 turns the rule off.
+	SmallTaskFiles int `yaml:"small_task_files" jsonschema_description:"Most files a task's Write section may name for a writing role to run in the lead instead of a worker, because a hand-over has a fixed cost; 0 turns it off, defaults to 2. Read-only roles and reviews always get a worker. A Write section that is missing or names a glob or a folder does not qualify. Only the user config and a local config of your own may set it; the shared project config may not." jsonschema:"minimum=0"`
 }
+
+// SmallTaskRoles are the roles that write files: a task of one of them that
+// changes few files runs in the lead.
+var SmallTaskRoles = []string{"implement", "mechanical", "tests", "docs", "planner"}
 
 // DefaultAgentOrder is routing.agent_order when the config sets none.
 func DefaultAgentOrder() []string { return []string{"claude", "codex"} }

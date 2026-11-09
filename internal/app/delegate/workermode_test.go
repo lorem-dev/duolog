@@ -31,6 +31,7 @@ func (h *harness) workerModes(yaml string) {
 	if h.cfg, err = configfile.Load(h.root); err != nil {
 		h.t.Fatal(err)
 	}
+	h.cfg.Routing.SmallTaskFiles = 0
 }
 
 // leadNative registers the lead and records its native mode name.
@@ -697,6 +698,7 @@ func TestRouteChangeCannotEscapeFamilyLowering(t *testing.T) {
 		if h.cfg, err = configfile.Load(h.root); err != nil {
 			t.Fatal(tc.name, err)
 		}
+		h.cfg.Routing.SmallTaskFiles = 0
 		h.leadNative("claude", mode.Full, "bypassPermissions")
 		var out Outcome
 		if tc.use != "" {
@@ -769,6 +771,7 @@ func TestGatePreflightReadsTheWorkersSettings(t *testing.T) {
 		if h.cfg, err = configfile.Load(h.root); err != nil {
 			t.Fatal(err)
 		}
+		h.cfg.Routing.SmallTaskFiles = 0
 		h.leadNative("claude", mode.Full, tc.lead)
 		out, err := h.runOn("implement", tc.agent, tc.model)
 		if len(h.calls) != 0 || err == nil || !strings.Contains(out.Line, "gate preflight failed") {
@@ -788,6 +791,7 @@ func TestGatePreflightReadsTheWorkersSettings(t *testing.T) {
 	if h.cfg, err = configfile.Load(h.root); err != nil {
 		t.Fatal(err)
 	}
+	h.cfg.Routing.SmallTaskFiles = 0
 	h.leadNative("claude", mode.Full, "bypassPermissions")
 	if out, err := h.runOn("implement", "claude", "sonnet"); err != nil || len(h.calls) != 1 {
 		t.Fatal(out.Line, err)
@@ -801,6 +805,7 @@ func TestGatePreflightReadsTheWorkersSettings(t *testing.T) {
 	if h.cfg, err = configfile.Load(h.root); err != nil {
 		t.Fatal(err)
 	}
+	h.cfg.Routing.SmallTaskFiles = 0
 	h.lead("claude", mode.Edits, "high")
 	if out, err := h.runOn("implement", "claude", "sonnet"); err != nil || len(h.calls) != 1 || !strings.Contains(out.Line, "no home folder") {
 		t.Fatal(out.Line, err)

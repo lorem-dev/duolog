@@ -63,6 +63,7 @@ func TestLinkedWorktreeUsesOwnTaskCwdGateAndSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg.Routing.SmallTaskFiles = 0
 	s, err := store.Open(main)
 	if err != nil {
 		t.Fatal(err)

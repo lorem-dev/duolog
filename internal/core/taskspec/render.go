@@ -14,7 +14,9 @@ type Spec struct {
 
 // Render returns the task file text for s. Goal is a paragraph; each Read and
 // Write item is a bullet with the path in backticks (a path:from-to range
-// stays inside them); Limits and Check items are plain bullets; an empty
+// stays inside them); Limits items are plain bullets; a Check item is a
+// command in backticks, so the preflight reads it (a plain bullet when it has
+// a backtick of its own, which the preflight then names as skipped); an empty
 // list renders "- none". It refuses an empty goal, an item with a newline,
 // and any line that starts with "#" or a code fence, so no input can add or
 // move a section. The result passes Validate.
@@ -41,7 +43,8 @@ func Render(s Spec) ([]byte, error) {
 		{"Check", s.Check, false},
 	} {
 		b.WriteString("\n## " + list.name + "\n\n")
-		if len(list.items) == 0 {
+		// A lone "none" is how a caller says the list is empty.
+		if len(list.items) == 0 || (list.name == "Check" && len(list.items) == 1 && strings.EqualFold(strings.TrimSpace(list.items[0]), "none")) {
 			b.WriteString("- none\n")
 			continue
 		}
@@ -50,7 +53,7 @@ func Render(s Spec) ([]byte, error) {
 			if err := checkItem(list.name, item, list.quoted); err != nil {
 				return nil, err
 			}
-			if list.quoted {
+			if list.quoted || (list.name == "Check" && !strings.Contains(item, "`")) {
 				item = "`" + item + "`"
 			}
 			b.WriteString("- " + item + "\n")

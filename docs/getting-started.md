@@ -297,17 +297,40 @@ than the lead's shell can. Codex leads keep the skill and the CLI.
 
 | Tool | What it does |
 |---|---|
-| `delegate` | Hands a task to a worker from typed fields; returns the answer, or `run_here` as data |
+| `delegate` | Hands a task to a worker from typed fields and waits; returns the whole result, or `run_here` as data |
 | `peer` | Drives a live [Rex peer](rex.md#how-to-drive-peers-with-the-mcp-tool): open, send, wait, answer, status, close, list |
 | `answer_ask` | Allows or denies a worker's or a peer's permission ask by its number |
 | `status` | Lists peers, open asks, delegations, load and quota |
+
+A hand-over costs the lead one turn. `delegate` waits by default (`wait`
+defaults to true) and returns the result in its response: `state`, `done`,
+`summary`, `decisions`, `needs`, the `files` the worker reports changed, a
+`diffstat` of those files against `HEAD` (plus the files new to Git), and the
+`answer_path` of the result record. The lead needs no background start, no
+notice and no output file. A worker's asks behave as for a foreground
+`duolog delegate`: the gate denies them and the worker lists the commands in
+`needs`. `wait` false starts the run and returns at once.
+
+A call waits at most 10 minutes (`timeout_minutes`, default and cap). That is
+the longest wait duolog already trusts: `peer wait` stops there too, and the
+gate holds an ask for up to 600 seconds plus 30 seconds. Neither the code nor
+these docs state the MCP client's tool timeout, so duolog stays at the longest
+known wait. A run that outlasts it returns `{"state":"running","id":...}`; the
+lead calls `delegate` again with `action` `result` and `task_path` set to that
+`id`, which waits the same way. A client may also give up before the reply. The
+run goes on and the lead has no `id`; `status` lists the runs, and a `delegate`
+call for the same task while its run is running returns that run's `running`
+state and `id`, not a second worker. Where only the CLI works, the lead starts
+`duolog delegate` in the background and waits for its notice, because a
+foreground shell call has a short time limit.
 
 Install adds the server as one entry at Claude's user scope, from either
 `--scope`. It also adds `mcp__duolog__delegate`, `mcp__duolog__peer` and
 `mcp__duolog__status` to `permissions.allow` of the install scope, so the first
 call does not ask. It never adds `mcp__duolog__answer_ask`: the lead's guard or
 you decide that call, as for `duolog allow`. The marked block in `CLAUDE.md`
-tells the lead to use the tools and the CLI only where a tool is missing.
+tells the lead to use the tools, one waiting `delegate` call per hand-over, and
+the CLI only where a tool is missing.
 
 Only the lead gets the tools. Outside a folder with `.duolog/config.yaml`, and
 in a worker or a peer, the server lists no tools, so they cost nothing there.
@@ -426,6 +449,12 @@ Do not change files. Answer in at most 3 lines.
 ## Check
 Name the function and the line.
 ```
+
+Write each Check command as one backtick span on its own line, or in a fenced
+block with one command per line (a `#` comment line is skipped, and a line
+that ends in `\` goes on in the next). Before a worker
+starts, duolog judges them with the gate and stops when one would ask or be
+denied; see [Permissions](permissions.md#preflight-of-the-check-commands).
 
 List files with line ranges in Read. duolog puts those lines in the worker's
 standard input, up to `wire.inline_max_bytes`, so the worker does not spend

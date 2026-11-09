@@ -35,6 +35,14 @@ func TestRenderPassesValidate(t *testing.T) {
 	}
 }
 
+// A lone Check item "none" is an empty list, not a command named none.
+func TestRenderLoneNoneCheckIsEmpty(t *testing.T) {
+	data := renderOK(t, Spec{Goal: "g", Check: []string{"none"}})
+	if !strings.HasSuffix(string(data), "## Check\n\n- none\n") {
+		t.Fatalf("Check section = %q", data)
+	}
+}
+
 func TestRenderReadItemsAreReferences(t *testing.T) {
 	data := renderOK(t, Spec{Goal: "g", Read: []string{"docs/a.md", "cmd/x.go:3-9"}})
 	fsys := fstest.MapFS{"task.md": {Data: data}}

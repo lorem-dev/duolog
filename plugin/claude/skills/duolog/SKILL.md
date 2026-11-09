@@ -46,20 +46,23 @@ Use the CLI only if a tool is missing or fails.
 2. Before handoff, record the starting checkout, branch and existing edits.
    Write `.duolog/task.md`: Goal, Read, Write, Limits, Check.
    List file ranges and edited docs under Write.
-3. Run `duolog delegate <role> --task .duolog/task.md` in the background.
+3. Call `delegate`; its response is the result. If `running`, call `result`
+   with the id as task_path (`status` lists runs).
+   CLI: run `duolog delegate <role> --task .duolog/task.md` in the
+   background; wait for its notice.
 4. Read summary, `git diff --stat`, marked hunks and `answer.json`'s
    `decisions=` only; skip full suites.
+   Batch nameable reads in parallel.
 5. Keep hard parts; finish with `review_final`.
 
-Put worker rules in `.duolog/brief.md`. With several leads, pass
-`--lead <id>` from SessionStart. Learning mode: run `duolog task start` first.
-Same-vendor subagents use your tools, not duolog.
+Worker rules: `.duolog/brief.md`. With several leads, pass `--lead <id>`. Learning mode: run `duolog task start` first.
+Same-vendor subagents use your tools.
 
 ## On `run here`
 
 - `run here: self`: read only the listed ranges.
-- `run here: subagent model=M effort=E`: use the Agent tool with model M,
-  effort E and the task text, not duolog.
+- `run here: subagent model=M effort=E`: use the Agent tool with M, E and
+  the task text, not duolog.
 
 ## Asks
 
@@ -70,15 +73,13 @@ Use `duolog allow <n>`, `duolog deny <n>` or, with approval,
 
 ## Live sessions (Rex)
 
-Answer `duolog peer wait` with
-`duolog peer answer <id> <option>`; background each wait.
-Run independent tasks in parallel, one worker per `.worktrees/` worktree;
-stack dependent work on that task's branch.
+Answer `duolog peer wait` with `duolog peer answer <id> <option>`;
+background each wait. Run independent tasks in parallel, one worker per
+`.worktrees/` worktree; stack dependent work on that task's branch.
 
 Before reporting done, review and bring the peer's task changes into the
 starting checkout on its original branch, unless the person requested another
-branch or PR. Peer worktrees are staging areas, not the delivery destination.
-Use merge, cherry-pick or apply the task diff as appropriate. Keep changes
+branch or PR. Keep changes
 uncommitted unless a commit was requested or required; preserve existing
 staged, unstaged and untracked work. If integration conflicts, report the
 blocker instead of completion. Verify the integrated result there and tell

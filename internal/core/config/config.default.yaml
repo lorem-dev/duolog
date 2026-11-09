@@ -62,6 +62,7 @@ routing:
   balance: pace            # pace, or off for the ladder as written
   margin: 0.10             # used share may pass elapsed share by this much
   agent_order: [claude, codex] # who takes a task whose role names no other agent
+  small_task_files: 2      # a writing task whose Write names at most this many files runs in the lead; 0 is off
 
 # The built-in agents are on. A third registered agent is off until its entry
 # says enabled: true.
@@ -208,7 +209,7 @@ policy:
     - {action: exec,  match: "{go,cargo,npm,pnpm,uv,task,make} {test,lint,fmt,build}*", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
     - {action: exec,  match: "{npm,pnpm} run {test,lint,fmt,build}*", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
     - {action: exec,  match: "{npm,pnpm} run {type,typecheck,type:*}", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
-    - {action: exec,  match: "uv run {pytest,ruff,ty}*", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
+    - {action: exec,  match: "uv run {pytest,ruff,ty,mypy,pyright,basedpyright}{, *}", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}
     # Check tools as agents call them, per ecosystem. Writer roles only: these run
     # project code or config (eslint configs, build scripts, test files).
     - {action: exec,  match: "{./,}node_modules/.bin/{tsc,vue-tsc,eslint,prettier,biome,vitest,jest}*", decision: allow, roles: [planner, implement, implement_complex, mechanical, tests, docs, debug_hard]}

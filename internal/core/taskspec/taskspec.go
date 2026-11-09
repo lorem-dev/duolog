@@ -163,6 +163,29 @@ func ReadPaths(fsys fs.FS, name string) ([]string, error) {
 // sectionPaths returns the paths that a section of the task file name in fsys
 // lists, as WritePaths says.
 func sectionPaths(fsys fs.FS, name, section string) ([]string, error) {
+	names, err := sectionNames(fsys, name, section)
+	for i, n := range names {
+		names[i] = pathutil.Clean(n)
+	}
+	return names, err
+}
+
+// WriteFolders returns the cleaned Write entries that were written with a
+// trailing slash. They name a folder, even one that does not exist yet, which
+// WritePaths no longer shows once the slash is cleaned off.
+func WriteFolders(fsys fs.FS, name string) ([]string, error) {
+	names, err := sectionNames(fsys, name, "Write")
+	var folders []string
+	for _, n := range names {
+		if strings.HasSuffix(pathutil.Slashes(n), "/") {
+			folders = append(folders, pathutil.Clean(n))
+		}
+	}
+	return folders, err
+}
+
+// sectionNames returns the entries that a section lists, as written.
+func sectionNames(fsys fs.FS, name, section string) ([]string, error) {
 	data, err := fs.ReadFile(fsys, name)
 	if err != nil {
 		return nil, err
@@ -193,7 +216,7 @@ func sectionPaths(fsys fs.FS, name, section string) ([]string, error) {
 			name = match[1]
 		}
 		if name != "" {
-			paths = append(paths, pathutil.Clean(name))
+			paths = append(paths, name)
 		}
 	}
 	return paths, nil

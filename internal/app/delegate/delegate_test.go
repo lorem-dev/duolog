@@ -178,6 +178,8 @@ func newHarness(t *testing.T) *harness {
 	if e != nil {
 		t.Fatal(e)
 	}
+	// The tasks here write one file; small_task_files has its own tests.
+	h.cfg.Routing.SmallTaskFiles = 0
 	h.s, e = store.Open(h.root)
 	if e != nil {
 		t.Fatal(e)
@@ -1230,6 +1232,7 @@ func TestWorkerInventoryScansTheWorkersEnvironment(t *testing.T) {
 	if h.cfg, err = configfile.Load(h.root); err != nil {
 		t.Fatal(err)
 	}
+	h.cfg.Routing.SmallTaskFiles = 0
 	caller := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", caller)
 	scanned := map[string][]string{}

@@ -44,6 +44,9 @@ type Outcome struct {
 	// Needs names the tools the worker or the capability check asked the lead
 	// for. It is not a failure: the caller gives it a separate exit code.
 	Needs []string
+	// SkippedChecks are the Check lines the preflight did not read as a
+	// command, for a run that started a worker in a write role.
+	SkippedChecks []string
 }
 
 // NotStartedError is a delegation refused before any worker started: by the
@@ -85,6 +88,9 @@ type Options struct {
 	ReplayOf string
 	// Judge runs are never journalled.
 	Judge bool
+	// Force starts a worker even for a task that routing.small_task_files would
+	// keep in the lead.
+	Force bool
 	// Calibration marks a calibration cell or statement rewrite: no task opens
 	// and no journal record is written; the calibration run records it.
 	Calibration bool
@@ -103,6 +109,9 @@ type Options struct {
 	// starts and stops waiting for a session slot.
 	Budget  *paidrules.StepBudget
 	Waiting func(bool)
+	// SkipPreflight starts the worker without judging the task's Check
+	// commands with the gate first.
+	SkipPreflight bool
 	// Observe receives every worker run, failed ones included, with learning
 	// on or off; nil observes nothing.
 	Observe Observer
@@ -155,16 +164,8 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		return out, err
 	}
 	root = project.CurrentWorkRoot(root)
-	lookup := pathutil.Native(taskPath)
-	if !filepath.IsAbs(lookup) {
-		if cwd, e := os.Getwd(); e == nil {
-			candidate := filepath.Join(cwd, lookup)
-			if _, e := os.Stat(candidate); e == nil {
-				lookup = candidate
-			}
-		}
-	}
-	writes, reads, original, err := readTask(root, lookup, opts.Stderr)
+	lookup := taskLookup(taskPath)
+	writes, reads, original, plan, err := readTaskPlan(root, lookup, opts)
 	if err != nil {
 		return out, err
 	}
@@ -179,15 +180,8 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		// task.Inline reads a copy only from the work root's state.
 		tasksDir = filepath.Join(project.StateRoot(root), ".duolog", "tasks")
 	}
-	if err = os.MkdirAll(tasksDir, 0755); err != nil {
-		return out, err
-	}
-	dir, err := os.MkdirTemp(tasksDir, "task-")
+	dir, copyPath, err := copyTask(tasksDir, original)
 	if err != nil {
-		return out, err
-	}
-	copyPath := filepath.Join(dir, "task.md")
-	if err = os.WriteFile(copyPath, original, 0600); err != nil {
 		return out, err
 	}
 	reg, err := session.Open(s.Dir)
@@ -203,7 +197,6 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		return out, err
 	}
 	leadID, leadAgent, address := lead.ID, lead.Agent, session.Address(lead)
-	leadTarget := &lead.Target
 	reg.LeadID = leadID
 	lr, err := beginLearning(cfg, s, leadID, role, filepath.Base(dir), opts)
 	if err != nil {
@@ -248,6 +241,10 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		}
 		out.Line = finalLine(out.Line, notices, dir)
 	}()
+	if line := smallTaskLine(cfg, role, root, taskPath, writes, plan.folders, opts, leadMode); line != "" {
+		out.RunHere, out.Line = &Placement{Where: "self", Task: taskPath}, line
+		return out, nil
+	}
 	unavailable, err := reg.Unavailable()
 	if err != nil {
 		return out, err
@@ -302,7 +299,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 			}
 			priorAgent, attempt = "", 0
 		}
-		ro := coreroute.Options{Lead: leadTarget, AllowManualModel: opts.AllowManualModel}
+		ro := coreroute.Options{Lead: &lead.Target, AllowManualModel: opts.AllowManualModel}
 		if pass == 0 {
 			ro.Balance = balance
 		}
@@ -325,7 +322,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 				attempt = 1
 				continue
 			}
-			return out, routeErr
+			return out, plan.refusal(routeErr)
 		}
 		lr.resolved(route)
 		worker = route.Agent + "/" + role
@@ -348,6 +345,9 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		}
 		if leadMode == mode.Plan && route.Sandbox != "read-only" {
 			return out, fmt.Errorf("mode plan refuses write role %s", role)
+		}
+		if err = plan.inLead(route); err != nil {
+			return out, err
 		}
 		if route.Self || route.InLead {
 			p := Placement{Where: "self", Task: placementTask}
@@ -374,6 +374,15 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		}
 		// Resolved before resolveModel replaces the alias, which names the family.
 		wm := resolveWorkerMode(cfg, role, route, lead, leadMode)
+		skip, err := plan.check(preflightRun{cfg, leadRules, leadMode, role, root, filepath.Dir(s.Dir), opts.ProtectedRoots, reads, opts.Stderr, opts.Entry != nil}, route, wm, attempt, &out)
+		if err != nil {
+			return out, err
+		}
+		if skip {
+			priorAgent = route.Agent
+			unavailable[route.Agent] = true
+			continue
+		}
 		capNotes = ""
 		// The bridge must not replace a variable the worker already gets. The
 		// worker mode's DUOLOG_NATIVE, DUOLOG_MODE when an entry applies, and
@@ -385,7 +394,6 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 			return out, err
 		}
 		env := base.Env
-		var bridge []string
 		var bridged *run.MCP
 		if len(opts.Needs) > 0 {
 			// The worker's inventory is what its own environment's settings
@@ -406,7 +414,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 				return out, fmt.Errorf("capability %s missing: %s", r.Need, r.Hint)
 			}
 			notes, lacking, reroute := plan.Notes, plan.Lacking, plan.Reroute
-			bridge = plan.Bridge
+			bridge := plan.Bridge
 			bridged = nil
 			if len(bridge) > 0 {
 				var failed map[string]string
@@ -455,12 +463,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		if bridged != nil {
 			extra = append(slices.Clone(runEnv), bridged.Env...)
 		}
-		in := workerInput(cfg, route, variant, leadID, role, root, opts.ProtectedRoots, extra, opts.Needs)
-		// The whole launch is admitted: Codex's exec with its sandbox flag
-		// and pins, Claude's -p with its permission flag. The runner adds
-		// none after it.
-		in.Launch = d.Agents[route.Agent].Worker.Launch(run.Spec{Route: route, Mode: wm.Level, Native: wm.Native, Network: wm.Network, WritableRoots: wm.WritableRoots})
-		in.ProviderEnvKey = accounts.Cache.ProviderEnvKey(route.Agent)
+		in := admittedInput(d, accounts, workerInput(cfg, route, variant, leadID, role, root, opts.ProtectedRoots, extra, opts.Needs), route, wm)
 		if accounts.Layers != nil {
 			if in.Layers, err = accounts.Layers(ctx, in); err != nil {
 				return out, err
@@ -575,9 +578,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 			// The admitted process (current.launch sets it) already holds the
 			// resolved native flags and the Codex sandbox pins; the runner
 			// refuses it if this spec asks for other ones.
-			spec := run.Spec{Route: route, Mode: wm.Level, Native: wm.Native, Network: wm.Network, WritableRoots: wm.WritableRoots, TaskDir: dir, Cwd: root, Prompt: caps.NeedsLine, Stdin: stdin, Persistent: route.Session == "resume", KeepMCP: needsKind(withoutBridged(opts.Needs, bridged), caps.KindMCP, caps.KindPlugin), KeepSkills: needsKind(opts.Needs, caps.KindSkill, caps.KindPlugin), MCP: bridged, ProtectedRoots: opts.ProtectedRoots}
-			spec.MCP = d.limitOwn(spec, opts.Needs, cfg.Capabilities.MCPTools, pre.Env)
-			spec.MaxTurns = opts.MaxTurns
+			spec := workerSpec(d, cfg, opts, route, wm, dir, root, stdin, bridged, pre.Env)
 			var entry *session.Entry
 			if route.Session == "resume" {
 				entry, _, err = reg.Lookup(leadID, route.Agent, role, thread)
@@ -838,6 +839,9 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 	if len(refusals) == 0 {
 		return out, firstFailure
 	}
+	if plan.blocked != nil {
+		return out, plan.blocked
+	}
 	// The gate refused every candidate left: the task goes to the lead with
 	// one line, as a task whose needs no worker meets does, in the placement
 	// of the lead's fallback when the router chose one.
@@ -983,7 +987,6 @@ func changes(before, after map[string]string) []string {
 
 // Snapshot and Changes expose the working-tree comparison to live peer sessions,
 // which report unfinished work the same way a one-off worker does.
-func Snapshot(root string) (map[string]string, error)  { return snapshot(root) }
 func Changes(before, after map[string]string) []string { return changes(before, after) }
 
 // workerLines close every worker's input.

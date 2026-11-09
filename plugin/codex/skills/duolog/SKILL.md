@@ -46,6 +46,7 @@ If a PR is requested or required, batch small changes into one.
    wait for its notice.
 4. Read summary, `git diff --stat`, marked hunks and `answer.json`'s
    `decisions=` only; skip full suites.
+   Batch nameable reads in parallel.
 5. Keep hard parts; finish with `review_final`.
 
 Put worker rules in `.duolog/brief.md`. With several leads, pass
@@ -82,8 +83,7 @@ background command. Run independent tasks in parallel, one worker per
 
 Before reporting done, review and bring the peer's task changes into the
 starting checkout on its original branch, unless the person requested another
-branch or PR. Peer worktrees are staging areas, not the delivery destination.
-Use merge, cherry-pick or apply the task diff as appropriate. Keep changes
+branch or PR. Merge, cherry-pick or apply the diff. Keep changes
 uncommitted unless a commit was requested or required; preserve existing
 staged, unstaged and untracked work. If integration conflicts, report the
 blocker instead of completion. Verify the integrated result there and tell

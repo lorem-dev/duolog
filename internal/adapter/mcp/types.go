@@ -39,9 +39,23 @@ type DelegateInput struct {
 	TaskPath       string   `json:"task_path,omitempty"` // for result
 	Use            string   `json:"use,omitempty"`
 	Needs          []string `json:"needs,omitempty"`
-	Wait           bool     `json:"wait,omitempty"`
+	Wait           *bool    `json:"wait,omitempty"` // nil waits; false starts and returns at once
+	SkipPreflight  bool     `json:"skip_preflight,omitempty"`
 	TimeoutMinutes int      `json:"timeout_minutes,omitempty"`
+	Force          bool     `json:"force,omitempty"` // start a worker for a small task too
 }
+
+// BlockedCheck is a Check command that the gate would not allow the worker to
+// run. Decision is ask or deny.
+type BlockedCheck struct {
+	Command  string `json:"command"`
+	Decision string `json:"decision"`
+	Reason   string `json:"reason,omitempty"`
+	Remember string `json:"remember,omitempty"` // for ask: what the person may run to approve it
+}
+
+// Waits reports whether the call waits for the run: unless it says wait false.
+func (in DelegateInput) Waits() bool { return in.Wait == nil || *in.Wait }
 
 // RunHere is a run here answer as data. Mode is "self" or "subagent".
 type RunHere struct {
@@ -55,11 +69,21 @@ type RunHere struct {
 // DelegateOutput.State is running, done, needs, run_here, failed or lost.
 type DelegateOutput struct {
 	State      string   `json:"state"`
+	ID         string   `json:"id,omitempty"` // the run's id, to call again while it runs
 	TaskPath   string   `json:"task_path"`
+	Done       *bool    `json:"done,omitempty"` // the worker's own word; set once it answered
+	Summary    string   `json:"summary,omitempty"`
+	Decisions  []string `json:"decisions,omitempty"`
+	Files      []string `json:"files,omitempty"`       // files the worker reports changed
+	Diffstat   string   `json:"diffstat,omitempty"`    // git's shortstat of those files
 	Answer     string   `json:"answer,omitempty"`      // the CLI's result line
 	AnswerPath string   `json:"answer_path,omitempty"` // the result record
 	RunHere    *RunHere `json:"run_here,omitempty"`
 	Needs      []string `json:"needs,omitempty"`
+	// Blocked lists the Check commands a preflight stopped the run for;
+	// SkippedChecks the Check lines that were not read as a command.
+	Blocked       []BlockedCheck `json:"blocked,omitempty"`
+	SkippedChecks []string       `json:"skipped_checks,omitempty"`
 }
 
 // PeerInput is the peer tool's input.

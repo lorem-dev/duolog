@@ -159,7 +159,7 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 				fake := testbin.Install(t, workerAgent, subscriptionReads(workerAgent, scenario))
 				// windows-11-arm runners take over 20 s for one delegation here.
 				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-				cmd := testbin.CommandContext(ctx, binary, "delegate", tc.role, "--task", "task.md")
+				cmd := testbin.CommandContext(ctx, binary, "delegate", tc.role, "--task", "task.md", "--force")
 				cmd.Env = append(os.Environ(), "PATH="+strings.ReplaceAll(os.Getenv("PATH"), binDir+string(os.PathListSeparator), ""))
 				output, runErr := cmd.CombinedOutput()
 				cancel()

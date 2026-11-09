@@ -262,7 +262,7 @@ func TestToolsCallRoutesToApp(t *testing.T) {
 	if got := strings.Join(app.calls, ","); got != "delegate,peer,answer_ask,status" {
 		t.Fatalf("calls = %s", got)
 	}
-	if app.delIn.Role != "implementer" || app.delIn.Task == nil || app.delIn.Task.Goal != "g" || !app.delIn.Wait {
+	if app.delIn.Role != "implementer" || app.delIn.Task == nil || app.delIn.Task.Goal != "g" || app.delIn.Wait == nil || !*app.delIn.Wait {
 		t.Fatalf("delegate input = %+v", app.delIn)
 	}
 	if app.peerIn.Action != "send" || app.peerIn.ID != "p1" {

@@ -447,7 +447,7 @@
       },
       {
         "Action": "exec",
-        "Match": "uv run {pytest,ruff,ty}*",
+        "Match": "uv run {pytest,ruff,ty,mypy,pyright,basedpyright}{, *}",
         "Decision": "allow",
         "Roles": [
           "planner",
@@ -1251,7 +1251,8 @@
     "AgentOrder": [
       "claude",
       "codex"
-    ]
+    ],
+    "SmallTaskFiles": 2
   },
   "Agents": {
     "claude": {

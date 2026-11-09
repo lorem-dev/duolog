@@ -18,7 +18,8 @@ const (
 	// taskSchema is the one task object that delegate and peer share.
 	taskSchema = `{"type":"object","properties":{` +
 		`"goal":{"type":"string","description":"What to do and why, one paragraph"},` +
-		`"read":` + strList + `,"write":` + strList + `,"limits":` + strList + `,"check":` + strList +
+		`"read":` + strList + `,"write":` + strList + `,"limits":` + strList + `,` +
+		`"check":{"type":"array","items":{"type":"string"},"description":"One command per item"}` +
 		`},"required":["goal"]}`
 
 	delegateSchema = `{"type":"object","properties":{` +
@@ -29,6 +30,8 @@ const (
 		`"use":{"type":"string"},` +
 		`"needs":` + strList + `,` +
 		`"wait":{"type":"boolean"},` +
+		`"skip_preflight":{"type":"boolean"},` +
+		`"force":{"type":"boolean"},` +
 		`"timeout_minutes":{"type":"integer","minimum":1}` +
 		`}}`
 
@@ -57,7 +60,7 @@ func Tools() []Tool {
 	return []Tool{
 		{
 			Name:        ToolDelegate,
-			Description: "Hand a task to a worker; runs detached. action=result reads a run by task_path; run_here means do it yourself or in a subagent.",
+			Description: "Hand a task to a worker; waits and returns the result (wait=false: at once); if running, call action=result with id as task_path; run_here: do it yourself.",
 			InputSchema: json.RawMessage(delegateSchema),
 		},
 		{

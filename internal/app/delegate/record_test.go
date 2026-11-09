@@ -6,11 +6,23 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/lorem-dev/duolog/internal/core/policy"
+	"github.com/lorem-dev/duolog/internal/core/run"
 )
+
+func TestRecordForPreflightKeepsBlockedList(t *testing.T) {
+	pe := &PreflightError{Role: "implement", Blocked: []policy.Blocked{{Command: "make lint", Decision: "ask"}}, Skipped: []string{"by hand"}}
+	got := RecordFor(sampleRecord("d-1", time.Unix(1, 0)), Outcome{}, pe, time.Unix(2, 0))
+	if got.State != "failed" || len(got.Blocked) != 1 || got.Blocked[0].Command != "make lint" || len(got.Skipped) != 1 {
+		t.Errorf("record = %+v", got)
+	}
+}
 
 func sampleRecord(id string, started time.Time) Record {
 	return Record{
@@ -170,6 +182,25 @@ func TestRecordForOutcomes(t *testing.T) {
 		if !got.Ended.Equal(now) || got.ID != base.ID || got.TaskPath != base.TaskPath || got.Lead != base.Lead || !got.Started.Equal(base.Started) {
 			t.Errorf("%s: base fields lost: %+v", tc.name, got)
 		}
+	}
+}
+
+func TestRecordForKeepsTheWorkersAnswer(t *testing.T) {
+	base := sampleRecord("d-abcdef", time.Date(2026, 11, 8, 10, 0, 0, 0, time.UTC))
+	res := run.Result{Done: true, Summary: "Fixed it.", Files: []string{"a.go", "b.go"}, Decisions: []string{"used maps"}}
+	got := RecordFor(base, Outcome{Line: "done=true", Result: res}, nil, base.Started)
+	if !got.Done || got.Summary != "Fixed it." || !slices.Equal(got.Files, res.Files) || !slices.Equal(got.Decisions, res.Decisions) {
+		t.Fatalf("%+v", got)
+	}
+	// Done is the worker's word, not the state's: a needs record can be false.
+	got = RecordFor(base, Outcome{Result: run.Result{Done: false, Summary: "Blocked."}, Needs: []string{"mcp:x"}}, nil, base.Started)
+	if got.Done || got.State != "needs" || got.Summary != "Blocked." {
+		t.Fatalf("%+v", got)
+	}
+	// A failure keeps none of a partial result.
+	got = RecordFor(base, Outcome{Result: res}, errors.New("boom"), base.Started)
+	if got.Done || got.Summary != "" || got.Files != nil {
+		t.Fatalf("%+v", got)
 	}
 }
 

@@ -23,7 +23,7 @@ import (
 type delegateFlags struct {
 	taskPath, thread, lead, features, class, use, escalateFrom, reason, resultFile string
 	needs                                                                          []string
-	allowManual                                                                    bool
+	allowManual, skipPreflight, force                                              bool
 }
 
 // delegateFunc runs one delegation, as cmdDeps.runDelegate does.
@@ -49,6 +49,8 @@ func newDelegateCommand(d *cmdDeps) *cobra.Command {
 	cmd.Flags().StringVar(&f.escalateFrom, "escalate-from", "", "In learning mode, the delegation id to leave for the next entry of its class ladder")
 	cmd.Flags().StringVar(&f.reason, "reason", "", "Why the delegation is left: "+strings.Join(learn.EscalationReasons, ", "))
 	cmd.Flags().BoolVar(&f.allowManual, "allow-manual-model", false, "Allow models reserved for manual selection")
+	cmd.Flags().BoolVar(&f.skipPreflight, "skip-preflight", false, "Start the worker without judging the task's Check commands with the gate first")
+	cmd.Flags().BoolVar(&f.force, "force", false, "Start a worker even for a task that routing.small_task_files keeps in the lead")
 	cmd.Flags().StringVar(&f.resultFile, "result-file", "", "Delegation record to write the result to, for duolog mcp")
 	_ = cmd.Flags().MarkHidden("result-file")
 	_ = cmd.MarkFlagRequired("task")
@@ -58,7 +60,7 @@ func newDelegateCommand(d *cmdDeps) *cobra.Command {
 // run is duolog delegate <role> with these flags, the delegation run by
 // runDelegate.
 func (f *delegateFlags) run(cmd *cobra.Command, role string, runDelegate delegateFunc) error {
-	opts := delegate.Options{Lead: f.lead, AllowManualModel: f.allowManual, Needs: f.needs, Class: f.class, EscalateFrom: f.escalateFrom, EscalateReason: f.reason, Stderr: cmd.ErrOrStderr()}
+	opts := delegate.Options{Lead: f.lead, AllowManualModel: f.allowManual, SkipPreflight: f.skipPreflight, Force: f.force, Needs: f.needs, Class: f.class, EscalateFrom: f.escalateFrom, EscalateReason: f.reason, Stderr: cmd.ErrOrStderr()}
 	parsed, err := learn.ParseFeatures(f.features)
 	if err == nil && (f.escalateFrom == "") != (f.reason == "") {
 		err = errors.New("--escalate-from and --reason go together: name the delegation you leave and why")

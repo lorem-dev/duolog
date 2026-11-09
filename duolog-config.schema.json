@@ -890,6 +890,11 @@
           },
           "type": "array",
           "description": "Order in which an agent is taken when a role has no fallback agent of its own: the first registered, enabled, available agent that is not the role's use agent; defaults to claude, codex."
+        },
+        "small_task_files": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Most files a task's Write section may name for a writing role to run in the lead instead of a worker, because a hand-over has a fixed cost; 0 turns it off, defaults to 2. Read-only roles and reviews always get a worker. A Write section that is missing or names a glob or a folder does not qualify. Only the user config and a local config of your own may set it; the shared project config may not."
         }
       },
       "additionalProperties": false,

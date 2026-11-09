@@ -13,7 +13,45 @@ import (
 // routing is the routing of a config that sets a balance and a margin and
 // leaves the agent order at its default.
 func routing(balance string, margin float64) config.Routing {
-	return config.Routing{Balance: balance, Margin: margin, AgentOrder: []string{"claude", "codex"}}
+	return config.Routing{Balance: balance, Margin: margin, AgentOrder: []string{"claude", "codex"}, SmallTaskFiles: 2}
+}
+
+func TestSmallTaskFilesLayers(t *testing.T) {
+	// The person's layers may set it to any count, 0 included.
+	root := isolatedRoot(t)
+	writeConfig(t, userConfigPath(t), "routing: {small_task_files: 0}\n")
+	cfg, err := Load(root)
+	if err != nil || cfg.Routing.SmallTaskFiles != 0 || len(cfg.Notices) != 0 {
+		t.Errorf("user: %+v, %v, notices %v", cfg.Routing, err, cfg.Notices)
+	}
+	writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), "routing: {small_task_files: 1}\n")
+	if cfg, err = Load(root); err != nil || cfg.Routing.SmallTaskFiles != 1 {
+		t.Errorf("local: %+v, %v", cfg.Routing, err)
+	}
+
+	// The shared project may not set it at all: the value is ignored and named.
+	for _, n := range []string{"0", "4", "1000"} {
+		root = isolatedRoot(t)
+		writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "routing: {small_task_files: "+n+"}\n")
+		if cfg, err = Load(root); err != nil || cfg.Routing.SmallTaskFiles != 2 || !slices.Equal(noticeKeys(cfg.Notices), []string{"routing.small_task_files"}) {
+			t.Errorf("project %s: %+v, %v, notices %v", n, cfg.Routing, err, cfg.Notices)
+		}
+	}
+	// A user 0 stays 0 under a project 1000.
+	root = isolatedRoot(t)
+	writeConfig(t, userConfigPath(t), "routing: {small_task_files: 0}\n")
+	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), "routing: {small_task_files: 1000}\n")
+	if cfg, err = Load(root); err != nil || cfg.Routing.SmallTaskFiles != 0 || !slices.Equal(noticeKeys(cfg.Notices), []string{"routing.small_task_files"}) {
+		t.Errorf("user 0, project 1000: %+v, %v, notices %v", cfg.Routing, err, cfg.Notices)
+	}
+
+	for _, y := range []string{"routing: {small_task_files: -1}\n", "routing: {small_task_files: 1.5}\n"} {
+		root = isolatedRoot(t)
+		writeConfig(t, filepath.Join(root, ".duolog", "config.local.yaml"), y)
+		if _, err := Load(root); err == nil || !strings.Contains(err.Error(), "routing.small_task_files") {
+			t.Errorf("%q: err = %v", y, err)
+		}
+	}
 }
 
 func TestRoutingDefaults(t *testing.T) {

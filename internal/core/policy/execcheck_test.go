@@ -58,6 +58,34 @@ func TestCommandsThatHideTheirEffectAreNotConfirmedByFullMode(t *testing.T) {
 	}
 }
 
+// uv run starts the same check tools that .venv/bin allows, for write roles
+// only. An inner command that a deny names stays denied.
+func TestUvRunCheckToolsAreAllowedForWriteRoles(t *testing.T) {
+	p := policy(t)
+	for _, tool := range []string{"pytest", "ruff check .", "ty check", "mypy src", "pyright", "basedpyright"} {
+		check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: "uv run " + tool, Role: "implement"}, Allow)
+		check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: "uv run " + tool, Role: "review_final"}, Deny)
+	}
+	for _, command := range []string{"uv run git push", "uv run git push origin main", "uv run mypy; git push"} {
+		check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: command, Role: "implement"}, Deny)
+	}
+	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: "uv run ./x.py", Role: "implement"}, Ask)
+}
+
+// The tool name stands alone or is followed by a space and arguments: a script
+// whose name only begins with a tool name is a script, and asks.
+func TestUvRunScriptsThatStartLikeCheckToolsAsk(t *testing.T) {
+	p := policy(t)
+	for _, tool := range []string{"pytest", "ruff", "ty", "mypy", "pyright", "basedpyright"} {
+		for _, command := range []string{"uv run " + tool + "_x.py", "uv run " + tool + ".py", "uv run " + tool + "x"} {
+			check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: command, Role: "implement"}, Ask)
+		}
+		check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: "uv run " + tool, Role: "implement"}, Allow)
+		check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: "uv run " + tool + " -q src", Role: "implement"}, Allow)
+	}
+	check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: "uv run types.py", Role: "implement"}, Ask)
+}
+
 func TestRunIsNotAllowedByDefault(t *testing.T) {
 	p := policy(t)
 	for _, command := range []string{"uv run ./x.py", "go run ./cmd/x", "npm run deploy", "make run"} {

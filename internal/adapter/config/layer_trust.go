@@ -84,7 +84,7 @@ func restrictProjectModels(base, layer *yaml.Node, projectFile string) ([]config
 // that would widen what the layers below allow.
 var projectRestrictors = []func(base, layer *yaml.Node, file string) ([]config.ConfigNotice, error){
 	restrictProjectPaid, restrictProjectSessionLimits, restrictProjectRouting, restrictProjectModels,
-	restrictProjectWorkers, restrictProjectAgents,
+	restrictProjectWorkers, restrictProjectAgents, restrictProjectPersonLimits,
 }
 
 // sharedLocal names the local layer in notices when it counts as shared, ""

@@ -134,10 +134,24 @@ names the window, such as `codex weekly window 85% used, above the reserve`.
 | `routing.balance` | `pace` | `pace` balances; `off` keeps the ladder as written |
 | `routing.margin` | `0.10` | How far the used share may pass the elapsed share |
 | `routing.agent_order` | `[claude, codex]` | The order in which a task whose role names no usable fallback takes an agent: the first one that is registered, switched on, available and not the role's own agent |
+| `routing.small_task_files` | `2` | The most files a task's `## Write` section may name for duolog to keep the task in the lead instead of starting a worker; `0` turns this off |
 
 The shared `.duolog/config.yaml` may only tighten these keys. It cannot turn
-`balance` off, and it cannot raise `margin`. duolog ignores such a value and
-names it. Your user and local files may set either key freely.
+`balance` off, and it cannot raise `margin`. It may not set
+`small_task_files` at all, so that a repository cannot keep work out of the
+workers. duolog ignores such a value and names it. Your user file and a local
+file of your own may set any key freely.
+
+A hand-over has a fixed cost, so a small task costs less done in place. When
+`## Write` names at most `routing.small_task_files` files and the role writes
+(`implement`, `mechanical`, `tests`, `docs`, `planner`),
+`duolog delegate` starts no worker and answers `run here: self`, with the
+reason. Read-only roles and reviews always get a worker, as does a task whose
+`## Write` is missing, names no file, or lists a glob or a folder (an entry
+ending in `/` is a folder even if it does not exist yet), a task pinned with
+`--use`, a run with `--escalate-from`, and any run while learning mode is on.
+Pass `--force` to `duolog delegate`, or `force: true` to the MCP `delegate`
+tool, to start the worker anyway; the answer says so.
 
 ## Which models the default roles use
 

@@ -256,6 +256,21 @@ func codeShares(files []string) (top []string, components []string) {
 	return top, components
 }
 
+// ProjectChecks returns the test and lint commands that calibrate survey would
+// propose for the project at HEAD of root, without running them.
+func ProjectChecks(ctx context.Context, root string) ([]string, error) {
+	head, err := surveyHead(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	files, err := trackedFiles(ctx, root, head)
+	if err != nil {
+		return nil, err
+	}
+	_, test, err := proposeCommands(ctx, root, head, files)
+	return test, err
+}
+
 // proposeCommands applies the marker rules in order. Every command is a
 // build or test run; none installs dependencies or runs setup, and a
 // package.json or Makefile contributes only its test entry point.

@@ -77,4 +77,6 @@ var writtenBlobs = map[string]bool{
 	"e6e7a9173aa3570aacec9bad8cd44b875bbd93ad": true, // claude/skills/duolog-peers/SKILL.md
 	"ecfccca6cc9cde027bc063369786cfc698cf2253": true, // codex/skills/duolog/SKILL.md
 	"fe55bc57a2eaa0f5ab5961f6366fe6b9b9dcb11e": true, // claude/skills/duolog/SKILL.md
+	"f5746d8674265be02c69034e42515428e7d6d4c2": true, // claude/skills/duolog/SKILL.md
+	"ba2c8c7b4d397ee6f2c3e082611f722fb301bd2c": true, // codex/skills/duolog/SKILL.md
 }

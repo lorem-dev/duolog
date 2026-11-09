@@ -43,6 +43,20 @@ func TestDescriptionsAreShort(t *testing.T) {
 	}
 }
 
+// The lead takes delegate's result from the one call, so the tool says that it
+// waits, that wait false is the way out, and how to go on when it is running.
+func TestDelegateDescriptionSaysItWaits(t *testing.T) {
+	d := Tools()[0].Description
+	for _, want := range []string{"waits", "wait=false", "running", "action=result"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("delegate description lacks %q: %s", want, d)
+		}
+	}
+	if strings.Contains(d, "detached") {
+		t.Errorf("delegate description still says detached: %s", d)
+	}
+}
+
 // Every schema property is a JSON field of the input struct, and back.
 func TestSchemaMatchesInputStructs(t *testing.T) {
 	inputs := map[string]any{ToolDelegate: DelegateInput{}, ToolPeer: PeerInput{}, ToolAnswerAsk: AnswerAskInput{}}
