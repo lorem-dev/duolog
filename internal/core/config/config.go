@@ -88,6 +88,9 @@ const (
 // Lead holds what duolog adds to the person's own lead session.
 type Lead struct {
 	CompactNotes bool `yaml:"compact_notes" jsonschema_description:"Help the lead keep its delegation state through compaction: the PreCompact hook asks Claude to keep the open peers, open asks, branches and pull requests in the summary and lists the live peers, and the session start after a compaction lists them again. Defaults to true."`
+	// FreshSessionHint is the context size from which a Claude lead is
+	// reminded to offer a fresh lead session; 0 turns the reminder off.
+	FreshSessionHint int `yaml:"fresh_session_hint" jsonschema_description:"Context size in tokens from which a Claude lead between pieces of work is reminded to offer the person a fresh lead session, and again each further 100000 tokens; 0 turns it off, defaults to 200000. duolog only reminds: it never starts or closes a session. Only the user config and a local config of your own may set it; the shared project config may not." jsonschema:"minimum=0"`
 }
 
 // Coauthors holds the commit co-author settings. In YAML the templates sit

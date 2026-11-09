@@ -124,6 +124,7 @@ func Build(in ProcessInput) (Process, error) {
 			}
 			p.Signals = append(p.Signals, signals...)
 			p.FastPinned = pinned
+			p.Env, overrides = withGoCaches(in, goos, p.Env, overrides)
 			p.Prefix = append(prefix, overrides...) //nolint:gocritic // prefix is Build's own clone of in.Prefix, handed to p
 		}
 		p.Launch = slices.Clone(in.Launch)
@@ -363,6 +364,67 @@ func pathWith(parent string) (string, error) {
 		path += string(os.PathListSeparator) + parent
 	}
 	return "PATH=" + path, nil
+}
+
+// GoCacheNames are the variables duolog adds to a Codex workspace-write
+// process for Go's caches (TMPDIR is the folder they are under). They say
+// nothing of the route, and a send does not carry the launch words that add
+// them, so a route key leaves them out.
+var GoCacheNames = []string{"GOCACHE", "GOLANGCI_LINT_CACHE", "TMPDIR"}
+
+// codexWorkspaceWrite reports whether the launch words run Codex in its
+// workspace-write sandbox.
+func codexWorkspaceWrite(launch []string) bool {
+	for i := 0; i+1 < len(launch); i++ {
+		if launch[i] == "-s" && launch[i+1] == "workspace-write" {
+			return true
+		}
+	}
+	return false
+}
+
+// withGoCaches gives a Codex workspace-write process the Go build and lint caches
+// under the temp folder, which that sandbox already lets it write; Go's default
+// cache is outside the sandbox, so go test and make fail there. The folders are
+// shared between worktrees. A name the process already has, set by the person
+// and passed on, stays as it is. The -c words set the same values in Codex's
+// shell_environment_policy, which applies after its include_only filter, so a
+// policy that clears the environment does not drop them from the commands.
+func withGoCaches(in ProcessInput, goos string, have, overrides []string) (env, args []string) {
+	if !codexWorkspaceWrite(in.Launch) {
+		return have, overrides
+	}
+	add, words := goCacheEnv(have, in.Environ, in.StateDir, goos)
+	return append(have, add...), append(overrides, words...)
+}
+
+// goCacheEnv returns the pairs and -c words withGoCaches adds.
+func goCacheEnv(have, environ []string, lead, goos string) (env, args []string) {
+	tmp := os.TempDir()
+	if v, ok := lookupName(environ, "TMPDIR", goos); ok && filepath.IsAbs(v) {
+		tmp = v
+	}
+	base := filepath.Join(tmp, "duolog-go-cache", goCacheHash(lead))
+	if err := prepareCacheDirs(base, "go-build", "golangci-lint"); err != nil {
+		_, _ = fmt.Fprintf(cacheWarnings, "duolog: Go caches not set for the worker: %v\n", err)
+		return nil, nil
+	}
+	for _, c := range []struct{ name, value string }{
+		{"GOCACHE", filepath.Join(base, "go-build")},
+		{"GOLANGCI_LINT_CACHE", filepath.Join(base, "golangci-lint")},
+		{"TMPDIR", tmp},
+	} {
+		if _, set := lookupName(have, c.name, goos); set {
+			continue
+		}
+		env = append(env, c.name+"="+c.value)
+		quoted, err := tomlValue(c.value)
+		if err != nil {
+			continue
+		}
+		args = append(args, "-c", "shell_environment_policy.set."+c.name+"="+quoted)
+	}
+	return env, args
 }
 
 // codexOverrides are the global -c overrides of a Codex worker or peer: the

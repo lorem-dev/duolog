@@ -53,6 +53,9 @@ var personLimits = []accountLimit{
 	// A project must not keep work out of the workers.
 	{"routing.small_task_files", false, atLeast(0), "must be 0 or more", false,
 		func(c *config.Config) float64 { return float64(c.Routing.SmallTaskFiles) }},
+	// A project must not make the lead nag, nor silence the reminder.
+	{"lead.fresh_session_hint", false, atLeast(0), "must be 0 or more", false,
+		func(c *config.Config) float64 { return float64(c.Lead.FreshSessionHint) }},
 }
 
 // checkedLimits are the limits that are checked for a bound.

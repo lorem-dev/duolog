@@ -69,7 +69,10 @@ func (p goldenPlace) clean(s string) string {
 		s = strings.ReplaceAll(s, filepath.ToSlash(pair[0]), pair[1])
 		s = strings.ReplaceAll(s, pair[0], pair[1])
 	}
-	return s
+	// The cache folder of the project is named by a hash of its root.
+	s = strings.ReplaceAll(s, goCacheHash(p.root), "<HASH>")
+	// The goldens hold one spelling of that folder on every host.
+	return strings.ReplaceAll(s, `<TMP>\duolog-go-cache\<HASH>\`, `<TMP>/duolog-go-cache/<HASH>/`)
 }
 
 // write puts a settings file in place.
@@ -94,6 +97,8 @@ func goldenEnviron(p goldenPlace) []string {
 		"OPENAI_API_KEY=sk-oai-golden", "CODEX_API_KEY=sk-oai-golden", "CORP_LLM_KEY=corp-golden",
 		"CLAUDE_PAID_EXTRA=c", "CODEX_PAID_EXTRA=x", "GOLDEN_KEEP=kept", "GOLDEN_UNLISTED=unlisted",
 		"DUOLOG_LEAD=old-lead", "REX_SESSION=rex", "DISABLE_AUTOUPDATER=0",
+		// The Go caches of a Codex workspace-write launch sit under the temp folder.
+		"TMPDIR=" + p.tmp,
 	}
 }
 

@@ -288,8 +288,8 @@ worker's MCP tool calls are checked" below.
 | write | everything, for the write roles | allow |
 | exec | `go test`, `make build`, `npm run test`, `uv run pytest` and the like, for write roles | allow |
 | exec | Check tools of each ecosystem, for write roles: `node_modules/.bin/eslint`, `.venv/bin/ruff`, `python -m pytest`, `go vet`, `cargo clippy`, `cmake --build`, offline `gradle` and `mvn`, `dotnet test --no-restore` and the like | allow |
-| exec | Read commands: `cat`, `head`, `tail`, `ls`, `wc`, `rg`, `grep`, `find`, `sed -n 'N,Mp'`, `jq`, `sort`, `stat`, `tree` and others | allow |
-| exec | `git status`, `git diff`, `git log`, `git show` | allow |
+| exec | Read commands: `cat`, `head`, `tail`, `ls`, `wc`, `rg`, `grep`, `find`, `sed -n 'N,Mp'`, `jq`, `sort`, `stat`, `tree`, `cmp A B` and others | allow |
+| exec | `git status`, `git diff`, `git log`, `git show`, and `git worktree list` | allow |
 | exec | `git push`, `git reset --hard`, `git clean`, `git rebase` | deny |
 | exec | `rm -rf *` | deny |
 | exec | `claude` and `codex`, with or without arguments | deny |
@@ -338,9 +338,10 @@ allow for `implement`. They only print.
 
 A wildcard rule for read commands grants reads only, for every role. `find`
 and `rg` pass with known read options, so `find . -delete` or an unknown `rg`
-option does not. Paths named by a read command follow the read rules, so
-`cat .env` is denied and `cat /outside/notes.txt` asks. A shell glob in a
-path asks because it can expand onto denied files. So does an unquoted glob
+option does not. `cmp` compares exactly two files with no option, and each path
+is judged as `cat` judges it. Paths named by a read command follow the read
+rules, so `cat .env` is denied and `cat /outside/notes.txt` asks. A shell glob
+in a path asks because it can expand onto denied files. So does an unquoted glob
 where a read command takes a pattern, because the shell can turn it into a
 pattern and files to read: `grep .e* f` reads `.env` when `.editorconfig` comes
 first, so it asks as `cat .e*` does, and `grep .duolog/* f` is denied as
@@ -1104,9 +1105,13 @@ With `--native`, duolog also allows the command for the lead:
 `.codex/rules/duolog.rules`. Codex runs an allowed prefix outside its
 sandbox, which is more than the worker rule grants, so `--native` is off by
 default. A Codex rule matches a prefix, so an exact command gets no Codex
-rule. Give the options of `remember` before the command. We checked the Codex
-rule with `codex execpolicy check`; a live Codex session that reads it is not
-verified.
+rule. The options of `remember` (`--match`, `--role`, `--native`) may come
+before the command. They may also follow it when the command is one quoted
+argument, as in `duolog remember 'make x' --match 'make *' --role planner`.
+With several unquoted words every word is part of the command, including `--`
+and `--native`, so `duolog remember git log -- docs` keeps the `--`.
+We checked the Codex rule with `codex execpolicy check`; a live Codex session
+that reads it is not verified.
 
 ## Where the checks run
 

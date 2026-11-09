@@ -220,6 +220,71 @@ func TestRememberNativeSkipsCodexForExactCommands(t *testing.T) {
 	}
 }
 
+// The flags of remember may follow the command only when it is one quoted
+// argument, as in remember 'make generate_types' --match 'make generate_*'
+// --role planner. With unquoted words every word is part of the command.
+func TestRememberTakesFlagsAfterTheCommand(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	if _, err := rememberIn(t, "make generate_types", "--match", "make generate_*", "--role", "planner"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rememberIn(t, "npm", "--prefix", "web", "run", "lint", "--role=tests"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := configfile.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow := func(command, role string) bool {
+		d := policy.Evaluate(cfg.Policy, policy.LeadRules{}, mode.Edits, policy.Action{Kind: "exec", Target: command, Role: role})
+		return d.Kind == policy.Allow
+	}
+	if !allow("make generate_docs", "planner") || allow("make generate_docs", "implement") {
+		t.Error("--match and --role after the command did not apply")
+	}
+	data, _ := os.ReadFile(filepath.Join(root, ".duolog", config.LearnedFile))
+	if !strings.Contains(string(data), "npm --prefix web run lint --role=tests") {
+		t.Fatalf("unquoted words were not all kept in the command: %s", data)
+	}
+	if got, err := rememberCommand(newRememberCommand(), []string{"git", "log", "--", "docs"}); err != nil || got != "git log -- docs" {
+		t.Fatalf("an unquoted command lost its --: %q, %v", got, err)
+	}
+	if _, err := rememberIn(t, "make", "z", "--native"); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(filepath.Join(root, ".duolog", config.LearnedFile))
+	if !strings.Contains(string(data), "make z --native") {
+		t.Fatalf("--native was dropped from an unquoted command: %s", data)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".claude", "settings.local.json")); err == nil {
+		t.Fatal("--native in an unquoted command was read as a flag")
+	}
+	if _, err := rememberIn(t, "make x", "--match"); err == nil {
+		t.Error("a flag without its value was accepted")
+	}
+}
+
+// After a -- every word belongs to the command, flag-like words too.
+func TestRememberDashDashEndsFlags(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	if _, err := rememberIn(t, "--role", "planner", "--", "make", "--match", "x"); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(root, ".duolog", config.LearnedFile))
+	if !strings.Contains(string(data), "make --match x") || !strings.Contains(string(data), "planner") {
+		t.Fatalf("learned: %s", data)
+	}
+	if _, err := rememberIn(t, "make", "y", "--", "--role", "tests"); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(filepath.Join(root, ".duolog", config.LearnedFile))
+	if !strings.Contains(string(data), "make y -- --role tests") {
+		t.Fatalf("learned: %s", data)
+	}
+}
+
 // Options after the command's first word belong to the command.
 func TestRememberTakesUnquotedOptions(t *testing.T) {
 	root := t.TempDir()

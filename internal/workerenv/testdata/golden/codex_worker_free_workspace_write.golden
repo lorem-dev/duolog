@@ -9,11 +9,20 @@ env (in order; a value only where it is fixed):
   DUOLOG_DEPTH=1
   DUOLOG_LEAD=lead-1
   DUOLOG_ROLE=implement
+  GOCACHE
+  GOLANGCI_LINT_CACHE
+  TMPDIR
 
 argv prefix:
   codex
   -c
   check_for_update_on_startup=false
+  -c
+  shell_environment_policy.set.GOCACHE='<TMP>/duolog-go-cache/<HASH>/go-build'
+  -c
+  shell_environment_policy.set.GOLANGCI_LINT_CACHE='<TMP>/duolog-go-cache/<HASH>/golangci-lint'
+  -c
+  shell_environment_policy.set.TMPDIR='<TMP>'
 
 launch words:
   exec
@@ -28,6 +37,12 @@ launch argv with run flags [--run-flag value]:
   codex
   -c
   check_for_update_on_startup=false
+  -c
+  shell_environment_policy.set.GOCACHE='<TMP>/duolog-go-cache/<HASH>/go-build'
+  -c
+  shell_environment_policy.set.GOLANGCI_LINT_CACHE='<TMP>/duolog-go-cache/<HASH>/golangci-lint'
+  -c
+  shell_environment_policy.set.TMPDIR='<TMP>'
   exec
   -s
   workspace-write

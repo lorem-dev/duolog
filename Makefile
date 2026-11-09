@@ -71,7 +71,9 @@ schema:
 	@go test . -run '^TestSchemaFileIsCurrent$$' > /dev/null || { echo 'Schema check failed; run make schema-write' >&2; exit 1; }
 
 schema-write:
-	go run ./scripts/schemagen > duolog-config.schema.json
+	@mkdir -p .cache
+	go run ./scripts/schemagen > .cache/schema.json.tmp
+	mv .cache/schema.json.tmp duolog-config.schema.json
 
 third-party:
 	go run ./scripts/thirdparty

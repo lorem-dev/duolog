@@ -74,10 +74,12 @@ func LoadLine(ctx context.Context, e Env) (string, error) {
 // loadEvery is how long the same load line stays quiet on a bus delivery.
 const loadEvery = 5 * time.Minute
 
-// shownLine is the load line a lead was last shown, and when.
+// shownLine is the load line a lead was last shown, and when, and the context
+// size at which it was last offered a fresh session (0: never).
 type shownLine struct {
 	Line string    `json:"line"`
 	At   time.Time `json:"at"`
+	Hint int       `json:"hint,omitempty"`
 }
 
 // shownDir holds one record of the shown load line per lead, with its lock.
@@ -152,7 +154,7 @@ func withShown(dir, leadID string, change func(seen *shownLine) bool) bool {
 // loadMark records that the lead was shown line at now.
 func loadMark(dir, leadID, line string, now time.Time) {
 	withShown(dir, leadID, func(seen *shownLine) bool {
-		*seen = shownLine{Line: line, At: now}
+		seen.Line, seen.At = line, now
 		return true
 	})
 }
@@ -167,7 +169,7 @@ func loadDue(dir, leadID, line string, now time.Time) bool {
 		if seen.Line == line && now.Sub(seen.At) < loadEvery && !now.Before(seen.At) {
 			return false
 		}
-		*seen = shownLine{Line: line, At: now}
+		seen.Line, seen.At = line, now
 		due = true
 		return true
 	})

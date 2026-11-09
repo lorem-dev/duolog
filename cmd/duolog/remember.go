@@ -33,9 +33,9 @@ func newRememberCommand() *cobra.Command {
 		if isWorker() {
 			return fmt.Errorf("workers cannot change the policy")
 		}
-		command := strings.Join(strings.Fields(strings.Join(args, " ")), " ")
-		if command == "" {
-			return fmt.Errorf("name the command to remember")
+		command, err := rememberCommand(cmd, args)
+		if err != nil {
+			return err
 		}
 		root, err := projectRoot()
 		if err != nil {
@@ -99,6 +99,64 @@ func newRememberCommand() *cobra.Command {
 	return cmd
 }
 
+// rememberCommand is the command to remember, with single spaces, once
+// rememberFlags has taken the flags of remember from args.
+func rememberCommand(cmd *cobra.Command, args []string) (string, error) {
+	words, err := rememberFlags(cmd, args)
+	if err != nil {
+		return "", err
+	}
+	command := strings.Join(strings.Fields(strings.Join(words, " ")), " ")
+	if command == "" {
+		return "", fmt.Errorf("name the command to remember")
+	}
+	return command, nil
+}
+
+// rememberFlags takes remember's own flags (--match, --role, --native) from
+// the words after the command only when the command was passed as one quoted
+// argument, as in remember 'make x' --match 'make *'. With several unquoted
+// words every word belongs to the command, flag-like words and -- too, as in
+// remember git log -- docs. Before the command cobra has parsed the flags
+// already. After a quoted command a -- ends the flags: every word after it
+// belongs to the command.
+func rememberFlags(cmd *cobra.Command, args []string) ([]string, error) {
+	head, tail := args, []string(nil)
+	if dash := cmd.ArgsLenAtDash(); dash >= 0 {
+		head, tail = args[:dash], args[dash:]
+	} else if i := slices.Index(args, "--"); i >= 0 {
+		head, tail = args[:i], args[i+1:]
+	}
+	if len(head) == 0 || !strings.ContainsAny(head[0], " \t") {
+		return args, nil
+	}
+	words := []string{head[0]}
+	for i := 1; i < len(head); i++ {
+		name, value, hasValue := strings.Cut(head[i], "=")
+		switch name {
+		case "--match", "--role":
+			if !hasValue {
+				if i+1 >= len(head) {
+					return nil, fmt.Errorf("flag %s needs a value", name)
+				}
+				i++
+				value = head[i]
+			}
+		case "--native":
+			if !hasValue {
+				value = "true"
+			}
+		default:
+			words = append(words, head[i])
+			continue
+		}
+		if err := cmd.Flags().Set(strings.TrimPrefix(name, "--"), value); err != nil {
+			return nil, err
+		}
+	}
+	return append(words, tail...), nil
+}
+
 func writerRoles(cfg *config.Config) []string {
 	var roles []string
 	for name, role := range cfg.Roles {
@@ -123,9 +181,7 @@ func addLearnedRule(path string, rule config.Rule) (bool, error) {
 		return false, err
 	}
 	defer func() { _ = lock.Unlock(); _ = lock.Close() }()
-	var file struct {
-		Rules []config.Rule `yaml:"rules"`
-	}
+	var file learnedFile
 	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return false, err
@@ -140,13 +196,14 @@ func addLearnedRule(path string, rule config.Rule) (bool, error) {
 	}) {
 		return false, nil
 	}
-	file.Rules = append(file.Rules, rule)
-	out, err := yaml.Marshal(file)
-	if err != nil {
-		return false, err
+	if len(data) == 0 {
+		data = []byte(learnedHeader)
 	}
-	header := "# Commands a person allowed for workers with `duolog remember`. Deny rules still win.\n"
-	return true, replaceFile(path, append([]byte(header), out...), 0o644)
+	out, err := appendLearnedRule(data, file.Rules, rule)
+	if err != nil {
+		return false, fmt.Errorf("%s: nothing written: %w", path, err)
+	}
+	return true, replaceFile(path, out, 0o644)
 }
 
 // replaceFile writes data to a temporary file beside path and renames it over

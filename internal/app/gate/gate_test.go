@@ -213,6 +213,24 @@ func TestPlainDefaultShellAllows(t *testing.T) {
 		}
 	}
 }
+
+// git worktree list only reads, so every role may run it; adding or removing a
+// worktree stays outside the default rules.
+func TestWorktreeListAllowedForEveryRole(t *testing.T) {
+	p := testPolicy(t)
+	for _, role := range []string{"implement", "planner", "review"} {
+		for _, command := range []string{"git worktree list", "git worktree list --porcelain"} {
+			check(t, p, LeadRules{}, mode.Edits, Action{Kind: "exec", Target: command, Role: role}, Allow)
+		}
+		add := Action{Kind: "exec", Target: "git worktree add ../x", Role: role}
+		if role == "review" {
+			check(t, p, LeadRules{}, mode.Edits, add, Deny)
+		} else {
+			check(t, p, LeadRules{}, mode.Edits, add, Ask)
+		}
+	}
+}
+
 func TestEveryAutoDecisionLogged(t *testing.T) {
 	p := testPolicy(t)
 	s, err := store.Open(t.TempDir())

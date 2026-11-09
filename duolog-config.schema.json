@@ -476,6 +476,11 @@
         "compact_notes": {
           "type": "boolean",
           "description": "Help the lead keep its delegation state through compaction: the PreCompact hook asks Claude to keep the open peers, open asks, branches and pull requests in the summary and lists the live peers, and the session start after a compaction lists them again. Defaults to true."
+        },
+        "fresh_session_hint": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Context size in tokens from which a Claude lead between pieces of work is reminded to offer the person a fresh lead session, and again each further 100000 tokens; 0 turns it off, defaults to 200000. duolog only reminds: it never starts or closes a session. Only the user config and a local config of your own may set it; the shared project config may not."
         }
       },
       "additionalProperties": false,

@@ -153,11 +153,23 @@ func rgShortsKnown(cluster string) bool {
 	return true
 }
 
+// gitReadPattern reports whether the words of a rule pattern that starts with
+// git name a read: status, diff, log, show or worktree list, each with an
+// optional trailing *.
+func gitReadPattern(fields []string) bool {
+	if len(fields) < 2 {
+		return false
+	}
+	worktreeList := len(fields) > 2 && fields[1] == "worktree" && strings.TrimSuffix(fields[2], "*") == "list"
+	return worktreeList || slices.Contains([]string{"status", "diff", "log", "show"}, strings.TrimSuffix(fields[1], "*"))
+}
+
 // gitRead reports whether a Git command, its lower-case words given, only
-// reads: status, diff, log or show, without an option that writes a file or
-// runs a program.
+// reads: status, diff, log, show or worktree list, without an option that
+// writes a file or runs a program.
 func gitRead(command string, words []string) bool {
-	return len(words) > 1 && slices.Contains([]string{"status", "diff", "log", "show"}, words[1]) && !strings.Contains(command, "--output") && !strings.Contains(command, "--ext-diff") && !strings.Contains(command, "--textconv") && !strings.Contains(command, "--no-index")
+	worktreeList := len(words) > 2 && words[1] == "worktree" && words[2] == "list"
+	return len(words) > 1 && (slices.Contains([]string{"status", "diff", "log", "show"}, words[1]) || worktreeList) && !strings.Contains(command, "--output") && !strings.Contains(command, "--ext-diff") && !strings.Contains(command, "--textconv") && !strings.Contains(command, "--no-index")
 }
 
 // knownLongOptions are, per program, the long options it may read with; any
@@ -685,6 +697,8 @@ var checkedOptions = map[string]optionSpec{
 		numberLong:   contextLong,
 		maxFiles:     -1,
 	},
+	// Two files and no option (knownOperands): skip counts and printing options are not known.
+	"cmp": {maxFiles: 2},
 	// -o writes, --compress-program runs a program, and -T writes elsewhere.
 	"sort": {
 		plainShorts: "bdfghiMnRrVsuzcCm", valueShorts: "ktS",

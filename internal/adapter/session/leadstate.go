@@ -126,6 +126,50 @@ func ClaudeMode(transcriptPath string) mode.Mode {
 	return observed
 }
 
+// ClaudeContextTokens reads the context size of a Claude lead from its
+// transcript: input, cache read and cache creation tokens of the last
+// assistant turn that reports usage. A sidechain turn is a subagent's, not
+// the lead's. false means the size is unknown: no file, no such turn.
+func ClaudeContextTokens(transcriptPath string) (int, bool) {
+	if transcriptPath == "" {
+		return 0, false
+	}
+	f, err := os.Open(transcriptPath)
+	if err != nil {
+		return 0, false
+	}
+	defer f.Close()
+	var tokens int
+	readTail(f, func(complete []byte) bool {
+		tokens = 0
+		for _, line := range bytes.SplitAfter(complete, []byte{'\n'}) {
+			if len(line) == 0 || line[len(line)-1] != '\n' {
+				continue
+			}
+			var record struct {
+				Type      string `json:"type"`
+				Sidechain bool   `json:"isSidechain"`
+				Message   struct {
+					Usage struct {
+						Input    int `json:"input_tokens"`
+						Read     int `json:"cache_read_input_tokens"`
+						Creation int `json:"cache_creation_input_tokens"`
+					} `json:"usage"`
+				} `json:"message"`
+			}
+			if json.Unmarshal(line, &record) != nil || record.Type != "assistant" || record.Sidechain {
+				continue
+			}
+			u := record.Message.Usage
+			if n := u.Input + u.Read + u.Creation; n > 0 {
+				tokens = n
+			}
+		}
+		return tokens > 0
+	})
+	return tokens, tokens > 0
+}
+
 func parseLeadState(agent string, data []byte) LeadState {
 	var state LeadState
 	var nullEffort bool

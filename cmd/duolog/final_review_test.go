@@ -128,7 +128,7 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 			} {
 				// Route these test roles to the opposite provider, retaining their real
 				// sandbox and session policies. This covers both providers symmetrically.
-				cfg := fmt.Sprintf("version: 1\nroles:\n  docs:\n    context: project\n    use: {agent: %s, model: sonnet}\n  review_intermediate:\n    use: {agent: %s, model: sonnet}\n", workerAgent, workerAgent)
+				cfg := fmt.Sprintf("version: 1\nlearning:\n  enabled: true\nroles:\n  docs:\n    context: project\n    use: {agent: %s, model: sonnet}\n  review_intermediate:\n    use: {agent: %s, model: sonnet}\n", workerAgent, workerAgent)
 				if workerAgent == "codex" {
 					cfg = strings.ReplaceAll(cfg, "model: sonnet", "model: sol")
 				}
@@ -219,6 +219,15 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 				}
 				if tc.want != "" && !strings.Contains(gateResult.Stdout, "deny") {
 					t.Fatalf("read-only or ask not denied: %+v", gateResult)
+				}
+				if tc.want == "lead is waiting" {
+					// The foreground wait denies an ask; the record counts it as
+					// an ask and as a denial.
+					journal, _ := os.ReadFile(filepath.Join(root, ".duolog", "journal", "delegations.ndjson"))
+					last := journal[bytes.LastIndex(bytes.TrimSpace(journal), []byte("\n"))+1:]
+					if !bytes.Contains(last, []byte(`"gate_denials":1`)) || !bytes.Contains(last, []byte(`"gate_asks":1`)) {
+						t.Fatalf("gate counts of a foreground wait: %s", last)
+					}
 				}
 				if waiting, err := reg.IsWaiting(lead.ID); err != nil || waiting {
 					t.Fatalf("wait marker leaked: %v %v", waiting, err)

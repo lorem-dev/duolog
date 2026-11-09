@@ -583,7 +583,10 @@ func TestOpenUsesRoleModel(t *testing.T) {
 	argv := strings.Join(r.started(), " ")
 	// The process prefix comes first, with its global overrides, then the
 	// admitted permission words.
-	if !strings.Contains(argv, "codex -c check_for_update_on_startup=false -s ") || !strings.Contains(argv, " -m gpt-6.1-sol") || !strings.Contains(argv, `model_reasoning_effort="medium"`) {
+	// A workspace-write peer also carries the Go caches, as variables and in
+	// Codex's shell environment policy.
+	if !strings.Contains(argv, "codex -c check_for_update_on_startup=false ") || !strings.Contains(argv, " -s workspace-write ") ||
+		!strings.Contains(argv, " GOCACHE=") || !strings.Contains(argv, "shell_environment_policy.set.GOCACHE=") || !strings.Contains(argv, " -m gpt-6.1-sol") || !strings.Contains(argv, `model_reasoning_effort="medium"`) {
 		t.Fatal(argv)
 	}
 	r2 := newRig(t, withScreens(claudeIdle("")))

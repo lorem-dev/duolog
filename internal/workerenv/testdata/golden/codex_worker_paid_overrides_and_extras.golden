@@ -15,6 +15,9 @@ env (in order; a value only where it is fixed):
   DUOLOG_RUN_ID=run-7
   MCP_TOKEN
   OPENAI_API_KEY
+  GOCACHE
+  GOLANGCI_LINT_CACHE
+  TMPDIR
 
 argv prefix:
   codex
@@ -24,6 +27,12 @@ argv prefix:
   model_reasoning_effort='high'
   -c
   tui.notifications=false
+  -c
+  shell_environment_policy.set.GOCACHE='<TMP>/duolog-go-cache/<HASH>/go-build'
+  -c
+  shell_environment_policy.set.GOLANGCI_LINT_CACHE='<TMP>/duolog-go-cache/<HASH>/golangci-lint'
+  -c
+  shell_environment_policy.set.TMPDIR='<TMP>'
 
 launch words:
   exec
@@ -42,6 +51,12 @@ launch argv with run flags [--run-flag value]:
   model_reasoning_effort='high'
   -c
   tui.notifications=false
+  -c
+  shell_environment_policy.set.GOCACHE='<TMP>/duolog-go-cache/<HASH>/go-build'
+  -c
+  shell_environment_policy.set.GOLANGCI_LINT_CACHE='<TMP>/duolog-go-cache/<HASH>/golangci-lint'
+  -c
+  shell_environment_policy.set.TMPDIR='<TMP>'
   exec
   -s
   workspace-write

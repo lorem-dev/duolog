@@ -18,6 +18,7 @@ env (in order; a value only where it is fixed):
   DUOLOG_LEAD=old-lead
   REX_SESSION
   DISABLE_AUTOUPDATER=0
+  TMPDIR
 
 argv prefix:
   codex

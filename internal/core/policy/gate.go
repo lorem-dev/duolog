@@ -835,7 +835,7 @@ var readCommands = []string{"cat", "head", "tail", "ls", "pwd", "wc", "grep", "g
 	"stat", "du", "cut", "nl", "comm", "realpath", "which", "basename", "dirname", "shasum", "md5"}
 
 // checkedReadCommands are reads only with some options, which readOnlyCommand checks.
-var checkedReadCommands = []string{"find", "rg", "sed", "jq", "sort", "uniq", "tree", "file"}
+var checkedReadCommands = []string{"find", "rg", "sed", "jq", "sort", "uniq", "tree", "file", "cmp"}
 
 func readOnlyCommand(command string) bool {
 	raw := strings.Fields(command)
@@ -856,8 +856,8 @@ func readOnlyCommand(command string) bool {
 	case "jq":
 		_, ok := jqFiles(raw[1:])
 		return ok
-	case "grep", "sort", "uniq", "file":
-		return checkedOptions[words[0]].known(raw[1:])
+	case "grep", "sort", "uniq", "file", "cmp":
+		return knownOperands(words[0], raw[1:])
 	case "tree":
 		// -o writes a file, and -R with -H writes an HTML page into each folder.
 		return !slices.ContainsFunc(raw[1:], func(w string) bool {
@@ -928,7 +928,7 @@ func readOnlyRule(pattern string) bool {
 			return false
 		}
 		if fields[0] == "git" {
-			if len(fields) < 2 || !slices.Contains([]string{"status", "diff", "log", "show"}, strings.TrimSuffix(fields[1], "*")) {
+			if !gitReadPattern(fields) {
 				return false
 			}
 		} else if name := strings.TrimSuffix(fields[0], "*"); !slices.Contains(checkedReadCommands, name) && !slices.Contains(readCommands, name) {

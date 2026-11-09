@@ -247,6 +247,7 @@ The lead's own settings are the ceiling:
 | `workers.inherit_plugins` | `false` (default): a Claude worker or peer turns off every plugin your user and project settings enable, except duolog's own. `true`: it loads them all, as your own sessions do. See [below](#what-workers-inherit) |
 | `workers.compact_window` | `auto` (default): Claude workers, peers and the lead compact at the size `workers.compact_ladder` gives for your plan. `0`: Claude's own default. `100000` to `1000000`: the context size in tokens at which they compact. See [below](#what-workers-inherit) |
 | `lead.compact_notes` | `true` (default): the lead's compaction keeps the open peers, asks, branches and pull requests, and lists the live peers again afterwards. `false` turns both off. See [below](#how-the-lead-keeps-its-state-through-compaction) |
+| `lead.fresh_session_hint` | `200000` (default): the context size in tokens from which a Claude lead is reminded to offer you a fresh lead session. `0` turns this off. See [below](#how-the-lead-offers-a-fresh-session) |
 | `rex` | Timeouts and capture settings for live sessions. See [Rex](rex.md) |
 | `rex.stuck_notify_minutes` | Minutes before `peer wait` sends one reminder for an unanswered question. Default: `5`; `0` disables reminders |
 | `rex.auto_answers` | Ordered `{match, answer}` rules for safe peer questions. Defaults to answering `Hooks need review` with `Continue without trusting`. A project list replaces the defaults; `[]` disables it. Trust and persistent approval grants are refused; a pane's startup folder-trust question is a [built-in answer](rex.md) for the lead's own project only |
@@ -312,6 +313,24 @@ the branches and pull requests the lead works on. It then prints the live
 compaction prints the same peer lines again. Set `lead.compact_notes: false`
 to print neither; the hook reads the setting when it runs. Workers and Codex
 leads are not changed.
+
+## How the lead offers a fresh session
+
+Every turn of a lead reads its whole context again, so a long lead session
+costs several times a short one. When a Claude lead's prompt hook finds that
+the context of the last assistant turn (input, cache read and cache creation
+tokens in the session transcript) is at least `lead.fresh_session_hint`
+tokens, and no peer or foreground worker of the lead runs, it adds one line
+that reminds the lead to offer you a fresh lead session once the current wave
+of cards is finished and written in the plan, with the plan file and the next
+card as the hand-over. duolog only reminds: it never starts a session or
+closes one, and the lead waits for your answer.
+
+The line comes once per lead session, and again each further 100000 tokens.
+`0` turns it off. Only your user file and a local file of your own may set the
+key; the shared `.duolog/config.yaml` may not, and duolog ignores such a value
+and names it. A lead whose size cannot be read, such as a Codex lead, gets no
+line and no error.
 
 ## What workers inherit
 
@@ -930,6 +949,15 @@ runs with no network and no writable roots beyond the project, whatever
 `.codex/config.toml` says; to give a worker network back, add a role entry
 with `network: true` here in your user config.
 
+Go needs no writable root. Codex's `workspace-write` cannot write Go's
+default cache, so duolog starts every Codex `workspace-write` worker and peer
+with `GOCACHE` and `GOLANGCI_LINT_CACHE` set to folders under the temp folder
+(`duolog-go-cache/go-build` and `duolog-go-cache/golangci-lint`), which that
+sandbox already lets it write. Worktrees share them. A value you pass on
+through `env_passthrough` stays. duolog also sets them in Codex's
+`shell_environment_policy.set`, so a policy that clears the environment does
+not drop them.
+
 ```yaml
 worker_modes:
   roles:
@@ -937,7 +965,7 @@ worker_modes:
       claude: acceptEdits
       codex: workspace-write
       network: true
-      writable_roots: ["~/.cache/go-build"]
+      writable_roots: ["~/.cache/pip"]
     debug_hard: {claude: auto}
   families:
     luna: {codex: read-only}

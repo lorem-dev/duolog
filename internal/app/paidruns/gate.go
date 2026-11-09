@@ -43,7 +43,9 @@ func RouteKey(p launch.Process) string {
 	names := make([]string, 0, len(p.Env))
 	for _, pair := range p.Env {
 		name, _, _ := strings.Cut(pair, "=")
-		names = append(names, name)
+		if !slices.Contains(workerenv.GoCacheNames, name) {
+			names = append(names, name)
+		}
 	}
 	slices.Sort(names)
 	data, _ := json.Marshal(struct {

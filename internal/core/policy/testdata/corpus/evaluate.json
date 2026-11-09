@@ -1,4 +1,4 @@
-{"mode":"ask","action":"exec git status","kind":"allow","rule":"exec git {status,diff,log,show}*"}
+{"mode":"ask","action":"exec git status","kind":"allow","rule":"exec git {status,diff,log,show,worktree list}*"}
 {"mode":"ask","action":"exec rm -rf /","kind":"deny","rule":"exec rm -rf *"}
 {"mode":"ask","action":"exec cat .env","kind":"deny","rule":"lead: read .env"}
 {"mode":"ask","action":"exec cat ~/.ssh/id_rsa","kind":"ask","rule":"outside work root"}
@@ -18,7 +18,7 @@
 {"mode":"ask","action":"spawn Task","kind":"deny","rule":"worker depth"}
 {"mode":"ask","action":"net https://example.invalid","kind":"ask","rule":"net *"}
 {"mode":"ask","action":"unknown Frobnicate","kind":"ask","rule":"unknown tool"}
-{"mode":"edits","action":"exec git status","kind":"allow","rule":"exec git {status,diff,log,show}*"}
+{"mode":"edits","action":"exec git status","kind":"allow","rule":"exec git {status,diff,log,show,worktree list}*"}
 {"mode":"edits","action":"exec rm -rf /","kind":"deny","rule":"exec rm -rf *"}
 {"mode":"edits","action":"exec cat .env","kind":"deny","rule":"lead: read .env"}
 {"mode":"edits","action":"exec cat ~/.ssh/id_rsa","kind":"ask","rule":"outside work root"}
@@ -38,7 +38,7 @@
 {"mode":"edits","action":"spawn Task","kind":"deny","rule":"worker depth"}
 {"mode":"edits","action":"net https://example.invalid","kind":"ask","rule":"net *"}
 {"mode":"edits","action":"unknown Frobnicate","kind":"ask","rule":"unknown tool"}
-{"mode":"full","action":"exec git status","kind":"allow","rule":"exec git {status,diff,log,show}*"}
+{"mode":"full","action":"exec git status","kind":"allow","rule":"exec git {status,diff,log,show,worktree list}*"}
 {"mode":"full","action":"exec rm -rf /","kind":"deny","rule":"exec rm -rf *"}
 {"mode":"full","action":"exec cat .env","kind":"deny","rule":"lead: read .env"}
 {"mode":"full","action":"exec cat ~/.ssh/id_rsa","kind":"ask","rule":"outside work root"}

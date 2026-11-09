@@ -42,6 +42,19 @@ func TestOwnershipLeavesChangelogToTheTask(t *testing.T) {
 	}
 }
 
+// A worker does its task itself, whatever the project's instruction files say
+// about delegating, and the line closes every worker's input.
+func TestWorkerDoesNotHandWorkOn(t *testing.T) {
+	for _, want := range []string{"yourself", "do not run duolog", "open a peer", "start another agent", "instruction files"} {
+		if !strings.Contains(handOnLine, want) {
+			t.Fatalf("hand-on line misses %q: %q", want, handOnLine)
+		}
+	}
+	if !strings.Contains(workerLines, "\n"+handOnLine+"\n") {
+		t.Fatalf("worker lines miss the hand-on line: %q", workerLines)
+	}
+}
+
 func TestWorkerBriefRefusesLinksAndLargeFiles(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".duolog"), 0o755); err != nil {
