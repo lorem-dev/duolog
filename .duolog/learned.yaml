@@ -17,6 +17,15 @@ rules:
       match: go run ./scripts/thirdparty -check
       decision: allow
       roles: [debug_hard, docs, implement, implement_complex, mechanical, planner, tests]
+    # Generators that rewrite tracked files in this repository, without flags.
+    - action: exec
+      match: make {schema-write,install-script}
+      decision: allow
+      roles: [debug_hard, docs, implement, implement_complex, mechanical, planner, tests]
+    - action: exec
+      match: go run ./scripts/{schemagen,render-install}
+      decision: allow
+      roles: [debug_hard, docs, implement, implement_complex, mechanical, planner, tests]
     # Help and version of the agent CLIs only read; workers need them for flags.
     - action: exec
       match: "{codex,claude,rex} *--help*"

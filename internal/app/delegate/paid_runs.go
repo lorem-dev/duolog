@@ -186,22 +186,7 @@ func (a *permitRun) finish(ctx context.Context, cfg *config.Config, route corero
 func RefusalLine(r *paidruns.Refusal) string {
 	switch r.Reason {
 	case paidruns.ReasonFreeVariantPaid, paidruns.ReasonNotAllowed:
-		var signals []string
-		for _, s := range r.Signals {
-			signals = append(signals, s.Name+" in "+s.Layer)
-		}
-		shape := string(r.Shape)
-		if shape == "" {
-			shape = string(corelaunch.Worker)
-		}
-		line := r.Agent + " " + shape + " is paid"
-		if len(signals) > 0 {
-			line += " (" + strings.Join(slices.Compact(signals), ", ") + ")"
-		}
-		if r.OptedIn {
-			return line
-		}
-		return line + "; set paid_runs." + r.Agent + " to allow"
+		return paidRefusalLine(r)
 	case paidruns.ReasonAgentSessions, paidruns.ReasonOneTask, paidruns.ReasonQueue:
 		line := fmt.Sprintf("%s sessions %d of %d (tier %s)", r.Agent, r.Live, r.Limit, r.Tier)
 		if r.Reason == paidruns.ReasonOneTask {
@@ -223,4 +208,28 @@ func RefusalLine(r *paidruns.Refusal) string {
 // refused.
 func leadLine(role string, refusals []string, p Placement) string {
 	return oneLine(role + " -> lead: " + strings.Join(refusals, "; ") + "; " + p.String())
+}
+
+// paidRefusalLine preserves the gate's safe detail in the lead's paid refusal.
+func paidRefusalLine(r *paidruns.Refusal) string {
+	var signals []string
+	for _, s := range r.Signals {
+		signals = append(signals, s.Name+" in "+s.Layer)
+	}
+	shape := string(r.Shape)
+	if shape == "" {
+		shape = string(corelaunch.Worker)
+	}
+	line := r.Agent + " " + shape + " is paid"
+	if len(signals) > 0 {
+		line += " (" + strings.Join(slices.Compact(signals), ", ") + ")"
+	}
+	// A not-allowed refusal's detail repeats the paid_runs advice below.
+	if r.Reason == paidruns.ReasonFreeVariantPaid && r.Detail != "" {
+		line += "; " + r.Detail
+	}
+	if r.OptedIn {
+		return line
+	}
+	return line + "; set paid_runs." + r.Agent + " to allow"
 }

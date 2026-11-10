@@ -79,3 +79,29 @@ func TestFreeRunOnOverageSaysSo(t *testing.T) {
 		t.Fatalf("line %q lacks %q", o.Line, want)
 	}
 }
+
+// Kills the mutation that drops the gate's safe read failure detail from
+// the refusal shown to a lead opening a peer.
+func TestRefusalLineKeepsReadFailureDetail(t *testing.T) {
+	r := &paidruns.Refusal{Agent: "codex", Shape: corelaunch.Peer, Variant: corelaunch.Free,
+		Reason: paidruns.ReasonFreeVariantPaid, Verdict: paidrules.Paid,
+		Signals: []corelaunch.Signal{{Name: "read:failed", Layer: "account/rateLimits/read"}},
+		Detail:  "quota read returned no supported windows; subscription billing could not be verified"}
+	for _, optedIn := range []bool{false, true} {
+		r.OptedIn = optedIn
+		got := RefusalLine(r)
+		if !strings.Contains(got, r.Detail) || !strings.Contains(got, "read:failed in account/rateLimits/read") {
+			t.Fatalf("lead lost the actual reason: %q", got)
+		}
+	}
+}
+
+// Kills the mutation that appends a not-allowed refusal's detail, which
+// already holds the paid_runs advice, so the line gives it twice.
+func TestNotAllowedRefusalGivesAdviceOnce(t *testing.T) {
+	r := &paidruns.Refusal{Agent: "codex", Shape: corelaunch.Peer, Reason: paidruns.ReasonNotAllowed,
+		Detail: "set paid_runs.codex.allow with daily_cap_usd above 0"}
+	if got := RefusalLine(r); strings.Count(got, "paid_runs.codex") != 1 {
+		t.Fatalf("advice not given exactly once: %q", got)
+	}
+}

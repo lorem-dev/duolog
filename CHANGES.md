@@ -66,6 +66,10 @@
 - A worktree gets the Codex trust of the lead's checkout also when `delegate`
   or `peer open` runs inside that worktree.
 - `delegate` no longer crashes when the worker's route changes during admission.
+- A worker reads a skill linked from `~/.agent/skills` into the agent's config
+  folder; only that skill tree opens, not the config folder.
+- A paid-run refusal from `delegate` or `peer open` says why the quota read
+  failed.
 
 ## 1.7.0
 

@@ -37,6 +37,7 @@ func agentSkillRoots(wide func(string) bool, target string) []string {
 			continue
 		}
 		own := pathutil.Resolved(dir)
+		roots = append(roots, linkedConfigSkillRoots(home, own, target, wide)...)
 		if skills := filepath.Join(dir, "skills"); ownOrNarrow(wide, pathutil.Resolved(skills), filepath.Join(own, "skills")) {
 			roots = append(roots, skills)
 		}
@@ -54,6 +55,48 @@ func agentSkillRoots(wide func(string) bool, target string) []string {
 		}
 	}
 	return roots
+}
+
+// linkedConfigSkillRoots recognizes installed links such as
+// .agent/skills/package -> .codex/package/skills. The ordinary install root
+// cannot cover that resolved path, and wide refuses all of agent config.
+// Exempt only the linked package's skills folder, never its config parent.
+// Only a target inside the config folder needs this, so other targets skip
+// the folder scans that would otherwise run on every gate call.
+func linkedConfigSkillRoots(home, own, target string, wide func(string) bool) []string {
+	if !within(own, pathutil.Resolved(target)) {
+		return nil
+	}
+	var roots []string
+	for _, name := range []string{".agent", ".agents"} {
+		installed := filepath.Join(home, name, "skills")
+		if wide(pathutil.Resolved(installed)) {
+			continue
+		}
+		entries, _ := os.ReadDir(installed)
+		for _, entry := range entries {
+			if entry.Type()&fs.ModeSymlink == 0 || privateSkillName(entry.Name()) {
+				continue
+			}
+			resolved, err := filepath.EvalSymlinks(filepath.Join(installed, entry.Name()))
+			if err == nil && configSkillTree(own, resolved) {
+				roots = append(roots, resolved)
+			}
+		}
+	}
+	return roots
+}
+
+// configSkillTree accepts exactly <agent config>/<package>/skills, with no
+// hidden or private package name. Callers pass fully resolved paths, so a
+// link to the config folder itself or a protected folder elsewhere fails.
+func configSkillTree(own, resolved string) bool {
+	rel, err := filepath.Rel(own, resolved)
+	if err != nil || !filepath.IsLocal(rel) {
+		return false
+	}
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	return len(parts) == 2 && !privateSkillName(parts[0]) && samePath(parts[1], "skills")
 }
 
 // ownOrNarrow reports a resolved folder that is where the agent's config
