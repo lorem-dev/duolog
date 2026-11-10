@@ -109,7 +109,7 @@ func (c Check) Match(answer string) bool {
 
 func (p Plan) Grade(raw string) map[string]bool {
 	var answers map[string]string
-	if json.Unmarshal([]byte(raw), &answers) != nil {
+	if json.Unmarshal([]byte(unfence(raw)), &answers) != nil {
 		answers = nil
 	}
 	graded := map[string]bool{}
@@ -117,6 +117,22 @@ func (p Plan) Grade(raw string) map[string]bool {
 		graded[s.ID] = s.Check.Match(answers[s.ID])
 	}
 	return graded
+}
+
+// unfence returns the body of an answer that is one code fence and nothing
+// else, such as a JSON object in a json fence. Any other answer is returned
+// as it is, so text outside a fence still fails to parse.
+func unfence(raw string) string {
+	s := strings.TrimSpace(raw)
+	if !strings.HasPrefix(s, "```") || !strings.HasSuffix(s, "```") || len(s) < 6 {
+		return raw
+	}
+	body := strings.TrimSuffix(s, "```")
+	open, rest, ok := strings.Cut(body, "\n")
+	if !ok || strings.Contains(open[3:], "`") {
+		return raw
+	}
+	return rest
 }
 
 func (p Plan) Prompt(skill string) string {

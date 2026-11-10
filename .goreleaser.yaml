@@ -40,11 +40,12 @@ archives:
 
 checksum:
   name_template: checksums.txt
-  # Include the schema and both installers in the checksums.
+  # Include the schema, both installers and the agent prompt in the checksums.
   extra_files:
     - glob: duolog-config.schema.json
     - glob: .release/install.sh
     - glob: .release/install.ps1
+    - glob: .release/install-prompt.md
 
 # The release body comes from CHANGES.md: --release-notes in the workflow. Keep the
 # changelog enabled, because disabling it also skips that flag and leaves the body
@@ -52,8 +53,9 @@ checksum:
 release:
   # A tag such as v1.2.3-rc.1 must not become the release that installers call latest.
   prerelease: auto
-  # Attach the schema and both installers to the release page.
+  # Attach the schema, both installers and the agent prompt to the release page.
   extra_files:
     - glob: duolog-config.schema.json
     - glob: .release/install.sh
     - glob: .release/install.ps1
+    - glob: .release/install-prompt.md

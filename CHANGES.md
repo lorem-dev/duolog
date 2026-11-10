@@ -46,6 +46,8 @@
 
 - A task's `Run` section lists commands besides checks, such as generators;
   `delegate` refuses before a worker starts when the gate would stop one.
+- Install in one line: the release asset `install-prompt.md` lets Claude Code
+  or Codex install duolog and ask whether to set up the current project.
 
 ### Changed
 
@@ -62,7 +64,6 @@
   the project's other rules still apply.
 - `duolog peer list` and `duolog runs` show a peer at work as `working`, not
   `starting`.
-
 - A worktree gets the Codex trust of the lead's checkout also when `delegate`
   or `peer open` runs inside that worktree.
 - `delegate` no longer crashes when the worker's route changes during admission.
@@ -70,6 +71,7 @@
   folder; only that skill tree opens, not the config folder.
 - A paid-run refusal from `delegate` or `peer open` says why the quota read
   failed.
+- `duolog skill test` reads an answer that a model wraps in one code fence.
 
 ## 1.7.0
 

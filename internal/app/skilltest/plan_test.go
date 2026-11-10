@@ -92,6 +92,26 @@ func TestGradeRejectsBadAnswers(t *testing.T) {
 	}
 }
 
+// Kills reading only bare JSON: a model that wraps its whole answer in one
+// code fence answered, and its answer counts. Text outside the fence still
+// fails, as trailing text does.
+func TestGradeReadsAnAnswerInOneCodeFence(t *testing.T) {
+	p, err := ReadPlan(strings.NewReader("situations: [{id: s1, text: x, check: {starts: yes}}]"), testAgents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{"```json\n{\"s1\":\"yes\"}\n```", "```\n{\"s1\":\"yes\"}\n```\n"} {
+		if !p.Grade(raw)["s1"] {
+			t.Errorf("rejected %q", raw)
+		}
+	}
+	for _, raw := range []string{"Here:\n```json\n{\"s1\":\"yes\"}\n```", "```json\n{\"s1\":\"yes\"}\n```\nmore", "```json\n{\"s1\":\"yes\"}"} {
+		if p.Grade(raw)["s1"] {
+			t.Errorf("accepted %q", raw)
+		}
+	}
+}
+
 func TestAgentSpecificSituations(t *testing.T) {
 	p, err := ReadPlan(strings.NewReader(`situations:
   - {id: shared, text: Shared question, check: {starts: yes}}

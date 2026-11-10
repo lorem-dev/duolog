@@ -30,9 +30,6 @@ small file bus, so they do not paste large context at each other.
 The <a href="docs/glossary.md#gate">gate</a> checks every worker command
 against the project rules. The <a href="docs/glossary.md#bus">bus</a> in
 <code>.duolog/</code> carries messages, asks and results.
-</p>
-
-<p align="center">
 In our November 2026 study, a lead that gave a whole feature to the
 <a href="docs/glossary.md#planner">planner</a> on Codex cost 38-45% less
 than one Opus session, with the same test results, on two tasks. Models and
@@ -42,67 +39,48 @@ prices change. See the
 
 ---
 
-## How to install the binary
+## How to install
 
-On macOS and Linux:
+Run one line in your project folder. It gives Claude Code a short install
+prompt; Claude installs duolog and asks whether to set it up for this folder.
+
+On macOS, Linux or WSL:
 
 ```sh
-curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh
+claude "$(curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install-prompt.md)"
 ```
 
-On Windows, use Windows PowerShell 5.1 or PowerShell 7:
+In Windows PowerShell:
 
 ```powershell
-irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
+claude (irm https://github.com/lorem-dev/duolog/releases/latest/download/install-prompt.md)
 ```
 
-To build from source instead, use Go:
+To install with Codex, write `codex` in place of `claude`. Then start a new
+session in your project; that session is the lead. Local telemetry is on by
+default; turn it off with `duolog telemetry off`.
 
-```sh
-go install github.com/lorem-dev/duolog/cmd/duolog@latest
-```
+To install by hand, from source or at a set version, see
+[Getting started](docs/getting-started.md).
 
-Run the same command again to update. Open a new terminal afterwards. For the
-install folders, PATH handling, `DUOLOG_NO_PATH`, per-release installers and
-pinning a version, see [Getting started](docs/getting-started.md).
+## How duolog keeps the context small
 
-## How to install the plugins
+Each turn re-reads the whole context, so a long session costs more per turn.
+duolog makes Claude compact the lead and every Claude worker at a size set by
+your plan, instead of at Claude's own default, which on Opus can be the whole
+1M-token context.
 
-The plugins call the binary, so install it first. In Claude Code, run:
+| Compacts at | Set by duolog for | Opus cost per turn to re-read the context* |
+|---|---|---|
+| 250k tokens | Pro | 0.05 USD |
+| 500k tokens | Max | 0.10 USD |
+| 700k tokens | Ultra | 0.14 USD |
+| 1M tokens | (Claude's default on Opus) | 0.20 USD |
 
-```sh
-claude plugin marketplace add lorem-dev/duolog
-claude plugin install duolog@duolog
-```
-
-In Codex, run:
-
-```sh
-codex plugin marketplace add lorem-dev/duolog
-codex plugin add duolog@duolog
-```
-
-## How to install the hooks and approve them
-
-Install hooks for one project or for all your projects:
-
-```sh
-duolog install --scope project
-duolog install --scope user
-```
-
-Codex needs this step, then one approval in `/hooks` (press `t`) and a trusted
-project folder. Claude needs it only if its plugin is not enabled. Then start
-a new session in your project. That session is the lead.
-
-## How to check the setup
-
-```sh
-duolog doctor
-```
-
-Follow the steps that doctor names. Local telemetry is on by default; turn it
-off with `duolog telemetry off`.
+\* An estimate at the Opus cache price of 0.20 USD per million tokens: near
+1M tokens a turn costs about four times what it costs at 250k. We are
+measuring the real effect. To change the size, see `workers.compact_window`
+in [Configuration](docs/configuration.md#what-workers-inherit).
 
 ## How to send the first task
 

@@ -82,6 +82,29 @@ other instructions. If a file has a begin marker without an end marker, or the
 reverse, install and uninstall stop with an error that names the file and
 change nothing.
 
+## How to install with an agent
+
+Instead of the steps on this page, you can let Claude Code or Codex install
+duolog. Run one line in your project folder. It downloads
+`install-prompt.md` from the latest release and starts the agent with it.
+
+```sh
+claude "$(curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install-prompt.md)"
+```
+
+```powershell
+claude (irm https://github.com/lorem-dev/duolog/releases/latest/download/install-prompt.md)
+```
+
+Write `codex` in place of `claude` to install with Codex. The agent first
+asks one question: install duolog into this project folder, yes or skip. In a
+Git repository that folder is its top folder, or the main checkout for a
+linked worktree. With either answer the agent runs the install script, adds
+the duolog plugin to itself and runs `duolog doctor`; with yes it also runs
+`duolog install --scope project`. It stops at the first command that fails
+and leaves every permission prompt to you. The `install-prompt.md` of a
+release installs that release.
+
 ## What works on each OS
 
 | OS | Install command | Known limits |

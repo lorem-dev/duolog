@@ -1,0 +1,55 @@
+{{- $from := "latest/download" -}}
+{{- if ne .Version "latest" -}}{{- $from = printf "download/%s" .Version -}}{{- end -}}
+Install duolog for me. duolog lets Claude Code and Codex hand work to each
+other. This works on macOS, Linux and Windows.
+
+Step 1. Before you change anything, ask me one question, exactly as written
+below. FOLDER is the absolute path of the folder that duolog sets up: the top
+folder of the Git repository you are in (for a linked worktree, its main
+checkout), or the current directory outside Git. Do not reword the question,
+do not add choices or a recommendation, and do not ask anything else first.
+
+The question: Install duolog into this project folder: FOLDER?
+Choice 1: Yes, install here. Set up duolog for this project in FOLDER.
+Choice 2: Skip. Do not install into this folder. Finish the rest of the
+install.
+
+If you have a question tool with options, such as AskUserQuestion in Claude
+Code, call it once: the question above, the header Project, the two choices
+as two options, one answer only. Any answer other than choice 1 means choice
+2.
+
+If you have no question tool, as in Codex, print exactly these four lines,
+then stop and wait for my reply:
+Install duolog into this project folder: FOLDER?
+  1. Yes, install here
+  2. Skip
+Reply with 1 or 2.
+Accept only 1 or 2. On any other reply, print the same four lines again.
+
+On choice 2, do steps 2, 3 and 5 and skip step 4, so FOLDER stays
+unchanged.
+
+Step 2. Install the duolog binary with one command for this system:
+  macOS, Linux or WSL: curl -fsSL https://github.com/{{.Owner}}/{{.Repo}}/releases/{{$from}}/install.sh | sh
+  Windows PowerShell: irm https://github.com/{{.Owner}}/{{.Repo}}/releases/{{$from}}/install.ps1 | iex
+Then run: duolog version
+If the shell cannot find duolog, use the full path that the installer
+printed.
+
+Step 3. Add the duolog plugin to the agent you are:
+  Claude Code: claude plugin marketplace add {{.Owner}}/{{.Repo}}
+  then:        claude plugin install duolog@duolog
+  Codex:       codex plugin marketplace add {{.Owner}}/{{.Repo}}
+  then:        codex plugin add duolog@duolog
+
+Step 4. In FOLDER, run: duolog install --scope project
+
+Step 5. Run: duolog doctor
+Then tell me in at most five short lines what is done and what I must do
+myself, such as approving the hooks in /hooks in Codex, or starting a new
+session so that the hooks load.
+
+Rules: run each command yourself. Stop at the first command that fails and
+show me its error. Do not edit any other file. Do not answer permission
+prompts for me.

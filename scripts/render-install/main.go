@@ -1,4 +1,4 @@
-// render-install renders the POSIX and PowerShell installer templates to dist.
+// render-install renders the installers and agent install prompt to .release.
 // A release passes its tag with -version so each asset installs its own
 // release; without it the assets resolve the latest release. With -template and/or -o,
 // it renders a single custom file instead; with -o alone, its .sh or .ps1
@@ -81,19 +81,24 @@ func main() {
 }
 
 const (
-	shTemplate  = "scripts/install-template/install.sh.tmpl"
-	ps1Template = "scripts/install-template/install.ps1.tmpl"
+	shTemplate     = "scripts/install-template/install.sh.tmpl"
+	ps1Template    = "scripts/install-template/install.ps1.tmpl"
+	promptTemplate = "scripts/install-template/install-prompt.md.tmpl"
 )
 
 // renderPairs returns the template and output path of each file to render.
-// Without flags it is both installers. With -o alone the extension picks the
-// template, .sh or .ps1, and any other extension needs -template. With
+// Without flags it is both installers and the agent prompt. With -o alone
+// the extension picks the template, .sh or .ps1; other extensions need -template. With
 // -template alone the output is named after the template, without .tmpl, in
 // .release: install.ps1.tmpl renders .release/install.ps1.
 func renderPairs(tmpl, out string) ([][2]string, error) {
 	switch {
 	case tmpl == "" && out == "":
-		return [][2]string{{shTemplate, ".release/install.sh"}, {ps1Template, ".release/install.ps1"}}, nil
+		return [][2]string{
+			{shTemplate, ".release/install.sh"},
+			{ps1Template, ".release/install.ps1"},
+			{promptTemplate, ".release/install-prompt.md"},
+		}, nil
 	case out == "":
 		// The output keeps the template's own name in .release, so a
 		// PowerShell template never lands in install.sh.

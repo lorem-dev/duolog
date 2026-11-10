@@ -365,6 +365,7 @@ func TestPowerShellInstallerAddsUserPath(t *testing.T) {
 
 // With -o alone the extension picks the template, so an install.ps1 is never
 // the POSIX installer under a PowerShell name.
+// Kills mutations that omit the prompt or change existing single-file selection.
 func TestRenderPairsByExtension(t *testing.T) {
 	dir := t.TempDir()
 	for _, tc := range []struct {
@@ -416,7 +417,7 @@ func TestRenderPairsByExtension(t *testing.T) {
 			t.Errorf("template %s alone: %v %v, want output %s", tmpl, pairs, err, want)
 		}
 	}
-	if pairs, err := renderPairs("", ""); err != nil || len(pairs) != 2 {
+	if pairs, err := renderPairs("", ""); err != nil || len(pairs) != 3 {
 		t.Errorf("defaults: %v %v", pairs, err)
 	}
 }
