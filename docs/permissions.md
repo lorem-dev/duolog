@@ -333,22 +333,22 @@ edit.
 `basedpyright`, for write roles only, as `.venv/bin/` is. Any other `uv run`
 command asks.
 
-### Preflight of the Check commands
+### Preflight of the Run and Check commands
 
 Before a worker starts in a write role, `duolog delegate` takes each command in
-the task's `## Check` section and judges it with the decision code the gate
-uses for that role in that work root. A command is a line, or list item, that is
-one backtick span, or a line inside a fenced block. In a fenced block a line
-that starts with `#` is a comment and is skipped, and a line that ends in `\`
-joins the next into one command. The MCP `delegate` tool writes each `check`
-item as one backtick span. The judgment is made for the route that starts, in
-that route's worker mode: a blocked first route is left for the fallback, and
-the task is refused only when no route can run it. A replay and a judge run are
-not judged. If any answer is `ask` or `deny`, no worker starts and the command
-exits non-zero. The message names each blocked command with its decision, and
-for `ask` shows `duolog remember '<command>'`, which the person may run to
-approve it. The MCP `delegate` tool returns the same list in the `blocked`
-field, with `remember` on each `ask`.
+the task's `## Run` and `## Check` sections and judges them with the code the
+gate uses for that role in that work root. A command is a line, or list item,
+that is one backtick span, or a line inside a fenced block. In a fenced block a
+line that starts with `#` is a comment and is skipped, and a line that ends in
+`\` joins the next into one command. The MCP `delegate` tool writes each `run`
+and `check` item as one backtick span. The judgment is made for the route that
+starts, in that route's worker mode: a blocked first route is left for the
+fallback, and the task is refused only when no route can run it. A replay and a
+judge run are not judged. If any answer is `ask` or `deny`, no worker starts
+and the command exits non-zero. The message names each blocked command with
+its section and decision. For `ask` it shows `duolog remember '<command>'`,
+which the person may run to approve it. The MCP `delegate` tool returns the
+same list in the `blocked` field, with `remember` on each `ask`.
 
 A preflight only reports. It allows nothing and remembers nothing. A Check line
 that cannot be read as a command is not a block: it is named in the output, and
@@ -1065,6 +1065,10 @@ earlier install has, the gate shortens the wait to fit: 120 seconds under a
 timeout of 150. Run `duolog install` to get the full wait; `duolog install
 --check` reports the old value. Codex then needs the hook approved again in
 `/hooks`, because its approval covers the timeout.
+
+An upgrade that changes Codex hook text or timeouts needs new approval in
+`/hooks`; duolog cannot approve hooks for you. The install note names the file,
+each changed event and field with old and new values, and any new events.
 
 An agent treats a hook it kills as a failed hook, and the tool call can go on:
 

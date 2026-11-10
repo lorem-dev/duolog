@@ -19,6 +19,7 @@ const (
 	taskSchema = `{"type":"object","properties":{` +
 		`"goal":{"type":"string","description":"What to do and why, one paragraph"},` +
 		`"read":` + strList + `,"write":` + strList + `,"limits":` + strList + `,` +
+		`"run":{"type":"array","items":{"type":"string"},"description":"Commands besides checks, one per item"},` +
 		`"check":{"type":"array","items":{"type":"string"},"description":"One command per item"}` +
 		`},"required":["goal"]}`
 

@@ -253,3 +253,63 @@ func TestPreflightQuotesTheRememberCommand(t *testing.T) {
 		t.Errorf("hint = %s", got)
 	}
 }
+
+func TestPreflightRunNamesBothSectionsBeforeWorkerStarts(t *testing.T) {
+	// Kills ignoring Run, stopping after Check, or losing section provenance.
+	h := newHarness(t)
+	h.checks("`go run ./cmd/check`\n")
+	data, err := os.ReadFile(h.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(t, h.path, strings.Replace(string(data), "## Check", "## Run\n`go run ./cmd/generate`\n## Check", 1))
+	out, err := h.run("implement")
+	h.requireCalls(0)
+	var pe *PreflightError
+	if !errors.As(err, &pe) || len(pe.Blocked) != 2 {
+		t.Fatalf("err=%v", err)
+	}
+	for _, want := range []string{"Run: go run ./cmd/generate: ask", "Check: go run ./cmd/check: ask"} {
+		if !strings.Contains(out.Line, want) {
+			t.Errorf("%q lacks %q", out.Line, want)
+		}
+	}
+}
+
+func TestPreflightRunUsesRouteWorkerMode(t *testing.T) {
+	// Kills judging Run in the lead mode or ignoring it on fallback routes.
+	h := newHarness(t)
+	h.fallbackRoutes()
+	h.checks("- none\n")
+	data, err := os.ReadFile(h.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(t, h.path, strings.Replace(string(data), "## Check", "## Run\n`go test ./pkg`\n## Check", 1))
+	if _, err := h.run("implement"); err != nil {
+		t.Fatal(err)
+	}
+	h.requireCalls(1)
+	if h.calls[0].Route.Agent != "codex" {
+		t.Fatalf("started %s", h.calls[0].Route.Agent)
+	}
+}
+
+// Kills dropping the Run lines that were not read as commands from the
+// outcome of a run that starts.
+func TestPreflightOutcomeCarriesSkippedRunLines(t *testing.T) {
+	h := newHarness(t)
+	h.checks("`go test ./...`\n")
+	data, err := os.ReadFile(h.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(t, h.path, strings.Replace(string(data), "## Check", "## Run\nRegenerate the schema.\n## Check", 1))
+	out, err := h.run("implement")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.SkippedChecks) != 1 || out.SkippedChecks[0] != "Run: Regenerate the schema." {
+		t.Errorf("SkippedChecks = %q", out.SkippedChecks)
+	}
+}

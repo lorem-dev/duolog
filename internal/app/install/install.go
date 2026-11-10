@@ -225,7 +225,7 @@ func planAgents(agents []Agent, o Options, base string) ([]edit, []regate, []str
 		if p.hook != nil {
 			edits = append(edits, *p.hook)
 		}
-		notes = append(notes, p.notes...)
+		notes = append(notes, hookChangeNotes(a, p)...)
 		if approvals, ok := a.Installer.(Approvals); ok && !p.plugin {
 			// The agent skips a hook whose command changed after approval, and its
 			// trusted_hash stays; trust must not count that hash for the new

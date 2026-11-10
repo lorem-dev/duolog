@@ -712,3 +712,12 @@ func TestSkillNamesTaskStart(t *testing.T) {
 		}
 	}
 }
+
+func TestSkillTaskSectionsNameRun(t *testing.T) {
+	// Kills omitting Run from either agent's task-file instructions.
+	for _, agent := range []string{"claude", "codex"} {
+		if !strings.Contains(skillText(t, agent), "Limits, Run (optional), Check") {
+			t.Errorf("%s task sections omit optional Run", agent)
+		}
+	}
+}

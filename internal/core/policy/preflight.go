@@ -24,6 +24,7 @@ type PreflightInput struct {
 
 // Blocked is a command that the gate would not allow a worker to run.
 type Blocked struct {
+	Section  string `json:"section,omitempty"` // task section, when known
 	Command  string `json:"command"`
 	Decision string `json:"decision"` // ask or deny
 	Reason   string `json:"reason,omitempty"`

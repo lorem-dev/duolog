@@ -6,15 +6,16 @@ import (
 	"strings"
 )
 
-// Spec is a task file as data. Render writes the five sections in order.
+// Spec is a task file as data. Render writes the required sections and optional
+// Run in order.
 type Spec struct {
-	Goal                       string
-	Read, Write, Limits, Check []string
+	Goal                            string
+	Read, Write, Limits, Run, Check []string
 }
 
 // Render returns the task file text for s. Goal is a paragraph; each Read and
 // Write item is a bullet with the path in backticks (a path:from-to range
-// stays inside them); Limits items are plain bullets; a Check item is a
+// stays inside them); Limits items are plain bullets; a Run or Check item is a
 // command in backticks, so the preflight reads it (a plain bullet when it has
 // a backtick of its own, which the preflight then names as skipped); an empty
 // list renders "- none". It refuses an empty goal, an item with a newline,
@@ -32,31 +33,9 @@ func Render(s Spec) ([]byte, error) {
 	}
 	var b strings.Builder
 	b.WriteString("## Goal\n\n" + goal + "\n")
-	for _, list := range []struct {
-		name   string
-		items  []string
-		quoted bool
-	}{
-		{"Read", s.Read, true},
-		{"Write", s.Write, true},
-		{"Limits", s.Limits, false},
-		{"Check", s.Check, false},
-	} {
-		b.WriteString("\n## " + list.name + "\n\n")
-		// A lone "none" is how a caller says the list is empty.
-		if len(list.items) == 0 || (list.name == "Check" && len(list.items) == 1 && strings.EqualFold(strings.TrimSpace(list.items[0]), "none")) {
-			b.WriteString("- none\n")
-			continue
-		}
-		for _, item := range list.items {
-			item = strings.TrimSpace(item)
-			if err := checkItem(list.name, item, list.quoted); err != nil {
-				return nil, err
-			}
-			if list.quoted || (list.name == "Check" && !strings.Contains(item, "`")) {
-				item = "`" + item + "`"
-			}
-			b.WriteString("- " + item + "\n")
+	for _, list := range renderLists(s) {
+		if err := renderList(&b, list); err != nil {
+			return nil, err
 		}
 	}
 	return []byte(b.String()), nil
@@ -86,4 +65,44 @@ func checkLine(field, line string) error {
 		return fmt.Errorf("task %s has a code fence; leave fences out of the task fields", field)
 	}
 	return nil
+}
+
+func commandSection(name string) bool { return name == "Run" || name == "Check" }
+
+type taskList struct {
+	name   string
+	items  []string
+	quoted bool
+}
+
+func renderLists(s Spec) []taskList {
+	lists := []taskList{{"Read", s.Read, true}, {"Write", s.Write, true}, {"Limits", s.Limits, false}}
+	if len(s.Run) > 0 {
+		lists = append(lists, taskList{"Run", s.Run, false})
+	}
+	return append(lists, taskList{"Check", s.Check, false})
+}
+
+func renderList(b *strings.Builder, list taskList) error {
+	b.WriteString("\n## " + list.name + "\n\n")
+	if emptyList(list) {
+		b.WriteString("- none\n")
+		return nil
+	}
+	for _, item := range list.items {
+		item = strings.TrimSpace(item)
+		if err := checkItem(list.name, item, list.quoted); err != nil {
+			return err
+		}
+		if list.quoted || (commandSection(list.name) && !strings.Contains(item, "`")) {
+			item = "`" + item + "`"
+		}
+		b.WriteString("- " + item + "\n")
+	}
+	return nil
+}
+
+// A lone "none" denotes an empty command list, never a command named none.
+func emptyList(list taskList) bool {
+	return len(list.items) == 0 || (commandSection(list.name) && len(list.items) == 1 && strings.EqualFold(strings.TrimSpace(list.items[0]), "none"))
 }

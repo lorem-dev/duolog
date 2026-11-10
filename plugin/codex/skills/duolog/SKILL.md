@@ -40,8 +40,8 @@ If a PR is requested or required, batch small changes into one.
 
 1. Give whole features to `planner`; small fixes: yourself.
 2. First record the starting checkout, branch and existing edits.
-   Write `.duolog/task.md`: Goal, Read, Write (file ranges and edited docs),
-   Limits, Check.
+   Write `.duolog/task.md`: Goal, Read, Write (ranges, edited docs),
+   Limits, Run (optional), Check.
 3. Background `duolog delegate <role> --task .duolog/task.md`; await notice.
 4. Read only summary, `git diff --stat`, marked hunks and `answer.json`'s
    `decisions=`; skip full suites.

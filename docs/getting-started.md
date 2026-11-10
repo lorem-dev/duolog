@@ -428,10 +428,11 @@ the binary, use the project's skill, and run doctor.
 
 ## How to send your first task
 
-A task is a Markdown file with five sections in this order: Goal, Read,
-Write, Limits and Check. Each section is a heading, usually `## Goal`; `# Goal`
-and `### Goal` work too. Save it inside the project. `.duolog/task.md` is a
-good place, because Git ignores `.duolog/`.
+A task is a Markdown file with five required sections: Goal, Read,
+Write, Limits and Check, with optional Run between Limits and Check.
+Each section is a heading, usually `## Goal`; `# Goal` and `### Goal` work too.
+Save it inside the project. `.duolog/task.md` is a good place, because Git
+ignores `.duolog/`.
 
 ```markdown
 ## Goal
@@ -450,11 +451,16 @@ Do not change files. Answer in at most 3 lines.
 Name the function and the line.
 ```
 
+Run lists required generators, formatters and code writers that are not checks.
+Use the same command syntax as Check. For a write role, preflight judges both
+sections before the worker starts, unless you pass `--skip-preflight`.
+
 Write each Check command as one backtick span on its own line, or in a fenced
 block with one command per line (a `#` comment line is skipped, and a line
 that ends in `\` goes on in the next). Before a worker
 starts, duolog judges them with the gate and stops when one would ask or be
-denied; see [Permissions](permissions.md#preflight-of-the-check-commands).
+denied; see
+[Permissions](permissions.md#preflight-of-the-run-and-check-commands).
 
 List files with line ranges in Read. duolog puts those lines in the worker's
 standard input, up to `wire.inline_max_bytes`, so the worker does not spend

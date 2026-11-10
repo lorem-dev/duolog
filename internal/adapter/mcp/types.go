@@ -28,6 +28,7 @@ type Task struct {
 	Read   []string `json:"read,omitempty"`
 	Write  []string `json:"write,omitempty"`
 	Limits []string `json:"limits,omitempty"`
+	Run    []string `json:"run,omitempty"`
 	Check  []string `json:"check,omitempty"`
 }
 
@@ -168,7 +169,7 @@ type App interface {
 }
 
 // SchemaBudgetBytes caps the compact JSON of all four tool definitions.
-const SchemaBudgetBytes = 2400
+const SchemaBudgetBytes = 2600
 
 // MaxWaitMinutes caps timeout_minutes for delegate and peer wait.
 const MaxWaitMinutes = 10

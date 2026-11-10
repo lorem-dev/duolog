@@ -11,6 +11,15 @@ import (
 // leading "$ " cut off, or a line inside a fenced block. Prose, a span with
 // text around it and an empty span are skipped, never guessed at.
 func CheckCommands(fsys fs.FS, name string) (commands, skipped []string, err error) {
+	return sectionCommands(fsys, name, "Check")
+}
+
+// RunCommands reads optional Run with the same command syntax as Check.
+func RunCommands(fsys fs.FS, name string) (commands, skipped []string, err error) {
+	return sectionCommands(fsys, name, "Run")
+}
+
+func sectionCommands(fsys fs.FS, name, section string) (commands, skipped []string, err error) {
 	data, err := fs.ReadFile(fsys, name)
 	if err != nil {
 		return nil, nil, err
@@ -20,7 +29,7 @@ func CheckCommands(fsys fs.FS, name string) (commands, skipped []string, err err
 		return nil, nil, err
 	}
 	var f checkScan
-	for _, line := range strings.Split(parts["Check"], "\n") {
+	for _, line := range strings.Split(parts[section], "\n") {
 		f.add(strings.TrimSpace(line))
 	}
 	return f.commands, f.skipped, nil

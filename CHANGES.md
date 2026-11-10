@@ -42,8 +42,15 @@
 
 ## Development
 
+### Added
+
+- A task's `Run` section lists commands besides checks, such as generators;
+  `delegate` refuses before a worker starts when the gate would stop one.
+
 ### Changed
 
+- `install` names each Codex hook field it changes, old and new value; Codex
+  skips that hook until you approve it again in `/hooks`.
 - The lead runs `review_final` without asking first, and ends a turn only with
   a result or a decision for the person.
 - `doctor` and project `install` warn when Codex does not trust the folder; a

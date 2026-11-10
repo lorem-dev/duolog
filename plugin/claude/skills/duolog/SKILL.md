@@ -44,8 +44,8 @@ Use CLI only for missing or failed tools.
 
 1. Give whole features to `planner`; small fixes: yourself.
 2. First record the starting checkout, branch and existing edits.
-   Write `.duolog/task.md`: Goal, Read, Write (file ranges and edited docs),
-   Limits, Check.
+   Write `.duolog/task.md`: Goal, Read, Write (ranges, edited docs),
+   Limits, Run (optional), Check.
 3. Call `delegate`. If `running`, call `result`
    with the id as task_path (`status` lists runs).
    CLI: background `duolog delegate <role> --task .duolog/task.md`; await notice.

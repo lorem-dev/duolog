@@ -11,6 +11,8 @@ import (
 	"github.com/lorem-dev/duolog/internal/install"
 )
 
+const hookContractWarning = "Changing this text makes every person approve the hooks again in /hooks. Add a CHANGES.md entry saying so."
+
 var update = flag.Bool("update", false, "rewrite the golden files in testdata/hooks")
 
 func checkGolden(t *testing.T, name string, got []byte) {
@@ -27,15 +29,16 @@ func checkGolden(t *testing.T, name string, got []byte) {
 	}
 	want, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("%v (run with -update to create it)", err)
+		t.Fatalf("%v (run with -update to create it). %s", err, hookContractWarning)
 	}
 	if !bytes.Equal(got, want) {
-		t.Errorf("%s differs from its golden\n got: %q\nwant: %q", name, got, want)
+		t.Errorf("%s differs from its golden. %s\n got: %q\nwant: %q", name, hookContractWarning, got, want)
 	}
 }
 
 // The hooks document holds both Codex shell forms in every file, so the
-// golden is the same on every OS.
+// golden is the same on every OS. Kills mutations to any event, command,
+// commandWindows, timeout, or the absence of a matcher.
 func TestHooksJSONGolden(t *testing.T) {
 	data, err := HooksJSON(install.GateTimeout)
 	if err != nil {

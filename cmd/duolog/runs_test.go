@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -241,20 +243,44 @@ func TestWatchWithoutAnIdFollowsTheNewestRunningRun(t *testing.T) {
 	newer := runRec("d-newrun", "running", time.Minute)
 	root := runsProject(t, older, newer)
 	record := filepath.Join(delegate.RecordDir(filepath.Join(root, ".duolog")), "d-newrun.json")
+	// The run ends only after watch printed its header, so watch has chosen
+	// a run. Ending it earlier leaves d-midrun the newest running run, and
+	// watch then follows that one until the test times out.
+	out := &headerSignal{printed: make(chan struct{})}
 	go func() {
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-out.printed:
+		case <-time.After(time.Minute):
+			return
+		}
 		newer.State, newer.Ended, newer.PID = "done", time.Now().UTC(), 0
 		// On Windows store.Rename gives up after eight tries while watch
-		// keeps the record open; a lost write leaves watch waiting until
-		// the test times out.
+		// keeps the record open; retry so the end is not lost.
 		for i := 0; i < 200 && delegate.WriteRecord(record, newer) != nil; i++ {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}()
-	out, err := executeBusCommand(t, "watch")
-	if err != nil || !strings.HasPrefix(out, "d-newrun ") || !strings.Contains(out, "ended: done") {
-		t.Fatalf("%q %v", out, err)
+	cmd := newRootCommand(testDeps(t))
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"watch"})
+	err := cmd.Execute()
+	if text := out.String(); err != nil || !strings.HasPrefix(text, "d-newrun ") || !strings.Contains(text, "ended: done") {
+		t.Fatalf("%q %v", text, err)
 	}
+}
+
+// headerSignal is a buffer that closes printed at its first write.
+type headerSignal struct {
+	bytes.Buffer
+	once    sync.Once
+	printed chan struct{}
+}
+
+func (w *headerSignal) Write(p []byte) (int, error) {
+	n, err := w.Buffer.Write(p)
+	w.once.Do(func() { close(w.printed) })
+	return n, err
 }
 
 func TestWatchRefusedForModels(t *testing.T) {

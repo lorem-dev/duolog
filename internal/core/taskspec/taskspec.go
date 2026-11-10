@@ -40,11 +40,13 @@ func parse(data []byte) (map[string]string, error) {
 			}
 		}
 		if name, ok := sectionHeading(line, next, otherLevels); fence == "" && ok {
-			if next >= len(sections) || name != sections[next] {
-				return nil, fmt.Errorf("task sections must be Goal, Read, Write, Limits, Check in order; unexpected %q", name)
+			advance, err := sectionAdvance(name, next, result)
+			if err != nil {
+				return nil, err
 			}
 			current = name
-			next++
+			result[name] = ""
+			next += advance
 			continue
 		}
 		if current != "" {
@@ -575,7 +577,7 @@ func sectionHeading(line string, next int, otherLevels bool) (string, bool) {
 	if level == 2 {
 		return name, true
 	}
-	return name, otherLevels && next < len(sections) && name == sections[next]
+	return name, otherLevels && next < len(sections) && (name == sections[next] || (next == 4 && name == "Run"))
 }
 
 // hasSecondLevelSections reports whether a "## " line outside a fence names
@@ -598,4 +600,17 @@ func hasSecondLevelSections(text string) bool {
 		}
 	}
 	return false
+}
+
+// sectionAdvance accepts optional Run between Limits and Check exactly once.
+func sectionAdvance(name string, next int, parts map[string]string) (int, error) {
+	if name == "Run" && next == 4 {
+		if _, exists := parts[name]; !exists {
+			return 0, nil
+		}
+	}
+	if next < len(sections) && name == sections[next] {
+		return 1, nil
+	}
+	return 0, fmt.Errorf("task sections must be Goal, Read, Write, Limits, optional Run, Check in order; unexpected %q", name)
 }

@@ -1,6 +1,7 @@
 package delegate
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -13,8 +14,8 @@ import (
 )
 
 // PreflightError is a delegation refused because the gate would not allow a
-// worker of the role to run some commands of the task's Check section. No
-// worker started. Blocked lists them in order; Skipped holds the Check lines
+// worker of the role to run some commands of the task's Run and Check sections. No
+// worker started. Blocked lists them in order; Skipped holds the section lines
 // that were not read as a command and so did not block.
 type PreflightError struct {
 	Role    string
@@ -26,6 +27,9 @@ func (e *PreflightError) Error() string {
 	var parts []string
 	for _, b := range e.Blocked {
 		part := fmt.Sprintf("%s: %s", b.Command, b.Decision)
+		if b.Section != "" {
+			part = b.Section + ": " + part
+		}
 		if b.Reason != "" {
 			part += " (" + b.Reason + ")"
 		}
@@ -34,11 +38,11 @@ func (e *PreflightError) Error() string {
 		}
 		parts = append(parts, part)
 	}
-	msg := fmt.Sprintf("preflight: no worker started; the gate would not allow %d Check command(s) for role %s: %s", len(e.Blocked), e.Role, strings.Join(parts, " | "))
+	msg := fmt.Sprintf("preflight: no worker started; the gate would not allow %d task command(s) for role %s: %s", len(e.Blocked), e.Role, strings.Join(parts, " | "))
 	if len(e.Skipped) > 0 {
 		msg += "; not read as commands and skipped: " + quotedList(e.Skipped)
 	}
-	return msg + "; change the Check section, or pass --skip-preflight to start anyway"
+	return msg + "; change the Run or Check section, or pass --skip-preflight to start anyway"
 }
 
 // RememberHint is the command the person may run to approve command.
@@ -55,19 +59,20 @@ func quotedList(lines []string) string {
 }
 
 // taskPlan is what Run reads of a task beyond readTask, before it routes: the
-// Write folders the small-task rule needs, and the Check commands the
+// Write folders the small-task rule needs, and the Run and Check commands the
 // preflight judges for each route.
 type taskPlan struct {
-	folders  []string
-	off      bool // a replay, a judge, a calibration cell or --skip-preflight
-	commands []string
-	unread   []string
+	folders                []string
+	off                    bool // a replay, a judge, a calibration cell or --skip-preflight
+	commands               []string
+	runCommands, runUnread []string
+	unread                 []string
 	// blocked is the preflight refusal of a route that was left for the next.
 	blocked error
 }
 
 // readTaskPlan is readTask with the taskPlan of the task. A replay, a judge and
-// a calibration cell are not the lead's hand-over: their Check is not read.
+// a calibration cell are not the lead's hand-over: their commands are not read.
 func readTaskPlan(root, path string, opts Options) (writes, reads []string, original []byte, plan *taskPlan, err error) {
 	if writes, reads, original, err = readTask(root, path, opts.Stderr); err != nil {
 		return nil, nil, nil, nil, err
@@ -75,7 +80,7 @@ func readTaskPlan(root, path string, opts Options) (writes, reads []string, orig
 	plan = &taskPlan{folders: readWriteFolders(root, path)}
 	plan.off = opts.SkipPreflight || opts.Calibration || opts.ReplayOf != "" || opts.Judge
 	if !plan.off {
-		if plan.commands, plan.unread, err = readChecks(root, path); err != nil {
+		if err = plan.readCommands(root, path); err != nil {
 			return nil, nil, nil, nil, err
 		}
 	}
@@ -114,7 +119,7 @@ type preflightRun struct {
 	pinned    bool // a target the person pinned has no other route
 }
 
-// check judges the Check commands for the worker of route. A write role whose
+// check judges the Run and Check commands for the worker of route. A write role whose
 // commands the gate would stop does not start: the worker could not run them
 // and would ask, or give up. It is judged for this route's worker mode. It
 // returns skip for a blocked route that another may replace, and an error for a
@@ -128,8 +133,8 @@ func (p *taskPlan) check(r preflightRun, route coreroute.Route, wm workerMode, a
 	if wm.applies() || wm.LeadPlan {
 		m = policy.WorkerMode(r.leadMode, string(wm.Level))
 	}
-	if err = preflight(r.cfg, r.rules, m, r.role, r.root, r.state, r.protected, r.reads, p.commands, p.unread, r.stderr); err == nil {
-		out.SkippedChecks = p.unread
+	if err = p.judge(r, m); err == nil {
+		out.SkippedChecks = p.skipped()
 		return false, nil
 	}
 	if attempt > 0 || r.pinned {
@@ -139,23 +144,12 @@ func (p *taskPlan) check(r preflightRun, route coreroute.Route, wm workerMode, a
 	return true, nil
 }
 
-// readChecks reads the commands of the Check section of the task at path, and
-// the lines it could not read as a command.
-func readChecks(root, path string) (commands, skipped []string, err error) {
-	work := WorkTree(root)
-	name, _, err := work.Resolve(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	return taskspec.CheckCommands(work.FS, name)
-}
-
-// preflight judges the Check commands of a task with the gate's decision code,
+// preflightSection judges the commands of a task with the gate's decision code,
 // for a write role of this mode in dir, and returns a PreflightError for those
 // the gate would ask about or deny. It only reports. Skipped lines that do not
 // block are named on stderr. A read-only role runs none of them. reads are the
 // task's Read entries the worker's gate gets.
-func preflight(cfg *config.Config, rules policy.LeadRules, m mode.Mode, role, work, state string, protected, reads, commands, skipped []string, stderr io.Writer) error {
+func preflightSection(cfg *config.Config, rules policy.LeadRules, m mode.Mode, role, work, state string, protected, reads, commands, skipped []string, stderr io.Writer, section string) error {
 	rules.RoleSandbox = "read-only"
 	if r, ok := cfg.Roles[role]; ok {
 		rules.RoleSandbox = r.Sandbox
@@ -163,11 +157,61 @@ func preflight(cfg *config.Config, rules policy.LeadRules, m mode.Mode, role, wo
 	// The worker's Bash tool calls reach the gate with no shell name; only the
 	// PowerShell hook tool sets "powershell".
 	blocked := policy.Preflight(policy.PreflightInput{Policy: cfg.Policy, Lead: rules, Mode: m, Role: role, Work: work, State: state, ProtectedRoots: protected, Reads: reads, Shell: ""}, commands)
+	for i := range blocked {
+		blocked[i].Section = section
+	}
 	if len(blocked) > 0 {
 		return &PreflightError{Role: role, Blocked: blocked, Skipped: skipped}
 	}
 	if len(skipped) > 0 && stderr != nil {
-		_, _ = fmt.Fprintf(stderr, "duolog delegate: preflight skipped Check lines that are not a command: %s\n", quotedList(skipped))
+		_, _ = fmt.Fprintf(stderr, "duolog delegate: preflight skipped %s lines that are not a command: %s\n", section, quotedList(skipped))
+	}
+	return nil
+}
+
+func (p *taskPlan) readCommands(root, path string) error {
+	work := WorkTree(root)
+	name, _, err := work.Resolve(path)
+	if err != nil {
+		return err
+	}
+	if p.commands, p.unread, err = taskspec.CheckCommands(work.FS, name); err != nil {
+		return err
+	}
+	p.runCommands, p.runUnread, err = taskspec.RunCommands(work.FS, name)
+	return err
+}
+
+// skipped lists the Check lines and then the Run lines that were not read as
+// commands; a Run line is marked "Run: ".
+func (p *taskPlan) skipped() []string {
+	out := append([]string(nil), p.unread...)
+	for _, line := range p.runUnread {
+		out = append(out, "Run: "+line)
+	}
+	return out
+}
+
+// judge uses the same route and mode for both sections and reports all refusals.
+func (p *taskPlan) judge(r preflightRun, m mode.Mode) error {
+	refusal := &PreflightError{Role: r.role}
+	for _, section := range []struct {
+		name             string
+		commands, unread []string
+	}{
+		{"Run", p.runCommands, p.runUnread}, {"Check", p.commands, p.unread},
+	} {
+		err := preflightSection(r.cfg, r.rules, m, r.role, r.root, r.state, r.protected, r.reads, section.commands, section.unread, r.stderr, section.name)
+		var blocked *PreflightError
+		if errors.As(err, &blocked) {
+			refusal.Blocked = append(refusal.Blocked, blocked.Blocked...)
+		}
+		for _, line := range section.unread {
+			refusal.Skipped = append(refusal.Skipped, section.name+": "+line)
+		}
+	}
+	if len(refusal.Blocked) > 0 {
+		return refusal
 	}
 	return nil
 }
