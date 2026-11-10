@@ -106,8 +106,10 @@ jobs:
       - name: Generated skill copies are current
         if: (matrix.os == 'ubuntu-latest') && matrix.part == ''
         # The sync lock is not committed, so regenerate the copies and compare.
+        # Skills with no source in .claude/skills, such as crit's, are tracked
+        # as they are and stay.
         run: |
-          rm -rf .agents/skills
+          for d in .claude/skills/*/; do rm -rf ".agents/skills/$(basename "$d")"; done
           go run ./cmd/duolog sync --from claude
           test -z "$(git status --porcelain --untracked-files=all -- .agents .codex)"
       - name: Schema is current
@@ -191,8 +193,8 @@ jobs:
       - name: Run POSIX installer test with dash
         if: (matrix.os == 'ubuntu-latest') && matrix.part == ''
         run: |
-          test "$(readlink /bin/sh)" = dash
-          go test ./scripts/render-install -run '^TestInstaller$' -count=1
+          command -v dash
+          go test ./scripts/render-install -run '^TestInstallerDash$' -count=1 -v
       - name: Vulnerability check
         if: (matrix.os == 'ubuntu-latest') && matrix.part == ''
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...

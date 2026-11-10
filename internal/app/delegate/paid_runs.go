@@ -146,7 +146,7 @@ func (a *permitRun) sameRoute(ctx context.Context, d Deps, checked corelaunch.Pr
 	if a.permit.Process.CacheKey == checked.CacheKey {
 		return nil
 	}
-	if p := d.NewChecker(cacheDir, a.permit.Process).Agent(ctx, a.permit.Process.Agent); p != nil {
+	if p := d.checker(cacheDir, a.permit.Process).Agent(ctx, a.permit.Process.Agent); p != nil {
 		return errors.Join(fmt.Errorf("%s: %s, after the worker's route changed during admission; delegate again", p.Subject(), p.Reason),
 			a.release(ctx))
 	}

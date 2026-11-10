@@ -12,6 +12,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/bus"
 )
 
+// Kills the mutation that loses the working state on the way to List.
 func TestListPeersReportsDetails(t *testing.T) {
 	r := newRig(t, baseScript())
 	e := r.ready()
@@ -28,7 +29,7 @@ func TestListPeersReportsDetails(t *testing.T) {
 		t.Fatalf("%+v %v", peers, err)
 	}
 	p := peers[0]
-	if p.State != Starting || !p.Working || p.Display() != "working" {
+	if p.State != Working || !p.Working || p.Display() != "working" {
 		t.Fatalf("%+v %q", p, p.Display())
 	}
 	if p.Role != "implement" || p.Agent != "codex" || p.Tab != "duolog | codex-implement" {

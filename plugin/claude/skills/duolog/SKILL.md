@@ -39,30 +39,33 @@ Stop unless this project has `.duolog/config.yaml`.
 Do settled steps without explaining them; report results.
 If a PR is requested or required, batch small changes into one.
 
-With the duolog MCP tools loaded, use `delegate`, `peer`, `answer_ask` and `status` instead of the commands below; they return `run_here` as data.
-Use the CLI only if a tool is missing or fails.
+Use loaded duolog MCP `delegate`, `peer`, `answer_ask`, `status`; they return `run_here` as data.
+Use CLI only for missing or failed tools.
 
-1. Give whole features to `planner`; do small fixes yourself.
-2. Before handoff, record the starting checkout, branch and existing edits.
-   Write `.duolog/task.md`: Goal, Read, Write, Limits, Check.
-   List file ranges and edited docs under Write.
-3. Call `delegate`; its response is the result. If `running`, call `result`
+1. Give whole features to `planner`; small fixes: yourself.
+2. First record the starting checkout, branch and existing edits.
+   Write `.duolog/task.md`: Goal, Read, Write (file ranges and edited docs),
+   Limits, Check.
+3. Call `delegate`. If `running`, call `result`
    with the id as task_path (`status` lists runs).
-   CLI: run `duolog delegate <role> --task .duolog/task.md` in the
-   background; wait for its notice.
-4. Read summary, `git diff --stat`, marked hunks and `answer.json`'s
-   `decisions=` only; skip full suites.
+   CLI: background `duolog delegate <role> --task .duolog/task.md`; await notice.
+4. Read only summary, `git diff --stat`, marked hunks and `answer.json`'s
+   `decisions=`; skip full suites.
    Batch nameable reads in parallel.
-5. Keep hard parts; `review_cross` ends big batches, else `review_final`.
+5. Keep hard parts. Finish with `review_final` (`review_cross` for big
+   batches) without asking; check worker results first. Return findings
+   to the worker or fix them.
+   End only with results or decisions only the person can make.
+   Start closing questions with the decision.
 
-Worker rules: `.duolog/brief.md`. With several leads, pass `--lead <id>`. Learning mode: run `duolog task start` first.
+Worker rules: `.duolog/brief.md`. Multiple leads: `--lead <id>`. Learning: `duolog task start` first.
 Same-vendor subagents use your tools.
 
 ## On `run here`
 
 - `run here: self`: read only the listed ranges.
 - `run here: subagent model=M effort=E`: use the Agent tool with M, E and
-  the task text, not duolog.
+  task text; no duolog.
 
 ## Asks
 

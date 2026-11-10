@@ -167,7 +167,7 @@ func AdoptWorktree(d Deps, agent, lead, dir string, env []string, w io.Writer) e
 func workerGateState(d Deps, stateDir, agent, root string, env []string, opts Options) (coreagent.TrustState, bool, error) {
 	if !opts.Calibration {
 		if base, err := filepath.Abs(filepath.Dir(stateDir)); err == nil {
-			if err := AdoptWorktree(d, agent, project.CurrentWorkRoot(base), root, env, opts.Stderr); err != nil {
+			if err := AdoptWorktree(d, agent, project.LeadRoot(base, root), root, env, opts.Stderr); err != nil {
 				return coreagent.TrustState{}, false, err
 			}
 		}

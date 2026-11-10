@@ -42,6 +42,24 @@
 
 ## Development
 
+### Changed
+
+- The lead runs `review_final` without asking first, and ends a turn only with
+  a result or a decision for the person.
+- `doctor` and project `install` warn when Codex does not trust the folder; a
+  refusal names the folder and why a worktree did not get the trust.
+
+### Fixed
+
+- A delegate worker no longer stops when a project's workflow skill is missing;
+  the project's other rules still apply.
+- `duolog peer list` and `duolog runs` show a peer at work as `working`, not
+  `starting`.
+
+- A worktree gets the Codex trust of the lead's checkout also when `delegate`
+  or `peer open` runs inside that worktree.
+- `delegate` no longer crashes when the worker's route changes during admission.
+
 ## 1.7.0
 
 ### Added

@@ -16,7 +16,7 @@ import (
 )
 
 var oldPeerStates = map[string]bool{
-	"starting": true, "updating": true, "question": true, "ready": true,
+	"working": true, "starting": true, "updating": true, "question": true, "ready": true,
 	"limited": true, "exited": true, "closed": true,
 }
 
@@ -32,6 +32,7 @@ func recordListPeer(t *testing.T, root string) {
 	}
 }
 
+// Kills the mutation that reports starting for an active peer.
 func TestPeerListPlainIsTwoFields(t *testing.T) {
 	clearModelMarkers(t)
 	asTerminal(t, true)
@@ -41,7 +42,7 @@ func TestPeerListPlainIsTwoFields(t *testing.T) {
 		wait    *testbin.Scenario
 		state   string
 	}{
-		{"working", testbin.Scenario{Stdout: "✻ Thinking… (3s · esc to interrupt)\n" + claudeIdleScreen()}, nil, "starting"},
+		{"working", testbin.Scenario{Stdout: "Thinking (3s, esc to interrupt)\n" + claudeIdleScreen()}, nil, "working"},
 		{"question with spaces", testbin.Scenario{Stdout: startupFixture(t, "claude-model-switch-question.txt")}, nil, "question"},
 		{"exited", testbin.Scenario{Stdout: claudeIdleScreen()}, &testbin.Scenario{Exit: 3, Stdout: `{"exit_code": 3}`}, "exited"},
 	}
@@ -75,7 +76,7 @@ func TestPeerListPlainIsTwoFields(t *testing.T) {
 			var peers []struct {
 				State string `json:"state"`
 			}
-			if err != nil || json.Unmarshal([]byte(out), &peers) != nil || len(peers) != 1 || !oldPeerStates[peers[0].State] {
+			if err != nil || json.Unmarshal([]byte(out), &peers) != nil || len(peers) != 1 || peers[0].State != tt.state {
 				t.Fatalf("%s %v", out, err)
 			}
 		})
@@ -308,5 +309,51 @@ func TestPeerListLongAndJSONConflict(t *testing.T) {
 	}
 	if n := len(rexCalls(t, rex)); n != 0 {
 		t.Fatalf("%d rex calls", n)
+	}
+}
+
+// Kills the mutation that leaves peer list or runs at starting in any format.
+func TestWorkingPeerStateInLists(t *testing.T) {
+	clearModelMarkers(t)
+	asTerminal(t, true)
+	withAgentAncestor(t, "")
+	root, _ := peerProject(t, testbin.Scenario{Stdout: "Thinking (esc to interrupt)\n" + claudeIdleScreen()})
+	recordListPeer(t, root)
+	for _, command := range [][]string{{"peer", "list"}, {"runs"}} {
+		for _, format := range []string{"", "--long", "--json"} {
+			args := append([]string{}, command...)
+			if format != "" {
+				args = append(args, format)
+			}
+			t.Run(strings.Join(args, " "), func(t *testing.T) {
+				out, err := executeBusCommand(t, args...)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if format == "--json" {
+					var rows []struct{ ID, State string }
+					if err := json.Unmarshal([]byte(out), &rows); err != nil || len(rows) != 1 || rows[0].ID != "peer-list" || rows[0].State != "working" {
+						t.Fatalf("%v: %s (%v)", args, out, err)
+					}
+				} else {
+					body := out
+					if command[0] == "peer" {
+						body, _ = listBody(t, out)
+					}
+					lines := strings.Split(strings.TrimSpace(body), "\n")
+					row := strings.Fields(lines[len(lines)-1])
+					column := 1
+					if format == "--long" {
+						column = 3
+						if command[0] == "runs" {
+							column = 4
+						}
+					}
+					if len(row) <= column || row[0] != "peer-list" || row[column] != "working" {
+						t.Fatalf("%v: %q", args, out)
+					}
+				}
+			})
+		}
 	}
 }

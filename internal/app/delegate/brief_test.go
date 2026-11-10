@@ -42,6 +42,24 @@ func TestOwnershipLeavesChangelogToTheTask(t *testing.T) {
 	}
 }
 
+// Kills removal or weakening of workflow ownership, the task as the plan,
+// permission to continue without workflow steps, or the remaining project rules.
+func TestWorkerWorkflowBelongsToTheLead(t *testing.T) {
+	const want = "The lead owns the project's workflow; this task is your plan. A missing workflow skill or process step is no reason to stop. All other project rules still apply, especially security, privacy and limits on what you may change."
+	for _, role := range []string{"implement", "plan"} {
+		t.Run(role, func(t *testing.T) {
+			h := newHarness(t)
+			if _, err := h.run(role); err != nil {
+				t.Fatal(err)
+			}
+			h.requireCalls(1)
+			if strings.Count(string(h.calls[0].Stdin), "\n"+want+"\n") != 1 {
+				t.Fatal("worker input must contain the workflow line exactly once")
+			}
+		})
+	}
+}
+
 // A worker does its task itself, whatever the project's instruction files say
 // about delegating, hands a message from another session to the lead in needs,
 // and the line closes every worker's input.

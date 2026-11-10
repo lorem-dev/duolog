@@ -70,7 +70,7 @@ func TestNoTrustRefusesWriteRoles(t *testing.T) {
 	}
 
 	fake, out, err := run("implement")
-	if err == nil || !strings.Contains(err.Error(), "Codex hooks untrusted; open /hooks before running write role implement") {
+	if err == nil || !strings.Contains(err.Error(), "Codex hooks untrusted for write role implement in ") {
 		t.Fatalf("implement with no Trust: err %v, line %q; want the untrusted-hooks refusal", err, out.Line)
 	}
 	if len(fake.Calls) != 0 {

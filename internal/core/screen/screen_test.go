@@ -294,7 +294,7 @@ func TestInterruptedNeedsTheNoticeLast(t *testing.T) {
 		// A follow-up that the agent answered: the old notice is above its reply.
 		{"answered follow-up", "claude", notice + "\n❯ use the helper instead\n\n⏺ Done.\n" + claudeIdle(""), Ready},
 		// The follow-up is being worked on.
-		{"working again", "claude", notice + "✻ Channelling… (3s · esc to interrupt)\n" + claudeIdle(""), Starting},
+		{"working again", "claude", notice + "Thinking (3s, esc to interrupt)\n" + claudeIdle(""), Working},
 		{"text in the input", "claude", notice + claudeIdle("use the helper"), Interrupted},
 		{"codex", "codex", "■ Conversation interrupted - tell the model what to do differently.\n" + codexIdle(""), Interrupted},
 		{"codex answered", "codex", "■ Conversation interrupted - tell the model what to do differently.\n\n› go on\n\n• Done.\n" + codexIdle(""), Ready},
@@ -425,5 +425,31 @@ func TestQueuedPanelReportsQuestionInsteadOfCount(t *testing.T) {
 	s := parseAs("codex", []byte(raw))
 	if s.State != Question || s.Queued || !strings.Contains(s.Question, "Which environment should I use?") || len(s.Options) != 2 {
 		t.Fatalf("%+v", s)
+	}
+}
+
+// Kills the mutation that detects work but leaves the state as starting.
+func TestParseWorkingStateTransitions(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		t.Run(agent, func(t *testing.T) {
+			idle := idleFor(agent)
+			work := "Working (3s)\n"
+			cases := []struct {
+				text string
+				want State
+			}{
+				{"Loading...", Starting},
+				{work, Working},
+				{work + idle, Working},
+				{idle, Ready},
+				{"==> Installing update\n" + work + idle, Updating},
+				{"Proceed? (y/n)\n" + work + idle, Question},
+			}
+			for _, tc := range cases {
+				if s := parseAs(agent, []byte(tc.text)); s.State != tc.want {
+					t.Errorf("%q: state %q, want %q", tc.text, s.State, tc.want)
+				}
+			}
+		})
 	}
 }

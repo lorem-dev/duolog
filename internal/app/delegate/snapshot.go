@@ -43,14 +43,14 @@ func observedLead(d Deps, reg *session.Registry, lead session.Lead, started time
 
 // trustWarning says what the lead must know about the worker's rules. A write role
 // with untrusted Codex hooks would run with no gate, so it does not start.
-func trustWarning(route coreroute.Route, role string, state coreagent.TrustState, folder bool) (string, error) {
+func trustWarning(route coreroute.Route, role, root string, state coreagent.TrustState, folder bool) (string, error) {
 	warning := ""
 	if route.Agent == "claude" && !state.Installed {
 		warning = "; Claude has no duolog hooks: rules are off; sandbox only"
 	}
 	if !state.Trusted {
 		if route.Sandbox != "read-only" {
-			return "", fmt.Errorf("Codex hooks untrusted; open /hooks before running write role %s", role) //nolint:staticcheck // ST1005: Codex is a product name
+			return "", fmt.Errorf("Codex hooks untrusted for write role %s in %s; run codex in that folder, accept the trust question, and approve the hooks in /hooks", role, root) //nolint:staticcheck // ST1005: Codex is a product name
 		}
 		warning = "; rules are off; open /hooks"
 	}

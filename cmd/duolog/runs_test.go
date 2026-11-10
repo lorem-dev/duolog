@@ -244,7 +244,12 @@ func TestWatchWithoutAnIdFollowsTheNewestRunningRun(t *testing.T) {
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		newer.State, newer.Ended, newer.PID = "done", time.Now().UTC(), 0
-		_ = delegate.WriteRecord(record, newer)
+		// On Windows store.Rename gives up after eight tries while watch
+		// keeps the record open; a lost write leaves watch waiting until
+		// the test times out.
+		for i := 0; i < 200 && delegate.WriteRecord(record, newer) != nil; i++ {
+			time.Sleep(10 * time.Millisecond)
+		}
 	}()
 	out, err := executeBusCommand(t, "watch")
 	if err != nil || !strings.HasPrefix(out, "d-newrun ") || !strings.Contains(out, "ended: done") {

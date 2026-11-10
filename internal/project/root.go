@@ -105,6 +105,23 @@ func CurrentWorkRoot(fallback string) string {
 	return WorkRoot(cwd, fallback)
 }
 
+// LeadRoot returns the checkout whose agent trust a worker in target starts
+// from: the checkout this command runs in, or fallback, the project's main
+// checkout, when the command runs inside target, where a folder would be
+// asked to give trust to itself.
+func LeadRoot(fallback, target string) string {
+	return leadRoot(CurrentWorkRoot(fallback), fallback, target)
+}
+
+func leadRoot(current, fallback, target string) string {
+	a, ae := os.Stat(current)
+	b, be := os.Stat(target)
+	if ae == nil && be == nil && os.SameFile(a, b) {
+		return fallback
+	}
+	return current
+}
+
 // Preserve the spelling of cwd's ancestors on systems with filesystem aliases.
 func preserveRoot(cwd, root string) string {
 	target, err := os.Stat(root)

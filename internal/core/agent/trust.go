@@ -1,6 +1,9 @@
 package agent
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // ErrNoHome is the error of an environment that names no home folder: HOME,
 // or USERPROFILE on Windows. trusthome.ErrNoHome is this value, so a Trust
@@ -26,4 +29,10 @@ type TrustState struct {
 	// duolog's, or a Claude plugin that is enabled but not installed. Empty
 	// when nothing is in doubt.
 	Unproven string
+}
+
+// CodexTrustNote tells the person how to let Codex load the folder and hooks.
+// It only describes the observed state; it writes no trust or approval.
+func CodexTrustNote(root string, approved, folder bool) string {
+	return fmt.Sprintf("Codex hooks approved=%t folder trusted=%t in %s; open codex in that folder, accept the trust question, and approve the hooks in /hooks", approved, folder, root)
 }

@@ -74,7 +74,7 @@ A role names a kind of work. It has these fields:
 | Field | Meaning |
 |---|---|
 | `use` | The agent, model alias and effort that do the work |
-| `fallback` | Where the work goes when the `use` agent is unavailable |
+| `fallback` | The alternate route when the `use` agent is unavailable. A route to the lead's agent returns work to the lead; see [below](#how-a-fallback-returns-work-to-the-lead) |
 | `sandbox` | `read-only` or `workspace-write`. The most the worker may do to files |
 | `context` | `minimal` drops the project instructions, the skill list and, for Claude, every `CLAUDE.md`; `project` keeps them |
 | `session` | `fresh` starts a new run; `resume` continues a thread |
@@ -88,6 +88,55 @@ duolog route review_final --json
 
 To see every role and its model, run `duolog roster`. Add `--versions` to see
 which Codex version each alias resolves to.
+
+## How a fallback returns work to the lead
+
+When a fallback selects the lead's agent, `duolog delegate` returns a
+`run here` answer instead of starting a worker. This applies to Claude and
+Codex leads, even when the fallback uses a different model of that agent.
+For example, disabling Codex moves the default `planner` from Codex `sol`
+to Claude `sonnet`. With a Claude lead, this returns work to the lead.
+It does not start a Sonnet worker.
+
+In ordinary role routing, either of these rules makes the lead do the work
+itself, with the answer `run here: self task=<task>`:
+
+- The role has `session: resume`, and the route and lead have the same
+  agent and normalized model alias. duolog maps concrete model names to
+  aliases before comparing them.
+- The role has `context: minimal`, both normalized model aliases have entries
+  in `models`, and the lead's input price is at most the route's input price.
+  This rule applies even across agents, and does not require `session: resume`.
+
+These rules ignore the task's read size. Otherwise, a fallback to the lead's
+agent uses the task's `Read` entries to choose the answer:
+
+| Condition | Answer | What the lead does |
+|---|---|---|
+| At most `limits.self_max_read_files` distinct files and `limits.self_max_read_lines` total lines | `run here: self task=<task>` | Does the work itself |
+| Either limit is exceeded, or a referenced file is unreadable | `run here: subagent model=<model> effort=<effort> task=<task>` | Starts its own subagent with the returned model and effort |
+
+The read limits default to 3 files and 200 lines. A line range counts only
+its lines. The returned effort never exceeds a known lead effort.
+For the default `planner` fallback, a Sonnet lead matches the resume rule.
+An Opus lead matches neither rule at the default prices: it gets `self` for
+small reads and `subagent model=sonnet` for larger or unreadable reads.
+
+To request a real Sonnet worker from an Opus lead, set the role's `use`:
+
+```yaml
+roles:
+  planner:
+    use: {agent: claude, model: sonnet, effort: medium}
+```
+
+This makes Sonnet the primary route, rather than a fallback to the lead.
+Pass `--force` if the small-task rule below would keep the task in the lead.
+That flag skips the small-task rule; it does not turn a fallback to the lead
+into a worker. The model and context rules above still apply.
+See [the router](../internal/core/route/router.go) and
+[delegation](../internal/app/delegate/run.go) for the routing decisions, and
+[read placement](../internal/app/delegate/prepare.go) for the read limits.
 
 ## How duolog balances subscriptions by pace
 
@@ -160,12 +209,14 @@ A hand-over has a fixed cost, so a small task costs less done in place. When
 `## Write` names at most `routing.small_task_files` files and the role writes
 (`implement`, `mechanical`, `tests`, `docs`, `planner`),
 `duolog delegate` starts no worker and answers `run here: self`, with the
-reason. Read-only roles and reviews always get a worker, as does a task whose
-`## Write` is missing, names no file, or lists a glob or a folder (an entry
-ending in `/` is a folder even if it does not exist yet), a task pinned with
+reason. This small-task rule never keeps read-only roles or reviews in the
+lead. It also skips a task whose `## Write` is missing, names no file, or lists
+a glob or a folder (an entry ending in `/` is a folder even if it does not
+exist yet), a task pinned with
 `--use`, a run with `--escalate-from`, and any run while learning mode is on.
 Pass `--force` to `duolog delegate`, or `force: true` to the MCP `delegate`
-tool, to start the worker anyway; the answer says so.
+tool, to skip this small-task rule. The routing rules
+[above](#how-a-fallback-returns-work-to-the-lead) still apply.
 
 ## Which models the default roles use
 
@@ -213,6 +264,10 @@ resumed thread already holds the brief, so duolog does not send it again.
 
 Every worker is also told not to commit, push or ask the user, and to edit a
 changelog or docs only if the task lists them under Write.
+The lead owns the project's workflow; the task is the worker's plan.
+A missing workflow skill or process step is no reason to stop.
+All other project rules still apply, especially security, privacy and limits
+on what the worker may change.
 
 ## Why the config holds only model aliases
 

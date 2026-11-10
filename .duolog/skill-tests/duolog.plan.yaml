@@ -124,4 +124,28 @@ situations:
       C) discard the peer branch. Start with A, B or C.
     check:
       starts: B
+  - id: review-without-asking
+    text: >-
+      The planner's result came back. You read the diff and its tests pass.
+      Choose your next step: A) ask the person whether to send it to
+      review_final; B) run review_final now; C) end your turn and report the
+      result. Start with A, B or C.
+    check:
+      starts: B
+  - id: review-own-fix
+    text: >-
+      You fixed a one-line typo yourself; no worker took part. Choose before
+      you end the turn: A) run review_final; B) skip the review because no
+      worker ran; C) ask the person whether a review is needed. Start with A,
+      B or C.
+    check:
+      starts: A
+  - id: findings-go-back
+    text: >-
+      review_final found two defects in the worker's change. Choose: A) end
+      the turn and list the defects for the person; B) send the findings to
+      the worker or fix them, then check again; C) ask the person whether to
+      fix them. Start with A, B or C.
+    check:
+      starts: B
 

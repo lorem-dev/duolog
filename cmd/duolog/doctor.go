@@ -19,6 +19,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/doctor"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/rex"
 	"github.com/lorem-dev/duolog/internal/telemetry"
 	"github.com/lorem-dev/duolog/internal/wiring"
@@ -41,7 +42,7 @@ func newDoctorCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		opts := doctor.Options{Root: root, Registry: reg, Probe: probe}
+		opts := doctor.Options{Root: root, WorkRoot: project.CurrentWorkRoot(root), Registry: reg, Probe: probe}
 		if shadow, ok := rex.Shadow(); ok {
 			opts.RexShadow = shadow
 		}

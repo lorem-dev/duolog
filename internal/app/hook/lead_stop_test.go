@@ -22,9 +22,10 @@ func stopReason(t *testing.T, out Output) string {
 	return decision.Reason
 }
 
+// Kills the mutation that omits working peers from the existing wait requirement.
 func TestLeadStopRequiresWaitForOwnBusyPeer(t *testing.T) {
 	for _, agent := range []string{"claude", "codex"} {
-		for _, state := range []string{"starting", "updating", "question"} {
+		for _, state := range []string{"starting", "working", "updating", "question"} {
 			t.Run(agent+"/"+state, func(t *testing.T) {
 				e, reg, _ := setup(t, "claude")
 				SessionStart(context.Background(), e)

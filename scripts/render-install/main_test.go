@@ -14,7 +14,42 @@ import (
 	"testing"
 )
 
+// Kills a mutation that restores the CI selector which bypasses explicit dash coverage.
+func TestInstallerDashWorkflow(t *testing.T) {
+	data, err := os.ReadFile("../../.github/workflows/ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, step, ok := strings.Cut(string(data), "      - name: Run POSIX installer test with dash\n")
+	if !ok {
+		t.Fatal("missing dash installer step")
+	}
+	step, _, _ = strings.Cut(step, "      - name:")
+	for _, want := range []string{"command -v dash", "go test ./scripts/render-install -run '^TestInstallerDash$' -count=1 -v"} {
+		if !strings.Contains(step, want) {
+			t.Errorf("dash installer step lacks %q", want)
+		}
+	}
+}
+
 func TestInstaller(t *testing.T) {
+	testInstaller(t, "sh")
+}
+
+// Kills a mutation that introduces bash-only syntax into the rendered installer.
+func TestInstallerDash(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX installer")
+	}
+	dash, err := exec.LookPath("dash")
+	if err != nil {
+		t.Skip("dash is not installed; the CI step requires it")
+	}
+	testInstaller(t, dash)
+}
+
+func testInstaller(t *testing.T, shell string) {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX installer")
 	}
@@ -40,7 +75,7 @@ func TestInstaller(t *testing.T) {
 			if !bytes.HasPrefix(data, []byte("#!/bin/sh\n")) || bytes.Contains(data, []byte("{{")) {
 				t.Fatal("bad rendering")
 			}
-			check := exec.Command("sh", "-n", script)
+			check := exec.Command(shell, "-n", script)
 			if out, err := check.CombinedOutput(); err != nil {
 				t.Fatalf("syntax: %v %s", err, out)
 			}
@@ -189,7 +224,7 @@ esac
 				write(target, "#!/bin/sh\necho 0.9.0\n")
 			}
 			run := func() (string, error) {
-				cmd := exec.Command("sh", args...)
+				cmd := exec.Command(shell, args...)
 				path := bin + string(os.PathListSeparator) + os.Getenv("PATH")
 				if noCurl {
 					path = bin + string(os.PathListSeparator) + filepath.Join(dir, "tools")

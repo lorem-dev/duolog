@@ -17,6 +17,7 @@ type (
 
 const (
 	Starting    = corescreen.Starting
+	Working     = corescreen.Working
 	Updating    = corescreen.Updating
 	Question    = corescreen.Question
 	Ready       = corescreen.Ready

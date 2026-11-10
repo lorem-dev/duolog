@@ -6,7 +6,9 @@ import (
 	"os"
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/app/doctor"
 	"github.com/lorem-dev/duolog/internal/app/install"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
@@ -69,6 +71,9 @@ func newInstallCommand(d *cmdDeps) *cobra.Command {
 		for _, n := range report.Notes {
 			fmt.Fprintln(cmd.OutOrStdout(), n)
 		}
+		if o.Scope != "user" {
+			printInstallTrustNote(cmd, d, o.Root)
+		}
 		return nil
 	}}
 	cmd.Flags().StringVar(&scope, "scope", "project", "Where to install: project or user")
@@ -76,6 +81,25 @@ func newInstallCommand(d *cmdDeps) *cobra.Command {
 	cmd.Flags().BoolVar(&check, "check", false, "Write nothing; exit 1 when install would change the installed hooks or skills, or they cannot be checked")
 	cmd.Flags().BoolVar(&hooksOnly, "hooks-only", false, "With --check: compare duolog's hooks and leave the skills out")
 	return cmd
+}
+
+// printInstallTrustNote prints, after a project install, what Codex still
+// needs before duolog can start a Codex worker in this checkout.
+func printInstallTrustNote(cmd *cobra.Command, d *cmdDeps, root string) {
+	cfg, err := loadConfig(root)
+	if err != nil {
+		fmt.Fprintln(cmd.OutOrStdout(), "Codex trust could not be checked: "+err.Error())
+		return
+	}
+	trustOf := func(agent string) doctor.FolderTrust {
+		if t := d.Delegate.Agents[agent].Trust; t != nil {
+			return t
+		}
+		return nil
+	}
+	if note := doctor.InstallTrustNote(cfg, trustOf, project.CurrentWorkRoot(root)); note != "" {
+		fmt.Fprintln(cmd.OutOrStdout(), note)
+	}
 }
 
 // installCheck prints the lines of each selected agent's install at o's

@@ -464,3 +464,50 @@ func TestDoctorWarnsOfUndecidedProjectMCPServers(t *testing.T) {
 		}
 	}
 }
+
+// TestDoctorWarnsAboutCodexSetup kills missing-folder and missing-hook info mutations.
+func TestDoctorWarnsAboutCodexSetup(t *testing.T) {
+	for _, tc := range []struct {
+		name                   string
+		folder, hooks, enabled bool
+	}{
+		{"neither", false, false, true}, {"folder", false, true, true},
+		{"hooks", true, false, true}, {"changed hooks", true, true, true}, {"ready", true, true, true},
+		{"disabled", false, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, opts, _ := setup(t)
+			enabled := tc.enabled
+			cfg.Agents = map[string]config.AgentSwitch{"codex": {Enabled: &enabled}}
+			text := ""
+			if tc.folder {
+				text += fmt.Sprintf("[projects.%q]\ntrust_level = \"trusted\"\n", opts.Root)
+			}
+			if tc.hooks {
+				hooks, err := launchtest.HooksJSON("codex", 30)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if tc.name == "changed hooks" {
+					hooks = []byte(strings.ReplaceAll(string(hooks), "--event PreToolUse", "--event PreToolUse --other"))
+				}
+				writeFile(t, filepath.Join(opts.Root, ".codex", "hooks.json"), string(hooks))
+				text += fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = \"fixture-hash\"\n", filepath.Join(opts.Root, ".codex", "hooks.json")+":PreToolUse:0:0")
+			}
+			writeFile(t, filepath.Join(os.Getenv("HOME"), ".codex", "config.toml"), text)
+			got := Run(context.Background(), testDeps, cfg, opts)
+			found := false
+			for _, f := range got {
+				if strings.Contains(f.Message, "accept the trust question") {
+					found = true
+					if f.Level != "warning" || !strings.Contains(f.Message, opts.Root) || !strings.Contains(f.Message, "open codex") || !strings.Contains(f.Message, "approve the hooks in /hooks") {
+						t.Fatalf("finding: %+v", f)
+					}
+				}
+			}
+			if found != (tc.enabled && (!tc.folder || !tc.hooks || tc.name == "changed hooks")) {
+				t.Fatalf("setup note found=%t: %+v", found, got)
+			}
+		})
+	}
+}

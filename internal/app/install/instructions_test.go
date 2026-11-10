@@ -226,8 +226,8 @@ func TestSharedInstructionFileGetsClaudeBlock(t *testing.T) {
 
 func TestClaudeSkillNamesTheTools(t *testing.T) {
 	lines := []string{
-		"With the duolog MCP tools loaded, use `delegate`, `peer`, `answer_ask` and `status` instead of the commands below; they return `run_here` as data.",
-		"Use the CLI only if a tool is missing or fails.",
+		"Use loaded duolog MCP `delegate`, `peer`, `answer_ask`, `status`; they return `run_here` as data.",
+		"Use CLI only for missing or failed tools.",
 	}
 	claude, err := plugin.FS.ReadFile("claude/skills/duolog/SKILL.md")
 	if err != nil {
@@ -246,7 +246,7 @@ func TestClaudeSkillNamesTheTools(t *testing.T) {
 		}
 	}
 	_, hand, _ := strings.Cut(string(claude), "## Hand over\n")
-	if i, j := strings.Index(hand, "With the duolog MCP tools"), strings.Index(hand, "1. Give whole features"); i < 0 || j < 0 || i > j {
+	if i, j := strings.Index(hand, "Use loaded duolog MCP"), strings.Index(hand, "1. Give whole features"); i < 0 || j < 0 || i > j {
 		t.Error("the tool lines are not at the top of Hand over")
 	}
 }

@@ -351,12 +351,15 @@ func TestInlineNeverReachesBusOrOutput(t *testing.T) {
 		t.Fatal("content leaked")
 	}
 }
+
+// TestWriteRoleRefusedWithoutHookTrust kills a refusal that omits the worker folder.
 func TestWriteRoleRefusedWithoutHookTrust(t *testing.T) {
 	h := newHarness(t)
 	h.trust(false)
 	o, e := h.run("implement")
 	h.requireCalls(0)
-	if e == nil || !strings.Contains(o.Line, "/hooks") {
+	want := fmt.Sprintf("Codex hooks untrusted for write role implement in %s; run codex in that folder, accept the trust question, and approve the hooks in /hooks", h.root)
+	if e == nil || !strings.Contains(o.Line, want) || e.Error() != want {
 		t.Fatal(o, e)
 	}
 }
@@ -1466,5 +1469,58 @@ func TestResultLineCountsDecisions(t *testing.T) {
 	}
 	if !strings.Contains(string(h.calls[0].Stdin), decisionsLine) {
 		t.Fatal("worker input misses the decisions line")
+	}
+}
+
+type diagnosticTrust struct {
+	Trust
+	lead, dir string
+}
+
+func (d *diagnosticTrust) WorktreeTrustProblem(lead, dir string, env []string) string {
+	d.lead, d.dir = lead, dir
+	return "source checkout lacks gate approval"
+}
+
+// TestWriteRefusalIncludesAdoptionProblem kills dropping the read-only worktree diagnosis.
+func TestWriteRefusalIncludesAdoptionProblem(t *testing.T) {
+	h := newHarness(t)
+	h.trust(false)
+	a := h.deps.Agents["codex"]
+	diagnostic := &diagnosticTrust{Trust: a.Trust}
+	a.Trust = diagnostic
+	h.deps.Agents["codex"] = a
+	_, err := h.run("implement")
+	h.requireCalls(0)
+	if err == nil || !strings.Contains(err.Error(), "source checkout lacks gate approval") || diagnostic.dir != h.root || diagnostic.lead != h.root {
+		t.Fatalf("err=%v, lead=%q, dir=%q", err, diagnostic.lead, diagnostic.dir)
+	}
+}
+
+func TestGateRefusalIncludesFolderAndAdoptionProblem(t *testing.T) {
+	for _, calibration := range []bool{false, true} {
+		for _, missingFolder := range []bool{false, true} {
+			t.Run(fmt.Sprintf("calibration=%t/missingFolder=%t", calibration, missingFolder), func(t *testing.T) {
+				h := newHarness(t)
+				if missingFolder {
+					h.codexHooksOnly()
+				} else {
+					put(t, filepath.Join(h.root, ".codex", "hooks.json"), strings.ReplaceAll(codexHooks(t), "--event PreToolUse", "--event PreToolUse --other"))
+				}
+				h.gateOnPath(true)
+				h.workerModes("  roles:\n    implement: {codex: workspace-write, network: true}\n")
+				h.leadNative("claude", mode.Full, "bypassPermissions")
+				a := h.deps.Agents["codex"]
+				diagnostic := &diagnosticTrust{Trust: a.Trust}
+				a.Trust = diagnostic
+				h.deps.Agents["codex"] = a
+				entry := config.Target{Agent: "codex", Model: "sol", Effort: "medium"}
+				_, err := h.runWith("implement", Options{Calibration: calibration, Entry: &entry, Person: true})
+				h.requireCalls(0)
+				if err == nil || !strings.Contains(err.Error(), h.root) || !strings.Contains(err.Error(), "source checkout lacks gate approval") || diagnostic.dir != h.root {
+					t.Fatalf("err=%v, diagnosis folder=%q", err, diagnostic.dir)
+				}
+			})
+		}
 	}
 }

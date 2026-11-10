@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"os"
 	"path/filepath"
@@ -207,5 +209,71 @@ func TestDoctorRexShadowWarning(t *testing.T) {
 				t.Fatalf("warning must name the selected fallback:\n%s", out)
 			}
 		})
+	}
+}
+
+func TestCommandsCheckCurrentCheckoutTrust(t *testing.T) {
+	for _, command := range []string{"doctor", "install"} {
+		for _, workTrusted := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/workTrusted=%t", command, workTrusted), func(t *testing.T) {
+				isolatedRouteConfig(t)
+				main, work := t.TempDir(), t.TempDir()
+				mcpLinkedWorktree(t, main, work)
+				putWorktreeFile(t, filepath.Join(main, ".duolog", "config.yaml"), "agents:\n  codex:\n    enabled: true\n")
+				hooks, err := launchtest.HooksJSON("codex", 30)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, root := range []string{main, work} {
+					putWorktreeFile(t, filepath.Join(root, ".codex", "hooks.json"), string(hooks))
+				}
+				trusted := main
+				if workTrusted {
+					trusted = work
+				}
+				config := fmt.Sprintf("[projects.%q]\ntrust_level = \"trusted\"\n", trusted)
+				for _, root := range []string{main, work} {
+					config += fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = \"fixture-hash\"\n", filepath.Join(root, ".codex", "hooks.json")+":PreToolUse:0:0")
+				}
+				path := filepath.Join(os.Getenv("HOME"), ".codex", "config.toml")
+				putWorktreeFile(t, path, config)
+				putWorktreeFile(t, filepath.Join(work, "nested", "file"), "")
+				t.Chdir(filepath.Join(work, "nested"))
+				testbin.Install(t, "codex", testbin.Scenario{Stdout: "{}"})
+				testbin.Install(t, "claude", testbin.Scenario{})
+				fakeRexFirst(t)
+				args := []string{command}
+				if command == "install" {
+					args = append(args, "--scope", "project", "--agent", "codex")
+				}
+				out, err := executeBusCommand(t, args...)
+				if err != nil {
+					t.Fatal(err)
+				}
+				note := "open codex in that folder"
+				if workTrusted {
+					if strings.Contains(out, note) {
+						t.Fatalf("trusted worktree warned: %s", out)
+					}
+				} else {
+					found := false
+					for _, line := range strings.Split(out, "\n") {
+						if strings.Contains(line, note) && strings.Contains(line, work) && strings.Contains(line, "folder trusted=false") {
+							found = true
+							if command == "doctor" && !strings.HasPrefix(line, "warning:") {
+								t.Fatalf("not warning: %s", line)
+							}
+						}
+					}
+					if !found {
+						t.Fatalf("missing worktree warning: %s", out)
+					}
+				}
+				after, err := os.ReadFile(path)
+				if err != nil || string(after) != config {
+					t.Fatalf("trust changed: %s, %v", after, err)
+				}
+			})
+		}
 	}
 }

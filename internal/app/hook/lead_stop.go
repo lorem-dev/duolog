@@ -95,7 +95,7 @@ func unwatchedPeers(ctx context.Context, e Env, reg *session.Registry, lead sess
 	var lines []string
 	for _, line := range e.Peers(ctx, lead.ID) {
 		id, state, ok := strings.Cut(line, " ")
-		if !ok || (state != "starting" && state != "updating" && state != "question") {
+		if !ok || (state != "starting" && state != "working" && state != "updating" && state != "question") {
 			continue
 		}
 		own := slices.ContainsFunc(entries, func(x session.Entry) bool { return x.ID == id && x.Lead == lead.ID && !x.Closed })

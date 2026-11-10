@@ -36,8 +36,10 @@ type Finding struct {
 // Pane is a caller-supplied pane record. Doctor never invokes Rex.
 type Pane struct{ ID, Lead string }
 type Options struct {
-	Probe    bool
-	Root     string
+	Probe bool
+	Root  string
+	// WorkRoot is the current checkout for Codex trust; defaults to Root.
+	WorkRoot string
 	Registry *session.Registry
 	Panes    []Pane
 	// RexBin is the located rex executable. Doctor never runs it.
@@ -50,6 +52,11 @@ type Options struct {
 	// never stands for it.
 	Lead map[string]session.LeadRoute
 }
+
+// codexName is the agent whose folder trust and hook approval doctor and
+// install report. It stays here, with this file's other agent names, until
+// they move to the agent descriptors.
+const codexName = "codex"
 
 // shadowsRex reports a rex on PATH that is not the Rex CLI duolog uses.
 func shadowsRex(opts Options) bool {
@@ -98,18 +105,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 		}
 		add("info", fmt.Sprintf("duolog install offer in %s: present=%t", path, present))
 	}
-	var folder bool
-	var hooks coreagent.TrustState
-	if t := d.Agents["codex"].Trust; t != nil {
-		var err error
-		if folder, err = t.Folder(root, os.Environ()); err != nil {
-			add("warning", "Codex folder trust: "+err.Error())
-		}
-		if hooks, err = t.Hooks(root, os.Environ()); err != nil {
-			add("warning", "Codex hook trust: "+err.Error())
-		}
-	}
-	add("info", fmt.Sprintf("Codex hooks approved=%t folder trusted=%t", hooks.Trusted, folder))
+	out = append(out, codexTrustFindings(d, cfg, opts.WorkRoot, root)...)
 	out = append(out, claudeFolderFindings(d, root)...)
 	add("warning", "Hooks changed after review cannot be detected here; Codex itself will skip changed hooks. Review /hooks.")
 	if runtime.GOOS == "windows" {

@@ -182,6 +182,26 @@ entry that needs it. The delegate result line names the native mode when an
 entry applies. `duolog decisions` and the usage records name it for every
 run.
 
+### How to check Codex trust before a worker starts
+
+`duolog doctor` warns when an enabled Codex has no folder trust or approved
+hooks. The warning names the folder. Run `codex` in that folder, accept the
+trust question, and approve the hooks in `/hooks`.
+
+A project-scope `duolog install` ends with the same note when Codex is
+enabled for the project and either step is missing, even with
+`--agent claude`. These checks only read trust and approvals. They do not
+write them or change the gate's rules.
+
+A write role refused for missing Codex trust or hook approval names the
+worker's folder. In a linked worktree, the refusal also explains why duolog
+could not carry over the source checkout's trust, when its checks can tell.
+The source may lack folder trust or gate
+approval. A stale source gate approval needs renewal in `/hooks` in the
+source checkout. The `.codex` folders may differ; the message names the
+first path. Hooks to copy may also be outside those that `duolog install`
+writes.
+
 ### How a linked worktree gets Codex trust
 
 duolog gives a linked worktree of the lead's checkout the Codex trust that
@@ -190,7 +210,8 @@ the checkout has. Codex keeps folder trust and hook approvals per folder in
 new folder to Codex, so without this you would open `/hooks` in each one.
 
 Before `delegate` or `peer open` runs Codex in a worktree, duolog checks
-these things:
+these things. It does so whether the command runs in the lead's checkout or
+inside the worktree; from inside, the main checkout is the source of trust.
 
 - The worktree is a linked worktree of the lead's repository. duolog runs
   `git` without any `GIT_` variable, and `git worktree list` of the lead's
@@ -243,9 +264,11 @@ holds for a new folder made at the path of a removed worktree. Check
 `.codex/` before you run Codex there by hand, or remove the worktree's
 tables between the two `# duolog:` comments yourself.
 
-If a check fails, duolog writes nothing, and the message stays
-`Codex hooks are not approved; open /hooks`. It also writes nothing when you
-set another trust level for the worktree. Hooks that are not
+If a check fails, duolog writes nothing. A write-role refusal names the
+worktree and explains the failed trust or hook check when it can. Run
+`codex` in that worktree, accept the trust question, and approve the hooks
+in `/hooks`. duolog also writes nothing when you set another trust level
+for the worktree. Hooks that are not
 `duolog install`'s own, such as the dev hooks in duolog's own checkout, need
 `/hooks` in each worktree. Claude needs no hook approval, so duolog writes
 nothing for Claude.

@@ -145,7 +145,7 @@ func (e *env) admitPane(ctx context.Context, route coreroute.Route, lead leadInf
 // it read-only: it opens only where that gate is shown to run.
 func (e *env) paneTrust(route coreroute.Route, lead leadInfo, env []string) error {
 	if adopt := e.opts.Deps.AdoptWorktree; adopt != nil {
-		if err := adopt(route.Agent, project.CurrentWorkRoot(filepath.Dir(e.dir)), e.root, env); err != nil {
+		if err := adopt(route.Agent, project.LeadRoot(filepath.Dir(e.dir), e.root), e.root, env); err != nil {
 			return err
 		}
 	}

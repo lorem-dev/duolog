@@ -17,6 +17,7 @@ type State string
 
 const (
 	Starting State = "starting"
+	Working  State = "working"
 	Updating State = "updating"
 	Question State = "question"
 	Ready    State = "ready"
@@ -140,7 +141,9 @@ func Parse(raw []byte, f agent.PaneFacts) Screen {
 	switch {
 	case isUpdating(f, s.Text):
 		s.State = Updating
-	case s.Working || !s.Composer:
+	case s.Working:
+		s.State = Working
+	case !s.Composer:
 	case limitRe.MatchString(s.Text):
 		s.State = Limited
 	case interrupted(f, lines, at):

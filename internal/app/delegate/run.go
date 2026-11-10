@@ -496,14 +496,14 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		// A calibration cell's promise is that none runs without the gate.
 		if opts.Calibration {
 			if err = calibrationGate(agentTrust, route.Agent, root, pre.Env); err != nil {
-				return out, err
+				return out, trustGap{route.Agent == "codex", agentTrust, state, folder, root, s.Dir, pre.Env}.refusal(err)
 			}
 		}
-		if warning, err = trustWarning(route, role, state, folder); err != nil {
+		if warning, err = trustWarning(route, role, root, state, folder); err != nil {
 			if noHome {
 				err = fmt.Errorf("%w; %s", err, noHomeProblem())
 			}
-			return out, err
+			return out, trustGap{route.Agent == "codex", agentTrust, state, folder, root, s.Dir, pre.Env}.refusal(err)
 		}
 		if noHome {
 			warning += "; " + noHomeProblem()
@@ -513,7 +513,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		// run in its place.
 		if wm.needsPreflight() {
 			if err = wm.gatePreflight(d, route.Agent, root, pre.Env, protected); err != nil {
-				return out, err
+				return out, trustGap{route.Agent == "codex", agentTrust, state, folder, root, s.Dir, pre.Env}.refusal(err)
 			}
 		}
 		warning += wm.line()
@@ -990,7 +990,7 @@ func changes(before, after map[string]string) []string {
 func Changes(before, after map[string]string) []string { return changes(before, after) }
 
 // workerLines close every worker's input.
-var workerLines = "\n" + caps.NeedsLine + "\n" + gateRetryLine + "\n" + ownershipLine + "\n" + handOnLine + "\n" + decisionsLine + "\n" + summaryLine + "\n"
+var workerLines = "\n" + caps.NeedsLine + "\n" + gateRetryLine + "\n" + ownershipLine + "\n" + workflowLine + "\n" + handOnLine + "\n" + decisionsLine + "\n" + summaryLine + "\n"
 
 const summaryLine = "When everything went as planned, keep the summary to one short sentence; give details only for a problem, an open question or a choice you made."
 
