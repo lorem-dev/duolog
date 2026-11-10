@@ -187,8 +187,12 @@ jobs:
           # reruns only what a change can affect.
           cnt=
           if [ "$FULL" = true ]; then cnt=-count=1; fi
+          # The limit is per package: cmd/duolog alone took six minutes on
+          # windows-latest with -race.
+          limit=6m
+          if [ "$RUNNER_OS" = Windows ]; then limit=12m; fi
           # shellcheck disable=SC2086 # RACE, par, cnt and pkgs are word lists
-          go test $RACE $par $cnt -timeout 6m $pkgs
+          go test $RACE $par $cnt -timeout $limit $pkgs
       # The native evidence for telemetry, by name in each runner's log: the
       # owner and mode or the Windows DACL, the macOS backup and index
       # exclusions, the Linux cache tag and NFS probe, files held open on

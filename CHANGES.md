@@ -42,6 +42,8 @@
 
 ## Development
 
+## 1.8.0
+
 ### Added
 
 - A task's `Run` section lists commands besides checks, such as generators;
