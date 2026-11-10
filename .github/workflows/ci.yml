@@ -23,21 +23,29 @@ jobs:
             race: '-race'
           - os: macos-latest
             race: '-race'
-          # Windows runs the tests in two jobs. The one named for its part
-          # tests the three slowest packages: the commands (cmd/duolog),
-          # delegation and calibration. The plain one tests the rest and runs
-          # every other check, and keeps the name branch protection requires.
+          # Windows runs the tests in three jobs, because one job of all of
+          # them came near its 20-minute limit. The two named for a part test
+          # the slowest packages: the commands (cmd/duolog), delegation and
+          # calibration in one, the gate policy, hooks, peers and the config
+          # adapter in the other. The plain one tests the rest and runs every
+          # other check, and keeps the name branch protection requires.
           - os: windows-latest
             race: '-race'
           - os: windows-latest
             race: '-race'
             part: commands, delegation and calibration
+          - os: windows-latest
+            race: '-race'
+            part: policy, hooks and peers
           # Go does not support the race detector on windows/arm64.
           - os: windows-11-arm
             race: ''
           - os: windows-11-arm
             race: ''
             part: commands, delegation and calibration
+          - os: windows-11-arm
+            race: ''
+            part: policy, hooks and peers
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
@@ -65,11 +73,15 @@ jobs:
           RACE: ${{ matrix.race }}
           PART: ${{ matrix.part }}
         run: |
-          slow='github.com/lorem-dev/duolog/cmd/duolog github.com/lorem-dev/duolog/internal/app/calibrate github.com/lorem-dev/duolog/internal/app/delegate'
-          if [ -n "$PART" ]; then
+          m=github.com/lorem-dev/duolog
+          slow="$m/cmd/duolog $m/internal/app/calibrate $m/internal/app/delegate"
+          gate="$m/internal/core/policy $m/internal/app/hook $m/internal/app/peer $m/internal/adapter/config"
+          if [ "$PART" = 'commands, delegation and calibration' ]; then
             pkgs=$slow
+          elif [ -n "$PART" ]; then
+            pkgs=$gate
           elif [ "$RUNNER_OS" = Windows ]; then
-            pkgs=$(go list ./... | grep -vxF -e "${slow// /$'\n'}")
+            pkgs=$(go list ./... | grep -vxF -e "${slow// /$'\n'}" -e "${gate// /$'\n'}")
           else
             pkgs=./...
           fi

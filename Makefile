@@ -81,6 +81,19 @@ third-party:
 third-party-check:
 	go run ./scripts/thirdparty -check
 
+# The README shows assets/how-duolog-works.svg as two WebP images, light and
+# dark, because a picture element picks one by the reader's theme.
+# rsvg-convert ignores @media, so the dark image drops the line that opens the
+# SVG's dark-theme block and the line that closes it, a "}" indented by four
+# spaces. Keep that block so. Needs rsvg-convert and cwebp.
+.PHONY: diagram
+diagram:
+	@mkdir -p .cache
+	rsvg-convert -w 2000 assets/how-duolog-works.svg -o .cache/diagram-light.png
+	sed -e '/prefers-color-scheme: dark/d' -e '/^    }$$/d' assets/how-duolog-works.svg | rsvg-convert -w 2000 -o .cache/diagram-dark.png
+	cwebp -quiet -q 90 .cache/diagram-light.png -o assets/how-duolog-works-light.webp
+	cwebp -quiet -q 90 .cache/diagram-dark.png -o assets/how-duolog-works-dark.webp
+
 .PHONY: install-script
 install-script:
 	go run ./scripts/render-install -version $(or $(RELEASE_TAG),latest)

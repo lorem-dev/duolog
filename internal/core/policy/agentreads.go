@@ -23,6 +23,9 @@ func agentSkillRoots(wide func(string) bool, target string) []string {
 		return nil
 	}
 	var roots []string
+	// Resolving links costs several system calls per path part, more on
+	// Windows, so the target is resolved once for both agents.
+	resolved := pathutil.Resolved(target)
 	for _, root := range []string{filepath.Join(home, ".agent", "skills"), filepath.Join(home, ".agents", "skills")} {
 		if !wide(pathutil.Resolved(root)) {
 			roots = append(roots, root)
@@ -37,7 +40,7 @@ func agentSkillRoots(wide func(string) bool, target string) []string {
 			continue
 		}
 		own := pathutil.Resolved(dir)
-		roots = append(roots, linkedConfigSkillRoots(home, own, target, wide)...)
+		roots = append(roots, linkedConfigSkillRoots(home, own, resolved, wide)...)
 		if skills := filepath.Join(dir, "skills"); ownOrNarrow(wide, pathutil.Resolved(skills), filepath.Join(own, "skills")) {
 			roots = append(roots, skills)
 		}
@@ -45,7 +48,7 @@ func agentSkillRoots(wide func(string) bool, target string) []string {
 		if !ownOrNarrow(wide, cache, filepath.Join(own, "plugins", "cache")) {
 			continue
 		}
-		rel, err := filepath.Rel(cache, pathutil.Resolved(target))
+		rel, err := filepath.Rel(cache, resolved)
 		if err != nil || !filepath.IsLocal(rel) {
 			continue
 		}
@@ -63,8 +66,8 @@ func agentSkillRoots(wide func(string) bool, target string) []string {
 // Exempt only the linked package's skills folder, never its config parent.
 // Only a target inside the config folder needs this, so other targets skip
 // the folder scans that would otherwise run on every gate call.
-func linkedConfigSkillRoots(home, own, target string, wide func(string) bool) []string {
-	if !within(own, pathutil.Resolved(target)) {
+func linkedConfigSkillRoots(home, own, resolvedTarget string, wide func(string) bool) []string {
+	if !within(own, resolvedTarget) {
 		return nil
 	}
 	var roots []string

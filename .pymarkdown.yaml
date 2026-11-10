@@ -34,7 +34,9 @@ plugins:
     enabled: false
   md033:
     # The README centres its title and badges, and Markdown cannot centre text.
-    allowed_elements: "h1,p"
+    # The glossary gives each term an anchor inside a table row, where
+    # Markdown has no other way to name a link target.
+    allowed_elements: "h1,p,a"
   md041:
     # The README shows its icon above the title. docs_test.go still requires a
     # title on every page.

@@ -641,3 +641,4 @@ An empty template adds no line for that agent.
 - [Rex](rex.md): live second sessions
 - [Telemetry](telemetry.md): the local history and how to turn it off
 - [Calibration](calibration.md): a starting order from past work, on request
+- [Glossary](glossary.md): lead, worker, planner, peer and other words

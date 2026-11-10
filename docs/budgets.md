@@ -62,3 +62,5 @@ times Opus at `high`, so no default role asks for `xhigh` or `max`.
   measurements
 - [Cost study](research/2026-11-01-cost-study.md): sessions with and without
   duolog
+- [Hand-over study](research/2026-11-10-hand-over-study.md): lead, subagent,
+  worker, planner and peer compared

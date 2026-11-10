@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="484" viewBox="0 0 1000 484" role="img" aria-labelledby="title desc">
+  <title id="title">How duolog works</title>
+  <desc id="desc">You give a task to the lead session. The lead hands work to a worker with duolog delegate, to the planner on Codex for a whole feature, or to a live peer in Rex on request. A small task stays in the lead.</desc>
+  <style>
+    .card { fill: #f1effc; stroke: #d4cff0; }
+    .lead { fill: #fdf1ec; stroke: #e0794f; }
+    .note { fill: none; stroke: #9a93c8; stroke-dasharray: 5 5; }
+    .codebox { fill: #e3e0f7; }
+    .pill { fill: #ddd9f5; }
+    .line { stroke: #8f86c9; stroke-width: 2.5; fill: none; stroke-linecap: round; }
+    .dash { stroke-dasharray: 5 5; }
+    .head { fill: #8f86c9; }
+    .t { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #3d3864; font-size: 16px; }
+    .h { fill: #1e1a3d; font-weight: 700; font-size: 19px; }
+    .big { font-size: 22px; }
+    .orange { fill: #b4532c; }
+    .code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #4a3fb0; font-size: 15px; }
+    .small { font-size: 15px; }
+    .tiny { font-size: 13px; }
+    .accent { fill: #5f55b5; }
+    .pilltext { fill: #2d2858; font-size: 13px; }
+    @media (prefers-color-scheme: dark) {
+      .card { fill: #221d45; stroke: #3b3470; }
+      .lead { fill: #2a1f3d; stroke: #e8875f; }
+      .note { stroke: #5a5196; }
+      .codebox { fill: #14112b; }
+      .pill { fill: #3b3470; }
+      .t { fill: #b3acd9; }
+      .h { fill: #ffffff; }
+      .orange { fill: #f2a988; }
+      .code { fill: #c9c3ff; }
+      .accent { fill: #9b92e0; }
+      .pilltext { fill: #e3dcf5; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="4" markerHeight="4" orient="auto">
+      <path class="head" d="M0 0 L8 4 L0 8 Z"/>
+    </marker>
+  </defs>
+
+  <path class="line" d="M160 242 H186" marker-end="url(#arrow)"/>
+  <path class="line" d="M410 242 H428"/>
+  <path class="line" d="M428 86 V398"/>
+  <path class="line" d="M428 86 H446" marker-end="url(#arrow)"/>
+  <path class="line" d="M428 242 H446" marker-end="url(#arrow)"/>
+  <path class="line" d="M428 398 H446" marker-end="url(#arrow)"/>
+  <path class="line dash" d="M300 332 V364" marker-end="url(#arrow)"/>
+
+  <rect class="card" x="30.5" y="187.5" width="129" height="109" rx="14"/>
+  <text class="t h" x="95" y="228" text-anchor="middle" style="font-size: 20px">You</text>
+  <text class="t small" x="95" y="252" text-anchor="middle">give the task,</text>
+  <text class="t small" x="95" y="272" text-anchor="middle">answer the asks</text>
+
+  <rect class="lead" x="191" y="153" width="218" height="178" rx="16" stroke-width="2.5"/>
+  <text class="t h big" x="300" y="192" text-anchor="middle">Lead session</text>
+  <text class="t orange" x="300" y="218" text-anchor="middle">Claude Code or Codex,</text>
+  <text class="t orange" x="300" y="238" text-anchor="middle">for example Opus</text>
+  <text class="t" x="300" y="266" text-anchor="middle">Plans, hands work over</text>
+  <text class="t" x="300" y="288" text-anchor="middle">and reviews the result</text>
+
+  <rect class="note" x="190.5" y="368.5" width="219" height="63" rx="12"/>
+  <text class="t small" x="300" y="395" text-anchor="middle"><tspan class="code">run here</tspan>: a small task</text>
+  <text class="t small" x="300" y="416" text-anchor="middle">stays in the lead</text>
+
+
+  <rect class="card" x="450.5" y="16.5" width="519" height="139" rx="14"/>
+  <text class="t h" x="470" y="50">Worker</text>
+  <rect class="pill" x="552" y="33" width="146" height="24" rx="12"/>
+  <text class="t pilltext" x="625" y="50" text-anchor="middle">model set per role</text>
+  <rect class="codebox" x="470" y="66" width="246" height="28" rx="7"/>
+  <text class="code" x="480" y="85">duolog delegate implement</text>
+  <text class="t" x="470" y="118">A one-shot session in its own worktree.</text>
+  <text class="t" x="470" y="140">It returns a summary and a diff.</text>
+
+  <rect class="card" x="450.5" y="172.5" width="519" height="139" rx="14"/>
+  <text class="t h" x="470" y="206">Planner</text>
+  <rect class="pill" x="560" y="189" width="96" height="24" rx="12"/>
+  <text class="t pilltext" x="608" y="206" text-anchor="middle">Codex, sol</text>
+  <rect class="codebox" x="470" y="222" width="228" height="28" rx="7"/>
+  <text class="code" x="480" y="241">duolog delegate planner</text>
+  <text class="t" x="470" y="274">A whole feature: reads, implements, checks.</text>
+  <text class="t" x="470" y="296">38-45% cheaper than one Opus session.</text>
+
+  <rect class="card" x="450.5" y="328.5" width="519" height="139" rx="14"/>
+  <text class="t h" x="470" y="362">Live peer</text>
+  <rect class="pill" x="572" y="345" width="92" height="24" rx="12"/>
+  <text class="t pilltext" x="618" y="362" text-anchor="middle">any role</text>
+  <rect class="codebox" x="470" y="378" width="282" height="28" rx="7"/>
+  <text class="code" x="480" y="397">duolog peer open review_final</text>
+  <text class="t" x="470" y="430">A second live session in a Rex pane, on</text>
+  <text class="t" x="470" y="452">request. It costs more than a delegate.</text>
+</svg>
