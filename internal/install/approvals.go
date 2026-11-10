@@ -84,6 +84,11 @@ func GateCommands(data []byte) string {
 // command there. Entries Codex has approved again since are dropped.
 func MarkStaleApprovals(home, hooksPath string) error {
 	codexHome := trusthome.Codex(home)
+	unlock, err := lockApprovals(codexHome)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = unlock() }()
 	var cfg struct {
 		Hooks struct {
 			State map[string]struct {
@@ -124,9 +129,6 @@ func MarkStaleApprovals(home, hooksPath string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(codexHome, 0o700); err != nil {
-		return err
-	}
 	tmp, err := os.CreateTemp(codexHome, "."+staleApprovalsFile+".*.tmp")
 	if err != nil {
 		return err
@@ -140,4 +142,11 @@ func MarkStaleApprovals(home, hooksPath string) error {
 		return writeErr
 	}
 	return store.Rename(tmp.Name(), file)
+}
+
+func lockApprovals(dir string) (func() error, error) {
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, err
+	}
+	return store.LockFile(filepath.Join(dir, staleApprovalsFile+".lock"))
 }

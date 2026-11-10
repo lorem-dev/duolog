@@ -1,43 +1,23 @@
 # How to write the documentation
 
-This page gives the rules for `README.md` and every page in `docs/`. Most
-readers are not native English speakers, so clear writing is a requirement.
+Write docs in plain English for readers who may not be native speakers.
 
-These rules come from the writing style of the `platform` repository. We left
-out its rules for the documentation site and for diagrams, because this project
-has no site.
+## How to write sentences
 
-## Rules for sentences
+| Rule | Reason or example |
+|---|---|
+| Use English and ASCII | Readers can search and type the text on any keyboard |
+| Keep one idea per sentence; split after about 25 words | Short sentences are easier to read |
+| Use common words | use, start, about |
+| Use active voice | The hook runs the command |
+| Avoid idioms | Say what you mean |
+| Use one term per thing | A new word suggests a different thing |
+| Define terms on first use per page | Readers may arrive from search |
+| Put the answer first | Explain why afterwards |
+| Compare things in tables | Avoid parallel paragraphs |
+| Explain rules | Readers need the reason before removing one |
 
-**Use English and ASCII only.** Do not use curly quotes, em dashes or ellipsis
-characters. A reader can then search for any text and type it on any keyboard.
-
-**Write short sentences.** Put one idea in each sentence. Split a sentence that
-has more than about 25 words.
-
-**Use common words.** Write *use*, not *utilise*. Write *start*, not *initiate*.
-Write *about*, not *regarding*.
-
-**Use the active voice.** Write *the hook runs the command*, not *the command is
-run by the hook*. The active voice shows who does the work.
-
-**Do not use idioms.** A phrase such as *low-hanging fruit* does not translate.
-Say what you mean.
-
-**Use one word for one thing.** A reader who sees a new word looks for a new
-thing. The [approved words](#use-these-words) are below.
-
-**Explain a term the first time it appears on a page.** Readers often arrive
-from a search, not from the first page.
-
-**Put the answer first.** Start a section with the conclusion, then explain why.
-
-**Prefer a table to a list of paragraphs** when you compare things.
-
-**Say why, not only what.** The next person may remove a rule that has no
-reason.
-
-## Rules for pages
+## How to structure pages
 
 Every page starts with one short paragraph that says what the page is about.
 
@@ -51,19 +31,9 @@ Every page ends with a section named `Related pages`, unless it has none.
 
 ## Use these words
 
-| Word | What it means |
-|---|---|
-| Agent | Claude Code or Codex |
-| Session | One running conversation with an agent |
-| Lead | The session you work in. It starts and controls the others |
-| Worker | A session that the lead started |
-| Role | A kind of work, such as `review_final` |
-| Route | The agent, model and effort that do a role |
-| Bus | The file that sessions use to send short messages to each other |
-| Message | One line on the bus |
-| Artifact | A file that sessions share. Messages point to it |
-| Task | A work request in a `task.md` file |
-| Sync | Generating one agent's skill and agent files from the other's |
+Use the terms in [Glossary](glossary.md). A message is one bus line; an
+artifact is a shared file referenced by a message. Sync generates one
+agent's skill and agent files from the other's.
 
 ## How to check a page before you commit
 
@@ -99,12 +69,14 @@ two do not drift apart.
 - Plans and design notes. These go in `docs/superpowers/`, which git ignores.
 - Code that goes out of date. Link to the source file instead.
 
-Python scripts carry a uv header and type annotations. Run them as
-`uv run <script>`, on every OS, rather than executing a shebang. PowerShell
-uses `$env:NAME = 'value'` instead of `export NAME=value`. It uses a backtick
-for a continued command instead of a POSIX backslash; prefer one-line commands.
+## How to run checks on Windows
 
-On Windows, use `go build ./cmd/duolog` instead of `make build`. For the
+Python scripts carry a uv header and type annotations. Run them as
+`uv run <script>` on every OS. PowerShell uses `$env:NAME = 'value'` for
+variables and a backtick for a continued command; prefer one-line commands.
+
+On Windows, use `go build -o .cache/bin/duolog.exe ./cmd/duolog` instead of
+`make build`. Put `.cache/bin` on PATH. For the
 individual checks, run `go vet ./...`, `go test ./...`,
 `go test . -run '^TestSchemaFileIsCurrent$'`,
 `go run ./scripts/thirdparty -check` and `go run ./scripts/render-install`.
@@ -194,3 +166,8 @@ Codex runs the hooks only after you approve them in `/hooks` and trust the
 project. `.duolog/config.yaml` passes the Go settings to workers.
 `.duolog/learned.yaml` lets workers run the checks above. `.codex/rules/` and
 `.claude/settings.json` let the lead run them without a question.
+
+## Related pages
+
+- [Glossary](glossary.md): terms used in the docs
+- [Architecture](architecture.md): package and import rules

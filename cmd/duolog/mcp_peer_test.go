@@ -21,6 +21,11 @@ import (
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
+func mcpPeerProject(t *testing.T, capture testbin.Scenario) (string, string) {
+	t.Helper()
+	return peerProject(t, capture)
+}
+
 func mcpPeerCall(t *testing.T, in mcp.PeerInput) (mcp.PeerOutput, error) {
 	t.Helper()
 	return testDeps(t).mcpPeer(context.Background(), in)
@@ -48,16 +53,16 @@ func mcpTaskFixture(t *testing.T, root string) *mcp.Task {
 // wait has a task to wait for. It returns the project root and the peer id.
 func mcpSentPeer(t *testing.T) (root, id string) {
 	t.Helper()
-	root, _ = peerProject(t, sequence(claudeIdleScreen()))
+	root, _ = mcpPeerProject(t, sequence(claudeIdleScreen()))
 	id = mustMCPPeer(t, mcp.PeerInput{Action: "open", Role: "plan"}).ID
-	line := "Read .duolog/tasks/" + id + "/task.md and do it. Do not call rex. Write the answer to " + policy.ReportPath(id) + ". Reply \"done\"."
+	line := "Read .duolog/tasks/" + id + "-send-1/task.md and do it. Do not call rex. Write the answer to " + policy.ReportPath(id) + ". Reply \"done\"."
 	peerRex(t, claudeIdleScreen(), claudeIdleScreen(), claudeHolding(line), claudeAtWork())
 	mustMCPPeer(t, mcp.PeerInput{Action: "send", ID: id, Task: mcpTaskFixture(t, root)})
 	return root, id
 }
 
 func TestMCPPeerOpenReturnsEntry(t *testing.T) {
-	peerProject(t, sequence(claudeIdleScreen()))
+	mcpPeerProject(t, sequence(claudeIdleScreen()))
 	out := mustMCPPeer(t, mcp.PeerInput{Action: "open", Role: "plan"})
 	if !strings.HasPrefix(out.ID, "peer-") || out.State != "ready" || out.Line != out.ID+" ready" || out.RunHere != nil {
 		t.Fatalf("%+v", out)
@@ -103,7 +108,7 @@ func mcpOpenInWorktree(t *testing.T, worktree string) (mcp.PeerOutput, error) {
 func TestMCPPeerOpenInWorktree(t *testing.T) {
 	for _, kind := range []string{"name", "relative", "absolute", "external"} {
 		t.Run(kind, func(t *testing.T) {
-			root, rex := peerProject(t, sequence(claudeIdleScreen()))
+			root, rex := mcpPeerProject(t, sequence(claudeIdleScreen()))
 			work := filepath.Join(root, ".worktrees", "feature")
 			if kind == "external" {
 				work = t.TempDir()
@@ -147,7 +152,7 @@ func TestMCPPeerOpenInWorktree(t *testing.T) {
 // A plain name means a worktree first, even when a folder in the working
 // folder has the same name.
 func TestMCPPeerOpenPrefersWorktreeName(t *testing.T) {
-	root, _ := peerProject(t, sequence(claudeIdleScreen()))
+	root, _ := mcpPeerProject(t, sequence(claudeIdleScreen()))
 	work := filepath.Join(root, ".worktrees", "docs")
 	mcpLinkedWorktree(t, root, work)
 	putWorktreeFile(t, filepath.Join(root, "docs", "guide.md"), "text\n")
@@ -170,7 +175,7 @@ func TestMCPPeerOpenPrefersWorktreeName(t *testing.T) {
 func TestMCPPeerOpenRefusesFolderThatIsNoCheckout(t *testing.T) {
 	for _, kind := range []string{"plain name", "subfolder", "git folder", "state folder", "nested repository"} {
 		t.Run(kind, func(t *testing.T) {
-			root, rex := peerProject(t, sequence(claudeIdleScreen()))
+			root, rex := mcpPeerProject(t, sequence(claudeIdleScreen()))
 			mcpLinkedWorktree(t, root, filepath.Join(root, ".worktrees", "feature"))
 			putWorktreeFile(t, filepath.Join(root, "docs", "guide.md"), "text\n")
 			arg := map[string]string{"plain name": "docs", "subfolder": filepath.Join(root, "docs"), "git folder": filepath.Join(root, ".git"), "state folder": filepath.Join(root, ".duolog"), "nested repository": filepath.Join(root, "vendor", "lib")}[kind]
@@ -197,7 +202,7 @@ func TestMCPPeerOpenRefusesFolderThatIsNoCheckout(t *testing.T) {
 func TestMCPPeerOpenRefusesInvalidWorktree(t *testing.T) {
 	for _, kind := range []string{"missing", "file", "unrelated"} {
 		t.Run(kind, func(t *testing.T) {
-			root, rex := peerProject(t, sequence(claudeIdleScreen()))
+			root, rex := mcpPeerProject(t, sequence(claudeIdleScreen()))
 			arg := filepath.Join(root, "missing")
 			switch kind {
 			case "file":
@@ -216,7 +221,7 @@ func TestMCPPeerOpenRefusesInvalidWorktree(t *testing.T) {
 }
 
 func TestMCPPeerSendUsesRegisteredWorkRoot(t *testing.T) {
-	root, _ := peerProject(t, sequence(claudeIdleScreen()))
+	root, _ := mcpPeerProject(t, sequence(claudeIdleScreen()))
 	// Model real account state, shared across the lead's working folders.
 	skillGate(t, false)
 	work := filepath.Join(root, ".worktrees", "feature")
@@ -227,7 +232,7 @@ func TestMCPPeerSendUsesRegisteredWorkRoot(t *testing.T) {
 	id := strings.Fields(peerLine(t, "peer", "open", "plan"))[0]
 	t.Chdir(root)
 	task := mcpTaskFixture(t, work) // a.go exists only in the peer's checkout.
-	rel := ".duolog/tasks/" + id + "/task.md"
+	rel := ".duolog/tasks/" + id + "-send-1/task.md"
 	line := "Read " + rel + " and do it. Do not call rex. Write the answer to " + policy.ReportPath(id) + ". Reply \"done\"."
 	peerRex(t, claudeIdleScreen(), claudeIdleScreen(), claudeHolding(line), claudeAtWork())
 	rex, err := exec.LookPath("rex")
@@ -272,7 +277,7 @@ func TestMCPPeerSendUsesRegisteredWorkRoot(t *testing.T) {
 }
 
 func TestMCPPeerSendUnknownPeerWritesNothing(t *testing.T) {
-	root, _ := peerProject(t, sequence(claudeIdleScreen()))
+	root, _ := mcpPeerProject(t, sequence(claudeIdleScreen()))
 	_, err := mcpPeerCall(t, mcp.PeerInput{Action: "send", ID: "peer-missing", Task: mcpTaskFixture(t, root)})
 	if err == nil || !strings.Contains(err.Error(), "unknown peer") {
 		t.Fatalf("unknown peer: %v", err)
@@ -283,9 +288,9 @@ func TestMCPPeerSendUnknownPeerWritesNothing(t *testing.T) {
 }
 
 func TestMCPPeerSendWritesTaskFile(t *testing.T) {
-	root, _ := peerProject(t, sequence(claudeIdleScreen()))
+	root, _ := mcpPeerProject(t, sequence(claudeIdleScreen()))
 	id := mustMCPPeer(t, mcp.PeerInput{Action: "open", Role: "plan"}).ID
-	rel := ".duolog/tasks/" + id + "/task.md"
+	rel := ".duolog/tasks/" + id + "-send-1/task.md"
 	line := "Read " + rel + " and do it. Do not call rex. Write the answer to " + policy.ReportPath(id) + ". Reply \"done\"."
 	peerRex(t, claudeIdleScreen(), claudeIdleScreen(), claudeHolding(line), claudeAtWork())
 	rex, err := exec.LookPath("rex")
@@ -314,13 +319,22 @@ func TestMCPPeerSendWritesTaskFile(t *testing.T) {
 	if !sent {
 		t.Fatalf("the pane did not get %q: %v", line, rexCalls(t, rex))
 	}
+	// Mutation killed: a refused send overwrites the active task's original path.
+	changed := *task
+	changed.Goal = "A different task."
+	if _, err := mcpPeerCall(t, mcp.PeerInput{Action: "send", ID: id, Task: &changed}); err == nil {
+		t.Fatal("busy peer accepted task")
+	}
+	if after, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel))); err != nil || string(after) != string(want) {
+		t.Fatalf("active task overwritten: %s %v", after, err)
+	}
 	if _, err := mcpPeerCall(t, mcp.PeerInput{Action: "send", ID: id}); err == nil || !strings.Contains(err.Error(), "task") {
 		t.Fatalf("a send without a task: %v", err)
 	}
 }
 
 func TestMCPPeerSendRunHereIsField(t *testing.T) {
-	root, _ := peerProject(t, sequence(claudeIdleScreen()))
+	root, _ := mcpPeerProject(t, sequence(claudeIdleScreen()))
 	id := mustMCPPeer(t, mcp.PeerInput{Action: "open", Role: "plan"}).ID
 	task := mcpTaskFixture(t, root)
 	testbin.Install(t, "rex", testbin.Scenario{Exit: 99, Responses: map[string]testbin.Scenario{
@@ -411,7 +425,7 @@ func TestMCPPeerWaitListsOpenAsks(t *testing.T) {
 
 func TestMCPPeerAnswerThenStatus(t *testing.T) {
 	switchModel := startupFixture(t, "claude-model-switch-question.txt")
-	peerProject(t, sequence(switchModel, switchModel, switchModel, claudeIdleScreen(), claudeIdleScreen()))
+	mcpPeerProject(t, sequence(switchModel, switchModel, switchModel, claudeIdleScreen(), claudeIdleScreen()))
 	opened := mustMCPPeer(t, mcp.PeerInput{Action: "open", Role: "plan"})
 	if opened.State != "question" || !strings.HasPrefix(opened.Question, "Switch model?") {
 		t.Fatalf("open: %+v", opened)
@@ -436,7 +450,7 @@ func TestMCPPeerCloseLineMatchesCLI(t *testing.T) {
 		t.Helper()
 		clearModelMarkers(t)
 		asTerminal(t, true)
-		root, _ := peerProject(t, testbin.Scenario{Stdout: claudeIdleScreen()})
+		root, _ := mcpPeerProject(t, testbin.Scenario{Stdout: claudeIdleScreen()})
 		recordListPeer(t, root)
 		restartRex(t, root)
 	}
@@ -455,7 +469,7 @@ func TestMCPPeerCloseLineMatchesCLI(t *testing.T) {
 }
 
 func TestMCPPeerListRows(t *testing.T) {
-	root, _ := peerProject(t, testbin.Scenario{Stdout: claudeIdleScreen()})
+	root, _ := mcpPeerProject(t, testbin.Scenario{Stdout: claudeIdleScreen()})
 	recordListPeer(t, root)
 	out := mustMCPPeer(t, mcp.PeerInput{Action: "list"})
 	want := []mcp.PeerRow{{ID: "peer-list", Role: "plan", Agent: "claude", State: "ready", Task: ".duolog/task.md"}}
@@ -465,7 +479,7 @@ func TestMCPPeerListRows(t *testing.T) {
 }
 
 func TestMCPPeerUnknownAction(t *testing.T) {
-	_, rex := peerProject(t, testbin.Scenario{})
+	_, rex := mcpPeerProject(t, testbin.Scenario{})
 	for _, in := range []mcp.PeerInput{
 		{Action: "nap"},
 		{},
@@ -487,7 +501,7 @@ func TestMCPPeerUnknownAction(t *testing.T) {
 }
 
 func TestMCPPeerRefusesUnderWorker(t *testing.T) {
-	_, rex := peerProject(t, testbin.Scenario{})
+	_, rex := mcpPeerProject(t, testbin.Scenario{})
 	t.Setenv("DUOLOG_DEPTH", "1")
 	for _, in := range []mcp.PeerInput{
 		{Action: "open", Role: "plan"},

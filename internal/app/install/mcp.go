@@ -7,8 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-
-	"github.com/lorem-dev/duolog/internal/store"
 )
 
 // MCPServers is implemented by the Installer of an agent whose lead gets the
@@ -68,7 +66,7 @@ func planMCP(p *agentPlan, a Agent, o Options, base string) error {
 		if note != "" {
 			p.notes = append(p.notes, path+": "+note)
 		}
-		p.mcp = []edit{{path: path, data: data, state: true, restart: true}}
+		p.mcp = []edit{{path: path, data: data, state: true, source: &old, restart: true}}
 	}
 	// Without a hook edit the file is missing: Run writes one for the plugin
 	// whenever the file is there.
@@ -215,7 +213,7 @@ func serverRemoval(a Agent, o Options) ([]edit, []string, error) {
 	case bytes.Equal(data, old):
 		return nil, nil, nil
 	}
-	return []edit{{path: path, data: data, state: true}}, []string{ServerRemovedNote}, nil
+	return []edit{{path: path, data: data, state: true, source: &old}}, []string{ServerRemovedNote}, nil
 }
 
 // checkMCP adds to s the MCP files that Run would change for agent a: the
@@ -305,7 +303,7 @@ func (d Deps) deferredLines(root, home string) []string {
 // file, in place.
 func (e edit) write() (bool, error) {
 	if e.state {
-		return writeState(e.path, e.data)
+		return writeState(e.path, e.data, e.source)
 	}
 	return apply(e)
 }
@@ -314,12 +312,12 @@ func (e edit) write() (bool, error) {
 // file in the same folder, renamed over it. The file keeps its mode, a link
 // stays a link, and no backup is kept: an agent's state file is large and
 // the agent rewrites it often.
-func writeState(path string, data []byte) (bool, error) {
+func writeState(path string, data []byte, source *[]byte) (bool, error) {
 	if target, err := filepath.EvalSymlinks(path); err == nil {
 		path = target
 	}
 	mode := os.FileMode(0o600)
-	old, err := os.ReadFile(path)
+	old, err := readStateSnapshot(path, source)
 	switch {
 	case err == nil && bytes.Equal(old, data):
 		return false, nil
@@ -350,5 +348,6 @@ func writeState(path string, data []byte) (bool, error) {
 	if err := os.Chmod(tmp.Name(), mode); err != nil {
 		return false, err
 	}
-	return true, store.Rename(tmp.Name(), path)
+
+	return true, replaceState(tmp.Name(), path, old)
 }

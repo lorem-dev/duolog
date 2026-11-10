@@ -14,6 +14,7 @@ import (
 )
 
 func TestPeerCoauthorRecordedOnce(t *testing.T) {
+	// Kills duplicate credits from repeated polls of the same task generation.
 	r := newRig(t, baseScript()) // All pane operations use the fake executable.
 	r.git()
 	r.lead("claude", mode.Edits)
@@ -22,7 +23,7 @@ func TestPeerCoauthorRecordedOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = r.reg.Update(p.ID, func(x *session.Entry) { x.Task, x.Base = "task.md", base })
+	_, err = r.reg.Update(p.ID, func(x *session.Entry) { x.Task, x.Base, x.TaskGeneration = "task.md", base, "task-1" })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +47,7 @@ func TestPeerCoauthorRecordedOnce(t *testing.T) {
 	if err := json.Unmarshal(data, &record); err != nil {
 		t.Fatal(err)
 	}
-	if record.Peer != p.ID || record.Model != "gpt-6.1-sol" || record.Lead != "lead-1" || record.Files != 1 || record.Time.IsZero() {
+	if record.Peer != p.ID+"/task-1" || record.Model != "gpt-6.1-sol" || record.Lead != "lead-1" || record.Files != 1 || record.Time.IsZero() {
 		t.Fatalf("%+v", record)
 	}
 }

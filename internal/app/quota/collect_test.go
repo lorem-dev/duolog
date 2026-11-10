@@ -60,7 +60,7 @@ func TestCollectStatesAnEarlierRead(t *testing.T) {
 	if err := Print(&out, results, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"claude worker: this read failed; using a good read", "claude peer: this read failed; using a good read"} {
+	for _, want := range []string{"claude worker: using a good quota read", "claude peer: using a good quota read"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("no %q in:\n%s", want, out.String())
 		}

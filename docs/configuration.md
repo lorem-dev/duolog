@@ -1,9 +1,7 @@
 # How to configure duolog
 
-This page explains the config file: where duolog reads it, what each section
-does, and how to check a role. The defaults are in
-[config.default.yaml](../internal/core/config/config.default.yaml) in
-`internal/core/config`.
+Configure roles, worker settings and account limits here. The defaults are
+in [config.default.yaml](../internal/core/config/config.default.yaml).
 
 ## Where duolog reads the config
 
@@ -19,9 +17,9 @@ one. The default deny rules stay in every case.
 | 4 | `.duolog/config.local.yaml` | Your private changes. Git ignores it |
 
 In a linked worktree, duolog reads layers 3 and 4 from the main checkout's
-`.duolog/`, which every linked worktree shares. A `.duolog/config.local.yaml`
-inside the linked worktree is not read, so put your changes in the main
-checkout's file.
+shared `.duolog/`. The exception is `agents.codex.skills_dir`, which reads
+the worktree's files as [described
+below](#where-codex-keeps-its-project-skills).
 
 A local file that Git tracks, for example one added with `git add -f`,
 reaches everyone who clones the repository. duolog then reads it with the
@@ -42,7 +40,7 @@ config that works with a newer duolog may fail with an older one.
 
 A config that does not load stops every duolog command that reads it, the
 hooks and the gate included. The gate then fails closed and denies each
-worker action, as before. duolog says so in two places, with the file and
+worker action. duolog says so in two places, with the file and
 the line:
 
 | Where | What it says |
@@ -130,10 +128,7 @@ roles:
     use: {agent: claude, model: sonnet, effort: medium}
 ```
 
-This makes Sonnet the primary route, rather than a fallback to the lead.
-Pass `--force` if the small-task rule below would keep the task in the lead.
-That flag skips the small-task rule; it does not turn a fallback to the lead
-into a worker. The model and context rules above still apply.
+`--force` skips only the small-task rule; the rules above still apply.
 See [the router](../internal/core/route/router.go) and
 [delegation](../internal/app/delegate/run.go) for the routing decisions, and
 [read placement](../internal/app/delegate/prepare.go) for the read limits.
@@ -182,7 +177,7 @@ the edge. duolog keeps this one flag per agent in its account state folder.
 
 ```text
 $ duolog route implement
-claude sonnet high
+claude sonnet medium
 reason: implement -> claude sonnet: codex 61% of the week at 44% elapsed
 ```
 
@@ -209,65 +204,40 @@ A hand-over has a fixed cost, so a small task costs less done in place. When
 `## Write` names at most `routing.small_task_files` files and the role writes
 (`implement`, `mechanical`, `tests`, `docs`, `planner`),
 `duolog delegate` starts no worker and answers `run here: self`, with the
-reason. This small-task rule never keeps read-only roles or reviews in the
-lead. It also skips a task whose `## Write` is missing, names no file, or lists
-a glob or a folder (an entry ending in `/` is a folder even if it does not
-exist yet), a task pinned with
-`--use`, a run with `--escalate-from`, and any run while learning mode is on.
+reason. It never keeps read-only roles or reviews in the lead. It also skips a
+task whose `## Write` is missing, empty, or lists a
+glob or folder (a trailing `/` counts even before the folder exists), a
+target pinned with `--use`, calibration, judge, replay and escalation runs,
+learning mode, and a lead in plan mode.
 Pass `--force` to `duolog delegate`, or `force: true` to the MCP `delegate`
 tool, to skip this small-task rule. The routing rules
 [above](#how-a-fallback-returns-work-to-the-lead) still apply.
 
 ## Which models the default roles use
 
-Planning and the final review use Opus, because a mistake costs the most
-there. Routine work uses cheaper Codex models. The sections below explain the
-roles for a whole feature, for a bug and for reviews between tasks. A project
-can change any role. The default deny rules and the calibration caps stay in
-force, as the sections below say.
+Give whole features to `planner` and keep small fixes in the lead. A project
+can change any role. See the
+[cost study](research/2026-11-01-cost-study.md) for the measurements.
 
-## Which role takes a whole feature
-
-Give a whole feature to `planner`. It reads the code, implements, runs the
-checks and lists the risks and the hunks to review. It runs on `sol` with
-minimal context and keeps its thread, so a follow-up round reuses the
-worker's cache. In the cost study, an Opus lead that handed a large feature to
-`planner` and did not read the code itself cost about half as much as an Opus
-lead that read the code first, at the same test results. See
-[the cost study](research/2026-11-01-cost-study.md).
-
-Keep a small fix in the lead. A handoff has a fixed cost: on a two-file bug,
-one Codex session alone cost less than any setup with duolog.
-
-## Which role finds the cause of a bug
-
-Give `debug` a bug whose cause can be found by reading one repository. It runs
-on `sol` at medium effort, read-only, and keeps its thread for follow-up
-questions. In the cost study, `sol` found the cause of four hard bugs at every
-effort, for a third to a sixteenth of what Opus cost. Give `debug_hard` a bug
-that crosses several components or needs logs and other evidence from outside
-the repository. It runs on Opus and may edit files.
-
-Reviews between tasks go to `review_intermediate` on `sol`. In the cost study,
-`terra` cost half as much but made a false finding in half of its review runs,
-and `sol` made none.
+| Role | Default | Why |
+|---|---|---|
+| `planner` | Codex `sol`, medium, minimal context, resumed thread | Reads, implements, checks and reports risks and hunks; avoids repeated lead reads |
+| `debug` | Codex `sol`, medium, read-only, resumed thread | Finds causes within one repository; no false claims in the study |
+| `debug_hard` | Claude `opus`, high, may edit | For logs and evidence across components; those cases were not measured |
+| `review_intermediate` | Codex `sol`, medium, read-only | Terra cost half as much but made false findings in half its review runs |
+| `plan`, `review_final` | Claude `opus`, high, read-only | Mistakes in planning and final review cost most |
 
 ## How to give every worker the same rules
 
-Put the project rules that every worker needs in `.duolog/brief.md`: the test
-command, the tools to use, the files not to touch. duolog puts this file first
-in each worker's input. The same start in every task lets the provider serve it
-from its prompt cache. The file must be a regular file of at most 32 KiB; a
-link is ignored, because it could point at a secret. The brief counts against
-`wire.inline_max_bytes`, so a long brief leaves less room for Read files. A
-resumed thread already holds the brief, so duolog does not send it again.
+Put test commands, tools and protected files in `.duolog/brief.md`. duolog
+prepends it to fresh worker input for caching; resumed threads already have
+it. It must be a regular file of at most 32 KiB; links are ignored to avoid
+reading secrets. It shares `wire.inline_max_bytes` with Read files.
 
-Every worker is also told not to commit, push or ask the user, and to edit a
-changelog or docs only if the task lists them under Write.
-The lead owns the project's workflow; the task is the worker's plan.
-A missing workflow skill or process step is no reason to stop.
-All other project rules still apply, especially security, privacy and limits
-on what the worker may change.
+Workers are told not to commit, push or ask the user, and to edit docs or
+changelogs only when Write lists them. The lead owns the workflow; workers
+follow the task. Missing workflow skills or steps do not block work. Other
+project rules, especially security, privacy and write limits, still apply.
 
 ## Why the config holds only model aliases
 
@@ -293,8 +263,10 @@ The lead's own settings are the ceiling:
   Claude workers and live Claude peers also start without the Agent and Task
   tools.
 
-`duolog` never passes `--dangerously-bypass-approvals-and-sandbox` or
-`bypassPermissions` to an agent.
+duolog never passes `--dangerously-bypass-approvals-and-sandbox`. Claude
+`bypassPermissions` requires a user-configured role entry, a full lead and
+gate preflight; see
+[Permissions](permissions.md#how-a-workers-native-mode-is-chosen).
 
 ## What the other sections do
 
@@ -321,7 +293,7 @@ The lead's own settings are the ceiling:
 | `rex.stuck_notify_minutes` | Minutes before `peer wait` sends one reminder for an unanswered question. Default: `5`; `0` disables reminders |
 | `rex.auto_answers` | Ordered `{match, answer}` rules for safe peer questions. Defaults to answering `Hooks need review` with `Continue without trusting`. A project list replaces the defaults; `[]` disables it. Trust and persistent approval grants are refused; a pane's startup folder-trust question is a [built-in answer](rex.md) for the lead's own project only |
 | `coauthors` | Enable worker credit and set commit co-author templates, one key per agent: `claude`, `codex`, ... See [Getting started](getting-started.md#how-to-credit-the-workers-in-commits) |
-| `worker_modes` | The native permission mode a `delegate` worker starts in, per role and per model family, one key per agent: `claude`, `codex`, ... See [below](#which-layers-may-change-worker-modes) and [Permissions](permissions.md#a-workers-native-mode) |
+| `worker_modes` | The native permission mode a `delegate` worker starts in, per role and per model family, one key per agent: `claude`, `codex`, ... See [below](#which-layers-may-change-worker-modes) and [Permissions](permissions.md#how-a-workers-native-mode-is-chosen) |
 | `telemetry` | The local history of runs, quota and routing. See [below](#which-layers-may-change-telemetry) and [Telemetry](telemetry.md) |
 
 ## Where Codex keeps its project skills
@@ -343,25 +315,20 @@ folder that is, holds or sits inside `.git`, `.duolog`, `.claude/skills`,
 `.claude/agents` or `.codex/agents`, and `.codex` itself. Case does not matter.
 Only `agents.codex` has this key. User scope keeps `~/.agents/skills`.
 
-In a linked worktree, duolog reads the key from the worktree's own project
-config, because the worktree holds the files it writes. A worktree has no
-`config.local.yaml`, so duolog reads the one of the main checkout.
+`skills_dir` reads the worktree's project and local files. If its local file
+is absent, it uses the main checkout's local file.
 
 Sync and `duolog caps` use the folder. When you change the key, the next
 `duolog sync` writes the skills to the new folder. It removes the files it
 owns from the old folder, and removes that folder when it is empty.
 
-duolog's own skills are at user scope, in `~/.agents/skills` for Codex. See
-[Getting started](getting-started.md#where-duolog-keeps-its-skills). Install
-and uninstall look in this folder and in `.agents/skills` for the copies
-that older versions wrote there. They remove an unchanged copy and leave one
-you changed.
-A backup with other content gets a new name ending in `.1`, `.2` and so on.
-If a backup cannot be written, the file stays and install fails. A skill
-folder that is a link, or sits below a link, is left alone with a note.
-A file that duolog does not own stays where it is. `duolog caps` reads both
-folders until the old one is empty, and the new folder wins on a name that
-both hold.
+For duolog's own user-scope skills and removal of old project copies, see
+[Getting started](getting-started.md#where-duolog-keeps-its-skills).
+A backup with different content gets a `.1`, `.2` or later suffix. If it
+cannot be written, install fails and keeps the file. A folder at or below
+a link stays with a note. A file duolog does not own stays. `duolog caps` reads
+both folders until the
+old one is empty; the new folder wins on duplicate names.
 
 If Codex is the sync source and you change the key, move the skills by hand
 first. Until then sync reports the old folder and removes nothing. The same
@@ -425,7 +392,7 @@ env_passthrough: [PATH, HOME, USER, CODEX_HOME, CLAUDE_CONFIG_DIR, DOCKER_HOST]
 A worker may also set it in front of a command, as
 `DOCKER_HOST=unix:///<home>/.colima/default/docker.sock go test ./...`; the
 gate judges that as `go test ./...`. See
-[Permissions](permissions.md#the-default-rules).
+[Permissions](permissions.md#which-rules-apply-by-default).
 Codex trust, hooks and capabilities read `CODEX_HOME` when set. Claude hooks,
 permissions and capabilities read `CLAUDE_CONFIG_DIR` when set. Home lookups
 use the OS home directory, including USERPROFILE on Windows.
@@ -451,7 +418,7 @@ set. duolog reads `enabledPlugins` from the same user, project and local
 settings it reads for the route, and passes the worker an `enabledPlugins` map
 in `--settings` that sets each enabled plugin to `false`, except duolog's own.
 Your settings files are not changed, and the lead and your own sessions keep
-their plugins. Set `workers.inherit_plugins: true` to keep the old behavior.
+their plugins. Set `workers.inherit_plugins: true` to keep plugins enabled.
 Codex workers are not changed here.
 
 `workers.compact_window` sets the context size, in tokens, at which Claude
@@ -467,7 +434,6 @@ that is not in the map, or one the read could not name, gets the smallest
 value in the map above `0`: `250000` with the defaults. That keeps a session
 from running to Claude's own default, which on Opus can be the whole
 1M-token context. A plan the map lists with `0` gets Claude's own default.
-The values below are first guesses and will be set again after a measurement.
 
 | Plan | `workers.compact_ladder` default |
 |---|---|
@@ -569,15 +535,16 @@ paid_runs:
 `paid_runs.claude.env` already lists `ANTHROPIC_API_KEY`, and the Codex one
 lists `OPENAI_API_KEY`. Add a name there only when a paid run needs another
 variable. The line and the warning stop once the name passes. duolog still
-tries the subscription first, and spends at most the cap in any 24 hours.
+tries the subscription first. Paid runs require an opt-in and a rolling
+24-hour admission cap. Running tasks can exceed the cap.
 Calibration on a paid route also needs `paid_runs.<agent>.calibrate: true`.
 See
 [Calibration](calibration.md#what-calibration-costs-and-how-it-limits-spend).
 
 ## How paid runs are allowed and capped
 
-duolog spends no money on a worker or peer unless you allow it for that
-agent, and then at most a daily cap in USD. Paid runs are off by default.
+Paid runs are off by default. An opt-in and a rolling 24-hour admission cap
+are required; the cap does not stop an admitted run.
 
 Before each run, duolog decides how the run would be billed. It reads the
 run's environment, every settings layer, its arguments and the free quota
@@ -599,7 +566,7 @@ its layer, never its value.
 | Key | Default | Meaning |
 |---|---|---|
 | `paid_runs.<agent>.allow` | `false` | Lets that agent's workers and peers run on a paid route |
-| `paid_runs.<agent>.daily_cap_usd` | `0` | The most its paid runs may spend in the last 24 hours. Must be above 0 with `allow`; a config without it is an error that names the key |
+| `paid_runs.<agent>.daily_cap_usd` | `0` | Admission budget for estimates and settled costs in the last 24 hours, not a calendar day. Must be above 0 with `allow`; missing it is a load error. Running tasks can exceed it |
 | `paid_runs.<agent>.env` | the agent's API key | Optional. Variables that only a paid run of the agent gets |
 | `paid_runs.<agent>.calibrate` | `false` | Lets calibration use a paid route. Needs `allow` too |
 | `paid_runs.<agent>.account` | `auto` | `workspace` uses only `usable_share` of each window. Workspace evidence in the quota read always wins |
@@ -654,8 +621,7 @@ is refused; close the pane with `duolog peer close` and open it again.
 A finished run counts the larger of two costs: its tokens times the prices,
 and the cost the agent's CLI reports. The prices leave out fast mode and
 cloud surcharges, so the spend is a lower bound of the bill. A paid target
-without a price is refused. The prices now drive admission of paid runs, not
-only the estimates of `duolog stats`.
+without a price is refused. The prices drive admission of paid runs.
 
 duolog never spends paid overage, workspace credits or reset credits on
 purpose, and `allow` does not change that. On `subscription_overage` it
@@ -679,7 +645,7 @@ not read again: an agent whose read fails is left out of the balance.
 When that second read also fails, duolog can use the last good read of the
 same route, for as long as `balance.max_age_seconds` allows, counted from
 that read: 120 seconds by default. `duolog quota` and `duolog doctor` then say
-`this read failed; using a good read N s old`. The earlier read keeps what it
+`using a good quota read N s old`. The earlier read keeps what it
 said, so a read that was paid or rejected stays so. Without such a read the
 verdict is `paid`. A failed read that shows anything about the account also
 stays `paid`, whatever came before: a report that refuses windows, a login
@@ -887,11 +853,8 @@ Some servers cannot be bridged. The task then goes to the lead, as with
 `duolog caps` marks each server `bridgeable` or says why it is not, and
 `duolog doctor` names the servers each agent can lend.
 
-We checked both directions with Codex 0.165.0 and Claude Code 2.1.316
-(OBSERVED). A Codex worker called a tool of an HTTP server with a token header
-from the Claude lead's `~/.claude.json`. A Claude worker called a tool of an
-HTTP server with a token header from the Codex lead's `config.toml`. The token
-was in no file under `.duolog/` and in no argument of the worker.
+MCP bridging was observed in both directions with Codex 0.165.0 and Claude
+Code 2.1.316; tokens appeared in no worker argument or `.duolog/` file.
 
 ## What happens when a worker cannot sign in
 
@@ -995,14 +958,7 @@ while `learning.enabled` is `true`. The keys and their defaults:
 | `filter.min_lines`, `filter.max_lines` | `10`, `400` | Changed lines of a mined commit |
 | `filter.large_max_files`, `filter.large_max_lines` | `40`, `1500` | Limits of a larger stratum, used only when the project's work is large |
 
-Set a cap lower to spend less. The lead does not raise the caps; only you
-edit them. The shared `.duolog/config.yaml` can only lower the two share
-caps: a higher value there is ignored, and `duolog calibrate status` names
-it. Raise the weekly cap, up to `1`, in `.duolog/config.local.yaml` or your
-user config. The five-hour cap is at most `0.5`; a higher value is an error.
-The lead reserve, 15% of the weekly and 10% of the five-hour window, applies
-on top and is not a setting. The caps limit estimated spend, so a run can
-spend more than them; see
+For cap layers, reserves and overrun limits, see
 [Calibration](calibration.md#what-calibration-costs-and-how-it-limits-spend).
 
 ## Which layers may change worker modes
@@ -1011,12 +967,7 @@ spend more than them; see
 Without it, workers get duolog's default flags: Claude `acceptEdits`, or
 `auto` when the lead allows it (a lead at `full`, or a Claude lead in `auto`),
 Codex `workspace-write` at most. Peers ignore the section and start with the
-same default.
-
-Even without this section, every Codex `workspace-write` worker and peer
-runs with no network and no writable roots beyond the project, whatever
-`.codex/config.toml` says; to give a worker network back, add a role entry
-with `network: true` here in your user config.
+same default, without network or extra writable roots.
 
 Go needs no writable root. Codex's `workspace-write` cannot write Go's
 default cache, so duolog starts every Codex `workspace-write` worker and peer
@@ -1075,45 +1026,25 @@ volume ignores case. `delegate` checks the roots
 again before each run. Then it also refuses the folders on the worker PATH
 that hold `duolog`, `claude` or `codex`, and duolog's state.
 
-For one worker, the role entry and the family entry both count and the lower
-one wins. Only a role entry can ask for more than duolog's default. A family
-entry only lowers: alone it gives at most `acceptEdits` or `workspace-write`,
-and one that asks more changes nothing. A read-only role ignores family
-entries, so they do not set its gate to `plan`.
-The result never goes above the lead's mode, and Claude `auto` needs a lead
-in `auto` or `full`. `DUOLOG_MODE` can only lower the level further.
-[Permissions](permissions.md#a-workers-native-mode) has the full resolution
-and the gate preflight that refuses a looser run.
+Role/family resolution, the lead ceiling, `DUOLOG_MODE` and required gate
+preflight are described in
+[Permissions](permissions.md#how-a-workers-native-mode-is-chosen).
 
-Only your user config may raise a value. `.duolog/config.yaml` and
-`.duolog/config.local.yaml` may lower an entry, or add one at or below
-duolog's own default: `acceptEdits` or `workspace-write`, no network and no
-writable roots. Each layer lowers the entry as the layers before it left it,
-so `config.local.yaml` cannot undo a lowering in `config.yaml`. A project
-layer that changes a role under `roles` drops what that role's entry asks
-above duolog's default, network and writable roots included. A family entry
-also applies by the family your user config gives a model, so a project that
-changes `models.<name>.family` cannot escape it. It applies by the families
-of the role's route in your user config as well (its `use` and `fallback`
-models and their `model_map` counterparts), so a learning ladder,
-`routing.learned.yaml`, a `model_map`, a version pin or `--use` that moves
-the role to another model cannot escape it either. A cloned project therefore
-cannot start workers in a looser mode. `duolog doctor` names each ignored
-value and shows the effective entries; `duolog route` shows what a role gets.
+Only user config can raise modes or enable network or extra roots. Project
+and local layers may only lower existing entries or add entries at or below
+`acceptEdits`/`workspace-write`, with no network or extra roots. Each layer
+keeps earlier reductions. Changing a role in a project layer drops its
+above-default mode and extras.
+
+Family limits use the user's model families and role routes, including
+mapped counterparts, so learning, model changes, version pins and `--use`
+cannot escape them. `doctor` reports ignored values and effective entries;
+`route` reports the role's result.
 
 ## Which layers may change telemetry
 
-The `telemetry` section is yours, not the project's: only the embedded
-default and your user config set it. A project layer may set one key,
-`enabled: false`, which stops that project's run, permission and peer events.
-It cannot turn telemetry on or change the other keys, so pruning never
-depends on the project that runs it. `DUOLOG_TELEMETRY=off` turns telemetry
-off everywhere and cannot turn it on. The keys and their defaults are in
-[Telemetry](telemetry.md#how-long-data-stays).
-
-Turning telemetry off stops collection. Existing records remain until
-pruning removes them. Use `duolog telemetry purge` to delete this project's
-telemetry now; see [Telemetry](telemetry.md) for account-wide deletion.
+Only the default and your user config set telemetry; a project layer may
+set only `enabled: false`. See [Telemetry](telemetry.md).
 
 ## Related pages
 
@@ -1125,4 +1056,4 @@ telemetry now; see [Telemetry](telemetry.md) for account-wide deletion.
 - [Practices and models](research/2026-10-30-practices-and-models.md): the
   evidence behind the defaults
 - [Cost study](research/2026-11-01-cost-study.md): what duolog cost against
-  one agent, and why 1.1.0 changed the gate and the roles
+  one agent, the routing and gate measurements

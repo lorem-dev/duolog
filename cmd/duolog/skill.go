@@ -52,7 +52,7 @@ func newSkillCommand(d *cmdDeps) *cobra.Command {
 			if len(args) != 0 || planPath != "" || modelList != "" || yes || allowManual {
 				return fmt.Errorf("--remember is used alone")
 			}
-			return rememberSkillTests(root, remember)
+			return rememberSkillTests(stateRoot, remember)
 		}
 		if len(args) != 1 {
 			return fmt.Errorf("name a SKILL.md or use --remember ask|always|never")
@@ -84,7 +84,7 @@ func newSkillCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return fmt.Errorf("%s: %w", planPath, err)
 		}
-		cfg, err := configfile.Load(root, wiring.ConfigOptions())
+		cfg, err := configfile.Load(stateRoot, wiring.ConfigOptions())
 		if err != nil {
 			return err
 		}

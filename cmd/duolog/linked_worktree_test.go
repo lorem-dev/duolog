@@ -43,7 +43,7 @@ func trustCodexIn(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 	putWorktreeFile(t, filepath.Join(dir, ".codex", "hooks.json"), string(hooks))
-	s := fmt.Sprintf("[projects.%q]\ntrust_level = \"trusted\"\n[hooks.state.%q]\ntrusted_hash = \"fixture-hash\"\n", dir, filepath.Join(dir, ".codex", "hooks.json")+":PreToolUse:0:0")
+	s := fmt.Sprintf("[projects.%q]\ntrust_level = \"trusted\"\n[hooks.state.%q]\ntrusted_hash = %q\n", dir, filepath.Join(dir, ".codex", "hooks.json")+":PreToolUse:0:0", fixtureCodexApproval(t, 30))
 	putWorktreeFile(t, filepath.Join(os.Getenv("HOME"), ".codex", "config.toml"), s)
 }
 

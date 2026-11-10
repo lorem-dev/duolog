@@ -5,6 +5,7 @@ import (
 	"context"
 	"os/exec"
 	"strings"
+	"time"
 
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/workerenv"
@@ -15,6 +16,8 @@ import (
 // list), never a model call.
 func Metadata(ctx context.Context, bin string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
+	ProcessTree(cmd)
+	cmd.WaitDelay = 2 * time.Second
 	cmd.Stdin = strings.NewReader("")
 	return cmd.Output()
 }
@@ -34,6 +37,8 @@ func RunProbe(ctx context.Context, p corelaunch.Process, dir string, args []stri
 	cmd.Args[0] = argv[0]
 	cmd.Dir = dir
 	cmd.Env = p.Env
+	ProcessTree(cmd)
+	cmd.WaitDelay = 2 * time.Second
 	cmd.Stdin = strings.NewReader("")
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
@@ -42,7 +47,7 @@ func RunProbe(ctx context.Context, p corelaunch.Process, dir string, args []stri
 	}
 	if err := started(cmd.Process.Pid); err != nil {
 		// A call that cannot be recorded does not run on unseen.
-		_ = cmd.Process.Kill()
+		_ = cmd.Cancel()
 		_ = cmd.Wait()
 		return nil, err
 	}

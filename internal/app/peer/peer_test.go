@@ -69,6 +69,7 @@ type rig struct {
 	reg    *session.Registry
 	ctx    context.Context
 	pane   *peertest.FakePane
+	leadAt time.Time
 	sleeps []sleepAt
 	// gate is the account gate every command of the test admits through.
 	gate *paidruns.Gate
@@ -247,7 +248,14 @@ func (r *rig) lead(agent string, m mode.Mode) {
 	r.t.Helper()
 	effort := "high"
 	model := map[string]string{"codex": "sol", "claude": "opus"}[agent]
-	err := r.reg.RegisterLead(session.Lead{ID: "lead-1", Target: config.Target{Agent: agent, Model: model, Effort: effort}, Mode: m, PID: os.Getpid()})
+	// Advance explicitly even on platforms with coarse wall clocks.
+	at := time.Now().Round(0)
+	if next := r.leadAt.Add(time.Millisecond); at.Before(next) {
+		at = next
+	}
+	r.leadAt = at
+	pid := os.Getpid()
+	_, err := r.reg.ObserveLead(session.LeadObservation{ID: "lead-1", Agent: agent, Model: &model, Effort: &effort, Mode: &m, PID: &pid}, at)
 	if err != nil {
 		r.t.Fatal(err)
 	}

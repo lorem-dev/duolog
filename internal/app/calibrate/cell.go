@@ -313,6 +313,11 @@ func applyHidden(ctx context.Context, runDir, tree string, t TaskRecord) error {
 	if info.Size() == 0 {
 		return nil
 	}
+	confined, err := os.OpenRoot(tree)
+	if err != nil {
+		return err
+	}
+	defer confined.Close()
 	for _, name := range t.Hidden {
 		if clean := path.Clean(name); clean == "." || pathutil.Outside(clean) || pathutil.Windows(clean) {
 			return fmt.Errorf("hidden test %q leaves the work tree", name)
@@ -321,7 +326,7 @@ func applyHidden(ctx context.Context, runDir, tree string, t TaskRecord) error {
 			if _, err := run(ctx, tree, "checkout", "HEAD", "--", ":(literal)"+name); err != nil {
 				return err
 			}
-		} else if err := os.RemoveAll(filepath.Join(tree, filepath.FromSlash(name))); err != nil {
+		} else if err := confined.RemoveAll(filepath.FromSlash(name)); err != nil {
 			return err
 		}
 	}

@@ -34,7 +34,7 @@ func ImportLead(root, agent string) (policy.LeadRules, error) {
 	} else {
 		paths = []string{filepath.Join(trust.CodexHome(home), "config.toml"), filepath.Join(root, ".codex/config.toml")}
 	}
-	for _, path := range paths {
+	for _, path := range inheritedLeadPaths(root, agent, paths) {
 		data, err := os.ReadFile(path)
 		if os.IsNotExist(err) {
 			continue

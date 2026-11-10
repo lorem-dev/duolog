@@ -227,6 +227,7 @@ func Print(w io.Writer, results map[string]Result, now time.Time) error {
 // printBilling adds how the agent's worker, peer and lead are billed, and
 // how the lead differs from the worker. Names and numbers only.
 func printBilling(b *strings.Builder, agent string, r Result) {
+	printReadSource(b, r.Snapshot)
 	for _, shape := range []string{"worker", "peer", "lead"} {
 		report, ok := r.Reports[shape]
 		if !ok {
@@ -283,4 +284,14 @@ func resetText(reset, now time.Time) string {
 		return fmt.Sprintf("resets in %dh", hours)
 	}
 	return fmt.Sprintf("resets in %dm", mins)
+}
+
+// printReadSource names only the known probe source, never arbitrary text.
+func printReadSource(b *strings.Builder, s *account.Snapshot) {
+	if s == nil {
+		return
+	}
+	if s.Source == "rate_limit_event (haiku probe)" {
+		fmt.Fprintf(b, "  quota source: %s\n", s.Source)
+	}
 }

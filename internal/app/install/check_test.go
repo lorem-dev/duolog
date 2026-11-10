@@ -264,7 +264,7 @@ func TestCheckHooksWithoutSkillsIsStale(t *testing.T) {
 			t.Fatalf("%s: %+v", agent, s)
 		}
 		var want []string
-		for _, name := range []string{"duolog", "duolog-skill-check", "duolog-calibrate", "duolog-peers"} {
+		for _, name := range []string{"duolog", "duolog-skill-check", "duolog-calibrate", "duolog-peers", "duolog-update"} {
 			want = append(want, filepath.Join(o.Home, filepath.FromSlash(dir), name))
 		}
 		line := agent + " project install is out of date: duolog skills missing: " + strings.Join(want, ", ") + "; run duolog install --scope project --agent " + agent

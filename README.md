@@ -12,9 +12,8 @@
 </p>
 
 <p align="center">
-duolog makes Claude Code and Codex work as a pair in one project. You choose
-which agent and model does each kind of work. The sessions talk through a
-small file bus, so they do not paste large context at each other.
+duolog pairs Claude Code and Codex in one project. Roles select the agent and
+model; sessions exchange short messages on a file bus.
 </p>
 
 <p align="center">
@@ -32,8 +31,7 @@ against the project rules. The <a href="docs/glossary.md#bus">bus</a> in
 <code>.duolog/</code> carries messages, asks and results.
 In our November 2026 study, a lead that gave a whole feature to the
 <a href="docs/glossary.md#planner">planner</a> on Codex cost 38-45% less
-than one Opus session, with the same test results, on two tasks. Models and
-prices change. See the
+than one Opus session, with the same test results, on two tasks. See the
 <a href="docs/research/2026-11-10-hand-over-study.md">study</a>.
 </p>
 
@@ -73,14 +71,16 @@ your plan, instead of at Claude's own default, which on Opus can be the whole
 | Compacts at | Set by duolog for | Opus cost per turn to re-read the context* |
 |---|---|---|
 | 250k tokens | Pro | 0.05 USD |
-| 500k tokens | Max | 0.10 USD |
+| 500k tokens | Max, and Ultra while Claude reports it as Max | 0.10 USD |
 | 700k tokens | Ultra | 0.14 USD |
 | 1M tokens | (Claude's default on Opus) | 0.20 USD |
 
-\* An estimate at the Opus cache price of 0.20 USD per million tokens: near
-1M tokens a turn costs about four times what it costs at 250k. We are
-measuring the real effect. To change the size, see `workers.compact_window`
-in [Configuration](docs/configuration.md#what-workers-inherit).
+\* An estimate at the Opus cache price of 0.20 USD per million tokens, as of
+November 2026: near 1M tokens a turn costs about four times what it costs at
+250k. Our [November 2026 study](docs/research/2026-11-10-hand-over-study.md)
+measured what whole tasks cost. To change the size, see
+`workers.compact_window` in
+[Configuration](docs/configuration.md#what-workers-inherit).
 
 ## How to send the first task
 
@@ -92,7 +92,7 @@ a role from the lead session:
 duolog delegate review_intermediate --task .duolog/task.md
 ```
 
-## License
+## Which license applies
 
 duolog uses the [Apache License 2.0](LICENSE).
 

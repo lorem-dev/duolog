@@ -1,9 +1,8 @@
 # What a fresh agent session costs and whether a cheaper hand-over exists
 
-This page records what a new agent session costs duolog, and whether native
-subagents, resumed threads or messages between sessions are cheaper, and at
-what quality. It merges our own measurements with two research reports. Models
-are named by family only.
+Measurements of fresh sessions, native subagents, resumed threads and
+cross-session messages, compared with two research reports. Models are
+named by family.
 
 ## What we found
 
@@ -11,21 +10,6 @@ A fresh Claude session with duolog's worker settings had the lowest measured
 Claude cost in these tasks. It matched native subagents on the scored read
 task. The edit-task results need the notes below on one failing test and one
 test name collision.
-
-- A default Claude session writes about 15 thousand tokens to the cache at each
-  start. With the worker settings the start writes about 4 thousand, and a real
-  read-only task cost about 0.05 USD, against 0.06 to 0.12 USD for a default
-  session.
-- A native Claude subagent cost about 2.7 times a worker session on the same
-  task, with the same quality.
-- A resumed Claude follow-up gave the same recall as a fresh session and cost
-  about 1.8 times more.
-- Codex reuses the provider's prompt cache across separate sessions, so a fresh
-  Codex start is cheap in money. We did not record enough cached-token and
-  price detail to compare the money cost of fresh and resumed Codex runs.
-- On three edit tasks replayed from history, a worker session cost 0.15 USD
-  on average, a default session 0.23 and a native subagent 0.28. The pass
-  results are not reconciled; see the edit section.
 
 ## How we measured
 
@@ -72,16 +56,12 @@ counts cached input inside its input.
 | Codex, same again | 15,489 (12,288 cached) | 0 | - | - |
 | Codex, `exec resume`, second turn (total) | 30,970 (27,008 cached) | 0 | - | - |
 
-- A default Claude session re-writes about 15 thousand tokens at each start,
-  even right after an identical session. Something in the start context
-  changes from session to session. A resumed turn paid the same write again.
-- The worker settings cut the cache write to about a quarter and the price to
-  about a quarter. MCP servers, skills and instruction files are most of the
-  per-session overhead.
-- The native subagent paid its own start of about 21 thousand tokens of cache
-  write, and the parent paid a turn to start it.
-- Codex served about 12.3 thousand of 15 thousand input tokens from the cache
-  in every new session. The cache covered the fixed prefix, not the task.
+Fresh Claude sessions rewrote about 15k cache tokens even immediately after
+identical calls; the changed prefix was not identified. Resume rewrote
+similar amounts. Worker settings cut writes and cost to about a quarter by
+excluding MCP, skills and instructions. Native subagents added their own
+21k cache write and a parent turn. Codex reused about 12.3k fixed-prefix
+tokens, not task tokens.
 
 ## What a real task costs, and the quality
 
@@ -145,10 +125,8 @@ its colliding test file was reset.
 
 ## What the public sources say
 
-Neither report could read a public page. The gate denied web requests in both
-runs. So every claim about a vendor product in the reports is unconfirmed. The
-list below is what the reports expect, with the page to check. We did not read
-these pages either.
+Both reports' web requests were denied. Their vendor-product claims, and
+the linked pages below, remain unchecked.
 
 | Claim | Status | Page to check |
 |---|---|---|
@@ -171,9 +149,9 @@ What the repository itself shows, without a public page:
 - Every model call in a turn sends the whole context again. In an earlier
   bench a resumed Codex thread cost more than a new session with the content
   inline.
-- `duolog stats` does not model Claude cache-write premiums. It prices cache
-  creation as plain input, so its USD estimate can be lower than the
-  CLI-reported token price.
+- At the study date, stats omitted cache-write premiums. Current records
+  include them; older records lack the write counts. See
+  [cost accounting](../getting-started.md#how-to-see-what-the-work-cost).
 
 ## Where the reports and the measurements disagree
 
@@ -193,35 +171,13 @@ native subagent does not avoid the cold start, it loses the role sandbox, the
 gate per role, routing and the usage records, and it needs the vendor pages to
 be verified first.
 
-## What this means for duolog
+## What remains unmeasured
 
-Keep a fresh session with the worker settings for delegation.
-
-- Fresh worker sessions stay the default. They cost least in these runs,
-  matched the native subagent on the scored read task, and keep the sandbox,
-  the gate, routing and the records.
-- Do not switch to native subagents for cost. We measured no case where one is
-  cheaper. Consider one only for a read-only search under the lead's own
-  vendor when the other vendor is at its limit, which duolog already does.
-  Before any wider use, check that the lead's hooks fire for the child's tool
-  calls.
-- Measure resume on follow-up tasks before changing session lifetime. A
-  resume may pay off when a follow-up must read again much of what the first
-  run read; we found no such case. These runs do not establish a break-even
-  call count or a cache-lifetime setting.
-- Keep the worker settings narrow. MCP servers, skills and instruction files
-  are most of the start cost, so a role that needs them pays for them.
-
-## What to measure next
-
-1. More edit tasks, larger ones, from more than one repository.
-2. More runs per case, at least five, because one task can vary up to 30 times
-   in tokens between runs.
-3. The Codex quality spread, with five or more runs on task A.
-4. A live peer and a native Codex subagent. Neither was measured.
-5. A resume after the cache lifetime, to see what a late resume pays.
-6. Cache writes in `usage.ndjson` and `duolog stats`, so that the records show
-   a token-price estimate that includes cache-write premiums.
+Larger edits from more repositories, five or more runs per case, Codex's
+quality spread, live peers, native Codex subagents and resume after cache
+expiry need measurements. No break-even call count or cache lifetime was
+established. Check child hooks before considering native subagents for a
+read-only same-vendor search when the other vendor is limited.
 
 ## Related pages
 

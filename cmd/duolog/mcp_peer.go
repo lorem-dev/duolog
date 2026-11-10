@@ -181,6 +181,25 @@ func mcpPeerTimeout(minutes int) time.Duration {
 	return time.Duration(minutes) * mcpPeerWaitUnit
 }
 
+// nextTaskName claims the first free <id>-send-N folder, so every sent task
+// keeps its own immutable file and concurrent sends never share one.
+func nextTaskName(work, id string) (string, error) {
+	tasks := filepath.Join(work, ".duolog", "tasks")
+	if err := os.MkdirAll(tasks, 0o700); err != nil {
+		return "", err
+	}
+	for n := 1; ; n++ {
+		name := fmt.Sprintf("%s-send-%d", id, n)
+		err := os.Mkdir(filepath.Join(tasks, name), 0o700)
+		if err == nil {
+			return name, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return "", err
+		}
+	}
+}
+
 // mcpPeerSend writes the task file under the peer's own task folder and sends
 // its path, as `duolog peer send <id> <path>` does.
 func mcpPeerSend(ctx context.Context, in mcp.PeerInput) (mcp.PeerOutput, error) {
@@ -189,8 +208,16 @@ func mcpPeerSend(ctx context.Context, in mcp.PeerInput) (mcp.PeerOutput, error) 
 		return mcp.PeerOutput{}, err
 	}
 	ctx = peer.WithWorkDir(ctx, work)
-	rel, err := writeTaskFile(work, in.ID, *in.Task)
+	name, err := nextTaskName(work, in.ID)
 	if err != nil {
+		return mcp.PeerOutput{}, err
+	}
+	rel, err := writeTaskFile(work, name, *in.Task)
+	if err != nil {
+		return mcp.PeerOutput{}, err
+	}
+	// The report keeps its stable peer path while each sent task is immutable.
+	if err := os.MkdirAll(filepath.Join(work, ".duolog", "tasks", in.ID), 0700); err != nil {
 		return mcp.PeerOutput{}, err
 	}
 	out := mcp.PeerOutput{ID: in.ID, TaskPath: rel}

@@ -295,7 +295,7 @@ func (r *runner) apply(lock *Lock, u unit) {
 	case exists && !owned:
 		r.rep.Conflicts = append(r.rep.Conflicts, fmt.Sprintf("%s: written by hand, not by duolog; left as is (source %s)", u.target, u.src))
 		return
-	case exists && hashBytes(cur) == want:
+	case exists && targetMatches(cur, want, info.Mode(), u.mode):
 		if r.o.Check && u.agent {
 			if err := u.format.Check(u.target, cur); err != nil {
 				r.rep.Conflicts = append(r.rep.Conflicts, fmt.Sprintf("%s: does not parse: %v (source %s)", u.target, oneLine(err.Error()), u.src))

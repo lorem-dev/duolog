@@ -139,9 +139,10 @@ func newSendCommand() *cobra.Command {
 func newInboxCommand() *cobra.Command {
 	var reader string
 	cmd := &cobra.Command{
-		Use:   "inbox",
-		Short: "Print new messages addressed to a reader",
-		Args:  cobra.NoArgs,
+		Use:     "inbox",
+		Short:   "Print new messages addressed to a reader",
+		Args:    cobra.NoArgs,
+		PreRunE: refuseWorkerCommand,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			b, err := openBus()
 			if err != nil {

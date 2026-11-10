@@ -1,10 +1,8 @@
 # How duolog decides what a worker may do
 
-This page explains how a worker asks for permission and how duolog answers.
-The `duolog` binary decides, not a model, so a normal decision costs no
-tokens.
+The duolog gate decides worker permissions without a model call.
 
-## The order of the decision
+## How the gate orders its checks
 
 duolog checks in this order and stops at the first answer:
 
@@ -37,7 +35,7 @@ there without asking. `danger-full-access` is `full` with `never` and `edits`
 with the other two. Approval policy `untrusted` makes both `ask`. An unknown
 value counts as `ask`.
 
-## A worker's native mode
+## How a worker's native mode is chosen
 
 Each worker also starts in a native mode of its agent: a Claude
 `--permission-mode` or a Codex sandbox. By default `duolog delegate` passes
@@ -169,8 +167,8 @@ agent does not run in its place. The message reads
 ran`. Fix the reason, or remove the entry. For a Claude worker or peer at
 level `plan` it reads `gate preflight failed for claude at level plan
 (native default; only the duolog gate keeps it read-only): <reason>;
-nothing ran`, and `peer open` opens no pane. Fix the reason. Any other run
-with no looser entry is not checked this way and behaves as before.
+nothing ran`, and `peer open` opens no pane. Fix the reason. Other runs with
+no looser entry skip this preflight.
 
 `duolog route <role>` shows the result, such as
 `codex sol medium mode=edits native=workspace-write (role implement)`. Its
@@ -275,26 +273,16 @@ nothing for Claude.
 
 ### What a Codex entry can add
 
-A role entry for Codex may set `network: true` and `writable_roots`. They
-apply only to that role's Codex route, only on `workspace-write` at level
-`edits` or `full`, and never from a family entry or a project file. They
-apply whether or not the entry names a `codex` value. duolog refuses a root
-that is a volume root, the home folder or one of its parents, or that holds
-or lies in credentials or agent and duolog settings. It compares the paths
-after it resolves symlinks, and without case where the volume ignores case;
-[Configuration](configuration.md#which-layers-may-change-worker-modes) lists
-the folders. `danger-full-access` is not offered.
+Role entries can give Codex `workspace-write` workers network access or
+extra writable roots, within the lead's ceiling and after protected-path
+checks. Families and project files cannot grant these extras. Every
+`workspace-write` worker and peer gets explicit sandbox keys; peers ignore
+`worker_modes` and get no extras. Whether Codex honours the keys is NOT
+VERIFIED. See
+[Configuration](configuration.md#which-layers-may-change-worker-modes) for
+values, path restrictions and defaults.
 
-Every Codex `workspace-write` worker gets `network_access` and
-`writable_roots` on its command line, `false` and `[]` unless an entry
-allows more. Codex's own config files then cannot widen a worker. Whether
-`codex exec` honours these keys is NOT VERIFIED.
-
-Peers (`duolog peer`) do not use `worker_modes`; they keep the default flags.
-A Codex `workspace-write` peer gets the same `false` and `[]`, so a cloned
-repository's `.codex/config.toml` cannot widen it either.
-
-## The default rules
+## Which rules apply by default
 
 The rules are in the `policy` section of the config. A rule has an action
 (`read`, `write`, `exec`, `net` or `mcp`), a glob, a decision and optional
@@ -333,7 +321,7 @@ edit.
 `basedpyright`, for write roles only, as `.venv/bin/` is. Any other `uv run`
 command asks.
 
-### Preflight of the Run and Check commands
+### How Run and Check preflight works
 
 Before a worker starts in a write role, `duolog delegate` takes each command in
 the task's `## Run` and `## Check` sections and judges them with the code the
@@ -360,65 +348,24 @@ read-only role runs no Check command, so it is not judged. Pass
 lint commands, from the survey `duolog calibrate` does, that the gate would not
 allow for `implement`. They only print.
 
-A wildcard rule for read commands grants reads only, for every role. `find`
-and `rg` pass with known read options, so `find . -delete` or an unknown `rg`
-option does not. `cmp` compares exactly two files with no option, and each path
-is judged as `cat` judges it. Paths named by a read command follow the read
-rules, so `cat .env` is denied and `cat /outside/notes.txt` asks. A shell glob
-in a path asks because it can expand onto denied files. So does an unquoted glob
-where a read command takes a pattern, because the shell can turn it into a
-pattern and files to read: `grep .e* f` reads `.env` when `.editorconfig` comes
-first, so it asks as `cat .e*` does, and `grep .duolog/* f` is denied as
-`cat .duolog/*` is. Recursive `grep` and `rg`
-with `--hidden`, `-u` or `--no-ignore` ask unless their roots reach duolog
-state. The state checks below deny those recursive commands. Plain `rg` can
-still search a denied file that is neither hidden nor git-ignored. Claude's
-`Grep` tool passes `--hidden`, so it can also search a hidden file such as
-`.env` that is not git-ignored. Keep such files out of the tree or ignore
-them. `git diff` and `git log` with
-no path can also show a denied file that Git tracks, so do not commit one.
-A file named by `git log -L1,1:.env` or by pathspec magic such as `':(top).env'`
-gets the decision of the plain path. Git reads `':(top)x'` and `':/x'` from the
-top of the repository, so the gate also checks them from there, in whichever
-folder the command runs. A pathspec glob that spells a denied name
-is denied even when quoted, as Git expands it: `git log -p -- '.en?'`,
-`'sec*/x'` or `'a.p*'`. Git's `*` and `?` match a `/` too, so `'secrets*'`,
-`'sec*x'`, `'sub?.env'` and `'.duolog?bus*'` count. Spelling takes literal text
-of the name: three characters, or the dot and a letter of an extension such as
-`.pem`. The gate then looks at the working tree. `'main.p*'` asks when files
-match it and none is denied, as with only `main.py`. A shorter glob, such as
-`'.e*'`, `'se*'` or `'a*m'`, is denied when it matches a denied file whose name
-it spells, and asks otherwise. Git can also match a file that only its history
-holds, which the tree does not show, so those asks are the lead's to judge. Any
-other glob asks, as `'src/*'`, `'*.go'` and `'a.*'` do, unless it can name
-`.duolog`, which the state rule denies.
-An unquoted glob in an option of a Git read, such as `git log -*`, asks too,
-and is denied in plan mode and for a read-only role. So is a word before `--`
-whose glob can start with `-`, such as `[-]*`, `?L*` or `*`. `*.go` is a file
-name and only asks.
-
-A `--glob` option of `rg`, or the glob of the `Grep` tool, asks when it
-matches the name of a read deny, such as `.env`. The check is not complete:
-`rg -g '*.go'` can still read a denied hidden file such as `.env.go`.
-
-An option of a search that takes a glob needs no quotes: `--include`,
-`--exclude` and `--exclude-dir` of `grep`, and `-g`, `--glob` and `--iglob` of
-`rg`. The shell can only turn `--include=*.go` into `--include=` and a file's
-name, which the glob matches anyway. Written as its own word, as in
-`rg -g *.go x`, the glob must match at most one name in the working folder.
-With more, the extra names become a pattern and files to read, and the line
-asks. A value that names a file to read, such as `--file=*.go`, asks.
-
-A recursive `grep` with one of those options is a plain read when the gate can
-show that it reads only allowed files: it walks the roots up to the bound of a
-glob expansion and judges every file below them. So
-`grep -rn x cmd --include=*.go` runs, and it asks when `cmd/.env`,
-`cmd/secrets/a.go` or a symlink is below `cmd`, whatever the glob says. None of
-these options narrows the check: BSD grep also matches `--include` against the
-path, and an expansion can change what `--exclude` and `--exclude-dir` leave
-out. A search of the project's top folder usually asks, since `.duolog` holds
-denied files; name the folders to search. Without such an option a recursive
-`grep` asks as before.
+| Form | Example | Decision |
+|---|---|---|
+| Named read with known options | `cat f`, `cmp A B` (exactly two files, no options), `find .`, `rg x src` | Judge paths by read rules; unknown options, `find -delete` and shell path globs ask |
+| Unquoted pattern glob | `grep .e* f` | Ask: expansion can add input files; deny if it reaches state |
+| Recursive grep/rg with hidden or ignored files | `rg --hidden x src` | Ask unless a state root requires deny; plain rg can still read denied non-hidden, non-ignored files |
+| Claude Grep | Search hidden files | Passes `--hidden`; can read a hidden file not ignored by Git. Keep secrets out of the tree or ignore them |
+| Git read without paths | `git diff`, `git log` | Can show tracked denied files; do not commit secrets |
+| Git line range or pathspec magic | `git log -L1,1:.env`, `':(top).env'`, `':/x'` | Judge the plain path, from the repository root for top magic |
+| Git pathspec spelling a denied name | `'.en?'`, `'sec*/x'`, `'a.p*'` | Deny even quoted: Git expands it. `*` and `?` can match `/`, including `'secrets*'`, `'sec*x'`, `'sub?.env'` and `'.duolog?bus*'` |
+| Git glob with enough literal text | `'main.p*'` | Spelling needs three characters, or dot plus an extension letter. Check the tree; ask when matches exist and none is denied |
+| Short or other Git glob | `'.e*'`, `'se*'`, `'a*m'`, `'src/*'`, `'*.go'` | Deny if it spells and matches a denied file, or can name state; otherwise ask. History may hold files absent from the tree |
+| Unquoted Git option glob | `git log -*` | Ask; deny in plan mode or a read-only role. Same for a word before `--` that can expand to an option (`[-]*`, `?L*`, `*`); `*.go` is a filename and asks |
+| rg/Grep glob matching a deny name | `rg -g '.env' x` | Ask. Incomplete: `rg -g '*.go'` can read a denied hidden `.env.go` |
+| Search glob option attached to flag | `grep --include=*.go x src` | Needs no quotes: expansion cannot add a different file set. Covers grep include/exclude/exclude-dir and rg g/glob/iglob |
+| Search glob option as its own word | `rg -g *.go x` | Needs at most one local match; more matches add pattern/files and ask |
+| Option naming input files | `--file=*.go` | Ask |
+| Recursive grep with include/exclude options | `grep -rn x cmd --include=*.go` | Walk bounded roots and judge every file, ignoring filters. Denied files or symlinks ask; state denies. BSD grep can match paths, and expansion can change exclusions. Name subfolders; the project root usually contains state |
+| Recursive grep without filters | `grep -rn x cmd` | Ask |
 
 Quotes that only group literal text read as that text, so
 `grep -n "TODO" a.go` and `git log --format="%h"` are plain reads. Read
@@ -440,39 +387,20 @@ pattern of `-e`, a quoted path and any other word follow the rules above, and
 so does a quoted pattern that names `.duolog`, `.env`, `.pem`, `.key` or
 `secrets`.
 
-`sed` reads only as `sed -n 'N,Mp' file`. Other `sed` scripts ask. The gate
-judges the files of the `r`, `R`, `w` and `W` commands and the `s///w` flag,
-with or without a blank before the name. So `sed '1r/etc/passwd' x` needs the
-person, and `sed 'w.git/config' x` is denied. The `e` command, the `s///e` flag
-and a script the gate cannot read need the person, because the gate cannot
-name what they reach. BSD `sed`, as on macOS, takes the word after a lone
-`-i` as the backup suffix, and GNU `sed` takes it as the script. The gate
-judges both readings, so `sed -i x w.git/config y` is denied. A backup
-suffix also writes each input with the suffix added, and a suffix with a `/`
-or a `*` needs the person, as in `sed '-i../*' -e s/a/b/ go.mod`. Each reading
-follows its own `sed`: BSD `sed` ends a bracket expression at its own `]`, so
-in `s/[/]/x/w /tmp/out` the first `/` belongs to the class, and the gate
-judges `/tmp/out`. A script that both `sed`s can run must parse both ways,
-or it needs the person. A script that
-starts with `/`, as `sed '/TODO/d' x` does, is not a path, so `full` mode
-confirms it; the same holds for `awk '/re/' x` and the sets of `tr`.
-`awk` gets the same check. The gate judges the files of
-`getline <`, of `print >` and `>>`, of the `-f`, `-E`, `--exec`, `-i` and
-`--include` options and of gawk's `@include`, and the extension of `-l`,
-`--load` and `@load`. gawk looks a code file named with no `/` up in each
-folder of `AWKPATH` too, and an extension in each folder of `AWKLIBPATH`, so
-the gate judges each of those files, with the folders that any assignment or
-`export` on the line names. So `AWKPATH=.duolog gawk -i bus.ndjson` is
-denied. An extension with no `/` and no `AWKLIBPATH` loads from the system's
-folder, and some of gawk's own, such as `inplace`, write files, so it needs
-the person. A pipe, `|&`, `system()`, a file name that is not one string and
-any use of `ARGV`, which names the input files, need the person. So does a
-file name string with a backslash, as in `getline x < "\056env"`, because awk
-decodes its escapes. So does a `sed` or `awk` script read from standard
-input, as with `-f -`, `-f /dev/stdin` or `@include "/dev/stdin"`, since the
-gate cannot see it. These checks also read a command that a wrapper or
-another program runs, such as `sudo`, `caffeinate`, `sh -c`,
-`bash -o pipefail -c` and `find -exec`.
+| Command form | Gate decision |
+|---|---|
+| `sed -n 'N,Mp' file` | Read; other scripts ask |
+| sed `r`, `R`, `w`, `W`, `s///w` | Judge file paths, with or without a blank before the name |
+| sed `e`, `s///e`, an unreadable script, or sed/awk code from stdin | Person; the gate cannot determine the target |
+| sed `-i`, bracket expressions and backup suffixes | Judge BSD and GNU interpretations; both must parse when both can run. Backups write each input path plus the suffix; a suffix with `/` or `*` needs the person |
+| sed/awk scripts starting with `/`, and tr sets | Patterns, not outside paths; full mode confirms the ask |
+| awk `getline <`, `print >`/`>>`, `-f`, `-E`, `--exec`, `-i`, `--include`, `@include` | Judge file paths |
+| awk `-l`, `--load`, `@load` | Judge extension paths |
+| awk code/extension names without `/` | Check each AWKPATH/AWKLIBPATH folder, including line assignments/exports; a system extension with no AWKLIBPATH needs the person because it can write |
+| awk pipes, `\|&`, `system()`, ARGV, computed filenames or backslash escapes in filenames | Person |
+
+These checks also inspect commands inside sudo, caffeinate, sh/bash `-c`
+(including `bash -o pipefail -c`) and find `-exec`.
 
 `find -execdir` and `-okdir` run their command in the folder of each match,
 and a starting point is a match in the folder that holds it. So the gate
@@ -566,32 +494,21 @@ needs the person, and so does every other assignment, `PATH`, `LD_*`,
 `DOCKER_HOST` from your own shell to every worker instead, see
 [What workers inherit](configuration.md#what-workers-inherit).
 
-Workers cannot start `claude` or `codex` themselves (rule `agent launch`).
-The gate denies them by any program path or Windows launcher, behind
-prefixes such as `env`, `timeout` or `sudo`, and through package runners
-such as `npx`, `pnpm dlx` or `deno run npm:`, a tarball of either CLI
-included. This check reads the command text, so a script or interpreter that
-starts an agent, such as `python3 -c "import os; os.system('claude')"`, is
-not caught.
+The `agent launch` rule denies workers starting `claude` or `codex`,
+including paths, Windows launchers, wrappers, package runners and CLI
+tarballs. It reads command text; an interpreter or script that starts an
+agent can escape this check.
 
-The rule judges only a word that starts a command. Quoted text and
-here-document bodies that only data programs receive, such as `cat`, `tee`,
-`echo` and `printf`, start nothing. So a worker may write a report that names
-both agents with `cat > notes.md <<'EOF'`. Another rule may still refuse the
-write, such as the limit of a read-only role. A substitution such as `$(...)`
-in that text, a pipe into a shell, also across a line end after `|`, or a
-line the gate cannot read this way is read word by word as before. Such a
-line has a comment, a backslash outside single quotes or a quoted
-here-document, or `${` in double quotes. Only the rules that name `claude` or
-`codex` skip that text, also when they look for a command among the words of
-another one; every unquoted word still counts. All other rules read the line
-as written, so a report line such as `git push` is still refused, and so is
-`echo 'git push' > x.sh; sh x.sh`.
+| Text | Agent-launch check |
+|---|---|
+| Quoted data or a here-document read only by cat/tee/echo/printf | Starts no agent; other rules still judge writes and content |
+| Substitution, pipe into a shell (even across a newline), or uncertain parsing | Read word by word |
+| Comment, backslash outside single quotes or a quoted here-document, or `${` in double quotes | Uncertain; read word by word |
+| `go test -run` or `-skip` value | Test name, not a command, unless it holds a substitution or the test uses `-exec`, `-toolexec` or `-vettool` |
 
-The value of `go test -run` or `-skip` is a test name, not a command, so
-`go test -run TestX/claude ./...` starts nothing. This does not hold for a value
-with a substitution or for a `go test` with an option that runs a program, such
-as `-exec`, `-toolexec` or `-vettool`.
+Only agent-launch rules skip data. Every unquoted word still counts, and
+other rules inspect the full line: a report containing `git push` can
+still be denied.
 
 The gate reads two common shell forms as the plain commands they run, so they
 need no ask. It judges the line as written first, and a deny of it stands.
@@ -624,64 +541,38 @@ so they still ask.
 `go env -w` and `go env -u` ask the person in every mode, full too. They
 change the user's Go env file outside the work root, and every later `go`
 run reads it, the lead's too. `go env GOPATH` and other reads follow the
-rules as before.
+read rules.
 
-Secrets include nested `.env` and `.env.*` files. Paths outside the working
-tree ask in every mode, unless an explicit outside-path rule applies. A broad
-`**` allow does not cover them. On macOS and Windows, path rules ignore case.
-Path denies ignore case on every host, because a Linux host can work on an
-NTFS or FAT folder, such as WSL under `/mnt/c`. For the same reason a read or
-write of a relative path with a segment shaped like an 8.3 short name, such
-as `DUOLOG~1`, is denied on every host; use the long name.
+Secrets include nested `.env` and `.env.*`. Denies win over allows on every
+host, ignoring case because Linux may use a case-insensitive volume. Read
+and write paths with a segment shaped like a Windows 8.3 short name, such
+as `DUOLOG~1`, are denied on every host; use the long name. Outside paths
+need the person unless an explicit outside-path rule applies.
 
-One exception: a Claude worker may read the large tool outputs Claude saved
-for its own session, under `projects/<project>/<its session id>/tool-results`
-in Claude's config folder. Another session's folder still asks, and denies
-still apply.
+Workers may read these agent-owned paths with read tools and named read
+commands. Denies still apply; none grants execution or writes.
 
-Workers and peers may also read their agents' own skill trees without asking:
-`~/.agent/skills`, `~/.agents/skills`, `~/.codex/skills` and `~/.claude/skills`.
-This includes each agent's plugin cache skill trees:
-`plugins/cache/<marketplace>/<plugin>/<version>/skills`.
-`CODEX_HOME` and `CLAUDE_CONFIG_DIR` replace the corresponding config folder.
-Read tools and named read commands use this exception. It grants no
-write or execution permission. Other config files, credentials and session
-history still ask. Denies still apply. A symlink may not lead out of a skill
-tree. Recursive reads must pass the same checks as paths a task lists under
-Read.
+| Path | Limits |
+|---|---|
+| Claude's `projects/<project>/<its session id>/tool-results` | Only the worker's own saved large tool outputs; another session asks |
+| `~/.agent/skills`, `~/.agents/skills`, `~/.codex/skills`, `~/.claude/skills` | Includes plugin cache `plugins/cache/<marketplace>/<plugin>/<version>/skills`; `CODEX_HOME` and `CLAUDE_CONFIG_DIR` replace config roots |
+| Recursive skill reads | Same checks as task Read entries; no link may lead out of a skill tree |
+| Hidden, credential or config files inside skills | Still ask, including `.netrc`, `auth.json`, `.mcp.json`, `settings.json` and folders/globs holding one |
+| Skill root linked to home or an agent config folder | Grants nothing; a link to another sufficiently narrow folder works |
 
-Inside a skill tree, a hidden file and a credential or config file still go
-to you: `.netrc`, `auth.json`, `.mcp.json`, `settings.json` and the like, and
-a folder or glob that holds one. A skill root that links to a folder too wide
-to read, such as your home folder or an agent's config folder, grants nothing.
-A link to another folder of your own keeps working.
+A Claude worker's session temp folder (its scratchpad) counts as its own;
+`$T` below stands for its path. Other sessions' folders need the person.
 
-A Claude worker's own session temp folder, where Claude keeps its scratchpad,
-is the worker's own too. A read tool or a named read command may read it. A
-command may write a file there with a redirect, make a folder or file there
-with `mkdir` or `touch`, copy a file there with `cp`, list it with `ls`, and
-read it with a command such as `cat`, `tail` or `grep`, also inside a longer
-command line, as in `go test > $T/log; tail $T/log`, where `$T` stands for
-the folder. Such a line follows the
-mode as a line inside the work root does. A read or a listing counts only
-when what it prints stays on screen or in the folder: `cat $T/x | sh`,
-`cat $T/x > x.sh` and `ls $T | sh` need the person, also when the pipe
-continues on the next line. The worker names the files there, so a name that
-`ls` prints may be a command. A line that can turn what a command prints
-into code or send it into a file unseen gets no path in the folder as the
-worker's own: one with a command substitution, `$(...)` or backticks, or a
-process substitution, `<(...)` or `>(...)`, and a line of several commands
-with a here-document or with `exec`, `eval`, `source` or `.`. So
-`x=$(cat $T/x); $x` and `exec > x.sh; cat $T/x` need the person. A plain
-single command, such as `cat $T/x`, still counts. Running or copying a file
-out of the folder still needs the person, and so do `ls -R` and `ls -L`, a
-path with `..`, a symlink that leads out, a dangling symlink, and another
-session's folder. So do a `cp` with an option other than `-f`, `-i`, `-n`,
-`-p`, `-v` or `-L`, which can copy a symlink, and a command behind a wrapper
-such as `xargs`, which can add paths of its own. A new path also needs the
-person when a command of the line that can make a symlink names it or a folder
-above it, such as `ln`, `mv`, `tar`, `git` or a program the gate does not
-know, since that command may run before the write.
+| Form | Decision |
+|---|---|
+| Read tool or named read command | Read its scratchpad |
+| Redirect, mkdir/touch, cp, ls, cat/tail/grep, including a longer line | Follow the same mode as inside the work root |
+| Read/list output | Must stay on screen or in the folder. `cat $T/x \| sh`, `cat $T/x > x.sh` and `ls $T \| sh` need the person, even across a continued pipe |
+| Command/process substitution; multi-command line with here-document, exec, eval, source or dot | No scratchpad path exception: output can become code or unseen file content. A plain single command still counts |
+| Execute or copy out; ls -R/-L; `..`; link out or dangling link | Person |
+| cp options | Only -f, -i, -n, -p, -v, -L; other options can copy a link and need the person |
+| Wrapper such as xargs | Person: it can add paths |
+| New path and a command able to make a link names it or an ancestor | Person: ln, mv, tar, git or an unknown program could run before the write |
 
 A deny wins over an allow. When no rule matches, the decision is
 `on_unmatched`, which is `ask` by default. The default denies always apply: a
@@ -692,7 +583,7 @@ project that sets its own `rules` replaces the allow rules, not the denies.
 A worker of `duolog delegate` may read a path outside the work root that its
 task lists under Read: an absolute file, folder or glob, or one that starts
 with `~`, which names the lead's home folder. A relative entry names a path
-in the project, as before. Only a task file under `.duolog/`, where the lead
+in the project. Only a task file under `.duolog/`, where the lead
 writes tasks, counts. For a task file elsewhere, such as one that a cloned
 repository ships, delegate ignores such entries and says so on stderr.
 delegate hands the list to the worker's gate in `DUOLOG_READ`, which a
@@ -712,15 +603,9 @@ asks. A path written with `..`, and a folder with a symlink below it that
 leads out, are not covered either. A listed glob covers files, not folders,
 and a shell glob in a command still asks. Peers do not get the list.
 
-A worker reads inside its own work root: the project, or the linked worktree
-it runs in. A read outside it asks the person, unless the task lists the path
-under Read. A worker in a linked worktree under `.worktrees/` has the main
-checkout outside its work root. So a read of the main checkout's files or its
-`.duolog` folder asks the person unless the task lists them. Put a task's
-attachments, such as a contract or a brief, in the worktree's own `.duolog`
-folder as Markdown, or list their absolute paths under Read. A relative Read
-entry names a path in the work root, so the state rule still judges a
-`.duolog` path in it: listing `.duolog/bus.ndjson` does not make it readable.
+In linked worktrees, put Markdown attachments in that worktree's `.duolog/`,
+or list their absolute main-checkout paths under Read. Relative entries
+stay relative to the work root and cannot override state denies.
 
 A search, a listing or a glob of a listed folder counts only when everything
 below the search root is something a search may read. A symlink anywhere
@@ -784,36 +669,20 @@ is already on. duolog never writes `sandbox.enabled` or turns a sandbox on.
 
 ## Workers cannot reach the telemetry and balance folders
 
-The gate denies every worker tool request and command path that it can see
-reaching the [telemetry](telemetry.md) folder or the balance folder beside
-it. The rule is
-`private usage store`. It comes before policy, modes and questions, so no rule
-or mode opens the folders, and the gate asks no one. The same deny covers the
-account state, `duolog/accounts` in the user config folder, which holds the
-seats, the pace and the kept quota reads in `quota-reads.json`.
+The `private usage store` rule denies worker paths reaching telemetry,
+balance or account state (`duolog/accounts` in the user config folder,
+including `quota-reads.json`) before policy, modes or questions. It covers
+read/write tools, command operands and recursive roots. Paths resolve
+links, junctions, macOS aliases, case and Windows short names; new paths use
+the closest existing parent.
 
-The deny covers read and write tools, paths that commands name, and recursive
-searches whose roots contain either folder. The gate compares resolved paths,
-so a symbolic link, a junction, `/private/var` against `/var`, a change of
-case or a Windows short name does not get around it. A path that does not
-exist yet is placed by its closest existing folder.
+The gate and commands also deny worker `duolog telemetry`, including global
+flags, pipelines and wrappers. The gate reserves the `balance` verb too;
+there is no such CLI command.
+[Telemetry](telemetry.md#who-can-read-the-data) describes lead controls,
+sandbox protection and limits of checks on programs.
 
-The gate also denies `duolog telemetry` and `duolog balance` to a worker, by
-any program path, in a pipeline or behind a wrapper such as `sh -c`. Global
-flags before the subcommand, such as `--lead L` or `--lead=L`, do not hide
-it. The commands refuse a worker too.
-
-Tests or a build that read the folder without naming it are not stopped; see
-[What the gate cannot see](#what-the-gate-cannot-see). Claude workers whose
-sandbox is already on also get both folders in `sandbox.filesystem.denyRead`.
-Codex workers and native Windows have the gate only.
-
-When a lead model runs `duolog telemetry` or reads the folder, a Claude lead
-asks you, and a Codex lead is told to have you run it in your terminal. A
-Claude lead in `bypassPermissions` or `auto` is not asked; see the
-[section on such a lead](#a-lead-in-bypass-or-auto-decides-by-itself).
-
-## One ask per tool call
+## How one tool call produces one ask
 
 Claude runs two gate hooks for a tool call, PreToolUse and PermissionRequest.
 Both reach the same question, but the lead is asked once. The first hook sends
@@ -828,26 +697,14 @@ wait ends. The person-only flag is set on the one ask.
 
 ## Reads and writes outside the work root need the person
 
-An outside-path ask is marked `p: true` on the bus. The peer's pending-ask
-line says `needs the person`. This covers read tools, writes and exec asks
-that name outside paths, such as `cat /outside/notes.txt` or
-`git -C /other log`. A word that starts with `~` counts as outside: `~` and
-`~/x` name the home folder, and `~name` the home folder of another login, so
-`tar czf home.tgz ~` needs the person. On Windows a rooted path without a
-drive, such as `/etc/passwd` or `\x`, starts at the root of the current
-drive, so it needs the person unless it leads back under the work root.
-An explicit outside-path rule still
-applies as written; a broad `**` allow does not approve outside paths. Nor
-does an exec rule with a wildcard, which names programs, not paths: the default
-`make {check,...}*` allows `make check` but not `make check -C ../peer`, and
-`gofmt -w ../peer/x.go` needs the person too. `on_unmatched: allow` names
-no program at all, so it does not approve outside paths either: under it,
-`cp README.md ../peer/x` needs the person. A read command that the read
-rules have judged keeps its allow.
-
-This holds in every mode. `full` mode confirms the asks of the policy rules,
-but not an exec ask that names an outside path, such as
-`gawk -E /etc/passwd`. Only the person can allow such a command.
+Outside-path asks have `p: true` and need the person in every mode. This
+covers read/write tools, `~`, `~/x`, `~name`, Windows drive-rooted paths and
+exec operands such as `git -C /other log`. On Windows, `/x` and `\x` start
+at the current drive's root and need the person unless they resolve inside
+the work root. An explicit outside-path rule can allow one; a broad `**`,
+wildcard exec rule or `on_unmatched: allow` cannot. Read-command allows
+survive only after their paths pass read rules. `full` confirms ordinary
+policy asks, never outside-path asks.
 
 Only a word that names a file makes a command the person's. A search
 pattern does not, even with `..` or `/` in it. That covers the first operand
@@ -895,8 +752,8 @@ The lead's own hook guards shell commands that may run `duolog allow N`.
 For a Claude lead, it asks Claude Code to prompt the person. For a Codex lead,
 it denies the command. The hint names the owning lead and the project folder.
 The person runs `duolog allow N --lead ID` there in their own terminal.
-The lead may still deny the request. Web asks and asks inside the project
-stay with the lead.
+Only the person's terminal may allow or deny a person-only ask. The lead
+and `answer_ask` handle ordinary asks, including web and in-project asks.
 
 The guard also checks wrapped and compound commands. If it cannot read a
 named request, it asks the person or gives the Codex terminal hint. Without a
@@ -927,7 +784,8 @@ but finds no lead of this project above it, such as another project's lead
 that changed folder, is refused, also from a script or under a name the
 hook cannot read. So is a command with another Claude or Codex process
 between it and the lead, such as a worker's. The person's own terminal has
-no agent above it and answers with `--lead` as before. A lead whose process
+no agent above it and answers with `--lead` under the same rules. A lead whose
+process
 duolog has not recorded runs `duolog lead register` in its own session.
 A person-only ask is answered only there: with any Claude or Codex process
 or a lead above them, `duolog allow` and `duolog deny` refuse it, since a
@@ -1005,7 +863,7 @@ an allow must name that server exactly: a rule for `team-api` does not allow
 for Codex `-` and `_` count as one character, and a name with `__` inside the
 server or the tool matches only a rule without `*`. A deny compares the full
 folded name, `mcp__<server>__<tool>`, so a server named `my__wiki` cannot slip
-past a deny of `mcp__my__wiki__delete`. A 1.1.0 rule such as
+past a deny of `mcp__my__wiki__delete`. A rule such as
 `{action: unknown, match: "mcp__tracker__*"}` still covers those tools.
 
 duolog cannot tell whether a tool reads or writes. So an MCP tool runs only
@@ -1079,44 +937,19 @@ An agent treats a hook it kills as a failed hook, and the tool call can go on:
   contributor's `PATH`.
 - Codex has no such setting. The gate's own earlier deny is the only guard.
 
-While the worker waits, every hook of the lead shows the request again, with
-how to answer it and the seconds left:
+The lead's hooks repeat open asks until answered or expired; see
+[Bus](bus.md#when-the-hooks-show-a-message). A foreground delegate denies
+asks immediately; the worker retries one plainer command, then returns
+`done: false` with `needs`. The lead can adjust the task or permitted rules
+and retry; denies still apply. Claude workers and peers are told to batch
+read-only Bash commands with `;` and avoid `node -e` and `python -c`.
 
-```text
-ask 15287 peer-x: exec go test ./...; duolog allow 15287 or duolog deny 15287, 95s left
-```
-
-The lead's prompt and tool hooks show it until it is answered or expires, so a
-busy lead sees it before the worker is denied. Nothing answers it for the lead.
-
-A lead waiting for its foreground `delegate` cannot answer a request. In that
-case the gate denies at once and names the command. The worker retries once
-with a plainer form, then stops with `done: false` and the command in `needs`.
-The lead decides, adjusts the task or permitted policy/mode, and re-runs. Deny
-rules still apply. A Claude worker or peer also starts with a fixed line in its
-system prompt: batch reads into one Bash call of read-only commands joined by
-`;`, and use no `node -e` or `python -c`, which the gate cannot read. When the
-lead is free, normal numbered asks work as below.
-`peer wait` returns at once for a pending gate ask of its own peer. An ask
-names its peer, and an ask from a worker outside a peer pane stops no
-`peer wait`. An ask expires when its asker's wait has passed, so a request
-that timed out no longer counts as pending. The worker gets a deny, so it
-never waits forever. The lead gets one message on the bus, such as
-`ask 11960 from peer-x expired and was denied: exec make lint`. It names the
-request, the peer or `worker <role>`, and the action. An ask that the worker
-cancelled sends no such message. A worker that tries to ask
-the user, with Codex `request_user_input` or Claude `AskUserQuestion`, is
-denied, because only the lead talks to the user.
-
-For ordinary asks, the lead answers with:
-
-```bash
-duolog allow 3
-duolog deny 3
-```
-
-Outside-path asks need the person's approval as described above. A lead may
-deny any ask.
+A free lead answers ordinary asks with `duolog allow N` or `duolog deny N`;
+only the person answers `p: true` asks. `peer wait` stops for its own peer's
+pending ask, not another worker's. Timeout denies and sends one expiry
+status naming the request, peer or worker role, and action; cancellation
+sends none. Worker user-question tools are denied: only the lead talks to
+the person.
 
 A worker cannot run these commands. See what duolog decided and why with
 `duolog decisions`. Long request summaries keep their head and tail, mark
@@ -1157,18 +990,16 @@ that reads it is not verified.
 
 ## Where the checks run
 
-The gate is a hook. The command is `duolog gate --agent <agent> --event
-<event>`, for `PreToolUse` and `PermissionRequest`. Claude runs it directly
-with `command` and `args`, without a shell. A missing binary does not block
-a tool in the measured `claude -p` run. It also cannot offer an install.
+The gate is a hook: `duolog gate --agent <agent> --event <event>`, for
+`PreToolUse` and `PermissionRequest`. Claude runs it directly with `command`
+and `args`, without a shell. Current gate hooks set `onFailure: block`;
+install duolog before using committed hooks. The older missing-binary probe
+lacked this protection; see the
+[historical probe](research/2026-10-30-live-verification.md#missing-binary).
 
-Both delegate and peer put the directory of the running duolog executable
-first in the worker's PATH, even when the parent's PATH lacks it, so the
-worker's hooks find that same binary. Keep that binary in place for the
-whole session. The measured Claude run did not fail closed when the
-executable was missing, and PATH order cannot change that. Codex keeps its
-POSIX and Windows guards. Interactive Claude display of a missing executable
-has not been measured.
+Delegate and peer put the running duolog executable's directory first on
+the worker's PATH so hooks find the same binary. Keep it there for the
+session. Codex keeps its POSIX and Windows guards.
 
 ## A Codex lead that starts a Claude worker
 
@@ -1200,7 +1031,7 @@ It worked once the lead ran the command outside the sandbox (OBSERVED). The
 lead's shell can also find an older `duolog` first on PATH, so check
 `duolog version`.
 
-## Known limits
+## What remains unverified
 
 These come from the research page and are OBSERVED, not VERIFIED:
 

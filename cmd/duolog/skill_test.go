@@ -251,3 +251,41 @@ func TestSkillTestWorkersAndMissingPlan(t *testing.T) {
 		}
 	}
 }
+
+func TestSkillPreferenceUsesSharedRoot(t *testing.T) {
+	// Mutation killed: linked worktrees ignore and overwrite repository-wide skill preferences.
+	linked := skillProject(t)
+	testbin.Install(t, "claude", testbin.Scenario{Stdout: `{"result":"{}"}`})
+	testbin.Install(t, "codex", testbin.Scenario{Stdout: `{"type":"turn.completed"}`})
+	main := t.TempDir()
+	git := filepath.Join(main, ".git")
+	wt := filepath.Join(git, "worktrees", "linked")
+	for _, dir := range []string{filepath.Join(git, "objects"), filepath.Join(git, "refs"), wt, filepath.Join(main, ".duolog")} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for file, body := range map[string]string{
+		filepath.Join(git, "HEAD"):                    "ref: refs/heads/main\n",
+		filepath.Join(wt, "HEAD"):                     "ref: refs/heads/linked\n",
+		filepath.Join(wt, "commondir"):                "../..\n",
+		filepath.Join(wt, "gitdir"):                   filepath.Join(linked, ".git") + "\n",
+		filepath.Join(linked, ".git"):                 "gitdir: " + wt + "\n",
+		filepath.Join(main, ".duolog", "config.yaml"): "skill_tests: never\n",
+	} {
+		if err := os.WriteFile(file, []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := executeBusCommand(t, "skill", "test", "skills/demo/SKILL.md", "--yes")
+	if err != nil || !strings.Contains(out, "skill_tests is never") {
+		t.Errorf("%s %v", out, err)
+	}
+	if _, err := executeBusCommand(t, "skill", "test", "--remember", "ask"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(main, ".duolog", "config.local.yaml"))
+	if err != nil || !bytes.Contains(data, []byte("skill_tests: ask")) {
+		t.Fatalf("shared preference: %s %v", data, err)
+	}
+}

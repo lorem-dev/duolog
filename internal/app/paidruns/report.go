@@ -330,7 +330,7 @@ func (r Report) reusedLines(who string) []string {
 	if r.ReusedReadSeconds <= 0 {
 		return nil
 	}
-	return []string{fmt.Sprintf("%s: this read failed; using a good read %d s old", who, r.ReusedReadSeconds)}
+	return []string{fmt.Sprintf("%s: using a good quota read %d s old", who, r.ReusedReadSeconds)}
 }
 
 // AccountLines are what no single agent owns: the live sessions of all

@@ -21,6 +21,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/install"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/trust"
+	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -249,11 +250,9 @@ func codexServers(root string, f kit.Folders) map[string]caps.Server {
 func codexMerged(root string, f kit.Folders) (merged map[string]any, files map[string]string, user string) {
 	user = filepath.Join(f.Codex(), "config.toml")
 	merged, files = map[string]any{}, map[string]string{}
-	layers := []string{user}
-	if trusted, err := trust.FolderInEnv(f.Home, root, f.Environ); err == nil && trusted {
-		layers = append(layers, filepath.Join(root, ".codex", "config.toml"))
-	}
-	for _, path := range layers {
+	layers := workerenv.SettingsLayers("codex", workerenv.Locations{Home: f.Home, Root: root, GOOS: runtime.GOOS, Environ: f.Environ})
+	for _, layer := range layers {
+		path := layer.Path
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue

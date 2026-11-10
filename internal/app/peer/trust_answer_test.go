@@ -277,8 +277,12 @@ func openWorktreeRig(t *testing.T, name string) (*rig, string) {
 	initRepo(t, r.root)
 	wt := filepath.Join(evalDir(t, t.TempDir()), name)
 	gitIn(t, r.root, "worktree", "add", "-q", "-b", name, wt)
-	if err := os.WriteFile(filepath.Join(wt, ".mcp.json"), []byte(`{"mcpServers":{"a":{"command":"x"},"b":{"command":"y"}}}`), 0o600); err != nil {
-		t.Fatal(err)
+	// The same definitions in both checkouts: an approval carries over only
+	// to a server defined the same way.
+	for _, dir := range []string{r.root, wt} {
+		if err := os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(`{"mcpServers":{"a":{"command":"x"},"b":{"command":"y"}}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	writeClaudeState(t, os.Getenv("HOME"), map[string]any{r.root: map[string]any{
 		"hasTrustDialogAccepted": true, "enabledMcpjsonServers": []string{"a"},

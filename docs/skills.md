@@ -1,8 +1,8 @@
 # How to test a skill across models
 
-Use `duolog skill test` to check how models follow a skill after a change.
-Each run answers concrete situations. Plain text checks grade the answers.
-The lead runs this command; workers cannot run it or change its preference.
+The lead uses `duolog skill test` to grade models' responses to concrete
+situations after a skill change. Workers cannot run it or change its
+preference.
 
 ## Write a plan before running models
 
@@ -81,10 +81,9 @@ checkout. Costs use the prices in config, not a provider invoice.
 
 ## Remember whether to test changes
 
-The bundled `duolog-skill-check` skill follows the person's own guidelines
-first. It uses an installed skill for writing and reviewing skills, then
-adds this test. It asks once per change with a plan and estimated cost.
-The choices are test, skip, always for this repository, or never for it.
+The bundled `duolog-skill-check` follows your guidelines and any installed
+skill-writing/review skill. It shows a plan and estimated cost, then asks
+once per change: test, skip, always here or never here.
 
 ```bash
 duolog skill test --remember always
@@ -101,22 +100,22 @@ This repository sets `always` in `.duolog/config.yaml`.
 at user scope. The plugins include it too. Uninstall removes it. See
 [Getting started](getting-started.md#where-duolog-keeps-its-skills).
 
-## The calibration skill is installed the same way
+## Which other skills are bundled
 
-`duolog install` and the plugins also include `duolog-calibrate`. It runs
-only when you ask the lead for project calibration. Neither agent can start
-the skill on its own, and the `skill_tests` preference does not start it.
-See [Calibration](calibration.md) for its own approvals and cost limits.
+Install and plugins supply `duolog-calibrate` and `duolog-peers`.
+Calibration runs only when requested, independently of `skill_tests`; see
+[Calibration](calibration.md).
 
-## The peers skill lists and shows peers
+`duolog-peers` runs `runs --long` and, only when you ask to see a run,
+`watch --tab`; for a peer, this is `peer view`. Claude needs no further
+confirmation for that request. See
+[Rex](rex.md#how-to-watch-a-delegate-run).
 
-`duolog install` and the plugins also include `duolog-peers`. It runs
-`duolog runs --long`, which lists live peers and delegate runs in one table,
-and, when you ask, `duolog watch --tab <id>` for the lead. For a peer id that
-is `duolog peer view <id>`. Claude runs `watch --tab` without asking, but only
-when you ask to see a peer or a delegate run. See
-[How to see what a peer shows](rex.md#how-to-see-what-a-peer-shows) and
-[How to watch a delegate run](rex.md#how-to-watch-a-delegate-run).
+## The update skill updates duolog when you ask
+
+`duolog-update` updates the binary, this agent's plugin and existing installs.
+It leaves permission prompts and changed Codex hook approvals to you.
+See [How to update duolog](getting-started.md#how-to-update-duolog).
 
 ## Related pages
 

@@ -60,7 +60,7 @@ PLACES: tuple[Place, ...] = (
     *(
         Place(f"plugin/{agent}/skills/{skill}/SKILL.md", rf'duolog-version: "{VERSION}"')
         for agent in ("claude", "codex")
-        for skill in ("duolog", "duolog-skill-check", "duolog-calibrate", "duolog-peers")
+        for skill in ("duolog", "duolog-skill-check", "duolog-calibrate", "duolog-peers", "duolog-update")
     ),
 )
 

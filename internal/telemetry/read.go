@@ -55,7 +55,7 @@ var segmentName = regexp.MustCompile(`^([0-9]{4}-[0-9]{2}-[0-9]{2})\.ndjson(\.gz
 // and has a t no older than retention and no more than a day after now. A
 // string outside its closed set reads as other. Read filters by t only, not
 // by the day a segment is named for; when a day has both a plain and a
-// compressed segment, only the compressed one is read.
+// compressed segment, their recorded relationship prevents missing or repeated events.
 //
 // Read writes nothing and starts no maintenance. Each partition is read
 // under its lock taken shared, so an append or a prune is never seen half
@@ -150,8 +150,7 @@ func (rd *reader) partition(p string) {
 	if err != nil {
 		return
 	}
-	// A crash while compressing leaves both files; the .gz is complete,
-	// since it is synced before its rename.
+	// Prefer the compressed name here; paired reconciles any plain segment.
 	chosen := map[string]string{}
 	for _, e := range entries {
 		m := segmentName.FindStringSubmatch(e.Name())
@@ -170,8 +169,59 @@ func (rd *reader) partition(p string) {
 	account := p == accountPartition
 	for _, d := range days {
 		name := chosen[d]
+		plain := dir + "/" + d + ".ndjson"
+		if filepath.Ext(name) == ".gz" {
+			if rd.paired(plain, account) {
+				continue
+			}
+		}
 		rd.segment(dir+"/"+name, filepath.Ext(name) == ".gz", account)
 	}
+}
+
+// paired reconciles a compressed day and a plain segment written after a
+// clock rollback, or left behind by an interrupted compression.
+func (rd *reader) paired(plain string, account bool) bool {
+	src, err := openReading(rd.root, plain)
+	if err != nil {
+		return false
+	}
+	defer src.Close()
+	old, err := openReading(rd.root, plain+".gz")
+	if err != nil {
+		return false
+	}
+	defer old.Close()
+	limit := min(segmentLimit, rd.budget)
+	if limit <= 0 {
+		return true
+	}
+	skip, err := includedPlain(old, src, limit)
+	if err != nil {
+		return false
+	}
+	if skip == 0 {
+		if _, err := old.Seek(0, io.SeekStart); err != nil {
+			return false
+		}
+		if _, err := src.Seek(0, io.SeekStart); err != nil {
+			return false
+		}
+		prefix, _, err := covers(io.LimitReader(old, limit), io.LimitReader(src, limit))
+		if err == nil && prefix {
+			rd.segment(plain, false, account)
+			return true
+		}
+	}
+	rd.segment(plain+".gz", true, account)
+	if _, err := src.Seek(skip, io.SeekStart); err != nil {
+		return true
+	}
+	taken := &io.LimitedReader{R: src, N: min(segmentLimit, rd.budget)}
+	before := taken.N
+	rd.lines(taken, account)
+	rd.budget -= before - taken.N
+	return true
 }
 
 // lock takes the partition's lock shared, checked like every other file. A

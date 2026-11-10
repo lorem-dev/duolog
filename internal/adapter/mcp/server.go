@@ -64,14 +64,17 @@ type callResult struct {
 // other message: ping, tools/list and other calls answer meanwhile. A
 // notifications/cancelled ends the call it names, which then sends no reply,
 // as MCP asks. The context a call reads ends when r ends, so a long call
-// stops with the session; Serve returns once every call has ended.
+// stops with the session; Serve returns once every call has ended. A blocking
+// input must implement io.Closer; cancellation closes it and joins the reader.
 func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	lines := make(chan []byte)
 	readErr := make(chan error, 1)
-	go readLines(ctx, cancel, r, lines, readErr)
+	readDone := make(chan struct{})
+	go func() { defer close(readDone); readLines(ctx, cancel, r, lines, readErr) }()
+	defer closeInputOnCancel(ctx, cancel, r, readDone)()
 
 	out := &replies{enc: json.NewEncoder(w)}
 	calls := &runningCalls{byID: map[string]*runningCall{}}
@@ -83,19 +86,7 @@ func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 		case parsed && len(req.ID) == 0 && req.Method == "notifications/cancelled":
 			calls.cancel(req.Params)
 		case parsed && len(req.ID) > 0 && req.Method == "tools/call":
-			call, ok := calls.start(ctx, req.ID)
-			if !ok {
-				out.write(&response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{codeInvalidRequest, "invalid request: a call with this id is still running"}})
-				break
-			}
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				resp := s.answer(call.ctx, req)
-				if !calls.end(call) {
-					out.write(resp)
-				}
-			}()
+			s.startCall(ctx, req, calls, out, &wg)
 		default:
 			out.write(s.handle(ctx, line))
 		}
@@ -114,6 +105,36 @@ func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 	default:
 		return nil
 	}
+}
+
+// closeInputOnCancel closes an input that can be closed when ctx ends, so a
+// reader blocked on it returns. The function it returns, deferred by Serve,
+// ends ctx, closes the input and waits for the reader.
+func closeInputOnCancel(ctx context.Context, cancel context.CancelFunc, r io.Reader, readDone <-chan struct{}) func() {
+	closer, ok := r.(io.Closer)
+	if !ok {
+		return func() {}
+	}
+	stop := context.AfterFunc(ctx, func() { _ = closer.Close() })
+	return func() { cancel(); stop(); _ = closer.Close(); <-readDone }
+}
+
+// startCall runs one tools/call on its own goroutine. A call whose id is
+// still running gets an error reply instead.
+func (s *Server) startCall(ctx context.Context, req request, calls *runningCalls, out *replies, wg *sync.WaitGroup) {
+	call, ok := calls.start(ctx, req.ID)
+	if !ok {
+		out.write(&response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{codeInvalidRequest, "invalid request: a call with this id is still running"}})
+		return
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		resp := s.answer(call.ctx, req)
+		if !calls.end(call) {
+			out.write(resp)
+		}
+	}()
 }
 
 // replies writes replies to the output one at a time, as calls end in any

@@ -18,7 +18,11 @@ func newRootCommand(d *cmdDeps) *cobra.Command {
 		Use:          "duolog",
 		Short:        "Coordinate Claude Code and Codex tasks",
 		SilenceUsage: true,
+		Version:      version,
 	}
+	// --version and -V print the same line as duolog version.
+	cmd.Flags().BoolP("version", "V", false, "Print the duolog version")
+	cmd.SetVersionTemplate("{{.Version}}\n")
 	cmd.AddCommand(newCalibrateCommand(d))
 	cmd.AddCommand(newCoauthorsCommand())
 	cmd.AddCommand(newQuotaCommand(d))

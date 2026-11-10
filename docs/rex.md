@@ -1,9 +1,7 @@
 # How to run live peers with Rex
 
-This page explains `duolog peer`. It opens a second agent session using the
-Rex command line and drives it with short messages.
-Use it when you want a live session. Use `duolog delegate` when a one-shot
-worker is enough.
+`duolog peer` drives a live second agent session through the Rex CLI. Use
+`delegate` for a one-shot worker.
 
 ## What you need
 
@@ -72,28 +70,20 @@ For peers, `max_live_sessions` applies per lead, agent and work root.
 root, so a task cannot run in the wrong worktree. A relative path is read from
 the worktree you run the command in.
 
-The first peer creates a separate Rex session for the project, named
-`duolog | <project folder name>`. It stays detached: duolog does not show it
-on a client or select it. The person's session, windows, panes and focus stay
-as they were. duolog never moves focus, except `duolog peer view`, which you
-ask for. Every peer gets a tab named `duolog | <pane label>`, such as
-`duolog | codex-planner`. Leads and linked worktrees share that project
-session. Commands use the session recorded for each peer.
+Peers use a detached Rex session, `duolog | <project folder name>`, shared
+by leads and linked worktrees. Each tab is `duolog | <pane label>`, such as
+`duolog | codex-planner`. Only `peer view` and `watch --tab` move your focus.
 
-If Rex has several duolog sessions for the same project folder name, their
-names end in `(1)`, `(2)`, and so on, in creation order. Creating or closing a
-project session updates these numbers. A single session has no number.
-Renaming is best effort; a failed rename does not stop opening or closing a
-peer. Peer tab names stay the same.
+Duplicate project-session names get `(1)`, `(2)` and later numbers in
+creation order. Creation and closure update them; renaming is best effort.
+Commands use the session recorded for the peer. Closing removes its entry;
+closing again is harmless. The last peer closes the project session. A
+failed session close keeps its identity so another close can retry.
 
-Closing a peer removes its session entry; repeating that close is harmless.
-Closing the last peer closes the project session too. If that close fails,
-duolog keeps its identity and another close retries the cleanup.
+Each command prints `<id> <state>: <question or note>`. Questions the rules
+do not settle go to the lead.
 
-Each command prints one line, such as `<id> <state>: <question or note>`. The
-lead decides questions that the rules do not settle.
-
-## After a Rex restart
+## How to recover after a Rex restart
 
 A Rex server restart ends every Rex session and pane, and the lead's agent
 comes back in a new Rex session. The peers' records stay in
@@ -129,38 +119,23 @@ files the task attaches in that checkout's `.duolog` folder as Markdown. In a
 linked worktree that is the worktree's own `.duolog`. Peers get no Read list,
 so a read of the main checkout asks the person.
 
-Every peer may write one file under `.duolog`: its report at
-`.duolog/tasks/<peer-id>/report.md` in the checkout it works in. In a linked
-worktree that is the worktree's own `.duolog`, not the main checkout's. The
-gate allows that write for that peer only, even in plan mode or a read-only
-role; every other path under `.duolog` and every other peer's report stay
-denied. The peer's prompt hook tells it to put its final answer there, short,
-with the result first. The task line `peer send` types also names that exact
-path (`Write the answer to .duolog/tasks/<peer-id>/report.md.`), so a peer
-learns it whatever its agent or role, even if its hook does not run. The line
-wraps onto a second row of an 80-column pane.
-A peer may print its own id with `echo "$DUOLOG_PEER"` or `printenv
-DUOLOG_PEER` without an ask; no other variable and no longer line is covered.
-`peer send` removes the report of the task before, so a report is always the
-current task's. `peer wait` and `peer status` add `report <path>` to their line
-once the file exists, then print the report's first lines, at most 15 lines
-and 1500 characters, with `[report cut]` when the rest is left out. A task
-that ended without a report ends the wait line with `no report written`; the
-bus keeps its cut `peer-idle` line, which adds `; report <path>` once the file
-exists. The report must be a regular file inside the peer's own checkout: a
-link, or a path behind one, that leaves it is ignored. A Codex peer in a
-read-only role can still refuse the write before the gate sees it, because
-its `-s read-only` sandbox allows no writes.
+A peer writes its answer to `.duolog/tasks/<peer-id>/report.md` in its own
+checkout. Its prompt hook and the typed task line name that path.
 
-A Claude peer never starts in Claude's own plan mode, even in a read-only
-role or under a lead in `plan`. Plan mode shows its own `Exit plan mode?`
-prompt and waits for a person, while `peer status` says `ready`. The peer
-starts in Claude's `default` mode instead, and the gate keeps it read-only:
-it denies every write but its report, and every tool it cannot judge. So
-`duolog peer open` first checks that the gate runs for the pane, and opens
-nothing when it does not. A peer opened under a lead in `plan` stays at
-`plan` when the lead moves to a looser mode. See
-[Permissions](permissions.md#a-workers-native-mode).
+| Rule | Effect |
+|---|---|
+| Report exception | Only that peer may write its report, even in plan mode or a read-only role. Other state writes stay denied |
+| Codex read-only sandbox | May refuse the report write before the gate sees it |
+| Own id | `echo "$DUOLOG_PEER"` or `printenv DUOLOG_PEER` needs no ask; no other variable or longer line is covered |
+| New task | `peer send` removes the previous report |
+| Status and wait | Print `report <path>` and at most 15 lines/1500 characters, then `[report cut]` if needed; an ended task without it says `no report written` |
+| Bus | The bounded `peer-idle` line adds the report path once it exists |
+| File check | Must be a regular file in the peer checkout; links that lead out are ignored |
+
+Claude read-only peers start in `default`; the gate keeps them read-only
+except for their report. Open refuses when gate preflight fails. A peer
+opened under a lead in `plan` stays there after the lead's mode rises. See
+[Permissions](permissions.md#how-a-workers-native-mode-is-chosen).
 
 ## What to do when a peer is interrupted
 
@@ -193,21 +168,15 @@ answer as data, use `duolog delegate`, which returns it and records its spend.
 
 ## How to bring a peer's changes back
 
-Before handing off work, the lead records its starting checkout, branch and
-existing edits. Each peer can work in its own worktree. That isolation does
-not change where the person expects the result.
+Record the starting checkout, branch and existing edits before handoff.
+Unless the person requests another branch or PR, review and integrate the
+peer's changes there by merge, cherry-pick or patch. Keep them uncommitted
+unless a commit is requested or required, and preserve staged, unstaged
+and untracked work.
 
-Unless the person requests another branch or a pull request, the lead brings
-the peer's task changes into the starting checkout on its original branch.
-This can be a linked worktree; it need not be the repository's main checkout.
-The lead reviews the task changes, then merges, cherry-picks or applies their
-diff as appropriate. Changes stay uncommitted unless a commit was requested
-or required. Existing staged, unstaged and untracked work must survive.
-
-The lead verifies the integrated result in that checkout before reporting
-completion. If integration conflicts, it preserves the person's work and
-reports the blocker. Its final answer gives the result's path, branch and
-commit status. A peer going idle alone does not mean the result is delivered.
+Verify the integrated result before reporting completion. On conflicts,
+preserve the person's work and report the blocker. Report the result's
+path, branch and commit status; idle does not mean delivered.
 
 ## What the lead is told when a peer stops
 
@@ -245,7 +214,7 @@ same task sends it. Each message is one line, and the lead's hooks
 deliver it with the next prompt or tool call. Answer with `peer status`,
 `peer send` or `peer close`.
 
-### The peer-idle and peer-exit events
+### When peer-idle and peer-exit events are sent
 
 Two more messages tell the lead that a peer needs a look, whatever its task:
 
@@ -268,69 +237,42 @@ start the lead's queue run (see
 [How to queue peers](#how-to-queue-peers-that-open-when-a-session-is-free)).
 The peer's own `Stop` hook runs as a worker and opens nothing.
 
-The `Stop` hook runs only where duolog's hooks run in the peer. An older
-install gets it when you update the plugin or run `duolog install` again.
-A Codex peer runs it
+The `Stop` hook runs only where duolog's hooks run in the peer. A Codex peer
+runs it
 only after you approve the hooks in `/hooks`; the auto-answer
 `Continue without trusting` leaves them off.
 
 ## How the lead sees how many peers it can run
 
-A lead that sizes its peers by habit leaves sessions unused. So duolog adds
-one line to the lead's context. It shows the lead's live peers, the session
-limit of each agent and the 5-hour window:
+The lead's hooks show its peers, account session limits and five-hour
+window without reading quota themselves:
 
 ```text
 duolog peers: claude 3 running (1 idle) of 12; codex 0 of 3; 5h 41%
 ```
 
-- `3 running (1 idle) of 12` counts the lead's own live peers. An idle peer
-  finished its turn with nothing queued, and it still holds a session. The
-  line names idle peers as `idle: peer-ab12cd, ...`. The limit is the one
-  that `duolog quota` prints as `<agent> sessions N of M`, which counts the
-  sessions of all leads. duolog counts them once, from the same account state.
-- The line reads no quota itself. A hook has no quota read of its own, so the
-  limit is that of the session tier that admission recorded last, and the
-  window is the one that the latest admission of the agent's current account
-  measured, if that was at most 30 minutes ago. That admission may be a task
-  still running, a task that has ended, or one that was refused. An agent
-  with no session limit is left out. So is a window that duolog does not
-  know.
-- `queue 2`, after the agents, counts the items of the lead's ready queue
-  that wait to open. While items wait, the line gives no advice: the hooks
-  start a queue run themselves when a session is free.
-- When an agent has at least half of its sessions free, the window is known
-  and under 70% and the lead's ready queue is empty, the line ends with
-  `- <n> <agent> sessions free: start independent work or stack it on open
-  pull request branches (duolog peer queue add)`.
-
-The `UserPromptSubmit` hook adds the line to every prompt. The `PostToolUse`
-hook adds it only to a bus delivery, and at most once in 5 minutes unless a
-number changed. Only a registered lead gets it. Workers and peers never do.
-If duolog cannot work the line out within 2 seconds, it prints nothing and
-the hook goes on.
-`duolog peer list` prints the same line as its last line, except with
-`--json`.
+| Part | Meaning |
+|---|---|
+| `3 running (1 idle) of 12` | This lead's live peers; idle still holds a session. `idle: <ids>` names them. Limits count account sessions across all leads, once |
+| Session limit | Last tier recorded by admission, as in `quota`. Omit an agent without one |
+| Five-hour window | Latest admission read for the current account, at most 30 minutes old. The task may be running, ended or refused. Omit unknown windows |
+| `queue 2` | This lead's items waiting to open. While nonempty, hooks start queue runs and print no advice |
+| Free-session advice | With at least half the sessions free, a known window below 70% and no queued item, suggests independent or stacked work using `peer queue add` |
+| Delivery | Every UserPromptSubmit; on PostToolUse only with bus mail, at most once in five minutes unless counts change. Registered leads only |
+| Time budget | Two seconds; failure prints nothing |
+| `peer list` | Same line at the end, except with `--json` |
 
 ## How to run several peers at once
 
-Run independent tasks in parallel. Give each task its own linked worktree
-under `.worktrees/`, and keep that directory git-ignored. Each task gets one
-worker and its own peer in a separate Rex tab. Never put two workers in one
-worktree. Run full test suites one at a time.
-
-When work needs an open pull request, stack its branch on that pull request's
-branch. Start the work while its dependency's CI runs.
-
-Run each wait as its own background command: one for each peer and one for
-each CI run. Do not chain them. New peer tabs stay in the detached project
-session and keep the person's current window and pane focused.
+Run independent tasks in parallel, each with one worker and peer in its own
+git-ignored `.worktrees/` checkout and Rex tab. Run full test suites one at
+a time. Stack dependent branches on their open PR branches while CI runs.
+Give each peer or CI wait its own background command. Peer tabs stay in
+the detached project session without changing the person's focus.
 
 ## How to queue peers that open when a session is free
 
-The ready queue holds the peers that the lead wants to run next. duolog opens
-them by itself when a session is free, so the number of peers does not depend
-on how many the lead remembers to open.
+The ready queue opens requested peers when a session becomes free.
 
 | Command | What it does |
 |---|---|
@@ -392,16 +334,11 @@ model turn and the lines it prints.
 | `duolog peer show <id>` | You, in your own terminal | The last lines of the screen, cleaned and bounded | None; it refuses inside an agent, a worker or a pipe |
 | `duolog peer view <id>` | You, or the lead when you ask | One line; your Rex client shows the peer's tab | None in your terminal; one line in a lead's context |
 
-`peer show` refuses when a model may read its output: a Claude or Codex
-marker variable, output that is not a terminal, a worker, or a Claude or
-Codex process above it. The lead hook also stops a lead's tool call that
-names `duolog peer show`, also behind a known wrapper such as `env` or
-`sh -c`: Claude asks you, Codex denies it. A Claude lead that runs in
-`bypassPermissions` or `auto` is not asked;
-`peer show`'s own refusal still applies. These refusals guard against
-accidents. They are not a barrier: no check can prove that a terminal is
-yours, and a model that ignored them would have to work around them on
-purpose.
+`peer show` refuses workers, non-terminal output, Claude/Codex marker
+variables and Claude/Codex ancestor processes. The lead hook also guards
+wrapped calls: Claude asks, except in `auto` or `bypassPermissions`; Codex
+denies. These checks prevent accidents, but a deliberate workaround can
+bypass them.
 
 `peer show` and `peer view` need `REX_SESSION`, like the other peer commands.
 `peer view` moves one client: `--client`, or else the only client that shows
@@ -465,20 +402,15 @@ time without touching the run. A run appears in the list only when the MCP
 tool started it; a `duolog delegate` that you or the lead start by hand
 leaves no record to list.
 
-`watch` is for you, to keep a worker's stream and a peer's screen out of the
-lead's context. It is not a barrier: a lead can still read a worker's
-`stdout.log`. It refuses
-under the same checks as `peer show`: a Claude or Codex marker variable,
-output that is not a terminal, a worker, or a Claude or Codex process above
-it. The lead hook also stops a lead's tool call that runs `duolog watch`
-without `--tab`, at the start of a shell command, after leading `NAME=value`
-words, or behind a known wrapper such as `env` or `sh -c`; a command that only
-mentions the words, such as `rg "duolog watch" docs` or a commit message with a
-`;` or `|` before them, is not stopped. A `--tab` that is the value of `--lead`
-or `--client` does not count. Claude asks you, Codex denies it. A
-Claude lead in `bypassPermissions` or `auto` is not asked; the command's own
-refusal still applies. `duolog runs` prints no worker output, so a lead may
-run it. A worker may run neither.
+`watch` keeps output out of the lead's context, but cannot stop a lead from
+reading `stdout.log`. It uses the same caller checks as
+[`peer show`](#how-to-see-what-a-peer-shows); workers may run neither
+`watch` nor `runs`. The lead hook guards a command that runs `duolog watch`
+without `--tab`, including assignments and wrappers. Merely mentioning it
+in a search or commit message does not count. A `--tab` used as the value
+of `--lead` or `--client` does not count either. Claude asks except in
+`auto` or `bypassPermissions`; Codex denies. The command's own refusal
+still applies.
 
 `watch --tab` opens the tab in duolog's own Rex session, the one that holds
 peer tabs, and moves your Rex client to it, as `peer view` does. The tab is
@@ -522,10 +454,9 @@ lead calls it again and is never blocked for good. It returns the peer's
 `state`, its `question` if one is open, the `open_asks` with their numbers, and
 the `report` field: the first lines of the peer's report file.
 
-`answer_ask` answers a gate ask by its number. It has the rights of
-`duolog allow` and `duolog deny`. For an ask that only you may answer, the
-lead's guard asks you, and a lead in `bypassPermissions` or `auto` answers its
-own asks. Workers and peers never get these tools.
+`answer_ask` has the rights of `duolog allow` and `duolog deny`. Only the
+person's terminal may allow or deny a person-only ask. The lead and
+`answer_ask` handle ordinary asks. Workers and peers get none of these tools.
 
 ## How duolog settles routine questions
 
@@ -554,40 +485,27 @@ starting with `Trust`, `Yes, and don't ask` or `Always`, or containing
 `trust this folder` or `without asking`, ignoring case and outer spaces.
 Duolog also checks the selected option before answering.
 
-A peer pane's startup folder-trust question (`Yes, I trust this folder` in
-Claude, `Trust and continue` in Codex) is answered by a built-in rule, not by
-`rex.auto_answers`, and recorded like other automatic answers. It applies only
-when the screen names the pane's folder and no folder outside the lead's
-project, and the pane's folder is the lead's own root (the folder above the
-`.duolog/` state folder), a folder below it or a linked worktree that the lead's
-repository lists in `git worktree list` (not a stale `prunable` entry, and its
-own git directory must be the lead's), and the agent already trusts the
-lead's root, not the pane's new checkout. A folder that only claims in its own
-`.git` to be a worktree does not count, and a lead root inside an outer
-repository does not make that repository or its worktrees the lead's. A long
-warning block can push the heading off the capture, so duolog reads a trust
-question again from up to 200 lines, and sends nothing if that capture no
-longer shows it. A folder path that wraps onto a second line is joined before
-it is compared. A marker word counts only at the start of a line near the
-options, and a command prompt counts only when its command is right above the
-menu, so earlier output that quotes a marker or an old prompt does not stop
-the gate. Output that starts a line with a marker within 30 lines above a
-question leaves that question to the lead. Any other folder, or a config that
-cannot be read, leaves the question to the lead, and no `rex.auto_answers` rule
-answers a trust question, whether or not duolog reads it in full: a question
-with a trust label or the text of a trust screen is the lead's. Hook
-trust and persistent approvals are never granted. For Claude, the pane also
-gets `enabledMcpjsonServers` and `disabledMcpjsonServers` from what the lead
-decided for its root, so the new MCP servers dialog never shows: every
-`.mcp.json` server the lead has not enabled is disabled, and so are all of them
-when the settings cannot be read. As in Claude, approval is by server name: a
-branch that changes the command of a server the lead enabled keeps it enabled.
-`duolog doctor` warns when the project's `.mcp.json`, or a parent folder's, has
-servers that Claude has neither enabled nor disabled for the folder, because a
-Claude peer opened by hand there stops at the "new MCP servers found" dialog.
-When `peer open` or `peer wait` stops at a startup screen it cannot answer, its
-line starts with the screen's name, `folder trust` or `new MCP servers`, when
-duolog recognises it.
+A built-in rule handles startup folder trust, separately from
+`rex.auto_answers`, and logs `peer.folder_trust`.
+
+| Check | Requirement |
+|---|---|
+| Existing trust | The agent already trusts the lead's root, the folder above shared `.duolog/` |
+| Eligible pane folder | Lead root, a folder below it, or a linked worktree listed by that repository's Git, with the same git directory and no stale prunable entry |
+| Repository identity | A pane's `.git` claim alone is insufficient. A lead root nested in another repository grants nothing to the outer repository or its worktrees |
+| Screen paths | Screen names the pane's folder and no folder outside the lead's project; wrapped paths are joined |
+| Capture | Reread up to 200 lines if warnings hide the heading; send nothing if the trust screen disappears |
+| Markers | Count only line-start markers near options and a command prompt directly above the menu; a marker within 30 lines above a question leaves it to the lead |
+| Unknown or ineligible screen/config | Leave it to the lead. Text rules never answer trust, even when only a trust label or screen text is recognised |
+| Other grants | Never grant hook trust or persistent approvals |
+
+Claude peers inherit the root's enabled and disabled `.mcp.json` server
+names. Unapproved servers are disabled, as are all when settings cannot be
+read. Approval follows the name: changing an enabled server's command keeps
+it enabled. Doctor warns about servers in the project or a parent that
+Claude has neither enabled nor disabled; a manually opened peer can stop at
+that dialog. An unhandled startup screen is named `folder trust` or
+`new MCP servers` when recognised.
 
 Codex command prompts go to the duolog permission gate with the peer's role.
 The gate judges the command after leading `NAME=value` assignments. An allow
@@ -601,9 +519,9 @@ rules cannot override that. See
 [Configuration](configuration.md#how-a-worker-borrows-the-leads-mcp-server)
 for what the lead is told.
 
-A new session can also ask whether to trust the folder. For Claude, pressing
-Enter alone quits. For Codex, the default is to trust. Duolog leaves that choice
-to the lead and selects options by label rather than pressing a default.
+Claude's default exits; Codex's trusts. duolog selects by label and
+automatically trusts eligible folders of an already trusted lead project,
+as described above. Other trust questions go to the lead.
 
 ## What a worker may never receive
 
@@ -611,7 +529,7 @@ Never send `/model` or `/effort` to a Claude pane. They write to your user
 settings, even when you start Claude with project-only settings. duolog
 passes the model and effort at startup instead.
 
-## Known limits
+## What remains unverified
 
 These come from the
 [live verification](research/2026-10-30-live-verification.md).

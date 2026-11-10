@@ -190,6 +190,7 @@ func TestGateProblemNeedsTheCurrentGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeHook(t, root, string(generated))
+	approveCurrentFixture(t, root)
 	if s, err := hooks(root); err != nil || (Trust{}).GateProblem(s, true) != "" {
 		t.Fatalf("duolog's own hook: %+v %v %q", s, err, (Trust{}).GateProblem(s, true))
 	}
@@ -241,16 +242,19 @@ func TestStaleCodexApprovalAfterReinstall(t *testing.T) {
 	}
 	// An unchanged gate keeps its approval through a reinstall.
 	writeHook(t, root, string(generated))
+	approveCurrentFixture(t, root)
 	reinstall()
 	if s, err := hooks(root); err != nil || (Trust{}).GateProblem(s, true) != "" {
 		t.Fatalf("unchanged gate: %+v %v %q", s, err, (Trust{}).GateProblem(s, true))
 	}
 	// An older duolog's command, approved, then rewritten by install.
-	older := strings.ReplaceAll(string(generated), "exec duolog gate", "exec duolog --old gate")
+	// Both forms change: on Windows Codex runs and hashes command_windows.
+	older := strings.ReplaceAll(string(generated), "duolog gate --agent", "duolog gate --old --agent")
 	if older == string(generated) {
 		t.Fatal("fixture did not change")
 	}
 	writeHook(t, root, older)
+	approveCurrentFixture(t, root)
 	reinstall()
 	if data, _ := os.ReadFile(filepath.Join(root, ".codex", "hooks.json")); strings.Contains(string(data), "--old") {
 		t.Fatal("install kept the older command")
@@ -260,7 +264,7 @@ func TestStaleCodexApprovalAfterReinstall(t *testing.T) {
 		t.Fatalf("stale approval: %+v %v %q", s, err, problem)
 	}
 	// Approving it again in /hooks gives a new hash.
-	writeFile(t, filepath.Join(home, ".codex", "config.toml"), fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = \"new-hash\"\n", key))
+	approveCurrentFixture(t, root)
 	if s, err := hooks(root); err != nil || (Trust{}).GateProblem(s, true) != "" {
 		t.Fatalf("approved again: %+v %v %q", s, err, (Trust{}).GateProblem(s, true))
 	}
@@ -357,4 +361,19 @@ func TestEnvReadsTheEnvironmentsHome(t *testing.T) {
 	if _, err := (Trust{}).Folder(root, none); !errors.Is(err, agent.ErrNoHome) {
 		t.Errorf("codex folder without a home: %v, want ErrNoHome", err)
 	}
+}
+
+// approveCurrentFixture models a person's approval in an isolated test home.
+func approveCurrentFixture(t *testing.T, root string) {
+	t.Helper()
+	path := filepath.Join(root, ".codex", "hooks.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := currentHookHash(data, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(os.Getenv("HOME"), ".codex", "config.toml"), fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = %q\n", path+":pre_tool_use:0:0", hash))
 }

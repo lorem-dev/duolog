@@ -8,21 +8,11 @@ suggests it. Neither agent can start the `duolog-calibrate` skill on its own.
 
 ## What calibration does and when it runs
 
-Calibration finds the project's checks and representative past tasks. It runs
-those tasks on the ladder entries of each class and proposes an order from the
-results. Learning mode then keeps refining the order on real tasks.
-
-The proposed order routes tasks only while learning mode is on. Learning mode
-is off by default. Turn it on with `learning.enabled: true` in
-`.duolog/config.yaml` before you apply the order; see
-[Learning mode](learning.md#how-to-turn-it-on). With learning mode off, an
-applied order changes no route, and `duolog calibrate propose` and
-`duolog learn` say so in one line.
-
-Ask the lead in your own words, for example "calibrate duolog for this
-project". The bundled `duolog-calibrate` skill then runs the steps below with
-`duolog calibrate` commands. A worker that tries gets the error
-`workers cannot run duolog calibrate`.
+Turn on `learning.enabled` before applying an order; otherwise it routes no
+tasks, and `calibrate propose` and `learn` say so. See
+[Learning mode](learning.md#how-to-turn-it-on). Ask the lead to calibrate
+the project; the `duolog-calibrate` skill runs the steps below. Workers
+receive `workers cannot run duolog calibrate`.
 
 Calibration needs Git 2.40 or newer. Task statements, trees and patches go to
 the model providers of the ladder entries and the judges, as in any
@@ -87,10 +77,7 @@ Calibration always works on the main checkout. Run from a linked worktree,
 reads its working copy for the Codex hooks; the worktree's branch is not
 used. To calibrate on a branch, check it out in the main checkout first.
 
-## The steps, and where the lead stops
-
-Each step is one command. The lead shows its output and stops where the table
-says, so you decide before anything costs more.
+## Which steps need the person
 
 | Step | Command | What it does | Lead stops for |
 |---|---|---|---|
@@ -220,10 +207,8 @@ Record each verdict with `duolog verdict <id> confirm` or
 
 ## What calibration costs and how it limits spend
 
-The caps are limits on estimated spend, not on the final bill. Calibration
-checks quota before each call. It stops admitting calls when its estimated
-spend reaches the approved cap. A call can cost more than its estimate. A
-running call can also reach a provider limit before the next check.
+Caps govern admission estimates, not the bill. A running call may exceed
+its estimate or reach a provider limit before the next quota check.
 
 Calibration runs on your subscription unless you allow more. Every cell,
 judge call and rewrite starts as a free run, which never gets an API key or
@@ -381,20 +366,12 @@ against each cap, and any pause or stop.
 
 ## What calibration cannot isolate
 
-Calibration hides the solution from each candidate, but some limits remain:
-
-- **Old public history.** A model may have seen an older public commit in
-  training. The plan says how many tasks are older than 90 days, and mining
-  takes recent tasks first. Statements never hold the commit id or message.
-- **A leaking tree.** The tree holds no later commits, reference patch,
-  hidden tests or other results. A cell whose tree cannot guarantee that is
-  marked `leakage_exposed` and does not count.
-- **Judge-only tasks.** A docs or mechanical task with no test that fails
-  before the change is judged against the reference alone. It counts at half
-  weight.
-- **The checks themselves.** They run outside the gate with your
-  environment. See
-  [the checks section](#what-the-checks-can-do-on-your-machine).
+| Limit | Effect |
+|---|---|
+| Public history | Models may know old commits. Mining prefers recent work; the plan counts tasks older than 90 days. Statements omit commit ids and messages |
+| Tree leakage | Trees exclude later commits, reference patches, hidden tests and other results. A tree that cannot guarantee this is `leakage_exposed` and does not count |
+| Judge-only tasks | Docs/mechanical tasks with no failing-before test are judged against the reference at half weight |
+| Project checks | Run outside the gate with your environment; see [Checks](#what-the-checks-can-do-on-your-machine) |
 
 ## How the evidence joins learning mode
 

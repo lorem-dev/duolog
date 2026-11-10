@@ -521,7 +521,7 @@ func (e *env) credit(entry session.Entry) error {
 	if err != nil {
 		return err
 	}
-	return coauthor.Append(e.dir, e.cfg.Coauthors, coauthor.Record{Lead: entry.Lead, Agent: entry.Agent, Model: string(model), Files: n, Peer: entry.ID})
+	return coauthor.Append(e.dir, e.cfg.Coauthors, coauthor.Record{Lead: entry.Lead, Agent: entry.Agent, Model: string(model), Files: n, Peer: creditPeer(entry)})
 }
 
 func (e *env) endLine(entry session.Entry, state State) (string, error) {
@@ -674,4 +674,17 @@ func (e *env) newQuestion(ctx context.Context, entry session.Entry) (string, err
 			return "", err
 		}
 	}
+}
+
+// A peer can contribute to several commits; only repeated polls of one task
+// share a credit key. Older peers without admission metadata retain their old key.
+func creditPeer(entry session.Entry) string {
+	generation := entry.TaskGeneration
+	if generation == "" {
+		generation = entry.AdmissionID
+	}
+	if generation == "" {
+		return entry.ID
+	}
+	return entry.ID + "/" + generation
 }

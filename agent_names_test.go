@@ -22,8 +22,8 @@ var agentNames = []string{"claude", "codex"}
 const (
 	reasonAgentAdapter = "the agent's own adapter"
 	reasonModeTables   = "the mode tables per agent and PinCodexSandbox stay in core/mode (settled by the person)"
-	reasonBoundary     = "security boundary: moves only; its function bodies do not change before the 1.6.0 ports"
-	reasonKept         = "kept for the boundary until the 1.6.0 ports"
+	reasonBoundary     = "security boundary: moves only; its function bodies do not change before the boundary ports (not yet scheduled)"
+	reasonKept         = "kept for the boundary until the boundary ports (not yet scheduled)"
 )
 
 // agentNameHomes are the folders and files whose non-test code may hold a
@@ -48,7 +48,7 @@ var agentNameHomes = map[string]string{
 }
 
 // reasonPending is the reason of every file in pendingAgentNames.
-const reasonPending = "moves to the agent descriptors in 1.6.0"
+const reasonPending = "moves to the agent descriptors with the boundary ports (not yet scheduled)"
 
 // pendingAgentNames are the files outside agentNameHomes that still name an
 // agent, keyed by file. The list is closed and may only shrink: a file leaves

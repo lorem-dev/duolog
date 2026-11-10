@@ -1,8 +1,8 @@
-# Practices and models on 2026-10-30
+# Which evidence informed the initial defaults
 
-This page gives the evidence behind `internal/core/config/config.default.yaml`.
-Each section says how far you can trust its data, because many benchmark
-numbers come from vendor charts or from one blog.
+Evidence for [the default
+config](../../internal/core/config/config.default.yaml),
+including the limits of vendor charts and single-blog sources.
 
 ## What the models cost
 
@@ -42,40 +42,34 @@ in the rules come from their price and their description.
 
 ## What a second model adds to a review
 
-A cheap review by another model saves money, but it does not find more bugs. So
-the final review stays on Opus, and an intermediate review uses at least
-`gpt-6.1-terra`.
-
-- A controlled study, "When Does a Second Model Help?", tested this. A strong
-  reviewer from another model was not significantly better than the same model
-  in a new session. The two found partly different errors (41.2% overlap). A
-  light reviewer from another model was no better than the same model.
-- A Greptile post from July 2026 says models find more serious bugs in code that
-  another model wrote. We could not check its sample size.
-
-Both reviewers did better in a new session, so reviews default to `fresh`. A
-`fresh` review also cannot see how the author reasoned.
+The cited controlled study found no significant advantage for a strong
+cross-model reviewer over the same model in a new session; errors overlapped
+by 41.2%. A light cross-model reviewer did no better. Greptile reported more
+serious cross-model findings, but its sample size was unavailable. Both
+reviewers improved in new sessions, motivating fresh reviews. The initial
+rules kept the final review on Opus and intermediate reviews on at least
+terra; [current role
+defaults](../configuration.md#which-models-the-default-roles-use)
+include later cost-study evidence.
 
 ## What other projects already do
 
-We found no project that combines two-way messages, one config for roles, and
-permission decisions without a model. That gap is the reason for duolog. Our
-search was not complete.
+Our incomplete search found no project combining two-way messaging, one
+role config and permission decisions without a model; that motivated duolog.
 
 | Project | What it is | What we take | What we avoid |
 |---|---|---|---|
 | `openai/codex-plugin-cc` | Codex commands inside Claude Code, using the Codex app server | A thin wrapper on the agent's own CLI. Background jobs with a session id | A review on the Stop hook. Its README warns that this uses up limits quickly |
 | `cc-plugin-codex` (a fork of the `sendbird` project) | The other direction: a new `claude -p` for each call | Jobs that belong to a parent session. No hooks in nested sessions. A summary in place of a very large diff | A review on every Ctrl+C |
 | `mcp_agent_mail` | Mail for agents: Git, SQLite and an HTTP MCP server | Short references, reading only unread messages, a history you can audit | A server that must always run. A file bus needs no process |
-| The `platform` repository (D-160, `docs/agents/`) | Rules and a file format for two repositories | The `task.md` and `answer.json` format, the model table, the move to another agent when a quota ends, the effort limit, the measurements | Nothing. duolog automates these rules |
+| An anonymised multi-repository workflow | Rules and a file format for two repositories | The task and answer format, model table, quota fallback, effort limit and measurements | Nothing; duolog automates these rules |
 | Articles about hand-overs | General advice | References in place of content. A snapshot of a file that can change | The idea that a reference always costs less. We must measure this |
 
 ## What a Codex call costs before it reads the task
 
-An empty Codex call uses about 14,800 input tokens. A large `AGENTS.md` adds
-about 8,400 tokens to each call, and one setting removes them. The `platform`
-session measured this with codex-cli 0.165, `gpt-6-luna` and effort `low`, on a
-task of one word.
+A one-word probe with codex-cli 0.165, gpt-6-luna and low effort measured
+about 14,800 input tokens before the task; large AGENTS.md files added
+about 8,400.
 
 | Where it ran | Input tokens | Of those, cached |
 |---|---|---|
@@ -94,7 +88,7 @@ The same session found these problems:
 - Rex has no `mcp` command.
 - `rex capture` with no limit prints the whole scrollback.
 
-## Sources
+## Which sources the study used
 
 | Source |
 |---|

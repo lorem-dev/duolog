@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -473,4 +474,46 @@ func sameDir(t *testing.T, a, b string) bool {
 	ra, errA := filepath.EvalSymlinks(a)
 	rb, errB := filepath.EvalSymlinks(b)
 	return errA == nil && errB == nil && ra == rb
+}
+
+func TestMCPDelegateSerializesTwinLookupAndLaunch(t *testing.T) {
+	// Mutation killed: an unlocked lookup/start pair lets concurrent retries launch two workers.
+	d, _, state := mcpDelegateProject(t)
+	unlock, err := store.LockFile(filepath.Join(state, "mcp-delegate.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = unlock() }()
+	starts := make(chan struct{}, 2)
+	d.startDetached = func([]string, string, string) error { starts <- struct{}{}; return nil }
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err = d.mcpDelegate(ctx, mcp.DelegateInput{Role: "implement", Task: testTask, Wait: &no})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("did not wait for lock: %v", err)
+	}
+	if len(starts) != 0 {
+		t.Fatal("launched while another caller held the lock")
+	}
+	if err := unlock(); err != nil {
+		t.Fatal(err)
+	}
+	results := make(chan mcp.DelegateOutput, 2)
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			out, err := d.mcpDelegate(context.Background(), mcp.DelegateInput{Role: "implement", Task: testTask, Wait: &no})
+			results <- out
+			errs <- err
+		}()
+	}
+	first, second := <-results, <-results
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if first.ID != second.ID || len(starts) != 1 {
+		t.Fatalf("duplicate workers: %s %s", first.ID, second.ID)
+	}
 }

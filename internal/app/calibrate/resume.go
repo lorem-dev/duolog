@@ -76,8 +76,8 @@ func (r *Runner) Resume(ctx context.Context) (Outcome, error) {
 	var agents []string
 	for i, c := range r.Run.Cells {
 		if c.State == CellRunning {
-			if err := r.removeTree(i); err != nil {
-				return Outcome{}, err
+			if err := r.resumeCell(ctx, i); err != nil {
+				return r.resumeError(err)
 			}
 			r.Run.Cells[i].State = CellPending
 		}

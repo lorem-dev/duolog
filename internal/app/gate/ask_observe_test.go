@@ -78,7 +78,7 @@ func TestTelemetryGateAskResult(t *testing.T) {
 				}
 			}()
 			started := time.Now()
-			wait := 1100 * time.Millisecond
+			wait := askSendWait
 			if tc.reply != "" {
 				// A reply exercises the observer, not a race against the
 				// runner's filesystem and the default 500 ms poll interval.
@@ -98,7 +98,7 @@ func TestTelemetryGateAskResult(t *testing.T) {
 			if got[0].Wait < 0 || got[0].Wait > time.Since(started) {
 				t.Fatalf("wait %s outside the escalation", got[0].Wait)
 			}
-			if tc.want.Answer == "timeout" && got[0].Wait < time.Second {
+			if tc.want.Answer == "timeout" && got[0].Wait < wait {
 				t.Fatalf("a timeout waited only %s", got[0].Wait)
 			}
 		})

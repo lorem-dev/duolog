@@ -1,29 +1,24 @@
-# Cost study on 2026-11-01
+# What sessions cost in the first study
 
-This page records a study that compared sessions with and without duolog on
-five tasks from one private project, and the changes in 1.1.0 that follow
-from it. One participant ran it on one macOS machine with Claude Code 2.1.312
-to 2.1.316, codex-cli 0.165.0 and duolog 1.0.0. Each setup ran once per task,
-so every number is OBSERVED, not an average.
+Five tasks from an anonymised project compared sessions with and without
+duolog. Each setup ran once per task on one macOS machine with Claude Code
+2.1.312 to 2.1.316, codex-cli 0.165.0 and duolog 1.0.0; these are
+observations, not averages.
 
 ## What the study found
 
-One Codex session alone was the cheapest setup on all five tasks. By tests and
-by a blind review, its result was not worse than the others on four of them.
+One Codex session was cheapest on four tasks; the Codex lead with duolog
+was cheapest on task 2. Tests and blind review rated the single Codex
+session no worse than the others on four tasks.
 
-An Opus lead with duolog 1.0.0 defaults cost about as much as one Opus session:
-4.96 against 5.40 USD on tasks 1 to 3. The lead read the code itself, checked
-the workers' work again and spent many turns on duolog itself.
+On tasks 1-3, an Opus lead with duolog 1.0.0 cost 4.96 USD versus 5.40
+alone; it reread workers' code and spent many turns on coordination. On the
+two large tasks, a dispatcher lead with a Codex planner cost about half as
+much as the default duolog lead, with the same hidden-test results; it won
+the task-4 blind review. Most early worker stops came from command parsing
+rather than policy rules.
 
-An Opus lead that only handed out work, with a `planner` worker on Codex, cost
-about half as much as the default Opus lead on the two large tasks: 1.36
-against 2.72 USD and 1.49 against 3.23 USD, at the same hidden test results.
-On task 4 it got the best blind review.
-
-Most workers that stopped early stopped on the gate, and most of those stops
-came from how the gate read the command, not from a policy rule.
-
-## The tasks and the setups
+## Which tasks and setups were compared
 
 The project is a web service with a Python backend and a React frontend. Its
 main author wrote the tasks. Each task has the hidden tests of the real commit.
@@ -80,32 +75,18 @@ of CLp with `gpt-6.1-terra` as the implementer failed 3 of 79 tests and got a
 | Install backups landed in the work tree | `git add -A` added 843 lines of `.duolog.bak` files |
 | A fixed short timeout made a runner test fail | 15 of 31 runs on the study's machine |
 
-## What 1.1.0 changes
+## How the findings affect configuration
 
-| Change | Why |
-|---|---|
-| Quotes that only group one word read as that word | Agents quote patterns by habit |
-| `rg` and `grep` option values are not paths; `sed -n 'N,Mp'` is a read | These were false asks |
-| More read commands: `jq`, `sort`, `stat`, `tree` and others, with option checks | Agents use them to read |
-| Check tools of each ecosystem allowed for write roles | Workers stopped on `ruff`, `eslint` and `tsc` |
-| A denial names the command, and the worker retries once with a plainer form | A stopped worker costs a full restart |
-| `duolog remember` saves a command the user allowed | The same ask came back in every run |
-| A `planner` role for whole features | The dispatcher setup cost about half |
-| `.duolog/brief.md` leads each worker's input | One place for project rules, cached by the provider |
-| Every worker is told not to commit or ask the user | Those steps belong to the lead |
-| A Codex lead in `workspace-write` gives `edits` | Codex itself edits there without asking |
-| Install backups go under `.duolog/backup/` | Git ignores that folder |
+The findings motivated `planner`, a shared worker brief, explicit denial
+messages, per-command option checks and exact rules for arbitrary-code
+commands. See [Configuration](../configuration.md) and
+[Permissions](../permissions.md) for current behavior.
 
-A review of the study's first patch by two agents found eight ways around the
-gate in it, and the patch fixed them. Our own review then found more in the new
-read commands: `sort -no file` and `sort --compress-program` wrote and ran
-programs, `jq -f` could print a secret in its error, and `diff -r` and `yq`
-could reach denied files. Reviews of 1.1.0 by Codex and Opus found more:
-`uniq - .duolog/learned.yaml` wrote the learned rules from a read-only role,
-`file -m.env` printed a secret, `grep -X x .env` hid the file, `jq -n env`
-printed API keys, and `remember` widened `python3.12`, `awk` and `uv run`
-commands. 1.1.0 checks the options of `grep`, `jq`, `sort`, `uniq` and `file`,
-leaves out `diff` and `yq`, and keeps such commands exact in `remember`.
+Gate review found reads that could write or execute (`sort -no`,
+`sort --compress-program`, `uniq - out`), expose secrets (`jq -f`, `file -m`,
+unknown grep options, `jq -n env`), or recurse into denied files (`diff -r`,
+yq). These findings explain why a familiar command name alone is
+insufficient; the gate checks options and paths.
 
 ## Which model to give a worker task
 
@@ -129,15 +110,14 @@ at five effort levels (84 runs). A blind grader scored each answer from 0 to 3.
 | high | 2.75, 0.07 USD | 3.0, 0.27 USD | 3.0, 0.52 USD |
 | max | 3.0, 0.25 USD | 3.0, 0.35 USD | 3.0, 2.97 USD |
 
-Effort above `high` raised no model's score, and Opus at `max` cost six times
-Opus at `high`. No default role asks for `xhigh` or `max`. Only one of the four
-bugs told the models apart. `gpt-6.1-sol` made no false claim in any run;
-Opus at low effort made three. So the `debug` role, which reads one
-repository, runs on `sol` at medium effort. The bugs were still easier than a
-real investigation with logs and several services, so `debug_hard` keeps Opus
-until such cases are measured.
+Max effort only matched each model's best lower-effort score; Opus max cost
+six times high, so defaults stop at high. Only one hard bug separated the
+models. Sol made no false claim; Opus low made three. Debug therefore uses
+sol/medium.
+Debug_hard keeps Opus pending measurements involving logs and multiple
+services.
 
-## The skeleton of a new module
+## How models built a module skeleton
 
 A later round asked each model to lay out a new module with no example in the
 repository: once a port of a small Go library to a Python package, once a Go
@@ -166,8 +146,8 @@ In the skeleton task `sol` and Opus each broke a rule of the brief. A reviewer
 needed 15 to 25 minutes a run, more than any model cost. Effort did not change
 the mean total.
 
-So keep the plan and the brief with the lead, write the list of what not to
-build into the brief, and ask a Codex worker to list the decisions it made.
+Keep the plan, brief and exclusions with the lead; require Codex workers
+to list their decisions.
 
 ## What the study did not show
 

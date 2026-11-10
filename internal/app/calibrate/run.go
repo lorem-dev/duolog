@@ -238,7 +238,7 @@ func (r *Runner) runCell(ctx context.Context, i int) (Outcome, bool, error) {
 			return Outcome{}, false, r.capAgent(agent)
 		}
 		return *refused, true, nil
-	case err != nil && before == nil:
+	case err != nil && step.budget == nil:
 		// Refused before the worker could start: nothing was charged.
 		return Outcome{}, true, err
 	case notStarted(err):
@@ -259,11 +259,11 @@ func (r *Runner) runCell(ctx context.Context, i int) (Outcome, bool, error) {
 	var quotaErr, observeErr error
 	if before != nil {
 		c.Weekly, c.Window, quotaErr = r.settle(ctx, agent, family, before, cost, false)
-		r.settleUSD(agent, heldUSD, res.USD, false, true)
 		if quotaErr == nil {
 			observeErr = r.observe(ctx, agent, family, res.Input, res.Cached, res.Output)
 		}
 	}
+	r.settleStartedUSD(step.budget != nil, agent, heldUSD, res.USD)
 	r.Run.Cells[i] = c
 	if err := r.Run.Save(r.StateDir); err != nil {
 		return Outcome{}, true, errors.Join(err, observeErr)

@@ -1,5 +1,6 @@
 // Package quota reads subscription limits through the agents' own CLIs.
-// It never starts a model request or uses reset credits.
+// Claude may use a minimal CLI probe when /usage supplies no windows.
+// It never uses reset credits.
 package quota
 
 import (
@@ -44,6 +45,9 @@ type Reader struct {
 	// Once reads without the retry of a timed-out read, for a caller that can
 	// do without the answer and should not wait twice for it.
 	Once bool
+	// NoProbe never starts the Claude model probe, for a caller that reads
+	// often and can do without the answer, such as the pace balance.
+	NoProbe bool
 }
 
 // Identity kinds handed to Reader.IdentitySink: the login's account, and the
@@ -98,15 +102,16 @@ func (r Reader) ReadProcess(ctx context.Context, p workerenv.Process) (Snapshot,
 	if timeout <= 0 {
 		timeout = 15 * time.Second
 	}
-	s, err := r.readOnce(ctx, p, timeout, claudeAuthTimeout)
+	probeUsed := r.NoProbe
+	s, err := r.readOnce(ctx, p, timeout, claudeAuthTimeout, &probeUsed)
 	if r.Once || ctx.Err() != nil {
 		return s, err
 	}
 	switch {
 	case errors.Is(err, ErrTimedOut) || err == nil && timedOut(s.Billing):
-		return r.readOnce(ctx, p, retryFactor*timeout, retryFactor*claudeAuthTimeout)
+		return r.readOnce(ctx, p, retryFactor*timeout, retryFactor*claudeAuthTimeout, &probeUsed)
 	case account.IsTransient(err) && pause(ctx, retryPause):
-		return r.readOnce(ctx, p, timeout, claudeAuthTimeout)
+		return r.readOnce(ctx, p, timeout, claudeAuthTimeout, &probeUsed)
 	}
 	return s, err
 }
@@ -125,7 +130,7 @@ func pause(ctx context.Context, d time.Duration) bool {
 
 // readOnce is one read of p, bounded by timeout, with auth status bounded by
 // authTimeout.
-func (r Reader) readOnce(ctx context.Context, p workerenv.Process, timeout, authTimeout time.Duration) (Snapshot, error) {
+func (r Reader) readOnce(ctx context.Context, p workerenv.Process, timeout, authTimeout time.Duration, probeUsed *bool) (Snapshot, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	if len(p.Prefix) == 0 {
@@ -140,7 +145,7 @@ func (r Reader) readOnce(ctx context.Context, p workerenv.Process, timeout, auth
 		return Snapshot{}, errors.New("cannot create temporary folder")
 	}
 	defer os.RemoveAll(dir)
-	run := runner{p: p, bin: bin, dir: dir, authTimeout: authTimeout}
+	run := runner{p: p, bin: bin, dir: dir, authTimeout: authTimeout, probeUsed: probeUsed}
 	if sink := r.IdentitySink; sink != nil {
 		run.identity = func(kind string, raw []byte) error { return sink(p.Agent, kind, raw) }
 	}
@@ -159,7 +164,9 @@ func (r Reader) readOnce(ctx context.Context, p workerenv.Process, timeout, auth
 	if err != nil {
 		return Snapshot{Billing: s.Billing}, err
 	}
-	s.ReadAt = time.Now().UTC()
+	if !s.Recalled {
+		s.ReadAt = time.Now().UTC()
+	}
 	return s, nil
 }
 
@@ -190,6 +197,7 @@ func lookPath(name string, env []string) (string, error) {
 // runner starts the read subprocesses of one process from its executable, in
 // a temporary folder. authTimeout bounds Claude's auth status.
 type runner struct {
+	probeUsed   *bool
 	p           workerenv.Process
 	bin, dir    string
 	identity    func(kind string, raw []byte) error
@@ -258,7 +266,11 @@ func stop(cmd *exec.Cmd, stdin io.Closer) {
 	select {
 	case <-done:
 	case <-time.After(200 * time.Millisecond):
-		_ = cmd.Process.Kill()
+		if cmd.Cancel != nil {
+			_ = cmd.Cancel()
+		} else {
+			_ = cmd.Process.Kill()
+		}
 		<-done
 	}
 }

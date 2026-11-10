@@ -369,6 +369,9 @@ func title(name string) string {
 // skills and is left alone. note says what changed, and is empty when
 // nothing did.
 func (d Deps) RefreshSkills(root, home string) (note string, err error) {
+	if err := checkSkillDirs(d.Agents, Options{Home: home, Root: root}, root); err != nil {
+		return "", err
+	}
 	v := Version()
 	changed := false
 	for _, a := range d.Agents {

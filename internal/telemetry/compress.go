@@ -3,6 +3,8 @@ package telemetry
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"io"
 	"io/fs"
@@ -27,13 +29,14 @@ func fault(step string) error {
 // syncs and closes it, renames it over day.ndjson.gz and removes the plain
 // file. Until the rename the plain file is the segment: a step that fails
 // returns at once and leaves it in place, with at most a .gz.tmp that the
-// next prune removes. After the rename readers prefer the .gz, which is
-// complete since it was synced first.
+// next prune removes. After the rename readers reconcile the plain segment
+// with the fingerprint in the synced gzip header.
 //
 // A .gz already beside the plain file was left by a crash after its rename,
 // or the day was written again after a clock was set back. When the .gz holds
 // the plain file or a start of it, the plain file alone is the day; otherwise
-// the .gz lines come first in the new copy.
+// the .gz lines come first in the new copy. The header also identifies the
+// copied plain prefix, so a retry copies only any newly appended tail.
 func (s *Store) compress(partition, day string) error {
 	today := s.o.Now().UTC().Format(time.DateOnly)
 	if !partitionPattern.MatchString(partition) || !dayPattern.MatchString(day) || !validDay(day) || day >= today {
@@ -83,7 +86,10 @@ func (s *Store) writeTemp(plain, gz, tmp string) (read os.FileInfo, kept bool, w
 	if read, err = fileInfo(src); err != nil {
 		return nil, false, nil, scrub(err)
 	}
-	var prior io.Reader // the .gz whose lines come first, if any
+	var prior struct {
+		io.Reader
+		skip int64
+	} // the .gz whose lines come first, if any
 	old, err := openReading(s.root, gz)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -95,7 +101,7 @@ func (s *Store) writeTemp(plain, gz, tmp string) (read os.FileInfo, kept bool, w
 		if err != nil {
 			return nil, false, nil, scrub(err)
 		}
-		prefix, whole, err := covers(old, src)
+		prefix, whole, skip, err := compressionRelationship(old, src, read.Size())
 		if err != nil {
 			// A .gz that does not decompress keeps both files as they are.
 			return nil, false, nil, err
@@ -107,9 +113,9 @@ func (s *Store) writeTemp(plain, gz, tmp string) (read os.FileInfo, kept bool, w
 			if _, err := old.Seek(0, io.SeekStart); err != nil {
 				return nil, false, nil, scrub(err)
 			}
-			prior = old
+			prior.Reader, prior.skip = old, skip
 		}
-		if _, err := src.Seek(0, io.SeekStart); err != nil {
+		if _, err := src.Seek(prior.skip, io.SeekStart); err != nil {
 			return nil, false, nil, scrub(err)
 		}
 	}
@@ -126,7 +132,7 @@ func (s *Store) writeTemp(plain, gz, tmp string) (read os.FileInfo, kept bool, w
 		err = fault("create")
 	}
 	if err == nil {
-		err = writeGzip(f, prior, src)
+		err = writeGzip(f, prior.Reader, src, prior.skip)
 	}
 	if err == nil {
 		err = fault("write")
@@ -152,8 +158,16 @@ const maxRawCopy = 1024 * megabyte
 // writeGzip writes the lines of the gzip stream old, when there is one, then
 // plain, as one gzip stream to dst. A last line of old without its newline
 // was cut by a crash; it is ended, so plain's first line stays whole.
-func writeGzip(dst io.Writer, old, plain io.Reader) error {
+func writeGzip(dst io.Writer, old io.Reader, plain io.ReadSeeker, skip int64) error {
+	extra, err := plainFingerprint(plain)
+	if err != nil {
+		return err
+	}
+	if _, err := plain.Seek(skip, io.SeekStart); err != nil {
+		return err
+	}
 	z := gzip.NewWriter(dst)
+	z.Extra = extra
 	if old != nil {
 		r, err := gzip.NewReader(old)
 		if err != nil {
@@ -228,4 +242,86 @@ func covers(gz, plain io.Reader) (prefix, whole bool, err error) {
 			return true, more == 0, nil
 		}
 	}
+}
+
+// plainFingerprint records the entire plain segment copied into a gzip. Keeping
+// it in the same atomic rename makes retries independent of sidecar writes.
+func plainFingerprint(src io.ReadSeeker) ([]byte, error) {
+	if _, err := src.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	hash := sha256.New()
+	n, err := io.Copy(hash, io.LimitReader(src, maxRawCopy+1))
+	if err != nil {
+		return nil, err
+	}
+	if n > maxRawCopy {
+		return nil, errUnsafe
+	}
+	extra := make([]byte, 44)
+	copy(extra, "DLG1")
+	// Encode keeps the signed size as it is, with no conversion to check.
+	if _, err := binary.Encode(extra[4:12], binary.LittleEndian, n); err != nil {
+		return nil, err
+	}
+	copy(extra[12:], hash.Sum(nil))
+	return extra, nil
+}
+
+// includedPlain returns how many leading bytes of plain the gzip already
+// contains. It verifies the gzip checksum and bounds both streams first.
+func includedPlain(compressed, plain io.Reader, limit int64) (int64, error) {
+	z, err := gzip.NewReader(io.LimitReader(compressed, limit))
+	if err != nil {
+		return 0, err
+	}
+	defer z.Close()
+	extra := z.Extra
+	if len(extra) != 44 || string(extra[:4]) != "DLG1" {
+		return 0, nil
+	}
+	var n int64
+	if _, err := binary.Decode(extra[4:12], binary.LittleEndian, &n); err != nil || n <= 0 || n > limit {
+		// A gzip without a valid record holds no plain copy.
+		return 0, nil
+	}
+	hash := sha256.New()
+	read, err := io.CopyN(hash, plain, n)
+	if errors.Is(err, io.EOF) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if read != n || !bytes.Equal(hash.Sum(nil), extra[12:]) {
+		return 0, nil
+	}
+	copied, err := io.Copy(io.Discard, io.LimitReader(z, limit+1))
+	if err != nil {
+		return 0, err
+	}
+	if copied > limit {
+		return 0, errUnsafe
+	}
+	return n, nil
+}
+
+// compressionRelationship recognizes the copied plain prefix before trying
+// the prefix comparison used by gzip segments from earlier versions.
+func compressionRelationship(old, src io.ReadSeeker, size int64) (prefix, whole bool, skip int64, err error) {
+	skip, err = includedPlain(old, src, maxRawCopy)
+	if err != nil {
+		return false, false, 0, err
+	}
+	if _, err = old.Seek(0, io.SeekStart); err != nil {
+		return false, false, 0, err
+	}
+	if _, err = src.Seek(0, io.SeekStart); err != nil {
+		return false, false, 0, err
+	}
+	if skip > 0 {
+		return false, skip == size, skip, nil
+	}
+	prefix, whole, err = covers(old, src)
+	return prefix, whole, 0, err
 }

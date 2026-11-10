@@ -25,7 +25,7 @@ import (
 //
 // The entries live as long as the process. With Dir set, each read made now
 // also goes to a file there, so that the next duolog process can use it in
-// place of a read that fails for a passing reason, as Get says.
+// place of a transient failure or a Claude model probe, as Get says.
 type Cache struct {
 	// Read reads the quota a process sees, quota.Reader.ReadProcess.
 	Read func(context.Context, launch.Process) (account.Snapshot, error)
@@ -65,6 +65,9 @@ type cacheEntry struct {
 // same key within the quota age limit: that read is used, marked Recalled,
 // and judged as it was, so a read that said paid or rejected still does. An
 // error from build returns nothing else.
+// Claude also reuses a retained read within the age limit before probing a
+// confirmed subscription whose /usage has no windows. Its current /usage
+// billing restrictions still count, and the retained read keeps its age.
 func (c *Cache) Get(ctx context.Context,
 	build func() (launch.Process, error), cfg *config.Config,
 	evidence account.RunEvidence, fresh bool) (launch.Process, account.Snapshot, paidrules.Assessment, error) {
@@ -151,7 +154,8 @@ func (c *Cache) knownPlans() map[string]string {
 // is still younger than the quota age limit, it reads nothing and fresh is
 // true. A read that names a provider env_key p was not built with is not
 // kept and is an error, as in Get. No earlier read ever stands in for a
-// failed one here: the caller measures what changed since the run.
+// failed one here: the caller measures what changed since the run. If Claude
+// reuses retained windows instead of a probe, fresh is true as for lookup.
 func (c *Cache) After(ctx context.Context, p launch.Process, cfg *config.Config) (s account.Snapshot, fresh bool, err error) {
 	if c.Read == nil {
 		return account.Snapshot{}, false, errors.New("paid runs: cache has no reader")
@@ -160,7 +164,10 @@ func (c *Cache) After(ctx context.Context, p launch.Process, cfg *config.Config)
 	if s, ok := c.lookup(p.CacheKey, false, maxAge); ok {
 		return s, true, nil
 	}
-	s, err = c.Read(ctx, p)
+	s, err = c.readWithProbeFallback(ctx, p, maxAge)
+	if err == nil && s.Recalled {
+		return s, true, nil
+	}
 	if key := s.Billing.ProviderEnvKey; err == nil && key != "" && key != p.ProviderEnvKey {
 		return account.Snapshot{}, false, errors.New("paid runs: the process was built without the provider env_key the read found")
 	}

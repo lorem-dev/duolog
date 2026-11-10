@@ -92,16 +92,15 @@ token costs.
 
 ## What happens at the end of a task
 
-Run `duolog task finish`. The lead shows the output to the user in its printed
-order: a table of delegations, at most two profiling offers, any routing-change
-notice, and the outcome question.
+Run `duolog task finish`. Show its output in order: delegation table, at
+most two profiling offers, routing-change notice, outcome question. Each
+offer gives the target, reason and estimate including the judge; the
+person chooses one, both or none.
 
-Each offer states its target, reason and estimated cost, including the judge.
-The person chooses one, both or none. There are no offers for replays,
-provider limits, tasks returned to the lead, or explicit person choices.
-Run-here results, interruptions and requests for clarification also get no
-offer. They add no quality or failure observations for a ladder entry and
-cannot be replayed.
+Replays, provider limits, explicit target choices, run-here results,
+interruptions and clarification requests get no offer. Run-here results,
+interruptions and clarification requests add no quality or failure
+observation and cannot be replayed.
 
 Record the person's outcome for the finished task:
 
@@ -133,20 +132,16 @@ complete before and after trees for every step. Later tasks must read earlier
 outputs through files. If they embed original answers or reference original
 delegation artifacts, duolog refuses the chain before starting any worker.
 
-The command uses a separate Git worktree, a checkout that shares Git history.
-It rebuilds the recorded starting tree from the base commit and saved patch.
-The main checkout and its staged changes stay as they were. A record without
-a base commit or saved starting patch cannot be replayed.
+Profiles reconstruct the recorded base commit and starting patch in
+`.duolog/profile/worktree` under shared state, without changing the main
+checkout or staging. Missing base or patch prevents replay. The worktree is
+cleaned before the next run and removed on success, failure or interruption.
+If Codex rejects its hooks, open `/hooks` at the reported worktree path and
+retry.
 
-The command runs the class's `checks` commands on both results. Commands use
-spaces to separate arguments; shell operators and quoting have no special
-meaning. A missing program has exit code `-1` and does not stop the comparison.
-
-The worktree uses the fixed path `.duolog/profile/worktree` under the shared
-state root. The command removes it on success, failure or interruption. It
-cleans a stale worktree before the next run. If Codex refuses untrusted hooks,
-the error names the path. Open `/hooks` there once to trust the hooks, then
-run the command again.
+Class `checks` run on both results. Arguments split on spaces; shell
+operators and quotes are literal. A missing program records exit `-1`
+without stopping the comparison.
 
 Each run saves `side.patch` and `answer.json` in a new `profile-<n>` folder
 inside `.duolog/journal/tasks/<task-id>/<delegation-id>/`. Pass `--lead <id>`
@@ -272,17 +267,12 @@ to `false` to turn learning mode off.
 
 ## How a new project gets a starting order
 
-Learning mode is off by default. When you turn it on, a new project starts on
-the configured ladders. If you ask the lead for it,
-[calibration](calibration.md) replays past work on several targets and
-proposes a starting order per class. Its results join this journal, and
-`duolog learn` keeps refining from real tasks. The order routes nothing while
-learning mode is off; `duolog learn` and `duolog calibrate propose` then say
-so in one line.
-
-Calibration evidence can affect later proposals even after you remove its
-saved run folder. See [Calibration](calibration.md) before you delete local
-evidence.
+New projects use configured ladders. On request,
+[calibration](calibration.md) replays history to propose starting orders;
+its evidence joins the journal for `learn` to refine. Orders route only
+with learning enabled; `learn` and `calibrate propose` report when it is
+off. Deleting calibration folders leaves journal evidence and applied
+orders.
 
 ## Related pages
 

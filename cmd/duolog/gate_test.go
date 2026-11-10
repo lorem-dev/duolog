@@ -382,6 +382,8 @@ func TestGateLogsWithoutExtraStdout(t *testing.T) {
 	if len(strings.Split(strings.TrimSpace(string(data)), "\n")) != 3 {
 		t.Fatal(string(data))
 	}
+	// Mutation killed: the log reader must be invoked by the lead, never a worker.
+	t.Setenv("DUOLOG_DEPTH", "")
 	out, err := gateCommand(t, "", "decisions")
 	if err != nil || !strings.Contains(out, "Allow") || !strings.Contains(out, "Deny") || !strings.Contains(out, "ask timeout") || !strings.Contains(out, "Reason") {
 		t.Fatal(out, err)

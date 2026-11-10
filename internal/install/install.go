@@ -10,6 +10,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"path/filepath"
 	"strings"
 )
 
@@ -104,7 +106,7 @@ func Merge(existing, ours []byte) ([]byte, error) {
 	}
 	hooks := map[string][]json.RawMessage{}
 	if raw, ok := top["hooks"]; ok {
-		if err := json.Unmarshal(raw, &hooks); err != nil {
+		if err := decodeHookGroups(raw, hooks); err != nil {
 			return nil, fmt.Errorf("bad \"hooks\" value, nothing changed: %w", err)
 		}
 	}
@@ -224,5 +226,68 @@ func ourPart(raw json.RawMessage) (string, bool) {
 
 // IsOurCommand shares handler recognition with trust and startup checks.
 func IsOurCommand(command string) bool {
-	return command == "duolog" || command == "duolog gate" || strings.Contains(command, "duolog hook ") || strings.Contains(command, "duolog gate ")
+	if rest, ok := devLauncherRest(command); ok {
+		return hookVerb(rest)
+	}
+	// Generated Windows guards contain PowerShell syntax inside one argument.
+	const ps = `powershell -NoProfile -NonInteractive -Command `
+	if strings.HasPrefix(command, ps) {
+		body := strings.TrimPrefix(command, ps)
+		if strings.HasPrefix(body, `"& ([Environment]::SystemDirectory + '\where.exe') /Q ([char]36 + 'PATH:duolog'); if (`) {
+			return strings.Contains(body, ") { duolog gate ") || strings.Contains(body, ") { duolog hook ")
+		}
+		return IsOurCommand(body)
+	}
+	for _, prefix := range []string{
+		"if command -v duolog; then exec duolog ",
+		"if (Get-Command duolog) { duolog ",
+		// The Windows guard of older releases, so install replaces it.
+		"if (Get-Command duolog -ErrorAction SilentlyContinue) { duolog ",
+		"if command -v duolog >/dev/null 2>&1; then exec duolog ",
+	} {
+		if rest, ok := strings.CutPrefix(command, prefix); ok {
+			return hookVerb(rest)
+		}
+	}
+	words := strings.Fields(command)
+	if len(words) > 0 && words[0] == "exec" {
+		words = words[1:]
+	}
+	if len(words) == 0 {
+		return false
+	}
+	program := strings.Trim(words[0], "\"'")
+	name := strings.ToLower(filepath.Base(strings.ReplaceAll(program, `\`, "/")))
+	if name != "duolog" && name != "duolog.exe" {
+		return false
+	}
+	return len(words) == 1 || words[1] == "gate" || words[1] == "hook"
+}
+
+// devLauncherRest returns what follows the dev launcher in this repository's
+// own Codex hooks, which run the checkout's duolog.
+func devLauncherRest(command string) (string, bool) {
+	for _, dev := range []string{
+		`r=$(git rev-parse --show-toplevel 2>/dev/null); if [ -x "$r/scripts/dev/bin/duolog" ]; then exec "$r"/scripts/dev/bin/duolog `,
+		`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/dev/bin/duolog.ps1 `,
+	} {
+		if rest, ok := strings.CutPrefix(command, dev); ok {
+			return rest, true
+		}
+	}
+	return "", false
+}
+
+func hookVerb(command string) bool {
+	verb, _, _ := strings.Cut(command, " ")
+	return verb == "gate" || verb == "hook"
+}
+
+func decodeHookGroups(raw json.RawMessage, hooks map[string][]json.RawMessage) error {
+	var parsed map[string][]json.RawMessage
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return err
+	}
+	maps.Copy(hooks, parsed)
+	return nil
 }

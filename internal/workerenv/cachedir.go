@@ -24,16 +24,14 @@ func goCacheHash(lead string) string {
 // base and each folder is a real folder (not a link) owned by the current
 // user and not writable by the group or the world.
 func prepareCacheDirs(base string, subs ...string) error {
-	dirs := []string{base}
+	dirs := []string{filepath.Dir(base), base}
 	for _, sub := range subs {
 		dirs = append(dirs, filepath.Join(base, sub))
 	}
 	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
+		if err := os.Mkdir(dir, 0o700); err != nil && !os.IsExist(err) {
 			return err
 		}
-	}
-	for _, dir := range dirs {
 		info, err := os.Lstat(dir)
 		if err != nil {
 			return err

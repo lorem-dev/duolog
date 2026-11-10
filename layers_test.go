@@ -84,6 +84,7 @@ var allowedEdges = map[string]string{
 	"internal/app/delegate -> internal/store":                  reasonStore,
 	"internal/app/doctor (test) -> internal/adapter/config":    reasonConfig,
 	"internal/app/doctor -> internal/adapter/session":          reasonSession,
+	"internal/app/gate -> internal/project":                    reasonProject,
 	"internal/app/hook -> internal/adapter/config":             reasonConfig,
 	"internal/app/hook -> internal/bus":                        reasonBus,
 	"internal/app/hook -> internal/adapter/session":            reasonSession,

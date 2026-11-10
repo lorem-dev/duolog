@@ -2,6 +2,7 @@ package codex
 
 import (
 	"bytes"
+	"github.com/lorem-dev/duolog/internal/install"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,7 @@ func TestAdoptionProblem(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			home := adoptHome(t)
 			root, dir := t.TempDir(), t.TempDir()
-			hooks, err := HooksJSON(30)
+			hooks, err := HooksJSON(install.GateTimeout)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -77,7 +78,7 @@ func TestAdoptionProblem(t *testing.T) {
 			writeFile(t, path, data)
 			a := adopter{path: path, dir: dir, roots: []string{root}, userHooks: filepath.Join(home, "hooks.json")}
 			if tc.name == "stale approval" {
-				a.stale = map[string]string{filepath.Join(root, ".codex", "hooks.json") + ":pre_tool_use:0:0": "sha256:PreToolUse"}
+				a.stale = map[string]string{filepath.Join(root, ".codex", "hooks.json") + ":pre_tool_use:0:0": fixtureApprovalHash("PreToolUse")}
 			}
 			got := a.adoptionProblem([]byte(data))
 			if tc.want == "" {

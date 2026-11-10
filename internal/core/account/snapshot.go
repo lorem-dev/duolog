@@ -40,6 +40,7 @@ type Credits struct {
 // Snapshot contains quota fields and billing evidence only; identity and
 // credentials are discarded.
 type Snapshot struct {
+	Source              string              `json:"source,omitempty"`
 	Plan                string              `json:"plan,omitempty"`
 	Windows             []Window            `json:"windows"`
 	ModelLimits         map[string][]Window `json:"model_limits,omitempty"`
@@ -50,8 +51,8 @@ type Snapshot struct {
 	Billing             BillingFacts        `json:"billing"`
 	ReadAt              time.Time           `json:"read_at"`
 	// Recalled says this is an earlier good read of the same route, used
-	// because the read made now failed for a passing reason. ReadAt stays the
-	// time of that earlier read.
+	// because the read made now failed for a passing reason or Claude's
+	// /usage had no windows. ReadAt stays the time of that earlier read.
 	Recalled bool `json:"recalled,omitempty"`
 }
 

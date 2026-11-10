@@ -7,14 +7,16 @@ import "slices"
 
 // RunEvidence is what a run told about its own billing, E in the design:
 // Claude's rate_limit_event on stream-json. The stream parser fills it with
-// flags and safe categories only, never a raw reason or an identity.
+// flags, safe categories and quota windows, never a raw reason or identity.
 // Expected says the run should send evidence and Seen that it did;
 // UsingOverage that the run spent paid overage, OverageEnabled that overage
 // is on, Fast that the run used fast mode. WorkspaceReasons are the safe
-// categories of BillingFacts.WorkspaceReasons.
+// categories of BillingFacts.WorkspaceReasons. Windows holds the latest
+// explicit unified windows; an event without windows leaves them unchanged.
 type RunEvidence struct {
 	Expected, Seen, UsingOverage, OverageEnabled, Fast bool
 	WorkspaceReasons                                   []string
+	Windows                                            []Window
 }
 
 // Add takes a later event of the same run. Every flag only turns on, so a
@@ -26,6 +28,9 @@ func (e *RunEvidence) Add(later RunEvidence) {
 	e.UsingOverage = e.UsingOverage || later.UsingOverage
 	e.OverageEnabled = e.OverageEnabled || later.OverageEnabled
 	e.Fast = e.Fast || later.Fast
+	if len(later.Windows) > 0 {
+		e.Windows = slices.Clone(later.Windows)
+	}
 	for _, reason := range later.WorkspaceReasons {
 		if SafeWorkspaceReason(reason) && !slices.Contains(e.WorkspaceReasons, reason) {
 			e.WorkspaceReasons = append(e.WorkspaceReasons, reason)

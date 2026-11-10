@@ -62,16 +62,17 @@ func (e *env) peerTaskFile(entry session.Entry, ref string) (string, error) {
 
 // Send passes one line, a reference to the task file, to a ready session.
 func Send(ctx context.Context, id, taskRef string) (err error) {
-	started, agent, run := time.Now(), "", ""
-	defer func() { observeOperation(ctx, "send", agent, run, started, Ready, err) }()
+	started, agent, run, sending := time.Now(), "", "", &sendLock{}
+	defer func() { sending.finish(ctx, agent, run, started, err) }()
 	e, err := setup(ctx)
 	if err != nil {
 		return err
 	}
-	entry, err := e.find(id)
+	entry, err := e.beginSend(ctx, id, sending)
 	if err != nil {
 		return err
 	}
+
 	agent, run = entry.Agent, entry.Run
 	ref := strings.TrimSpace(taskRef)
 	if strings.HasPrefix(ref, "/") {

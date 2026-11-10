@@ -48,6 +48,8 @@
   `delegate` refuses before a worker starts when the gate would stop one.
 - Install in one line: the release asset `install-prompt.md` lets Claude Code
   or Codex install duolog and ask whether to set up the current project.
+- The `duolog-update` skill updates duolog, its plugin and the project's
+  hooks; `duolog --version` and `duolog -V` print the version.
 
 ### Changed
 
@@ -66,12 +68,20 @@
   `starting`.
 - A worktree gets the Codex trust of the lead's checkout also when `delegate`
   or `peer open` runs inside that worktree.
-- `delegate` no longer crashes when the worker's route changes during admission.
+- `delegate` no longer crashes when the route changes during admission; a
+  paid-run refusal says why the quota read failed.
 - A worker reads a skill linked from `~/.agent/skills` into the agent's config
   folder; only that skill tree opens, not the config folder.
-- A paid-run refusal from `delegate` or `peer open` says why the quota read
-  failed.
 - `duolog skill test` reads an answer that a model wraps in one code fence.
+- A Claude plan with only a weekly window, whose `/usage` shows none, no
+  longer makes every Claude worker paid: one short Haiku call reads it.
+
+### Security
+
+- Workers can no longer run `install`, `uninstall` or `decisions`; a worker in
+  a worktree keeps the main checkout's local denies.
+- Decision and request logs, and ask summaries, withhold commands that carry
+  credentials, such as `curl -u` or an `Authorization` header.
 
 ## 1.7.0
 

@@ -50,8 +50,8 @@ func TestReportTotals(t *testing.T) {
 		return parsed.Add(time.Duration(hour) * time.Hour)
 	}
 
-	// Yesterday, compressed: the plain copy a crash left holds one more run,
-	// which a gzip copy of the day hides.
+	// Mutation killed: preferring gzip hides a run appended after a clock rollback.
+	// The plain segment extends the compressed prefix by one more run.
 	known := reportRun("reviewer", "claude", "done")
 	known.In, known.Cached, known.Out, known.USDmicro = 1000, 400, 200, 30000
 	known.Secs, known.Asks, known.Denials = 10, 1, 2
@@ -93,7 +93,7 @@ func TestReportTotals(t *testing.T) {
 	plant(t, accountSegment(root, "2026-11-04"), lines(t, at("2026-11-04", 9), quotaEpoch(1)))
 
 	yesterdayRow := Daily{Day: "2026-11-04", Agent: "claude", Role: "reviewer", Outcome: "done",
-		Runs: 1, In: 1000, Cached: 400, Out: 200, USDmicro: 30000, Secs: 10, Asks: 1, Denials: 2}
+		Runs: 2, In: 2000, Cached: 800, Out: 400, USDmicro: 60000, Secs: 20, Asks: 2, Denials: 4}
 	failedRow := Daily{Day: testDay, Agent: "codex", Role: "writer", Outcome: "failed",
 		Runs: 1, In: 40, Out: 4, USDmicro: 120, Secs: 2, Denials: 1}
 
@@ -180,7 +180,7 @@ func TestReportTotals(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := `{"day":"2026-11-04","agent":"claude","role":"reviewer","outcome":"done","runs":1,"in":1000,"cached":400,"out":200,"usd_micro":30000,"secs":10,"asks":1,"denials":2,"unpriced":0,"usage_unknown":0}`
+		want := `{"day":"2026-11-04","agent":"claude","role":"reviewer","outcome":"done","runs":2,"in":2000,"cached":800,"out":400,"usd_micro":60000,"secs":20,"asks":2,"denials":4,"unpriced":0,"usage_unknown":0}`
 		if string(row) != want {
 			t.Errorf("daily row\n got %s\nwant %s", row, want)
 		}

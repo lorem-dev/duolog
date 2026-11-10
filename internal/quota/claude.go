@@ -53,7 +53,7 @@ func readClaude(ctx context.Context, run runner) (Snapshot, error) {
 		return Snapshot{Billing: s.Billing}, errors.New("not logged in")
 	}
 	if usage.found == nil {
-		return Snapshot{Billing: s.Billing}, usage.noQuota(s.Billing)
+		return claudeProbeOrNoQuota(ctx, run, usage, s)
 	}
 	return s, nil
 }

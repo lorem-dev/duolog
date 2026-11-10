@@ -22,6 +22,7 @@ func newStartRig(t *testing.T) *startRig {
 	t.Helper()
 	r := &startRig{t: t, home: t.TempDir(), lead: t.TempDir(), folder: t.TempDir()}
 	r.write(filepath.Join(r.folder, ".mcp.json"), `{"mcpServers":{"b":{"command":"x"},"a":{"command":"y"}}}`)
+	r.write(filepath.Join(r.lead, ".mcp.json"), `{"mcpServers":{"b":{"command":"x"},"a":{"command":"y"}}}`)
 	return r
 }
 

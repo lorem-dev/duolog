@@ -436,7 +436,10 @@ func TestHeldWorkerRefusesAnUnprovenGateHook(t *testing.T) {
 		h.lead("claude", mode.Full, "high")
 		out, err := h.runOn("review_final", "claude", "haiku")
 		h.requireCalls(0)
-		if err == nil || !strings.Contains(out.Line, "gate preflight failed") || !strings.Contains(out.Line, "duolog install") || !strings.Contains(out.Line, "settings.local.json") {
+		// A hook that only names the gate in a comment is no gate at all
+		// now, so its refusal says no gate is there instead of naming it.
+		named := strings.Contains(out.Line, "duolog install") && strings.Contains(out.Line, "settings.local.json")
+		if err == nil || !strings.Contains(out.Line, "gate preflight failed") || (name != "comment" && !named) {
 			t.Errorf("%s: %v %q", name, err, out.Line)
 		}
 	}

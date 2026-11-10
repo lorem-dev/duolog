@@ -68,7 +68,9 @@ func TestHeldClaudePeerNeedsItsGate(t *testing.T) {
 		r.lead("claude", mode.Full)
 		writeFile(r.t, filepath.Join(r.root, ".claude", "settings.local.json"), settings)
 		_, err := Open(r.ctx, "review_final")
-		if err == nil || !strings.Contains(err.Error(), "gate preflight failed") || !strings.Contains(err.Error(), "duolog install") {
+		// A hook that only names the gate in a comment is no gate at all, so
+		// its refusal need not point at the hook.
+		if err == nil || !strings.Contains(err.Error(), "gate preflight failed") || (name != "comment" && !strings.Contains(err.Error(), "duolog install")) {
 			t.Errorf("%s: %v", name, err)
 		}
 		if len(r.spawns()) != 0 {

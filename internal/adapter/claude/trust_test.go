@@ -331,5 +331,6 @@ func TestHeldGateReadsManagedSettings(t *testing.T) {
 	check("drop-in sets managed hooks only", "", `{"allowManagedHooksOnly":true}`, false)
 	check("managed hooks only, gate in managed", `{"allowManagedHooksOnly":true,`+managedGate[1:], "", true)
 	check("managed hooks only, gate in a drop-in", `{"allowManagedHooksOnly":true}`, managedGate, true)
-	check("managed gate only names the gate", `{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"true # duolog gate --agent claude --event PreToolUse"}]}]}}`, "", false)
+	// Mutation killed: treating a foreign comment as a broken gate rejects the valid project gate.
+	check("managed gate only names the gate", `{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"true # duolog gate --agent claude --event PreToolUse"}]}]}}`, "", true)
 }

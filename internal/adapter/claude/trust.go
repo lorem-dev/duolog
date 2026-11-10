@@ -45,6 +45,10 @@ func (Trust) Hooks(root string, environ []string) (agent.TrustState, error) {
 	if plugin && !settingsGate && !install.PluginInstalledIn(root, home, environ) {
 		state.Unproven = "the duolog Claude plugin is enabled but not installed; run duolog install"
 	}
+	if state.Unproven == "" && state.Installed {
+		gate, _ := workerenv.LookPath("duolog", environ)
+		state.Unproven = (Trust{}).HeldGateProblem(root, environ, gate)
+	}
 	return state, nil
 }
 

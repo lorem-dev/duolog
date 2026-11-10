@@ -1,26 +1,14 @@
-# Live verification of agent assumptions
+# What the live agent probes showed
 
-This page records what Claude Code and Codex really did when we tested the
-assumptions behind duolog, before any product code existed. The original runs
-were on 2026-10-30 and 2026-10-31. Historical observations remain in the text,
-with their limits.
+Agent probes from 2026-10-30 and 2026-10-31 record the assumptions behind
+duolog, with saved evidence and limits on what can be reproduced.
 
-## Results that contradict the design
+## How to interpret the results
 
-Read these first when revising tasks 9 to 13, 15 and 16. Live behavior with
-missing setup is OBSERVED, as the summary and setup table explain.
+A saved fixture proves only what it records. Live observations with missing
+setup are not replayable; the table below names their limits.
 
-| What the design says | What we measured | What it means |
-|---|---|---|
-| A reference is cheaper than content on the bus | A whole-file reference cost 1.9 times the content. `resume` cost the most. A 16-line review told where the bug is cost less, but 1 of 3 runs gave no review | These are costs for different tasks. Comparable review quality and a line-range threshold are NOT VERIFIED |
-| `PermissionRequest` works under one-off runs | The earlier run reported no firing under `codex exec` and approval policy `never` | OBSERVED; the setup was not saved. Do not assume this hook gates one-off work |
-| Hooks protect the worker | The earlier run reported that `codex exec` skipped an untrusted hook with no warning | OBSERVED; the setup was not saved. Check hook trust before relying on it |
-| `.codex/agents` may not load | The earlier run reported agent loading under `codex exec` in a trusted folder, but no `agent_type` in an untrusted one | OBSERVED; full agent and trust setup were not saved |
-| Rex works from either agent | The tested Codex shell could not find `rex`; one sandbox run could not reach its socket | OBSERVED; the setup was not saved. These observations do not cover all Codex launch or sandbox settings |
-| `SessionStart` can register the lead with its effort | No saved `SessionStart` sample names effort. The Claude `-p` sample does not name the model either | Later records can show effort. Before a new turn they can be stale; Codex can record null |
-| Claude `/model` and `/effort` affect one session | They wrote to `~/.claude/settings.json`, even with `--setting-sources project,local` | Never send these commands to a worker pane |
-
-## Summary of every question
+## Which questions the probes answered
 
 Versions: codex-cli 0.165.0 at the start and at the end, so it did not change.
 Claude Code 2.1.312. rex 0.0.1793047680. The shared Codex server is a separate
@@ -111,10 +99,8 @@ VERIFIED covers these saved samples, not every run.
 
 ### Which live setups cannot be rebuilt
 
-The earlier run removed its temporary files and Codex session records. The
-fixtures save inputs and selected outputs, not the full live setup. The
-following answers are OBSERVED but not repeatable live behavior. We cannot
-rebuild their original setup from this page and the fixtures alone.
+Original temporary files and session records were removed. Fixtures retain
+inputs and selected outputs, but these live setups cannot be reconstructed:
 
 | Answers | Missing setup or evidence |
 |---|---|
@@ -128,16 +114,11 @@ rebuild their original setup from this page and the fixtures alone.
 | M5 | Plugin installation, exact SKILL.md file and complete command output |
 | R1 to R5 | Full pane setup, commands and closure records. Saved split and wait JSON do not show all lifecycle comparisons |
 
-H9, C2, C3, D3, M1, M2, M4, U2, U3 and W1 were already NOT VERIFIED.
-U1 below is a supplied live observation, not a replayable isolated test of
-one update setting. The command fragments below are historical notes. They
-are not complete probe instructions. Do not use them as live replay commands.
+U1 is a supplied observation, not an isolated test of one update setting.
+The command fragments below are historical notes, not live replay
+instructions.
 
 ## The earlier run reported agent loading after folder trust
-
-The earlier run reported loading in `codex exec` and the interactive program.
-It reported success for both `probe-agent` and `probe_agent` after trust.
-The evidence below is an excerpt, not a complete retained transcript.
 
 The command used `codex exec --json`, model `gpt-6-luna`, effort `low`,
 `project_doc_max_bytes=0` and `--disable hooks`. Its prompt asked to spawn
@@ -200,11 +181,8 @@ files and full commands were not saved. S1 to S4 are OBSERVED.
 | The skill is listed | Yes, in the prompt | Yes, in the prompt | Yes, in the init event |
 | Calling it returned `COPPER-LATCH-6650` | Yes, no tool call | Yes, no tool call | Yes |
 
-**What this means.** The report suggests that these keys did not cause errors
-in its setup. Without the skill files, that result is OBSERVED. The
-reported listing also does not establish every effect of
-`disable-model-invocation`. We did not test whether Claude hides such a skill
-from the model.
+The listing does not establish every key's effect. Claude's hiding of
+skills with `disable-model-invocation` was not tested.
 
 ## The earlier run reported a converted Claude agent
 
@@ -230,10 +208,8 @@ must refuse it or map it to deny rules. Treat `effort` as unproven and pass
 
 ## The earlier run reported these hook decisions
 
-The table records the earlier observations for H1 to H8. The fixtures do not
-include complete hook setup and per-case results, so these live decisions are
-OBSERVED but not repeatable tests. The Codex exec event fixture contains a
-model message reporting a blocked command, not the hook script itself.
+The Codex exec fixture records the model reporting a blocked command, not
+the hook script.
 
 | Agent and run | `PreToolUse` deny, JSON | `PreToolUse` deny, exit 2 | `PermissionRequest` deny | `PermissionRequest` allow |
 |---|---|---|---|---|
@@ -288,10 +264,8 @@ calls it from inside the `exec` code tool. `spawn_agent` is
 
 ## The earlier run reported hook firing after trust
 
-H8 is OBSERVED without the full hook and trust setup. The report says
-project hooks did not run in a Codex session with no bypass flag until we
-trusted them. Then `UserPromptSubmit` and, in the next session,
-`SessionStart` fired.
+Project hooks reportedly ran only after trust: UserPromptSubmit first,
+then SessionStart in the next session.
 
 The trust step happens either in the startup screen `Hooks need review` or with
 `t` in `/hooks`. Codex stores it in `~/.codex/config.toml` as
@@ -359,37 +333,16 @@ mean delivery. We did not test what happens on reopen.
 | Claude | `effort.level` and `CLAUDE_EFFORT`, in `PreToolUse` and `PermissionRequest` only | `effort` on each `assistant` line of `transcript_path` | `/effort high` changed all of them. Hook: `medium`, then `high` |
 | Codex | None | `turn_context.effort` in `transcript_path` | `/model` to terra and low changed it from `medium` to `low` |
 
-These values become available when the agent writes the later record. For
-Claude, wait for an assistant record from the next turn. For Codex, wait for a
-new `turn_context` record. Reading an existing transcript needs no model call,
-but producing the next turn can use tokens. Before that record appears, the
-latest value may still be the old one. Reading immediately after a change is
-NOT VERIFIED. The changed-value records were not retained, so E4 to E7 are
-OBSERVED but not replayable live tests.
-
-Codex can write `null` for effort. That means the record does not supply the
-chosen value. A catalog default does not prove which effort the server used.
-
-`CLAUDE_EFFORT` in `SessionStart` and `UserPromptSubmit` is not reliable. It was
-absent in fresh panes, and in a nested run it held the parent's value, `high`,
-when the run's effort was `low`.
-
-**An effort nobody chose.**
-
-- Claude: `medium` for Haiku 5.5, in the hook and on screen, live and in `-p`.
-  We did not measure it for Opus or Sonnet.
-- Codex: `turn_context.effort` is `null` with `--ignore-user-config`. The
-  model's default comes from `default_reasoning_level` in `codex debug models`,
-  such as `medium` for `gpt-6-luna`. We did not see the value the server used.
-
-**The model after a change.** Codex shows it in later hooks. Claude shows it
-only in the transcript, as `message.model`: `claude-haiku-5-5`, then
-`claude-sonnet-5-5`.
-
-**Warning.** Claude `/effort` and `/model` wrote to user settings, as the
-incident below shows. In Codex, the `/model` menu has `enter default` and `s
-session`. We used `s`, and `config.toml` did not change. Other Codex choices are
-NOT VERIFIED.
+| Limitation | Consequence |
+|---|---|
+| Effort appears in a later assistant record (Claude) or turn_context (Codex) | Existing records may be stale after a change. Reading them costs no model call; producing a turn can spend tokens. Immediate reading is unverified |
+| Changed-value records were not retained | E4-E7 remain observations |
+| Codex can record null effort | Neither it nor a catalog default proves the server's chosen effort |
+| CLAUDE_EFFORT at SessionStart/UserPromptSubmit | Absent in fresh panes; a nested low-effort run inherited high. Unreliable |
+| Claude effort with none chosen | Haiku 5.5 showed medium in hooks and on screen, live and in -p; Opus/Sonnet were not measured |
+| Codex effort with --ignore-user-config | Null in turn_context; catalog lists a default (medium for gpt-6-luna), but server choice was not observed |
+| Model after a switch | Codex names it in later hooks; Claude only in transcript message.model (haiku then sonnet) |
+| Model/effort switches | Claude writes user settings. Codex's session-only choice left config.toml unchanged; other choices are unverified |
 
 ## How the permission mode shows in hooks
 
@@ -511,12 +464,8 @@ copy.
 
 ## The earlier run compared a closed pane and an exited program
 
-R1 to R5 are OBSERVED without the full pane setup and closure records.
-The following table preserves the earlier observations. The split fixture
-shows `block_ids`, and the wait fixture shows an exit status of 3. Those two
-fixtures alone cannot reproduce the full comparison. The report says the two
-cases differ. A closed pane is gone, and an exited program leaves the
-block there. The `rex split --json` field for the new block is `block_ids[0]`.
+The split fixture records `block_ids[0]`; the wait fixture records exit 3.
+The reported lifecycle differences below remain OBSERVED.
 
 | Command | Pane closed | Program exited (code 3) |
 |---|---|---|
@@ -550,11 +499,6 @@ later send. `peer_send` needs a wait and a check.
   failed because `rex` was not found. We did not prove the cause. A user-level
   Rex hook and skill exist on this machine. With a working `rex`, a worker might
   rename the user's session, so tasks must plan for this.
-
-## MCP checks were dropped
-
-The plan no longer has a duolog MCP server, because the user chose the Rex CLI.
-So we did not test M1 or M2.
 
 ## The bus: a directed narrow review saved estimated cost
 
@@ -604,32 +548,20 @@ the model said it would read project guidance first.
 | Hand over or do it yourself, lead on Sonnet | Empty-call lower bound only: about 200 tokens of file. NOT VERIFIED as a break-even point |
 | Hand over or do it yourself, lead on Haiku or Luna | Empty-call lower bound only. "Never cheaper" applies only when the lead input price is at or below the worker input price |
 
-The last three rows use the empty-call cost as a lower bound on hand-over
-cost. The old formula is `0.00038 / (lead input price - 0.10 per million)`.
-It omits the worker's file input, tool calls and output, the lead's cost of
-reading the answer, and the lead's cache. It is not a measured break-even
-point. A full hand-over can cost more than this lower bound.
+The empty-call lower-bound formula is
+`0.00038 / (lead input price - 0.10 per million)`. It omits worker input,
+tools and output, the lead's answer-reading cost and cache effects. In this
+model, handing over cannot save money when the lead's input price is at
+most the worker's. No full hand-over break-even point was measured.
 
-Within that simplified price model, "never cheaper" follows only when the
-lead's input price is at or below the worker's. Then the empty call alone
-already costs more than any file-input saving. It does not follow for every
-model called Haiku; the price comparison is the condition. The lead's cache
-can also reduce the saving. No full hand-over break-even point was measured.
+Limits: the synthetic file repeats; real files may have more tokens per
+line. Three repeats and changing cache hits limit comparisons. A stricter
+task format may reduce calls. The range form ran in a shell loop; the
+updated script was not rerun. Answers were not retained. The earlier report
+says two range runs found Sum137's bug and one refused review; other forms'
+quality is unknown.
 
-**What this does not rule out.** The file repeats itself, so a real file may
-have more tokens per line. Three repeats are few, and cache hits changed between
-runs. We used the first form of a `task.md`, and a stricter one could need fewer
-commands. The range test was added to the requested three forms, and a shell
-loop ran it. The script has this form now, but we did not run that version
-again.
-
-**The answers.** The earlier report describes answers only for the range runs.
-Those answer texts are not in the checked-in fixtures. It says two found the
-planted bug in `Sum137`. The third said that it could not review the file, so
-its tokens bought no review. The script does not save answers, so the quality of
-the other forms is NOT VERIFIED.
-
-## Live round 2: the cache, the skill, the Codex lead and the cost
+## What the second live round measured
 
 Measured on 2026-10-31 with codex-cli 0.165.0, `gpt-6-luna` at low effort and
 Claude `haiku` at low effort.
@@ -663,16 +595,13 @@ the sandbox and `true` with `sandbox_mode="danger-full-access"`. Adding
 `--sandbox danger-full-access` the whole chain passed. A token in the
 environment was not tested.
 
-**Limit text.** This round hit no usage limit. The real texts we saved earlier
-are Claude: `You've hit your 5-hour limit, resets 3am (Europe/London) (error
-type rate_limit, HTTP 429)`, and Codex: `You've hit your usage limit. ... try
-again at 8:48 AM.` (see `scripts/bench/fixtures/limits/`).
-
 **One quality note.** The whole-file run named the right function but gave line
 824, not the real line near 1230. The cheaper form was not checked for answer
 quality beyond that.
 
-## Claude exec hooks with a missing binary: OBSERVED
+## What happened when the hook binary was missing
+
+<a id="missing-binary"></a>
 
 Measured on real Claude Code 2.1.312. The setup registered exec-form hooks
 with `"command":"duolog-missing-xyz"` and an `args` array for SessionStart,
@@ -680,30 +609,17 @@ UserPromptSubmit, PreToolUse and PostToolUse, with that executable absent.
 Under `claude -p`, the tool ran, the process exited 0, and stderr was empty.
 With a present binary, the same form's PreToolUse deny was honored.
 
-Exec form uses no shell, so the hook form is the same for sh, Git Bash and
-PowerShell. This corrects the earlier claim that a missing executable must
-not be used for a lead. Interactive display of a failed hook was not
-measured. No copy of this probe is in `scripts/bench/probes/`; this is an
-observation supplied for this task, not a retained replayable probe. No real
-agent was run while making this change.
+The probe had no `onFailure: block`; current installed gate hooks set it.
+Interactive failure display was not measured, and no replayable probe was
+retained. See [current hook behavior](../permissions.md#where-the-checks-run).
 
-## What these tests changed on the machine
+## Why worker panes must not receive model switches
 
-| Item | State after the runs |
-|---|---|
-| `~/.codex/config.toml` | We added a trust entry, 2 hook hashes and raised a counter, then removed them. `diff` with the first backup shows only the changes the controller made |
-| `~/.codex/hooks.json` | `cmp` says identical |
-| `~/.claude/settings.json` | See below. The SHA-1 matches the value from before the runs |
-| `~/.codex/sessions` | We removed the probe session files. `codex delete` needs `--force`, so rows may stay in the Codex state database |
-| `~/.claude.json`, `~/.claude/history.jsonl` | Still mention the temp folder or probe prompts. We left them, because live sessions rewrite them |
-| Claude 5-hour limit | 91% at the first warning, 98% later. The limit then stopped this work until it reset |
-
-**The incident.** We sent `/effort high` and `/model sonnet` to a probe Claude.
-The run had `--setting-sources project,local`, and Claude still wrote to
-`~/.claude/settings.json`. `model` went from `opus` to `sonnet`, and
-`modelSettings` gained `claude-haiku-5-5`. A new session started in that minute
-could have used Sonnet. We edited those two lines back and checked the SHA-1
-(`b2f9109e...`).
+Sending `/effort high` and `/model sonnet` changed Claude's user settings,
+even with `--setting-sources project,local`. The probe restored the two
+changed fields and verified the original hash. A session started during
+the change could have picked the wrong model. Pass model and effort at
+startup; do not send these switches to worker panes.
 
 ## Related pages
 

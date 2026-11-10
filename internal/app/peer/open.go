@@ -248,6 +248,7 @@ func (e *env) livePeers(ctx context.Context, leadID, agent string) ([]session.En
 	// files that peers of older versions left behind.
 	// Best effort: a file that stays does no harm, so a failure never stops
 	// the open.
+	_ = e.sweepEnv()
 	_ = e.sweepModels()
 	all, err := e.reg.Entries()
 	if err != nil {

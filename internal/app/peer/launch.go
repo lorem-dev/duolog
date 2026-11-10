@@ -3,6 +3,9 @@ package peer
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/lorem-dev/duolog/internal/app/launch"
 	"github.com/lorem-dev/duolog/internal/core/config"
@@ -85,4 +88,29 @@ func writeEnvFile(dir string, pairs []string) (string, error) {
 // variables. Rex starts it directly (--shell=none).
 func launchArgv(exe, envFile string, program []string) []string {
 	return append([]string{exe, "peer", "launch", "--env-file", envFile, "--"}, program...)
+}
+
+// sweepEnv drops abandoned launch files while open holds the placement lock.
+// Recent files may belong to a launcher that has not read its environment yet.
+func (e *env) sweepEnv() error {
+	entries, err := os.ReadDir(e.dir)
+	if err != nil {
+		return err
+	}
+	cutoff := time.Now().Add(-time.Minute)
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), ".peer-env-") || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode().IsRegular() && info.ModTime().Before(cutoff) {
+			if err := os.Remove(filepath.Join(e.dir, entry.Name())); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		}
+	}
+	return nil
 }

@@ -24,6 +24,7 @@ type codexSettings struct {
 	Hooks struct {
 		State map[string]struct {
 			TrustedHash string `toml:"trusted_hash"`
+			Enabled     *bool  `toml:"enabled"`
 		} `toml:"state"`
 	} `toml:"hooks"`
 }
@@ -140,24 +141,18 @@ func hooksAt(path string, s codexSettings, stale map[string]string) (agent.Trust
 			}
 			for approved, state := range s.Hooks.State {
 				approvedPath, suffix, ok := install.ApprovalPath(approved)
-				if !ok || suffix != fmt.Sprintf("%d:%d", i, j) || state.TrustedHash == "" ||
+				if !ok || suffix != fmt.Sprintf("%d:%d", i, j) || !activeCodexApproval(state.TrustedHash, state.Enabled) ||
 					pathutil.Clean(pathutil.Resolved(approvedPath)) != pathutil.Clean(pathutil.Resolved(path)) {
 					continue
 				}
-				// Codex's hash algorithm is unknown here, and Codex skips a
-				// hook whose command changed after approval. duolog installs
-				// only its own command, so any other command at an approved
-				// position cannot be shown to be the approved one; nor can
-				// duolog's own command when install rewrote it after the
-				// approval and Codex still holds the hash it had then.
+				problem := codexApprovalProblem(path, state.TrustedHash, stale[approved])
 				var reason string
 				switch {
 				case hook.Command != posix || hook.CommandWindows != windows || len(hook.Args) != 0:
 					reason = "the approved Codex gate hook in " + path +
 						" is not duolog's gate command, and Codex skips a hook changed after approval; run duolog install and approve it in /hooks"
-				case stale[approved] == state.TrustedHash:
-					reason = "duolog install changed the Codex gate hook in " + path +
-						" after Codex approved it, and Codex skips a hook changed after approval; approve it again in /hooks"
+				case problem != "":
+					reason = problem
 				default:
 					return agent.TrustState{Trusted: true, Installed: true}, nil
 				}
@@ -168,4 +163,17 @@ func hooksAt(path string, s codexSettings, stale map[string]string) (agent.Trust
 		}
 	}
 	return unproven, nil
+}
+
+func activeCodexApproval(hash string, enabled *bool) bool {
+	return hash != "" && (enabled == nil || *enabled)
+}
+
+func codexApprovalProblem(path, hash, staleHash string) string {
+	if staleHash == hash {
+		return "duolog install changed the Codex gate hook in " + path + " after Codex approved it, and Codex skips a hook changed after approval; approve it again in /hooks"
+	}
+	// duolog does not compute Codex's approval hash: its form may change
+	// between Codex versions, and a wrong hash would refuse every worker.
+	return ""
 }

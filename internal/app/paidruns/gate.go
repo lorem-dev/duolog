@@ -34,17 +34,18 @@ const (
 	ReasonPaneRoute = "the pane's route cannot be established"
 )
 
-// RouteKey is a digest of the route p runs on, by names only: its agent,
-// shape and variant, the names in its environment, the route names it
-// withholds, the matched endpoint entries, its signals, its fast-mode pin and
-// its provider env_key. Unlike CacheKey it holds no config or modification
-// time, so a lowered cap or a touched file does not move it.
+// RouteKey privately hashes route values as well as names. Per-run duolog
+// metadata, PATH and Go cache locations do not select a billing account.
 func RouteKey(p launch.Process) string {
 	names := make([]string, 0, len(p.Env))
 	for _, pair := range p.Env {
 		name, _, _ := strings.Cut(pair, "=")
 		if !slices.Contains(workerenv.GoCacheNames, name) {
-			names = append(names, name)
+			if strings.HasPrefix(name, "DUOLOG_") || name == "PATH" {
+				names = append(names, name)
+			} else {
+				names = append(names, pair)
+			}
 		}
 	}
 	slices.Sort(names)
@@ -56,9 +57,30 @@ func RouteKey(p launch.Process) string {
 		Signals                 []launch.Signal
 		FastPinned              bool
 		ProviderEnvKey          string
-	}{p.Agent, p.Shape, p.Variant, names, p.Dropped, p.EndpointEntries, p.Signals, p.FastPinned, p.ProviderEnvKey})
+		Settings                string
+		Prefix                  []string
+	}{p.Agent, p.Shape, p.Variant, names, p.Dropped, p.EndpointEntries, p.Signals, p.FastPinned, p.ProviderEnvKey, p.Settings, routePrefix(p.Prefix)})
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+// Only generated cache assignments are omitted; every other argv value is
+// part of the private route digest, including provider and auth overrides.
+func routePrefix(prefix []string) []string {
+	result := make([]string, 0, len(prefix))
+	for i := 0; i < len(prefix); i++ {
+		if prefix[i] == "-c" && i+1 < len(prefix) {
+			if word, ok := strings.CutPrefix(prefix[i+1], "shell_environment_policy.set."); ok {
+				name, _, _ := strings.Cut(word, "=")
+				if slices.Contains(workerenv.GoCacheNames, name) {
+					i++
+					continue
+				}
+			}
+		}
+		result = append(result, prefix[i])
+	}
+	return result
 }
 
 const (
@@ -368,7 +390,7 @@ func (g *Gate) attemptOnce(ctx context.Context, req Request, id string, l *line,
 		// A send runs in its pane, on the route and billing class the pane
 		// was admitted with, whatever this command's environment says.
 		if open, ok := view.openSession(agent, req.ExistingSession); ok {
-			if open.Route == "" || open.Route != RouteKey(p) || open.Workspace && a.Account != "workspace" {
+			if open.Route == "" || !samePaneIdentity(open, p, accountKey) || open.Workspace && a.Account != "workspace" {
 				return Permit{}, Admission{}, refuse(a, ReasonPaneRoute, "close the pane and open it again"), nil
 			}
 			if open.Paid && a.Verdict != paidrules.Paid {

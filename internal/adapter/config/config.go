@@ -307,19 +307,28 @@ func mergeNode(dst, root *yaml.Node) {
 // keys win over merged keys, and earlier maps in a merge sequence win over later
 // maps. Copies prevent layer merging from mutating another use of an anchor.
 func resolveYAMLNode(node *yaml.Node, active map[*yaml.Node]bool) (*yaml.Node, error) {
+	budget := 100000
+	return resolveYAMLBudget(node, active, &budget)
+}
+
+func resolveYAMLBudget(node *yaml.Node, active map[*yaml.Node]bool, budget *int) (*yaml.Node, error) {
+	*budget--
+	if *budget < 0 {
+		return nil, fmt.Errorf("line %d: YAML expansion budget exceeded", node.Line)
+	}
 	if active[node] {
 		return nil, fmt.Errorf("line %d: recursive YAML alias", node.Line)
 	}
 	active[node] = true
 	defer delete(active, node)
 	if node.Kind == yaml.AliasNode {
-		return resolveYAMLNode(node.Alias, active)
+		return resolveYAMLBudget(node.Alias, active, budget)
 	}
 	resolved := *node
 	resolved.Anchor = ""
 	resolved.Content = nil
 	for _, child := range node.Content {
-		value, err := resolveYAMLNode(child, active)
+		value, err := resolveYAMLBudget(child, active, budget)
 		if err != nil {
 			return nil, err
 		}
@@ -328,6 +337,10 @@ func resolveYAMLNode(node *yaml.Node, active map[*yaml.Node]bool) (*yaml.Node, e
 	if resolved.Kind != yaml.MappingNode {
 		return &resolved, nil
 	}
+	return flattenYAMLMapping(resolved)
+}
+
+func flattenYAMLMapping(resolved yaml.Node) (*yaml.Node, error) {
 	entries := resolved.Content
 	resolved.Content = nil
 	seen := make(map[string]bool)
@@ -347,19 +360,26 @@ func resolveYAMLNode(node *yaml.Node, active map[*yaml.Node]bool) (*yaml.Node, e
 			maps = maps[0].Content
 		}
 		for _, mapping := range maps {
-			if mapping.Kind != yaml.MappingNode {
-				return nil, fmt.Errorf("line %d: YAML merge requires a mapping", mapping.Line)
-			}
-			for j := 0; j < len(mapping.Content); j += 2 {
-				key := mapping.Content[j]
-				if !seen[key.Value] {
-					seen[key.Value] = true
-					resolved.Content = append(resolved.Content, key, mapping.Content[j+1])
-				}
+			if err := appendYAMLMapping(&resolved, mapping, seen); err != nil {
+				return nil, err
 			}
 		}
 	}
 	return &resolved, nil
+}
+
+func appendYAMLMapping(dst, src *yaml.Node, seen map[string]bool) error {
+	if src.Kind != yaml.MappingNode {
+		return fmt.Errorf("line %d: YAML merge requires a mapping", src.Line)
+	}
+	for j := 0; j < len(src.Content); j += 2 {
+		key := src.Content[j]
+		if !seen[key.Value] {
+			seen[key.Value] = true
+			dst.Content = append(dst.Content, key, src.Content[j+1])
+		}
+	}
+	return nil
 }
 
 // Mapping entries merge recursively; scalar and sequence values replace their layer.

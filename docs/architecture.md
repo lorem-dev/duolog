@@ -1,10 +1,7 @@
 # How the duolog code is split into layers
 
-This page describes the tiers of the duolog code, which tier may import which,
-and the test that checks the rules. Read it before you add a package or move
-code from one package to another. The layers test, `TestLayers` in
-`layers_test.go`, checks every import on all six release targets: darwin,
-linux and windows, each on amd64 and arm64.
+Read this before adding or moving a package. `TestLayers` in `layers_test.go`
+checks imports on darwin, linux and windows, each on amd64 and arm64.
 
 ## How the code is split into tiers
 
@@ -60,7 +57,7 @@ The test leaves out imports of `internal/telemetry`, and later of
 `internal/adapter/telemetry`. `TestTelemetryDependencies` and
 `TestTelemetryImporters` check those with stricter rules.
 
-## The order of the app packages
+## Which app packages may depend on each other
 
 An app package may import only the app packages that come earlier in this
 list, lowest first:
@@ -70,37 +67,14 @@ launch, lead, learn, paidruns, quota, gate, delegate, profile, peer,
 calibrate, doctor, sync, roster, load, hook, install, remember, skilltest
 ```
 
-The order keeps the app packages free of import cycles and gives every
-import one direction. It matches the imports of today's code: `hook` imports
-`sync`, `roster` and `load`, `doctor` imports `peer`, and `calibrate` imports
-`profile`. No app package has to break the order when it moves.
+The order prevents import cycles. For example, `hook` imports `sync`,
+`roster` and `load`; `doctor` imports `peer`; `calibrate` imports `profile`.
 
 ## Where today's packages sit
 
-A few kit packages still sit outside `internal/adapter`: `internal/rex`,
-`internal/bus`, `internal/journal`, `internal/store`, `internal/project`,
-`internal/trust`, `internal/trusthome`, `internal/install`,
-`internal/coauthor`, `internal/workerenv`, `internal/quota`,
-`internal/telemetry`, `internal/artifact` and `plugin`. The `legacyTiers`
-table in `layers_test.go` makes each of them kit, so the rules apply to them
-now.
-
-Every other package sits under a tier path. The use cases are under
-`internal/app`, such as `internal/app/delegate` and `internal/app/gate`. The
-mode tables are `internal/core/mode`, the routes `internal/core/route`, and
-the config types `internal/core/config`. The config files are read by
-`internal/adapter/config`, the lead and peer registry is
-`internal/adapter/session`, and each agent's code is in
-`internal/adapter/claude` or `internal/adapter/codex`. No forwarding package
-is left.
-
-When a package moves under a tier path, delete its row in the same change. The
-test fails when a row names a package that `go list` does not report. Put a
-new package under a tier path; do not add a row for it.
-
-The test reads `legacyTiers` before the rule for names that end in `test`.
-That is why a package that has not moved is not taken for a test package
-because of its name.
+Legacy kit packages are listed in [`legacyTiers`](../layers_test.go). Delete
+a row when its package moves; stale rows fail. New packages belong under
+tier paths. `legacyTiers` takes precedence over the `test` suffix rule.
 
 ## How the layers test reports a broken rule
 
@@ -148,7 +122,8 @@ would change security code. A key's `from` must be `internal/core/policy`,
 `internal/app/gate`, `internal/core/paidrules`, `internal/app/paidruns` or
 `internal/adapter/paidstore`. Each reason starts with
 `security boundary: moves only;` and a space. `internal/core/policy` may
-import `os` and nothing else. The 1.6.0 ports replace these imports.
+import `os` and nothing else. The boundary ports (not yet scheduled) will
+replace these imports.
 
 **Allowed edges.** A port buys nothing when the code behind it is the same
 for every agent, has no planned second backend and needs no test seam at a
@@ -175,7 +150,8 @@ list. It gets the `Pane` port, because a second pane backend is planned.
 ## Which code is kept for the security boundary
 
 The boundary files call some code of other packages. That code keeps its
-package, name, signature and behaviour until the 1.6.0 boundary ports. It
+package, name, signature and behaviour until the boundary ports (not yet
+scheduled). It
 also holds both agents' arms, so a new agent adds its arm there too.
 
 | Package | Kept | Called from |
@@ -207,7 +183,8 @@ also fails when a place in `agentNameHomes` names no agent any more.
 
 The files that still name an agent today are in `pendingAgentNames`. The list
 is closed and may only shrink, under the ceiling `maxPendingAgentNames`, and
-it drains in 1.6.0, when those names move to the agent descriptors.
+names move to the agent descriptors with the boundary ports (not yet
+scheduled).
 
 ## How to add an agent
 
@@ -225,8 +202,9 @@ it drains in 1.6.0, when those names move to the agent descriptors.
    mode tables in `internal/core/mode`.
 6. Add its arms to the code kept for the boundary: `internal/workerenv` and
    `internal/quota`, and the lead state and trust if it can be a lead. These
-   arms move to the adapter with the 1.6.0 ports.
-7. Run `make schema`. The agent maps of the config, such as `paid_runs`,
+   arms move to the adapter with the boundary ports (not yet scheduled).
+7. Run `make schema-write`, then `make schema`. The agent maps of the config,
+   such as `paid_runs`,
    `coauthors` and `worker_modes`, take the new name from the descriptor.
 
 ## How to prove a move changed nothing

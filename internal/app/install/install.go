@@ -115,6 +115,8 @@ type edit struct {
 	// state marks an agent's own state file, which is written in place with
 	// no backup (see writeState).
 	state bool
+	// source is the state snapshot a planned MCP edit must still match.
+	source *[]byte
 	// plain is a file duolog wrote, such as a skill file at user scope: it
 	// is replaced with no backup.
 	plain bool
@@ -160,7 +162,7 @@ func stampServer(home string) {
 
 // Run installs hooks, the skill and, in project scope, a starter config.
 func (d Deps) Run(o Options) (Report, error) {
-	agents, base, err := d.resolve(o)
+	agents, base, err := d.resolveForInstall(o)
 	if err != nil {
 		return Report{}, err
 	}

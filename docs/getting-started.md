@@ -1,7 +1,6 @@
-# Getting started with duolog
+# How to start using duolog
 
-This page shows how to install duolog, set up a project, check the setup and
-send a first task. Install the binary on macOS or Linux:
+Install duolog, set up a project and send a first task. On macOS or Linux:
 
 ```sh
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh
@@ -21,12 +20,9 @@ Claude Code and Codex sessions that are already running, as they load both only
 at start; install prints a line to say so, and a lead started earlier is told
 once at its next prompt.
 
-The Linux binaries are static, so they need no libc of a given version. CI
-runs the amd64 binary on Alpine 3.10 and 3.20, Ubuntu 14.04 and 16.04,
-Debian 9 and CentOS 7, and the arm64 binary on Alpine 3.20 and Ubuntu 16.04.
-The installer also works with busybox `sh` and `wget`, so Alpine needs no curl
-or bash; CI runs it on Alpine 3.20 and Ubuntu 14.04. Claude Code and Codex
-have their own system requirements.
+The Linux binaries are static, so any libc works. The installer also runs
+with busybox `sh` and `wget`. Claude Code and Codex have their own system
+requirements.
 
 Pin a release or choose another directory:
 
@@ -35,14 +31,11 @@ curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | DUOLOG_INSTALL_DIR="$HOME/bin" sh
 ```
 
-From the release after 1.4.0 on, an installer downloaded from a release page,
-such as `releases/download/v<version>/install.sh` or `install.ps1`, installs
-that release by default; the `releases/latest/download` links install the
-newest one.
-`DUOLOG_VERSION` and `--version` always win. `DUOLOG_VERSION` also pins a
-POSIX release; `--dir` also sets its directory.
-Use `--via-go` to print the source install command. The POSIX script supports
-macOS and Linux; use the PowerShell installer on Windows.
+An installer from a release page (`releases/download/v<version>/`) installs
+that release; one from `releases/latest/download` installs the newest.
+`--version` or `DUOLOG_VERSION` overrides both, and `--dir` sets the folder.
+`--via-go` prints the source install command. Use the PowerShell installer
+on Windows.
 
 On Windows, use Windows PowerShell 5.1 or PowerShell 7 (`pwsh`):
 
@@ -74,47 +67,35 @@ The agent must get your agreement before running it. The block also tells the
 agent to hand work to duolog's workers and to start its own subagent only when
 duolog says `run here`. User setup does not add the block.
 
-Each install replaces everything between the markers with the current text, so
-a newer duolog updates it; your text outside the markers is never touched. An
-install also turns the one-line offer of an earlier duolog into the block, in
-the same place. Uninstall removes the block and that old line and keeps your
-other instructions. If a file has a begin marker without an end marker, or the
-reverse, install and uninstall stop with an error that names the file and
-change nothing.
+Each install rewrites only the text between the markers and migrates the
+older one-line offer. Uninstall removes the block or old offer. A file with
+only one of the two markers stops install and uninstall with an error that
+names it; nothing changes.
 
 ## How to install with an agent
 
-Instead of the steps on this page, you can let Claude Code or Codex install
-duolog. Run one line in your project folder. It downloads
-`install-prompt.md` from the latest release and starts the agent with it.
+Use the one-line install in [README](../README.md#how-to-install). The agent
+asks whether to set up this project: its Git root, or the main checkout for
+a linked worktree. Either answer installs the binary and the agent's plugin;
+yes also runs `duolog install --scope project` and `duolog doctor`. It stops
+at the first failed command and leaves permission prompts to you. A
+release's install prompt installs that release.
 
-```sh
-claude "$(curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install-prompt.md)"
-```
+## How to update duolog
 
-```powershell
-claude (irm https://github.com/lorem-dev/duolog/releases/latest/download/install-prompt.md)
-```
+Ask your agent to update duolog: the `duolog-update` skill does every step.
 
-Write `codex` in place of `claude` to install with Codex. The agent first
-asks one question: install duolog into this project folder, yes or skip. In a
-Git repository that folder is its top folder, or the main checkout for a
-linked worktree. With either answer the agent runs the install script, adds
-the duolog plugin to itself and runs `duolog doctor`; with yes it also runs
-`duolog install --scope project`. It stops at the first command that fails
-and leaves every permission prompt to you. The `install-prompt.md` of a
-release installs that release.
+By hand: rerun the installer above with `DUOLOG_VERSION=latest` and check
+`duolog version`, update your agent's plugin with the marketplace commands
+below, run `duolog install --scope project` in each project that has
+`.duolog/config.yaml` (and `--scope user` if you installed for all
+projects), approve changed Codex hooks in `/hooks`, run `duolog doctor`, and
+restart both agents.
 
-## What works on each OS
+## Which install methods are available
 
-| OS | Install command | Known limits |
-|---|---|---|
-| macOS | `curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh` piped to `sh` | Rex is needed only for live sessions |
-| Linux | `curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh` piped to `sh` | Rex is needed only for live sessions |
-| Windows | `irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1` piped to `iex` | No Rex or live sessions; use `duolog delegate`. Real agents checked once, see [Known limits](#known-limits) |
-
-All other single-line `duolog` commands shown here work in POSIX shells and
-PowerShell. duolog is not on a package registry; use the installers or Go.
+duolog is not on a package registry; use the installers or Go. Single-line
+`duolog` commands work in POSIX shells and PowerShell.
 
 ## What you need before you start
 
@@ -125,31 +106,23 @@ PowerShell. duolog is not on a package registry; use the installers or Go.
 | Claude Code, Codex, or both | duolog starts them; it does not replace them |
 | Rex | Only for live second sessions. See [Rex](rex.md) |
 
-Without Rex, `duolog delegate` still works. It runs a one-shot worker and
-reads the answer from a file.
-
 ## How to build the binary
 
 Run this in the repository root:
 
 ```bash
-go build ./cmd/duolog
+go build -o .cache/bin/duolog ./cmd/duolog
 ```
 
-This writes `./duolog` on macOS and Linux, or `.\duolog.exe` on Windows. Put
-its directory on PATH. The Claude hooks use no shell guard, and `claude -p` did
-not block a tool when the binary was missing. The Codex hooks skip a missing
-binary for the lead and block a worker gate. See [Permissions](permissions.md).
+On Windows, use `-o .cache/bin/duolog.exe`. Put `.cache/bin` on PATH.
+Current Claude gate hooks set `onFailure: block`; install duolog before
+using committed hooks. The older missing-binary probe lacked this
+protection. Codex hooks skip a missing binary for the lead and block a
+worker gate. See [Permissions](permissions.md#where-the-checks-run).
 
 ## How to install the hooks and the skill
 
-Run this in your project:
-
-```bash
-duolog install --scope project
-```
-
-The command writes these files and prints each path:
+`duolog install --scope project` writes these files and prints each path:
 
 | File | Content |
 |---|---|
@@ -159,7 +132,8 @@ The command writes these files and prints each path:
 | `~/.claude/skills/duolog-skill-check/` | The skill that offers [skill tests](skills.md) after a change |
 | `~/.claude/skills/duolog-calibrate/` | The skill that runs [calibration](calibration.md) when you ask |
 | `~/.claude/skills/duolog-peers/` | The skill that lists [peers](rex.md) and switches your Rex view to one |
-| `~/.agents/skills/duolog/`, `~/.agents/skills/duolog-skill-check/`, `~/.agents/skills/duolog-calibrate/` and `~/.agents/skills/duolog-peers/` | The same four skills for Codex |
+| `~/.claude/skills/duolog-update/` | The skill that updates duolog when you ask |
+| `~/.agents/skills/duolog/`, `~/.agents/skills/duolog-skill-check/`, `~/.agents/skills/duolog-calibrate/`, `~/.agents/skills/duolog-peers/` and `~/.agents/skills/duolog-update/` | The same five skills for Codex |
 | `~/.claude.json` | The `mcpServers.duolog` entry, at user scope (`.claude.json` under `CLAUDE_CONFIG_DIR` if set) |
 | `.claude/settings.json` | Also three `permissions.allow` entries for the duolog MCP tools |
 | `.duolog/config.yaml` | A starter config, only if none exists |
@@ -178,29 +152,20 @@ Go's native home lookup supplies `.codex` and `.claude` under your home.
 Every install, at either scope, writes the duolog skills at user scope:
 under `~/.claude/skills` for Claude, or `skills` under `CLAUDE_CONFIG_DIR`,
 and under `~/.agents/skills` for Codex. One copy serves every project, so a
-project needs no copy of its own. Each skill's description starts with
+project needs no copy of its own. Except for `duolog-update`, which also works
+outside a duolog project, each skill's description starts with
 "Use only in a project that has .duolog/config.yaml", and its first line
 tells the agent to stop elsewhere. In other projects only the skill's
 one-line listing is in the agent's context. Where the Claude plugin is
 enabled, the plugin supplies Claude's skills and install writes none.
 
-Each `SKILL.md` names the duolog version that wrote it, as
-`duolog-version` under `metadata` in its frontmatter. `duolog install`
-replaces a duolog skill whose files differ from the binary's, such as one
-of another version, when every file in it is one that some duolog release
-wrote, unchanged. A lead's session start in a duolog project replaces such
-a skill when an older duolog wrote it. So a new binary updates the skills
-with no step of yours. Neither touches any other skill folder of the same
-name:
-
-- a skill you changed, or added a file to, even one that names a version;
-- a folder that duolog did not write: its `SKILL.md` names no version and
-  its files match no duolog release;
-- a folder that is a link, or holds a link at any depth.
-
-Install prints a note for each, and `duolog install --check` and
-`duolog doctor` print a line for it. To get duolog's skill back, keep your
-changes elsewhere, remove the folder and run `duolog install`.
+`SKILL.md` records its version under `metadata.duolog-version`. Install
+replaces a skill whose files all match a duolog release; a lead's session
+start updates an older such skill. Both leave alone, with a note, a skill
+you changed or added a file to, a folder duolog did not write, and a folder
+that is or holds a link. `install --check` and `doctor` report these. To
+restore a skill, keep your changes elsewhere, remove the folder and run
+`duolog install`.
 
 Older versions wrote the skills into the project, under `.claude/skills`
 and `.agents/skills` or the folder that `agents.codex.skills_dir` names.
@@ -233,27 +198,19 @@ If a file already exists and changes, duolog first copies it. A project file
 goes to the same path under `.duolog/backup/`, which Git ignores, so
 `git add -A` does not pick it up. A file in your home folder goes to
 `<file>.duolog.bak`. A duolog skill is replaced with no backup.
-`duolog uninstall` removes only the hook entries and the skill files that
-duolog added. A skill file you changed or added stays, with a note. It also
-removes the marked block. An instruction file is deleted only if duolog
-created it and it is now empty.
-
-Install records the `permissions.allow` entries that it adds, and
-uninstall removes only those. An entry you had before install stays. A
-project keeps the record in `.duolog/claude-allow-entries.json`; a user
-install keeps it in `duolog-allow-entries.json` beside the user
-`settings.json`.
+Uninstall at either scope removes user-scope skills and `mcpServers.duolog`
+for every project, and says so. It removes only the allow entries recorded
+at its own scope. Changed skill files and server entries stay, with a note.
+Other projects can restore them with `duolog install`.
+It also removes the marked instruction block; an instruction file is
+deleted only if duolog created it and it is now empty. Install records
+allow entries in `.duolog/claude-allow-entries.json` for project scope or
+`duolog-allow-entries.json` beside user `settings.json` for user scope.
 
 If `mcpServers.duolog` in `~/.claude.json` runs something other than
 `duolog mcp`, it is yours: install and uninstall leave it and print a
 note, and `duolog install --check` and `duolog doctor` print a line for it.
 Rename it and run `duolog install` to get the duolog tools.
-
-Uninstall at either scope removes the duolog skills at user scope, so every
-project loses them, and it says so: `duolog skills removed for all projects;
-other duolog projects get them back with duolog install`. This is the rule
-for the duolog MCP server entry too. Knowing whether another project still
-uses duolog would mean searching your folders.
 
 A new duolog binary does not change the hooks that an older one installed.
 `duolog doctor` names each install that is out of date, with its files and
@@ -277,13 +234,9 @@ A missing duolog skill at user scope, or one that another duolog version
 wrote, makes the install out of date, at either scope. An unchanged copy in
 the project does too, since install removes it.
 
-Some lines need you, not `duolog install`, and do not change the exit code.
-Such a line names a file to remove from a duolog skill folder, a duolog
-skill you changed, a skill folder of duolog's name that duolog did not
-write, or a project copy that you changed. It can also say that duolog
-hooks in `.claude/settings.json` run twice beside the plugin, that two
-agents share one skills folder, or that `mcpServers.duolog` runs something
-else.
+Lines that need you, such as a changed duolog skill, a foreign
+`mcpServers.duolog`, shared skills folders or hooks that run twice beside
+the plugin, do not change the exit code.
 
 A repository can commit the hooks. A clone on a machine that never ran
 `duolog install` has the hooks and no user skills, which is out of date. A
@@ -293,24 +246,15 @@ CI job for such a repository checks the hooks only:
 duolog install --check --hooks-only
 ```
 
-Codex needs two approvals that duolog cannot give. Open `/hooks` in Codex and
-press `t` to trust the hooks. Trust the project folder too. Without them,
-Codex skips the hooks and prints no warning.
-
-You give these approvals once, in the project folder. A linked worktree of
-the project, such as one under `.worktrees/`, is a new folder to Codex.
-Before `delegate` or `peer open` runs Codex in one, duolog copies the
-project's folder trust and its approvals of duolog's own hooks to that
-worktree. See
+Codex needs project trust and hook approval: start Codex in the project and
+press `t` in `/hooks`. Without both, hooks are silently skipped. duolog can
+copy this approval to linked worktrees; see
 [Permissions](permissions.md#how-a-linked-worktree-gets-codex-trust).
 
-Sign in to the agents you will use before you send a task. Workers do not
-get `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, and Claude workers start with
-fast mode off; both are new in 1.4.0. If an agent signs in only with a key,
-workers fail its login check. To let paid runs use the key, under a daily
-cap, see [Configuration](configuration.md#if-you-use-an-api-key-on-purpose).
-Local telemetry is on by default; run `duolog telemetry off` to stop it. See
-[Telemetry](telemetry.md).
+Sign in to the agents before sending a task. Free workers get no API key,
+and free Claude workers start with fast mode off. Key-only logins need
+[paid-run opt-in](configuration.md#if-you-use-an-api-key-on-purpose). See
+[Telemetry](telemetry.md) for the local history.
 
 ## How the lead uses the duolog MCP server
 
@@ -334,18 +278,14 @@ notice and no output file. A worker's asks behave as for a foreground
 `duolog delegate`: the gate denies them and the worker lists the commands in
 `needs`. `wait` false starts the run and returns at once.
 
-A call waits at most 10 minutes (`timeout_minutes`, default and cap). That is
-the longest wait duolog already trusts: `peer wait` stops there too, and the
-gate holds an ask for up to 600 seconds plus 30 seconds. Neither the code nor
-these docs state the MCP client's tool timeout, so duolog stays at the longest
-known wait. A run that outlasts it returns `{"state":"running","id":...}`; the
-lead calls `delegate` again with `action` `result` and `task_path` set to that
-`id`, which waits the same way. A client may also give up before the reply. The
-run goes on and the lead has no `id`; `status` lists the runs, and a `delegate`
-call for the same task while its run is running returns that run's `running`
-state and `id`, not a second worker. Where only the CLI works, the lead starts
-`duolog delegate` in the background and waits for its notice, because a
-foreground shell call has a short time limit.
+A waiting call defaults to, and is capped at, 10 minutes; the MCP client's
+own timeout may be shorter. A timed-out call leaves the run running. To
+wait again, call `delegate` with `action: result` and `task_path` set to the
+returned id. If the client lost the reply, find the id with `status`, or
+resubmit the same running task: duolog returns its existing run instead of
+starting another. For CLI delegation, use a background command and wait
+for its notice. CLI `peer wait` defaults to 30 minutes; the MCP `peer` wait
+has the same 10-minute default and cap as MCP `delegate`.
 
 Install adds the server as one entry at Claude's user scope, from either
 `--scope`. It also adds `mcp__duolog__delegate`, `mcp__duolog__peer` and
@@ -364,10 +304,7 @@ tool per turn, and about 155 tokens once per tool when its schema loads. With
 `ENABLE_TOOL_SEARCH=false`, Claude adds about 17,000 tokens to every turn.
 `duolog doctor` says so when the setting is off.
 
-`duolog uninstall` removes the allow entries at its scope. It always removes
-the server entry, and says `duolog MCP server removed for all projects; other
-duolog projects get it back with duolog install`. An entry you changed stays,
-with a note. To remove the server by hand, delete `mcpServers.duolog` from
+To remove the server by hand, delete `mcpServers.duolog` from
 `~/.claude.json`. `duolog install --check` and `duolog doctor` report a
 missing or different entry and missing allow entries.
 
@@ -433,21 +370,15 @@ setup.
 duolog doctor
 ```
 
-The command prints one line for each finding. It checks the agent binaries and
-versions, whether hooks are installed, Codex trust, Claude trust, Rex, and the
-instruction block (current, outdated or missing; for information only).
-`duolog install --check` counts a missing or outdated block as out of date.
-The Claude line reads only the trust flag
-of the project folder from Claude's user state. If the folder is not trusted,
-Claude ignores the project's `permissions.allow` entries; run Claude Code in
-the folder once and accept the trust dialog. If the state cannot be read, the
-line says `unknown` and is not a failure. It makes no model call unless you
-add `--probe`.
-A config file that does not load comes first, as an `error:` line with the
-file and the line. Doctor stops there, because every other check needs the
-config.
-Follow the steps it names. For a project that already uses duolog, install
-the binary, use the project's skill, and run doctor.
+Doctor lists binaries and versions, hooks, Codex and Claude trust, Rex and
+the instruction block. A config error comes first, names its file and line,
+and stops the checks. The Claude trust line reads the project flag from
+user state; an unreadable flag is `unknown`, not a failure. An untrusted
+folder ignores project `permissions.allow`: start Claude there and accept
+the dialog. `install --check` counts a missing or outdated instruction
+block as out of date; doctor reports it for information. Doctor makes no
+model call unless you pass `--probe` or Claude's plan has no quota windows
+in `/usage`, when it may call Haiku once per route.
 
 ## How to send your first task
 
@@ -483,7 +414,7 @@ block with one command per line (a `#` comment line is skipped, and a line
 that ends in `\` goes on in the next). Before a worker
 starts, duolog judges them with the gate and stops when one would ask or be
 denied; see
-[Permissions](permissions.md#preflight-of-the-run-and-check-commands).
+[Permissions](permissions.md#how-run-and-check-preflight-works).
 
 List files with line ranges in Read. duolog puts those lines in the worker's
 standard input, up to `wire.inline_max_bytes`, so the worker does not spend
@@ -543,10 +474,8 @@ and then the `files` list, which then ends in `...`. It never cuts `needs`,
 warning can make the line longer than 512 bytes. `answer.json` keeps the
 whole summary and list.
 
-A line that starts with `run here:` means duolog did not start a worker. The
-role points to the lead's own agent and model, or it needs little context and
-the lead's model costs no more. So the lead does the task. See
-[Configuration](configuration.md).
+A `run here:` line starts no worker; follow the
+[routing result](configuration.md#how-a-fallback-returns-work-to-the-lead).
 
 Exit code 3 means the task is waiting on a capability that the lead must
 provide first. Exit code 1 is a failure.
@@ -571,8 +500,10 @@ as it was.
 
 ## How to check the remaining subscription quota
 
-Run `duolog quota` to see Claude and Codex quota without a model call. It
-runs `claude -p /usage` and `codex app-server`, which read the limits:
+Run `duolog quota` to see Claude and Codex quota; Codex uses `codex app-server`.
+Claude windows come from `/usage` or, when it shows none on a confirmed
+subscription, one short Haiku call without saving a session.
+The output names this probe as the source, and both reads use the same cache:
 
 ```bash
 duolog quota
@@ -633,7 +564,7 @@ The `coauthors.claude` and `coauthors.codex` templates accept `{model}` for
 the model ID and `{name}` for a display name such as `Claude Opus 5.5`.
 An empty template adds no line for that agent.
 
-## Known limits
+## What remains unverified
 
 - One reported Windows 11 check covered install, hooks, workers and gate
   denies in Windows PowerShell 5.1. Real agents in PowerShell 7 and on
@@ -646,14 +577,6 @@ An empty template adds no line for that agent.
   see [Permissions](permissions.md#a-codex-lead-that-starts-a-claude-worker).
   Its shell could not find `rex` in our checks, so live peers from a Codex
   lead remain unverified. See [Rex](rex.md).
-- Most agent behavior in the research page is OBSERVED in a few runs, not
-  VERIFIED. Read
-  [the live verification](research/2026-10-30-live-verification.md) before you
-  rely on a hook to protect a worker.
-- The cost study ran each setup once per task, on five tasks of one private
-  project. Repeats are needed before its numbers are averages. See
-  [Budgets](budgets.md) and
-  [the cost study](research/2026-11-01-cost-study.md).
 
 ## Related pages
 

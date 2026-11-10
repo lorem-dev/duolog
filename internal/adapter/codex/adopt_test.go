@@ -66,7 +66,7 @@ func repoWithHooks(t *testing.T, dir string) {
 }
 
 // approvalsFor is the config.toml text that trusts root and approves every
-// duolog hook in its hooks file, each with an invented hash.
+// duolog hook in its hooks file, with a real gate hash.
 func approvalsFor(root string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[projects.%s]\ntrust_level = \"trusted\"\n", quote(root))
@@ -78,7 +78,7 @@ func approvalsFor(root string) string {
 				snake = spelling
 			}
 		}
-		fmt.Fprintf(&b, "\n[hooks.state.%s]\ntrusted_hash = %s\n", quote(path+":"+snake+":0:0"), quote("sha256:"+e.Name))
+		fmt.Fprintf(&b, "\n[hooks.state.%s]\ntrusted_hash = %s\n", quote(path+":"+snake+":0:0"), quote(fixtureApprovalHash(e.Name)))
 	}
 	return b.String()
 }
@@ -152,7 +152,7 @@ func TestAdoptWorktreeCopiesTrustAndDuologApprovals(t *testing.T) {
 		found := false
 		for key, entry := range cfg.Hooks.State {
 			path, _, position, ok := splitApproval(key)
-			if ok && position == "0:0" && samePath(path, filepath.Join(f.worktree, ".codex", "hooks.json")) && entry["trusted_hash"] == "sha256:"+e.Name {
+			if ok && position == "0:0" && samePath(path, filepath.Join(f.worktree, ".codex", "hooks.json")) && entry["trusted_hash"] == fixtureApprovalHash(e.Name) {
 				found = true
 			}
 		}
@@ -218,7 +218,7 @@ func TestAdoptWorktreeWritesNothingWhenACheckFails(t *testing.T) {
 		}},
 		{"stale gate approval", func(t *testing.T, f *adoptFixture) (string, string) {
 			key := filepath.Join(f.lead, ".codex", "hooks.json") + ":pre_tool_use:0:0"
-			writeFile(t, filepath.Join(f.codexHome, "duolog-stale-approvals.json"), fmt.Sprintf(`{%q: "sha256:PreToolUse"}`, key))
+			writeFile(t, filepath.Join(f.codexHome, "duolog-stale-approvals.json"), fmt.Sprintf(`{%q: %q}`, key, fixtureApprovalHash("PreToolUse")))
 			return f.lead, f.worktree
 		}},
 		{"worktree trust set otherwise", func(t *testing.T, f *adoptFixture) (string, string) {
@@ -700,4 +700,19 @@ func TestQuoteRoundTrips(t *testing.T) {
 			t.Fatalf("%q read back as %v", s, m)
 		}
 	}
+}
+
+func fixtureApprovalHash(event string) string {
+	if event != "PreToolUse" {
+		return "sha256:" + event
+	}
+	data, err := HooksJSON(install.GateTimeout)
+	if err != nil {
+		panic(err)
+	}
+	hash, err := currentHookHash(data, 0, 0)
+	if err != nil {
+		panic(err)
+	}
+	return hash
 }

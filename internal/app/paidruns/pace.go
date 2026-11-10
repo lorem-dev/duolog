@@ -61,8 +61,10 @@ func paceRead(ctx context.Context, p launch.Process) (account.Snapshot, error) {
 	return paceReader.ReadProcess(ctx, p)
 }
 
-// paceReader is the reader of paceRead; tests shorten its timeout.
-var paceReader = quota.Reader{Once: true}
+// paceReader is the reader of paceRead; tests shorten its timeout. It starts
+// no Claude model probe: the balance reads on every routing decision, and an
+// agent without windows is only left out.
+var paceReader = quota.Reader{Once: true, NoProbe: true}
 
 // DefaultPaceBalance is PaceBalance for the agents as a free worker sees
 // them, in the user's account state folder. The worker is built from the

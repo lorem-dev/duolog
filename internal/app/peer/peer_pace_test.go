@@ -37,10 +37,11 @@ func fakePace(t *testing.T, week map[string]float64) {
 }
 
 func TestOpenReportsPaceReason(t *testing.T) {
-	r := newRig(t, baseScript())
+	// Kills a pace-routing test that waits for Codex output from a Claude pane.
+	r := newRig(t, withScreens(claudeIdle("")))
 	fakePace(t, map[string]float64{"codex": .61, "claude": .30})
 	e := r.open("implement")
-	if !strings.Contains(e.Note, "implement -> claude sonnet: codex 61% of the week at 44% elapsed") {
+	if e.State != Ready || !strings.Contains(e.Note, "implement -> claude sonnet: codex 61% of the week at 44% elapsed") {
 		t.Fatalf("%+v", e)
 	}
 }

@@ -102,12 +102,20 @@ func TestInstallEndsWithCodexSetup(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			if tc.name == "ready" {
+				// Mutation killed: treating an invented approval as a current installed gate.
+				hooks, err := launchtest.HooksJSON("codex", 630)
+				if err != nil {
+					t.Fatal(err)
+				}
+				putWorktreeFile(t, filepath.Join(root, ".codex", "hooks.json"), string(hooks))
+			}
 			text := ""
 			if tc.folder {
 				text += fmt.Sprintf("[projects.%q]\ntrust_level = \"trusted\"\n", root)
 			}
 			if tc.hooks {
-				text += fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = \"fixture-hash\"\n", filepath.Join(root, ".codex", "hooks.json")+":PreToolUse:0:0")
+				text += fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = %q\n", filepath.Join(root, ".codex", "hooks.json")+":PreToolUse:0:0", fixtureCodexApproval(t, 630))
 			}
 			if err := os.MkdirAll(os.Getenv("CODEX_HOME"), 0700); err != nil {
 				t.Fatal(err)

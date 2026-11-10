@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"context"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
@@ -10,6 +11,9 @@ import (
 // LeadMode reads permissions at decision time, keeping the user's explicit
 // lower ceiling. Claude's mode is recorded from each lead hook's stdin.
 func LeadMode(reg *session.Registry, id string, started time.Time) (session.Lead, mode.Mode, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	reg = reg.Within(ctx)
 	lead, effective, err := reg.EffectiveMode(id)
 	if err != nil {
 		return lead, effective, err

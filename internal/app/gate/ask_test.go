@@ -105,7 +105,7 @@ func askReply(t *testing.T, kind, from string, unknown bool, want string) {
 
 // askSendWait outlasts a slow runner's setup: Escalate sends nothing once its
 // deadline has passed, and these tests read the ask it sent.
-const askSendWait = time.Second
+const askSendWait = 100 * time.Millisecond
 
 func TestAskSendsOneLine(t *testing.T) {
 	for _, person := range []bool{false, true} {
@@ -249,7 +249,9 @@ func TestAskNamesItsPeer(t *testing.T) {
 // pending once the asker has given up, even with a short ask_timeout_seconds.
 func TestAskCarriesItsWait(t *testing.T) {
 	b, _, dir := askSetup(t)
-	Escalate(context.Background(), b, "first-123456", Action{Kind: "exec"}, 1500*time.Millisecond, false)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	Escalate(ctx, b, "first-123456", Action{Kind: "exec"}, 1500*time.Millisecond, false)
 	if ms := asksOnly(askMessages(t, dir)); len(ms) != 1 || ms[0].W != 2 {
 		t.Fatal(ms)
 	}

@@ -1,10 +1,13 @@
 package gate
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
+	"time"
 
 	"github.com/gofrs/flock"
 	"github.com/lorem-dev/duolog/internal/core/policy"
@@ -21,14 +24,16 @@ func Log(s *store.Store, a policy.Action, d policy.Decision) error {
 	return logAt(s, a, d, "decisions.ndjson")
 }
 
-// LogRequest preserves the full pending action before waiting for a decision.
+// LogRequest preserves the pending action with credentials withheld.
 func LogRequest(s *store.Store, a policy.Action, d policy.Decision) error {
 	return logAt(s, a, d, "requests.ndjson")
 }
 
 func logAt(s *store.Store, a policy.Action, d policy.Decision, name string) error {
 	lock := flock.New(filepath.Join(s.Dir, "decisions.lock"))
-	if err := lock.Lock(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := store.Lock(ctx, lock); err != nil {
 		_ = lock.Close()
 		return err
 	}
@@ -37,6 +42,20 @@ func logAt(s *store.Store, a policy.Action, d policy.Decision, name string) erro
 	if err != nil {
 		return err
 	}
+	a.Target = safeTarget(a.Target)
+	d.Reason = safeTarget(d.Reason)
+	d.Rule = safeTarget(d.Rule)
 	err = json.NewEncoder(f).Encode(Record{a, d})
 	return errors.Join(err, f.Close())
+}
+
+// Credential-bearing text is withheld in full: shell quoting and embedded
+// URLs make partial redaction unsafe. Evaluation always uses the original.
+var credentialText = regexp.MustCompile(`(?i)(authorization|bearer|password|passwd|token|secret|api[_-]?key|https?://[^ /]+:[^ /]+@|(^|[[:space:]])(-u|--user|--proxy-user|--header|-h)([=[:space:]]|$)|(^|[[:space:]])-u[^[:space:]]*:|(^|[[:space:]])-h["']?[^[:space:]"']+:)`)
+
+func safeTarget(text string) string {
+	if credentialText.MatchString(text) {
+		return "[redacted credential-bearing action]"
+	}
+	return text
 }

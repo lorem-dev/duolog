@@ -90,9 +90,10 @@ func variants(d Deps, cfg *config.Config, role string, opts Options) ([]corelaun
 // permitRun is one actual worker invocation behind the gate: its permit, and
 // whether its child started.
 type permitRun struct {
-	gate    *paidruns.Gate
-	permit  paidruns.Permit
-	started bool
+	gate       *paidruns.Gate
+	permit     paidruns.Permit
+	started    bool
+	chargedUSD float64
 }
 
 // admit acquires a permit for a worker of route described by in. A refusal
@@ -177,7 +178,11 @@ func (a *permitRun) finish(ctx context.Context, cfg *config.Config, route corero
 	if err := a.gate.Finish(ctx, a.permit, s); err != nil {
 		return fmt.Errorf("paid runs: settle the %s run: %w", route.Agent, err)
 	}
-	return nil
+
+	return a.gate.Store.View(ctx, func(st paidruns.State) error {
+		a.chargedUSD = st.Settled[a.permit.Reservation.ID].ChargedUSD
+		return nil
+	})
 }
 
 // RefusalLine says why the gate refused a candidate, for the lead. Peer

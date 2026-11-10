@@ -56,7 +56,7 @@ func validateChecks(ctx context.Context, root string, c Candidate, checks []stri
 	// with "check time cap", an interrupt with ctx's error.
 	timedOut := false
 	check := func(dir string) (bool, error) {
-		result, over := runChecks(ctx, run, limit, dir, checks)
+		result, over := runChecks(ctx, run, limit, dir, validationCommands(checks, len(c.Hidden) > 0))
 		timedOut = timedOut || over
 		return passed(result), ctx.Err()
 	}

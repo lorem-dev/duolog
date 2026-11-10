@@ -21,7 +21,7 @@ import (
 
 func newQuotaCommand(d *cmdDeps) *cobra.Command {
 	var asJSON bool
-	cmd := &cobra.Command{Use: "quota", Short: "Read subscription quota without a model call", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "quota", Short: "Read subscription quota", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		root, err := projectRoot()
 		if err != nil {
 			return err

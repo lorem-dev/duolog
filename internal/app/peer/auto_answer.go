@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -97,7 +98,7 @@ func (e *env) commandChoice(entry session.Entry, screen Screen, facts agent.Pane
 	}
 	rules := policy.LeadRules{}
 	if lead.target != nil {
-		if rules, err = gate.ImportLead(e.root, lead.target.Agent); err != nil {
+		if rules, err = gate.ImportLead(e.peerRoot(entry), lead.target.Agent); err != nil {
 			return answerChoice{}, false, err
 		}
 	}
@@ -106,7 +107,7 @@ func (e *env) commandChoice(entry session.Entry, screen Screen, facts agent.Pane
 		rules.RoleSandbox = role.Sandbox
 	}
 	root := e.peerRoot(entry)
-	action := policy.Action{Kind: "exec", Target: command, Role: entry.Role, Work: root, Cwd: root}
+	action := policy.Action{Kind: "exec", Target: command, Role: entry.Role, Work: root, Cwd: root, State: filepath.Dir(e.dir), ProtectedRoots: e.opts.ProtectedRoots}
 	level := mode.Lower(lead.mode, entry.Mode)
 	decision := policy.Evaluate(e.cfg.Policy, rules, level, action)
 	// The line is judged as the pane shows it, since an assignment can point

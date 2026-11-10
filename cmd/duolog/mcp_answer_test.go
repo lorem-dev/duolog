@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -109,7 +111,30 @@ func TestMCPAnswerAskSameErrorsAsCLI(t *testing.T) {
 		}, "already answered"},
 		{"expired", func() int64 {
 			n := mcpAsk(t, b, mcpTestLead, false, 1)
-			time.Sleep(1100 * time.Millisecond)
+			// Mutation killed: accepting an already expired ask in CLI or MCP.
+			path := filepath.Join(b.Directory(), "bus.ndjson")
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var lines []string
+			for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+				var m bus.Message
+				if err := json.Unmarshal([]byte(line), &m); err != nil {
+					t.Fatal(err)
+				}
+				if m.N == n {
+					m.T = time.Now().Add(-time.Minute).UTC().Format(time.RFC3339Nano)
+				}
+				encoded, err := json.Marshal(m)
+				if err != nil {
+					t.Fatal(err)
+				}
+				lines = append(lines, string(encoded))
+			}
+			if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
 			return n
 		}, "expired"},
 		{"unknown", func() int64 { return 99999 }, "unknown permission request"},

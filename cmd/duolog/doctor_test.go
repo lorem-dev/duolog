@@ -233,7 +233,7 @@ func TestCommandsCheckCurrentCheckoutTrust(t *testing.T) {
 				}
 				config := fmt.Sprintf("[projects.%q]\ntrust_level = \"trusted\"\n", trusted)
 				for _, root := range []string{main, work} {
-					config += fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = \"fixture-hash\"\n", filepath.Join(root, ".codex", "hooks.json")+":PreToolUse:0:0")
+					config += fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = %q\n", filepath.Join(root, ".codex", "hooks.json")+":PreToolUse:0:0", fixtureCodexApproval(t, 30))
 				}
 				path := filepath.Join(os.Getenv("HOME"), ".codex", "config.toml")
 				putWorktreeFile(t, path, config)

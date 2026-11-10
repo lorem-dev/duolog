@@ -94,7 +94,7 @@ func TestSkillsPageNamesEveryBundledSkill(t *testing.T) {
 }
 
 func TestSkillsListNamesEveryBundledSkill(t *testing.T) {
-	want := []string{"duolog", "duolog-skill-check", "duolog-calibrate", "duolog-peers"}
+	want := []string{"duolog", "duolog-skill-check", "duolog-calibrate", "duolog-peers", "duolog-update"}
 	if strings.Join(plugin.Skills, ",") != strings.Join(want, ",") {
 		t.Fatalf("plugin.Skills = %v, want %v", plugin.Skills, want)
 	}

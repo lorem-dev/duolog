@@ -11,4 +11,4 @@ var FS embed.FS
 
 // Skills lists the bundled skill folders. duolog install copies them, and
 // duolog sync leaves them alone.
-var Skills = []string{"duolog", "duolog-skill-check", "duolog-calibrate", "duolog-peers"}
+var Skills = []string{"duolog", "duolog-skill-check", "duolog-calibrate", "duolog-peers", "duolog-update"}

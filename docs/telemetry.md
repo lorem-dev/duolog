@@ -1,16 +1,10 @@
 # How duolog keeps local telemetry
 
-Local telemetry is on by default. Run `duolog telemetry off` to stop
-collection. duolog records tokens, cost and outcome per run, quota readings,
-routing choices and permission questions on this machine. The telemetry code
-does not upload them. This page explains what duolog keeps, where, for how
-long, how to turn it off or delete it, and what it does not protect against.
+Telemetry is local and on by default. duolog records run tokens, cost and
+outcomes, quota, routing and permission questions; it does not upload them.
+Stop collection with `duolog telemetry off`.
 
 ## How to turn it off
-
-Run `duolog telemetry off` in your terminal. It sets `telemetry.enabled:
-false` in your user config, and duolog stops collecting events for every
-project. Turn it on again with `duolog telemetry on`.
 
 | Switch | Where | What stops |
 |---|---|---|
@@ -18,12 +12,9 @@ project. Turn it on again with `duolog telemetry on`.
 | `DUOLOG_TELEMETRY=off` | The environment | Event collection. This value cannot turn telemetry on |
 | `telemetry.enabled: false` | `.duolog/config.yaml` or `.duolog/config.local.yaml` | Run, permission and peer events of this project only |
 
-A project can turn off only its own events. Quota, routing and reset events
-belong to your account, so a project switch does not stop them.
-
-Turning telemetry off stops collection, not pruning. Existing records stay
-until pruning removes them; pruning still compresses old days and updates its
-own state. To delete the data now, use `duolog telemetry purge`.
+Project switches stop only project events; quota, routing and reset events
+belong to the account. Turning collection off leaves pruning, compression
+and maintenance active. Use `duolog telemetry purge` to delete data now.
 
 The first session start that collects prints one line, once for each user:
 "Telemetry is local only; turn it off with duolog telemetry off."
@@ -130,7 +121,7 @@ fails a run.
 A clock set back delays pruning and does nothing else. duolog keeps no clock
 state.
 
-## The commands
+## Which commands manage telemetry
 
 The commands are for you, in your terminal. A worker cannot run them.
 
@@ -167,8 +158,8 @@ Workers cannot read or write the folder. The gate denies any worker read,
 write or command path that reaches the telemetry or balance folder, before
 policy, modes and questions. It compares resolved paths, so a symbolic link,
 `/private/var` against `/var`, a change of case or a Windows short name does
-not get around it. It also denies `duolog telemetry` and `duolog balance` to a
-worker, with or without global flags such as `--lead`.
+not get around it. It also denies `duolog telemetry` to a worker, with or
+without global flags such as `--lead`.
 
 A lead model is not the person, and what it reads leaves the machine with its
 context. When a Claude lead runs a `duolog telemetry` command, or reads the
@@ -182,27 +173,15 @@ warnings.
 
 ## What the protection does not cover
 
-The protection has these limits:
-
-- **The gate sees what an agent asks for, not what a program does.** A worker
-  that runs project code, such as tests or a build, can read the folder
-  without naming it. Such a read shows usage figures, ids and the names
-  described above. See
-  [Permissions](permissions.md#what-the-gate-cannot-see).
-- **Codex's sandbox limits writes only.** For Codex workers the gate is the
-  only check on reads.
-- **Native Windows has the gate only.**
-- **Claude's sandbox helps only when it is already on.** duolog then adds both
-  folders to `sandbox.filesystem.denyRead`. duolog never turns a sandbox on.
-  `duolog doctor` says `isolation: gate only` or `isolation: gate + sandbox`.
-- **No encryption.** duolog would have to read a key without a prompt, so
-  any program you run could read it too. Disk encryption, such as FileVault,
-  LUKS or BitLocker, covers a stolen disk.
-- **No guaranteed erasure.** Purge deletes the files. Snapshots, backups and
-  SSD wear leveling can keep copies.
-- **The no-network claim is for the telemetry code.** The telemetry package
-  imports no network code, and a test checks this. The duolog binary as a
-  whole has network code for MCP sign-in checks, but it sends no telemetry.
+| Limit | Effect |
+|---|---|
+| Programs can read paths absent from tool requests | Project tests or builds can bypass gate read checks; see [Permissions](permissions.md#what-the-gate-cannot-see) |
+| Codex sandbox | Limits writes; the gate alone checks reads |
+| Native Windows | Gate only |
+| Claude sandbox | Helps only if already enabled; duolog adds both stores to denyRead but never enables it. Doctor reports gate only or gate + sandbox |
+| No encryption | An unattended key would be readable by other programs; disk encryption protects a stolen disk |
+| No guaranteed erasure | Purge deletes files; snapshots, backups and SSD wear leveling may retain copies |
+| No network in telemetry code | Enforced by an import test. Other duolog code uses the network for MCP sign-in checks, without sending telemetry |
 
 The folder is owner only: mode 0700 and files 0600 on macOS and Linux, and a
 protected access list for you, SYSTEM and Administrators on Windows. A

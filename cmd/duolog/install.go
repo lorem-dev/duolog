@@ -42,7 +42,7 @@ func configuredInstall(d *cmdDeps, o install.Options) (install.Deps, error) {
 func newInstallCommand(d *cmdDeps) *cobra.Command {
 	var scope, agent string
 	var check, hooksOnly bool
-	cmd := &cobra.Command{Use: "install", Short: "Install duolog hooks and skill for Claude Code and Codex", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "install", Short: "Install duolog hooks and skill for Claude Code and Codex", Args: cobra.NoArgs, PreRunE: refuseWorkerCommand, RunE: func(cmd *cobra.Command, args []string) error {
 		if hooksOnly && !check {
 			return errors.New("--hooks-only works only with --check")
 		}
@@ -155,7 +155,7 @@ func settledLine(s install.Status) string {
 
 func newUninstallCommand(d *cmdDeps) *cobra.Command {
 	var scope, agent string
-	cmd := &cobra.Command{Use: "uninstall", Short: "Remove duolog hooks and skill, keeping other hooks and the config", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "uninstall", Short: "Remove duolog hooks and skill, keeping other hooks and the config", Args: cobra.NoArgs, PreRunE: refuseWorkerCommand, RunE: func(cmd *cobra.Command, args []string) error {
 		o, err := installOptions(scope, agent)
 		if err != nil {
 			return err

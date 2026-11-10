@@ -1,10 +1,9 @@
-# Glossary
+# What duolog terms mean
 
-This page explains the words that the duolog docs use, and the short names
-of the setups and tasks in the
+Definitions for duolog and the
 [hand-over study](research/2026-11-10-hand-over-study.md).
 
-## Words for the parts of duolog
+## What the parts of duolog mean
 
 | Word | What it means |
 |---|---|
@@ -15,7 +14,7 @@ of the setups and tasks in the
 | <a id="role"></a>Role | A kind of work, such as `implement` or `review_final`. Each role has its own agent and model |
 | <a id="route"></a>Route | The agent, model and effort that do a role |
 | <a id="delegate"></a>Delegate | `duolog delegate <role>`: start a worker for a task and wait for its answer |
-| <a id="planner"></a>Planner | The role for a whole feature. It reads the code, implements, runs the checks and lists the risks. It runs on Codex |
+| <a id="planner"></a>Planner | The role for a whole feature. It reads the code, implements, runs the checks and lists the risks. It runs on Codex by default |
 | <a id="peer"></a>Peer | A second live session in a Rex pane, opened with `duolog peer open <role>` when you ask for one |
 | <a id="subagent"></a>Subagent | A helper that the lead's own agent starts, without duolog |
 | <a id="run-here"></a>Run here | duolog's answer when a task is too small for a worker: the lead does it, or its own subagent |
@@ -24,10 +23,9 @@ of the setups and tasks in the
 | <a id="task"></a>Task | A work request in a `task.md` file, with Goal, Read, Write, Limits and Check |
 | <a id="worktree"></a>Worktree | A second Git checkout of the same repository, so that a worker does not touch your files |
 
-## Setups in the hand-over study
+## Which setups the hand-over study compares
 
-Each setup is one way to do the same task. Opus and Sonnet are Claude
-models; sol is a Codex model.
+Opus and Sonnet are Claude models; sol is a Codex model.
 
 | Name | Lead | Who does the work |
 |---|---|---|
@@ -43,10 +41,9 @@ models; sol is a Codex model.
 | <a id="setup-p"></a>P | Opus | A live [peer](#peer), driven with duolog commands |
 | <a id="setup-m"></a>M | Opus | A live [peer](#peer), driven with the duolog MCP tools |
 
-## Tasks in the hand-over study
+## Which tasks the hand-over study uses
 
-Each task is a real commit. Its hidden tests show whether a setup got the
-task right.
+Each task is a real commit checked by hidden tests.
 
 | Name | Size | What the task is |
 |---|---|---|

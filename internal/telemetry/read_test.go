@@ -234,7 +234,8 @@ func TestReadSegments(t *testing.T) {
 		return parsed.Add(12 * time.Hour)
 	}
 
-	t.Run("gz preferred over plain", func(t *testing.T) {
+	// Mutation killed: blindly preferring gzip hides an independent plain segment.
+	t.Run("paired segments reconcile", func(t *testing.T) {
 		s, root := readFixture(t)
 		both := append(quotaLine(t, 1, at("2026-11-01")), quotaLine(t, 2, at("2026-11-01"))...)
 		plant(t, accountSegment(root, "2026-11-01"), both)
@@ -244,7 +245,7 @@ func TestReadSegments(t *testing.T) {
 		plant(t, accountSegment(root, "2026-11-03")+".gz", gzipped(t, quotaLine(t, 20, at("2026-11-03"))))
 		plant(t, accountSegment(root, "2026-11-04"), quotaLine(t, 30, at("2026-11-04")))
 		plant(t, accountSegment(root, "2026-11-04")+".gz.tmp", gzipped(t, quotaLine(t, 40, at("2026-11-04"))))
-		if got, want := epochs(t, mustRead(t, s, Query{})), []int64{1, 2, 11, 20, 30}; !slices.Equal(got, want) {
+		if got, want := epochs(t, mustRead(t, s, Query{})), []int64{1, 2, 11, 10, 20, 30}; !slices.Equal(got, want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
 	})

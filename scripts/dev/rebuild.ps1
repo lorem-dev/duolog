@@ -36,7 +36,7 @@ try {
     $commit = & git rev-parse --short HEAD
     if ($LASTEXITCODE -ne 0) { throw 'Cannot read the repository commit' }
     if (Test-Path $bin) {
-        [System.IO.File]::Replace($tmp, $bin, $null)
+        [System.IO.File]::Replace($tmp, $bin, [NullString]::Value)
     } else {
         [System.IO.File]::Move($tmp, $bin)
     }

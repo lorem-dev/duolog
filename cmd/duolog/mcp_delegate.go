@@ -60,12 +60,24 @@ func (d *cmdDeps) mcpDelegateRun(ctx context.Context, in mcp.DelegateInput) (mcp
 	if in.Role == "" || in.Task == nil {
 		return mcp.DelegateOutput{}, errors.New("delegate needs role and task; for an earlier run use action=result with its task_path")
 	}
-	path, rel := mcpRunningTwin(in)
-	if path == "" {
-		var err error
-		if path, rel, err = d.mcpDelegateStart(in); err != nil {
-			return mcp.DelegateOutput{}, err
+	stateDir, _, _, err := mcpDelegateLead()
+	if err != nil {
+		return mcp.DelegateOutput{}, err
+	}
+	path, rel, err := func() (string, string, error) {
+		unlock, err := mcpDelegateLock(ctx, filepath.Join(stateDir, "mcp-delegate.lock"))
+		if err != nil {
+			return "", "", err
 		}
+		defer func() { _ = unlock() }()
+		path, rel := mcpRunningTwin(in)
+		if path != "" {
+			return path, rel, nil
+		}
+		return d.mcpDelegateStart(in)
+	}()
+	if err != nil {
+		return mcp.DelegateOutput{}, err
 	}
 	if !in.Waits() {
 		return mcp.DelegateOutput{State: "running", ID: strings.TrimSuffix(filepath.Base(path), ".json"), TaskPath: rel, AnswerPath: path}, nil
@@ -324,4 +336,14 @@ func startDetachedLogged(argv []string, dir, logPath string) error {
 	// Reaped when it ends, while the server lives on.
 	go func() { _ = cmd.Wait() }()
 	return nil
+}
+
+// An uncontended retry can still return its run after its caller cancelled;
+// contention is bounded by the caller's context.
+func mcpDelegateLock(ctx context.Context, path string) (func() error, error) {
+	unlock, ok, err := store.TryLockFile(path)
+	if err != nil || ok {
+		return unlock, err
+	}
+	return store.LockFileContext(ctx, path, 10*time.Millisecond)
 }

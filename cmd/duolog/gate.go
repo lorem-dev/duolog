@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -83,7 +84,8 @@ func newGateCommand(deps *cmdDeps) *cobra.Command {
 		}
 		d.Native = os.Getenv("DUOLOG_NATIVE")
 		if s != nil {
-			if logErr := gate.Log(s, a, d); logErr != nil {
+			loggedAction, loggedDecision := safeGateFields(a, d)
+			if logErr := gate.Log(s, loggedAction, loggedDecision); logErr != nil {
 				d.Kind, d.Reason, d.Rule = policy.Deny, "cannot log gate decision: "+logErr.Error(), "decision log"
 			}
 		}
@@ -132,7 +134,7 @@ func evaluateHook(deps *cmdDeps, cmd *cobra.Command, root, agent, event string, 
 		action.ProtectedRoots = roots
 		action.Peer = os.Getenv("DUOLOG_PEER")
 		action.Work = work
-		workerFiles(action, i == 0, agent, work, envelope)
+		workerFileAction(action, i, agent, work, envelope)
 		if (action.Kind == "read" || action.Kind == "write") && action.Target != "" {
 			action.Target = policy.RelativeTarget(work, envelope.Cwd, action.Target)
 		}
@@ -255,7 +257,8 @@ func askLead(ctx context.Context, wait time.Duration, cfg *config.Config, root, 
 	if err != nil {
 		return d, err
 	}
-	if err := gate.LogRequest(&store.Store{Dir: stateDir}, a, d); err != nil {
+	loggedAction, loggedDecision := safeGateFields(a, d)
+	if err := gate.LogRequest(&store.Store{Dir: stateDir}, loggedAction, loggedDecision); err != nil {
 		return d, err
 	}
 	resolved := gate.EscalateOnce(ctx, stateDir, key, wait, func(left time.Duration) (policy.Decision, bool) {
@@ -269,7 +272,7 @@ func askLead(ctx context.Context, wait time.Duration, cfg *config.Config, root, 
 				recordGate(tel, a, initial, r)
 			}
 		})
-		return gate.Escalate(observed, b, leadID, a, left, person), replied
+		return gate.Escalate(observed, b, leadID, loggedAction, left, person), replied
 	})
 	resolved.Mode = d.Mode
 	return resolved, nil
@@ -303,11 +306,45 @@ type hookEnvelope struct {
 	// The read tools' path and patterns as the worker wrote them, before
 	// Normalize cleans away their .. parts.
 	Input struct {
-		File    string `json:"file_path"`
-		Path    string `json:"path"`
-		Pattern string `json:"pattern"`
-		Glob    string `json:"glob"`
+		File     string `json:"file_path"`
+		Notebook string `json:"notebook_path"`
+		Patch    string `json:"patch"`
+		Command  string `json:"command"`
+		Path     string `json:"path"`
+		Pattern  string `json:"pattern"`
+		Glob     string `json:"glob"`
 	} `json:"tool_input"`
+}
+
+// fileTargets preserves filesystem traversal order before NormalizeAll cleans paths.
+func (e hookEnvelope) fileTargets() []string {
+	if e.Tool == "apply_patch" {
+		return policy.PatchPaths(e.Input.Patch + "\n" + e.Input.Command)
+	}
+	target := e.Input.File
+	if target == "" {
+		target = e.Input.Path
+	}
+	if target == "" {
+		target = e.Input.Notebook
+	}
+	out := []string{target}
+	if e.Tool == "Glob" {
+		out = append(out, e.Input.Pattern)
+	}
+	if e.Tool == "Grep" {
+		out = append(out, e.Input.Glob)
+	}
+	return out
+}
+
+func workerFileAction(action *policy.Action, index int, agent, work string, envelope hookEnvelope) {
+	if action.Kind == "read" || action.Kind == "write" {
+		if raw := envelope.fileTargets(); index < len(raw) && raw[index] != "" {
+			action.Target = raw[index]
+		}
+	}
+	workerFiles(action, index == 0, agent, work, envelope)
 }
 
 // workerFiles marks what of the worker's own an action may read: the paths
@@ -414,7 +451,7 @@ func gateProtectedRoots() ([]string, error) {
 }
 
 func newDecisionsCommand() *cobra.Command {
-	return &cobra.Command{Use: "decisions", Short: "Show recorded permission decisions and reasons", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "decisions", Short: "Show recorded permission decisions and reasons", Args: cobra.NoArgs, PreRunE: refuseWorkerCommand, RunE: func(cmd *cobra.Command, args []string) error {
 		root, err := projectRoot()
 		if err != nil {
 			return err
@@ -448,4 +485,34 @@ func newDecisionsCommand() *cobra.Command {
 		}
 		return nil
 	}}
+}
+
+// Recognized credential forms are removed from persistent records and ask
+// summaries; policy evaluation always sees the original action.
+var gateCredentials = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)((?:^|\s)(?:-u|--user|--proxy-user)(?:\s+|=))(?:"[^"]*"|'[^']*'|[^\s;&]+)`),
+	// curl -uuser:secret: an attached value counts only with a colon, so
+	// sort -u or rg -u stay as they are.
+	regexp.MustCompile(`((?:^|\s)-u)[^\s;&'":]*:[^\s;&]+`),
+	regexp.MustCompile(`(?i)(authorization["']?\s*:\s*)(?:bearer\s+|basic\s+)?[^'"\r\n]+`),
+	regexp.MustCompile(`(?i)((?:[a-z0-9_]*(?:token|password|passwd|secret|api[_-]?key)|--(?:token|password|secret|api-key))\s*[=: ]\s*)(?:"[^"]*"|'[^']*'|[^\s;&]+)`),
+	regexp.MustCompile(`(?i)(https?://)[^/@\s]+:[^/@\s]+@`),
+}
+
+func safeGateFields(a policy.Action, d policy.Decision) (policy.Action, policy.Decision) {
+	redact := func(value string) string {
+		for _, re := range gateCredentials {
+			value = re.ReplaceAllString(value, "${1}[redacted]")
+		}
+		return value
+	}
+	a.Target, d.Reason, d.Rule = redact(a.Target), redact(d.Reason), redact(d.Rule)
+	return a, d
+}
+
+func refuseWorkerCommand(cmd *cobra.Command, _ []string) error {
+	if isWorker() {
+		return fmt.Errorf("workers cannot run %s", cmd.Name())
+	}
+	return nil
 }

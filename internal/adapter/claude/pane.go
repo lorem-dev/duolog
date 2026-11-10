@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -78,6 +79,10 @@ func mcpDecisions(start agent.PaneStart) (enabled, disabled []string) {
 	if !kit.ReadJSON(filepath.Join(folder, ".mcp.json"), &file) {
 		return enabled, disabled
 	}
+	var leadFile struct {
+		MCP map[string]json.RawMessage `json:"mcpServers"`
+	}
+	_ = kit.ReadJSON(filepath.Join(start.LeadRoot, ".mcp.json"), &leadFile)
 	names := slices.Sorted(maps.Keys(file.MCP))
 	f, err := kit.FoldersIn("", start.Environ)
 	if err != nil {
@@ -103,7 +108,9 @@ func mcpDecisions(start agent.PaneStart) (enabled, disabled []string) {
 		if err != nil {
 			return []string{}, names
 		}
-		if approved {
+		var source, target any
+		same := json.Unmarshal(leadFile.MCP[name], &source) == nil && json.Unmarshal(file.MCP[name], &target) == nil && reflect.DeepEqual(source, target)
+		if approved && same {
 			enabled = append(enabled, name)
 		} else {
 			disabled = append(disabled, name)

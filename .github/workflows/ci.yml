@@ -26,6 +26,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      full: ${{ steps.diff.outputs.full }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -34,17 +35,34 @@ jobs:
         shell: bash
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          REF: ${{ github.ref }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
           # Without a base this clone knows, such as a new branch, check all.
-          code=true
+          code=true full=true
           if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-            if ! git diff --name-only "$BASE" HEAD |
-              grep -qvE '^(README\.md|CHANGES\.md|LICENSE|\.pymarkdown\.yaml|docs/.*|assets/.*)$'; then
+            files=$(git diff --name-only "$BASE" HEAD)
+            # grep reads all its input: grep -q could stop early, and under
+            # pipefail the writer's broken pipe would read as "no match".
+            if ! printf '%s\n' "$files" |
+              grep -vE '^(README\.md|CHANGES\.md|LICENSE|\.pymarkdown\.yaml|docs/.*|assets/.*)$' > /dev/null; then
               code=false
             fi
+            # The build, module and CI files can change any test's outcome
+            # without a change Go's test cache sees.
+            if ! printf '%s\n' "$files" |
+              grep -E '^(go\.mod|go\.sum|Makefile|\.golangci\.yml|\.github/|tools/|scripts/)' > /dev/null; then
+              full=false
+            fi
+          fi
+          # A pull request into main and a push to main test everything,
+          # without the cache.
+          if [ "$REF" = refs/heads/main ] || [ "$BASE_REF" = main ]; then
+            full=true
           fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
-          echo "Go code or config changed: $code"
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+          echo "Go code or config changed: $code; full run without the test cache: $full"
 
   test:
     name: test (${{ matrix.os }}${{ matrix.part && format(', {0}', matrix.part) || '' }})
@@ -54,6 +72,7 @@ jobs:
     timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 35 || 25 }}
     env:
       CODE: ${{ needs.changes.outputs.code }}
+      FULL: ${{ needs.changes.outputs.full }}
     strategy:
       fail-fast: false
       matrix:
@@ -89,10 +108,31 @@ jobs:
             part: policy, hooks and peers
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # setup-go saves its cache once per go.sum, so test results never
+      # carried over. This job keeps the build and test cache itself: pushes
+      # to develop save it, every run restores the newest one, and go test
+      # then runs only the packages whose code, inputs or files changed.
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+      - name: Go cache folders
+        id: goenv
+        shell: bash
+        run: |
+          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "mod=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+      - name: Restore the Go build and test cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.goenv.outputs.build }}
+            ${{ steps.goenv.outputs.mod }}
+          # A cache key may not hold a comma, so the job index names the part.
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ strategy.job-index }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-${{ strategy.job-index }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-${{ runner.arch }}-${{ strategy.job-index }}-
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Vet
         if: env.CODE == 'true' && matrix.part == ''
@@ -143,8 +183,12 @@ jobs:
           else
             pkgs=./...
           fi
-          # shellcheck disable=SC2086 # RACE, par and pkgs are word lists
-          go test $RACE $par -timeout 6m $pkgs
+          # A full run ignores the cached test results; otherwise go test
+          # reruns only what a change can affect.
+          cnt=
+          if [ "$FULL" = true ]; then cnt=-count=1; fi
+          # shellcheck disable=SC2086 # RACE, par, cnt and pkgs are word lists
+          go test $RACE $par $cnt -timeout 6m $pkgs
       # The native evidence for telemetry, by name in each runner's log: the
       # owner and mode or the Windows DACL, the macOS backup and index
       # exclusions, the Linux cache tag and NFS probe, files held open on
@@ -268,6 +312,16 @@ jobs:
       - name: Vulnerability check
         if: env.CODE == 'true' && (matrix.os == 'ubuntu-latest') && matrix.part == ''
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      # Only pushes to develop save, so pull requests do not fill the
+      # repository's cache space; they restore develop's newest cache.
+      - name: Save the Go build and test cache
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/develop'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.goenv.outputs.build }}
+            ${{ steps.goenv.outputs.mod }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ strategy.job-index }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
 
   # Shell, YAML and workflow checks, with the tools pinned in the Makefile and
   # in tools/. The formatters (make fmt-check) are not gated yet.

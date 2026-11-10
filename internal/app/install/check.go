@@ -522,3 +522,15 @@ func (d Deps) ProjectNote(root, home string) string {
 	}
 	return ""
 }
+
+// Reject shared destinations before planning any skill writes, including a
+// single-agent refresh that could replace the other agent's installed skill.
+func checkSkillDirs(agents []Agent, o Options, base string) error {
+	shared, _ := sharedSkillDirs(agents, o, base)
+	for _, dir := range shared {
+		if dir != "" {
+			return fmt.Errorf("shared skills directory %s; keep agent skill directories apart", dir)
+		}
+	}
+	return nil
+}

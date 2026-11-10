@@ -128,15 +128,15 @@ func Place(cfg *config.Config, taskPath string, route coreroute.Route) (Placemen
 // Run delegates one task to a worker, reaching outside the package only
 // through d.
 func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
-	started := time.Now()
-	cfg, role, taskPath, thread, opts := r.Config, r.Role, r.TaskPath, r.Thread, r.Options
+	started, runs := time.Now(), newRunAttempts(r.Options)
+	cfg, role, taskPath, thread, opts := r.Config, r.Role, r.TaskPath, r.Thread, runs.opts
 	s := &store.Store{Dir: r.StateDir}
 	// workerStarted says a worker ran; until then every refusal is a
 	// NotStartedError. A calibration step needs a worker's result, so for one
 	// a placement in the lead or a wait for the lead is a refusal too.
 	workerStarted := false
 	defer func() {
-		if workerStarted {
+		if runs.complete(&out, workerStarted) {
 			return
 		}
 		if err == nil && opts.Calibration && (out.RunHere != nil || len(out.Needs) > 0) {
@@ -679,12 +679,12 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 				workerStarted = true
 				out.Result, err = func() (run.Result, error) {
 					defer func() { _ = reg.SetWaiting(leadID, token, 0) }() // best effort: the entry is only a wait marker
-					return d.Agents[route.Agent].Worker.Run(ctx, spec)
+					return runs.run(ctx, spec, d.Agents[route.Agent].Worker.Run)
 				}()
 				att.worker(started, route, retry, out.Result, err)
 				// Settled once, with what this run measured, before a retry
 				// replaces the result.
-				if settleErr := current.finish(ctx, cfg, route, out.Result); settleErr != nil {
+				if settleErr := runs.settle(ctx, current, cfg, route, out.Result); settleErr != nil {
 					return out, errors.Join(err, settleErr)
 				}
 				// A run admitted as free that spent paid overage: the ledger
@@ -957,8 +957,8 @@ func snapshot(root string) (map[string]string, error) {
 			continue
 		}
 		status, path := record[:2], record[3:]
-		data, _ := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
-		result[path] = fmt.Sprintf("%s %x", status, sha256.Sum256(data))
+		sum := sha256.New()
+		result[path] = fmt.Sprintf("%s %x", status, snapshotHash(root, filepath.FromSlash(path), sum))
 		if strings.ContainsAny(status, "RC") && i+1 < len(records) {
 			i++
 			result[string(records[i])] = status + " -> " + path

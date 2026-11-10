@@ -47,7 +47,7 @@ def root(tmp_path: Path) -> Path:
             'metadata:\n  duolog-version: "1.0.0"\n'
             "releases/download/v1.0.0/install.sh --version v1.0.0\n$env:DUOLOG_VERSION = 'v1.0.0'; releases/download/v1.0.0/install.ps1\n"
         )
-        for skill in ("duolog-skill-check", "duolog-calibrate", "duolog-peers"):
+        for skill in ("duolog-skill-check", "duolog-calibrate", "duolog-peers", "duolog-update"):
             files[f"plugin/{agent}/skills/{skill}/SKILL.md"] = 'metadata:\n  duolog-version: "1.0.0"\n'
     for name, text in files.items():
         path = tmp_path / name
@@ -97,7 +97,7 @@ def test_a_wrong_tag_is_a_wrong_call(root: Path, tag: str) -> None:
 
 def test_bump_changes_every_place_and_keeps_line_endings(root: Path) -> None:
     code, output = run(root, "bump", "1.2.3-rc.1")
-    assert code == 0 and len(json.loads(output)["changed"]) == 13
+    assert code == 0 and len(json.loads(output)["changed"]) == 15
     assert run(root, "check", "--tag", "v1.2.3-rc.1")[0] == 0
     assert (root / "docs/getting-started.md").read_bytes() == b"--version v1.2.3-rc.1\r\n$env:DUOLOG_VERSION = 'v1.2.3-rc.1'\r\n"
 
@@ -195,3 +195,20 @@ def test_bump_changes_nothing_when_a_place_is_missing(root: Path) -> None:
     before = (root / "cmd/duolog/main.go").read_text()
     assert run(root, "bump", "2.0.0")[0] == 1
     assert (root / "cmd/duolog/main.go").read_text() == before
+
+
+@pytest.mark.parametrize("agent", ["claude", "codex"])
+def test_update_skill_version_is_checked(root: Path, agent: str) -> None:
+    # Kills removing either update skill from PLACES.
+    path = f"plugin/{agent}/skills/duolog-update/SKILL.md"
+    (root / path).write_text('metadata:\n  duolog-version: "0.9.0"\n')
+    code, output = run(root, "check")
+    assert code == 1 and f"{path}: 0.9.0, expected 1.0.0" in output
+
+
+@pytest.mark.parametrize("agent", ["claude", "codex"])
+def test_bump_updates_update_skill(root: Path, agent: str) -> None:
+    # Kills checking the update skill without including it in version bumps.
+    assert run(root, "bump", "1.2.3")[0] == 0
+    text = (root / f"plugin/{agent}/skills/duolog-update/SKILL.md").read_text()
+    assert 'duolog-version: "1.2.3"' in text

@@ -1,11 +1,8 @@
-# Hand-over study, November 2026
+# What handing work over cost in November 2026
 
-This page shows how a [lead](../glossary.md#lead) should hand work over, and
-what each way cost. The lead can do the work itself, give it to a
-[subagent](../glossary.md#subagent), [delegate](../glossary.md#delegate) it
-to a [worker](../glossary.md#worker) or a [planner](../glossary.md#planner),
-or open a live [peer](../glossary.md#peer). The short names of the setups and
-tasks are in the [glossary](../glossary.md#setups-in-the-hand-over-study).
+Costs of doing work in the lead, using a subagent, delegating to a
+worker/planner, or opening a live peer. Setup and task names are in the
+[glossary](../glossary.md#which-setups-the-hand-over-study-compares).
 
 We ran 65 sessions on five tasks from 2026-11-08 to 2026-11-10, on one macOS
 machine, with Claude Code 2.1.319 to 2.1.321, duolog 1.6.0 and a build
@@ -24,12 +21,10 @@ OBSERVED: the median of two runs, not a statistic.
 | Live peers ([P](../glossary.md#setup-p), [M](../glossary.md#setup-m)) | Open them only when you need one | On g2 they cost 3 times as much and took 3 times as long as one Opus session |
 | The lowest price of all ([B](../glossary.md#setup-b)) | One Codex session | 0.14, 0.47 and 1.10 USD on g1 to g3, but it stopped for the person most often |
 
-The lead's turns set the price: each lead turn cost about 0.04 USD, with a
-correlation of 0.92. A setup is cheap when someone else reads the code.
-
-All runs passed the hidden tests in substance. Two blind graders, Codex and
-Opus, disagreed with each other more than the setups differed. So the study
-does not rank the setups by quality.
+Each lead turn cost about 0.04 USD (correlation 0.92); savings came when
+another session read the code. All runs passed hidden tests in substance.
+Codex and Opus blind graders disagreed more than setups differed, so this
+study does not rank quality.
 
 ## What each setup cost
 
@@ -56,9 +51,6 @@ a [gate](../glossary.md#gate) refusal, and an Opus worker did the work for
 3.95 USD.
 
 ## What stopped the workers
-
-Most stops for the person came from the [gate](../glossary.md#gate), not
-from the tasks:
 
 - A Codex worker could not read its own skill when the skill folder was a
   link into the agent's config folder. Every delegated Codex worker stopped

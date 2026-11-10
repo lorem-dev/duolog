@@ -528,3 +528,14 @@ func TestPowerShellLauncherRunsTheBuildThatWonTheRace(t *testing.T) {
 		t.Errorf("left %v (%v), want only the build that won", matches, err)
 	}
 }
+
+func TestRebuildUsesPowerShellNullBackup(t *testing.T) {
+	// Mutation killed: $null coerces to an empty backup path in PowerShell 5.1.
+	data, err := os.ReadFile("rebuild.ps1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("[System.IO.File]::Replace($tmp, $bin, [NullString]::Value)")) {
+		t.Fatal("replacement lacks a true null backup path")
+	}
+}

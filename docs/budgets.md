@@ -1,10 +1,9 @@
 # What duolog is allowed to cost
 
-This page lists the cost targets for duolog and the value that we measured for
-each. The targets come from the design. A miss is reported to the author, and
-the target stays as it is.
+These cost targets stay fixed when a measurement misses; report misses to
+the author.
 
-## The targets
+## Which cost targets apply
 
 | What | Target | Measured |
 |---|---|---|
@@ -13,10 +12,7 @@ the target stays as it is.
 | The `SessionStart` line | At most 80 tokens | not measured yet |
 | An ordinary `gate` call | 0 tokens, under 50 ms | 0 tokens; 20 ms median on two macOS arm64 machines; 0.26 to 0.7 s through the Codex hook guard on Windows 11 |
 
-Code enforces the first target: the bus refuses a longer line. Two more need
-a live session, so they stay "not measured yet" until someone runs them. The
-gate meets its target on macOS and misses it on Windows, where the shell guard
-starts more processes.
+The bus enforces its size limit. The token targets need live measurements.
 
 The live run of 2026-10-31 did measure the cost of a handoff (`gpt-6-luna`, low
 effort, estimated USD per run):
@@ -39,21 +35,17 @@ Run them with real agents:
 go test -tags=e2e ./test/e2e/ -v
 ```
 
-The tests use `luna` and `haiku` at low effort to keep the cost small. They
-start real agents and spend tokens, so run them on purpose. Tests that change
-the Codex folder trust need `DUOLOG_E2E_TRUST=1`. See
-[the end-to-end tests](../test/e2e/helpers_test.go).
+Live tests spend tokens using luna and haiku at low effort. Tests changing
+Codex trust also require `DUOLOG_E2E_TRUST=1`; see
+[test helpers](../test/e2e/helpers_test.go).
 
-`TestInlineCostsLessThanReference` repeats the handoff measurement from the
-research page through `duolog delegate`. It compares the cost of the inline
-form with the saved whole-file and range rows. Both sides are priced as if
-nothing was cached, because Codex decides per call whether a prompt comes from
-its cache, and that halved or doubled the cached price between runs.
+`TestInlineCostsLessThanReference` repeats the study through delegate
+against saved whole-file and range reference costs. It prices both sides
+without caching because per-call cache changes halved or doubled the
+cached price.
 
-The cost of whole sessions, with and without duolog, is on
-[the cost study](research/2026-11-01-cost-study.md) page. It also found that
-effort above `high` raised no model's quality, while Opus at `max` cost six
-times Opus at `high`, so no default role asks for `xhigh` or `max`.
+For whole-session costs and the evidence for default effort limits, see
+[the cost study](research/2026-11-01-cost-study.md).
 
 ## Related pages
 

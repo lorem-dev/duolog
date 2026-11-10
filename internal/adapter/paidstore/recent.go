@@ -10,6 +10,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/quota"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -46,11 +47,23 @@ func (c *Cache) loadReads() map[string]account.Snapshot {
 // readOrRecall reads p now, and keeps to a recent good read when the read
 // fails as recall allows.
 func (c *Cache) readOrRecall(ctx context.Context, p launch.Process, readNow bool, maxAge time.Duration) (account.Snapshot, error) {
-	s, err := c.Read(ctx, p)
+	s, err := c.readWithProbeFallback(ctx, p, maxAge)
 	if recent, ok := c.recall(ctx, p.CacheKey, readNow, err, maxAge); ok {
 		return recent, nil
 	}
 	return s, err
+}
+
+// readWithProbeFallback still reads /usage and auth now. Only the model
+// probe may use retained windows, including for a requested fresh read.
+func (c *Cache) readWithProbeFallback(ctx context.Context, p launch.Process, maxAge time.Duration) (account.Snapshot, error) {
+	if p.Agent == "claude" && c.Dir != "" {
+		ctx = quota.WithClaudeProbeFallback(ctx, func() (account.Snapshot, bool) {
+			s, ok := c.loadReads()[p.CacheKey]
+			return s, ok && within(s.ReadAt, c.now(), maxAge)
+		})
+	}
+	return c.Read(ctx, p)
 }
 
 // recall returns the kept read of key that stands in for a read that just

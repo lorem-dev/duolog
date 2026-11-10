@@ -91,4 +91,6 @@ var writtenBlobs = map[string]bool{
 	"67378db6f3480f6c7c7b54795ea50402d82fbb66": true, // codex/skills/duolog/SKILL.md
 	"4fe372802ad0e35e6d40f0bd3d74149d6e682069": true, // claude/skills/duolog/SKILL.md
 	"2d58959aa676cc271153e5d6c9509cb34612bcde": true, // codex/skills/duolog/SKILL.md
+	"93187f06340a7315da0bbea39843c8b8a4b1b196": true, // claude/skills/duolog-update/SKILL.md
+	"65c864a0270ba058bae537a740c41ddd77b55975": true, // codex/skills/duolog-update/SKILL.md
 }

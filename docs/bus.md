@@ -1,7 +1,7 @@
 # How sessions talk on the bus
 
-This page explains the bus and the artifacts. The bus is one file that sessions
-use to send short messages. An artifact is a file that a message points to.
+The bus carries short messages; artifacts hold the larger content they
+reference.
 
 ## What a message looks like
 
@@ -21,14 +21,14 @@ Each message is one JSON line in `.duolog/bus.ndjson`:
 | `ref` | An artifact reference, if any |
 | `s` | The summary |
 | `w` | For a gate ask, how many seconds its asker waits for the reply |
-| `p` | For a gate ask, `true` means only the person may allow it |
+| `p` | For a gate ask, `true` means only the person may allow or deny it |
 
-A gate ask expires after `w` seconds. An older ask without `w` uses the
-150-second hook budget. When an ask expires, its asker is denied and the lead
-gets a `status` message whose `ref` is the request number.
+Gate asks expire after `w` seconds; older asks without `w` use 150 seconds.
+Expiry denies the asker and sends the lead a `status` whose `ref` is the ask
+number.
 
-A line has at most 512 bytes. The summary has at most 200 bytes. A longer
-summary is refused, and the error tells you to use `duolog put`.
+Lines are limited to 512 bytes and summaries to 200 bytes. Longer summaries
+are refused with a hint to use `duolog put`.
 
 The lead's address is `<agent>/lead.<6 characters of the session id>`. The
 kinds `allow` and `deny` belong to duolog. `duolog send` refuses them, and a
@@ -66,9 +66,9 @@ Put large content in a file and send its reference.
 | `duolog ref <path[:start-end]>` | Prints `path@<8 hex>:start-end`. The hash is the Git blob hash |
 | `duolog read <ref>` | Prints the content. Warns if a repository file changed |
 
-An `a/` reference never changes, because its name is the hash of its content.
-A repository reference can go stale, and `read` warns when it does. duolog
-refuses paths outside the project and paths with symlinks.
+Content hashes make `a/` snapshots immutable. `read` warns when a repository
+reference is stale. Paths outside the project or containing symlinks are
+refused.
 
 ## When the hooks show a message
 
@@ -109,7 +109,7 @@ each busy peer. After relaying gate ask N, use `--after-ask N` to keep waiting
 through its answer or expiry. Claude's `Stop` hook reminds a lead that has no
 live wait for a busy peer. It also delivers mail that arrived before Stop.
 
-## Known limits
+## What remains unverified
 
 - A whole-file reference cost more than the same content in our saved
   measurements. A 16-line range cost less, but the tasks differed. The

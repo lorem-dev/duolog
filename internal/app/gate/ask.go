@@ -86,7 +86,7 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a policy.Action, tim
 	if waitCtx.Err() != nil {
 		return timedOut()
 	}
-	reg, err := session.Open(b.Directory())
+	reg, err := session.OpenWithin(waitCtx, b.Directory())
 	if err != nil {
 		return deny("cannot read ask lead: " + err.Error())
 	}
@@ -99,18 +99,18 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a policy.Action, tim
 	} else if waiting {
 		// Name the command, so the lead can allow it or rewrite the task without reading the log.
 		if a.Kind == "mcp" {
-			return deny(fmt.Sprintf("lead is waiting for foreground delegate; MCP tool %q needs approval. Return done false with mcp:%s in needs; the lead may allow it with duolog remember mcp:%s or capabilities.mcp_tools", a.Target, a.Target, a.Target))
+			return deny(fmt.Sprintf("lead is waiting for foreground delegate; MCP tool %q needs approval. Return done false with mcp:%s in needs; the lead may allow it with duolog remember mcp:%s or capabilities.mcp_tools", safeTarget(a.Target), safeTarget(a.Target), safeTarget(a.Target)))
 		}
-		return deny(fmt.Sprintf("lead is waiting for foreground delegate; %q needs approval. Return done false with it in needs, or use a plain command inside the project without pipes, globs or substitutions; the lead may ask the user to allow it next time with duolog remember", askSummary(strings.Join(strings.Fields(a.Target), " "), 160)))
+		return deny(fmt.Sprintf("lead is waiting for foreground delegate; %q needs approval. Return done false with it in needs, or use a plain command inside the project without pipes, globs or substitutions; the lead may ask the user to allow it next time with duolog remember", askSummary(strings.Join(strings.Fields(safeTarget(a.Target)), " "), 160)))
 	}
 	address := session.Address(l)
 	from := "duolog/ask." + rand.Text()
-	fullSummary := strings.Join(strings.Fields(a.Kind+" "+a.Target), " ")
+	fullSummary := strings.Join(strings.Fields(a.Kind+" "+safeTarget(a.Target)), " ")
 	// A peer pane names itself, so that peer wait stops only for its own asks.
 	peer := os.Getenv("DUOLOG_PEER")
 	// The wait, rounded up, tells readers when this hook has given up.
 	wait := int((timeout + time.Second - 1) / time.Second)
-	n, err := sendCut(b, bus.Message{From: from, To: address, K: policy.Ask, Ref: peer, P: person, W: wait}, "", fullSummary)
+	n, err := sendCut(b.Within(waitCtx), bus.Message{From: from, To: address, K: policy.Ask, Ref: peer, P: person, W: wait}, "", fullSummary)
 	if err != nil {
 		return deny("cannot send ask: " + err.Error())
 	}

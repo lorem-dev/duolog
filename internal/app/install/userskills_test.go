@@ -59,6 +59,10 @@ func TestSkillsCarryConditionFirstLineAndVersion(t *testing.T) {
 			if got := SkillVersion([]byte(bundled(t, agent, name, "SKILL.md"))); got != v {
 				t.Errorf("%s: version %q, want %q", path, got, v)
 			}
+			// The updater also works outside a project that already has duolog.
+			if name == "duolog-update" {
+				continue
+			}
 			desc := ""
 			for _, line := range strings.Split(front, "\n") {
 				if rest, ok := strings.CutPrefix(line, "description:"); ok {
