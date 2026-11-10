@@ -8,11 +8,52 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request, force pushes included, cancels the run of the
+# commit it replaced. Runs on main and develop always finish.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # A change to the docs, README, CHANGES.md or images alone needs no Go build,
+  # test or lint. Branch protection names the test jobs one by one, and a
+  # skipped matrix job reports under its unexpanded name, so the test jobs
+  # still start and skip their Go steps; the other jobs are skipped whole.
+  # Skill files and everything else count as code: tests check them.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: diff
+        shell: bash
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          # Without a base this clone knows, such as a new branch, check all.
+          code=true
+          if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            if ! git diff --name-only "$BASE" HEAD |
+              grep -qvE '^(README\.md|CHANGES\.md|LICENSE|\.pymarkdown\.yaml|docs/.*|assets/.*)$'; then
+              code=false
+            fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "Go code or config changed: $code"
+
   test:
     name: test (${{ matrix.os }}${{ matrix.part && format(', {0}', matrix.part) || '' }})
+    needs: changes
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    # Windows runners vary a lot in speed; a slow one must not fail the run.
+    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 35 || 25 }}
+    env:
+      CODE: ${{ needs.changes.outputs.code }}
     strategy:
       fail-fast: false
       matrix:
@@ -54,17 +95,27 @@ jobs:
           cache: true
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Vet
-        if: matrix.part == ''
+        if: env.CODE == 'true' && matrix.part == ''
         run: go vet ./...
       # Windows checkouts may turn line endings into CRLF, which gofmt reports.
       - name: Go files are gofmt-formatted
-        if: (matrix.os == 'ubuntu-latest') && matrix.part == ''
+        if: env.CODE == 'true' && (matrix.os == 'ubuntu-latest') && matrix.part == ''
         run: make lint
       - name: Vet the end-to-end tests (do not run them)
-        if: matrix.part == ''
+        if: env.CODE == 'true' && matrix.part == ''
         run: go vet -tags=e2e ./test/e2e/
+      # Defender scans every test binary and temporary file the tests write;
+      # a measured run of the slowest packages took 28% less without it. The
+      # runner is thrown away after the job.
+      - name: Keep Windows Defender out of the workspace and Go folders
+        if: env.CODE == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, (go env GOCACHE), (go env GOMODCACHE), $env:TEMP, $env:RUNNER_TEMP
+          Set-MpPreference -DisableRealtimeMonitoring $true
       - name: Unit and native generated-command tests
-        timeout-minutes: 20
+        if: env.CODE == 'true'
+        timeout-minutes: ${{ runner.os == 'Windows' && 30 || 20 }}
         # Most packages take under a minute; delegate and calibration, with
         # their Git repositories, take two to four on Windows. The timeout
         # names the test that hangs and prints its stack.
@@ -76,29 +127,36 @@ jobs:
           m=github.com/lorem-dev/duolog
           slow="$m/cmd/duolog $m/internal/app/calibrate $m/internal/app/delegate"
           gate="$m/internal/core/policy $m/internal/app/hook $m/internal/app/peer $m/internal/adapter/config"
+          par=
           if [ "$PART" = 'commands, delegation and calibration' ]; then
             pkgs=$slow
           elif [ -n "$PART" ]; then
-            pkgs=$gate
+            # These four run their own tests in parallel; run together on a
+            # four-core runner they took twice as long as one after another.
+            # -p 1 also builds one package at a time, so build them all in
+            # parallel first, running no test, and let -p 1 use that build.
+            pkgs=$gate par='-p 1'
+            # shellcheck disable=SC2086 # RACE and pkgs are word lists
+            go test $RACE -run '^$' $pkgs > /dev/null
           elif [ "$RUNNER_OS" = Windows ]; then
             pkgs=$(go list ./... | grep -vxF -e "${slow// /$'\n'}" -e "${gate// /$'\n'}")
           else
             pkgs=./...
           fi
-          # shellcheck disable=SC2086 # RACE and pkgs are word lists
-          go test $RACE -timeout 6m $pkgs
+          # shellcheck disable=SC2086 # RACE, par and pkgs are word lists
+          go test $RACE $par -timeout 6m $pkgs
       # The native evidence for telemetry, by name in each runner's log: the
       # owner and mode or the Windows DACL, the macOS backup and index
       # exclusions, the Linux cache tag and NFS probe, files held open on
       # Windows, and several processes writing and pruning at once. A
       # cross-build does not prove any of it.
       - name: Native telemetry protection checks
-        if: matrix.part == ''
+        if: env.CODE == 'true' && matrix.part == ''
         run: go test ${{ matrix.race }} -count=1 -v -run '^Test(Root|PruneOpenWindowsFile|PurgeOpenWindowsFile|AppendWholeLines|SaltConcurrentCreation|MaintenanceWriterPurgeRace|PruneDoesNotFollowLinks)' ./internal/telemetry
       # The NFS check above fakes statfs; this one mounts NFS over loopback
       # and checks that the real probe refuses a root there.
       - name: A real NFS mount refuses the telemetry root
-        if: (matrix.os == 'ubuntu-latest') && matrix.part == ''
+        if: env.CODE == 'true' && (matrix.os == 'ubuntu-latest') && matrix.part == ''
         run: |
           sudo apt-get update
           sudo apt-get install -y nfs-kernel-server
@@ -113,10 +171,10 @@ jobs:
         if: matrix.part == ''
         run: uv run scripts/version/version.py check
       - name: Version tool tests
-        if: (matrix.os == 'ubuntu-latest') && matrix.part == ''
+        if: env.CODE == 'true' && (matrix.os == 'ubuntu-latest') && matrix.part == ''
         run: uv run --no-project --python 3.12 --with click --with pytest python -m pytest scripts/version/tests -q -p no:cacheprovider
       - name: Generated skill copies are current
-        if: (matrix.os == 'ubuntu-latest') && matrix.part == ''
+        if: env.CODE == 'true' && (matrix.os == 'ubuntu-latest') && matrix.part == ''
         # The sync lock is not committed, so regenerate the copies and compare.
         # Skills with no source in .claude/skills, such as crit's, are tracked
         # as they are and stay.
@@ -125,10 +183,10 @@ jobs:
           go run ./cmd/duolog sync --from claude
           test -z "$(git status --porcelain --untracked-files=all -- .agents .codex)"
       - name: Schema is current
-        if: matrix.part == ''
+        if: env.CODE == 'true' && matrix.part == ''
         run: go test . -run '^TestSchemaFileIsCurrent$'
       - name: Third-party notices are current
-        if: matrix.part == ''
+        if: env.CODE == 'true' && matrix.part == ''
         run: go run ./scripts/thirdparty -check
       - name: Docs lint
         if: (runner.os != 'Windows') && matrix.part == ''
@@ -144,10 +202,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -run TestDocs .
       - name: Render both installers
-        if: matrix.part == ''
+        if: env.CODE == 'true' && matrix.part == ''
         run: go run ./scripts/render-install
       - name: Parse installer with Windows PowerShell 5.1
-        if: (runner.os == 'Windows') && matrix.part == ''
+        if: env.CODE == 'true' && (runner.os == 'Windows') && matrix.part == ''
         shell: powershell
         run: |
           $tokens = $null
@@ -156,7 +214,7 @@ jobs:
             (Join-Path $PWD '.release/install.ps1'), [ref]$tokens, [ref]$parseErrors) > $null
           if ($parseErrors.Count) { $parseErrors; exit 1 }
       - name: Parse installer with pwsh
-        if: (runner.os == 'Windows') && matrix.part == ''
+        if: env.CODE == 'true' && (runner.os == 'Windows') && matrix.part == ''
         shell: pwsh
         run: |
           $tokens = $null
@@ -169,14 +227,14 @@ jobs:
       # The module is saved to a folder that actions/cache restores, so a
       # Gallery outage only matters on a cache miss.
       - name: Cache PSScriptAnalyzer
-        if: runner.os == 'Windows' && matrix.part == ''
+        if: env.CODE == 'true' && runner.os == 'Windows' && matrix.part == ''
         id: psa-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/psmodules
           key: psscriptanalyzer-1.24.0-${{ runner.os }}-${{ runner.arch }}
       - name: Install PSScriptAnalyzer (cache miss)
-        if: runner.os == 'Windows' && matrix.part == '' && steps.psa-cache.outputs.cache-hit != 'true'
+        if: env.CODE == 'true' && runner.os == 'Windows' && matrix.part == '' && steps.psa-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $attempts = 4
@@ -192,7 +250,7 @@ jobs:
           Write-Error "Could not download PSScriptAnalyzer 1.24.0 from the PowerShell Gallery after $attempts attempts."
           exit 1
       - name: PSScriptAnalyzer (errors only)
-        if: (runner.os == 'Windows') && matrix.part == ''
+        if: env.CODE == 'true' && (runner.os == 'Windows') && matrix.part == ''
         shell: pwsh
         run: |
           Import-Module "$env:RUNNER_TEMP/psmodules/PSScriptAnalyzer/1.24.0/PSScriptAnalyzer.psd1" -ErrorAction Stop
@@ -203,18 +261,20 @@ jobs:
           }
           if ($failed) { exit 1 }
       - name: Run POSIX installer test with dash
-        if: (matrix.os == 'ubuntu-latest') && matrix.part == ''
+        if: env.CODE == 'true' && (matrix.os == 'ubuntu-latest') && matrix.part == ''
         run: |
           command -v dash
           go test ./scripts/render-install -run '^TestInstallerDash$' -count=1 -v
       - name: Vulnerability check
-        if: (matrix.os == 'ubuntu-latest') && matrix.part == ''
+        if: env.CODE == 'true' && (matrix.os == 'ubuntu-latest') && matrix.part == ''
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
   # Shell, YAML and workflow checks, with the tools pinned in the Makefile and
   # in tools/. The formatters (make fmt-check) are not gated yet.
   lint:
     name: lint (shell, yaml, workflows, go)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -247,6 +307,8 @@ jobs:
   # parallel with cross-build, so it adds no time to that job.
   compat-arm64:
     name: compat (linux/arm64 on Alpine and old Ubuntu)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     steps:
@@ -275,6 +337,8 @@ jobs:
 
   cross-build:
     name: cross-build (all release targets)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
