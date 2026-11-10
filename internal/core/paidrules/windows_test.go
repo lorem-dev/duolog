@@ -313,6 +313,64 @@ func TestUsableHeadroomReservesAndScopedLimits(t *testing.T) {
 	})
 }
 
+// A task without history has no token count, only a money bound: a measured
+// rate does not scale that bound. Its cost in a window is the unmeasured
+// bound, raised by what a measured interval moved the window, and from three
+// intervals on their pooled movement, never below the p90. The read and the
+// sample are those of a Codex plus account that refused every cold task at
+// 9 % of its five-hour window.
+func TestColdEstimateWindowCost(t *testing.T) {
+	cold, err := EstimateTask(pricedConfig(), nil, "codex", "sol", "implement", "")
+	if err != nil || !cold.Cold {
+		t.Fatalf("cold estimate = %+v, %v", cold, err)
+	}
+	s := snapshot("codex")
+	s.Windows = []coreaccount.Window{
+		{Kind: "session", DurationMinutes: 300, UsedPercent: 9, ResetsAt: now.Add(4 * time.Hour)},
+		{Kind: "weekly_all", DurationMinutes: 10080, UsedPercent: 3, ResetsAt: now.Add(144 * time.Hour)},
+	}
+	measured := RateSample{Agent: "codex", Family: "sol", Fingerprint: "f",
+		Window: WindowKey{Kind: "session"}, Movement: 0.09, WeightedTokens: 181752.8, Intervals: 1}
+	costs, err := WindowCosts(s, "sol", cold, []RateSample{measured})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := costOf(t, costs, "session", "").Cost; !near(got, 0.09) {
+		t.Fatalf("one interval moved .09: cost %v", got)
+	}
+	if got := costOf(t, costs, "weekly_all", "").Cost; got != boundWeekly {
+		t.Fatalf("unmeasured weekly: cost %v", got)
+	}
+	if !FitsWindows(costs, 1) {
+		t.Fatalf("cold task at 9%% of the five-hour window refused: %s", WindowShortfall("codex", costs, 1))
+	}
+
+	session := func(samples ...RateSample) float64 {
+		t.Helper()
+		costs, err := WindowCosts(s, "sol", cold, samples)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return costOf(t, costs, "session", "").Cost
+	}
+	small := measured
+	small.Movement = 0.01
+	if got := session(small); got != boundFiveHour {
+		t.Fatalf("one interval below the bound: cost %v", got)
+	}
+	// Four intervals: pooled movement per interval (.04), never below the
+	// p90 of the samples' movement per interval (.01, .03, .09).
+	pooled := measured
+	pooled.Movement, pooled.Intervals = 0.06, 2
+	if got := session(small, pooled, measured); !near(got, 0.09) {
+		t.Fatalf("three samples: cost %v", got)
+	}
+	pooled.Movement, pooled.Intervals = 0.12, 3
+	if got := session(pooled); !near(got, 0.04) {
+		t.Fatalf("one sample of three intervals: cost %v", got)
+	}
+}
+
 // An individual limit has no length: it gets the weekly reserve and the
 // five-hour bound, so a task is refused as it nears full, on the usable
 // share of a workspace account as any other window.
@@ -345,7 +403,8 @@ func TestIndividualLimitWindow(t *testing.T) {
 			t.Errorf("%v%% used at share %v: fits %t, want %t", c.used, c.u, got, c.want)
 		}
 	}
-	if got := WindowShortfall("codex", costs(40), 0.5); got != "codex individual window 80% used, above the reserve" {
-		t.Fatalf("shortfall = %q", got)
+	if got, want := WindowShortfall("codex", costs(40), 0.5),
+		"codex individual window: 80% used + 10% this task + 15% reserve = 105%, over 100%"; got != want {
+		t.Fatalf("shortfall = %q, want %q", got, want)
 	}
 }

@@ -716,3 +716,73 @@ func fixtureApprovalHash(event string) string {
 	}
 	return hash
 }
+
+// newDevAdoptFixture is newAdoptFixture for duolog's own repository: its
+// hooks run the dev launcher of the checkout, which is committed.
+func newDevAdoptFixture(t *testing.T) adoptFixture {
+	t.Helper()
+	f := adoptFixture{codexHome: adoptHome(t), lead: filepath.Join(t.TempDir(), "project")}
+	if err := os.MkdirAll(f.lead, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git(t, f.lead, "init", "-q")
+	data, err := install.Document(devEvents(install.GateTimeout))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(f.lead, ".codex", "hooks.json"), string(data))
+	writeFile(t, filepath.Join(f.lead, "scripts", "dev", "bin", "duolog"), "#!/bin/sh\n# duolog built from this checkout.\nexit 0\n")
+	writeFile(t, filepath.Join(f.lead, "scripts", "dev", "bin", "duolog.ps1"), "# duolog built from this checkout.\n")
+	git(t, f.lead, "add", ".")
+	git(t, f.lead, "commit", "-q", "-m", "dev hooks")
+	f.worktree = filepath.Join(f.lead, ".worktrees", "w0")
+	git(t, f.lead, "worktree", "add", "-q", "--detach", f.worktree)
+	f.config = filepath.Join(f.codexHome, "config.toml")
+	writeFile(t, f.config, configHead+"\n"+approvalsFor(f.lead))
+	return f
+}
+
+// In duolog's own repository the hooks run the dev launcher. The person's
+// approval in the main checkout counts there, and duolog carries it to a
+// linked worktree whose launcher is the same, with no /hooks visit.
+func TestAdoptWorktreeCarriesDevLauncherApprovals(t *testing.T) {
+	f := newDevAdoptFixture(t)
+	if s, err := hooks(f.lead); err != nil || !s.Trusted || s.Unproven != "" {
+		t.Fatalf("main checkout hooks = %+v, %v", s, err)
+	}
+	lines, err := Trust{}.AdoptWorktree(f.lead, f.worktree, os.Environ())
+	if err != nil || len(lines) == 0 {
+		t.Fatalf("lines = %q, %v", lines, err)
+	}
+	if s, err := hooks(f.worktree); err != nil || !s.Trusted || s.Unproven != "" {
+		t.Fatalf("worktree hooks = %+v, %v", s, err)
+	}
+}
+
+// A worktree whose launcher differs runs another program: no approval is
+// carried, and the reason names the launcher.
+func TestAdoptWorktreeRefusesAChangedDevLauncher(t *testing.T) {
+	f := newDevAdoptFixture(t)
+	writeFile(t, filepath.Join(f.worktree, "scripts", "dev", "bin", "duolog"), "#!/bin/sh\n# duolog built from this checkout.\nexit 1\n")
+	before := f.read(t)
+	if _, err := (Trust{}).AdoptWorktree(f.lead, f.worktree, os.Environ()); err == nil || !strings.Contains(err.Error(), "scripts/dev/bin/duolog") {
+		t.Fatalf("adoption error = %v", err)
+	}
+	if !bytes.Equal(f.read(t), before) {
+		t.Fatal("config changed")
+	}
+	if p := (Trust{}).WorktreeTrustProblem(f.lead, f.worktree, os.Environ()); !strings.Contains(p, "dev launcher") {
+		t.Fatalf("problem = %q", p)
+	}
+}
+
+// The dev form is duolog's gate only where duolog's dev launcher is.
+func TestDevGateNeedsTheDevLauncher(t *testing.T) {
+	f := newDevAdoptFixture(t)
+	if err := os.Remove(filepath.Join(f.lead, "scripts", "dev", "bin", "duolog")); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := hooks(f.lead); err != nil || s.Trusted && s.Unproven == "" {
+		t.Fatalf("gate without launcher = %+v, %v", s, err)
+	}
+}

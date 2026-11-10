@@ -40,6 +40,9 @@ func (Trust) WorktreeTrustProblem(lead, dir string, environ []string) string {
 // planner and writer remain the sole authority for copying trust and approvals.
 func (a adopter) adoptionProblem(data []byte) string {
 	if p, ok := planAdoption(data, a.dir, a.roots, a.userHooks, a.stale); ok {
+		if !sameDevLaunchers(p.from, a.dir) {
+			return fmt.Sprintf("trust was not carried over from %s: the dev launcher scripts/dev/bin/duolog is not the same in %s", p.from, a.dir)
+		}
 		if p.trustKey != "" {
 			if name, same := sameCodexTree(p.from, a.dir); !same {
 				return fmt.Sprintf("trust was not carried over from %s: %s is not the same in %s", p.from, name, a.dir)

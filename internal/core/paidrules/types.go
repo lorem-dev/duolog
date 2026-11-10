@@ -29,7 +29,8 @@ type WindowCost struct {
 
 // Estimate is what a task is expected to use: tokens, Cached a subset of
 // Input, the money they cost and its window costs. Source names how it was
-// made, such as the journal's p90 or the cold bound.
+// made, such as the journal's p90 or the cold bound. Cold marks the cold
+// bound: its tokens bound money, not what the task will use.
 type Estimate struct {
 	Input   int64        `json:"input"`
 	Cached  int64        `json:"cached"`
@@ -37,6 +38,7 @@ type Estimate struct {
 	USD     float64      `json:"usd"`
 	Windows []WindowCost `json:"windows,omitempty"`
 	Source  string       `json:"source"`
+	Cold    bool         `json:"cold,omitempty"`
 }
 
 // Owner is a process that holds a reservation: its PID and birth identity,

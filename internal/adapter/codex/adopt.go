@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -310,8 +311,10 @@ func readHooksDoc(path string) (hooksDoc, bool) {
 }
 
 // ownHandler reports whether handler j of group g of event is exactly one
-// that duolog install writes for Codex: its command, with no args, run in the
-// foreground, in a group that covers every tool.
+// that duolog install writes for Codex, or its dev launcher form in duolog's
+// own repository: its command, with no args, run in the foreground, in a
+// group that covers every tool. adopt checks that a dev launcher it copies
+// trust for is the same in both checkouts.
 func ownHandler(event string, g install.HookGroup, j int) bool {
 	if j >= len(g.Hooks) || !g.CoversEveryTool() {
 		return false
@@ -320,19 +323,32 @@ func ownHandler(event string, g install.HookGroup, j int) bool {
 	if h.Type != "command" || len(h.Args) != 0 || h.Async || h.AsyncRewake {
 		return false
 	}
-	for _, e := range events(install.GateTimeout) {
-		if e.Name != event {
-			continue
-		}
-		for _, group := range e.Groups {
-			for _, ours := range group.Hooks {
-				if h.Command == ours.Command && h.CommandWindows == ours.CommandWindows {
-					return true
-				}
-			}
+	return ownCommands(event, h.Command, h.CommandWindows, true)
+}
+
+// devLaunchers are the dev launcher files a dev form hook runs, below the
+// checkout root.
+var devLaunchers = []string{"scripts/dev/bin/duolog", "scripts/dev/bin/duolog.ps1"}
+
+// sameDevLaunchers reports whether the hooks of root run no dev launcher, or
+// root's dev launchers are duolog's and dir has the same bytes: copying the
+// person's approval then runs no other program in dir.
+func sameDevLaunchers(root, dir string) bool {
+	data, err := os.ReadFile(filepath.Join(root, ".codex", "hooks.json"))
+	if err != nil || !strings.Contains(string(data), "scripts/dev/bin/duolog") {
+		return true
+	}
+	if !install.IsDevLauncher(filepath.Join(root, filepath.FromSlash(devLaunchers[0]))) {
+		return false
+	}
+	for _, name := range devLaunchers {
+		a, errA := os.ReadFile(filepath.Join(root, filepath.FromSlash(name)))
+		b, errB := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name)))
+		if errA != nil || errB != nil || !bytes.Equal(a, b) {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 // approvalEntry returns the approval entry when it holds a trusted_hash and

@@ -42,6 +42,16 @@
 
 ## Development
 
+### Changed
+
+- A "no window headroom" refusal shows its sum: used, held by running tasks,
+  this task's cost and the reserve, such as `9% used + 5% this task + 10%`.
+
+### Fixed
+
+- Codex and Claude workers of a role with no history are no longer refused
+  with "no window headroom" while the quota window has plenty of room left.
+
 ## 1.8.0
 
 ### Added

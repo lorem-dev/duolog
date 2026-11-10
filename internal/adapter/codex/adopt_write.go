@@ -61,6 +61,10 @@ func (a adopter) adopt() ([]string, error) {
 		if !ok {
 			return configChange{}, false, nil
 		}
+		if !sameDevLaunchers(p.from, a.dir) {
+			return configChange{}, false, fmt.Errorf("the dev launcher scripts/dev/bin/duolog is not the same in %s as in %s, and the hooks run it; approve the hooks yourself (/hooks there) once you have checked it",
+				a.dir, p.from)
+		}
 		if p.trustKey != "" {
 			if name, same := sameCodexTree(p.from, a.dir); !same {
 				return configChange{}, false, fmt.Errorf("%s is not the same in %s as in %s, and Codex loads it in a folder it trusts; trust the folder yourself (/hooks there) once you have checked it",

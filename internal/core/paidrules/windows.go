@@ -43,8 +43,10 @@ const (
 // units: each measures a window's movement per weighted token, matched by
 // family and window kind and scope. With fewer than three measured intervals
 // the cost is the bound, raised by any measurement above it; from three on it
-// is the pooled rate, never below the p90 of the measurements. USD plays no
-// part, so the usable share never scales money.
+// is the pooled rate, never below the p90 of the measurements. A cold
+// estimate's tokens bound money, not use, so no rate scales them: its
+// measurements are each sample's movement per interval, by the same rules.
+// USD plays no part, so the usable share never scales money.
 func WindowCosts(s coreaccount.Snapshot, family string, estimate Estimate,
 	samples []RateSample) ([]WindowCost, error) {
 	e := estimate
@@ -68,7 +70,7 @@ func WindowCosts(s coreaccount.Snapshot, family string, estimate Estimate,
 	if err != nil {
 		return nil, err
 	}
-	weighted := float64(e.Input) + float64(e.Output)*outputWeight(defaults)
+	share := taskShare(e, defaults)
 
 	type scoped struct {
 		w     coreaccount.Window
@@ -101,7 +103,7 @@ func WindowCosts(s coreaccount.Snapshot, family string, estimate Estimate,
 		key := WindowKey{Kind: w.Kind, Family: x.scope, Reset: w.ResetsAt}
 		reserve, bound := windowTerms(w)
 		costs = append(costs, WindowCost{Key: key, Used: used, Reserve: reserve,
-			Cost: measuredCost(samples, family, key, weighted, bound)})
+			Cost: measuredCost(samples, family, key, share, bound)})
 	}
 	if !current {
 		return nil, errors.New("window costs: no window resets after the read")
@@ -129,9 +131,11 @@ func FitsWindows(costs []WindowCost, usableShare float64) bool {
 }
 
 // WindowShortfall names, for a refusal, the window of costs that leaves no
-// headroom at usable share u, and why: the agent, the window and the share of
-// it used. It picks the first window that does not fit, else the fullest. It
-// words only the rule FitsWindows applies and decides nothing.
+// headroom at usable share u, and why: the agent, the window and the sum
+// FitsWindows checks there, as shares of the usable window: used, held by
+// tasks in flight, the task's cost and the reserve. It picks the first window
+// that does not fit, else the fullest, where tasks in flight that costs do
+// not count take the rest. It words only the rule and decides nothing.
 func WindowShortfall(agent string, costs []WindowCost, usableShare float64) string {
 	u := usableShare
 	if !finite(u) || u <= 0 || u > 1 {
@@ -152,9 +156,16 @@ func WindowShortfall(agent string, costs []WindowCost, usableShare float64) stri
 		return ""
 	}
 	c := costs[pick]
-	name := windowName(c.Key)
-	used := int(math.Round(c.Used / u * 100))
-	return fmt.Sprintf("%s %s %d%% used, above the reserve", agent, name, used)
+	pct := func(f float64) int { return int(math.Round(f * 100)) }
+	line := fmt.Sprintf("%s %s: %d%% used", agent, windowName(c.Key), pct(c.Used/u))
+	if c.Reserved > 0 {
+		line += fmt.Sprintf(" + %d%% held by running tasks", pct(c.Reserved/u))
+	}
+	line += fmt.Sprintf(" + %d%% this task + %d%% reserve = %d%%", pct(c.Cost/u), pct(c.Reserve), pct(load(c)))
+	if load(c) > 1+fitSlack {
+		return line + ", over 100%"
+	}
+	return line + "; running tasks hold the rest"
 }
 
 // windowName words a window key: "weekly window", "5h window", and with the
@@ -218,30 +229,43 @@ func outputWeight(defaults map[string]config.Model) float64 {
 	return weight
 }
 
-// measuredCost is a task's cost of weighted tokens in the window key, from
-// the samples of family that measured it.
-func measuredCost(samples []RateSample, family string, key WindowKey, weighted, bound float64) float64 {
+// taskShare is the task's share of a rate sample: its weighted tokens over the
+// sample's, with cached input at full input weight and output at the largest
+// output weight of the default models. A cold estimate's tokens bound money,
+// not use, so its share is one of the sample's measured intervals.
+func taskShare(e Estimate, defaults map[string]config.Model) func(RateSample) float64 {
+	if e.Cold {
+		return func(r RateSample) float64 { return 1 / float64(r.Intervals) }
+	}
+	weighted := float64(e.Input) + float64(e.Output)*outputWeight(defaults)
+	return func(r RateSample) float64 { return weighted / r.WeightedTokens }
+}
+
+// measuredCost is a task's cost in the window key, from the samples of family
+// that measured it: each sample's movement times the task's share of it, and
+// pooled, the total movement times the share of all the samples together.
+func measuredCost(samples []RateSample, family string, key WindowKey,
+	share func(RateSample) float64, bound float64) float64 {
 	var costs []float64
-	var movement, tokens float64
-	intervals := 0
+	var pooled RateSample
 	for _, r := range samples {
 		if r.Family != family || r.Window.Kind != key.Kind || r.Window.Family != key.Family ||
 			r.Intervals == 0 || r.WeightedTokens == 0 || r.Movement == 0 {
 			continue
 		}
-		costs = append(costs, r.Movement/r.WeightedTokens*weighted)
-		movement += r.Movement
-		tokens += r.WeightedTokens
-		intervals += r.Intervals
+		costs = append(costs, r.Movement*share(r))
+		pooled.Movement += r.Movement
+		pooled.WeightedTokens += r.WeightedTokens
+		pooled.Intervals += r.Intervals
 	}
 	if len(costs) == 0 {
 		return bound
 	}
 	slices.Sort(costs)
-	if intervals < minMeasurements {
+	if pooled.Intervals < minMeasurements {
 		return max(bound, costs[len(costs)-1])
 	}
 	// Nearest rank: the smallest measurement at or above 90% of them.
 	p90 := costs[int(math.Ceil(0.9*float64(len(costs))))-1]
-	return max(movement/tokens*weighted, p90)
+	return max(pooled.Movement*share(pooled), p90)
 }

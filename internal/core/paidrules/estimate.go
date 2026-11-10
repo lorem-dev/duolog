@@ -80,7 +80,7 @@ func EstimateTask(cfg *config.Config, records []record.Delegation,
 	var measured usage.Tokens
 	if len(runs) == 0 {
 		input := int64(math.Round(coldTokens * coldInputShare))
-		e = Estimate{Input: input, Output: coldTokens - input, Source: coldSource}
+		e = Estimate{Input: input, Output: coldTokens - input, Source: coldSource, Cold: true}
 		measured = usage.Tokens{Input: e.Input, Output: e.Output}
 	} else {
 		// Prices are the family's, so ranking by cost ranks by weighted

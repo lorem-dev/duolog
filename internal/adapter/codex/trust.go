@@ -129,7 +129,9 @@ func hooksAt(path string, s codexSettings, stale map[string]string) (agent.Trust
 	if err := json.Unmarshal(data, &definition); err != nil {
 		return agent.TrustState{}, err
 	}
-	posix, windows := CodexGateCommands("PreToolUse")
+	// The dev launcher form counts only in a checkout that has duolog's dev
+	// launcher, as duolog's own repository does.
+	dev := install.IsDevLauncher(filepath.Join(filepath.Dir(filepath.Dir(path)), filepath.FromSlash(devLaunchers[0])))
 	var unproven agent.TrustState
 	for i, group := range definition.Hooks["PreToolUse"] {
 		if !group.CoversEveryTool() {
@@ -148,7 +150,7 @@ func hooksAt(path string, s codexSettings, stale map[string]string) (agent.Trust
 				problem := codexApprovalProblem(path, state.TrustedHash, stale[approved])
 				var reason string
 				switch {
-				case hook.Command != posix || hook.CommandWindows != windows || len(hook.Args) != 0:
+				case !ownCommands("PreToolUse", hook.Command, hook.CommandWindows, dev) || len(hook.Args) != 0:
 					reason = "the approved Codex gate hook in " + path +
 						" is not duolog's gate command, and Codex skips a hook changed after approval; run duolog install and approve it in /hooks"
 				case problem != "":

@@ -124,9 +124,17 @@ func HooksJSON(timeout int) ([]byte, error) {
 
 // events returns the hook entries of Codex in a fixed order. Timeouts are in
 // seconds.
-func events(timeout int) []install.Event {
+func events(timeout int) []install.Event { return eventsWith(timeout, command) }
+
+// devEvents are the hook entries of duolog's own repository, which run the
+// dev launcher of the checkout (docs/contributing.md) instead of duolog on
+// PATH. duolog install never writes them.
+func devEvents(timeout int) []install.Event { return eventsWith(timeout, devCommand) }
+
+// eventsWith returns the hook entries of Codex, each command written by cmd.
+func eventsWith(timeout int, cmd func(goos, args string, gate bool) string) []install.Event {
 	handler := func(args string, gate bool) install.Handler {
-		return install.Handler{Type: "command", Command: command("linux", args, gate), CommandWindows: command("windows", args, gate)}
+		return install.Handler{Type: "command", Command: cmd("linux", args, gate), CommandWindows: cmd("windows", args, gate)}
 	}
 	hook := func(name string) install.Group {
 		return install.Group{Hooks: []install.Handler{handler("hook "+name+" --agent codex", false)}}
@@ -154,6 +162,44 @@ func events(timeout int) []install.Event {
 func CodexGateCommands(event string) (posix, windows string) {
 	args := "gate --agent codex --event " + event
 	return command("linux", args, true), command("windows", args, true)
+}
+
+// devCommand is the dev launcher form of a duolog hook command, as the
+// .codex/hooks.json of duolog's own repository writes it.
+func devCommand(goos, args string, gate bool) string {
+	if goos == "windows" {
+		return "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/dev/bin/duolog.ps1 " + args
+	}
+	s := `r=$(git rev-parse --show-toplevel 2>/dev/null); if [ -x "$r/scripts/dev/bin/duolog" ]; then exec "$r"/scripts/dev/bin/duolog ` + args + "; "
+	if gate {
+		s += `elif [ "${DUOLOG_DEPTH:-0}" -ge 1 ] 2>/dev/null; then exit 2; `
+	}
+	return s + "fi"
+}
+
+// ownCommands reports whether the POSIX and Windows commands are those of a
+// duolog hook for event: the installed form, or with dev true also the dev
+// launcher form.
+func ownCommands(event, posix, windows string, dev bool) bool {
+	forms := [][]install.Event{events(install.GateTimeout)}
+	if dev {
+		forms = append(forms, devEvents(install.GateTimeout))
+	}
+	for _, es := range forms {
+		for _, e := range es {
+			if e.Name != event {
+				continue
+			}
+			for _, g := range e.Groups {
+				for _, h := range g.Hooks {
+					if posix == h.Command && windows == h.CommandWindows {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 // Codex carries both shell guards in one shared file. POSIX must exec so
