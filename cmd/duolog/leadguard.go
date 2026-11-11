@@ -497,7 +497,10 @@ func personAsk(stateDir string, n int64) []bus.Message {
 // call asks the person, unless the lead runs in bypass or auto
 // (guardLeadCall); a Codex lead's call is denied. It guards against
 // accidents: no check can prove that a terminal is the person's. duolog runs
-// and duolog watch --tab print no worker output, so they pass.
+// tail is stopped the same way: it is for the Claude pane, whose call is no
+// tool call of the lead, and the person. duolog runs (and its snapshot),
+// duolog watch --tab and duolog statusline print no worker output, so they
+// pass.
 func peerShowLeadGuard(agent string, actions []policy.Action) (policy.Decision, bool) {
 	for _, a := range actions {
 		if a.Kind != "exec" {
@@ -518,44 +521,15 @@ func peerShowLeadGuard(agent string, actions []policy.Action) (policy.Decision, 
 				return policy.Decision{Kind: policy.Deny, Rule: "person-only watch", Reason: "duolog watch prints a worker's stream for the person only: they run it in their own terminal; use duolog runs, or duolog watch --tab <id> when they ask to see a run"}, true
 			}
 			return policy.Decision{Kind: policy.Ask, Rule: "person-only watch", Reason: "duolog watch prints a worker's stream for the person only; the person confirms this call"}, true
+		case slices.ContainsFunc(texts, namesRunsTail):
+			const reason = "duolog runs tail prints a worker's stream for the Claude pane or the person only"
+			if agent == "codex" {
+				return policy.Decision{Kind: policy.Deny, Rule: "person-only tail", Reason: reason + ": they open the pane with /duolog-pane or run it in their own terminal; use duolog runs, or duolog watch --tab <id> when they ask to see a run"}, true
+			}
+			return policy.Decision{Kind: policy.Ask, Rule: "person-only tail", Reason: reason + "; the person confirms this call"}, true
 		}
 	}
 	return policy.Decision{}, false
-}
-
-// peerShowWords splits command text into words, with quotes removed and
-// shell operators taken as spaces, so that duolog inside sh -c '...', $(...)
-// or a && list is a word of its own.
-var peerShowWords = strings.NewReplacer("'", "", `"`, "", "`", "", ";", " ", "&", " ", "|", " ", "(", " ", ")", " ", "<", " ", ">", " ", "$", " ", "{", " ", "}", " ")
-
-// namesPeerShow reports whether text holds duolog [flags] peer [flags] show.
-func namesPeerShow(text string) bool {
-	words := strings.Fields(peerShowWords.Replace(text))
-	for i, w := range words {
-		if policy.ProgramName(w) != "duolog" {
-			continue
-		}
-		j := skipDuologFlags(words, i+1)
-		if j >= len(words) || words[j] != "peer" {
-			continue
-		}
-		if j = skipDuologFlags(words, j+1); j < len(words) && words[j] == "show" {
-			return true
-		}
-	}
-	return false
-}
-
-// skipDuologFlags returns the index of the first word from j that is not a
-// flag; --lead takes the next word.
-func skipDuologFlags(words []string, j int) int {
-	for j < len(words) && strings.HasPrefix(words[j], "-") {
-		if words[j] == "--lead" {
-			j++
-		}
-		j++
-	}
-	return j
 }
 
 // reviewChars are the characters that make the gate's parser set a command

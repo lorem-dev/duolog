@@ -54,6 +54,10 @@ type Deps struct {
 	// person about the Claude status line: that it is theirs, or that they
 	// turned duolog's off; "" for none. Nil reports none.
 	StatusLineLine func(root, home string) string
+	// ClaudePlugin reports whether the duolog Claude plugin, which carries
+	// the Claude pane mod, is enabled for a Claude lead in the project at
+	// root. Nil reports nothing.
+	ClaudePlugin func(root, home string) bool
 }
 
 // Trust reads what an agent's settings and approvals say about duolog's

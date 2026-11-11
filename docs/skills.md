@@ -108,8 +108,12 @@ Calibration runs only when requested, independently of `skill_tests`; see
 
 `duolog-peers` runs `runs --long` and, only when you ask to see a run,
 `watch --tab`; for a peer, this is `peer view`. Claude needs no further
-confirmation for that request. See
-[Rex](rex.md#how-to-watch-a-delegate-run).
+confirmation for that request. The skill names `runs --snapshot` as the same
+list in one JSON line. It refuses `runs tail` as it refuses a bare `watch`:
+both print a worker's stream, which stays out of the lead's context. In
+Claude Code, `/duolog-pane` opens the pane without a model turn. See
+[Rex](rex.md#how-to-watch-a-delegate-run) and
+[the Claude pane](rex.md#how-to-see-peers-and-runs-in-the-claude-pane).
 
 ## The update skill updates duolog when you ask
 

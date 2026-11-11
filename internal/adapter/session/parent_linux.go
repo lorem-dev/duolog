@@ -29,3 +29,13 @@ func parentProcess(pid int) (int, string) {
 	parent, _ := strconv.Atoi(fields[1])
 	return parent, string(data[start+1 : end])
 }
+
+// processArgs is the argument vector of the process pid, from
+// /proc/<pid>/cmdline. It is nil when the process cannot be read.
+func processArgs(pid int) []string {
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00")
+}

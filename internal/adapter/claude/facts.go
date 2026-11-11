@@ -9,6 +9,7 @@ var Facts = agent.Descriptor{
 	Display:       "Claude",
 	Product:       "Claude Code",
 	Binaries:      []string{"claude"},
+	Scripts:       []string{"@anthropic-ai/claude-code/cli.js"}, // npm: node runs it, or the bin link named claude
 	ConfigEnv:     "CLAUDE_CONFIG_DIR",
 	ConfigDefault: ".claude",
 	ProjectDir:    ".claude",

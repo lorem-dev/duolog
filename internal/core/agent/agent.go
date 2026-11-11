@@ -77,6 +77,7 @@ type Descriptor struct {
 	Product         string   // what the person runs: "Claude Code", "Codex"
 	Binaries        []string // process names: claude; codex, codex-*
 	Helpers         []string // sandbox helper processes
+	Scripts         []string // what node runs for an npm install, by the end of its path
 	ConfigEnv       string   // CLAUDE_CONFIG_DIR, CODEX_HOME
 	ConfigDefault   string   // .claude, .codex under home
 	ProjectDir      string   // .claude, .codex

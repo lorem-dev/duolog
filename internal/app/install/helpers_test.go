@@ -56,6 +56,11 @@ func HooksJSON(agent string, timeout int) ([]byte, error) {
 	return launchtest.HooksJSON(agent, timeout)
 }
 
+// PluginHooksJSON renders the hooks file the duolog plugin of agent ships.
+func PluginHooksJSON(agent string, timeout int) ([]byte, error) {
+	return launchtest.PluginHooksJSON(agent, timeout)
+}
+
 // installedSkillPath is where the bundled duolog skill of agent goes for o:
 // at user scope under o.Home, whatever the scope.
 func installedSkillPath(o Options, _, agent string) string {

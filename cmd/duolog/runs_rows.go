@@ -83,14 +83,30 @@ func underWork(work, dir string) string {
 // runRows is the live peers, then the shown delegate runs, of the lead's
 // gathering. A lead that was asked for and does not resolve fails it, as in
 // runsLead. A peer list that cannot be read leaves the delegate runs and says
-// so on stderr; outside Rex and on Windows there are no peers. It shows no
-// load, so it computes none.
-func (d *cmdDeps) runRows(cmd *cobra.Command, reg *session.Registry, lead string) ([]runRow, error) {
+// so on stderr; outside Rex and on Windows there are no peers. With note, a
+// delegations folder of another work project that cannot be read is named on
+// stderr once. It shows no load, so it computes none.
+func (d *cmdDeps) runRows(cmd *cobra.Command, reg *session.Registry, lead string, note bool) ([]runRow, error) {
 	deps := d.snapDeps(reg)
 	deps.Load = nil
+	var unread []delegate.UnreadFolder
+	deps.Records = func(leadID, address string) ([]delegate.LocatedRecord, error) {
+		root, err := projectRoot()
+		if err != nil {
+			return nil, err
+		}
+		records, skipped, err := listRuns(reg, root, leadID, address)
+		unread = skipped
+		return records, err
+	}
 	g, err := runsnap.Gather(cmd.Context(), deps, runsnap.Options{LeadID: lead, Now: time.Now()})
 	if err != nil {
 		return nil, err
+	}
+	if note && len(unread) > 0 {
+		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "delegate runs of %s not listed: %v\n", unreadRoots(unread), unread[0].Err); err != nil {
+			return nil, err
+		}
 	}
 	if g.LeadErr != nil {
 		if err := runsLeadMiss(reg, lead, g.LeadErr); err != nil {

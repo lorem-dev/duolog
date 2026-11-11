@@ -126,7 +126,8 @@ func (d *cmdDeps) snapDepsFor(reg *session.Registry, root string) runsnap.Deps {
 					return nil, err
 				}
 			}
-			return listRuns(reg, at, leadID, address)
+			records, _, err := listRuns(reg, at, leadID, address)
+			return records, err
 		},
 		Load: func(ctx context.Context, leadID string, peers []peer.ListedPeer) load.Summary {
 			if !hasState {

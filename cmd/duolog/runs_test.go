@@ -4,9 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -20,6 +25,7 @@ import (
 	corerun "github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/testbin"
+	"github.com/lorem-dev/duolog/internal/testutil/submodule"
 )
 
 const runLogText = `{"type":"assistant","message":{"content":[{"type":"text","text":"Reading now."}]}}` + "\n" +
@@ -395,6 +401,7 @@ func watchRex(t *testing.T) string {
 		"client ls":     {Stdout: viewClientReply},
 		"-C":            {Stdout: "{}"},
 		"block ls":      {Stdout: `{"blocks":[{"id":"block:peer"}]}`},
+		"block close":   {Stdout: "{}"},
 	}})
 }
 
@@ -505,6 +512,35 @@ func TestWatchLeadGuard(t *testing.T) {
 	}
 }
 
+// A lead's tool call that names duolog runs tail, behind any wrapper, is asked
+// (Claude) or denied (Codex): the tail is for the Claude pane or the person.
+// The snapshot, the table and the status line pass.
+func TestRunsTailLeadGuard(t *testing.T) {
+	root, _ := telemetryCommandSetup(t)
+	stateDir := filepath.Join(root, ".duolog")
+	guarded := []string{
+		"duolog runs tail d-1 --json", "env X=1 duolog runs tail d-1",
+		"sh -c 'duolog runs --long tail d-1'", "duolog --lead L runs tail d-1",
+		"script -q /dev/null scripts/dev/bin/duolog runs tail d-1",
+		"a; duolog runs tail d-1", "x && duolog runs tail d-1", "/usr/local/bin/duolog runs tail d-1",
+	}
+	open := []string{"duolog runs --snapshot", "duolog runs --long", "duolog statusline", "duolog runs", "duolog runs --snapshot --fast --lead L"}
+	for _, agent := range []string{"claude", "codex"} {
+		want := map[string]string{"claude": policy.Ask, "codex": policy.Deny}[agent]
+		for _, command := range guarded {
+			d, ok := leadGuard(stateDir, agent, leadToolInput(agent, root, "Bash", map[string]string{"command": command}))
+			if !ok || d.Kind != want || d.Rule != "person-only tail" || !strings.Contains(d.Reason, "duolog runs tail") {
+				t.Errorf("%s %q: %+v %v", agent, command, d, ok)
+			}
+		}
+		for _, command := range open {
+			if d, ok := leadGuard(stateDir, agent, leadToolInput(agent, root, "Bash", map[string]string{"command": command})); ok {
+				t.Errorf("%s %q guarded: %+v", agent, command, d)
+			}
+		}
+	}
+}
+
 func TestWatchTabForAPeerDoesWhatPeerViewDoes(t *testing.T) {
 	root, _ := peerProject(t, testbin.Scenario{})
 	clearModelMarkers(t)
@@ -573,5 +609,250 @@ func TestRecordingWorkerWritesAgentModelAndLog(t *testing.T) {
 	}
 	if got, _ = delegate.ReadRecord(path, nil); got.Agent != "" || got.State != "done" {
 		t.Fatalf("ended record = %+v", got)
+	}
+}
+
+// asTheMod makes the command run as the Claude pane runs it: Claude Code is
+// its direct parent, the viewer flag is set, and stdout is not a terminal.
+func asTheMod(t *testing.T, parent string) {
+	t.Helper()
+	t.Setenv("DUOLOG_VIEWER", "claude-mod")
+	testDeps(t).ParentAgent = func() string { return parent }
+	asTerminal(t, false)
+	t.Setenv("CLAUDECODE", "1")
+}
+
+func TestRunsTailPrintsJSONForTheMod(t *testing.T) {
+	runsProject(t, runRec("d-abcdef", "done", time.Minute))
+	asTheMod(t, "claude")
+	out, err := executeBusCommand(t, "runs", "tail", "d-abcdef", "--from", "-1", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(out, "\n") != 1 || !strings.HasSuffix(out, "\n") {
+		t.Fatalf("not one JSON line: %q", out)
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(out), &keys); err != nil {
+		t.Fatalf("%v: %q", err, out)
+	}
+	if got := slices.Sorted(maps.Keys(keys)); !slices.Equal(got, []string{"cursor", "ended", "lines", "offset", "reset", "state"}) {
+		t.Fatalf("keys = %q", got)
+	}
+	var page delegate.TailPage
+	if err := json.Unmarshal([]byte(out), &page); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Reading now.", "> Read a.go", "From Codex."}
+	if !slices.Equal(page.Lines, want) || !page.Ended || page.State != "done" || page.Offset != int64(len(runLogText)) {
+		t.Fatalf("page = %+v", page)
+	}
+}
+
+func TestRunsTailRefusedForModels(t *testing.T) {
+	runsProject(t, runRec("d-abcdef", "done", time.Minute))
+	check := func(label string, want error) {
+		t.Helper()
+		out, err := executeBusCommand(t, "runs", "tail", "d-abcdef", "--from", "-1", "--json")
+		if !errors.Is(err, want) || strings.Contains(out, "Reading now.") {
+			t.Fatalf("%s: %q %v", label, out, err)
+		}
+	}
+	asTheMod(t, "claude")
+	t.Setenv("DUOLOG_VIEWER", "")
+	check("no viewer flag", errTailModel)
+	asTheMod(t, "")
+	check("a shell between Claude Code and duolog", errTailModel)
+	asTheMod(t, "claude")
+	t.Setenv("DUOLOG_DEPTH", "1")
+	check("worker", errWorkerRuns)
+}
+
+// Plain runs tail in the person's terminal prints the last 200 lines up to
+// the end of the log; --from keeps the paging.
+func TestRunsTailPlainPrintsTheLastLines(t *testing.T) {
+	root := runsProject(t, runRec("d-abcdef", "done", time.Minute))
+	var b, want strings.Builder
+	for i := range 300 {
+		b.WriteString(`{"type":"assistant","message":{"content":[{"type":"text","text":"line ` + strconv.Itoa(i) + `"}]}}` + "\n")
+		if i >= 100 {
+			want.WriteString("line " + strconv.Itoa(i) + "\n")
+		}
+	}
+	log := filepath.Join(root, ".worktrees", "feature", ".duolog", "tasks", "task-d-abcdef", "stdout.log")
+	if err := os.WriteFile(log, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := executeBusCommand(t, "runs", "tail", "d-abcdef")
+	if err != nil || out != want.String() {
+		t.Fatalf("plain tail: %v\n%.200q", err, out)
+	}
+	out, err = executeBusCommand(t, "runs", "tail", "d-abcdef", "--from", "0")
+	if err != nil || !strings.HasPrefix(out, "line 0\n") || strings.Count(out, "\n") != delegate.TailMaxLines {
+		t.Fatalf("tail --from 0: %v\n%.200q", err, out)
+	}
+}
+
+// runsSplit runs duolog with args and returns its stdout and stderr apart.
+func runsSplit(t *testing.T, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	cmd := newRootCommand(testDeps(t))
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs(args)
+	err = cmd.Execute()
+	return out.String(), errOut.String(), err
+}
+
+// An unreadable delegations folder of another work project under the same
+// lead home is skipped: plain runs notes it once on stderr, --json,
+// --snapshot and tail say nothing, and only a run that may be in it fails.
+func TestRunsSkipAnUnreadableFolderOfAnotherProject(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("folder modes do not stop a read here")
+	}
+	telemetryHome(t)
+	clearModelMarkers(t)
+	f := submodule.New(t)
+	for _, root := range []string{f.Superproject, f.Submodule} {
+		submoduleFile(t, root, ".duolog/config.yaml", "learning:\n  enabled: false\n")
+	}
+	reg, err := session.Open(project.LeadHome(f.Superproject))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for root, id := range map[string]string{f.Superproject: "d-super1", f.Submodule: "d-sub0001"} {
+		r := runRec(id, "done", time.Minute)
+		r.WorkRoot = root
+		if err := delegate.WriteRecord(filepath.Join(delegate.ProjectRecordDir(root), id+".json"), r); err != nil {
+			t.Fatal(err)
+		}
+		if root == f.Submodule {
+			if err := reg.RecordDelegation(session.DelegationLocation{ID: id, Lead: "lead-a", WorkRoot: root}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	locked := delegate.ProjectRecordDir(f.Submodule)
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	chdir(t, f.Superproject)
+	asTerminal(t, true)
+	withAgentAncestor(t, "")
+
+	out, errOut, err := runsSplit(t, "runs")
+	if err != nil || out != "d-super1 done\n" || strings.Count(errOut, "\n") != 1 || !strings.Contains(errOut, "runs of "+f.Submodule+" not listed") {
+		t.Fatalf("runs: %q %q %v", out, errOut, err)
+	}
+	// The snapshot of no live lead lists no run, and fails on no folder.
+	submoduleFile(t, f.Superproject, runRec("d-super1", "done", 0).Log, runLogText)
+	want := map[string]string{"--json": `"id":"d-super1"`, "--snapshot": `"version":1`, "tail": "Reading now."}
+	for _, args := range [][]string{{"runs", "--json"}, {"runs", "--snapshot"}, {"runs", "tail", "d-super1"}} {
+		out, errOut, err := runsSplit(t, args...)
+		if err != nil || errOut != "" || !strings.Contains(out, want[args[1]]) || strings.Contains(out, `"error"`) {
+			t.Fatalf("%v: %q %q %v", args, out, errOut, err)
+		}
+	}
+	_, _, err = runsSplit(t, "runs", "tail", "d-sub0001")
+	if err == nil || !strings.Contains(err.Error(), "no delegate run d-sub0001") || !strings.Contains(err.Error(), f.Submodule) {
+		t.Fatalf("tail of a run in the unreadable folder: %v", err)
+	}
+}
+
+// The refusal of runs tail names runs tail and where it prints, not watch.
+func TestRunsTailRefusalNamesTail(t *testing.T) {
+	runsProject(t, runRec("d-abcdef", "done", time.Minute))
+	asTheMod(t, "")
+	_, err := executeBusCommand(t, "runs", "tail", "d-abcdef")
+	want := "duolog runs tail prints a worker's stream only for the Claude pane (/duolog-pane) or your own terminal, so no model reads it; open /duolog-pane in Claude Code, or run it in a terminal outside the agent"
+	if err == nil || err.Error() != want {
+		t.Fatalf("refusal = %v", err)
+	}
+	withAgentAncestor(t, "codex")
+	asTerminal(t, true)
+	t.Setenv("DUOLOG_VIEWER", "")
+	t.Setenv("CLAUDECODE", "")
+	_, err = executeBusCommand(t, "runs", "tail", "d-abcdef")
+	if err == nil || err.Error() != want+" (a codex process runs this command)" {
+		t.Fatalf("refusal under an agent = %v", err)
+	}
+}
+
+func closeCalls(t *testing.T, rex string) int {
+	t.Helper()
+	n := 0
+	for _, c := range rexCalls(t, rex) {
+		if strings.Contains(strings.Join(c, " "), "block close") {
+			n++
+		}
+	}
+	return n
+}
+
+func TestWatchTabAsksTheTabToClose(t *testing.T) {
+	runsProject(t, runRec("d-abcdef", "running", time.Minute))
+	t.Setenv("REX_SESSION", "sess")
+	t.Setenv("REX_BIN_DIR", "")
+	t.Setenv("DUOLOG_LEAD", "")
+	rex := watchRex(t)
+	asTerminal(t, false)
+	if _, err := executeBusCommand(t, "watch", "--tab", "d-abcdef"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range rexCalls(t, rex) {
+		if n := len(c); n >= 3 && c[n-3] == "watch" && c[n-2] == "d-abcdef" && c[n-1] == "--close-tab" {
+			return
+		}
+	}
+	t.Fatalf("no spawn ended in watch d-abcdef --close-tab: %v", rexCalls(t, rex))
+}
+
+func closeTabSetup(t *testing.T) string {
+	t.Helper()
+	root := runsProject(t, runRec("d-aaaaaa", "done", time.Minute))
+	t.Setenv("REX_SESSION", "sess")
+	t.Setenv("REX_BLOCK", "block:w")
+	t.Setenv("REX_BIN_DIR", "")
+	t.Setenv("DUOLOG_LEAD", "")
+	chdir(t, root)
+	reg, _, err := runsRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.SetPeerRexSession("sess"); err != nil {
+		t.Fatal(err)
+	}
+	return watchRex(t)
+}
+
+func TestWatchCloseTabClosesThePaneAfterTheRunEnds(t *testing.T) {
+	rex := closeTabSetup(t)
+	out, err := executeBusCommand(t, "watch", "d-aaaaaa", "--close-tab")
+	if err != nil || !strings.HasSuffix(out, "ended: done\nthis tab closes in 10 s\n") {
+		t.Fatalf("%q %v", out, err)
+	}
+	if n := closeCalls(t, rex); n != 1 {
+		t.Fatalf("block close calls = %d: %v", n, rexCalls(t, rex))
+	}
+}
+
+func TestWatchCloseTabKeepsThePaneOnCancel(t *testing.T) {
+	rex := closeTabSetup(t)
+	cmd := newRootCommand(testDeps(t))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"watch", "d-aaaaaa", "--close-tab"})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = cmd.ExecuteContext(ctx)
+	if n := closeCalls(t, rex); n != 0 {
+		t.Fatalf("block close calls = %d after cancel", n)
+	}
+	if strings.Contains(out.String(), "this tab closes") {
+		t.Fatalf("out = %q", out.String())
 	}
 }

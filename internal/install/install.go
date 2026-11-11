@@ -38,13 +38,18 @@ type Event struct {
 }
 
 // Document renders the hooks document of one agent from its events, as the
-// plugin ships it.
-func Document(events []Event) ([]byte, error) {
+// plugin ships it. modules, when given, are the plugin's hooks modules (the
+// Claude mod), written under "modules"; a settings file takes none.
+func Document(events []Event, modules ...string) ([]byte, error) {
 	hooks := map[string][]Group{}
 	for _, e := range events {
 		hooks[e.Name] = e.Groups
 	}
-	return Encode(map[string]any{"hooks": hooks})
+	doc := map[string]any{"hooks": hooks}
+	if len(modules) > 0 {
+		doc["modules"] = modules
+	}
+	return Encode(doc)
 }
 
 // Encode indents v without HTML escaping, so commands stay readable.

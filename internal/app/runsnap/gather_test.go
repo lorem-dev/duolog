@@ -184,3 +184,32 @@ func TestShownRunsRunningThenFiveFinished(t *testing.T) {
 		t.Fatalf("ids %v, want %v", ids, want)
 	}
 }
+
+// The pane keeps a done run 15 minutes after it ended and a run that waits
+// on someone (needs, failed, run_here, lost) 2 hours; a running one always.
+func TestFreshRunsDropsOldEndedRuns(t *testing.T) {
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	rec := func(id, state string, endedAgo time.Duration) delegate.LocatedRecord {
+		r := delegate.Record{ID: id, State: state, Started: now.Add(-3 * time.Hour)}
+		if endedAgo >= 0 {
+			r.Ended = now.Add(-endedAgo)
+		}
+		return delegate.LocatedRecord{Record: r}
+	}
+	in := []delegate.LocatedRecord{
+		rec("d-run", "running", -1),
+		rec("d-done-new", "done", 14*time.Minute),
+		rec("d-done-old", "done", 16*time.Minute),
+		rec("d-needs-new", "needs", 119*time.Minute),
+		rec("d-failed-old", "failed", 121*time.Minute),
+		rec("d-lost", "lost", -1),
+	}
+	var ids []string
+	for _, r := range FreshRuns(in, now) {
+		ids = append(ids, r.ID)
+	}
+	want := []string{"d-run", "d-done-new", "d-needs-new"}
+	if !slices.Equal(ids, want) {
+		t.Fatalf("ids %v, want %v", ids, want)
+	}
+}

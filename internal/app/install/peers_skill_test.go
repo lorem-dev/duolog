@@ -19,7 +19,9 @@ func TestPeersSkillIsSameForBothAgents(t *testing.T) {
 		t.Errorf("body has %d words", n)
 	}
 	// The refusal of peer show is a guard against accidents, not a barrier.
-	for _, want := range []string{"duolog peer view", "duolog peer show", "duolog runs --long", "duolog watch --tab", "accidents", "on purpose"} {
+	// runs tail is refused like watch; /duolog-pane opens the pane without a
+	// model turn.
+	for _, want := range []string{"duolog peer view", "duolog peer show", "duolog runs --long", "duolog watch --tab", "accidents", "on purpose", "duolog runs --snapshot", "duolog runs tail", "duolog statusline", "/duolog-pane"} {
 		if !strings.Contains(claude, want) {
 			t.Errorf("body lacks %q", want)
 		}
@@ -28,8 +30,8 @@ func TestPeersSkillIsSameForBothAgents(t *testing.T) {
 
 // The list and the view are pre-allowed: the person decided that Claude may
 // switch their Rex view without asking when they ask to see a peer or a
-// delegate run. peer show and a bare watch stay out: they read a peer's
-// screen and a worker's stream.
+// delegate run. peer show, a bare watch and runs tail stay out: they read a
+// peer's screen and a worker's stream.
 func TestPeersSkillAllowsListAndView(t *testing.T) {
 	front, _ := splitSkill(t, "claude/skills/duolog-peers/SKILL.md")
 	var got []string
@@ -38,7 +40,8 @@ func TestPeersSkillAllowsListAndView(t *testing.T) {
 			got = append(got, strings.TrimSpace(v))
 		}
 	}
-	want := "Bash(duolog peer list*), Bash(duolog peer view*), Bash(duolog runs*), Bash(duolog watch --tab*)"
+	// No prefix rule may cover runs tail, such as runs --long tail.
+	want := "Bash(duolog peer list*), Bash(duolog peer view*), Bash(duolog runs), Bash(duolog runs --long*), Bash(duolog runs --snapshot*), Bash(duolog watch --tab*)"
 	if len(got) != 1 || got[0] != want {
 		t.Errorf("claude allowed-tools = %q, want %q", got, want)
 	}

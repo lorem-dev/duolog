@@ -70,12 +70,31 @@ func LeadDeps() lead.Deps {
 // AgentAncestor names the agent among this process's ancestors, from the
 // process names of the registered agents.
 func AgentAncestor() string {
-	var names, helpers []string
+	names, helpers, _ := agentProcessNames()
+	return session.AgentAncestor(names, helpers)
+}
+
+// ParentAgent names the agent that is this process's direct parent, from the
+// process names of the registered agents, and for node from their scripts.
+func ParentAgent() string {
+	return session.ParentAgent(agentProcessNames())
+}
+
+// ClaudeName is the agent name ParentAgent gives Claude Code.
+func ClaudeName() string { return claude.Facts.Name }
+
+// agentProcessNames are the binaries and the helper processes of the
+// registered agents, and the scripts node runs them as, each naming its agent.
+func agentProcessNames() (names, helpers []string, scripts map[string]string) {
+	scripts = map[string]string{}
 	for _, a := range Agents() {
 		names = append(names, a.Facts.Binaries...)
 		helpers = append(helpers, a.Facts.Helpers...)
+		for _, s := range a.Facts.Scripts {
+			scripts[s] = a.Facts.Name
+		}
 	}
-	return session.AgentAncestor(names, helpers)
+	return names, helpers, scripts
 }
 
 // delegateRunner binds delegate.Run to its Deps.
@@ -172,6 +191,7 @@ func DoctorDeps(d delegate.Deps) doctor.Deps {
 		InstallCheck:    installCheck,
 		LeadCompact:     leadCompact,
 		StatusLineLine:  statusLineLine,
+		ClaudePlugin:    claudePlugin,
 	}
 }
 

@@ -11,19 +11,19 @@ Stop unless this project has `.duolog/config.yaml`.
 
 Use when the person asks which peers or delegate runs run, or to see one.
 
-- Which peers or delegate runs run: run `duolog runs --long`, one table
-  with a `peer` or `delegate` column; pass on its lines.
-- Show a peer or a delegate run: run `duolog watch --tab <id>` only when
-  the person asks; pass on its one line. For a peer it is
-  `duolog peer view <id>`, which moves their Rex focus. Tell them to look
-  and not to type in that tab.
-- Never run `duolog watch` or `duolog peer show` without `--tab`, and never
-  work around their refusal: they are for the person's own terminal, to keep
-  a peer's screen and a worker's stream out of your context.
-  The refusal guards against accidents. It is not a barrier: getting past
-  it would take a workaround on purpose.
+- Which run: run `duolog runs --long`, one table with a `peer` or
+  `delegate` column; pass on its lines. `duolog runs --snapshot` prints the
+  same as one JSON line.
+- Show one: run `duolog watch --tab <id>` only when the person asks; pass on
+  its one line. For a peer it is `duolog peer view <id>`. Tell them to look
+  and not to type in that tab. A run's tab closes when the run ends.
+- Never run `duolog watch` or `duolog peer show` without `--tab`, or
+  `duolog runs tail`, and never work around their refusal: they keep a
+  peer's screen and a worker's stream out of your context. The refusal
+  guards against accidents. It is not a barrier: getting past it would take
+  a workaround on purpose.
+- `duolog statusline` is for Claude Code's status line; do not run it.
 
-This skill costs one model turn. Without one: in Claude Code, type
-`! duolog runs --long` or `! duolog watch --tab <id>` (not checked yet);
-in Codex no turn-free path is confirmed. From Codex, run these commands
-outside the sandbox.
+This skill costs one model turn. In Claude Code, the person can skip it with
+`! duolog runs --long` or the `/duolog-pane` pane. In Codex, run these
+commands outside the sandbox.

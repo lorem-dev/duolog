@@ -418,12 +418,26 @@ func TestPluginHooksFileMatchesGenerated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := HooksJSON("claude", GateTimeout)
+	want, err := PluginHooksJSON("claude", GateTimeout)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(data) != string(want) {
-		t.Fatalf("plugin/claude/hooks/hooks.json is stale; regenerate it from install.HooksJSON(\"claude\", GateTimeout)\n%s", want)
+		t.Fatalf("plugin/claude/hooks/hooks.json is stale; regenerate it from claude.PluginHooksJSON(GateTimeout)\n%s", want)
+	}
+}
+
+// The modules key belongs in the plugin's hooks file alone: HooksJSON also
+// feeds the merge into the person's settings.json, where it has no place.
+func TestHooksJSONHasNoModules(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		data, err := HooksJSON(agent, GateTimeout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), `"modules"`) {
+			t.Errorf("%s hooks carry a modules key:\n%s", agent, data)
+		}
 	}
 }
 

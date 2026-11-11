@@ -13,6 +13,7 @@ func TestFacts(t *testing.T) {
 		Display:       "Claude",
 		Product:       "Claude Code",
 		Binaries:      []string{"claude"},
+		Scripts:       []string{"@anthropic-ai/claude-code/cli.js"},
 		ConfigEnv:     "CLAUDE_CONFIG_DIR",
 		ConfigDefault: ".claude",
 		ProjectDir:    ".claude",

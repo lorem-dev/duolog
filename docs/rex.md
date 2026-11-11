@@ -366,6 +366,58 @@ ours=$(printf '%s' "$input" | duolog statusline)
 printf '%s %s\n' "$mine" "$ours"
 ```
 
+## How to see peers and runs in the Claude pane
+
+The duolog plugin for Claude Code carries a mod: a small program that Claude
+Code loads into its own interface. In a project with `.duolog/config.yaml`,
+type `/duolog-pane` to open a pane named `duolog` beside the conversation.
+A session started in a subfolder of the project has it too: the mod looks
+for the file in each folder above, up to the filesystem root, and stops
+below your home folder. The `duolog` skill keeps `/duolog`, so the pane has
+a name of its own.
+
+| Part | What it shows |
+|---|---|
+| Peers | Each live peer: id, role, agent and state, and a `view` button that runs `duolog peer view <id>` |
+| Runs | Each delegate run: id, role, agent and model, and state, with a `watch` button that runs `duolog watch --tab <id>` and a `log` button |
+| Log | After `log`, the last 200 lines of that run's log under the lists; `hide` closes it |
+| Above the prompt | While the lead has workers, the status line's text, such as `duolog 1 peer 1 run`, as a button: a click opens the pane. A survey keeps that place |
+
+A pane 80 columns wide or more shows Peers and Runs side by side. A narrower
+pane shows one list, and two buttons switch between them. When a button's
+command prints a line, Claude Code shows it as a short notice. An error shows
+nothing.
+
+The mod runs `duolog runs --snapshot --fast` every second while the pane is
+open, and every 3 seconds while it is closed. After 30 seconds with no
+workers it stops until your next prompt or the next tool call. The log reads
+`duolog runs tail` every second while the pane is open. That call sets
+`DUOLOG_VIEWER=claude-mod`, and duolog shows the log only when Claude Code
+itself started duolog. The lead guard stops a model's command that names
+`runs tail`, and the parent check refuses a call with a shell between Claude
+Code and duolog. These checks keep a model from reading a worker's stream by
+accident. They are no barrier against a model that works around them, for
+example by reading the log file. Claude Code installed through npm runs as
+`node`. duolog knows it only when node's first argument is the Claude Code
+script, or the npm link to it, with no node option before it. An npm install
+of Claude Code may not be recognised on macOS, where it can show other
+arguments; the pane then shows the refusal in its dim line.
+
+When a call fails, the pane lists nothing for it and shows the first line
+of the error, dim. A snapshot that carries an `error`, such as a lead that
+is not live, shows it in the same dim line above the lists. A failed log
+call ends that log: the pane does not try it again until you press `log`
+again. The pane leaves out control characters and text direction marks of
+every line it shows. A worker session that duolog started (`DUOLOG_DEPTH`
+set) registers no command and runs nothing.
+
+The mod API of Claude Code is early access. `duolog doctor` names the Claude
+Code version the mod was tested with, in a project where Claude is a lead.
+If a later Claude Code changes the API, or duolog answers with a snapshot
+version other than 1, the pane lists nothing. The status line and the hook
+notices do not need the mod and work without it, and a Claude Code without
+the mod API does not load it.
+
 ## How to run several peers at once
 
 Run independent tasks in parallel, each with one worker and peer in its own
@@ -457,13 +509,15 @@ pick your session in the sidebar.
 (see [How to watch a delegate run](#how-to-watch-a-delegate-run)), so one
 interface shows all workers. The three peer commands above stay.
 
-The `duolog-peers` skill runs `runs --long` and `watch --tab` for the lead.
-Claude runs `watch --tab` without asking, but only when you ask to see a peer
-or a run. The skill costs one model turn. For a path with no turn, type the
-command yourself: in Claude Code with the `!` prefix, such as
-`! duolog runs --long`. That this starts no turn is not checked yet.
-For Codex, no turn-free path is confirmed; do not rely on one. From a Codex
-lead, run these commands outside the sandbox.
+The `duolog-peers` skill runs `runs --long` and `watch --tab` for the lead,
+and names `runs --snapshot` as the same list in one JSON line. Claude runs
+`watch --tab` without asking, but only when you ask to see a peer or a run.
+The skill refuses `runs tail` as it refuses a bare `watch`, and leaves
+`duolog statusline` to Claude Code's status line. The skill costs one model
+turn. For a path with no turn in Claude Code, type the command yourself with
+the `!` prefix, such as `! duolog runs --long`, or type `/duolog-pane` to
+open the [Claude pane](#how-to-see-peers-and-runs-in-the-claude-pane). From
+a Codex lead, run these commands outside the sandbox.
 
 ## How to watch a delegate run
 
@@ -476,8 +530,9 @@ form. They need no Rex, except for `--tab`.
 |---|---|---|
 | `duolog runs [--long\|--json]` | You, or the lead | The live peers and delegate runs of this project and of every work project that shares its lead home (a superproject and its duolog submodules): the running ones first, then the last five that ended. Plain output is `<id> <state>`; `--long` is a table with kind (`peer` or `delegate`), role, agent and model, age and the worktree's name; `--json` is the rows as JSON |
 | `duolog runs --snapshot [--fast]` | You, the lead, or a status line | The lead's live peers, delegate runs, open asks and load as one versioned JSON line; see the table below |
-| `duolog watch [id]` | You, in your own terminal | For a delegate run: the worker's messages and one short line per tool call, such as `> Bash go test ./...`. Tool output is left out. For a peer id: what `peer show` prints, with `--lines` |
-| `duolog watch --tab [id]` | You, or the lead when you ask | One line; for a delegate run, your Rex client shows a tab that runs `duolog watch <id>`; for a peer id, what `peer view` does |
+| `duolog watch [id]` | You, in your own terminal | For a delegate run: the worker's messages and one short line per tool call, such as `> Bash go test ./...`. Tool output is left out; a log line over 1 MiB prints as one line such as `> (output of 3 MiB not shown)`. For a peer id: what `peer show` prints, with `--lines` |
+| `duolog watch --tab [id]` | You, or the lead when you ask | One line; for a delegate run, your Rex client shows a tab that runs `duolog watch <id>` and closes 10 s after the run ends; for a peer id, what `peer view` does |
+| `duolog runs tail <id> [--from N] [--cursor C] [--json]` | The Claude pane, or you in your own terminal | One page of a delegate run's log, in the lines `watch` prints; `--json` is one JSON line; see the table below |
 
 A peer's state in `runs` is the one `peer list` gives; `--lead` names the lead
 whose peers and delegate runs are listed (default `DUOLOG_LEAD`, then the lead
@@ -522,7 +577,7 @@ peer counts as live and not idle, so a fast snapshot lists no idle peers in
 | `lead` | `{"id", "agent"}`, or `null` when no lead resolves |
 | `rex` | `{"available"}`: `false` when there is no Rex, so no peers are listed |
 | `peers` | This lead's peers, with their state: `id`, `role`, `agent`, `model`, `state`, `working`, `task`, `tab`, `worktree`, and `last` (`kind`, `at`) or `null` |
-| `runs` | The running delegate runs, then the last five that ended: `id`, `role`, `agent`, `model`, `state`, `started`, `ended`, `worktree`, `task_dir`, `has_log`, `line` |
+| `runs` | The running delegate runs, then the last five that ended: a `done` run for 15 minutes after it ended, one in any other state for 2 hours. Fields: `id`, `role`, `agent`, `model`, `state`, `started`, `ended`, `worktree`, `task_dir`, `has_log`, `line` |
 | `asks_open` | The number of asks open to the lead |
 | `load` | `agents` (each `agent`, `running`, `idle`, `limit`, `live`), `queued`, and the 5-hour and weekly use in percent, `window_5h` and `weekly`, or `null` when not known |
 | `error` | Left out, or the parts that could not be read, such as `peers: <reason>` |
@@ -537,6 +592,35 @@ another lead's workers. A lead that you name with `--lead` or
 
 duolog keeps the running records and the newest 50 that ended in each work
 project; it removes older ones when a new run starts.
+
+`duolog runs tail <id>` reads a delegate run's log in pages, for a pane that
+asks for the next page every few seconds. One page has at most 200 lines and
+reads at most 1 MiB of the log. A log line longer than 1 MiB prints as one
+line, such as `> (output of 3 MiB not shown)`, as in `watch`. With
+`--from -1`, the page starts in the last 64 KiB of the log, at a whole line.
+For the next page, pass back the `offset` and `cursor` of the last page
+unchanged. A line that the worker has not finished waits for the next page.
+`--json` prints the page as one JSON line, and without `--from` it starts as
+`--from -1` does. With neither `--json` nor `--from`, `tail` prints the last
+200 lines of the last 64 KiB, up to the end of the log, and no offset; with
+`--from` alone, it prints only the lines of that page.
+
+| Key | Value |
+|---|---|
+| `offset` | The byte offset to pass as `--from` for the next page |
+| `reset` | `true` when the page starts the log over from its start: a retry wrote a new log, the log got shorter, or the cursor could not be read |
+| `lines` | The lines of this page, as `watch` prints them; an empty list when there is nothing new |
+| `ended` | `true` when the run has ended and this page reached the end of its log |
+| `state` | The run's state, as in `duolog runs` |
+| `cursor` | An opaque text to pass as `--cursor` for the next page; empty while the run has no log |
+
+Like `watch`, `tail` prints a worker's text only for you, and refuses a
+model and a worker. The Claude pane runs it with `DUOLOG_VIEWER=claude-mod`,
+and it passes only when Claude Code is its direct parent process, so the
+variable alone does not pass a model's shell command. The lead hook guards a
+command that runs `duolog runs tail` as it guards `peer show`, behind any
+wrapper: Claude asks except in `auto` or `bypassPermissions`; Codex denies.
+The pane's own call is no tool call of the lead, so the hook does not see it.
 
 Without an id, `watch` follows the newest running run. It starts at the
 beginning of the log, keeps reading while the log grows, reads both Claude's

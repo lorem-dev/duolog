@@ -61,7 +61,7 @@ const (
 	reasonCoauthor = "co-author records in the state folder; the templates per agent come from config"
 	reasonProject  = "git rev-parse of the project and state roots, and git helpers; git is the project's tool, not an agent's"
 	reasonSession  = "lead and peer registry in the state folder; its agent parts sit behind the Lead port"
-	reasonPlugin   = "embedded skill names, read-only data"
+	reasonPlugin   = "embedded skill names and the Claude mod's facts, read-only data"
 	reasonConfig   = "loads the config files; the same for every agent (agent facts reach validation through descriptors), no second backend, no seam"
 )
 
@@ -84,6 +84,7 @@ var allowedEdges = map[string]string{
 	"internal/app/delegate -> internal/store":                  reasonStore,
 	"internal/app/doctor (test) -> internal/adapter/config":    reasonConfig,
 	"internal/app/doctor -> internal/adapter/session":          reasonSession,
+	"internal/app/doctor -> plugin":                            reasonPlugin,
 	"internal/app/gate -> internal/project":                    reasonProject,
 	"internal/app/hook -> internal/adapter/config":             reasonConfig,
 	"internal/app/hook -> internal/bus":                        reasonBus,

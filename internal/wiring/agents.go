@@ -260,6 +260,14 @@ func statusLineLine(root, home string) string {
 	return d.StatusLineLine(root, home)
 }
 
+// claudePlugin is doctor's ClaudePlugin: whether the duolog plugin, which
+// carries the Claude pane mod, is enabled for a Claude lead at root, as the
+// Claude Installer's Enabled reads it from duolog's own environment.
+func claudePlugin(root, home string) bool {
+	on, err := claude.Installer{}.Enabled(root, home, os.Environ())
+	return err == nil && on
+}
+
 // RosterCaps gives each registered agent's Caps by name, as roster takes them.
 func RosterCaps() map[string]roster.Caps {
 	out := map[string]roster.Caps{}

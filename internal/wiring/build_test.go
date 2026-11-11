@@ -7,6 +7,15 @@ import (
 	"github.com/lorem-dev/duolog/internal/rex"
 )
 
+// ParentAgent knows Claude Code installed through npm, which runs as node
+// with its CLI script: the descriptors give that script.
+func TestAgentScriptsNameClaudeUnderNode(t *testing.T) {
+	_, _, scripts := agentProcessNames()
+	if got := scripts["@anthropic-ai/claude-code/cli.js"]; got != ClaudeName() {
+		t.Fatalf("scripts %v", scripts)
+	}
+}
+
 // The recorded peer run lost an enter that followed a send at once: 0.7 s
 // between them fixed it, so the commands keep at least that.
 func TestPeerDepsDefaultPauses(t *testing.T) {

@@ -10,3 +10,6 @@ func parentProcess(pid int) (int, string) {
 	}
 	return 0, ""
 }
+
+// processArgs reads no arguments here.
+func processArgs(int) []string { return nil }

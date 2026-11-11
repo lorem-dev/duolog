@@ -56,6 +56,80 @@ func AgentAncestor(names, helpers []string) string {
 	return agentAncestorBy(os.Getppid(), parentProcess, func(name string) string { return matchAgent(name, names, helpers) })
 }
 
+// ParentAgent names the agent, "claude" or "codex", when this process's
+// direct parent is a Claude Code or Codex process, else "". Unlike
+// AgentAncestor it looks no further: a shell between the agent and this
+// process, as in a model's Bash call, names none. names and helpers are as
+// in AgentAncestor. A parent that is node, as an npm install of an agent
+// runs, names the agent only when node's first argument is that agent's
+// script: a path ending in a key of scripts, itself or, when absolute, where
+// its links resolve (the npm bin link). Anything else under node names none.
+func ParentAgent(names, helpers []string, scripts map[string]string) string {
+	return parentAgentBy(os.Getppid(), parentProcess, processArgs, resolveLinks, func(name string) string { return matchAgent(name, names, helpers) }, scripts)
+}
+
+// resolveLinks is path with every link resolved, or "" when it cannot be.
+func resolveLinks(path string) string {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return ""
+	}
+	return resolved
+}
+
+// parentAgentBy is the agent that match names for the process ppid, by the
+// name that parent gives it, or for node by the script in the arguments
+// that args gives it, resolved by resolve when absolute.
+func parentAgentBy(ppid int, parent func(int) (int, string), args func(int) []string, resolve func(string) string, match func(string) string, scripts map[string]string) string {
+	if ppid <= 1 {
+		return ""
+	}
+	_, name := parent(ppid)
+	if !nodeNames[baseName(name)] {
+		return match(name)
+	}
+	script := nodeScript(args(ppid))
+	if script == "" {
+		return ""
+	}
+	if agent := scriptAgent(script, scripts); agent != "" {
+		return agent
+	}
+	if !filepath.IsAbs(script) {
+		return ""
+	}
+	return scriptAgent(resolve(script), scripts)
+}
+
+// scriptAgent is the agent whose script path ends path, "" for none.
+// Backslashes count as slashes, as a Windows path has them.
+func scriptAgent(path string, scripts map[string]string) string {
+	if path == "" {
+		return ""
+	}
+	slashed := strings.ReplaceAll(path, `\`, "/")
+	for end, agent := range scripts {
+		if strings.HasSuffix(slashed, "/"+end) {
+			return agent
+		}
+	}
+	return ""
+}
+
+// nodeNames are the process names of node.
+var nodeNames = map[string]bool{"node": true, "nodejs": true}
+
+// nodeScript is the script of a node command line: its first argument, and
+// only when it is no option. Any option before the script, of node or of
+// another kind, can run other code or take the script's place as its value,
+// so a command line with one has no script here.
+func nodeScript(args []string) string {
+	if len(args) < 2 || args[1] == "" || strings.HasPrefix(args[1], "-") {
+		return ""
+	}
+	return args[1]
+}
+
 // matchAgent names the agent that a process name is, by the binaries and
 // helpers of the descriptors: a pattern's name is the text before "-*". It
 // returns "" for any other program.

@@ -26,6 +26,11 @@ func (Events) BlockStop(reason string) []byte {
 // the person. It adds no context, so a Stop that carries it does not keep the
 // turn going. With alert it also adds terminalSequence, an OSC 9 notice that
 // Claude Code writes to the person's terminal in an interactive session.
+//
+// terminalSequence needs no version gate. Claude Code 2.0.76, 2.1.20 and
+// 2.1.100 (npm) do not know the key, and read hook output with a zod object
+// that is not strict: an unknown key is dropped, and systemMessage still
+// shows. None of them rejects the output for it.
 func (Events) Show(out []byte, text string, alert bool) []byte {
 	fields := map[string]string{"systemMessage": text}
 	if alert {

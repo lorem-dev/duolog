@@ -32,7 +32,7 @@ func Build(ctx context.Context, d Deps, o Options) (corerunsnap.Snapshot, error)
 }
 
 // Snapshot is the gathering as snapshot version 1, read at now: the runs
-// ShownRuns keeps, and every path relative to Root. No lead is no error: the
+// FreshRuns keeps, and every path relative to Root. No lead is no error: the
 // person may run it with none.
 func (g Gathered) Snapshot(now time.Time) corerunsnap.Snapshot {
 	s := corerunsnap.Snapshot{
@@ -50,7 +50,7 @@ func (g Gathered) Snapshot(now time.Time) corerunsnap.Snapshot {
 	for _, p := range g.Peers {
 		s.Peers = append(s.Peers, snapPeer(g.Root, p))
 	}
-	for _, r := range ShownRuns(g.Records) {
+	for _, r := range FreshRuns(g.Records, now) {
 		s.Runs = append(s.Runs, snapRun(g.Root, r))
 	}
 	var errs []string

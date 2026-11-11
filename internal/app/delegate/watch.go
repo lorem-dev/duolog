@@ -1,13 +1,9 @@
 package delegate
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -57,19 +53,18 @@ func Watch(ctx context.Context, w io.Writer, recordPath string, alive func(pid i
 	if _, err := fmt.Fprintln(w, header); err != nil {
 		return err
 	}
-	f := &logFollower{w: w}
-	defer f.close()
+	l := &LogReader{}
 	for {
 		// The record is read before the log, so every line written before the
 		// run ended is read.
 		ended := rec.State != "running"
 		if path := rec.LogPath(); path != "" {
-			if err := f.drain(path, ended); err != nil {
+			if err := printChunk(w, l, path, ended); err != nil {
 				return err
 			}
 		}
 		if ended {
-			return finish(w, rec, f.opened)
+			return finish(w, rec, l.opened)
 		}
 		select {
 		case <-ctx.Done():
@@ -100,74 +95,15 @@ func finish(w io.Writer, rec Record, logged bool) error {
 	return err
 }
 
-// logFollower reads a log that grows, whole lines at a time.
-type logFollower struct {
-	w       io.Writer
-	file    *os.File
-	path    string
-	offset  int64
-	partial []byte
-	view    runview.Renderer
-	opened  bool
-}
-
-func (f *logFollower) close() {
-	if f.file != nil {
-		_ = f.file.Close()
-	}
-}
-
-// drain prints the lines that came since the last call. A line without its
-// newline waits for it, unless last says the log has ended.
-func (f *logFollower) drain(path string, last bool) error {
-	if f.path != path {
-		f.close()
-		f.file, f.path, f.offset, f.partial, f.view = nil, path, 0, nil, runview.Renderer{}
-	}
-	if f.file == nil {
-		file, err := os.Open(path)
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		f.file, f.opened = file, true
-	}
-	if info, err := f.file.Stat(); err == nil && info.Size() < f.offset {
-		// The log started over.
-		if _, err := f.file.Seek(0, io.SeekStart); err != nil {
-			return err
-		}
-		f.offset, f.partial, f.view = 0, nil, runview.Renderer{}
-	}
-	data, err := io.ReadAll(f.file)
+// printChunk prints the lines of path that came since l last read it. A line
+// without its newline waits for it, unless last says the log has ended.
+func printChunk(w io.Writer, l *LogReader, path string, last bool) error {
+	c, err := l.Read(path, last, 0)
 	if err != nil {
 		return err
 	}
-	f.offset += int64(len(data))
-	data = append(f.partial, data...)
-	for {
-		i := bytes.IndexByte(data, '\n')
-		if i < 0 {
-			break
-		}
-		if err := f.print(data[:i]); err != nil {
-			return err
-		}
-		data = data[i+1:]
-	}
-	f.partial = append([]byte(nil), data...)
-	if last && len(f.partial) > 0 {
-		err = f.print(f.partial)
-		f.partial = nil
-	}
-	return err
-}
-
-func (f *logFollower) print(line []byte) error {
-	for _, text := range f.view.Render(line) {
-		if _, err := fmt.Fprintln(f.w, text); err != nil {
+	for _, text := range c.Lines {
+		if _, err := fmt.Fprintln(w, text); err != nil {
 			return err
 		}
 	}

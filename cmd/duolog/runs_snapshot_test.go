@@ -309,11 +309,13 @@ func TestRunsSnapshotIsOneJSONLine(t *testing.T) {
 	if s.Version != 1 || s.Lead == nil || s.Lead.ID != "lead-1" || !s.Rex.Available {
 		t.Fatalf("snapshot %+v", s)
 	}
-	if len(s.Peers) != 1 || s.Peers[0].ID != "peer-list" || len(s.Runs) != 6 || s.Runs[0].ID != "d-newrun" || s.Runs[0].State != "running" {
+	// The project's finished runs ended months before now, so the snapshot
+	// keeps only the running one; duolog runs still lists all six.
+	if len(s.Peers) != 1 || s.Peers[0].ID != "peer-list" || len(s.Runs) != 1 || s.Runs[0].ID != "d-newrun" || s.Runs[0].State != "running" {
 		t.Fatalf("peers %+v, runs %+v", s.Peers, s.Runs)
 	}
-	if s.Runs[0].Worktree != ".worktrees/feature" || s.Runs[1].Worktree != "." {
-		t.Fatalf("worktrees %q %q", s.Runs[0].Worktree, s.Runs[1].Worktree)
+	if s.Runs[0].Worktree != ".worktrees/feature" {
+		t.Fatalf("worktree %q", s.Runs[0].Worktree)
 	}
 	if _, err := time.Parse(time.RFC3339, s.GeneratedAt); err != nil {
 		t.Fatalf("generated_at %q: %v", s.GeneratedAt, err)

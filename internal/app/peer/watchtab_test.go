@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/app/peer/peertest"
+	corepane "github.com/lorem-dev/duolog/internal/core/pane"
 )
 
 var watchArgv = []string{"/opt/duolog", "watch", "d-abcdef"}
@@ -32,6 +33,37 @@ func TestWatchTabOpensATabInTheProjectSessionAndMovesTheView(t *testing.T) {
 	}
 	if want := "d-abcdef shown on client " + recordedApp + ": duolog | watch d-abcdef; to return, use Previous Session in Rex"; got.Line() != want {
 		t.Fatalf("line = %q, want %q", got.Line(), want)
+	}
+}
+
+// A second watch of a run whose tab still runs shows that tab again; once the
+// tab is gone, the next watch opens a new one.
+func TestWatchTabShowsTheRunsOpenTabAgain(t *testing.T) {
+	r := newRig(t, baseScript())
+	t.Setenv("REX_BLOCK", "block:lead")
+	script := viewScript(clientsOn("sess"))
+	script["probe"] = peertest.Reply{Presence: corepane.Running}
+	r.panes(script)
+
+	for range 2 {
+		if _, err := WatchTab(r.ctx, "d-abcdef", watchArgv, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if spawns := r.spawns(); len(spawns) != 1 {
+		t.Fatalf("spawns = %v", spawns)
+	}
+	if focus := r.named("focus"); len(focus) != 2 || !slices.Equal(focus[0], focus[1]) {
+		t.Fatalf("focus = %v", focus)
+	}
+
+	script["probe"] = peertest.Reply{Presence: corepane.Gone}
+	r.panes(script)
+	if _, err := WatchTab(r.ctx, "d-abcdef", watchArgv, ""); err != nil {
+		t.Fatal(err)
+	}
+	if spawns := r.spawns(); len(spawns) != 1 {
+		t.Fatalf("a gone tab was not replaced: %v", spawns)
 	}
 }
 
@@ -68,5 +100,41 @@ func TestWatchTabOpensNothingWhenNoSingleClientShowsTheSession(t *testing.T) {
 	r.panes(script)
 	if _, err := WatchTab(r.ctx, "d-abcdef", watchArgv, "client:x"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCloseWatchTabClosesItsOwnBlock(t *testing.T) {
+	r := newRig(t, baseScript())
+	if err := r.reg.SetPeerRexSession("sess"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("REX_SESSION", "sess")
+	t.Setenv("REX_BLOCK", "block:w")
+	if err := CloseWatchTab(r.ctx); err != nil {
+		t.Fatal(err)
+	}
+	closed := r.named("close")
+	if len(closed) != 1 || closed[0][len(closed[0])-1] != "block:w" {
+		t.Fatalf("close = %v (calls %v)", closed, r.calls())
+	}
+}
+
+func TestCloseWatchTabRefusesOutsideThePeerSession(t *testing.T) {
+	r := newRig(t, baseScript())
+	if err := r.reg.SetPeerRexSession("sess"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("REX_SESSION", "lead")
+	t.Setenv("REX_BLOCK", "block:w")
+	if err := CloseWatchTab(r.ctx); err == nil {
+		t.Fatal("closed a pane outside the peer session")
+	}
+	t.Setenv("REX_SESSION", "sess")
+	t.Setenv("REX_BLOCK", "")
+	if err := CloseWatchTab(r.ctx); err == nil {
+		t.Fatal("closed without a block")
+	}
+	if len(r.calls()) != 0 {
+		t.Fatalf("pane called: %v", r.calls())
 	}
 }

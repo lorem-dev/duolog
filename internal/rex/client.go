@@ -60,13 +60,20 @@ func (c Client) Clients(ctx context.Context) ([]ClientInfo, error) {
 var ErrRemoteControl = errors.New("the Rex app does not accept actions; turn on Remote Control in its Settings under Rex Server, then try again")
 
 // Focus shows a block on one named client. It first selects the block's
-// session in the app, because focus alone does not switch the session the
-// app shows. It sends no key and creates nothing.
+// session and window in the app, because focus alone does not switch the
+// session the app shows, and a tab Rex has just opened may not have reached
+// the app yet: the focus then leaves the app on the tab it showed. A window
+// that cannot be read leaves the select to the session. It sends no key and
+// creates nothing.
 func (c Client) Focus(ctx context.Context, client, block string) error {
 	if client == "" || block == "" || c.Session == "" {
 		return errors.New("rex focus: missing client, block or session")
 	}
-	if _, err := c.call(ctx, "-C", client, "do", "session.select", "session_id="+c.Session); err != nil {
+	sel := []string{"-C", client, "do", "session.select", "session_id=" + c.Session}
+	if window, err := c.WindowID(ctx, block); err == nil {
+		sel = append(sel, "window_id="+window)
+	}
+	if _, err := c.call(ctx, sel...); err != nil {
 		return named(err, "session.select")
 	}
 	_, err := c.call(ctx, "-C", client, "focus", block, "-s", c.Session)

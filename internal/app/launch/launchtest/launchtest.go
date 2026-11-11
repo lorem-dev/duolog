@@ -137,6 +137,15 @@ func HooksJSON(agentName string, timeout int) ([]byte, error) {
 	return codex.HooksJSON(timeout)
 }
 
+// PluginHooksJSON renders the hooks file the duolog plugin of agent ships:
+// Claude's names the pane mod's module too.
+func PluginHooksJSON(agentName string, timeout int) ([]byte, error) {
+	if agentName == "claude" {
+		return claude.PluginHooksJSON(timeout)
+	}
+	return codex.HooksJSON(timeout)
+}
+
 // ClaudeFolder is claude.ClaudeFolder, the value of doctor's
 // Deps.ClaudeFolder.
 func ClaudeFolder(home, root string) (trusted, known bool) { return claude.ClaudeFolder(home, root) }

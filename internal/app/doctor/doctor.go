@@ -23,6 +23,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
 	"github.com/lorem-dev/duolog/internal/core/paidrules"
+	"github.com/lorem-dev/duolog/plugin"
 )
 
 // FixtureVersions is the single source of versions used to collect the fixtures.
@@ -301,7 +302,24 @@ func installFindings(d Deps, root string) []Finding {
 			out = append(out, Finding{"info", line})
 		}
 	}
+	if d.ClaudePlugin != nil {
+		// Only where Claude leads the project: duolog's plugin or hooks are
+		// in its settings.
+		if plugged := d.ClaudePlugin(root, home); plugged || d.hasDuolog("claude", root) {
+			out = append(out, Finding{"info", claudePaneLine(plugged)})
+		}
+	}
 	return out
+}
+
+// claudePaneLine says whether the Claude pane can load: the mod comes with
+// the duolog plugin, and its API is early access, so the line names the
+// Claude Code version it was tested with.
+func claudePaneLine(plugged bool) string {
+	if plugged {
+		return "Claude pane: on with the duolog plugin (tested with Claude Code " + plugin.ModTestedWith + ")"
+	}
+	return "Claude pane: off; it comes with the duolog plugin"
 }
 
 // billing reports, per available agent, how its worker, its peer and its lead

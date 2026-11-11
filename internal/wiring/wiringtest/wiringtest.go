@@ -35,6 +35,7 @@ func Cmd(t *testing.T) wiring.CmdDeps {
 	d.LocateRex = GuardRex(d.LocateRex)
 	d.Delegate.PaidGate = paidrunstest.ByWorkingDir(t.TempDir())
 	d.AgentAbove = func([]string) bool { return false }
+	d.ParentAgent = func() string { return "" }
 	d.Install.LeadWindow = LeadWindow
 	d.Notify = func(string, string) {}
 	return d

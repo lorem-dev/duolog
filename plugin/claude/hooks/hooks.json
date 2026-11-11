@@ -149,5 +149,8 @@
         ]
       }
     ]
-  }
+  },
+  "modules": [
+    "./duolog-pane.tsx"
+  ]
 }

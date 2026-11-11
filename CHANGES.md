@@ -48,8 +48,8 @@
   too, and MCP `status` lists them.
 - `duolog statusline` prints the lead's worker line (peers, runs, asks,
   queued) for Claude Code's `statusLine` setting.
-- `duolog install` sets Claude's `statusLine` when you have none and keeps
-  your own; `uninstall` removes only duolog's.
+- `duolog install` sets Claude's `statusLine` if none is set; `uninstall` drops
+  only duolog's. After you remove it, `duolog install --status-line` adds it.
 - The lead's hooks tell the person in one line when a run ended, a peer went
   idle or an ask waits (`systemMessage`, no tokens spent).
 - A Claude lead's `Stop` line also sends an OSC 9 terminal notice;
@@ -61,12 +61,17 @@
   `[mcp_servers.duolog]` to Codex's `config.toml`, keeping every other line.
 - `duolog runs --snapshot [--fast]` prints this lead's peers, runs, asks and
   load as one JSON line; `--fast` reads no pane screen.
+- A `/duolog-pane` pane in Claude Code lists peers and runs; the worker count
+  above the prompt opens it. `duolog runs tail <id>` pages a run's log for it.
 
 ### Changed
 
 - `duolog runs` lists only this lead's delegate runs.
 - duolog keeps the newest 50 finished delegate records per project and removes
   older ones.
+- `duolog watch` prints a log line over 1 MiB, such as large tool output, as
+  one line `> (output of N MiB not shown)`.
+- A `watch --tab` tab closes 10 s after its run ends.
 
 ### Fixed
 

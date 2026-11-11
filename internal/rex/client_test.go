@@ -55,17 +55,34 @@ func TestClientsRejectsBadReply(t *testing.T) {
 }
 
 func TestFocusArgs(t *testing.T) {
-	c := install(t, testbin.Scenario{Stdout: "{}"})
+	c := install(t, testbin.Scenario{Stdout: "{}", Responses: map[string]testbin.Scenario{
+		"block": {Stdout: `{"block":{"window_id":"window:peer"}}`},
+	}})
 	c.Session = "session:peers"
 	if err := c.Focus(context.Background(), "client:app", "block:peer"); err != nil {
 		t.Fatal(err)
 	}
 	got := calls(t, c.Bin)
 	want := [][]string{
-		{"-C", "client:app", "do", "session.select", "session_id=session:peers"},
+		{"block", "inspect", "-s", "session:peers", "--json", "block:peer"},
+		{"-C", "client:app", "do", "session.select", "session_id=session:peers", "window_id=window:peer"},
 		{"-C", "client:app", "focus", "block:peer", "-s", "session:peers"},
 	}
 	if !slices.EqualFunc(got, want, slices.Equal) {
+		t.Fatalf("%v", got)
+	}
+}
+
+// A block whose window cannot be read is still focused: the select then
+// names the session only, as before.
+func TestFocusWithoutWindowSelectsTheSession(t *testing.T) {
+	c := install(t, testbin.Scenario{Stdout: "{}"})
+	c.Session = "session:peers"
+	if err := c.Focus(context.Background(), "client:app", "block:peer"); err != nil {
+		t.Fatal(err)
+	}
+	got := calls(t, c.Bin)
+	if len(got) != 3 || !slices.Equal(got[1], []string{"-C", "client:app", "do", "session.select", "session_id=session:peers"}) {
 		t.Fatalf("%v", got)
 	}
 }
@@ -78,7 +95,7 @@ func TestFocusExplainsRemoteControlOff(t *testing.T) {
 	if !errors.Is(err, ErrRemoteControl) {
 		t.Fatalf("%v", err)
 	}
-	if got := calls(t, c.Bin); len(got) != 1 {
+	if got := calls(t, c.Bin); len(got) == 0 || got[len(got)-1][2] != "do" {
 		t.Fatalf("focused after a refused select: %v", got)
 	}
 }

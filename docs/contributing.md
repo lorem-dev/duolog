@@ -161,6 +161,21 @@ the work tree, not a release. Nothing outside the repository changes.
   also puts `scripts/dev/bin` first on the session's PATH, so that `duolog` in
   a command runs this build. A Codex session runs `scripts/dev/bin/duolog`.
 - The duolog plugin is off in this repository, so that no gate runs twice.
+  So the Claude pane mod, `plugin/claude/hooks/duolog-pane.tsx`, does not
+  load here either. To try it, run `claude --plugin-dir` with the path of
+  this checkout's `plugin/claude`, in a project outside this repository that
+  has `.duolog/config.yaml`. That session writes the API types into
+  `plugin/claude/.claude-plugin/types/`, which Git ignores and the build
+  does not embed; delete the folder when you are done.
+- Before you change `plugin/claude/hooks` or `plugin/claude/types`, and
+  after, run `claude plugin validate plugin/claude` and
+  `claude plugin test plugin/claude`. The mod's tests are in
+  `plugin/claude/test`. When you test with a newer Claude Code, update
+  `plugin.ModTestedWith`.
+- Add no new key to `plugin/claude/.claude-plugin/plugin.json`. Claude Code
+  2.0 and early 2.1 refuse a manifest with a key they do not know, and then
+  load none of the plugin. Claude Code finds the mod's contract at
+  `types/index.d.ts` without one.
 
 Codex runs the hooks only after you approve them in `/hooks` and trust the
 project. `.duolog/config.yaml` passes the Go settings to workers.

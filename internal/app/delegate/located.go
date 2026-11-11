@@ -40,23 +40,46 @@ func ProjectRecordDir(projectRoot string) string {
 // missing folder holds none; a folder that cannot be read is an error. Record
 // paths come from where they were read, never from a record.
 func LeadRecords(reg *session.Registry, root, lead string) ([]LocatedRecord, error) {
+	out, unread, err := LeadRecordsReadable(reg, root, lead)
+	if err == nil && len(unread) > 0 {
+		return nil, unread[0].Err
+	}
+	return out, err
+}
+
+// UnreadFolder is the delegations folder of a work project that could not be
+// read, and why.
+type UnreadFolder struct {
+	WorkRoot string
+	Err      error
+}
+
+// LeadRecordsReadable is LeadRecords that skips the delegations folder of
+// another work project than root when it cannot be read, and returns it in
+// unread, so that one project's folder does not hide the others. root's own
+// folder that cannot be read is still an error.
+func LeadRecordsReadable(reg *session.Registry, root, lead string) (records []LocatedRecord, unread []UnreadFolder, err error) {
 	locations, err := reg.Delegations("")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var out []LocatedRecord
+	own := checkoutKey(root)
 	for _, work := range RecordRoots(reg, root, locations) {
 		dir := ProjectRecordDir(work)
-		records, err := ListRecords(dir, session.ProcessAlive)
+		found, err := ListRecords(dir, session.ProcessAlive)
 		if err != nil {
-			return nil, err
+			if checkoutKey(work) == own {
+				return nil, nil, err
+			}
+			unread = append(unread, UnreadFolder{WorkRoot: work, Err: err})
+			continue
 		}
-		out = appendLocated(out, dir, records, lead)
+		records = appendLocated(records, dir, found, lead)
 	}
-	slices.SortFunc(out, func(a, b LocatedRecord) int {
+	slices.SortFunc(records, func(a, b LocatedRecord) int {
 		return cmp.Or(b.Started.Compare(a.Started), strings.Compare(b.ID, a.ID))
 	})
-	return out, nil
+	return records, unread, nil
 }
 
 // RecordRoots checks each work project once, regardless of its run count.

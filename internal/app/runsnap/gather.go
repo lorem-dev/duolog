@@ -155,6 +155,39 @@ func openAsks(dir, address string) []Ask {
 	return out
 }
 
+// DoneFor is how long the snapshot keeps a done run after it ended, and
+// WaitingFor how long it keeps one that ended in any other state, such as
+// needs, failed or run_here, which waits on the lead or the person.
+const (
+	DoneFor    = 15 * time.Minute
+	WaitingFor = 2 * time.Hour
+)
+
+// FreshRuns is ShownRuns without the finished runs that ended too long before
+// now: DoneFor for a done run, WaitingFor for any other. A record with no end
+// time counts from its start; one with neither stays. It is what the pane and
+// the status line show; duolog runs keeps ShownRuns.
+func FreshRuns(records []delegate.LocatedRecord, now time.Time) []delegate.LocatedRecord {
+	var out []delegate.LocatedRecord
+	for _, r := range ShownRuns(records) {
+		if r.State != "running" {
+			ended := r.Ended
+			if ended.IsZero() {
+				ended = r.Started
+			}
+			keep := WaitingFor
+			if r.State == "done" {
+				keep = DoneFor
+			}
+			if !ended.IsZero() && now.Sub(ended) > keep {
+				continue
+			}
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
 // ShownRuns is the running records, then the newest Finished finished ones,
 // in the order given (newest first). A lost record counts as finished.
 func ShownRuns(records []delegate.LocatedRecord) []delegate.LocatedRecord {

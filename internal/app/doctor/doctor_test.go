@@ -512,3 +512,62 @@ func TestDoctorWarnsAboutCodexSetup(t *testing.T) {
 		})
 	}
 }
+
+// hooksCaps is an agent's Caps with duolog's hooks present or not.
+type hooksCaps struct {
+	Caps
+	has bool
+}
+
+func (c hooksCaps) HasDuolog(string, []string) bool { return c.has }
+
+// Doctor says whether the Claude pane mod can load, only where Claude leads
+// the project (duolog's hooks or plugin in its settings): it comes with the
+// duolog plugin, and was tested with one Claude Code version.
+func TestDoctorReportsTheClaudeMod(t *testing.T) {
+	const on = "Claude pane: on with the duolog plugin (tested with Claude Code 2.1.319)"
+	const off = "Claude pane: off; it comes with the duolog plugin"
+	for _, tc := range []struct {
+		name          string
+		plugin, hooks bool
+		want          string
+	}{
+		{"plugin", true, true, on},
+		{"hooks without the plugin", false, true, off},
+		{"no Claude lead", false, false, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, opts, _ := setup(t)
+			home, _ := os.UserHomeDir()
+			saved := testDeps.Agents
+			t.Cleanup(func() { testDeps.Agents = saved })
+			testDeps.Agents = map[string]Agent{}
+			for name, a := range saved {
+				if name == "claude" {
+					a.Caps = hooksCaps{a.Caps, tc.hooks}
+				}
+				testDeps.Agents[name] = a
+			}
+			var asked [][2]string
+			testDeps.ClaudePlugin = func(root, home string) bool {
+				asked = append(asked, [2]string{root, home})
+				return tc.plugin
+			}
+			var got []Finding
+			for _, f := range Run(context.Background(), testDeps, cfg, opts) {
+				if strings.HasPrefix(f.Message, "Claude pane:") {
+					got = append(got, f)
+				}
+			}
+			if tc.want == "" {
+				if len(got) != 0 {
+					t.Fatalf("a Claude pane line without a Claude lead: %v", got)
+				}
+				return
+			}
+			if len(got) != 1 || got[0] != (Finding{"info", tc.want}) || len(asked) != 1 || asked[0] != [2]string{opts.Root, home} {
+				t.Fatalf("got %v, asked %v", got, asked)
+			}
+		})
+	}
+}

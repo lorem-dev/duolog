@@ -169,9 +169,21 @@ func (Installer) Enabled(root, home string, environ []string) (bool, error) {
 	return install.PluginEnabledIn(root, home, environ), nil
 }
 
-// HooksJSON renders the hooks document of Claude, as the plugin ships it.
+// HooksJSON renders the hooks of Claude, as Installer.Hooks merges them into
+// a settings file.
 func HooksJSON(timeout int) ([]byte, error) {
 	return install.Document(events(timeout))
+}
+
+// paneModule is the plugin's hooks module, the Claude pane mod, as
+// plugin/claude/hooks/hooks.json names it: relative to that file.
+const paneModule = "./duolog-pane.tsx"
+
+// PluginHooksJSON renders plugin/claude/hooks/hooks.json: the hooks of
+// HooksJSON and the pane mod's module. A second generator, since the modules
+// key does not belong in the person's settings.json, which HooksJSON feeds.
+func PluginHooksJSON(timeout int) ([]byte, error) {
+	return install.Document(events(timeout), paneModule)
 }
 
 // events returns the hook entries of Claude in a fixed order. Timeouts are in
