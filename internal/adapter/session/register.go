@@ -56,6 +56,25 @@ func AgentAncestor(names, helpers []string) string {
 	return agentAncestorBy(os.Getppid(), parentProcess, func(name string) string { return matchAgent(name, names, helpers) })
 }
 
+// ParentAgent names the agent, "claude" or "codex", when this process's
+// direct parent is a Claude Code or Codex process, else "". Unlike
+// AgentAncestor it looks no further: a shell between the agent and this
+// process, as in a model's Bash call, names none. names and helpers are as
+// in AgentAncestor.
+func ParentAgent(names, helpers []string) string {
+	return parentAgentBy(os.Getppid(), parentProcess, func(name string) string { return matchAgent(name, names, helpers) })
+}
+
+// parentAgentBy is the agent that match names for the process ppid, by the
+// name that parent gives it.
+func parentAgentBy(ppid int, parent func(int) (int, string), match func(string) string) string {
+	if ppid <= 1 {
+		return ""
+	}
+	_, name := parent(ppid)
+	return match(name)
+}
+
 // matchAgent names the agent that a process name is, by the binaries and
 // helpers of the descriptors: a pattern's name is the text before "-*". It
 // returns "" for any other program.

@@ -73,3 +73,51 @@ func TestToolWithoutKnownInputPrintsItsName(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// A Codex item that started in one Renderer and completes in the next, as
+// across two calls of runs tail, prints once.
+func TestRendererCarriesAnOpenItemAcrossRenderers(t *testing.T) {
+	a := Renderer{}
+	got := a.Render([]byte(`{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"go test ./..."}}`))
+	if !reflect.DeepEqual(got, []string{"> command go test ./..."}) {
+		t.Fatalf("started: got %q", got)
+	}
+	if !reflect.DeepEqual(a.Open(), []string{"item_1"}) {
+		t.Fatalf("open = %q", a.Open())
+	}
+	b := NewRenderer(a.Open())
+	got = b.Render([]byte(`{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"go test ./..."}}`))
+	if len(got) != 0 {
+		t.Fatalf("completed printed again: %q", got)
+	}
+	if b.Open() != nil {
+		t.Fatalf("open after completion = %q", b.Open())
+	}
+}
+
+func TestRendererCloseForgetsAnOpenItem(t *testing.T) {
+	r := NewRenderer([]string{"item_1", "item_2"})
+	r.Close("item_1")
+	r.Close("unknown")
+	if !reflect.DeepEqual(r.Open(), []string{"item_2"}) {
+		t.Fatalf("open = %q", r.Open())
+	}
+}
+
+func TestRendererForgetsACompletedItem(t *testing.T) {
+	var r Renderer
+	var got []string
+	got = append(got, r.Render([]byte(`{"type":"item.started","item":{"id":"i1","type":"command_execution","command":"ls"}}`))...)
+	got = append(got, r.Render([]byte(`{"type":"item.completed","item":{"id":"i1","type":"command_execution","command":"ls"}}`))...)
+	if !reflect.DeepEqual(got, []string{"> command ls"}) {
+		t.Fatalf("got %q", got)
+	}
+	if len(r.Open()) != 0 {
+		t.Fatalf("open = %q", r.Open())
+	}
+	// A completed item never seen still prints.
+	got = r.Render([]byte(`{"type":"item.completed","item":{"id":"i2","type":"command_execution","command":"pwd"}}`))
+	if !reflect.DeepEqual(got, []string{"> command pwd"}) || len(r.Open()) != 0 {
+		t.Fatalf("unseen completed: %q, open %q", got, r.Open())
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"os"
+	"time"
 
 	calibration "github.com/lorem-dev/duolog/internal/app/calibrate"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
@@ -41,11 +42,13 @@ type cmdDeps struct {
 	// appended to the file at log: the MCP delegate tool's run, which
 	// outlives the server and writes its own PID to its record.
 	startDetached func(argv []string, dir, log string) error
+	// watchTabLinger is how long a watch tab stays open after its run ended.
+	watchTabLinger time.Duration
 }
 
 // newCmdDeps wraps the dependencies of the commands that wiring built.
 func newCmdDeps(w wiring.CmdDeps) *cmdDeps {
-	d := &cmdDeps{CmdDeps: w, MineGH: runGH, StartQueueRun: peer.StartQueueRun, startDetached: startDetachedLogged}
+	d := &cmdDeps{CmdDeps: w, MineGH: runGH, StartQueueRun: peer.StartQueueRun, startDetached: startDetachedLogged, watchTabLinger: 10 * time.Second}
 	d.SurveyChecks, d.CellChecks, d.MineChecks = d.profileChecks, d.profileChecks, d.profileChecks
 	return d
 }

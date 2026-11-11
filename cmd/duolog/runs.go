@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -117,6 +118,7 @@ func newRunsCommand(d *cmdDeps) *cobra.Command {
 	cmd.Flags().BoolVar(&snapshot, "snapshot", false, "Print the lead's peers, runs, asks and load as one versioned JSON line")
 	cmd.Flags().BoolVar(&fast, "fast", false, "With --snapshot, list the peers without reading their screens: a running peer is unknown")
 	cmd.Flags().StringVar(&lead, "lead", "", "Registered lead session ID for the peers and delegate runs (defaults to DUOLOG_LEAD)")
+	cmd.AddCommand(newRunsTailCommand(d))
 	return cmd
 }
 
@@ -160,7 +162,7 @@ func pickRun(records []delegate.LocatedRecord, id string) (delegate.LocatedRecor
 // stops a lead's tool call that names it (peerShowLeadGuard). With --tab it
 // opens a Rex tab that runs it, and prints one line.
 func newWatchCommand(d *cmdDeps) *cobra.Command {
-	var tab bool
+	var tab, closeTab bool
 	var client, lead string
 	var lines int
 	cmd := &cobra.Command{Use: "watch [id]", Short: "Follow a delegate run, or show a peer's screen, in your own terminal", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
@@ -196,9 +198,11 @@ func newWatchCommand(d *cmdDeps) *cobra.Command {
 		if tab {
 			return d.watchTab(cmd, rec.ID, client)
 		}
-		return delegate.Watch(cmd.Context(), cmd.OutOrStdout(), rec.Path, session.ProcessAlive, watchPoll)
+		return d.followRun(cmd, rec.Path, closeTab)
 	}}
 	cmd.Flags().BoolVar(&tab, "tab", false, "Open a read-only Rex tab that runs duolog watch and move your Rex client to it")
+	cmd.Flags().BoolVar(&closeTab, "close-tab", false, "Close this pane after the run ends; only in a watch tab of the peer session")
+	_ = cmd.Flags().MarkHidden("close-tab")
 	cmd.Flags().StringVar(&client, "client", "", "With --tab, the Rex client to move (default: the one client that shows this session)")
 	cmd.Flags().StringVar(&lead, "lead", "", "Registered lead session ID for a peer (defaults to DUOLOG_LEAD)")
 	cmd.Flags().IntVar(&lines, "lines", peer.DefaultShowLines, fmt.Sprintf("For a peer, the number of lines, 1 to %d", peer.MaxShowLines))
@@ -214,6 +218,79 @@ func (d *cmdDeps) refuseWatch(cmd *cobra.Command) error {
 		return fmt.Errorf("%w (a %s process runs this command)", errWatchModel, agent)
 	}
 	return nil
+}
+
+// viewerEnv names the program that shows runs tail to the person;
+// viewerClaudeMod is the Claude Code pane.
+const (
+	viewerEnv       = "DUOLOG_VIEWER"
+	viewerClaudeMod = "claude-mod"
+)
+
+// newRunsTailCommand prints one page of a delegate run's log, read as watch
+// reads it, for the Claude pane that polls it, or for the person in a
+// terminal. It finds the run by id as watch does.
+func newRunsTailCommand(d *cmdDeps) *cobra.Command {
+	var from int64
+	var cursor string
+	var asJSON bool
+	cmd := &cobra.Command{Use: "tail <id>", Short: "Print one page of a delegate run's log, for the Claude pane or your own terminal", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		// The refusal comes before anything is read.
+		if err := d.refuseTail(cmd); err != nil {
+			return err
+		}
+		reg, root, err := runsRegistry()
+		if err != nil {
+			return err
+		}
+		records, err := listRuns(reg, root, "", "")
+		if err != nil {
+			return err
+		}
+		rec, err := pickRun(records, args[0])
+		if err != nil {
+			return err
+		}
+		page, err := delegate.Tail(rec.Record, from, cursor)
+		if err != nil {
+			return err
+		}
+		return writeTailPage(cmd.OutOrStdout(), page, asJSON)
+	}}
+	cmd.Flags().Int64Var(&from, "from", -1, "The byte offset to read from, as the last page gave it; -1 starts in the last 64 KiB")
+	cmd.Flags().StringVar(&cursor, "cursor", "", "The cursor the last page gave")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the page as one JSON line: offset, reset, lines, ended, state, cursor")
+	return cmd
+}
+
+// writeTailPage prints a page as one JSON line, or its lines.
+func writeTailPage(w io.Writer, page delegate.TailPage, asJSON bool) error {
+	if asJSON {
+		return json.NewEncoder(w).Encode(page)
+	}
+	for _, line := range page.Lines {
+		if _, err := fmt.Fprintln(w, line); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// refuseTail is the refusal for runs tail. A worker is always refused. The
+// Claude pane passes: it sets DUOLOG_VIEWER=claude-mod and Claude Code is its
+// direct parent. A model's Bash call has a shell between Claude Code and
+// duolog, so the flag alone does not pass it. That rule relies on Claude
+// Code's Bash wrapper not exec-ing the command; the lead guard covers a
+// model's call that names runs tail either way. Anyone else is refused as
+// for watch.
+func (d *cmdDeps) refuseTail(cmd *cobra.Command) error {
+	if isWorker() {
+		return errWorkerRuns
+	}
+	if os.Getenv(viewerEnv) == viewerClaudeMod && d.ParentAgent() == "claude" {
+		return nil
+	}
+	return d.refuseWatch(cmd)
 }
 
 // watchPeer does for a peer id what peer view does with tab, else what peer
@@ -240,6 +317,40 @@ func (d *cmdDeps) watchPeer(cmd *cobra.Command, id string, tab bool, client, lea
 	return err
 }
 
+// followRun prints the run at path until it ends, then closes the tab when
+// closeTab is set.
+func (d *cmdDeps) followRun(cmd *cobra.Command, path string, closeTab bool) error {
+	if err := delegate.Watch(cmd.Context(), cmd.OutOrStdout(), path, session.ProcessAlive, watchPoll); err != nil || !closeTab {
+		return err
+	}
+	d.closeWatchTab(cmd)
+	return nil
+}
+
+// closeWatchTab closes the pane the command runs in once the run has ended,
+// after the linger. A cancelled command (ctrl+c) keeps its pane, and a failed
+// close prints nothing more: the person can close the tab.
+func (d *cmdDeps) closeWatchTab(cmd *cobra.Command) {
+	ctx := cmd.Context()
+	if ctx == nil || ctx.Err() != nil {
+		return
+	}
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "this tab closes in 10 s")
+	if d.watchTabLinger > 0 {
+		select {
+		case <-time.After(d.watchTabLinger):
+		case <-ctx.Done():
+			return
+		}
+	}
+	pctx, cancel, err := peerContext(d, cmd, "", false, 0)
+	if err != nil {
+		return
+	}
+	defer cancel()
+	_ = peer.CloseWatchTab(pctx)
+}
+
 // watchTab opens the tab, or without Rex prints the command to run instead.
 func (d *cmdDeps) watchTab(cmd *cobra.Command, id, client string) error {
 	exe, err := os.Executable()
@@ -251,7 +362,7 @@ func (d *cmdDeps) watchTab(cmd *cobra.Command, id, client string) error {
 		return err
 	}
 	defer cancel()
-	viewed, err := peer.WatchTab(ctx, id, []string{exe, "watch", id}, client)
+	viewed, err := peer.WatchTab(ctx, id, []string{exe, "watch", id, "--close-tab"}, client)
 	switch {
 	case errors.Is(err, peer.ErrNoRex):
 		_, err = fmt.Fprintf(cmd.OutOrStdout(), "no Rex here; run in your own terminal: duolog watch %s\n", id)

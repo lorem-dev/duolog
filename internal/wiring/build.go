@@ -70,12 +70,25 @@ func LeadDeps() lead.Deps {
 // AgentAncestor names the agent among this process's ancestors, from the
 // process names of the registered agents.
 func AgentAncestor() string {
-	var names, helpers []string
+	names, helpers := agentProcessNames()
+	return session.AgentAncestor(names, helpers)
+}
+
+// ParentAgent names the agent that is this process's direct parent, from the
+// process names of the registered agents.
+func ParentAgent() string {
+	names, helpers := agentProcessNames()
+	return session.ParentAgent(names, helpers)
+}
+
+// agentProcessNames are the binaries and the helper processes of the
+// registered agents.
+func agentProcessNames() (names, helpers []string) {
 	for _, a := range Agents() {
 		names = append(names, a.Facts.Binaries...)
 		helpers = append(helpers, a.Facts.Helpers...)
 	}
-	return session.AgentAncestor(names, helpers)
+	return names, helpers
 }
 
 // delegateRunner binds delegate.Run to its Deps.

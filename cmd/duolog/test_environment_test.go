@@ -178,6 +178,7 @@ func testDeps(t *testing.T) *cmdDeps {
 		n = n[:i]
 	}
 	d := newCmdDeps(wiringtest.Cmd(t))
+	d.watchTabLinger = 0
 	testDepsFor.Store(name, d)
 	t.Cleanup(func() { testDepsFor.Delete(name) })
 	return d

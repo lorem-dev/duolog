@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -395,6 +398,7 @@ func watchRex(t *testing.T) string {
 		"client ls":     {Stdout: viewClientReply},
 		"-C":            {Stdout: "{}"},
 		"block ls":      {Stdout: `{"blocks":[{"id":"block:peer"}]}`},
+		"block close":   {Stdout: "{}"},
 	}})
 }
 
@@ -573,5 +577,137 @@ func TestRecordingWorkerWritesAgentModelAndLog(t *testing.T) {
 	}
 	if got, _ = delegate.ReadRecord(path, nil); got.Agent != "" || got.State != "done" {
 		t.Fatalf("ended record = %+v", got)
+	}
+}
+
+// asTheMod makes the command run as the Claude pane runs it: Claude Code is
+// its direct parent, the viewer flag is set, and stdout is not a terminal.
+func asTheMod(t *testing.T, parent string) {
+	t.Helper()
+	t.Setenv("DUOLOG_VIEWER", "claude-mod")
+	testDeps(t).ParentAgent = func() string { return parent }
+	asTerminal(t, false)
+	t.Setenv("CLAUDECODE", "1")
+}
+
+func TestRunsTailPrintsJSONForTheMod(t *testing.T) {
+	runsProject(t, runRec("d-abcdef", "done", time.Minute))
+	asTheMod(t, "claude")
+	out, err := executeBusCommand(t, "runs", "tail", "d-abcdef", "--from", "-1", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(out, "\n") != 1 || !strings.HasSuffix(out, "\n") {
+		t.Fatalf("not one JSON line: %q", out)
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(out), &keys); err != nil {
+		t.Fatalf("%v: %q", err, out)
+	}
+	if got := slices.Sorted(maps.Keys(keys)); !slices.Equal(got, []string{"cursor", "ended", "lines", "offset", "reset", "state"}) {
+		t.Fatalf("keys = %q", got)
+	}
+	var page delegate.TailPage
+	if err := json.Unmarshal([]byte(out), &page); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Reading now.", "> Read a.go", "From Codex."}
+	if !slices.Equal(page.Lines, want) || !page.Ended || page.State != "done" || page.Offset != int64(len(runLogText)) {
+		t.Fatalf("page = %+v", page)
+	}
+}
+
+func TestRunsTailRefusedForModels(t *testing.T) {
+	runsProject(t, runRec("d-abcdef", "done", time.Minute))
+	check := func(label string, want error) {
+		t.Helper()
+		out, err := executeBusCommand(t, "runs", "tail", "d-abcdef", "--from", "-1", "--json")
+		if !errors.Is(err, want) || strings.Contains(out, "Reading now.") {
+			t.Fatalf("%s: %q %v", label, out, err)
+		}
+	}
+	asTheMod(t, "claude")
+	t.Setenv("DUOLOG_VIEWER", "")
+	check("no viewer flag", errWatchModel)
+	asTheMod(t, "")
+	check("a shell between Claude Code and duolog", errWatchModel)
+	asTheMod(t, "claude")
+	t.Setenv("DUOLOG_DEPTH", "1")
+	check("worker", errWorkerRuns)
+}
+
+func closeCalls(t *testing.T, rex string) int {
+	t.Helper()
+	n := 0
+	for _, c := range rexCalls(t, rex) {
+		if strings.Contains(strings.Join(c, " "), "block close") {
+			n++
+		}
+	}
+	return n
+}
+
+func TestWatchTabAsksTheTabToClose(t *testing.T) {
+	runsProject(t, runRec("d-abcdef", "running", time.Minute))
+	t.Setenv("REX_SESSION", "sess")
+	t.Setenv("REX_BIN_DIR", "")
+	t.Setenv("DUOLOG_LEAD", "")
+	rex := watchRex(t)
+	asTerminal(t, false)
+	if _, err := executeBusCommand(t, "watch", "--tab", "d-abcdef"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range rexCalls(t, rex) {
+		if n := len(c); n >= 3 && c[n-3] == "watch" && c[n-2] == "d-abcdef" && c[n-1] == "--close-tab" {
+			return
+		}
+	}
+	t.Fatalf("no spawn ended in watch d-abcdef --close-tab: %v", rexCalls(t, rex))
+}
+
+func closeTabSetup(t *testing.T) string {
+	t.Helper()
+	root := runsProject(t, runRec("d-aaaaaa", "done", time.Minute))
+	t.Setenv("REX_SESSION", "sess")
+	t.Setenv("REX_BLOCK", "block:w")
+	t.Setenv("REX_BIN_DIR", "")
+	t.Setenv("DUOLOG_LEAD", "")
+	chdir(t, root)
+	reg, _, err := runsRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.SetPeerRexSession("sess"); err != nil {
+		t.Fatal(err)
+	}
+	return watchRex(t)
+}
+
+func TestWatchCloseTabClosesThePaneAfterTheRunEnds(t *testing.T) {
+	rex := closeTabSetup(t)
+	out, err := executeBusCommand(t, "watch", "d-aaaaaa", "--close-tab")
+	if err != nil || !strings.HasSuffix(out, "ended: done\nthis tab closes in 10 s\n") {
+		t.Fatalf("%q %v", out, err)
+	}
+	if n := closeCalls(t, rex); n != 1 {
+		t.Fatalf("block close calls = %d: %v", n, rexCalls(t, rex))
+	}
+}
+
+func TestWatchCloseTabKeepsThePaneOnCancel(t *testing.T) {
+	rex := closeTabSetup(t)
+	cmd := newRootCommand(testDeps(t))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"watch", "d-aaaaaa", "--close-tab"})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = cmd.ExecuteContext(ctx)
+	if n := closeCalls(t, rex); n != 0 {
+		t.Fatalf("block close calls = %d after cancel", n)
+	}
+	if strings.Contains(out.String(), "this tab closes") {
+		t.Fatalf("out = %q", out.String())
 	}
 }

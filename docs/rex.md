@@ -376,8 +376,9 @@ form. They need no Rex, except for `--tab`.
 |---|---|---|
 | `duolog runs [--long\|--json]` | You, or the lead | The live peers and delegate runs of this project and of every work project that shares its lead home (a superproject and its duolog submodules): the running ones first, then the last five that ended. Plain output is `<id> <state>`; `--long` is a table with kind (`peer` or `delegate`), role, agent and model, age and the worktree's name; `--json` is the rows as JSON |
 | `duolog runs --snapshot [--fast]` | You, the lead, or a status line | The lead's live peers, delegate runs, open asks and load as one versioned JSON line; see the table below |
-| `duolog watch [id]` | You, in your own terminal | For a delegate run: the worker's messages and one short line per tool call, such as `> Bash go test ./...`. Tool output is left out. For a peer id: what `peer show` prints, with `--lines` |
-| `duolog watch --tab [id]` | You, or the lead when you ask | One line; for a delegate run, your Rex client shows a tab that runs `duolog watch <id>`; for a peer id, what `peer view` does |
+| `duolog watch [id]` | You, in your own terminal | For a delegate run: the worker's messages and one short line per tool call, such as `> Bash go test ./...`. Tool output is left out; a log line over 1 MiB prints as one line such as `> (output of 3 MiB not shown)`. For a peer id: what `peer show` prints, with `--lines` |
+| `duolog watch --tab [id]` | You, or the lead when you ask | One line; for a delegate run, your Rex client shows a tab that runs `duolog watch <id>` and closes 10 s after the run ends; for a peer id, what `peer view` does |
+| `duolog runs tail <id> [--from N] [--cursor C] [--json]` | The Claude pane, or you in your own terminal | One page of a delegate run's log, in the lines `watch` prints; `--json` is one JSON line; see the table below |
 
 A peer's state in `runs` is the one `peer list` gives; `--lead` names the lead
 whose peers and delegate runs are listed (default `DUOLOG_LEAD`, then the lead
@@ -437,6 +438,31 @@ another lead's workers. A lead that you name with `--lead` or
 
 duolog keeps the running records and the newest 50 that ended in each work
 project; it removes older ones when a new run starts.
+
+`duolog runs tail <id>` reads a delegate run's log in pages, for a pane that
+asks for the next page every few seconds. One page has at most 200 lines and
+reads at most 1 MiB of the log. A log line longer than 1 MiB prints as one
+line, such as `> (output of 3 MiB not shown)`, as in `watch`. Without
+`--from`, or with `--from -1`, the page starts in the last 64 KiB of the
+log, at a whole line. For the next page, pass back the `offset` and `cursor`
+of the last page unchanged. A line that the worker has not finished waits
+for the next page.
+`--json` prints the page as one JSON line; without it, `tail` prints only
+the lines.
+
+| Key | Value |
+|---|---|
+| `offset` | The byte offset to pass as `--from` for the next page |
+| `reset` | `true` when the page starts the log over from its start: a retry wrote a new log, the log got shorter, or the cursor could not be read |
+| `lines` | The lines of this page, as `watch` prints them; an empty list when there is nothing new |
+| `ended` | `true` when the run has ended and this page reached the end of its log |
+| `state` | The run's state, as in `duolog runs` |
+| `cursor` | An opaque text to pass as `--cursor` for the next page; empty while the run has no log |
+
+Like `watch`, `tail` prints a worker's text only for you, and refuses a
+model and a worker. The Claude pane runs it with `DUOLOG_VIEWER=claude-mod`,
+and it passes only when Claude Code is its direct parent process, so the
+variable alone does not pass a model's shell command.
 
 Without an id, `watch` follows the newest running run. It starts at the
 beginning of the log, keeps reading while the log grows, reads both Claude's

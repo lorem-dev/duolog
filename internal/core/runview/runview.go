@@ -6,6 +6,7 @@ package runview
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -19,8 +20,40 @@ const maxToolRunes = 100
 var toolArguments = []string{"command", "file_path", "path", "notebook_path", "pattern", "url", "query"}
 
 // Renderer renders the lines of one log, in order. It remembers the Codex
-// items it has shown, so that an item's start and its end print once.
+// items it has shown and that have not completed, so that an item's start and
+// its end print once; it forgets an item when it completes.
 type Renderer struct{ seen map[string]bool }
+
+// NewRenderer is a Renderer that has shown the Codex items open, as a reader
+// that renders a log in separate calls carries them from one call to the next.
+func NewRenderer(open []string) Renderer {
+	r := Renderer{}
+	for _, id := range open {
+		if id == "" {
+			continue
+		}
+		if r.seen == nil {
+			r.seen = map[string]bool{}
+		}
+		r.seen[id] = true
+	}
+	return r
+}
+
+// Close forgets the open Codex item id, as its completion would: a reader
+// calls it for a completion it cannot render, such as one too long to read.
+func (r *Renderer) Close(id string) { delete(r.seen, id) }
+
+// Open returns the sorted ids of the Codex items shown and not completed, or
+// nil.
+func (r *Renderer) Open() []string {
+	var ids []string
+	for id := range r.seen {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
 
 // Render returns the lines to print for one log line: none for an event it
 // does not know, a line that is not JSON, or an event that carries no message
@@ -124,16 +157,30 @@ func (r *Renderer) codexLines(completed bool, raw json.RawMessage) []string {
 	default:
 		return nil
 	}
-	if item.ID != "" {
-		if r.seen[item.ID] {
-			return nil
-		}
+	if r.shown(item.ID, completed) {
+		return nil
+	}
+	return []string{toolLine(name, target)}
+}
+
+// shown reports whether the tool item id was shown before, and remembers it
+// while it is open: a start marks it, its end forgets it. An item without an
+// id is never shown before.
+func (r *Renderer) shown(id string, completed bool) bool {
+	if id == "" {
+		return false
+	}
+	seen := r.seen[id]
+	switch {
+	case completed:
+		delete(r.seen, id)
+	case !seen:
 		if r.seen == nil {
 			r.seen = map[string]bool{}
 		}
-		r.seen[item.ID] = true
+		r.seen[id] = true
 	}
-	return []string{toolLine(name, target)}
+	return seen
 }
 
 // toolLine is "> name target", with the target on one line and cut so that

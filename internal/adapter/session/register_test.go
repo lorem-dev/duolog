@@ -105,6 +105,28 @@ func TestAgentAncestorFromDescriptors(t *testing.T) {
 	}
 }
 
+// ParentAgent looks at the direct parent only: a shell between the agent and
+// duolog, as in a model's Bash call, names no agent.
+func TestParentAgentNamesOnlyTheDirectParent(t *testing.T) {
+	names, helpers := []string{"claude", "codex", "codex-*"}, []string{"codex-linux-sandbox"}
+	match := func(name string) string { return matchAgent(name, names, helpers) }
+	tests := []struct {
+		name string
+		tree map[int]fakeProcess
+		want string
+	}{
+		{"claude is the parent", map[int]fakeProcess{40: {30, "claude"}, 30: {1, "launchd"}}, "claude"},
+		{"a shell under claude", map[int]fakeProcess{40: {30, "zsh"}, 30: {20, "claude"}}, ""},
+		{"codex is the parent", map[int]fakeProcess{40: {30, "/opt/bin/codex"}}, "codex"},
+		{"an unnamed parent", map[int]fakeProcess{40: {30, ""}, 30: {20, "claude"}}, ""},
+	}
+	for _, tt := range tests {
+		if got := parentAgentBy(40, fakeTree(tt.tree), match); got != tt.want {
+			t.Errorf("%s: %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestClaudeModeReadsLastRecordedMode(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "t.jsonl")
 	body := `{"type":"user","permissionMode":"acceptEdits"}` + "\n" +

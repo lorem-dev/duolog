@@ -57,6 +57,9 @@ type CmdDeps struct {
 	ObserveLead func(agent string) (session.LeadRoute, bool)
 	// AgentAncestor names a Claude or Codex process above this one.
 	AgentAncestor func() string
+	// ParentAgent names a Claude or Codex process that is this one's direct
+	// parent.
+	ParentAgent func() string
 	// AgentAbove reports whether the caller runs in an agent session.
 	AgentAbove func(environ []string) bool
 	// OpenLaunchState opens the account state a launcher records itself in.
@@ -92,6 +95,7 @@ func Cmd() CmdDeps {
 		// unknown.
 		ObserveLead:     func(string) (session.LeadRoute, bool) { return session.LeadRoute{}, false },
 		AgentAncestor:   AgentAncestor,
+		ParentAgent:     ParentAgent,
 		AgentAbove:      session.AgentAbove,
 		OpenLaunchState: func() (*paidruns.Store, error) { return paidruns.OpenUserState("") },
 		IsTerminal:      isTerminal,

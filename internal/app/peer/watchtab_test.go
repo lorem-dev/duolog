@@ -70,3 +70,39 @@ func TestWatchTabOpensNothingWhenNoSingleClientShowsTheSession(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestCloseWatchTabClosesItsOwnBlock(t *testing.T) {
+	r := newRig(t, baseScript())
+	if err := r.reg.SetPeerRexSession("sess"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("REX_SESSION", "sess")
+	t.Setenv("REX_BLOCK", "block:w")
+	if err := CloseWatchTab(r.ctx); err != nil {
+		t.Fatal(err)
+	}
+	closed := r.named("close")
+	if len(closed) != 1 || closed[0][len(closed[0])-1] != "block:w" {
+		t.Fatalf("close = %v (calls %v)", closed, r.calls())
+	}
+}
+
+func TestCloseWatchTabRefusesOutsideThePeerSession(t *testing.T) {
+	r := newRig(t, baseScript())
+	if err := r.reg.SetPeerRexSession("sess"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("REX_SESSION", "lead")
+	t.Setenv("REX_BLOCK", "block:w")
+	if err := CloseWatchTab(r.ctx); err == nil {
+		t.Fatal("closed a pane outside the peer session")
+	}
+	t.Setenv("REX_SESSION", "sess")
+	t.Setenv("REX_BLOCK", "")
+	if err := CloseWatchTab(r.ctx); err == nil {
+		t.Fatal("closed without a block")
+	}
+	if len(r.calls()) != 0 {
+		t.Fatalf("pane called: %v", r.calls())
+	}
+}

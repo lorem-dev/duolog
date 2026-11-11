@@ -48,12 +48,17 @@
   too, and MCP `status` lists them.
 - `duolog runs --snapshot [--fast]` prints this lead's peers, runs, asks and
   load as one JSON line; `--fast` reads no pane screen.
+- `duolog runs tail <id>` reads a delegate run's log in pages, for the Claude
+  pane.
 
 ### Changed
 
 - `duolog runs` lists only this lead's delegate runs.
 - duolog keeps the newest 50 finished delegate records per project and removes
   older ones.
+- `duolog watch` prints a log line over 1 MiB, such as large tool output, as
+  one line `> (output of N MiB not shown)`.
+- A `watch --tab` tab closes 10 s after its run ends.
 
 ## 1.8.2
 

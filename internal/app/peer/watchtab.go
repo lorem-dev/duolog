@@ -58,3 +58,23 @@ func WatchTab(ctx context.Context, run string, argv []string, client string) (Vi
 	}
 	return Viewed{ID: run, Tab: label, Client: client}, nil
 }
+
+// CloseWatchTab closes the Rex pane the caller runs in, the tab WatchTab
+// opened. It closes {REX_SESSION, REX_BLOCK} only when REX_SESSION is the
+// project's peer session, so a person who runs it in their own pane closes
+// nothing.
+func CloseWatchTab(ctx context.Context) error {
+	e, err := setupViewer(ctx)
+	if err != nil {
+		return err
+	}
+	session, block := os.Getenv("REX_SESSION"), os.Getenv("REX_BLOCK")
+	peerSession, err := e.reg.PeerRexSession()
+	if err != nil {
+		return err
+	}
+	if block == "" || peerSession == "" || session != peerSession {
+		return errors.New("this pane is not a watch tab of the project's peer session")
+	}
+	return e.panes.Close(ctx, PaneID{Session: session, Block: block})
+}
