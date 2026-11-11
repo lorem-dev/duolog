@@ -211,3 +211,45 @@ func TestLastEventPicksNewest(t *testing.T) {
 		})
 	}
 }
+
+// ListFast probes the panes and captures none: a running pane is unknown, an
+// exited one is exited.
+func TestListFastCapturesNoScreen(t *testing.T) {
+	r := newRig(t, baseScript())
+	e := r.ready()
+	r.panes(withScreens(working()))
+	peers, err := ListFast(r.ctx)
+	if err != nil || len(peers) != 1 {
+		t.Fatalf("%+v %v", peers, err)
+	}
+	p := peers[0]
+	if p.ID != e.ID || p.State != Unknown || p.Working || p.Display() != "unknown" {
+		t.Fatalf("%+v %q", p, p.Display())
+	}
+	if n := len(r.named("capture")); n != 0 {
+		t.Fatalf("%d captures", n)
+	}
+	script := withScreens(working())
+	script["probe"] = exited
+	r.panes(script)
+	peers, err = ListFast(r.ctx)
+	if err != nil || len(peers) != 1 || peers[0].State != Exited {
+		t.Fatalf("%+v %v", peers, err)
+	}
+	if n := len(r.named("capture")); n != 0 {
+		t.Fatalf("%d captures", n)
+	}
+}
+
+func TestListStillCaptures(t *testing.T) {
+	r := newRig(t, baseScript())
+	r.ready()
+	r.panes(withScreens(working()))
+	peers, err := List(r.ctx)
+	if err != nil || len(peers) != 1 || peers[0].State != Working {
+		t.Fatalf("%+v %v", peers, err)
+	}
+	if n := len(r.named("capture")); n != 1 {
+		t.Fatalf("%d captures", n)
+	}
+}

@@ -46,6 +46,8 @@
 
 - `duolog runs` and `duolog watch` show `duolog delegate` runs from the CLI
   too, and MCP `status` lists them.
+- `duolog runs --snapshot [--fast]` prints this lead's peers, runs, asks and
+  load as one JSON line; `--fast` reads no pane screen.
 
 ### Changed
 

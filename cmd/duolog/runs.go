@@ -17,23 +17,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const (
-	// runsFinished is how many finished runs duolog runs lists after the
-	// running ones.
-	runsFinished = 5
-	// watchPoll is the wait between reads of a run's log.
-	watchPoll = 300 * time.Millisecond
-)
+// watchPoll is the wait between reads of a run's log.
+const watchPoll = 300 * time.Millisecond
 
 // errWatchModel is the refusal when a model may read the output of watch.
 var errWatchModel = errors.New("duolog watch prints a worker's stream only to your own terminal, so no model reads it; run it in a terminal outside the agent, or use duolog watch --tab when you ask for it")
 
+// errWorkerRuns is the refusal for a worker: a worker neither lists nor
+// follows delegate runs.
+var errWorkerRuns = errors.New("workers cannot list or watch delegate runs")
+
 // runsRegistry is the lead home registry of this project and the project's
-// root, after the worker check: a worker neither lists nor follows delegate
-// runs.
+// root, after the worker check.
 func runsRegistry() (reg *session.Registry, root string, err error) {
 	if isWorker() {
-		return nil, "", errors.New("workers cannot list or watch delegate runs")
+		return nil, "", errWorkerRuns
 	}
 	root, err = projectRoot()
 	if err != nil {
@@ -46,61 +44,69 @@ func runsRegistry() (reg *session.Registry, root string, err error) {
 	return reg, root, nil
 }
 
-// runsLead is the id of the lead whose runs are listed: the explicit lead,
-// DUOLOG_LEAD, or the lead that runs the command. It is "" when no lead
-// resolves and none was asked for (no live lead, or several); then every
-// record is listed. A lead that was asked for and does not resolve, or a
-// registry that cannot be read, is an error: the list never widens.
-func runsLead(reg *session.Registry, lead string) (string, error) {
-	asked := lead != "" || session.CurrentLead(os.Environ()) != ""
+// runsLead is the id and bus address of the lead whose runs are listed: the
+// explicit lead, DUOLOG_LEAD, or the lead that runs the command. Both are ""
+// when no lead resolves and none was asked for (no live lead, or several);
+// then every record is listed. A lead that was asked for and does not
+// resolve, or a registry that cannot be read, is an error: the list never
+// widens.
+func runsLead(reg *session.Registry, lead string) (id, address string, err error) {
 	l, err := reg.ResolveLead(lead)
 	if err == nil {
-		return l.ID, nil
+		return l.ID, session.Address(l), nil
 	}
-	if asked {
-		return "", fmt.Errorf("lead of the runs: %w", err)
+	return "", "", runsLeadMiss(reg, lead, err)
+}
+
+// runsLeadMiss is the error of runsLead for a lead that did not resolve with
+// err: nil when none was asked for and the registry reads, so that every
+// record is listed.
+func runsLeadMiss(reg *session.Registry, lead string, err error) error {
+	if lead != "" || session.CurrentLead(os.Environ()) != "" {
+		return fmt.Errorf("lead of the runs: %w", err)
 	}
 	if _, rerr := reg.Entries(); rerr != nil {
-		return "", rerr
+		return rerr
 	}
-	return "", nil
+	return nil
 }
 
-// listRuns returns the delegate records of this lead, from every work project
-// that shares the lead home, newest first. lead "" lists all of them.
-func listRuns(reg *session.Registry, root, lead string) ([]delegate.LocatedRecord, error) {
-	return delegate.LeadRecords(reg, root, lead)
-}
-
-// shownRuns is the running records, then the newest finished ones. A record
-// that is lost counts as finished.
-func shownRuns(records []delegate.LocatedRecord) []delegate.LocatedRecord {
-	var running, finished []delegate.LocatedRecord
+// listRuns returns the delegate records of the lead with this id or bus
+// address, from every work project that shares the lead home, newest first.
+// Both "" list all of them. A running one whose process is gone reads as
+// lost. duolog runs, watch and the MCP status tool read the same list.
+func listRuns(reg *session.Registry, root, leadID, address string) ([]delegate.LocatedRecord, error) {
+	records, err := delegate.LeadRecords(reg, root, "")
+	if err != nil || (leadID == "" && address == "") {
+		return records, err
+	}
+	var out []delegate.LocatedRecord
 	for _, r := range records {
-		if r.State == "running" {
-			running = append(running, r)
-		} else if len(finished) < runsFinished {
-			finished = append(finished, r)
+		if (leadID != "" && r.Lead == leadID) || (address != "" && r.Lead == address) {
+			out = append(out, r)
 		}
 	}
-	return append(running, finished...)
+	return out, nil
 }
 
 // newRunsCommand lists the project's workers: live peers, then delegate runs
 // (running ones, then the last finished). It prints duolog's own data and
 // never the worker's output, so a lead may run it.
 func newRunsCommand(d *cmdDeps) *cobra.Command {
-	var long, asJSON bool
+	var long, asJSON, snapshot, fast bool
 	var lead string
 	cmd := &cobra.Command{Use: "runs", Short: "List the workers of this project and of the submodules or superproject sharing its lead home", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		if long && asJSON {
-			return errors.New("--long and --json cannot be used together")
+		if err := runsFlagsError(long, asJSON, snapshot, fast); err != nil {
+			return err
 		}
-		reg, root, err := runsRegistry()
+		if snapshot {
+			return d.writeRunsSnapshot(cmd, lead, fast)
+		}
+		reg, _, err := runsRegistry()
 		if err != nil {
 			return err
 		}
-		rows, err := d.runRows(cmd, reg, root, lead)
+		rows, err := d.runRows(cmd, reg, lead)
 		if err != nil {
 			return err
 		}
@@ -108,8 +114,24 @@ func newRunsCommand(d *cmdDeps) *cobra.Command {
 	}}
 	cmd.Flags().BoolVar(&long, "long", false, "Print a table with kind, role, agent and model, age and worktree")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the rows as JSON: id, kind, role, agent, model, state, started, worktree, task_dir")
+	cmd.Flags().BoolVar(&snapshot, "snapshot", false, "Print the lead's peers, runs, asks and load as one versioned JSON line")
+	cmd.Flags().BoolVar(&fast, "fast", false, "With --snapshot, list the peers without reading their screens: a running peer is unknown")
 	cmd.Flags().StringVar(&lead, "lead", "", "Registered lead session ID for the peers and delegate runs (defaults to DUOLOG_LEAD)")
 	return cmd
+}
+
+// runsFlagsError is the refusal of flags of duolog runs that do not go
+// together, or nil.
+func runsFlagsError(long, asJSON, snapshot, fast bool) error {
+	switch {
+	case fast && !snapshot:
+		return errors.New("--fast needs --snapshot")
+	case snapshot && (long || asJSON):
+		return errors.New("--snapshot cannot be used with --long or --json")
+	case long && asJSON:
+		return errors.New("--long and --json cannot be used together")
+	}
+	return nil
 }
 
 func dash(s string) string {
@@ -152,14 +174,13 @@ func newWatchCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		id := ""
-		scope := ""
+		id, scope, address := "", "", ""
 		if len(args) == 1 {
 			id = args[0]
-		} else if scope, err = runsLead(reg, lead); err != nil {
+		} else if scope, address, err = runsLead(reg, lead); err != nil {
 			return err
 		}
-		records, err := listRuns(reg, root, scope)
+		records, err := listRuns(reg, root, scope, address)
 		if err != nil {
 			return err
 		}

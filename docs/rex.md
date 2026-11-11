@@ -375,6 +375,7 @@ form. They need no Rex, except for `--tab`.
 | Command | Who runs it | Prints |
 |---|---|---|
 | `duolog runs [--long\|--json]` | You, or the lead | The live peers and delegate runs of this project and of every work project that shares its lead home (a superproject and its duolog submodules): the running ones first, then the last five that ended. Plain output is `<id> <state>`; `--long` is a table with kind (`peer` or `delegate`), role, agent and model, age and the worktree's name; `--json` is the rows as JSON |
+| `duolog runs --snapshot [--fast]` | You, the lead, or a status line | The lead's live peers, delegate runs, open asks and load as one versioned JSON line; see the table below |
 | `duolog watch [id]` | You, in your own terminal | For a delegate run: the worker's messages and one short line per tool call, such as `> Bash go test ./...`. Tool output is left out. For a peer id: what `peer show` prints, with `--lines` |
 | `duolog watch --tab [id]` | You, or the lead when you ask | One line; for a delegate run, your Rex client shows a tab that runs `duolog watch <id>`; for a peer id, what `peer view` does |
 
@@ -398,6 +399,41 @@ delegate runs, for the same lead as the plain output:
 | `started` | The start time (RFC 3339), or `null` |
 | `worktree` | The absolute path of the work root |
 | `task_dir` | The absolute path of the folder of the run's task and log, or empty |
+
+`duolog runs --snapshot` prints one JSON object on one line, for a status
+line or a pane. It covers this lead and every work project of its lead home
+(its submodules too). Version 1 keeps its keys; a later version 1 only adds
+keys. Every path is relative to the project root of the lead home, with `/`.
+The load comes from cached numbers only: the snapshot never reads quota.
+It cannot be used with `--long` or `--json`, and it creates no `.duolog`
+folder.
+
+With `--fast` the snapshot reads no pane screen, so it is cheap enough to
+poll every few seconds. Each peer whose pane runs has the `state` `unknown`
+and `working` false; an exited or gone pane keeps its state. An `unknown`
+peer counts as live and not idle, so a fast snapshot lists no idle peers in
+`load`. `--fast` needs `--snapshot`.
+
+| Key | Value |
+|---|---|
+| `version` | `1` |
+| `generated_at` | The time of the reading (RFC 3339, UTC) |
+| `line` | One short line, such as `duolog 2 peers 1 run 1 ask`; empty when no peer is live, no run is running, and no ask or queued item waits |
+| `lead` | `{"id", "agent"}`, or `null` when no lead resolves |
+| `rex` | `{"available"}`: `false` when there is no Rex, so no peers are listed |
+| `peers` | This lead's peers, with their state: `id`, `role`, `agent`, `model`, `state`, `working`, `task`, `tab`, `worktree`, and `last` (`kind`, `at`) or `null` |
+| `runs` | The running delegate runs, then the last five that ended: `id`, `role`, `agent`, `model`, `state`, `started`, `ended`, `worktree`, `task_dir`, `has_log`, `line` |
+| `asks_open` | The number of asks open to the lead |
+| `load` | `agents` (each `agent`, `running`, `idle`, `limit`, `live`), `queued`, and the 5-hour and weekly use in percent, `window_5h` and `weekly`, or `null` when not known |
+| `error` | Left out, or the parts that could not be read, such as `peers: <reason>` |
+
+With no lead home, no lead or no Rex, the object keeps the same keys:
+`lead` is `null`, `rex.available` is `false`, and `peers` and `runs` are
+empty lists. Unlike plain `runs`, the snapshot shows nothing when no lead
+resolves, such as with several live leads and none named: it never shows
+another lead's workers. A lead that you name with `--lead` or
+`DUOLOG_LEAD` and that is not live gives `error`
+`lead: <id> is not a live lead`.
 
 duolog keeps the running records and the newest 50 that ended in each work
 project; it removes older ones when a new run starts.

@@ -64,7 +64,8 @@ list, lowest first:
 
 ```text
 launch, lead, learn, paidruns, quota, gate, delegate, profile, peer,
-calibrate, doctor, sync, roster, load, hook, install, remember, skilltest
+calibrate, doctor, sync, roster, load, runsnap, hook, install, remember,
+skilltest
 ```
 
 The order prevents import cycles. For example, `hook` imports `sync`,

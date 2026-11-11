@@ -4,15 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
-	"runtime"
 	"text/tabwriter"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/peer"
+	"github.com/lorem-dev/duolog/internal/app/runsnap"
 	"github.com/spf13/cobra"
 )
 
@@ -81,42 +80,36 @@ func underWork(work, dir string) string {
 	return filepath.Join(work, dir)
 }
 
-// listPeers returns the project's live peers, or none where peers do not
-// exist: on Windows and outside Rex.
-func (d *cmdDeps) listPeers(cmd *cobra.Command, lead string) ([]peer.ListedPeer, error) {
-	if runtime.GOOS == "windows" || os.Getenv("REX_SESSION") == "" {
-		return nil, nil
-	}
-	ctx, cancel, err := peerContext(d, cmd, lead, false, 0)
+// runRows is the live peers, then the shown delegate runs, of the lead's
+// gathering. A lead that was asked for and does not resolve fails it, as in
+// runsLead. A peer list that cannot be read leaves the delegate runs and says
+// so on stderr; outside Rex and on Windows there are no peers. It shows no
+// load, so it computes none.
+func (d *cmdDeps) runRows(cmd *cobra.Command, reg *session.Registry, lead string) ([]runRow, error) {
+	deps := d.snapDeps(reg)
+	deps.Load = nil
+	g, err := runsnap.Gather(cmd.Context(), deps, runsnap.Options{LeadID: lead, Now: time.Now()})
 	if err != nil {
 		return nil, err
 	}
-	defer cancel()
-	return peer.List(ctx)
-}
-
-// runRows is the live peers, then the shown delegate runs. A peer list that
-// cannot be read leaves the delegate runs and says so on stderr.
-func (d *cmdDeps) runRows(cmd *cobra.Command, reg *session.Registry, root, lead string) ([]runRow, error) {
-	scope, err := runsLead(reg, lead)
-	if err != nil {
-		return nil, err
-	}
-	records, err := listRuns(reg, root, scope)
-	if err != nil {
-		return nil, err
-	}
-	var rows []runRow
-	peers, err := d.listPeers(cmd, lead)
-	if err != nil {
-		if _, werr := fmt.Fprintf(cmd.ErrOrStderr(), "peers not listed: %v\n", err); werr != nil {
-			return nil, werr
+	if g.LeadErr != nil {
+		if err := runsLeadMiss(reg, lead, g.LeadErr); err != nil {
+			return nil, err
 		}
 	}
-	for _, p := range peers {
+	if g.RecordsErr != nil {
+		return nil, g.RecordsErr
+	}
+	if g.PeersErr != nil {
+		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "peers not listed: %v\n", g.PeersErr); err != nil {
+			return nil, err
+		}
+	}
+	var rows []runRow
+	for _, p := range g.Peers {
 		rows = append(rows, peerRow(p))
 	}
-	for _, r := range shownRuns(records) {
+	for _, r := range runsnap.ShownRuns(g.Records) {
 		rows = append(rows, delegateRow(r))
 	}
 	return rows, nil

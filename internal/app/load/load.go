@@ -18,13 +18,16 @@ type Agent struct {
 }
 
 // Summary is what the line says. Idle names the idle peers of this lead, and
-// Queued counts the items that wait in its ready queue.
+// Queued counts the items that wait in its ready queue. Weekly is the weekly
+// window use, which the line does not say.
 type Summary struct {
 	Agents      []Agent
 	Idle        []string
 	Queued      int
 	Window      float64
 	WindowKnown bool
+	Weekly      float64
+	WeeklyKnown bool
 }
 
 // windowCeiling is the 5-hour use, in percent, from which the line stops

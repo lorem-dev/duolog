@@ -97,7 +97,40 @@ func lastEvent(entry session.Entry, state State, sent time.Time) *LastEvent {
 // session records. Rebuild uses this to leave busy and asking peers alone.
 // It resolves the lead but opens no bus: it creates no bus state, and reads
 // the task times from a bus the caller may only read. e.bus is nil.
-func List(ctx context.Context) ([]ListedPeer, error) {
+func List(ctx context.Context) ([]ListedPeer, error) { return list(ctx, true) }
+
+// ListFast is List with no screen capture: it only probes each pane, so a
+// running pane is Unknown with Working false. A status line that polls uses it.
+func ListFast(ctx context.Context) ([]ListedPeer, error) { return list(ctx, false) }
+
+// listedState is the state of an entry's pane. A running pane is read from
+// its screen when capture is true, else it is Unknown. working is true for a
+// peer that shows it is at work; gone panes read as Gone.
+func (e *env) listedState(ctx context.Context, entry session.Entry, capture bool) (State, bool, error) {
+	presence, err := e.panes.Probe(ctx, e.paneOf(entry))
+	if err != nil {
+		return Gone, false, err
+	}
+	switch presence {
+	case corepane.Exited:
+		return Exited, false, nil
+	case corepane.Running:
+		if !capture {
+			return Unknown, false, nil
+		}
+		screen, err := e.screen(ctx, entry)
+		if e.panes.Gone(err) {
+			return Gone, false, nil // the pane went between the probe and the capture
+		}
+		if err != nil {
+			return Gone, false, err
+		}
+		return screen.State, screen.Working, nil
+	}
+	return Gone, false, nil
+}
+
+func list(ctx context.Context, capture bool) ([]ListedPeer, error) {
 	e, err := setupRecords(ctx, true)
 	if err != nil {
 		return nil, err
@@ -115,24 +148,9 @@ func List(ctx context.Context) ([]ListedPeer, error) {
 		if entry.Block == "" || entry.Lead != e.leadID {
 			continue
 		}
-		presence, err := e.panes.Probe(ctx, e.paneOf(entry))
+		state, working, err := e.listedState(ctx, entry, capture)
 		if err != nil {
 			return nil, err
-		}
-		state := Gone
-		working := false
-		switch presence {
-		case corepane.Exited:
-			state = Exited
-		case corepane.Running:
-			screen, err := e.screen(ctx, entry)
-			if e.panes.Gone(err) {
-				break // the pane went between the probe and the capture
-			}
-			if err != nil {
-				return nil, err
-			}
-			state, working = screen.State, screen.Working
 		}
 		peers = append(peers, ListedPeer{
 			ID: entry.ID, State: state, Working: working,

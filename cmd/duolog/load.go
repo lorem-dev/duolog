@@ -30,7 +30,8 @@ const windowAge = 30 * time.Minute
 // free worker, which reads the same account state. It reads no quota: the
 // report judges from the agent's latest read in the cache, and without one
 // the limit is that of the tier admission recorded last and the window the
-// one the latest admission measured, at most windowAge ago. An agent whose
+// one the latest admission measured, at most windowAge ago. The weekly use
+// comes from the cached read only. An agent whose
 // report fails has no limit and is left out. The result is empty on any
 // failure. ctx carries the lead's peer options.
 func loadSummary(ctx context.Context, d *cmdDeps, peers []peer.ListedPeer) load.Summary {
@@ -59,8 +60,13 @@ func loadSummary(ctx context.Context, d *cmdDeps, peers []peer.ListedPeer) load.
 		l := load.Limits{Limit: report.Sessions.Limit, Live: report.Sessions.Live}
 		if s, ok := gate.Cache.Latest(agent); ok {
 			for _, w := range s.Windows {
-				if w.Kind == "session" {
+				switch w.Kind {
+				case "session":
 					l.Window, l.WindowKnown = w.UsedPercent, true
+				case "weekly_all":
+					// Only a cached read gives the weekly use: admission
+					// measures no weekly window.
+					l.Weekly, l.WeeklyKnown = w.UsedPercent, true
 				}
 			}
 		} else if used, known, err := gate.SessionWindow(ctx, agent, windowAge); err == nil {

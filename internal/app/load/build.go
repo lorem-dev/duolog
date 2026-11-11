@@ -9,16 +9,19 @@ type Peer struct {
 }
 
 // Limits are the account numbers of one agent: the session limit and live
-// sessions that `duolog quota` prints, and the 5-hour window use when known.
+// sessions that `duolog quota` prints, and the 5-hour and weekly window use
+// when known.
 type Limits struct {
 	Limit, Live int
 	Window      float64
 	WindowKnown bool
+	Weekly      float64
+	WeeklyKnown bool
 }
 
 // Build counts the lead's peers against the limits of agents, the agents the
 // line covers in the order it names them. The window is the highest of the
-// agents' known windows.
+// agents' known windows, and so is the weekly one.
 func Build(agents []string, peers []Peer, limits map[string]Limits) Summary {
 	var s Summary
 	for _, name := range agents {
@@ -41,6 +44,9 @@ func Build(agents []string, peers []Peer, limits map[string]Limits) Summary {
 		}
 		if l.WindowKnown && (!s.WindowKnown || l.Window > s.Window) {
 			s.Window, s.WindowKnown = l.Window, true
+		}
+		if l.WeeklyKnown && (!s.WeeklyKnown || l.Weekly > s.Weekly) {
+			s.Weekly, s.WeeklyKnown = l.Weekly, true
 		}
 	}
 	return s

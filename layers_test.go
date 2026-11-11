@@ -51,7 +51,7 @@ var legacyTiers = map[string]legacyTier{
 
 // appOrder is the order of the app packages, lowest first. An app package may
 // import only app packages earlier in the list.
-var appOrder = []string{"launch", "lead", "learn", "paidruns", "quota", "gate", "delegate", "profile", "peer", "calibrate", "doctor", "sync", "roster", "load", "hook", "install", "remember", "skilltest"}
+var appOrder = []string{"launch", "lead", "learn", "paidruns", "quota", "gate", "delegate", "profile", "peer", "calibrate", "doctor", "sync", "roster", "load", "runsnap", "hook", "install", "remember", "skilltest"}
 
 // Reasons of the allowed edges, one per target.
 const (
@@ -108,6 +108,7 @@ var allowedEdges = map[string]string{
 	"internal/app/profile -> internal/store":                   reasonStore,
 	"internal/app/roster -> internal/adapter/config":           reasonConfig,
 	"internal/app/roster -> internal/adapter/session":          reasonSession,
+	"internal/app/runsnap -> internal/adapter/session":         reasonSession,
 	"internal/app/sync -> internal/project":                    reasonProject,
 	"internal/app/sync -> internal/store":                      reasonStore,
 	"internal/app/sync -> plugin":                              reasonPlugin,

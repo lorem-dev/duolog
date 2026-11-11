@@ -44,3 +44,17 @@ func TestBuildLeavesOutAgentsWithoutALimit(t *testing.T) {
 		t.Fatalf("line %q", got.Line())
 	}
 }
+
+func TestBuildKeepsHighestWeekly(t *testing.T) {
+	got := Build(agents, nil, map[string]Limits{
+		"claude": {Limit: 12, Weekly: 30, WeeklyKnown: true},
+		"codex":  {Limit: 3, Weekly: 55, WeeklyKnown: true},
+	})
+	if !got.WeeklyKnown || got.Weekly != 55 {
+		t.Fatalf("weekly %g known %v, want 55", got.Weekly, got.WeeklyKnown)
+	}
+	got = Build(agents, nil, map[string]Limits{"claude": {Limit: 12}, "codex": {Limit: 3}})
+	if got.WeeklyKnown || got.Weekly != 0 {
+		t.Fatalf("weekly %g known %v, want unknown", got.Weekly, got.WeeklyKnown)
+	}
+}

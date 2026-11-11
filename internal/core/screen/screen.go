@@ -31,6 +31,9 @@ const (
 	// Gone is a pane that Rex no longer knows, as after a Rex restart. Only
 	// List reports it; its record stays until peer close frees it.
 	Gone State = "gone"
+	// Unknown is a running pane whose screen was not read, as in a listing
+	// that makes no capture. Only ListFast reports it.
+	Unknown State = "unknown"
 )
 
 // Option is one choice of a question. Number is zero for an unnumbered list.

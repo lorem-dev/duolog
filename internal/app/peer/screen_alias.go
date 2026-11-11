@@ -26,4 +26,5 @@ const (
 	Exited      = corescreen.Exited
 	Closed      = corescreen.Closed
 	Gone        = corescreen.Gone
+	Unknown     = corescreen.Unknown
 )
