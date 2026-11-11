@@ -13,7 +13,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/peer"
 	corerun "github.com/lorem-dev/duolog/internal/core/run"
-	"github.com/lorem-dev/duolog/internal/store"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/spf13/cobra"
 )
 
@@ -28,32 +28,34 @@ const (
 // errWatchModel is the refusal when a model may read the output of watch.
 var errWatchModel = errors.New("duolog watch prints a worker's stream only to your own terminal, so no model reads it; run it in a terminal outside the agent, or use duolog watch --tab when you ask for it")
 
-// runsStateDir is the state folder of this project, after the worker check:
-// a worker neither lists nor follows delegate runs.
-func runsStateDir() (string, error) {
+// runsRegistry is the lead home registry of this project and the project's
+// root, after the worker check: a worker neither lists nor follows delegate
+// runs.
+func runsRegistry() (reg *session.Registry, root string, err error) {
 	if isWorker() {
-		return "", errors.New("workers cannot list or watch delegate runs")
+		return nil, "", errors.New("workers cannot list or watch delegate runs")
 	}
-	root, err := projectRoot()
+	root, err = projectRoot()
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
-	s, err := store.Open(root)
+	reg, err = session.Open(project.LeadHome(root))
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
-	return s.Dir, nil
+	return reg, root, nil
 }
 
-// listRuns returns the project's delegate records, newest first.
-func listRuns(stateDir string) ([]delegate.Record, error) {
-	return delegate.ListRecords(delegate.RecordDir(stateDir), session.ProcessAlive)
+// listRuns returns the delegate records of every work project that shares
+// the lead home, newest first.
+func listRuns(reg *session.Registry, root string) ([]delegate.LocatedRecord, error) {
+	return delegate.LeadRecords(reg, root, "")
 }
 
 // shownRuns is the running records, then the newest finished ones. A record
 // that is lost counts as finished.
-func shownRuns(records []delegate.Record) []delegate.Record {
-	var running, finished []delegate.Record
+func shownRuns(records []delegate.LocatedRecord) []delegate.LocatedRecord {
+	var running, finished []delegate.LocatedRecord
 	for _, r := range records {
 		if r.State == "running" {
 			running = append(running, r)
@@ -70,15 +72,15 @@ func shownRuns(records []delegate.Record) []delegate.Record {
 func newRunsCommand(d *cmdDeps) *cobra.Command {
 	var long, asJSON bool
 	var lead string
-	cmd := &cobra.Command{Use: "runs", Short: "List this project's workers: live peers and delegate runs", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "runs", Short: "List the workers of this project and of the submodules or superproject sharing its lead home", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		if long && asJSON {
 			return errors.New("--long and --json cannot be used together")
 		}
-		dir, err := runsStateDir()
+		reg, root, err := runsRegistry()
 		if err != nil {
 			return err
 		}
-		rows, err := d.runRows(cmd, dir, lead)
+		rows, err := d.runRows(cmd, reg, root, lead)
 		if err != nil {
 			return err
 		}
@@ -98,16 +100,16 @@ func dash(s string) string {
 }
 
 // pickRun is the record named id, or the newest running one when id is empty.
-func pickRun(records []delegate.Record, id string) (delegate.Record, error) {
+func pickRun(records []delegate.LocatedRecord, id string) (delegate.LocatedRecord, error) {
 	for _, r := range records {
 		if (id == "" && r.State == "running") || (id != "" && r.ID == id) {
 			return r, nil
 		}
 	}
 	if id == "" {
-		return delegate.Record{}, errors.New("no delegate run is running; duolog runs lists them")
+		return delegate.LocatedRecord{}, errors.New("no delegate run is running; duolog runs lists them")
 	}
-	return delegate.Record{}, fmt.Errorf("no delegate run %s; duolog runs lists them", id)
+	return delegate.LocatedRecord{}, fmt.Errorf("no delegate run %s; duolog runs lists them", id)
 }
 
 // newWatchCommand follows one delegate run for the person: the worker's
@@ -126,11 +128,11 @@ func newWatchCommand(d *cmdDeps) *cobra.Command {
 				return err
 			}
 		}
-		dir, err := runsStateDir()
+		reg, root, err := runsRegistry()
 		if err != nil {
 			return err
 		}
-		records, err := listRuns(dir)
+		records, err := listRuns(reg, root)
 		if err != nil {
 			return err
 		}
@@ -142,7 +144,7 @@ func newWatchCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			// Not a delegate run: a live peer's id does what peer show and
 			// peer view do.
-			if id != "" && peerKnown(dir, id) {
+			if id != "" && peerKnown(reg, id) {
 				return d.watchPeer(cmd, id, tab, client, lead, lines)
 			}
 			return err
@@ -150,7 +152,7 @@ func newWatchCommand(d *cmdDeps) *cobra.Command {
 		if tab {
 			return d.watchTab(cmd, rec.ID, client)
 		}
-		return delegate.Watch(cmd.Context(), cmd.OutOrStdout(), filepath.Join(delegate.RecordDir(dir), rec.ID+".json"), session.ProcessAlive, watchPoll)
+		return delegate.Watch(cmd.Context(), cmd.OutOrStdout(), rec.Path, session.ProcessAlive, watchPoll)
 	}}
 	cmd.Flags().BoolVar(&tab, "tab", false, "Open a read-only Rex tab that runs duolog watch and move your Rex client to it")
 	cmd.Flags().StringVar(&client, "client", "", "With --tab, the Rex client to move (default: the one client that shows this session)")

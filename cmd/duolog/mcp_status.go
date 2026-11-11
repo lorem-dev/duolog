@@ -8,6 +8,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/mcp"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/app/hook"
 	"github.com/lorem-dev/duolog/internal/app/peer"
@@ -98,7 +99,7 @@ func statusAsks(stateDir, address string) []mcp.Ask {
 // in that project; a running one whose process is gone reads as lost.
 func statusDelegationRows(reg *session.Registry, root, leadID, address string) []mcp.Delegation {
 	rows := []mcp.Delegation{}
-	records, err := leadDelegationRecords(reg, root, "")
+	records, err := delegate.LeadRecords(reg, root, "")
 	if err != nil {
 		return rows
 	}

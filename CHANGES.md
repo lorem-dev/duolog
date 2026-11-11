@@ -42,6 +42,16 @@
 
 ## Development
 
+### Fixed
+
+- `duolog runs` and `duolog watch` find delegate runs started through the MCP
+  server in duolog submodules from the superproject, and the reverse.
+
+### Security
+
+- Release binaries are built with Go 1.26.11, which fixes GO-2026-6859 in
+  `net/http`.
+
 ## 1.8.1
 
 ### Added

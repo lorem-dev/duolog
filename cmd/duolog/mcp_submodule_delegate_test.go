@@ -42,7 +42,7 @@ func TestMCPOwnProjectNeedsNoDelegationLocation(t *testing.T) {
 		t.Fatalf("own project locations: %+v (%v)", locations, err)
 	}
 	for _, root := range []string{f.Superproject, f.Submodule} {
-		records, err := leadDelegationRecords(reg, root, "lead-mcp")
+		records, err := delegate.LeadRecords(reg, root, "lead-mcp")
 		if err != nil || len(records) != 1 || records[0].ID != out.ID {
 			t.Fatalf("own project record from %s: %+v (%v)", root, records, err)
 		}

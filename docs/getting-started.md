@@ -101,7 +101,7 @@ duolog is not on a package registry; use the installers or Go. Single-line
 
 | Need | Why |
 |---|---|
-| Go 1.26.10 | Only to build from source |
+| Go 1.26.11 | Only to build from source |
 | Git | duolog stores its state in `.duolog/` at the root of the main worktree |
 | Claude Code, Codex, or both | duolog starts them; it does not replace them |
 | Rex | Only for live second sessions. See [Rex](rex.md) |

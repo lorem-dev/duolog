@@ -374,7 +374,7 @@ commands show it to you in a readable form. They need no Rex, except for
 
 | Command | Who runs it | Prints |
 |---|---|---|
-| `duolog runs [--long\|--json]` | You, or the lead | The project's live peers, then its delegate runs: the running ones first, then the last five that ended. Plain output is `<id> <state>`; `--long` is a table with kind (`peer` or `delegate`), role, agent and model, age and the worktree's name; `--json` is the rows as JSON |
+| `duolog runs [--long\|--json]` | You, or the lead | The live peers and delegate runs of this project and of every work project that shares its lead home (a superproject and its duolog submodules): the running ones first, then the last five that ended. Plain output is `<id> <state>`; `--long` is a table with kind (`peer` or `delegate`), role, agent and model, age and the worktree's name; `--json` is the rows as JSON |
 | `duolog watch [id]` | You, in your own terminal | For a delegate run: the worker's messages and one short line per tool call, such as `> Bash go test ./...`. Tool output is left out. For a peer id: what `peer show` prints, with `--lines` |
 | `duolog watch --tab [id]` | You, or the lead when you ask | One line; for a delegate run, your Rex client shows a tab that runs `duolog watch <id>`; for a peer id, what `peer view` does |
 

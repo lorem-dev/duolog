@@ -148,7 +148,7 @@ func checkSubmoduleCommand(t *testing.T, name string, f submodule.Fixture, reg *
 		if err := reg.Record(session.Entry{ID: "shared-peer", Lead: "shared-lead", Block: "block:fake", WorkRoot: f.Linked}); err != nil {
 			t.Fatal(err)
 		}
-		if !peerKnown(filepath.Join(f.Submodule, ".duolog"), "shared-peer") {
+		if !peerKnown(reg, "shared-peer") {
 			t.Fatal("missing shared peer")
 		}
 	}

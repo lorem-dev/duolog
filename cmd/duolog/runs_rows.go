@@ -13,7 +13,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/peer"
-	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/spf13/cobra"
 )
 
@@ -48,7 +47,7 @@ type runRow struct {
 }
 
 // delegateRow is the row of a delegate record.
-func delegateRow(r delegate.Record) runRow {
+func delegateRow(r delegate.LocatedRecord) runRow {
 	row := runRow{ID: r.ID, Kind: kindDelegate, Role: r.Role, Agent: r.Agent, Model: r.Model, State: r.State, Worktree: r.WorkRoot, display: r.State, target: r.Target()}
 	if !r.Started.IsZero() {
 		started := r.Started
@@ -96,8 +95,8 @@ func (d *cmdDeps) listPeers(cmd *cobra.Command, lead string) ([]peer.ListedPeer,
 
 // runRows is the live peers, then the shown delegate runs. A peer list that
 // cannot be read leaves the delegate runs and says so on stderr.
-func (d *cmdDeps) runRows(cmd *cobra.Command, stateDir, lead string) ([]runRow, error) {
-	records, err := listRuns(stateDir)
+func (d *cmdDeps) runRows(cmd *cobra.Command, reg *session.Registry, root, lead string) ([]runRow, error) {
+	records, err := listRuns(reg, root)
 	if err != nil {
 		return nil, err
 	}
@@ -154,13 +153,9 @@ func writeRunRows(w io.Writer, rows []runRow, long, asJSON bool, now time.Time) 
 	return tw.Flush()
 }
 
-// peerKnown reports whether the registry in stateDir holds a live peer id. It
-// reads the record only: no Rex call, no lead.
-func peerKnown(stateDir, id string) bool {
-	reg, err := session.Open(project.LeadHome(filepath.Dir(stateDir)))
-	if err != nil {
-		return false
-	}
+// peerKnown reports whether the registry holds a live peer id. It reads the
+// record only: no Rex call, no lead.
+func peerKnown(reg *session.Registry, id string) bool {
 	entries, err := reg.Entries()
 	if err != nil {
 		return false
