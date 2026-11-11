@@ -242,6 +242,15 @@ func plan(value string) string {
 	return ""
 }
 
+// claudePlan is the plan of a Claude auth status. Claude names the $200 plan
+// "max", as the $100 one, and tells them apart only by planTier "max_20x".
+func claudePlan(subscription, tier string) string {
+	if subscription == "max" && tier == "max_20x" {
+		return "ultra"
+	}
+	return plan(subscription)
+}
+
 // rejected reports whether a severity refuses runs, as Window.Rejected does.
 func rejected(value string) bool { return Window{Severity: value}.Rejected() }
 

@@ -129,10 +129,11 @@ jobs:
             ${{ steps.goenv.outputs.build }}
             ${{ steps.goenv.outputs.mod }}
           # A cache key may not hold a comma, so the job index names the part.
-          key: go-${{ runner.os }}-${{ runner.arch }}-${{ strategy.job-index }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
+          # go2 drops caches that held the gate packages' test logs.
+          key: go2-${{ runner.os }}-${{ runner.arch }}-${{ strategy.job-index }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
           restore-keys: |
-            go-${{ runner.os }}-${{ runner.arch }}-${{ strategy.job-index }}-${{ hashFiles('go.sum') }}-
-            go-${{ runner.os }}-${{ runner.arch }}-${{ strategy.job-index }}-
+            go2-${{ runner.os }}-${{ runner.arch }}-${{ strategy.job-index }}-${{ hashFiles('go.sum') }}-
+            go2-${{ runner.os }}-${{ runner.arch }}-${{ strategy.job-index }}-
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Vet
         if: env.CODE == 'true' && matrix.part == ''
@@ -184,9 +185,12 @@ jobs:
             pkgs=./...
           fi
           # A full run ignores the cached test results; otherwise go test
-          # reruns only what a change can affect.
+          # reruns only what a change can affect. The gate packages always
+          # run uncached: they look up millions of paths, and to cache a
+          # result go test checks each one again, which on Windows took
+          # longer than the tests and passed the step's 30 minutes.
           cnt=
-          if [ "$FULL" = true ]; then cnt=-count=1; fi
+          if [ "$FULL" = true ] || [ "$PART" = 'policy, hooks and peers' ]; then cnt=-count=1; fi
           # The limit is per package: cmd/duolog alone took six minutes on
           # windows-latest with -race, and close to six on macos-latest.
           limit=10m
@@ -325,7 +329,7 @@ jobs:
           path: |
             ${{ steps.goenv.outputs.build }}
             ${{ steps.goenv.outputs.mod }}
-          key: go-${{ runner.os }}-${{ runner.arch }}-${{ strategy.job-index }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
+          key: go2-${{ runner.os }}-${{ runner.arch }}-${{ strategy.job-index }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
 
   # Shell, YAML and workflow checks, with the tools pinned in the Makefile and
   # in tools/. The formatters (make fmt-check) are not gated yet.

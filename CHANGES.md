@@ -55,6 +55,11 @@
 - duolog keeps the newest 50 finished delegate records per project and removes
   older ones.
 
+### Fixed
+
+- The $200 Claude plan, which Claude reports as `max`, now counts as `ultra`,
+  so the lead and Claude workers compact at 700000 tokens, not 500000.
+
 ## 1.8.2
 
 ### Fixed

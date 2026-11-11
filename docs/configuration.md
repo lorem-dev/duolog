@@ -442,8 +442,9 @@ from running to Claude's own default, which on Opus can be the whole
 | `max` (the $100 plan) | `500000` |
 | `ultra` (the $200 plan) | `700000` |
 
-duolog takes the plan name from what Claude reports. If Claude reports the
-$200 plan as `max`, as it does today, an `ultra` account gets the `max` value.
+duolog takes the plan name from what Claude reports. Claude names the $200
+plan `max` and tells it apart by the tier `max_20x`; duolog reads that pair as
+`ultra`.
 
 Your own `compact_ladder` replaces single keys, such as `pro: 300000`, and
 adds plans (`free`, `team`, `business`, `enterprise`, `edu`). Each value is `0`

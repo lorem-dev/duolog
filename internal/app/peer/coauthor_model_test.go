@@ -91,7 +91,8 @@ func TestPeerOpenSweepsGoneModelFiles(t *testing.T) {
 	}
 	link := filepath.Join(dir, "coauthor-peer-linked.model")
 	if err := os.Symlink(target, link); err != nil {
-		t.Fatal(err)
+		// Windows without Developer Mode or admin rights cannot make one.
+		t.Skipf("symlinks unavailable: %v", err)
 	}
 	folder := filepath.Join(dir, "coauthor-peer-folder.model")
 	if err := os.Mkdir(folder, 0700); err != nil {

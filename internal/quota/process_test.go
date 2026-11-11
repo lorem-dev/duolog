@@ -218,3 +218,32 @@ func TestQuotaReadUsesBuiltProcess(t *testing.T) {
 		t.Errorf("Read lacks the worker depth: %s", data)
 	}
 }
+
+// Claude names the $200 plan "max" and tells it apart only by planTier, so
+// the read maps max with the 20x tier to ultra and keeps every other pair.
+func TestClaudePlanReadsTheTwentyTimesTier(t *testing.T) {
+	for _, c := range []struct{ sub, tier, want string }{
+		{"max", "max_20x", "ultra"},
+		{"max", "max_5x", "max"},
+		{"max", "", "max"},
+		{"pro", "max_20x", "pro"},
+		{"ultra", "", "ultra"},
+		{"nonsense", "max_20x", ""},
+	} {
+		if got := claudePlan(c.sub, c.tier); got != c.want {
+			t.Errorf("claudePlan(%q, %q) = %q, want %q", c.sub, c.tier, got, c.want)
+		}
+	}
+	isolate(t)
+	testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{
+		freeClaude("-p"):                 {Stdout: "{\"type\":\"system\"}\n" + claudeReply + "\n"},
+		freeClaude("auth status --json"): {Stdout: `{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max","planTier":"max_20x"}`},
+	}})
+	s, err := (Reader{Version: "test", Timeout: 3 * time.Second}).Read(context.Background(), "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Plan != "ultra" {
+		t.Fatalf("plan = %q, want ultra", s.Plan)
+	}
+}

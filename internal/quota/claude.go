@@ -185,6 +185,7 @@ func readClaudeAuth(ctx context.Context, run runner, s *Snapshot) (bool, error) 
 	var status struct {
 		LoggedIn         *bool   `json:"loggedIn"`
 		SubscriptionType string  `json:"subscriptionType"`
+		PlanTier         string  `json:"planTier"`
 		AuthMethod       *string `json:"authMethod"`
 		APIProvider      *string `json:"apiProvider"`
 	}
@@ -200,7 +201,7 @@ func readClaudeAuth(ctx context.Context, run runner, s *Snapshot) (bool, error) 
 		}
 		return true, nil
 	}
-	s.Plan = plan(status.SubscriptionType)
+	s.Plan = claudePlan(status.SubscriptionType, status.PlanTier)
 	claudeRoute(&s.Billing, status.AuthMethod, status.APIProvider)
 	var identity fields
 	_ = json.Unmarshal(data, &identity)
