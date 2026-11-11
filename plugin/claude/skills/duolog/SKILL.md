@@ -5,7 +5,7 @@ description: >-
   tasks to Claude or Codex for short answers or second opinions.
 allowed-tools: Bash(duolog version), Bash(duolog doctor), Bash(duolog roster), Bash(duolog route *), Bash(duolog caps), Bash(duolog caps *), Bash(duolog stats), Bash(duolog inbox *), Bash(duolog peer status *), Bash(duolog peer wait *)
 metadata:
-  duolog-version: "1.8.0"
+  duolog-version: "1.8.1"
 ---
 
 Stop unless this project has `.duolog/config.yaml`.
@@ -20,13 +20,13 @@ Stop unless this project has `.duolog/config.yaml`.
    macOS/Linux:
 
    ```sh
-   curl -fsSL https://github.com/lorem-dev/duolog/releases/download/v1.8.0/install.sh | sh -s -- --version v1.8.0 && duolog install --scope project
+   curl -fsSL https://github.com/lorem-dev/duolog/releases/download/v1.8.1/install.sh | sh -s -- --version v1.8.1 && duolog install --scope project
    ```
 
    PowerShell:
 
    ```powershell
-   $env:DUOLOG_VERSION = 'v1.8.0'; irm https://github.com/lorem-dev/duolog/releases/download/v1.8.0/install.ps1 | iex
+   $env:DUOLOG_VERSION = 'v1.8.1'; irm https://github.com/lorem-dev/duolog/releases/download/v1.8.1/install.ps1 | iex
    ```
 
    Windows: add the printed directory to PATH; run

@@ -188,8 +188,8 @@ jobs:
           cnt=
           if [ "$FULL" = true ]; then cnt=-count=1; fi
           # The limit is per package: cmd/duolog alone took six minutes on
-          # windows-latest with -race.
-          limit=6m
+          # windows-latest with -race, and close to six on macos-latest.
+          limit=10m
           if [ "$RUNNER_OS" = Windows ]; then limit=12m; fi
           # shellcheck disable=SC2086 # RACE, par, cnt and pkgs are word lists
           go test $RACE $par $cnt -timeout $limit $pkgs

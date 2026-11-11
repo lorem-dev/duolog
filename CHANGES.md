@@ -42,6 +42,8 @@
 
 ## Development
 
+## 1.8.1
+
 ### Added
 
 - One lead serves a superproject and its duolog submodules; peers and
