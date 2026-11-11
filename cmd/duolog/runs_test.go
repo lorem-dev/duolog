@@ -18,6 +18,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/policy"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	corerun "github.com/lorem-dev/duolog/internal/core/run"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/testbin"
 )
 
@@ -123,7 +124,7 @@ func TestRunsJSONHasOneShapeForPeersAndDelegateRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := runRec("d-newrun", "running", 2*time.Minute)
-	rec.WorkRoot = filepath.Join(root, ".worktrees", "feature")
+	rec.WorkRoot, rec.Lead = filepath.Join(root, ".worktrees", "feature"), "lead-1"
 	if err := delegate.WriteRecord(filepath.Join(delegate.RecordDir(filepath.Join(root, ".duolog")), rec.ID+".json"), rec); err != nil {
 		t.Fatal(err)
 	}
@@ -225,6 +226,75 @@ func TestWatchEndsWithTheRunAndPrintsMessagesAndToolLines(t *testing.T) {
 	}
 	if strings.Contains(out, "mystery") || strings.Contains(out, `"type"`) {
 		t.Fatalf("raw JSON in output:\n%s", out)
+	}
+}
+
+func TestRunsListsThisLeadsRuns(t *testing.T) {
+	mine, other, none := runRec("d-mine01", "running", time.Minute), runRec("d-other1", "done", time.Hour), runRec("d-nolead", "done", 2*time.Hour)
+	mine.Lead, other.Lead = "lead-a", "lead-b"
+	root := runsProject(t, mine, other, none)
+	t.Setenv("DUOLOG_LEAD", "")
+	reg, err := session.Open(project.LeadHome(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"lead-a", "lead-b"} {
+		if err := reg.RegisterLead(session.Lead{ID: id, Target: config.Target{Agent: "claude"}, PID: os.Getpid(), Root: root}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out, err := executeBusCommand(t, "runs", "--lead", "lead-a")
+	if err != nil || out != "d-mine01 running\n" {
+		t.Fatalf("--lead: %q %v", out, err)
+	}
+	t.Setenv("DUOLOG_LEAD", "lead-a")
+	out, err = executeBusCommand(t, "runs")
+	if err != nil || out != "d-mine01 running\n" {
+		t.Fatalf("env: %q %v", out, err)
+	}
+	t.Setenv("DUOLOG_LEAD", "")
+	out, err = executeBusCommand(t, "runs")
+	if err != nil || out != "d-mine01 running\nd-other1 done\nd-nolead done\n" {
+		t.Fatalf("no lead: %q %v", out, err)
+	}
+	out, err = executeBusCommand(t, "watch", "--tab", "--lead", "lead-b")
+	if err == nil || err.Error() != "no delegate run is running; duolog runs lists them" {
+		t.Fatalf("watch: %q %v", out, err)
+	}
+	t.Setenv("REX_SESSION", "")
+	out, err = executeBusCommand(t, "watch", "--tab", "--lead", "lead-a")
+	if err != nil || !strings.Contains(out, "no Rex here; run in your own terminal: duolog watch d-mine01") {
+		t.Fatalf("watch lead-a: %q %v", out, err)
+	}
+}
+
+func TestRunsFailsForALeadThatDoesNotResolve(t *testing.T) {
+	mine, none := runRec("d-mine01", "running", time.Minute), runRec("d-nolead", "done", 2*time.Hour)
+	mine.Lead = "lead-a"
+	root := runsProject(t, mine, none)
+	t.Setenv("DUOLOG_LEAD", "")
+	reg, err := session.Open(project.LeadHome(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.RegisterLead(session.Lead{ID: "lead-a", Target: config.Target{Agent: "claude"}, PID: os.Getpid(), Root: root}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := executeBusCommand(t, "runs")
+	if err != nil || out != "d-mine01 running\n" {
+		t.Fatalf("one live lead: %q %v", out, err)
+	}
+	if out, err = executeBusCommand(t, "runs", "--lead", "typo"); err == nil || !strings.Contains(err.Error(), "typo") {
+		t.Fatalf("--lead typo: %q %v", out, err)
+	}
+	if out, err = executeBusCommand(t, "watch", "--tab", "--lead", "typo"); err == nil || !strings.Contains(err.Error(), "typo") {
+		t.Fatalf("watch typo: %q %v", out, err)
+	}
+	t.Setenv("DUOLOG_LEAD", "gone")
+	if out, err = executeBusCommand(t, "runs"); err == nil || !strings.Contains(err.Error(), "gone") {
+		t.Fatalf("env gone: %q %v", out, err)
 	}
 }
 

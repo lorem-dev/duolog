@@ -46,10 +46,30 @@ func runsRegistry() (reg *session.Registry, root string, err error) {
 	return reg, root, nil
 }
 
-// listRuns returns the delegate records of every work project that shares
-// the lead home, newest first.
-func listRuns(reg *session.Registry, root string) ([]delegate.LocatedRecord, error) {
-	return delegate.LeadRecords(reg, root, "")
+// runsLead is the id of the lead whose runs are listed: the explicit lead,
+// DUOLOG_LEAD, or the lead that runs the command. It is "" when no lead
+// resolves and none was asked for (no live lead, or several); then every
+// record is listed. A lead that was asked for and does not resolve, or a
+// registry that cannot be read, is an error: the list never widens.
+func runsLead(reg *session.Registry, lead string) (string, error) {
+	asked := lead != "" || session.CurrentLead(os.Environ()) != ""
+	l, err := reg.ResolveLead(lead)
+	if err == nil {
+		return l.ID, nil
+	}
+	if asked {
+		return "", fmt.Errorf("lead of the runs: %w", err)
+	}
+	if _, rerr := reg.Entries(); rerr != nil {
+		return "", rerr
+	}
+	return "", nil
+}
+
+// listRuns returns the delegate records of this lead, from every work project
+// that shares the lead home, newest first. lead "" lists all of them.
+func listRuns(reg *session.Registry, root, lead string) ([]delegate.LocatedRecord, error) {
+	return delegate.LeadRecords(reg, root, lead)
 }
 
 // shownRuns is the running records, then the newest finished ones. A record
@@ -88,7 +108,7 @@ func newRunsCommand(d *cmdDeps) *cobra.Command {
 	}}
 	cmd.Flags().BoolVar(&long, "long", false, "Print a table with kind, role, agent and model, age and worktree")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the rows as JSON: id, kind, role, agent, model, state, started, worktree, task_dir")
-	cmd.Flags().StringVar(&lead, "lead", "", "Registered lead session ID for the peers (defaults to DUOLOG_LEAD)")
+	cmd.Flags().StringVar(&lead, "lead", "", "Registered lead session ID for the peers and delegate runs (defaults to DUOLOG_LEAD)")
 	return cmd
 }
 
@@ -132,13 +152,16 @@ func newWatchCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		records, err := listRuns(reg, root)
-		if err != nil {
-			return err
-		}
 		id := ""
+		scope := ""
 		if len(args) == 1 {
 			id = args[0]
+		} else if scope, err = runsLead(reg, lead); err != nil {
+			return err
+		}
+		records, err := listRuns(reg, root, scope)
+		if err != nil {
+			return err
 		}
 		rec, err := pickRun(records, id)
 		if err != nil {

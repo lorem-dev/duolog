@@ -42,6 +42,17 @@
 
 ## Development
 
+### Added
+
+- `duolog runs` and `duolog watch` show `duolog delegate` runs from the CLI
+  too, and MCP `status` lists them.
+
+### Changed
+
+- `duolog runs` lists only this lead's delegate runs.
+- duolog keeps the newest 50 finished delegate records per project and removes
+  older ones.
+
 ## 1.8.2
 
 ### Fixed

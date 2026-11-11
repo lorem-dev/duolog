@@ -2,6 +2,8 @@ package delegate
 
 import (
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -219,5 +221,45 @@ func TestParsePlacementRoundTrip(t *testing.T) {
 		if p, ok := ParsePlacement(line); ok {
 			t.Errorf("ParsePlacement(%q) = %+v, want no", line, p)
 		}
+	}
+}
+
+func TestCreateRecordPrunesOldFinished(t *testing.T) {
+	dir := RecordDir(t.TempDir())
+	now := time.Now().UTC()
+	put := func(id, state string, pid int, age time.Duration) {
+		t.Helper()
+		r := Record{ID: id, State: state, PID: pid, Started: now.Add(-age)}
+		if err := WriteRecord(filepath.Join(dir, id+".json"), r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range 50 {
+		put(fmt.Sprintf("d-f%02d", i), "done", 0, time.Duration(10+i)*time.Minute)
+	}
+	put("d-lost", "running", 7, 2*time.Hour)
+	put("d-run1", "running", 8, 3*time.Hour)
+	put("d-run2", "running", 8, 3*time.Hour)
+	if err := os.WriteFile(filepath.Join(dir, "d-lost.log"), []byte("log"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "junk.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alive := func(pid int) bool { return pid == 8 }
+	if _, err := CreateRecord(dir, Record{ID: "d-new001", State: "running", Started: now}, alive); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ListRecords(dir, alive)
+	if err != nil || len(got) != 53 {
+		t.Fatalf("records: %d, %v; want 53", len(got), err)
+	}
+	for _, name := range []string{"d-lost.json", "d-lost.log"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("%s: %v; want removed", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "junk.json")); err != nil {
+		t.Fatalf("junk.json: %v", err)
 	}
 }

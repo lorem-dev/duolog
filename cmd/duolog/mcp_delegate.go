@@ -3,11 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -116,7 +116,7 @@ func mcpSubmoduleReminder(work, lead string) (string, error) {
 // path and task path; path is empty when there is none. A client that gave up
 // before the reply calls again with the same task, and gets the run it has, not
 // a second worker. Any error means no twin: starting reports it.
-func mcpRunningTwin(in mcp.DelegateInput, target mcpDelegateTarget) (path, rel string) {
+func mcpRunningTwin(in mcp.DelegateInput, target mcpDelegateTarget) (recPath, rel string) {
 	role := in.Role
 	data, err := taskspec.Render(taskspec.Spec(*in.Task))
 	if err != nil {
@@ -129,7 +129,7 @@ func mcpRunningTwin(in mcp.DelegateInput, target mcpDelegateTarget) (path, rel s
 		return "", ""
 	}
 	for _, r := range records {
-		if r.State != "running" || r.Role != role || r.Lead != lead || checkoutKey(r.WorkRoot) != checkoutKey(work) {
+		if r.State != "running" || r.Role != role || r.Lead != lead || checkoutKey(r.WorkRoot) != checkoutKey(work) || r.TaskPath != path.Join(".duolog", "tasks", r.ID, "task.md") {
 			continue
 		}
 		if r.Use != in.Use || r.Force != in.Force || r.SkipPreflight != in.SkipPreflight || !sameNeeds(r.AskedNeeds, in.Needs) {
@@ -166,17 +166,16 @@ func (d *cmdDeps) mcpDelegateStart(in mcp.DelegateInput, target mcpDelegateTarge
 	if err != nil {
 		return "", "", err
 	}
-	id := "d-" + strings.ToLower(rand.Text()[:6])
+	id := delegate.NewRecordID()
 	if rel, err = writeTaskFile(work, id, *in.Task); err != nil {
 		return "", "", err
 	}
 	dir := delegate.RecordDir(target.stateDir)
-	path = filepath.Join(dir, id+".json")
 	base := delegate.Record{ID: id, Role: in.Role, Lead: lead, TaskPath: rel, WorkRoot: work, State: "running", Started: time.Now().UTC(), Use: in.Use, AskedNeeds: slices.Clone(in.Needs), Force: in.Force, SkipPreflight: in.SkipPreflight}
-	if err := delegate.WriteRecord(path, base); err != nil {
+	if path, err = delegate.CreateRecord(dir, base, session.ProcessAlive); err != nil {
 		return "", "", err
 	}
-	if err := recordDelegationLocation(target, id); err != nil {
+	if err := delegate.IndexRecord(target.stateDir, lead, id); err != nil {
 		_ = delegate.WriteRecord(path, delegate.RecordFor(base, delegate.Outcome{}, err, time.Now().UTC()))
 		return "", "", err
 	}
@@ -189,19 +188,6 @@ func (d *cmdDeps) mcpDelegateStart(in mcp.DelegateInput, target mcpDelegateTarge
 		return "", "", err
 	}
 	return path, rel, nil
-}
-
-// recordDelegationLocation stores the work project of run id in the lead's
-// registry, so result and status find the run from any checkout of the lead.
-func recordDelegationLocation(target mcpDelegateTarget, id string) error {
-	reg, err := session.Open(project.LeadHome(target.work))
-	if err != nil {
-		return err
-	}
-	if checkoutKey(filepath.Dir(target.stateDir)) == checkoutKey(filepath.Dir(reg.Dir)) {
-		return nil
-	}
-	return reg.RecordDelegation(session.DelegationLocation{ID: id, Lead: target.lead, WorkRoot: filepath.Dir(target.stateDir)})
 }
 
 // mcpDelegateArgv is the detached `duolog delegate` command of a run.

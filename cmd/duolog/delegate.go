@@ -33,9 +33,11 @@ func newDelegateCommand(d *cmdDeps) *cobra.Command {
 	var f delegateFlags
 	cmd := &cobra.Command{Use: "delegate <role>", Short: "Delegate a task and print its answer", Long: "Delegate a task and print its answer.\n\nThe task file needs the sections ## Goal, ## Read, ## Write, ## Limits and ## Check.", Args: cobra.ExactArgs(1), SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
 		if f.resultFile == "" {
-			return f.run(cmd, args[0], d.runDelegate)
+			return f.run(cmd, args[0], d.runDelegateRecorded(cmd.ErrOrStderr(), args[0], f.taskPath, f.lead))
 		}
-		return runRecorded(cmd.ErrOrStderr(), f.resultFile, args[0], f.taskPath, d.runDelegateRecording(f.resultFile), func(run delegateFunc) error {
+		// The MCP server wrote and indexed the record; the run adds the task folder.
+		run := withBegun(d.runDelegateRecording(f.resultFile), recordBegun(f.resultFile, cmd.ErrOrStderr(), false))
+		return runRecorded(cmd.ErrOrStderr(), f.resultFile, args[0], f.taskPath, run, func(run delegateFunc) error {
 			return f.run(cmd, args[0], run)
 		})
 	}}

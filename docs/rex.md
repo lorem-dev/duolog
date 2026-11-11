@@ -367,10 +367,10 @@ lead, run these commands outside the sandbox.
 
 ## How to watch a delegate run
 
-A worker that the lead starts with the `delegate` tool of the MCP server
-writes only raw JSON to its log, `.duolog/tasks/<task>/stdout.log`. Two
-commands show it to you in a readable form. They need no Rex, except for
-`--tab`.
+A worker that the lead starts with the `delegate` tool of the MCP server, or
+with `duolog delegate`, writes only raw JSON to its log,
+`.duolog/tasks/<task>/stdout.log`. Two commands show it to you in a readable
+form. They need no Rex, except for `--tab`.
 
 | Command | Who runs it | Prints |
 |---|---|---|
@@ -379,13 +379,14 @@ commands show it to you in a readable form. They need no Rex, except for
 | `duolog watch --tab [id]` | You, or the lead when you ask | One line; for a delegate run, your Rex client shows a tab that runs `duolog watch <id>`; for a peer id, what `peer view` does |
 
 A peer's state in `runs` is the one `peer list` gives; `--lead` names the lead
-whose peers are listed, as for `peer list` (default `DUOLOG_LEAD`). Without
-Rex, or when the peers cannot be read, `runs` lists the delegate runs and
-prints `peers not listed: <reason>` on stderr. A peer has no recorded start
-time or model, so its `started` is `null` and its `model` is empty.
+whose peers and delegate runs are listed (default `DUOLOG_LEAD`, then the lead
+that runs the command). Without a lead, all runs are listed. Without Rex, or
+when the peers cannot be read, `runs` lists the delegate runs and prints
+`peers not listed: <reason>` on stderr. A peer has no recorded start time or
+model, so its `started` is `null` and its `model` is empty.
 
 `duolog runs --json` prints one list of rows with the same keys for peers and
-delegate runs, always all of them:
+delegate runs, for the same lead as the plain output:
 
 | Key | Value |
 |---|---|
@@ -398,13 +399,14 @@ delegate runs, always all of them:
 | `worktree` | The absolute path of the work root |
 | `task_dir` | The absolute path of the folder of the run's task and log, or empty |
 
+duolog keeps the running records and the newest 50 that ended in each work
+project; it removes older ones when a new run starts.
+
 Without an id, `watch` follows the newest running run. It starts at the
 beginning of the log, keeps reading while the log grows, reads both Claude's
 stream JSON and Codex's JSON events, skips an event it does not know, and
 ends with a line `ended: <state>` when the run ends. Ctrl-C stops it at any
-time without touching the run. A run appears in the list only when the MCP
-tool started it; a `duolog delegate` that you or the lead start by hand
-leaves no record to list.
+time without touching the run.
 
 `watch` keeps output out of the lead's context, but cannot stop a lead from
 reading `stdout.log`. It uses the same caller checks as

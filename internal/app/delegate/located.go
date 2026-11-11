@@ -18,6 +18,14 @@ type LocatedRecord struct {
 	Path string
 }
 
+// TaskFolder is the run's task folder, "" when the record names none.
+func (l LocatedRecord) TaskFolder() string {
+	if l.TaskDir == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(filepath.Dir(l.Path)), filepath.FromSlash(l.TaskDir))
+}
+
 // ProjectRecordDir is the delegations folder of the work project whose main
 // checkout is projectRoot.
 func ProjectRecordDir(projectRoot string) string {

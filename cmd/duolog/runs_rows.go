@@ -54,6 +54,8 @@ func delegateRow(r delegate.LocatedRecord) runRow {
 		row.Started = &started
 	}
 	switch {
+	case r.TaskFolder() != "":
+		row.TaskDir = r.TaskFolder()
 	case r.Log != "":
 		row.TaskDir = underWork(r.WorkRoot, filepath.Dir(filepath.FromSlash(r.Log)))
 	case r.TaskPath != "":
@@ -96,7 +98,11 @@ func (d *cmdDeps) listPeers(cmd *cobra.Command, lead string) ([]peer.ListedPeer,
 // runRows is the live peers, then the shown delegate runs. A peer list that
 // cannot be read leaves the delegate runs and says so on stderr.
 func (d *cmdDeps) runRows(cmd *cobra.Command, reg *session.Registry, root, lead string) ([]runRow, error) {
-	records, err := listRuns(reg, root)
+	scope, err := runsLead(reg, lead)
+	if err != nil {
+		return nil, err
+	}
+	records, err := listRuns(reg, root, scope)
 	if err != nil {
 		return nil, err
 	}

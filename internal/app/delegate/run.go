@@ -88,9 +88,6 @@ type Options struct {
 	ReplayOf string
 	// Judge runs are never journalled.
 	Judge bool
-	// Force starts a worker even for a task that routing.small_task_files would
-	// keep in the lead.
-	Force bool
 	// Calibration marks a calibration cell or statement rewrite: no task opens
 	// and no journal record is written; the calibration run records it.
 	Calibration bool
@@ -109,12 +106,17 @@ type Options struct {
 	// starts and stops waiting for a session slot.
 	Budget  *paidrules.StepBudget
 	Waiting func(bool)
-	// SkipPreflight starts the worker without judging the task's Check
-	// commands with the gate first.
-	SkipPreflight bool
+	// Force starts a worker even for a task that routing.small_task_files would
+	// keep in the lead. SkipPreflight starts the worker without judging the
+	// task's Check commands with the gate first.
+	Force, SkipPreflight bool
 	// Observe receives every worker run, failed ones included, with learning
 	// on or off; nil observes nothing.
 	Observe Observer
+	// Begun is called once, after the lead resolves and the task is copied,
+	// with the lead's id and the run's task folder relative to the state dir
+	// (with "/" separators). Nil calls nothing.
+	Begun func(lead, taskDir string)
 }
 
 func Place(cfg *config.Config, taskPath string, route coreroute.Route) (Placement, error) {
@@ -201,7 +203,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 	}
 	leadID, leadAgent, address := lead.ID, lead.Agent, session.Address(lead)
 	reg.LeadID = leadID
-	lr, err := beginLearning(cfg, s, leadID, role, filepath.Base(dir), opts)
+	lr, err := beginRun(cfg, s, leadID, role, filepath.Base(dir), opts)
 	if err != nil {
 		return out, err
 	}

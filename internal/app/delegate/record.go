@@ -2,6 +2,7 @@ package delegate
 
 import (
 	"cmp"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,7 +13,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/core/policy"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -32,6 +35,9 @@ type Record struct {
 	Agent string `json:"agent,omitempty"`
 	Model string `json:"model,omitempty"`
 	Log   string `json:"log,omitempty"`
+	// TaskDir is the run's task copy, relative to its state dir, with "/"
+	// separators, such as tasks/task-123.
+	TaskDir string `json:"task_dir,omitempty"`
 	// Use, AskedNeeds, Force and SkipPreflight are the options the MCP call
 	// started the run with; a second call that differs in one is another run.
 	Use           string     `json:"use,omitempty"`
@@ -59,6 +65,67 @@ type Record struct {
 
 // RecordDir is where records live: <state dir>/delegations.
 func RecordDir(stateDir string) string { return filepath.Join(stateDir, "delegations") }
+
+// NewRecordID is a new record id: "d-" and six lower-case base32 characters.
+func NewRecordID() string { return "d-" + strings.ToLower(rand.Text()[:6]) }
+
+// KeepFinished is how many finished records a work project keeps, besides the
+// running ones.
+const KeepFinished = 50
+
+// CreateRecord writes r as dir/<r.ID>.json and returns that path. It then
+// prunes the folder with PruneRecords; pruning never fails the call.
+func CreateRecord(dir string, r Record, alive func(pid int) bool) (path string, err error) {
+	path = filepath.Join(dir, r.ID+".json")
+	if err = WriteRecord(path, r); err != nil {
+		return path, err
+	}
+	_ = PruneRecords(dir, KeepFinished, alive)
+	return path, nil
+}
+
+// PruneRecords removes the records in dir, with their logs, that are not
+// running and are not among the newest keep of those. A running record whose
+// PID alive says is gone reads as lost, so it counts as finished. A file that
+// is already gone is no error.
+func PruneRecords(dir string, keep int, alive func(pid int) bool) error {
+	records, err := ListRecords(dir, alive)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	kept := 0
+	for _, r := range records {
+		if r.State == "running" {
+			continue
+		}
+		if kept++; kept <= keep {
+			continue
+		}
+		for _, ext := range []string{".json", ".log"} {
+			if err := os.Remove(filepath.Join(dir, r.ID+ext)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// IndexRecord stores the work project of run id in the lead's registry, so
+// result and status find the run from any checkout of the lead. The work
+// project is the parent of stateDir. A project that keeps the lead home needs
+// no entry.
+func IndexRecord(stateDir, lead, id string) error {
+	work := filepath.Dir(stateDir)
+	reg, err := session.Open(project.LeadHome(work))
+	if err != nil {
+		return err
+	}
+	if checkoutKey(work) == checkoutKey(filepath.Dir(reg.Dir)) {
+		return nil
+	}
+	return reg.RecordDelegation(session.DelegationLocation{ID: id, Lead: lead, WorkRoot: work})
+}
 
 // WriteRecord writes r atomically (temp file, then rename) to path, so a
 // reader sees the old file or the new one and never half of either.
