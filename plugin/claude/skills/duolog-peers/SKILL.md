@@ -3,7 +3,7 @@ name: duolog-peers
 description: Use only in a project that has .duolog/config.yaml. List the running duolog peers and delegate runs, or switch the person's Rex view to one, when the person asks which run or to see one.
 allowed-tools: Bash(duolog peer list*), Bash(duolog peer view*), Bash(duolog runs), Bash(duolog runs --long*), Bash(duolog runs --snapshot*), Bash(duolog watch --tab*)
 metadata:
-  duolog-version: "1.8.2"
+  duolog-version: "1.9.0"
 ---
 
 Stop unless this project has `.duolog/config.yaml`.

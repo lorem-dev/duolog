@@ -42,6 +42,8 @@
 
 ## Development
 
+## 1.9.0
+
 ### Added
 
 - `duolog runs` and `duolog watch` show `duolog delegate` runs from the CLI
