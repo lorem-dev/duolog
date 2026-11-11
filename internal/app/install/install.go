@@ -7,6 +7,7 @@ package install
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -80,24 +81,34 @@ type Agent struct {
 // workers.compact_window rule for the Claude plan the quota read names, with
 // the bounded fallback when it names none. A project install writes it for
 // each agent whose Installer is a LeadEnv; nil leaves the lead alone, and
-// Check compares none. Environ is the environment the person's own value is
-// looked up in; nil means duolog's own.
+// Check compares none. Environ selects the person's lead values, plugin state
+// and plugin commands; nil means duolog's own environment.
 type Deps struct {
 	Agents     []Agent
 	LeadWindow func(root string) (LeadWindow, error)
 	Environ    []string
+	// Available reports whether an agent CLI is on PATH; nil checks none.
+	Available func(agent string) bool
+	// RunPlugin runs one plugin command with its timeout, working directory
+	// and environment. Nil starts no command.
+	RunPlugin func(ctx context.Context, root string, environ []string, agent string, args ...string) ([]byte, error)
+	// Release permits plugin installation for a released binary. A checkout
+	// build leaves the commands to the person instead.
+	Release bool
 }
 
 // Options selects what to install and where. Scope is "project" (default) or
 // "user"; Agent is an agent's name or "both" (default). HooksOnly makes Check
 // compare duolog's hooks alone, for a repository that commits the hooks and
 // ignores the skills; Run and Remove do not read it. StatusLine makes Run add
-// duolog's status line again after the person removed it.
+// duolog's status line again after the person removed it. NoPlugin skips
+// plugin installation and its missing-plugin notes.
 type Options struct {
 	Scope, Agent string
 	Home, Root   string
 	HooksOnly    bool
 	StatusLine   bool
+	NoPlugin     bool
 }
 
 // Report lists the files written and the steps the user still has to do.
@@ -165,17 +176,20 @@ func stampServer(home string) {
 	}
 }
 
-// Run installs hooks, the skill and, in project scope, a starter config.
+// Run installs missing agent plugins, hooks, skills and, in project scope,
+// a starter config. Plugin command failures become notes and leave the
+// native hooks and skills as the fallback.
 func (d Deps) Run(o Options) (Report, error) {
 	agents, base, err := d.resolveForInstall(o)
 	if err != nil {
 		return Report{}, err
 	}
+	pluginNotes := d.installPlugins(agents, o, base)
 	edits, regated, notes, err := planAgents(agents, o, base)
 	if err != nil {
 		return Report{}, err
 	}
-	report := Report{Notes: notes}
+	report := Report{Notes: append(pluginNotes, notes...)}
 	if o.Scope != "user" {
 		project, err := d.projectEdits(o.Root)
 		if err != nil {

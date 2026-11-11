@@ -28,7 +28,13 @@ func (d *cmdDeps) mcpStatus(ctx context.Context) (mcp.StatusOutput, error) {
 	if err != nil {
 		return out, err
 	}
-	g, err := runsnap.Gather(ctx, d.snapDeps(reg), runsnap.Options{Now: time.Now()})
+	// The call's hints choose the lead first, among the threads of a Codex
+	// app-server; the gathering then reads that lead by its ID.
+	lead, err := reg.ResolveLead("", hintsFrom(ctx)...)
+	if err != nil {
+		return out, err
+	}
+	g, err := runsnap.Gather(ctx, d.snapDeps(reg), runsnap.Options{Now: time.Now(), LeadID: lead.ID})
 	if err != nil {
 		return out, err
 	}

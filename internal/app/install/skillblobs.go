@@ -70,6 +70,8 @@ var writtenBlobs = map[string]bool{
 	"f33b49b3f7a3408eaaca40c01874dab51a459a42": true, // claude/skills/duolog/SKILL.md
 
 	// Marked with the duolog version, from 1.6.0 on.
+	"b2aee44a9ca5583993d42902757b71104387361f": true, // claude/skills/duolog-update/SKILL.md
+	"2bb27e570b43bcd83fe3c4e4cbfd71df00b13b3c": true, // codex/skills/duolog-update/SKILL.md
 	"acc5ad46cb496248dcf4de1b9e27ad4c32d77cd3": true, // claude/skills/duolog/SKILL.md
 	"b7b52066313468dd992cd44e025f7295ec31e46d": true, // codex/skills/duolog/SKILL.md
 	"02f39f2cef363769fb599082961a256a974a0dbc": true, // codex/skills/duolog-calibrate/SKILL.md

@@ -20,6 +20,7 @@ type fakeApp struct {
 	peerIn  PeerInput
 	ansIn   AnswerAskInput
 	err     error
+	hints   []string      // the lead hints the last status call read
 	blocked chan struct{} // closed when a blocking delegate call starts
 	sawDone chan struct{} // closed when the blocking call sees ctx.Done
 }
@@ -54,9 +55,47 @@ func (f *fakeApp) AnswerAsk(ctx context.Context, in AnswerAskInput) (AnswerAskOu
 	return AnswerAskOutput{Line: "ask 3 allowed"}, f.err
 }
 
+// Status records the call and the lead hints of its context.
 func (f *fakeApp) Status(ctx context.Context) (StatusOutput, error) {
 	f.called(ToolStatus)
+	f.mu.Lock()
+	f.hints = LeadHints(ctx)
+	f.mu.Unlock()
 	return StatusOutput{}, f.err
+}
+
+// TestToolsCallMetaLeadHints checks that a tools/call's _meta names the lead
+// it comes from: Codex sends the thread and its root thread, which go to the
+// call's context as lead hints in that order, before any session ID of the
+// server's environment, which Codex's app-server froze at its start. A _meta
+// without them, or of another shape, gives none and fails no call.
+func TestToolsCallMetaLeadHints(t *testing.T) {
+	for _, tc := range []struct {
+		name, meta string
+		want       []string
+	}{
+		{name: "codex thread", meta: `,"_meta":{"threadId":"t1","sessionId":"root"}`, want: []string{"t1", "root"}},
+		{name: "root thread", meta: `,"_meta":{"threadId":"t1","sessionId":"t1"}`, want: []string{"t1"}},
+		{name: "only session", meta: `,"_meta":{"sessionId":"root","progressToken":4}`, want: []string{"root"}},
+		{name: "no meta"},
+		{name: "other keys", meta: `,"_meta":{"claudecode/toolUseId":"x"}`},
+		{name: "not strings", meta: `,"_meta":{"threadId":7,"sessionId":null}`},
+		{name: "not an object", meta: `,"_meta":"t1"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := &fakeApp{}
+			s := start(t, &Server{App: app, Enabled: true})
+			r := result(t, s.call(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"status"`+tc.meta+`}}`))
+			if text, isErr := textOf(t, r); isErr {
+				t.Fatalf("tool error %q", text)
+			}
+			app.mu.Lock()
+			defer app.mu.Unlock()
+			if strings.Join(app.hints, ",") != strings.Join(tc.want, ",") {
+				t.Fatalf("hints = %q, want %q", app.hints, tc.want)
+			}
+		})
+	}
 }
 
 // session runs Serve on pipes and lets a test send and read lines.

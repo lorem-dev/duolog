@@ -293,6 +293,25 @@ func TestRejectsTaskMissingSection(t *testing.T) {
 	}
 }
 
+// A section of the author's own, before, between or after the five, is text
+// for the worker: the task is valid, and its list names no path.
+func TestAcceptsExtraSections(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "task.md")
+	write(t, p, "## Context\n- old/x.go\n## Goal\nx\n## Read\n- a.go\n## Notes\n- notes/y.go\n## Write\n- b.go\n## Constraints\n- c/z.go\n## Limits\n## Check\n`go test ./...`\n## After\n- d.go\n")
+	if e := validate(p); e != nil {
+		t.Fatal(e)
+	}
+	fsys, name := os.DirFS(filepath.Dir(p)), filepath.Base(p)
+	reads, err := ReadPaths(fsys, name)
+	if err != nil || strings.Join(reads, " ") != "a.go" {
+		t.Fatal(reads, err)
+	}
+	writes, err := WritePaths(fsys, name)
+	if err != nil || strings.Join(writes, " ") != "b.go" {
+		t.Fatal(writes, err)
+	}
+}
+
 // Read lists paths as Write does: absolute ones, ~ and globs included, with
 // a line range cut off, and prose names nothing.
 func TestReadPathsTakesPathsNotProse(t *testing.T) {

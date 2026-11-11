@@ -12,7 +12,9 @@ import (
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/mcp"
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/bus"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 )
 
@@ -178,6 +180,35 @@ func TestMCPAnswerAskRejectsBadDecision(t *testing.T) {
 	}
 	if answered(t, ".", n) {
 		t.Error("a refused call answered the ask")
+	}
+}
+
+// Codex threads of one app-server share the MCP server: the thread the call
+// names must be the lead that owns the ask.
+func TestMCPAnswerAskChecksTheNamedThread(t *testing.T) {
+	b := mcpAnswerBus(t)
+	t.Setenv("DUOLOG_LEAD", "")
+	reg, err := session.Open(b.Directory())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.RegisterLead(session.Lead{ID: "lead-654321", Target: config.Target{Agent: "codex"}, Mode: mode.Ask}); err != nil {
+		t.Fatal(err)
+	}
+	n := mcpAsk(t, b, mcpTestLead, false, 0)
+	answer := func(hint string) error {
+		ctx := mcp.WithLeadHints(context.Background(), []string{hint})
+		_, err := testDeps(t).mcpAnswerAsk(ctx, mcp.AnswerAskInput{Ask: n, Decision: "allow"})
+		return err
+	}
+	if err := answer("lead-654321"); err == nil || !strings.Contains(err.Error(), "does not belong to lead") {
+		t.Fatalf("another thread: %v", err)
+	}
+	if answered(t, ".", n) {
+		t.Fatal("another thread answered the ask")
+	}
+	if err := answer("lead-123456"); err != nil {
+		t.Fatalf("own thread: %v", err)
 	}
 }
 

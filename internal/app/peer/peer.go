@@ -48,10 +48,13 @@ type Report struct {
 type Options struct {
 	// Deps is what peer reaches outside the package; the wiring package builds
 	// the real one.
-	Deps             Deps
-	Root             string
-	Config           *config.Config
-	Lead             string
+	Deps   Deps
+	Root   string
+	Config *config.Config
+	Lead   string
+	// LeadHints are the session IDs that ResolveLead tries after Lead, as an
+	// MCP tool call names its thread; nil for a CLI command.
+	LeadHints        []string
 	AllowManualModel bool
 	// ProtectedRoots are the telemetry and balance roots the command resolved;
 	// they reach a Claude peer's launch settings.

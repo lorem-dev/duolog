@@ -329,7 +329,7 @@ func mcpPeerWait(ctx context.Context, id string, timeout time.Duration) (mcp.Pee
 	if err != nil {
 		return out, err
 	}
-	if out.OpenAsks, err = leadAsks(root); err != nil {
+	if out.OpenAsks, err = leadAsks(ctx, root); err != nil {
 		return out, err
 	}
 	if e.Report != "" {
@@ -387,14 +387,15 @@ func runHereField(line string) *mcp.RunHere {
 }
 
 // leadAsks are the open permission asks to the lead this process runs under,
-// with the numbers `duolog allow` and `deny` take.
-func leadAsks(root string) ([]mcp.Ask, error) {
+// or that the tool call's lead hints in ctx name, with the numbers `duolog
+// allow` and `deny` take.
+func leadAsks(ctx context.Context, root string) ([]mcp.Ask, error) {
 	dir := project.LeadHome(root)
 	reg, err := session.Open(dir)
 	if err != nil {
 		return nil, err
 	}
-	lead, err := reg.ResolveLead("")
+	lead, err := reg.ResolveLead("", hintsFrom(ctx)...)
 	if err != nil {
 		return nil, err
 	}

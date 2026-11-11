@@ -54,7 +54,7 @@ func (d *cmdDeps) peerCtxAt(parent context.Context, lead string, allowManual boo
 	if err != nil {
 		return nil, nil, err
 	}
-	opts := peer.Options{Deps: d.peerDeps(), Root: root, WorkDir: work, Config: cfg, Lead: lead, AllowManualModel: allowManual, ProtectedRoots: launchProtectedRoots()}
+	opts := peer.Options{Deps: d.peerDeps(), Root: root, WorkDir: work, Config: cfg, Lead: lead, LeadHints: hintsFrom(parent), AllowManualModel: allowManual, ProtectedRoots: launchProtectedRoots()}
 	// Peer opens, sends and closes, and each task a peer ends, reach
 	// telemetry through these observers; a store that cannot open records none.
 	done := func() {}
@@ -70,6 +70,8 @@ func (d *cmdDeps) peerCtxAt(parent context.Context, lead string, allowManual boo
 	return ctx, done, nil
 }
 
+// peerCtxForID is peerCtxAt in the checkout of peer id, or in the caller's
+// when the peer has none; the lead hints of an MCP call in parent go with it.
 func (d *cmdDeps) peerCtxForID(parent context.Context, lead string, allowManual bool, timeout time.Duration, id string) (context.Context, func(), error) {
 	if isWorker() {
 		return nil, nil, errors.New("workers cannot open or control peer sessions")
@@ -78,7 +80,7 @@ func (d *cmdDeps) peerCtxForID(parent context.Context, lead string, allowManual 
 	if err != nil {
 		return nil, nil, err
 	}
-	opts := peer.Options{Root: root, Lead: lead}
+	opts := peer.Options{Root: root, Lead: lead, LeadHints: hintsFrom(parent)}
 	work, err := peer.WorkRoot(peer.WithOptions(parent, opts), id)
 	if err != nil {
 		return d.peerCtx(parent, lead, allowManual, timeout)

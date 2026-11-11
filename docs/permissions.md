@@ -300,11 +300,12 @@ worker's MCP tool calls are checked" below.
 | exec | `go test`, `make build`, `npm run test`, `uv run pytest` and the like, for write roles | allow |
 | exec | Check tools of each ecosystem, for write roles: `node_modules/.bin/eslint`, `.venv/bin/ruff`, `python -m pytest`, `go vet`, `cargo clippy`, `cmake --build`, offline `gradle` and `mvn`, `dotnet test --no-restore` and the like | allow |
 | exec | Read commands: `cat`, `head`, `tail`, `ls`, `wc`, `rg`, `grep`, `find`, `sed -n 'N,Mp'`, `jq`, `sort`, `stat`, `tree`, `cmp A B` and others | allow |
+| exec | `mkdir`, for write roles; a folder in a denied or outside path is still denied or asked | allow |
 | exec | `git status`, `git diff`, `git log`, `git show`, and `git worktree list` | allow |
-| exec | `git branch --show-current` and `git rev-parse --abbrev-ref HEAD`, exactly so | allow |
+| exec | `git branch --show-current`, and `git rev-parse` alone or with `HEAD`, `--short HEAD`, `--abbrev-ref HEAD`, `--show-toplevel` or `--is-inside-work-tree`, exactly so | allow |
 | exec | `git push`, `git reset --hard`, `git clean`, `git rebase` | deny |
 | exec | `rm -rf *` | deny |
-| exec | `claude` and `codex`, with or without arguments | deny |
+| exec | `claude` and `codex`, with or without arguments; a path operand of a program that never runs it, as in `go test -v ./claude ./pkg`, is not a start | deny |
 | mcp | Nine named CodeGraph tools that read the code index, for every role | allow |
 | net | everything | ask |
 
@@ -493,6 +494,15 @@ needs the person, and so does every other assignment, `PATH`, `LD_*`,
 `DYLD_*`, `GIT_*`, `DUOLOG_*`, `CLAUDE_*` and `CODEX_*` among them. To hand
 `DOCKER_HOST` from your own shell to every worker instead, see
 [What workers inherit](configuration.md#what-workers-inherit).
+
+A project may allow other assignments by name. An `exec` allow rule whose
+match starts with the assignments, such as `UE_ROOT=* task ue:*`, allows
+`UE_ROOT=/opt/engine task ue:build` in `edits` and `full` mode for the roles
+it names. The line must be one command with plain values: no `$`, quotes,
+redirect, `;` or `&&`. Every assignment must be one the rule names, so
+`UE_ROOT=x LD_PRELOAD=y task ue:build` still needs the person. The command
+after the assignments still meets every deny and the role's limits. Name
+only variables that cannot make the program run other code.
 
 The `agent launch` rule denies workers starting `claude` or `codex`,
 including paths, Windows launchers, wrappers, package runners and CLI

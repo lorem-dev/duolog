@@ -117,7 +117,7 @@ func openRecords(opts Options, requireLead bool) (*env, error) {
 	}
 	leadID := opts.Lead
 	if requireLead {
-		lead, err := reg.ResolveLead(opts.Lead)
+		lead, err := reg.ResolveLead(opts.Lead, opts.LeadHints...)
 		if err != nil {
 			return nil, err
 		}

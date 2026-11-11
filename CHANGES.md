@@ -46,37 +46,40 @@
 
 - `duolog runs` and `duolog watch` show `duolog delegate` runs from the CLI
   too, and MCP `status` lists them.
-- `duolog statusline` prints the lead's worker line (peers, runs, asks,
-  queued) for Claude Code's `statusLine` setting.
-- `duolog install` sets Claude's `statusLine` if none is set; `uninstall` drops
-  only duolog's. After you remove it, `duolog install --status-line` adds it.
-- The lead's hooks tell the person in one line when a run ended, a peer went
-  idle or an ask waits (`systemMessage`, no tokens spent).
-- A Claude lead's `Stop` line also sends an OSC 9 terminal notice;
-  `lead.notify: false` turns this and the desktop notices off.
-- A desktop notice tells the person of an ask only they can answer, and of an
-  MCP `delegate` run that ends failed, needing input or handed back.
-- `duolog doctor` says where to set Codex's `tui.notifications` for an alert.
+- `duolog statusline` prints the lead's worker line; `duolog install` sets it
+  as Claude's `statusLine` if none is set, and `--status-line` adds it again.
+- The lead's hooks say in one line when a run ends, a peer idles or an ask
+  waits; a Claude `Stop` also sends OSC 9 (`lead.notify: false` turns it off).
+- A desktop notice tells of an ask for the person and of a failed MCP run;
+  `duolog doctor` says where to set Codex's `tui.notifications` for one.
 - Codex leads get the duolog MCP server: `duolog install` adds
   `[mcp_servers.duolog]` to Codex's `config.toml`, keeping every other line.
 - `duolog runs --snapshot [--fast]` prints this lead's peers, runs, asks and
   load as one JSON line; `--fast` reads no pane screen.
 - A `/duolog-pane` pane in Claude Code lists peers and runs; the worker count
   above the prompt opens it. `duolog runs tail <id>` pages a run's log for it.
+- `duolog install` installs the duolog plugin for Claude and Codex when it is
+  missing (`--no-plugin` skips it); `duolog doctor` warns when it is missing.
 
 ### Changed
 
-- `duolog runs` lists only this lead's delegate runs.
-- duolog keeps the newest 50 finished delegate records per project and removes
-  older ones.
-- `duolog watch` prints a log line over 1 MiB, such as large tool output, as
-  one line `> (output of N MiB not shown)`.
-- A `watch --tab` tab closes 10 s after its run ends.
+- `duolog runs` lists only this lead's delegate runs; duolog keeps the newest
+  50 finished delegate records per project.
+- `workers.compact_ladder` gives Pro 300000 tokens, up from 250000; the $200
+  plan, which Claude reports as `max`, counts as `ultra` (700000).
+- Workers may run `mkdir` and `git rev-parse`; a task may add sections such as
+  `## Notes`; a rule like `UE_ROOT=* task ue:*` allows the variables it names.
+- `duolog watch` prints a log line over 1 MiB as `> (output of N MiB not
+  shown)`; a `watch --tab` tab closes 10 s after its run ends.
 
 ### Fixed
 
-- The $200 Claude plan, which Claude reports as `max`, now counts as `ultra`,
-  so the lead and Claude workers compact at 700000 tokens, not 500000.
+- duolog finds the right lead for Codex threads that share one app-server and
+  for Claude bg spares, by the session ID the agent names.
+- The gate no longer takes a package path that ends in `claude` or `codex`
+  for an agent start in any place, as in `go test -v ./claude ./pkg`.
+- `duolog delegate` refuses a task whose Read names a `.duolog/` file workers
+  may not read, before a worker starts and stops on it.
 
 ## 1.8.2
 

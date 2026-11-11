@@ -192,6 +192,7 @@ func DoctorDeps(d delegate.Deps) doctor.Deps {
 		LeadCompact:     leadCompact,
 		StatusLineLine:  statusLineLine,
 		ClaudePlugin:    claudePlugin,
+		PluginMissing:   pluginMissing,
 	}
 }
 

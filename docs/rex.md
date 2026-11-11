@@ -12,8 +12,15 @@
   script, and `duolog doctor` names it.
 - A lead session with duolog installed. See
   [Getting started](getting-started.md).
-- The lead registered by its `SessionStart` hook. The `--lead` flag or the
-  `DUOLOG_LEAD` variable names it.
+- The lead registered by its `SessionStart` hook, or by its first prompt.
+  The `--lead` flag or the `DUOLOG_LEAD` variable names it.
+
+Claude Code can start a session process ahead of time, a bg spare, before
+anyone uses it. Its `SessionStart` registers no lead: the session you
+start in it runs under another ID, and your first prompt registers that one.
+Claude Code runs one session per process, so a new lead in a process, as
+after `/clear`, ends the lead that was there before. Codex runs every thread
+in one process, so a new Codex lead ends no other.
 
 ## How to register a lead that its hooks missed
 
@@ -390,10 +397,12 @@ nothing.
 
 The mod runs `duolog runs --snapshot --fast` every second while the pane is
 open, and every 3 seconds while it is closed. After 30 seconds with no
-workers it stops until your next prompt or the next tool call. The log reads
-`duolog runs tail` every second while the pane is open. That call sets
-`DUOLOG_VIEWER=claude-mod`, and duolog shows the log only when Claude Code
-itself started duolog. The lead guard stops a model's command that names
+workers it reads every 15 seconds, so a worker started from a terminal or
+by another agent still shows, until your next prompt or the next tool call.
+The log reads `duolog runs tail` every second while the pane is open. That
+call sets `DUOLOG_VIEWER=claude-mod`, and duolog shows the log only when
+Claude Code itself started duolog. The lead guard stops a model's command
+that names
 `runs tail`, and the parent check refuses a call with a shell between Claude
 Code and duolog. These checks keep a model from reading a worker's stream by
 accident. They are no barrier against a model that works around them, for
@@ -800,7 +809,8 @@ These come from the
   check below for `duolog peer`.
 - Codex does not fire `SessionEnd` when its pane closes (OBSERVED), so a
   closed Codex pane can stay in the registry. `duolog doctor` warns about a
-  pane whose lead has ended.
+  pane whose lead has ended. Where Codex runs the hook, it gives it 1 second
+  by default; duolog's hook asks for 3, the most Codex allows.
 - Rex has no known Windows build. Live sessions are unavailable on Windows.
   `duolog peer` prints this limit; use `duolog delegate` instead.
 - A tab shown by `duolog peer view` is interactive. Your keys reach the peer,

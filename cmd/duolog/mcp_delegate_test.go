@@ -430,6 +430,10 @@ func TestMCPDelegateRefusesWithoutTask(t *testing.T) {
 			t.Fatalf("%+v: %v", in, err)
 		}
 	}
+	// A task file passed as task_path, as Codex leads try, says what to pass.
+	if _, err := d.mcpDelegate(context.Background(), mcp.DelegateInput{Role: "implement", TaskPath: ".duolog/tasks/fix.md"}); err == nil || !strings.Contains(err.Error(), "task_path is only for action=result") {
+		t.Fatal(err)
+	}
 	if _, err := d.mcpDelegate(context.Background(), mcp.DelegateInput{Action: "rerun", Role: "implement", Task: testTask}); err == nil || !strings.Contains(err.Error(), "run or result") {
 		t.Fatal(err)
 	}

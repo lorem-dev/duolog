@@ -11,6 +11,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/claude"
 	"github.com/lorem-dev/duolog/internal/adapter/codex"
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/doctor"
 	"github.com/lorem-dev/duolog/internal/app/hook"
@@ -140,9 +141,10 @@ var (
 	_ install.LeadEnv   = claude.Installer{}
 )
 
-// InstallDeps gives install the Installer of each registered agent, in order.
+// InstallDeps gives install the Installer of each registered agent, in order,
+// and the lookup and runner for plugin setup. The command sets Release.
 func InstallDeps() install.Deps {
-	d := install.Deps{LeadWindow: leadWindow}
+	d := install.Deps{LeadWindow: leadWindow, Available: agentAvailable, RunPlugin: runPlugin}
 	for _, a := range Agents() {
 		d.Agents = append(d.Agents, install.Agent{Name: a.Facts.Name, Installer: a.Installer})
 	}
@@ -199,6 +201,7 @@ func HookEnv(env hook.Env) hook.Env {
 	env.Agents = Names()
 	if a, ok := Find(env.Agent); ok {
 		env.Events, env.Lead = a.Events, a.Lead
+		env.OneSessionPerProcess = a.Facts.OneSessionPerProcess
 	}
 	env.Caps = RosterCaps()
 	env.InstallNote = func(root string) string {
@@ -307,6 +310,20 @@ func ScanCaps(ctx context.Context, agent, root string, dirs map[string]string) (
 	}
 	inv.Items = caps.Mark(inv.Items, a.Caps.Servers(root, os.Environ()), why)
 	return inv, nil
+}
+
+// init gives the session registry the variables in which the registered
+// agents name a command's session, so that ResolveLead reads them as hints.
+func init() { session.SessionEnvNames = SessionEnvNames() }
+
+// SessionEnvNames returns every registered agent's SessionEnv names, in
+// registry order.
+func SessionEnvNames() []string {
+	var names []string
+	for _, a := range Agents() {
+		names = append(names, a.Facts.SessionEnv...)
+	}
+	return names
 }
 
 // Find returns the registered agent called name.

@@ -35,6 +35,8 @@ func TestUpdateSkillPermissions(t *testing.T) {
 	}
 }
 
+// TestUpdateSkillWorkflow checks the update order and both plugin paths:
+// adding a missing marketplace, or updating one already registered.
 func TestUpdateSkillWorkflow(t *testing.T) {
 	// Kills missing or reordered update stages and updating the wrong agent's plugin.
 	for agent, commands := range map[string][]string{
@@ -43,6 +45,11 @@ func TestUpdateSkillWorkflow(t *testing.T) {
 	} {
 		_, body := splitSkill(t, agent+"/skills/duolog-update/SKILL.md")
 		stages := []string{"duolog version", "curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | DUOLOG_VERSION=latest sh", "$env:DUOLOG_VERSION = 'latest'; irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex", "duolog version"}
+		verb := "install"
+		if agent == "codex" {
+			verb = "add"
+		}
+		stages = append(stages, agent+" plugin marketplace list", agent+" plugin marketplace add lorem-dev/duolog", agent+" plugin "+verb+" duolog@duolog")
 		stages = append(stages, commands...)
 		stages = append(stages, "duolog install --scope project", "duolog install --scope user", "/hooks", "duolog doctor", "new Claude Code and Codex sessions")
 		rest := body

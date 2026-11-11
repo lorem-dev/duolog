@@ -35,7 +35,7 @@ func newDecideCommand(kind string, d *cmdDeps) *cobra.Command {
 // decide answers permission request n with kind (allow or deny) as the lead
 // that owns it. It is what duolog allow and duolog deny do after they parse
 // the number, and what the MCP answer_ask tool calls. It prints nothing.
-func (d *cmdDeps) decide(kind string, n int64, leadFlag string) error {
+func (d *cmdDeps) decide(kind string, n int64, leadFlag string, hints ...string) error {
 	b, err := openBus()
 	if err != nil {
 		return err
@@ -55,7 +55,7 @@ func (d *cmdDeps) decide(kind string, n int64, leadFlag string) error {
 	if !ok {
 		return fmt.Errorf("lead is unavailable or has ended")
 	}
-	if err := checkCaller(d, reg, lead, n, leadFlag); err != nil {
+	if err := checkCaller(d, reg, lead, n, leadFlag, hints...); err != nil {
 		return err
 	}
 	_, err = b.Send(bus.Message{From: session.Address(lead), To: request.From, K: kind, Ref: strconv.FormatInt(n, 10), S: kind})
@@ -104,7 +104,21 @@ func openRequest(d *cmdDeps, reg *session.Registry, dir string, n int64) (bus.Me
 // that detaches, as with nohup, setsid, tmux new -d or a Rex pane, is
 // re-parented away from its lead, may drop CLAUDECODE, and then looks like
 // the person's terminal. No check within one user tells them apart.
-func checkCaller(d *cmdDeps, reg *session.Registry, lead session.Lead, n int64, leadFlag string) error {
+//
+// hints are the session IDs an MCP call names. With them the lead they
+// resolve to must own the request, since Codex threads of one app-server share
+// a process and the walk would let any of them answer.
+func checkCaller(d *cmdDeps, reg *session.Registry, lead session.Lead, n int64, leadFlag string, hints ...string) error {
+	if len(hints) > 0 {
+		caller, err := reg.ResolveLead(leadFlag, hints...)
+		if err != nil {
+			return err
+		}
+		if caller.ID != lead.ID {
+			return fmt.Errorf("request %d does not belong to lead %q", n, caller.ID)
+		}
+		return nil
+	}
 	// Leads that share one process: the owner, or the one --lead names.
 	above, found, err := reg.AncestorLead(lead.ID, leadFlag)
 	switch {

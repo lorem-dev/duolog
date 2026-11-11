@@ -42,6 +42,11 @@ type Lead interface {
 	// Interactive reports whether the session is an interactive one in a
 	// terminal, from its environment and its transcript.
 	Interactive(environ []string, transcript string) bool
+	// Spare reports whether the session runs in a process that the agent
+	// started ahead of time, which no person has claimed yet, from its
+	// environment. Its session start registers no lead; its first prompt,
+	// once claimed, does.
+	Spare(environ []string) bool
 }
 
 // Env makes hook stdin, environment and output explicit for embedded callers.
@@ -52,6 +57,9 @@ type Env struct {
 	Root, Agent string
 	Events      Events
 	Lead        Lead
+	// OneSessionPerProcess is the agent's descriptor flag: a lead the hooks
+	// register ends the other leads of its process.
+	OneSessionPerProcess bool
 	// Agents are the registered agents' names, in registry order.
 	Agents   []string
 	WorkRoot string
@@ -267,12 +275,15 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 	return &state{cfg: cfg, reg: reg, bus: b, lead: lead}, nil
 }
 
+// observeCheckout adds to o what a new lead's first observation records: its
+// checkout, its process and whether that process runs only its session.
 func observeCheckout(o *session.LeadObservation, lead session.Lead, e Env) {
 	root := e.WorkRoot
 	if root == "" {
 		root = e.Root
 	}
 	o.Root, o.PID = &root, &lead.PID
+	o.SoleInProcess = e.OneSessionPerProcess
 }
 
 // receive renders the lead's unread lines and names the peers of the
@@ -352,8 +363,15 @@ func SessionStart(ctx context.Context, e Env) Output {
 	return withNotice(ctx, e, sessionStart(ctx, e), false)
 }
 
+// spare reports whether e's session runs in a spare process of its agent,
+// which no person has claimed yet.
+func spare(e Env) bool { return e.Lead != nil && e.Lead.Spare(environment(e)) }
+
+// sessionStart registers the lead, unless it runs in a spare process: the
+// session the person claims there runs under another ID, which the first
+// prompt registers.
 func sessionStart(ctx context.Context, e Env) Output {
-	return deliver(ctx, e, "SessionStart", true, true, startTime(e), func(s *state, _ []byte) string {
+	return deliver(ctx, e, "SessionStart", !spare(e), true, startTime(e), func(s *state, _ []byte) string {
 		prune(e)
 		var lines []string
 		var submodules string
@@ -475,8 +493,11 @@ func Prompt(ctx context.Context, e Env) Output {
 	return withNotice(ctx, e, promptDelivery(ctx, e), false)
 }
 
+// promptDelivery registers the lead too, for every agent: a session whose
+// start registered no lead, as a claimed Claude spare's, is a lead from its
+// first prompt.
 func promptDelivery(ctx context.Context, e Env) Output {
-	return deliver(ctx, e, "UserPromptSubmit", e.Agent == "codex", false, startTime(e), func(s *state, _ []byte) string {
+	return deliver(ctx, e, "UserPromptSubmit", true, false, startTime(e), func(s *state, _ []byte) string {
 		startQueue(ctx, e, s)
 		return strings.Join(slices.DeleteFunc([]string{loadLine(ctx, e, s, false), freshHint(ctx, e, s), peerReportNote(e), restartNote(e, s, false)}, func(l string) bool { return l == "" }), "\n")
 	})

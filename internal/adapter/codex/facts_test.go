@@ -7,6 +7,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/agent"
 )
 
+// TestFacts checks every field of Codex's descriptor.
 func TestFacts(t *testing.T) {
 	want := agent.Descriptor{
 		Name:    "codex",
@@ -18,7 +19,8 @@ func TestFacts(t *testing.T) {
 		ConfigEnv:     "CODEX_HOME",
 		ConfigDefault: ".codex",
 		ProjectDir:    ".codex",
-		SessionEnv:    []string{"CODEX_THREAD_ID"},
+		// The thread, then the root thread a subagent's thread belongs to.
+		SessionEnv: []string{"CODEX_THREAD_ID", "CODEX_SESSION_ID"},
 		// cmd/duolog/telemetry.go modelMarkers, Codex's part.
 		Markers:     []string{"CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED", "CODEX_THREAD_ID"},
 		ModelPrefix: "gpt-",
@@ -34,6 +36,8 @@ func TestFacts(t *testing.T) {
 		LoginPhrases:    []string{"codex login", "token_expired", "invalid_token", "refresh token"},
 		InstructionFile: "AGENTS.md",
 		LeadCanAsk:      false,
+		// One codex app-server process runs every thread.
+		OneSessionPerProcess: false,
 		// internal/core/screen/screen.go interruptedRe, updatingRe and the
 		// Codex arms of Parse; internal/app/peer/auto_answer.go.
 		Pane: agent.PaneFacts{

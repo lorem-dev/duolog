@@ -25,6 +25,15 @@ func (Lead) Interactive(environ []string, _ string) bool {
 	return trusthome.Getenv(environ, "CLAUDE_CODE_ENTRYPOINT") == "cli"
 }
 
+// Spare reports whether the session runs in a bg spare, a Claude Code
+// process started ahead of time that no person has claimed yet: Claude Code
+// 2.1 starts it with CLAUDE_CODE_SESSION_KIND=bg and CLAUDE_BG_BACKEND=daemon,
+// as ps shows, though no document names them. The process keeps that
+// environment once claimed.
+func (Lead) Spare(environ []string) bool {
+	return trusthome.Getenv(environ, "CLAUDE_CODE_SESSION_KIND") == "bg" && trusthome.Getenv(environ, "CLAUDE_BG_BACKEND") == "daemon"
+}
+
 // RefuseShell refuses a shell that Claude Code in a terminal does not run,
 // from its environment alone.
 func (l Lead) RefuseShell(environ []string) error {

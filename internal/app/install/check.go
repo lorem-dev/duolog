@@ -30,6 +30,9 @@ type HookParts interface {
 // would write there now.
 type Status struct {
 	Agent, Scope string
+	// MissingPlugin names an available agent's absent duolog plugin and the
+	// commands that install it. It does not make native hooks or skills stale.
+	MissingPlugin string
 	// Installed is false when the scope has none of duolog's hooks and none of
 	// its skill folders for the agent: that is no install, not a stale one.
 	Installed bool
@@ -114,12 +117,15 @@ func (s Status) LeadLine(root string) string {
 }
 
 // Lines are what doctor and install --check print for the install: the line
-// of Line, then each note that needs the person and not install. None means
-// the install is current, or not there.
+// of Line, missing-plugin commands and each note that needs the person.
+// None means the install needs no action, or is absent with no missing plugin.
 func (s Status) Lines(root string) []string {
 	var lines []string
 	if line := s.Line(root); line != "" {
 		lines = append(lines, line)
+	}
+	if s.MissingPlugin != "" {
+		lines = append(lines, s.MissingPlugin)
 	}
 	if s.PluginHooks {
 		lines = append(lines, s.Agent+": duolog hooks are in "+shown(root, []string{s.HookFile})+" and the duolog plugin is enabled; they run twice")
@@ -202,7 +208,7 @@ func shown(root string, paths []string) string {
 // would write there now: duolog's hooks in the hooks or settings file, and
 // duolog's bundled skill folders. It writes nothing. Other hooks, settings
 // and skills are the person's and do not count. With o.HooksOnly the skills
-// do not count either.
+// do not count either. A missing plugin is reported without running commands.
 func (d Deps) Check(o Options) ([]Status, error) {
 	agents, base, err := d.resolve(o)
 	if err != nil {
@@ -217,6 +223,9 @@ func (d Deps) Check(o Options) ([]Status, error) {
 	mcp := d.mcpFiles(base)
 	for i, a := range agents {
 		s := checkAgent(a, d.Agents, o, base, scope, o.HooksOnly || shared[i] != "")
+		if !o.NoPlugin && d.pluginMissing(a, o, base) {
+			s.MissingPlugin = PluginNote(a)
+		}
 		s.SharedDir, s.SharesWith = shared[i], with[i]
 		checkMCP(&s, a, o)
 		checkInstruction(&s, a, o, base, mcp)

@@ -41,7 +41,7 @@ func TestLeadWindowFollowsThePlanRead(t *testing.T) {
 	for _, c := range []struct {
 		plan string
 		want int
-	}{{"max", 500000}, {"pro", 250000}, {"ultra", 700000}, {"enterprise", 250000}, {"", 250000}} {
+	}{{"max", 500000}, {"pro", 300000}, {"ultra", 700000}, {"enterprise", 300000}, {"", 300000}} {
 		root, reads := leadWindowConfig(t, "", c.plan)
 		w, err := leadWindow(root)
 		if err != nil {

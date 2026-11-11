@@ -56,3 +56,5 @@ For whole-session costs and the evidence for default effort limits, see
   duolog
 - [Hand-over study](research/2026-11-10-hand-over-study.md): lead, subagent,
   worker, planner and peer compared
+- [Compact window study](research/2026-11-11-compact-window-study.md): what
+  compacting the lead at 150k, 250k and 500k tokens cost

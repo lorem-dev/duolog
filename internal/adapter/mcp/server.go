@@ -316,16 +316,21 @@ func toolError(text string) *callResult {
 	return &callResult{Content: []textContent{{Type: "text", Text: text}}, IsError: true}
 }
 
+// call runs one tools/call, with the lead hints of its _meta in ctx.
 func (s *Server) call(ctx context.Context, params json.RawMessage) (*callResult, *rpcError) {
 	var p struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
+		Meta      json.RawMessage `json:"_meta"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil || p.Name == "" {
 		return nil, &rpcError{codeInvalidParams, "invalid params: tools/call needs a tool name"}
 	}
 	if !s.Enabled {
 		return toolError(s.Off), nil
+	}
+	if hints := metaHints(p.Meta); len(hints) > 0 {
+		ctx = WithLeadHints(ctx, hints)
 	}
 	args := p.Arguments
 	if len(bytes.TrimSpace(args)) == 0 || bytes.Equal(bytes.TrimSpace(args), []byte("null")) {
@@ -344,6 +349,42 @@ func (s *Server) call(ctx context.Context, params json.RawMessage) (*callResult,
 		return toolError(fmt.Sprintf("duolog could not encode the %s result: %v", p.Name, merr)), nil
 	}
 	return &callResult{Content: []textContent{{Type: "text", Text: string(text)}}}, nil
+}
+
+// leadHintsKey keys the lead hints of a tools/call in its context.
+type leadHintsKey struct{}
+
+// WithLeadHints returns ctx with hints, the session IDs a tools/call names,
+// for LeadHints.
+func WithLeadHints(ctx context.Context, hints []string) context.Context {
+	return context.WithValue(ctx, leadHintsKey{}, hints)
+}
+
+// LeadHints returns the session IDs that the _meta of the tools/call whose
+// context is ctx names: the thread, then its root thread, as Codex sends
+// them. The tools pass them to session.ResolveLead, before the session IDs of
+// the server's environment, which a Codex app-server froze when it started.
+// Nil means the call named none.
+func LeadHints(ctx context.Context) []string {
+	hints, _ := ctx.Value(leadHintsKey{}).([]string)
+	return hints
+}
+
+// metaHints reads threadId, then sessionId, from a tools/call's _meta, each
+// once. A _meta that is not an object, or a value that is not a string, gives
+// none: the call goes on without.
+func metaHints(raw json.RawMessage) []string {
+	var meta map[string]any
+	if len(raw) == 0 || json.Unmarshal(raw, &meta) != nil {
+		return nil
+	}
+	var hints []string
+	for _, key := range []string{"threadId", "sessionId"} {
+		if id, ok := meta[key].(string); ok && id != "" && !slices.Contains(hints, id) {
+			hints = append(hints, id)
+		}
+	}
+	return hints
 }
 
 // outcome is what one tool ran: its output or its error, or a protocol fault.

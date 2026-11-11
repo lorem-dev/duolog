@@ -433,13 +433,16 @@ are not changed.
 `auto` reads your Claude plan at worker start, from the same quota read that
 admits the worker, and takes the window from `workers.compact_ladder`. A plan
 that is not in the map, or one the read could not name, gets the smallest
-value in the map above `0`: `250000` with the defaults. That keeps a session
+value in the map above `0`: `300000` with the defaults. That keeps a session
 from running to Claude's own default, which on Opus can be the whole
 1M-token context. A plan the map lists with `0` gets Claude's own default.
+A window below `300000` is no cheaper: after each compaction the lead reads
+the code again, and a 150k window cost 26 to 31% more in the
+[compact window study](research/2026-11-11-compact-window-study.md).
 
 | Plan | `workers.compact_ladder` default |
 |---|---|
-| `pro` (the $20 plan) | `250000` |
+| `pro` (the $20 plan) | `300000` |
 | `max` (the $100 plan) | `500000` |
 | `ultra` (the $200 plan) | `700000` |
 
@@ -447,7 +450,7 @@ duolog takes the plan name from what Claude reports. Claude names the $200
 plan `max` and tells it apart by the tier `max_20x`; duolog reads that pair as
 `ultra`.
 
-Your own `compact_ladder` replaces single keys, such as `pro: 300000`, and
+Your own `compact_ladder` replaces single keys, such as `pro: 400000`, and
 adds plans (`free`, `team`, `business`, `enterprise`, `edu`). Each value is `0`
 or from `100000` to `1000000`.
 
@@ -1064,3 +1067,5 @@ set only `enabled: false`. See [Telemetry](telemetry.md).
   evidence behind the defaults
 - [Cost study](research/2026-11-01-cost-study.md): what duolog cost against
   one agent, the routing and gate measurements
+- [Compact window study](research/2026-11-11-compact-window-study.md): why
+  the ladder starts at 300k tokens

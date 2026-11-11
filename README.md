@@ -70,15 +70,18 @@ your plan, instead of at Claude's own default, which on Opus can be the whole
 
 | Compacts at | Set by duolog for | Opus cost per turn to re-read the context* |
 |---|---|---|
-| 250k tokens | Pro | 0.05 USD |
+| 300k tokens | Pro | 0.06 USD |
 | 500k tokens | Max, and Ultra while Claude reports it as Max | 0.10 USD |
 | 700k tokens | Ultra | 0.14 USD |
 | 1M tokens | (Claude's default on Opus) | 0.20 USD |
 
 \* An estimate at the Opus cache price of 0.20 USD per million tokens, as of
-November 2026: near 1M tokens a turn costs about four times what it costs at
-250k. Our [November 2026 study](docs/research/2026-11-10-hand-over-study.md)
-measured what whole tasks cost. To change the size, see
+November 2026: near 1M tokens a turn costs about three times what it costs at
+300k. A smaller window is no cheaper: each compaction makes the lead read the
+code again, and a 150k window cost 26 to 31% more in our
+[compact window study](docs/research/2026-11-11-compact-window-study.md). Our
+[hand-over study](docs/research/2026-11-10-hand-over-study.md) measured what
+whole tasks cost. To change the size, see
 `workers.compact_window` in
 [Configuration](docs/configuration.md#what-workers-inherit).
 
@@ -102,6 +105,8 @@ duolog uses the [Apache License 2.0](LICENSE).
 - [Glossary](docs/glossary.md): lead, worker, planner, peer and other words
 - [Hand-over study](docs/research/2026-11-10-hand-over-study.md): what each
   way of handing work over cost
+- [Compact window study](docs/research/2026-11-11-compact-window-study.md):
+  what compacting the lead earlier or later cost
 - [Configuration](docs/configuration.md): roles, models, defaults and limits
 - [Permissions](docs/permissions.md): how duolog decides for a worker
 - [Rex](docs/rex.md): a live second session

@@ -485,7 +485,7 @@ func (s *state) observeLead(o LeadObservation, started time.Time) (Lead, error) 
 	if s.Ended[o.ID] && (times.EndedAt.IsZero() || !started.After(times.EndedAt)) {
 		return current, fmt.Errorf("lead %q has ended", o.ID)
 	}
-	delete(s.Ended, o.ID)
+	s.revive(o, started)
 	if !known {
 		current = Lead{ID: o.ID, Target: config.Target{Agent: o.Agent}, Mode: mode.Ask}
 	}

@@ -6,6 +6,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/kit"
 	"github.com/lorem-dev/duolog/internal/install"
+	"github.com/pelletier/go-toml/v2"
 )
 
 // Installer writes duolog's hooks and skill for Codex: the hooks in
@@ -18,6 +19,31 @@ type Installer struct {
 	// EnvVars are the names, beside duolog's own, that the MCP server table
 	// forwards from the lead (see WithEnvVars).
 	EnvVars []string
+}
+
+// Installed reports whether Codex's user config registers the duolog plugin,
+// including a disabled install. Native hooks still need a separate install.
+func (Installer) Installed(_, home string, environ []string) bool {
+	environ = append(append([]string{}, environ...), "HOME="+home, "USERPROFILE="+home)
+	dir, err := kit.Home(environ, "CODEX_HOME", ".codex")
+	if err != nil {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "config.toml"))
+	var doc struct {
+		Plugins map[string]any `toml:"plugins"`
+	}
+	if err != nil || toml.Unmarshal(data, &doc) != nil {
+		return false
+	}
+	_, ok := doc.Plugins["duolog@duolog"]
+	return ok
+}
+
+// PluginCommands are the codex arguments that add the duolog marketplace and
+// install its plugin, in order.
+func (Installer) PluginCommands() [][]string {
+	return [][]string{{"plugin", "marketplace", "add", "lorem-dev/duolog"}, {"plugin", "add", "duolog@duolog"}}
 }
 
 // HookFile is the hooks file whose hooks scope selects: user scope is the

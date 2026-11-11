@@ -43,20 +43,20 @@ func TestWorkersCompactLadder(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A plan the defaults do not list, or none read, gets the smallest value.
-	for plan, want := range map[string]int{"pro": 250000, "max": 500000, "ultra": 700000, "free": 250000, "": 250000} {
+	for plan, want := range map[string]int{"pro": 300000, "max": 500000, "ultra": 700000, "free": 300000, "": 300000} {
 		if got := cfg.Workers.Window(plan); got != want {
 			t.Errorf("auto on %q: got %d, want %d", plan, got, want)
 		}
 	}
 	// A person's map replaces single keys.
-	writeConfig(t, userConfigPath(t), "workers:\n  compact_ladder:\n    pro: 300000\n    team: 0\n")
+	writeConfig(t, userConfigPath(t), "workers:\n  compact_ladder:\n    pro: 400000\n    team: 0\n")
 	cfg, err = Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// A listed 0 is the person's choice of Claude's own default; the fallback
 	// is the smallest value above 0.
-	for plan, want := range map[string]int{"pro": 300000, "max": 500000, "team": 0, "enterprise": 300000} {
+	for plan, want := range map[string]int{"pro": 400000, "max": 500000, "team": 0, "enterprise": 400000} {
 		if got := cfg.Workers.Window(plan); got != want {
 			t.Errorf("merged ladder on %q: got %d, want %d", plan, got, want)
 		}
@@ -83,7 +83,7 @@ func TestSharedLayersOnlyLowerWorkers(t *testing.T) {
 		{name: "raise window over auto", shared: "compact_window: 1000000",
 			window: "auto", notices: []string{"workers.compact_window"}},
 		{name: "lower window under auto", shared: "compact_window: 200000", window: "200000"},
-		{name: "window between ladder values", shared: "compact_window: 300000",
+		{name: "window between ladder values", shared: "compact_window: 400000",
 			window: "auto", notices: []string{"workers.compact_window"}},
 		{name: "0 over auto", shared: "compact_window: 0",
 			window: "auto", notices: []string{"workers.compact_window"}},
@@ -96,7 +96,7 @@ func TestSharedLayersOnlyLowerWorkers(t *testing.T) {
 		{name: "any number over 0", user: "compact_window: 0", shared: "compact_window: 900000", window: "900000"},
 		// A plan the base does not list gets the base's fallback, its
 		// smallest value, so a new plan may only go under that.
-		{name: "ladder", shared: "compact_ladder: {pro: 200000, max: 600000, ultra: 0, team: 300000, free: 0, edu: 150000}",
+		{name: "ladder", shared: "compact_ladder: {pro: 200000, max: 600000, ultra: 0, team: 400000, free: 0, edu: 150000}",
 			window: "auto", ladder: map[string]int{"pro": 200000, "max": 500000, "ultra": 700000, "team": 0, "free": 0, "edu": 150000},
 			notices: []string{"workers.compact_ladder.free", "workers.compact_ladder.max", "workers.compact_ladder.team", "workers.compact_ladder.ultra"}},
 		{name: "plugins on", shared: "inherit_plugins: true",

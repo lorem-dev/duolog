@@ -162,13 +162,58 @@ func TestWorkerNotRegisteredAsLead(t *testing.T) {
 		t.Fatal("worker registered")
 	}
 }
-func TestSecondLeadKeepsFirst(t *testing.T) {
-	e, r, _ := setup(t, "claude")
-	SessionStart(context.Background(), e)
-	other := change(t, e, "session_id", "second-123456")
-	SessionStart(context.Background(), other)
-	lead(t, r, e)
-	lead(t, r, other)
+
+// TestSecondLeadInProcess checks that a second lead in the same process ends
+// the first for Claude, which runs one session per process (a /clear, a
+// claimed bg spare), and keeps it for Codex, whose app-server runs several
+// threads.
+func TestSecondLeadInProcess(t *testing.T) {
+	for _, tc := range []struct {
+		agent     string
+		firstLive bool
+	}{
+		{agent: "claude", firstLive: false},
+		{agent: "codex", firstLive: true},
+	} {
+		t.Run(tc.agent, func(t *testing.T) {
+			e, r, _ := setup(t, tc.agent)
+			SessionStart(context.Background(), e)
+			other := change(t, e, "session_id", "second-123456")
+			SessionStart(context.Background(), other)
+			lead(t, r, other)
+			if _, ok, err := r.Lead(id(e)); err != nil || ok != tc.firstLive {
+				t.Fatalf("first lead live = %v (%v), want %v", ok, err, tc.firstLive)
+			}
+		})
+	}
+}
+
+// TestClaudeSpareRegistersOnFirstPrompt checks a Claude bg spare, whose
+// process starts before anyone claims it: its SessionStart registers
+// nothing, and the person's first prompt registers the session under the ID
+// it runs as. Either marker alone is no spare.
+func TestClaudeSpareRegistersOnFirstPrompt(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		env   []string
+		spare bool
+	}{
+		{name: "bg spare", env: []string{"CLAUDE_CODE_SESSION_KIND=bg", "CLAUDE_BG_BACKEND=daemon"}, spare: true},
+		{name: "bg kind only", env: []string{"CLAUDE_CODE_SESSION_KIND=bg"}},
+		{name: "daemon only", env: []string{"CLAUDE_BG_BACKEND=daemon"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, r, _ := setup(t, "claude")
+			e.Environ = append(e.Environ, tc.env...)
+			SessionStart(context.Background(), e)
+			if _, ok, err := r.Lead(id(e)); err != nil || ok == tc.spare {
+				t.Fatalf("session start registered = %v (%v), spare %v", ok, err, tc.spare)
+			}
+			claimed := change(t, e, "session_id", "claimed-123456")
+			Prompt(context.Background(), claimed)
+			lead(t, r, claimed)
+		})
+	}
 }
 func TestLeadWithoutModelInfo(t *testing.T) {
 	e, r, _ := setup(t, "claude")
@@ -430,10 +475,17 @@ func TestHookNeverFailsLead(t *testing.T) {
 		silent(t, fn(context.Background(), e))
 	}
 }
-func TestCodexPromptRegistersBeforeSessionStart(t *testing.T) {
-	e, r, _ := setup(t, "codex")
-	silent(t, Prompt(context.Background(), e))
-	lead(t, r, e)
+
+// TestPromptRegistersBeforeSessionStart checks that a prompt registers an
+// interactive lead of either agent whose session start registered none.
+func TestPromptRegistersBeforeSessionStart(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		t.Run(agent, func(t *testing.T) {
+			e, r, _ := setup(t, agent)
+			silent(t, Prompt(context.Background(), e))
+			lead(t, r, e)
+		})
+	}
 }
 func TestCodexRegistersWithLargeMetadataHeader(t *testing.T) {
 	e, r, _ := setup(t, "codex")

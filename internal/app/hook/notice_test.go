@@ -287,6 +287,7 @@ func TestStopAlertConfigWithinBudget(t *testing.T) {
 	}
 }
 
+// TestNoticeSkips checks the sessions and snapshots that give no notice.
 func TestNoticeSkips(t *testing.T) {
 	snap := func(e Env) func(context.Context, string) (runsnap.Snapshot, error) {
 		return ledSnapshot(runsnap.Snapshot{AsksOpen: 1})
@@ -301,7 +302,9 @@ func TestNoticeSkips(t *testing.T) {
 			case "peer":
 				e.Environ = append(e.Environ, "DUOLOG_PEER=p1")
 			case "unregistered":
+				// Not interactive, so its prompt registers no lead either.
 				e = change(t, e, "session_id", "stranger")
+				e.Environ = []string{"CLAUDE_CODE_ENTRYPOINT=sdk-cli"}
 			case "nil snapshot":
 				e.Snapshot = nil
 			case "snapshot error":

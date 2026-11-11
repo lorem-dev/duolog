@@ -35,6 +35,10 @@ type LeadObservation struct {
 	PID    *int
 	Root   *string
 	Ended  bool
+	// SoleInProcess means the agent runs one session per process: the
+	// observation of a new PID ends the other live leads of the same agent
+	// with that PID, as a /clear leaves them.
+	SoleInProcess bool
 }
 
 // Entry is one reusable worker thread or live peer session.

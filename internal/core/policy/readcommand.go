@@ -155,7 +155,10 @@ func rgShortsKnown(cluster string) bool {
 
 // gitExactReads are Git commands that are reads only exactly as written here.
 // Other uses of branch and rev-parse can write or name files.
-var gitExactReads = []string{"git branch --show-current", "git rev-parse --abbrev-ref HEAD"}
+var gitExactReads = []string{
+	"git branch --show-current", "git rev-parse", "git rev-parse HEAD", "git rev-parse --short HEAD",
+	"git rev-parse --abbrev-ref HEAD", "git rev-parse --show-toplevel", "git rev-parse --is-inside-work-tree",
+}
 
 // gitReadPattern reports whether the words of a rule pattern that starts with
 // git name a read: status, diff, log, show or worktree list, each with an

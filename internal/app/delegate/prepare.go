@@ -62,8 +62,10 @@ func taskCopy(work taskspec.Tree, path string) (taskspec.Tree, string) {
 // which the worker's gate lets it read (taskReads), and its text. Only a task
 // file under .duolog/, where the lead writes tasks, may list paths outside
 // the project; for any other, such as one a cloned repository ships, readTask
-// tells stderr which entries it ignores.
-func readTask(root, path string, stderr io.Writer) (writes, reads []string, original []byte, err error) {
+// tells stderr which entries it ignores. checkState refuses a Read entry of
+// duolog state the worker cannot read (stateReads); a judge, a calibration
+// cell and a replay read theirs through duolog itself.
+func readTask(root, path string, stderr io.Writer, checkState bool) (writes, reads []string, original []byte, err error) {
 	work := WorkTree(root)
 	name, _, err := work.Resolve(path)
 	if err != nil {
@@ -81,6 +83,9 @@ func readTask(root, path string, stderr io.Writer) (writes, reads []string, orig
 	if original, err = fs.ReadFile(work.FS, name); err != nil {
 		return nil, nil, nil, err
 	}
+	if err = stateReads(reads, checkState); err != nil {
+		return nil, nil, nil, err
+	}
 	if reads = taskReads(reads); len(reads) > 0 && !strings.HasPrefix(name, ".duolog/") {
 		if stderr != nil {
 			_, _ = fmt.Fprintf(stderr, "duolog delegate: task file %s is not under .duolog/, so the worker gets no reads outside the project from its Read: %s\n", name, strings.Join(reads, ", "))
@@ -88,6 +93,25 @@ func readTask(root, path string, stderr io.Writer) (writes, reads []string, orig
 		reads = nil
 	}
 	return writes, reads, original, nil
+}
+
+// stateReads refuses a task whose Read names duolog state that the worker's
+// gate will not let it read, such as .duolog/tasks/x.diff, before a worker
+// starts and stops on it. Markdown and the configs there stay readable.
+func stateReads(entries []string, check bool) error {
+	if !check {
+		return nil
+	}
+	var refused []string
+	for _, entry := range entries {
+		if policy.StateRead(pathutil.Clean(entry)) {
+			refused = append(refused, entry)
+		}
+	}
+	if len(refused) == 0 {
+		return nil
+	}
+	return fmt.Errorf("task Read lists %s, which workers may not read: duolog keeps .duolog/ from workers except Markdown and the configs; move the file out of .duolog/, or save it as a .md file there", strings.Join(refused, ", "))
 }
 
 // taskReads keeps the Read entries that can name a path outside the project:

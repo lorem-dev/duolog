@@ -86,19 +86,61 @@ func namesRunningOption(words []string) bool {
 	})
 }
 
+// goFlagOptions are options of the go command that take no value, so the
+// word after one is an operand.
+var goFlagOptions = []string{"-v", "-race", "-short", "-cover", "-json", "-x", "-n", "-a", "-failfast", "-benchmem", "-trimpath", "-work", "-modcacherw"}
+
+// optionTakesValue reports whether option, an option of program, may take the
+// next word as its value: not when its value is attached after =, nor for a
+// go option that takes none.
+func optionTakesValue(program, option string) bool {
+	if strings.Contains(option, "=") {
+		return false
+	}
+	return program != "go" || !slices.Contains(goFlagOptions, option)
+}
+
 // operandOnly reports whether the words before a word are a program that never
 // runs its operands, with its subcommand, such as go test or git diff. An
 // option that runs a program (-exec, --pager) anywhere before, or an option
 // right before the word whose value it may be, keeps the word a candidate.
 func operandOnly(before []string) bool {
-	subs, ok := operandPrograms[ProgramName(strings.Trim(before[0], `"'`))]
+	program := ProgramName(strings.Trim(before[0], `"'`))
+	subs, ok := operandPrograms[program]
 	if !ok || namesRunningOption(before[1:]) {
 		return false
 	}
-	if len(before) > 1 && strings.HasPrefix(before[len(before)-1], "-") {
+	if last := before[len(before)-1]; len(before) > 1 && strings.HasPrefix(last, "-") && optionTakesValue(program, last) {
 		return false
 	}
 	return subs == nil || len(before) > 1 && slices.Contains(subs, before[1])
+}
+
+// plainOperand reports whether words[i] is an operand that cannot start a
+// command: no option, no substitution, subshell or redirection, and either the
+// last word or a path with a slash, as in go test ./claude ./pkg. A bare name
+// with words after it, as in go test claude -p y, stays a candidate.
+func plainOperand(words []string, i int) bool {
+	w := words[i]
+	if strings.HasPrefix(w, "-") || strings.ContainsAny(w, "$`()<>") {
+		return false
+	}
+	return i == len(words)-1 || strings.Contains(w, "/")
+}
+
+// splitRunningOptions splits an option of runningOptions with its value after
+// =, as in -exec=./claude, into the option and the value, so that the value is
+// judged as the start of a command.
+func splitRunningOptions(words []string) []string {
+	out := make([]string, 0, len(words))
+	for _, w := range words {
+		if name, value, found := strings.Cut(w, "="); found && strings.HasPrefix(w, "-") && namesRunningOption([]string{name}) {
+			out = append(out, name, value)
+			continue
+		}
+		out = append(out, w)
+	}
+	return out
 }
 
 // testNameOptions are the options of go test whose value is a test name.
@@ -126,11 +168,11 @@ func goTestNameValue(words []string, i int) bool {
 // line end split $ from (. agent picks the agent rules (agentRule) or every
 // other exec deny.
 func innerCommandDeny(p config.Policy, lead LeadRules, m mode.Mode, a Action, part string, agent bool) (Decision, bool) {
-	words := strings.Fields(part)
+	words := splitRunningOptions(strings.Fields(part))
 	for i := range words {
 		tail := strings.TrimLeft(strings.Join(words[i:], " "), "$(`<>")
-		if agent && i > 0 && tail == words[i] && operandOnly(words[:i]) {
-			continue // a plain operand of a program that never runs it, as in go test ./pkg
+		if agent && i > 0 && plainOperand(words, i) && operandOnly(words[:i]) {
+			continue // a plain operand of a program that never runs it, as in go test ./pkg, in any place
 		}
 		if agent && goTestNameValue(words, i) {
 			continue

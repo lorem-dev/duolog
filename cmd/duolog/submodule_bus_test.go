@@ -20,6 +20,8 @@ import (
 	"github.com/lorem-dev/duolog/internal/testutil/submodule"
 )
 
+// TestSubmoduleAskOwnershipAndWake checks that asks of a superproject and
+// its submodule share one numbering and reach their one lead.
 func TestSubmoduleAskOwnershipAndWake(t *testing.T) {
 	isolatedRouteConfig(t)
 	t.Setenv("DUOLOG_DEPTH", "")
@@ -51,7 +53,7 @@ func TestSubmoduleAskOwnershipAndWake(t *testing.T) {
 	if subAsk <= superAsk {
 		t.Fatal("ask numbers are not globally increasing")
 	}
-	asks, err := leadAsks(f.Submodule)
+	asks, err := leadAsks(context.Background(), f.Submodule)
 	if err != nil || len(asks) != 2 {
 		t.Fatal(asks, err)
 	}

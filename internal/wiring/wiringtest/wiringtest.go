@@ -27,7 +27,7 @@ import (
 //     ask in this process plays the person's terminal, whatever agent runs
 //     the tests; a test of the walk starts duolog itself;
 //   - install gives the lead the fallback window of LeadWindow and reads no
-//     quota;
+//     quota, and starts no plugin commands;
 //   - Notify shows nothing on the desktop of the person who runs the tests.
 func Cmd(t *testing.T) wiring.CmdDeps {
 	t.Helper()
@@ -37,6 +37,8 @@ func Cmd(t *testing.T) wiring.CmdDeps {
 	d.AgentAbove = func([]string) bool { return false }
 	d.ParentAgent = func() string { return "" }
 	d.Install.LeadWindow = LeadWindow
+	d.Install.Available = func(string) bool { return false }
+	d.Install.RunPlugin = nil
 	d.Notify = func(string, string) {}
 	return d
 }

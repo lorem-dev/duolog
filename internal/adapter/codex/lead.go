@@ -26,6 +26,9 @@ func (Lead) Interactive(_ []string, transcript string) bool {
 	return session.Originator(transcript) == "codex-tui"
 }
 
+// Spare is false: Codex starts no session process ahead of time.
+func (Lead) Spare([]string) bool { return false }
+
 // RefuseShell refuses nothing: Codex's environment does not tell an
 // interactive thread, its rollout does.
 func (Lead) RefuseShell([]string) error { return nil }

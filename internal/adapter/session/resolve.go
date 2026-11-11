@@ -3,40 +3,41 @@ package session
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
+	"time"
 )
 
-// ResolveLead selects an explicit ID, environment ID, nearest ancestor lead,
-// then the sole live project lead. Ambiguity never starts an unowned worker.
-func (r *Registry) ResolveLead(explicit string) (Lead, error) {
+// SessionEnvNames are the variables in which the registered agents name the
+// session a command runs in, as their descriptors' SessionEnv list them, in
+// order. ResolveLead reads them as lead hints. The wiring package sets them;
+// unset, the environment gives no hints.
+var SessionEnvNames []string
+
+// ResolveLead selects an explicit ID, then DUOLOG_LEAD. Then the first of
+// hints, and after them the session IDs that SessionEnvNames name in the
+// environment, that is a live lead; a hint that is none, as a worker's own
+// session ID, is no error. Then the nearest ancestor lead, with the hints
+// choosing among leads that share a process, as a Codex app-server's threads
+// do, and then the sole live project lead. Ambiguity never starts an unowned
+// worker.
+func (r *Registry) ResolveLead(explicit string, hints ...string) (Lead, error) {
 	id := explicit
 	if id == "" {
 		id = CurrentLead(os.Environ())
 	}
 	if id != "" {
-		if strings.Contains(id, "/lead.") {
-			l, ok, err := r.LeadByAddress(id)
-			if err != nil {
-				return Lead{}, err
-			}
-			if ok {
-				return l, nil
-			}
-		}
-		l, ok, err := r.Lead(id)
-		if err != nil {
-			return Lead{}, err
-		}
-		if !ok {
-			return Lead{}, fmt.Errorf("lead %q is not a live lead in %s: it was never registered in this project's state, or its session ended; run `duolog lead register` inside the lead session", id, r.Dir)
-		}
-		return l, nil
+		return r.namedLead(id)
+	}
+	hints = append(slices.Clip(hints), EnvHints(os.Environ())...)
+	if l, ok, err := r.hintedLead(hints); err != nil || ok {
+		return l, err
 	}
 	live, err := r.liveLeads()
 	if err != nil {
 		return Lead{}, err
 	}
-	if l, ok, err := ancestorLead(live); err != nil || ok {
+	if l, ok, err := ancestorLead(live, hints...); err != nil || ok {
 		return l, err
 	}
 	if len(live) == 1 {
@@ -46,6 +47,80 @@ func (r *Registry) ResolveLead(explicit string) (Lead, error) {
 		return Lead{}, fmt.Errorf("no live lead; start a lead session in this project, or run `duolog lead register` inside the lead session")
 	}
 	return Lead{}, fmt.Errorf("several live leads; select one with --lead or DUOLOG_LEAD")
+}
+
+// namedLead is the live lead that id names, by session ID or bus address; a
+// lead that is not live is an error.
+func (r *Registry) namedLead(id string) (Lead, error) {
+	if strings.Contains(id, "/lead.") {
+		l, ok, err := r.LeadByAddress(id)
+		if err != nil {
+			return Lead{}, err
+		}
+		if ok {
+			return l, nil
+		}
+	}
+	l, ok, err := r.Lead(id)
+	if err != nil {
+		return Lead{}, err
+	}
+	if !ok {
+		return Lead{}, fmt.Errorf("lead %q is not a live lead in %s: it was never registered in this project's state, or its session ended; run `duolog lead register` inside the lead session", id, r.Dir)
+	}
+	return l, nil
+}
+
+// hintedLead is the live lead that the first of hints names, and true; false
+// when none of them names one.
+func (r *Registry) hintedLead(hints []string) (Lead, bool, error) {
+	for _, id := range hints {
+		if id == "" {
+			continue
+		}
+		l, ok, err := r.Lead(id)
+		if err != nil || ok {
+			return l, ok, err
+		}
+	}
+	return Lead{}, false, nil
+}
+
+// revive drops the tombstone of o's lead, which a later observation brings
+// back, and ends the leads o's process no longer runs (endProcessPeers).
+func (s *state) revive(o LeadObservation, started time.Time) {
+	delete(s.Ended, o.ID)
+	s.endProcessPeers(o, started)
+}
+
+// endProcessPeers ends, for an observation with SoleInProcess and a PID, the
+// other live leads of the same agent that run in that process: their
+// process now runs o's session, as after a /clear. An observation without
+// them ends nothing, so leads that share a process, as Codex threads do,
+// stay.
+func (s *state) endProcessPeers(o LeadObservation, started time.Time) {
+	if !o.SoleInProcess || o.PID == nil || *o.PID <= 0 {
+		return
+	}
+	for id, l := range s.Leads {
+		if id != o.ID && l.Agent == o.Agent && l.PID == *o.PID {
+			_, _ = s.observeLead(LeadObservation{ID: id, Agent: l.Agent, Ended: true}, started)
+		}
+	}
+}
+
+// EnvHints returns the session IDs that environ sets under SessionEnvNames,
+// in their order and each once.
+func EnvHints(environ []string) []string {
+	var hints []string
+	for _, name := range SessionEnvNames {
+		for _, kv := range environ {
+			if v, ok := strings.CutPrefix(kv, name+"="); ok && v != "" && !slices.Contains(hints, v) {
+				hints = append(hints, v)
+			}
+		}
+	}
+	return hints
 }
 
 // liveLeads returns the registry's leads that are still live.

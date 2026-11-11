@@ -23,9 +23,11 @@ const problem = atom({ plugin: 'duolog', key: 'problem' } as const, '')
 const TICK_MS = 1000
 const OPEN_MS = 1000
 const CLOSED_MS = 3000
-// A lead with nothing to show this long stops the timer until the next
-// prompt or tool call.
+// A lead with nothing to show this long polls only every QUIET_POLL_MS, so a
+// worker started outside the lead's turn, from a terminal or another agent,
+// still shows. The next prompt or tool call polls at the closed rate again.
 const QUIET_MS = 30000
+const QUIET_POLL_MS = 15000
 const RUN_MS = 5000
 // The pane keeps the last lines of a run's log.
 const TAIL_LINES = 200
@@ -153,8 +155,10 @@ export const register: Register = on => {
   let lastPoll = -Infinity
   let quietSince: number | undefined
 
-  // wake starts the timer again after a quiet spell.
+  // wake ends a quiet spell, so the timer polls at the closed rate again, and
+  // starts the timer once the session has set it up.
   const wake = () => {
+    quietSince = undefined
     if (timer === undefined) start?.()
   }
 
@@ -259,9 +263,6 @@ export const register: Register = on => {
         quietSince = undefined
       } else if (quietSince === undefined) {
         quietSince = now
-      } else if (now - quietSince >= QUIET_MS) {
-        timer?.cancel()
-        timer = undefined
       }
     }
 
@@ -294,7 +295,8 @@ export const register: Register = on => {
         } catch {
           open = false
         }
-        if (now - lastPoll >= (open ? OPEN_MS : CLOSED_MS)) {
+        const slow = quietSince !== undefined && now - quietSince >= QUIET_MS
+        if (now - lastPoll >= (open ? OPEN_MS : slow ? QUIET_POLL_MS : CLOSED_MS)) {
           lastPoll = now
           await poll(now)
         }

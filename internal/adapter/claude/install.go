@@ -169,6 +169,18 @@ func (Installer) Enabled(root, home string, environ []string) (bool, error) {
 	return install.PluginEnabledIn(root, home, environ), nil
 }
 
+// Installed reports whether Claude's plugin registry holds a duolog plugin
+// with gate hooks for root, independently of whether it is enabled.
+func (Installer) Installed(root, home string, environ []string) bool {
+	return install.PluginInstalledIn(root, home, environ)
+}
+
+// PluginCommands are the claude arguments that add the duolog marketplace
+// and install its plugin, in order.
+func (Installer) PluginCommands() [][]string {
+	return [][]string{{"plugin", "marketplace", "add", "lorem-dev/duolog"}, {"plugin", "install", "duolog@duolog"}}
+}
+
 // HooksJSON renders the hooks of Claude, as Installer.Hooks merges them into
 // a settings file.
 func HooksJSON(timeout int) ([]byte, error) {

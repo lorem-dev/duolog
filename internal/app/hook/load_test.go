@@ -82,8 +82,9 @@ func TestPromptLoadLineAdvisesFreeSessionsOfAnEmptyQueue(t *testing.T) {
 	}
 }
 
-// The lead's prompt starts its queue run; the run itself checks the queue and
-// the free sessions. Workers, peers and a session that is no lead start none.
+// TestPromptStartsTheLeadsQueueRun checks that the lead's prompt starts its
+// queue run; the run itself checks the queue and the free sessions. Workers,
+// peers and a session that is no lead start none.
 func TestPromptStartsTheLeadsQueueRun(t *testing.T) {
 	e, _ := registered(t, "claude")
 	var leads []string
@@ -102,6 +103,8 @@ func TestPromptStartsTheLeadsQueueRun(t *testing.T) {
 		Prompt(context.Background(), other)
 	}
 	stranger, _, _ := setup(t, "claude")
+	// A prompt registers an interactive Claude session; this one is not.
+	stranger.Environ = []string{"CLAUDE_CODE_ENTRYPOINT=sdk-cli"}
 	stranger.QueueRun = e.QueueRun
 	Prompt(context.Background(), stranger)
 	if len(leads) != 1 {
@@ -143,8 +146,11 @@ func TestPromptWithoutLoadOrPeersAddsNothing(t *testing.T) {
 	silent(t, Prompt(context.Background(), e))
 }
 
+// TestPromptLoadLineNeedsARegisteredLead checks that a session that is no
+// lead gets no load line.
 func TestPromptLoadLineNeedsARegisteredLead(t *testing.T) {
-	e, _, _ := setup(t, "claude") // never started: a Claude prompt does not register
+	e, _, _ := setup(t, "claude") // never started, and not interactive: its prompt does not register
+	e.Environ = []string{"CLAUDE_CODE_ENTRYPOINT=sdk-cli"}
 	var calls int
 	var seen string
 	e = withLoad(e, &calls, &seen)

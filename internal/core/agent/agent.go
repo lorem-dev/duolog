@@ -91,6 +91,11 @@ type Descriptor struct {
 	LoginPhrases    []string // lower-case texts of a refused login
 	InstructionFile string   // CLAUDE.md, AGENTS.md
 	LeadCanAsk      bool     // the lead can ask the person
-	Pane            PaneFacts
-	Config          ConfigFacts
+	// OneSessionPerProcess means one agent process runs one session at a
+	// time, so a new lead seen in a process ends the leads registered there
+	// before: true for Claude Code, false for Codex, whose app-server runs
+	// every thread in one process.
+	OneSessionPerProcess bool
+	Pane                 PaneFacts
+	Config               ConfigFacts
 }

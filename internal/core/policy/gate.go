@@ -215,7 +215,7 @@ func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
 	if d, ok := planLimit(p, m, a, parts, uncertain, lineWrites, readAsk, decision); ok {
 		return d
 	}
-	if d, ok := outsideReadAllow(p, lead, a, readAsk, decision); ok {
+	if d, ok := envOrOutsideAllow(p, lead, m, a, readAsk, decision); ok {
 		return d
 	}
 	if (a.Kind == "read" || a.Kind == "write") && outside(a.Target) {

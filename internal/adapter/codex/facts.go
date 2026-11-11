@@ -13,10 +13,12 @@ var Facts = agent.Descriptor{
 	ConfigEnv:     "CODEX_HOME",
 	ConfigDefault: ".codex",
 	ProjectDir:    ".codex",
-	SessionEnv:    []string{"CODEX_THREAD_ID"},
-	Markers:       []string{"CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED", "CODEX_THREAD_ID"},
-	ModelPrefix:   "gpt-",
-	Families:      []string{"astra", "sol", "terra", "luna"},
+	// The thread a command runs in, then its root thread: a subagent's
+	// thread is no lead, the thread it was spawned from is.
+	SessionEnv:  []string{"CODEX_THREAD_ID", "CODEX_SESSION_ID"},
+	Markers:     []string{"CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED", "CODEX_THREAD_ID"},
+	ModelPrefix: "gpt-",
+	Families:    []string{"astra", "sol", "terra", "luna"},
 	Credentials: agent.EnvNames{
 		APIKey:  []string{"CODEX_API_KEY", "OPENAI_API_KEY"},
 		BaseURL: []string{"OPENAI_BASE_URL"},
@@ -24,6 +26,9 @@ var Facts = agent.Descriptor{
 	HiddenPrefixes:  []string{"CODEX_", "OPENAI_"},
 	LoginPhrases:    []string{"codex login", "token_expired", "invalid_token", "refresh token"},
 	InstructionFile: "AGENTS.md",
+	// One codex app-server process runs every thread of the person's
+	// sessions, so a new thread never ends another.
+	OneSessionPerProcess: false,
 	Pane: agent.PaneFacts{
 		Placeholder: `^Ask Codex to do anything$`,
 		Updater:     []string{"updating codex"},

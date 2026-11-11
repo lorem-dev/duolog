@@ -31,7 +31,10 @@ Check each part of an installer pipeline for failure too.
 
    Run `duolog version` again. If it did not change, say this was
    already the newest release and go on.
-3. Update this agent's plugin. Run these two commands, one at a time:
+3. Run `claude plugin marketplace list`. If no marketplace is named
+   `duolog`, run `claude plugin marketplace add lorem-dev/duolog`, then
+   `claude plugin install duolog@duolog`.
+   If `duolog` is already listed, update it and the plugin instead:
 
    ```sh
    claude plugin marketplace update duolog

@@ -22,6 +22,10 @@ import (
 
 var sections = []string{"Goal", "Read", "Write", "Limits", "Check"}
 
+// extraSection prefixes the key under which parse keeps a section that is not
+// one of sections, so that no caller reads it as one.
+const extraSection = "extra:"
+
 func parse(data []byte) (map[string]string, error) {
 	result := make(map[string]string)
 	otherLevels := !hasSecondLevelSections(string(data))
@@ -40,6 +44,13 @@ func parse(data []byte) (map[string]string, error) {
 			}
 		}
 		if name, ok := sectionHeading(line, next, otherLevels); fence == "" && ok {
+			if !slices.Contains(sections, name) && name != "Run" {
+				// A section of the author's own, such as Notes, is free text
+				// for the worker; its list names no path to read or write.
+				current = extraSection + name
+				result[current] = ""
+				continue
+			}
 			advance, err := sectionAdvance(name, next, result)
 			if err != nil {
 				return nil, err

@@ -74,7 +74,8 @@ type taskPlan struct {
 // readTaskPlan is readTask with the taskPlan of the task. A replay, a judge and
 // a calibration cell are not the lead's hand-over: their commands are not read.
 func readTaskPlan(root, path string, opts Options) (writes, reads []string, original []byte, plan *taskPlan, err error) {
-	if writes, reads, original, err = readTask(root, path, opts.Stderr); err != nil {
+	lead := !opts.Judge && !opts.Calibration && opts.ReplayOf == ""
+	if writes, reads, original, err = readTask(root, path, opts.Stderr, lead); err != nil {
 		return nil, nil, nil, nil, err
 	}
 	plan = &taskPlan{folders: readWriteFolders(root, path)}

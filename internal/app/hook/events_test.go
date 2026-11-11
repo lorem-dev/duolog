@@ -26,6 +26,7 @@ func withAgent(e Env, name string) Env {
 	e.Agent, e.Events, e.Lead = name, fakeAgent{name}, fakeAgent{name}
 	if name == "claude" {
 		e.Events = fakeStopAgent{fakeAgent{name}}
+		e.OneSessionPerProcess = true
 	}
 	e.Caps = map[string]roster.Caps{}
 	for agent, c := range launchtest.AllCaps() {
@@ -100,4 +101,10 @@ func (a fakeAgent) Interactive(environ []string, transcript string) bool {
 		return session.Originator(transcript) == "codex-tui"
 	}
 	return slices.Contains(environ, "CLAUDE_CODE_ENTRYPOINT=cli")
+}
+
+// Spare is the "claude" fake's bg spare check, as Claude's Lead has it; a
+// "codex" one is never a spare.
+func (a fakeAgent) Spare(environ []string) bool {
+	return a.name == "claude" && slices.Contains(environ, "CLAUDE_CODE_SESSION_KIND=bg") && slices.Contains(environ, "CLAUDE_BG_BACKEND=daemon")
 }

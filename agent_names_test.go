@@ -70,7 +70,6 @@ var pendingAgentNames = map[string]string{
 	"internal/app/doctor/doctor.go":          reasonPending,
 	"internal/app/doctor/workermodes.go":     reasonPending,
 	"internal/app/hook/compact.go":           reasonPending,
-	"internal/app/hook/hook.go":              reasonPending,
 	"internal/app/quota/calibration.go":      reasonPending,
 	"internal/app/quota/observe.go":          reasonPending,
 	"internal/app/quota/report.go":           reasonPending,
@@ -86,7 +85,7 @@ var pendingAgentNames = map[string]string{
 
 // maxPendingAgentNames is the length of pendingAgentNames. It may only go
 // down.
-const maxPendingAgentNames = 28
+const maxPendingAgentNames = 27
 
 // TestAgentNames fails on a string literal equal to an agent's name in a
 // non-test Go file outside agentNameHomes and pendingAgentNames. Test-tier

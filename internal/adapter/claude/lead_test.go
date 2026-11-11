@@ -54,3 +54,26 @@ func TestLeadInteractiveNeedsTheTerminalEntrypoint(t *testing.T) {
 		t.Fatal("an SDK session counted as interactive")
 	}
 }
+
+// TestLeadSpare checks that a bg spare carries both markers, and either
+// alone, or another value, is none. The spare check leaves Interactive as it
+// is.
+func TestLeadSpare(t *testing.T) {
+	for _, tc := range []struct {
+		env  []string
+		want bool
+	}{
+		{env: []string{"CLAUDE_CODE_SESSION_KIND=bg", "CLAUDE_BG_BACKEND=daemon"}, want: true},
+		{env: []string{"CLAUDE_CODE_SESSION_KIND=bg"}},
+		{env: []string{"CLAUDE_BG_BACKEND=daemon"}},
+		{env: []string{"CLAUDE_CODE_SESSION_KIND=interactive", "CLAUDE_BG_BACKEND=daemon"}},
+		{env: nil},
+	} {
+		if got := (Lead{}).Spare(tc.env); got != tc.want {
+			t.Errorf("Spare(%q) = %v, want %v", tc.env, got, tc.want)
+		}
+	}
+	if !(Lead{}).Interactive([]string{"CLAUDE_CODE_ENTRYPOINT=cli", "CLAUDE_CODE_SESSION_KIND=bg", "CLAUDE_BG_BACKEND=daemon"}, "") {
+		t.Fatal("a bg spare in a terminal stopped counting as interactive")
+	}
+}

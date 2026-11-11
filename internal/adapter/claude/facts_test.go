@@ -7,6 +7,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/agent"
 )
 
+// TestFacts checks every field of Claude Code's descriptor.
 func TestFacts(t *testing.T) {
 	want := agent.Descriptor{
 		Name:          "claude",
@@ -36,6 +37,8 @@ func TestFacts(t *testing.T) {
 		LoginPhrases:    []string{"not logged in", "please run /login", "invalid api key", "oauth token has expired", "authentication_error", "401 unauthorized"},
 		InstructionFile: "CLAUDE.md",
 		LeadCanAsk:      true,
+		// A /clear or a claimed bg spare runs a new session in the process.
+		OneSessionPerProcess: true,
 		// internal/core/screen/screen.go claudeTry, interruptedRe, updatingRe.
 		Pane: agent.PaneFacts{
 			Placeholder: `^Try[\s\x{00a0}]+["“]`,

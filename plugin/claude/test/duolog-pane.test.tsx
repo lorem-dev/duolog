@@ -298,17 +298,21 @@ for (const surface of SURFACES) {
     await ui.unmount()
   })
 
-  test(`a quiet lead stops polling until the next prompt (${surface})`, async ($, on) => {
+  test(`a quiet lead polls every 15 s until the next prompt (${surface})`, async ($, on) => {
     const world = stand(on, { snapshot: { ...SNAPSHOT, line: '', peers: [], runs: [] } })
     await $.session.start({ ...start, surface })
     await world.clock.advance(40000)
     const polls = world.ran.length
     await world.clock.advance(10000)
-    expect(world.ran.length).toBe(polls)
-
-    await $.prompt.submit({ text: 'hello', origin: { kind: 'composer' }, wait: false })
-    await world.clock.advance(3000)
+    expect(world.ran.length).toBeLessThanOrEqual(polls + 1)
+    // A worker started from a terminal still shows within the slow rate.
+    await world.clock.advance(20000)
     expect(world.ran.length).toBeGreaterThan(polls)
+
+    const slow = world.ran.length
+    await $.prompt.submit({ text: 'hello', origin: { kind: 'composer' }, wait: false })
+    await world.clock.advance(6000)
+    expect(world.ran.length).toBeGreaterThanOrEqual(slow + 2)
   })
 
   test(`a finished tool call starts polling again (${surface})`, async ($, on) => {

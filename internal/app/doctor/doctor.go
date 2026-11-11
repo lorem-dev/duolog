@@ -283,13 +283,16 @@ func homeShort(path string) string {
 
 // installFindings warns of each install that is out of date: a binary upgrade
 // leaves the installed hooks and skills as they were. It also says what the
-// lead's compact window is.
+// lead's compact window is and warns when an available agent lacks its plugin.
 func installFindings(d Deps, root string) []Finding {
 	home, _ := os.UserHomeDir()
 	var out []Finding
+	out = append(out, pluginFindings(d, root, home)...)
 	if d.InstallCheck != nil {
 		for _, line := range d.InstallCheck(root, home) {
-			out = append(out, Finding{"warning", line})
+			if !slices.ContainsFunc(out, func(f Finding) bool { return f.Message == line }) {
+				out = append(out, Finding{"warning", line})
+			}
 		}
 	}
 	if d.LeadCompact != nil {
@@ -307,6 +310,24 @@ func installFindings(d Deps, root string) []Finding {
 		// in its settings.
 		if plugged := d.ClaudePlugin(root, home); plugged || d.hasDuolog("claude", root) {
 			out = append(out, Finding{"info", claudePaneLine(plugged)})
+		}
+	}
+	return out
+}
+
+// pluginFindings warns about an absent duolog plugin only when its agent CLI
+// is available. Plugin state comes from files, so no agent command runs here.
+func pluginFindings(d Deps, root, home string) []Finding {
+	if d.Available == nil || d.PluginMissing == nil {
+		return nil
+	}
+	var out []Finding
+	for _, name := range d.Names {
+		if !d.Available(name) {
+			continue
+		}
+		if note := d.PluginMissing(name, root, home); note != "" {
+			out = append(out, Finding{"warning", note})
 		}
 	}
 	return out

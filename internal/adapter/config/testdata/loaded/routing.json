@@ -656,6 +656,21 @@
       },
       {
         "Action": "exec",
+        "Match": "mkdir *",
+        "Decision": "allow",
+        "Roles": [
+          "planner",
+          "implement",
+          "implement_complex",
+          "mechanical",
+          "tests",
+          "docs",
+          "debug_hard"
+        ],
+        "ReadOnly": false
+      },
+      {
+        "Action": "exec",
         "Match": "git {status,diff,log,show,worktree list}*",
         "Decision": "allow",
         "Roles": null,
@@ -663,7 +678,7 @@
       },
       {
         "Action": "exec",
-        "Match": "git {branch --show-current,rev-parse --abbrev-ref HEAD}",
+        "Match": "git {branch --show-current,rev-parse,rev-parse HEAD,rev-parse --short HEAD,rev-parse --abbrev-ref HEAD,rev-parse --show-toplevel,rev-parse --is-inside-work-tree}",
         "Decision": "allow",
         "Roles": null,
         "ReadOnly": false
@@ -776,7 +791,7 @@
     "CompactWindow": "auto",
     "CompactLadder": {
       "max": 500000,
-      "pro": 250000,
+      "pro": 300000,
       "ultra": 700000
     }
   },

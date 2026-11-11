@@ -122,6 +122,14 @@ worker gate. See [Permissions](permissions.md#where-the-checks-run).
 
 ## How to install the hooks and the skill
 
+At either scope, `duolog install` installs each agent's duolog plugin when
+its CLI is on PATH and the plugin is missing. It first lists marketplaces
+and adds `lorem-dev/duolog` only when none is named `duolog`. Use
+`--no-plugin` to skip plugin setup. A development version prints the manual
+commands instead of installing a release plugin. If a command fails or
+takes more than 60 seconds, install prints those commands and continues
+with native hooks and skills. A missing CLI needs no plugin setup.
+
 `duolog install --scope project` writes these files and prints each path:
 
 | File | Content |
@@ -232,9 +240,10 @@ without writing anything, run:
 duolog install --check
 ```
 
-It takes the same `--scope` and `--agent` flags. Use it in a Git hook or a
-CI job. Only duolog's own hooks and skill folders count; your other hooks,
-settings and skills do not.
+It takes the same `--scope`, `--agent` and `--no-plugin` flags. It reports
+missing plugins without running plugin commands. Use it in a Git hook or a
+CI job. Only duolog's own hooks and skill folders count toward its exit
+code; your other hooks, settings and skills do not.
 
 | Exit code | Meaning |
 |---|---|
@@ -323,7 +332,11 @@ default environment, such as `HOME`, `PATH` and `USER`, so `env_vars`
 forwards the rest that duolog needs from the lead: the `DUOLOG_DEPTH` and
 `DUOLOG_PEER` markers, the agents' homes, duolog's config and state folders,
 Rex's session, and the `env_passthrough` and `paid_runs.<agent>.env` names of
-your config. A `delegate` run that the server starts gets these. Run
+your config. A `delegate` run that the server starts gets these. A Codex
+that runs its threads in a `codex app-server` starts the server there, with
+the environment the app-server started with, so `PATH` and Rex's session
+can be older than the lead's: restart the app-server after you update
+duolog. Run
 `duolog install` again after you change `env_passthrough` or a
 `paid_runs` env list. The table is one for all projects, so `env_vars`
 collects the names of every project that ran install: install adds new
@@ -368,7 +381,11 @@ or different entry and missing allow entries.
 A marketplace is a Git repository that lists plugins. This repository is its
 own marketplace, named `duolog`. It is not in the official plugin
 directories yet, so each agent needs the address once. Install the binary
-first, because the plugins call it.
+first, because the plugins call it. `duolog install` normally adds the
+marketplace and installs missing plugins for you. The commands below also
+work by hand after `--no-plugin`, a development build or a failed command.
+`duolog doctor` warns when an available agent lacks the plugin and prints
+these commands.
 
 In Claude Code, run these commands in a terminal:
 
@@ -440,6 +457,11 @@ in `/usage`, when it may call Haiku once per route.
 A task is a Markdown file with five required sections: Goal, Read,
 Write, Limits and Check, with optional Run between Limits and Check.
 Each section is a heading, usually `## Goal`; `# Goal` and `### Goal` work too.
+A `##` section of your own, such as `## Notes`, may go anywhere: the worker
+reads it as text, and duolog takes no path to read or write from it.
+Read may not name a file under `.duolog/` other than Markdown and the
+configs, because workers may not read duolog's state; `duolog delegate`
+refuses such a task before a worker starts.
 Save it inside the project. `.duolog/task.md` is a good place, because Git
 ignores `.duolog/`.
 
@@ -490,10 +512,23 @@ Send the task to a role:
 duolog delegate review_intermediate --task .duolog/task.md
 ```
 
-The command finds its lead from `--lead`, then `DUOLOG_LEAD`, then a registered
-ancestor, then the only live lead in the project. With none or several, it
-refuses. The SessionStart line gives the ID for `--lead` when needed. `route`,
-`mode`, `roster` and `peer` use the same choice.
+The command finds its lead in this order:
+
+1. `--lead`, then `DUOLOG_LEAD`.
+2. The session that the agent names in the command's environment, when that
+   session is a live lead: `CLAUDE_CODE_SESSION_ID`, then `CODEX_THREAD_ID`,
+   then `CODEX_SESSION_ID`, the root thread of a Codex subagent. A duolog
+   MCP tool first tries the thread and root thread that Codex names in the
+   call itself.
+3. A registered ancestor process. Codex runs every thread in one
+   `codex app-server` process, so several leads can share it; the session
+   IDs of step 2 choose among them.
+4. The only live lead in the project.
+
+A session ID that is no lead, such as a worker's own, is no error: the next
+step decides. With no lead or several, the command refuses. The
+SessionStart line gives the ID for `--lead` when needed. `route`, `mode`,
+`roster` and `peer` use the same choice.
 
 Use a long shell-tool timeout for delegate; split tasks beyond the host's
 limit. An ask denies at once while the lead waits on delegate. The worker

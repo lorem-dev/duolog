@@ -58,6 +58,11 @@ type Deps struct {
 	// the Claude pane mod, is enabled for a Claude lead in the project at
 	// root. Nil reports nothing.
 	ClaudePlugin func(root, home string) bool
+	// PluginMissing reads, without starting its CLI, whether agent's duolog
+	// plugin is installed, and returns the note with the commands that
+	// install it, or "" when it is installed or the agent has none. Nil skips
+	// missing-plugin findings.
+	PluginMissing func(agent, root, home string) string
 }
 
 // Trust reads what an agent's settings and approvals say about duolog's

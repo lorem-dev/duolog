@@ -32,6 +32,10 @@ func newMCPCommand(d *cmdDeps) *cobra.Command {
 
 type mcpApp struct{ d *cmdDeps }
 
+// hintsFrom returns the lead hints of the MCP tool call whose context is
+// ctx, which the tools pass to ResolveLead; a CLI command's context has none.
+func hintsFrom(ctx context.Context) []string { return mcp.LeadHints(ctx) }
+
 func (a mcpApp) Delegate(ctx context.Context, in mcp.DelegateInput) (mcp.DelegateOutput, error) {
 	return a.d.mcpDelegate(ctx, in)
 }

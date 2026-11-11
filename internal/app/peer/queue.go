@@ -646,7 +646,8 @@ func (e *env) tellLead(item QueueItem, text string) error {
 // appends its output to peer-queue-run.log in the state folder, which a run
 // empties once it holds the lock. peer close calls it with no free; the lead's
 // prompt hook and a peer's idle event call it with the load line's free
-// sessions.
+// sessions. The lead is the options' Lead, else the first of their LeadHints
+// that is a live lead, as ResolveLead picks it.
 func StartQueueRun(ctx context.Context, free func(agent string) bool) (bool, error) {
 	opts, err := callerOptions(ctx)
 	if err != nil {
@@ -661,7 +662,7 @@ func StartQueueRun(ctx context.Context, free func(agent string) bool) (bool, err
 	if all, err := readQueue(e.dir); err != nil || !slices.ContainsFunc(all, waiting) {
 		return false, err
 	}
-	lead, err := e.reg.ResolveLead(opts.Lead)
+	lead, err := e.reg.ResolveLead(opts.Lead, opts.LeadHints...)
 	if err != nil {
 		return false, err
 	}

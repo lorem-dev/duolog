@@ -59,10 +59,14 @@ func (d *cmdDeps) mcpDelegate(ctx context.Context, in mcp.DelegateInput) (mcp.De
 
 // mcpDelegateRun starts the delegation and waits for it when the call asks.
 func (d *cmdDeps) mcpDelegateRun(ctx context.Context, in mcp.DelegateInput) (out mcp.DelegateOutput, err error) {
+	if in.Task == nil && in.TaskPath != "" {
+		// Codex leads pass a task file here; the tool reads no file.
+		return mcp.DelegateOutput{}, errors.New("task_path is only for action=result, with the id of a running call; to start a run, pass task as an object with goal, read, write, limits and check, or run duolog delegate <role> <file> for a task file")
+	}
 	if in.Role == "" || in.Task == nil {
 		return mcp.DelegateOutput{}, errors.New("delegate needs role and task; for an earlier run use action=result with its task_path")
 	}
-	stateDir, work, lead, err := mcpDelegateLead(in.Worktree)
+	stateDir, work, lead, err := mcpDelegateLead(in.Worktree, hintsFrom(ctx))
 	if err != nil {
 		return mcp.DelegateOutput{}, err
 	}
@@ -211,9 +215,10 @@ func mcpDelegateArgv(exe string, in mcp.DelegateInput, rel, lead, path string) [
 // mcpDelegateLead resolves where a delegation runs: the checkout worktree
 // names (with the peer tool's rules), or the server's own; the state folder of
 // that checkout's work project; and the server's lead in its lead home, as
-// duolog delegate would find it. The server is the lead's child, so the
-// ancestor walk finds the lead, whichever checkout the run takes.
-func mcpDelegateLead(worktree string) (stateDir, work, lead string, err error) {
+// duolog delegate would find it. hints are the call's lead hints: a Codex
+// app-server runs the threads of several leads, so the ancestor walk alone
+// cannot tell its lead.
+func mcpDelegateLead(worktree string, hints []string) (stateDir, work, lead string, err error) {
 	root, err := projectRoot()
 	if err != nil {
 		return "", "", "", err
@@ -233,7 +238,7 @@ func mcpDelegateLead(worktree string) (stateDir, work, lead string, err error) {
 	if err != nil {
 		return "", "", "", err
 	}
-	l, err := reg.ResolveLead("")
+	l, err := reg.ResolveLead("", hints...)
 	if err != nil {
 		return "", "", "", leadapp.SubmoduleLookupError(err, work)
 	}

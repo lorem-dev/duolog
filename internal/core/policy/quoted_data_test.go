@@ -194,7 +194,8 @@ func TestGoTestAgentStaysRefused(t *testing.T) {
 // Two Git commands that print one name are reads, word for word.
 func TestExactGitReads(t *testing.T) {
 	p := policy(t)
-	for _, command := range []string{`git branch --show-current`, `git rev-parse --abbrev-ref HEAD`} {
+	for _, command := range []string{`git branch --show-current`, `git rev-parse --abbrev-ref HEAD`, `git rev-parse`, `git rev-parse HEAD`,
+		`git rev-parse --short HEAD`, `git rev-parse --show-toplevel`, `git rev-parse --is-inside-work-tree`} {
 		for _, m := range []mode.Mode{mode.Plan, mode.Ask, mode.Edits, mode.Full} {
 			if got := Evaluate(p, LeadRules{}, m, Action{Kind: "exec", Target: command, Role: "implement"}); got.Kind != Allow {
 				t.Errorf("writer %s %q: %s (%s), want allow", m, command, got.Kind, got.Reason)
@@ -215,7 +216,7 @@ func TestOtherGitBranchAndRevParseStayRefused(t *testing.T) {
 		`git branch --show-current x`,
 		`git branch --show-currentx`,
 		`git branch -D --show-current`,
-		`git rev-parse HEAD`,
+		`git rev-parse HEAD x`,
 		`git rev-parse --git-path x`,
 		`git rev-parse --abbrev-ref HEAD x`,
 		`git rev-parse --abbrev-ref main`,
