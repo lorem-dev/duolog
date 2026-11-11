@@ -42,6 +42,8 @@
 
 ## Development
 
+## 1.8.2
+
 ### Fixed
 
 - `duolog runs` and `duolog watch` find delegate runs started through the MCP
