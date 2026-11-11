@@ -15,6 +15,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/peer"
 	corerun "github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/project"
+	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
 
@@ -287,7 +288,7 @@ func (d *cmdDeps) refuseTail(cmd *cobra.Command) error {
 	if isWorker() {
 		return errWorkerRuns
 	}
-	if os.Getenv(viewerEnv) == viewerClaudeMod && d.ParentAgent() == "claude" {
+	if os.Getenv(viewerEnv) == viewerClaudeMod && d.ParentAgent() == wiring.ClaudeName() {
 		return nil
 	}
 	return d.refuseWatch(cmd)

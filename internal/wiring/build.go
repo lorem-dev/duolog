@@ -81,6 +81,9 @@ func ParentAgent() string {
 	return session.ParentAgent(names, helpers)
 }
 
+// ClaudeName is the agent name ParentAgent gives Claude Code.
+func ClaudeName() string { return claude.Facts.Name }
+
 // agentProcessNames are the binaries and the helper processes of the
 // registered agents.
 func agentProcessNames() (names, helpers []string) {
