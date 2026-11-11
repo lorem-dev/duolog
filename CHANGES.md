@@ -42,8 +42,16 @@
 
 ## Development
 
+### Added
+
+- One lead serves a superproject and its duolog submodules; peers and
+  `delegate` use each submodule's own rules.
+
 ### Changed
 
+- `peer queue add --cwd` refuses submodules without `.duolog/config.yaml`.
+- Close peers in a submodule before upgrading; its old lead state is no
+  longer read.
 - A "no window headroom" refusal shows its sum: used, held by running tasks,
   this task's cost and the reserve, such as `9% used + 5% this task + 10%`.
 

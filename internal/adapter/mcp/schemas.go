@@ -33,6 +33,7 @@ const (
 		`"wait":{"type":"boolean"},` +
 		`"skip_preflight":{"type":"boolean"},` +
 		`"force":{"type":"boolean"},` +
+		`"worktree":{"type":"string"},` +
 		`"timeout_minutes":{"type":"integer","minimum":1}` +
 		`}}`
 

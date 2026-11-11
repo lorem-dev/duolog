@@ -8,12 +8,12 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/core/mode"
-	"path/filepath"
 	"time"
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
@@ -34,7 +34,7 @@ func newRouteCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			reg, err := session.Open(filepath.Join(root, ".duolog"))
+			reg, err := session.Open(project.LeadHome(root))
 			if err != nil {
 				return err
 			}

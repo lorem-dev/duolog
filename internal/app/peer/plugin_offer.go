@@ -50,7 +50,7 @@ func (e *env) declinePlugin(ctx context.Context, entry session.Entry, screen Scr
 	if err := e.selectOption(ctx, entry, screen, label); err != nil {
 		return false, err
 	}
-	action := policy.Action{Kind: "answer", Role: entry.Role, Target: screen.Question + " => " + label}
+	action := policy.Action{Kind: "answer", Role: entry.Role, Work: e.peerRoot(entry), Target: screen.Question + " => " + label}
 	decision := policy.Decision{Kind: policy.Allow, Reason: "a worker never installs a plugin", Rule: "capabilities.on_missing.plugin"}
 	if err := gate.Log(&store.Store{Dir: e.dir}, action, decision); err != nil {
 		return false, err
@@ -71,7 +71,7 @@ func (e *env) tellPlugin(entry session.Entry, offer corescreen.Offer) error {
 	if offer.Marketplace != "" {
 		name += "@" + offer.Marketplace
 	}
-	dir := filepath.Join(e.dir, "plugin-offers")
+	dir := filepath.Join(e.workState(entry), "plugin-offers")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}

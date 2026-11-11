@@ -17,6 +17,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/policy"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -39,7 +40,7 @@ func Stop(ctx context.Context, e Env) Output {
 	if ctx.Err() != nil || peer == "" || !worker(e) || !served(e) {
 		return Output{}
 	}
-	dir := filepath.Join(e.Root, ".duolog")
+	dir := project.LeadHome(e.Root)
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		return Output{}
 	}
@@ -165,7 +166,7 @@ func countTurn(ctx context.Context, e Env) {
 	if ctx.Err() != nil || peer == "" || !worker(e) || !served(e) {
 		return
 	}
-	dir := filepath.Join(e.Root, ".duolog")
+	dir := project.LeadHome(e.Root)
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		return
 	}

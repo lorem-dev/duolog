@@ -184,11 +184,14 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 	if err != nil {
 		return out, err
 	}
-	reg, err := session.Open(s.Dir)
+	// Calibration exports use the originating work project's lead, even
+	// when their temporary checkout is an independent repository. The lead's
+	// session cap comes from the lead home's config, not the work project's.
+	reg, err := session.OpenLead(project.LeadHome(filepath.Dir(s.Dir)), cfg, filepath.Dir(s.Dir))
 	if err != nil {
 		return out, err
 	}
-	lead, err := reg.ResolveLead(opts.Lead)
+	lead, reminders, err := submoduleLead(reg, opts.Lead, filepath.Dir(s.Dir))
 	if err != nil {
 		return out, err
 	}
@@ -209,11 +212,11 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 			err = errors.Join(err, fmt.Errorf("learning: %w", learnErr))
 		}
 	}()
-	leadRules, err := gate.ImportLead(root, lead.Agent)
+	leadRules, err := gate.ImportLeadForWork(root, gate.LeadRoot(lead, reg), lead.Agent)
 	if err != nil {
 		return out, fmt.Errorf("lead permissions: %w", err)
 	}
-	b, err := bus.Open(s.Dir, cfg.Wire)
+	b, err := bus.Open(reg.Dir, cfg.Wire)
 	if err != nil {
 		return out, err
 	}
@@ -223,7 +226,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 	// notices are migration lines claimed for this lead and the line of a
 	// free run that spent paid overage; every line that ends this run
 	// carries them, whichever way it ends.
-	var notices []string
+	notices := reminders
 	var firstFailure error
 	// quotaEnded says an agent's quota ended in this run, so the line that
 	// hands the task to the lead names it as answerPointer names paths.
@@ -581,7 +584,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 			spec := workerSpec(d, cfg, opts, route, wm, dir, root, stdin, bridged, pre.Env, workerName(d, role, lead))
 			var entry *session.Entry
 			if route.Session == "resume" {
-				entry, _, err = reg.Lookup(leadID, route.Agent, role, thread)
+				entry, _, err = reg.LookupWork(leadID, route.Agent, role, thread, root)
 				if err != nil {
 					return out, err
 				}
@@ -657,7 +660,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 				return out, errors.Join(err, current.release(ctx))
 			}
 			creditBefore := before
-			gateLogBefore := gateLogSize(s.Dir)
+			gateLogBefore := gateLogSize(reg.Dir)
 			// retryRefusal is the gate's answer to a run once more after a login.
 			var retryRefusal *paidruns.Refusal
 			for retry := false; ; retry = true {
@@ -755,12 +758,12 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 					sessionID = entry.ThreadID
 				}
 				if route.Session == "resume" && sessionID != "" {
-					e := session.Entry{ID: filepath.Base(dir), Lead: leadID, Agent: route.Agent, Role: role, Thread: thread, ThreadID: sessionID, Input: out.Result.Usage.Input}
+					e := session.Entry{ID: filepath.Base(dir), Lead: leadID, Agent: route.Agent, Role: role, Thread: thread, ThreadID: sessionID, Input: out.Result.Usage.Input, WorkRoot: root}
 					if entry != nil {
 						e.ID = entry.ID
 						e.Input += entry.Input
 					}
-					if err = reg.RecordLimited(e, cfg.Limits.MaxLiveSessions); err != nil {
+					if err = reg.RecordLimited(e, reg.Limit); err != nil {
 						return out, err
 					}
 				}
@@ -781,7 +784,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 						}
 						// A looser worker that changed files while the gate logged
 						// nothing likely ran without its hooks.
-						if wm.needsGate() && len(changed) > 0 && gateLogSize(s.Dir) <= gateLogBefore {
+						if wm.needsGate() && len(changed) > 0 && gateLogSize(reg.Dir) <= gateLogBefore {
 							lineWarning += "; gate saw no actions in native " + wm.Native
 						}
 					}

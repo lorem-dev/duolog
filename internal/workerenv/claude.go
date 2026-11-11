@@ -60,15 +60,7 @@ func renderClaudeSettings(stateDir string, minimal bool, extra map[string]any, r
 	}
 	sandbox := copyMap(extra["sandbox"])
 	filesystem := copyMap(sandbox["filesystem"])
-	denied := stringList(filesystem["denyRead"])
-	if stateDir != "" {
-		for _, name := range []string{
-			"decisions.ndjson", "requests.ndjson", "bus.ndjson", "usage.ndjson", "coauthors.ndjson",
-			"sessions.json", "cursors", "journal", "routing.learned.yaml",
-		} {
-			denied = append(denied, path.Join(pathutil.Slashes(stateDir), ".duolog", name))
-		}
-	}
+	denied := append(stringList(filesystem["denyRead"]), stateFolderDenies(stateDir)...)
 	for _, root := range roots {
 		if root != "" {
 			denied = append(denied, path.Clean(pathutil.Slashes(root)))
@@ -83,6 +75,43 @@ func renderClaudeSettings(stateDir string, minimal bool, extra map[string]any, r
 	}
 	data, _ := json.Marshal(settings)
 	return string(data)
+}
+
+// LeadHomeOf names the .duolog folder that owns the lead state of the work
+// project at stateDir; a duolog submodule shares its superproject's. The
+// project package sets it when it loads: workerenv sits below that package
+// and does not ask Git itself. Unset or empty, only the work project's own
+// .duolog is listed.
+var LeadHomeOf func(stateDir string) string
+
+// stateNames are the files and folders of a .duolog folder a worker must not
+// read: lead state (registry, bus, cursors, decisions) and work state
+// (journal, usage, co-authors, learned routing).
+var stateNames = []string{
+	"decisions.ndjson", "requests.ndjson", "bus.ndjson", "usage.ndjson", "coauthors.ndjson",
+	"sessions.json", "cursors", "journal", "routing.learned.yaml",
+}
+
+// stateFolderDenies lists stateNames in the work project's .duolog and, when
+// it is another folder, in its lead home. Granting the worker neither keeps
+// lead state out of its reach; hooks run duolog, which checks ownership itself.
+func stateFolderDenies(stateDir string) []string {
+	if stateDir == "" {
+		return nil
+	}
+	homes := []string{path.Join(pathutil.Slashes(stateDir), ".duolog")}
+	if LeadHomeOf != nil {
+		if home := LeadHomeOf(stateDir); home != "" {
+			homes = append(homes, path.Clean(pathutil.Slashes(home)))
+		}
+	}
+	var denied []string
+	for _, home := range homes {
+		for _, name := range stateNames {
+			denied = append(denied, path.Join(home, name))
+		}
+	}
+	return denied
 }
 
 // setCompactWindow puts a window above zero in the env block of settings, next

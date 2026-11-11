@@ -10,6 +10,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/roster"
 	"github.com/lorem-dev/duolog/internal/core/config"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
@@ -35,7 +36,7 @@ func printCapsNotes(w io.Writer, leadAgent, root string) error {
 
 // printVersions prints what each model alias resolves to, or where its price
 // reference is.
-func printVersions(cmd *cobra.Command, d *cmdDeps, cfg *config.Config, reg *session.Registry) error {
+func printVersions(cmd *cobra.Command, d *cmdDeps, cfg *config.Config, cacheDir string) error {
 	aliases := make([]string, 0, len(cfg.Models))
 	for alias := range cfg.Models {
 		aliases = append(aliases, alias)
@@ -45,7 +46,7 @@ func printVersions(cmd *cobra.Command, d *cmdDeps, cfg *config.Config, reg *sess
 		model := cfg.Models[alias]
 		var detail string
 		if model.Agent == "codex" {
-			resolved, err := d.Delegate.Agents[model.Agent].Models.Resolve(cmd.Context(), cfg, filepath.Join(reg.Dir, "cache"), config.Target{Agent: model.Agent, Model: alias})
+			resolved, err := d.Delegate.Agents[model.Agent].Models.Resolve(cmd.Context(), cfg, cacheDir, config.Target{Agent: model.Agent, Model: alias})
 			if err != nil {
 				detail = "unavailable: " + err.Error()
 			} else {
@@ -75,7 +76,7 @@ func newRosterCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		reg, err := session.Open(filepath.Join(root, ".duolog"))
+		reg, err := session.Open(project.LeadHome(root))
 		if err != nil {
 			return err
 		}
@@ -94,7 +95,7 @@ func newRosterCommand(d *cmdDeps) *cobra.Command {
 		if !versions {
 			return nil
 		}
-		return printVersions(cmd, d, cfg, reg)
+		return printVersions(cmd, d, cfg, filepath.Join(root, ".duolog", "cache"))
 	}}
 	cmd.Flags().StringVar(&leadFlag, "lead", "", "Registered lead session ID")
 	cmd.Flags().BoolVar(&versions, "versions", false, "Include resolved Codex versions and Claude price references")

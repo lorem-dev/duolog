@@ -107,6 +107,34 @@ func TestPeerSchemaAcceptsOptionalWorktree(t *testing.T) {
 	}
 }
 
+// delegate takes an optional worktree, as peer open does, and a client's JSON
+// field reaches DelegateInput.
+func TestDelegateSchemaAcceptsOptionalWorktree(t *testing.T) {
+	var schema struct {
+		Properties map[string]struct{ Type string } `json:"properties"`
+		Required   []string                         `json:"required"`
+	}
+	if err := json.Unmarshal(Tools()[0].InputSchema, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if schema.Properties["worktree"].Type != "string" || slices.Contains(schema.Required, "worktree") {
+		t.Fatal("delegate must accept an optional worktree string")
+	}
+	var in DelegateInput
+	if err := json.Unmarshal([]byte(`{"role":"implement","worktree":"module/.worktrees/feature"}`), &in); err != nil {
+		t.Fatal(err)
+	}
+	if in.Worktree != "module/.worktrees/feature" {
+		t.Fatalf("decoded %+v", in)
+	}
+	for _, row := range []any{PeerRow{WorkRoot: "/w"}, Delegation{WorkRoot: "/w"}} {
+		data, err := json.Marshal(row)
+		if err != nil || !strings.Contains(string(data), `"work_root":"/w"`) {
+			t.Fatalf("%s: %v", data, err)
+		}
+	}
+}
+
 func jsonFields(t reflect.Type) []string {
 	var out []string
 	for i := range t.NumField() {

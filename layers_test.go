@@ -88,10 +88,12 @@ var allowedEdges = map[string]string{
 	"internal/app/hook -> internal/adapter/config":             reasonConfig,
 	"internal/app/hook -> internal/bus":                        reasonBus,
 	"internal/app/hook -> internal/adapter/session":            reasonSession,
+	"internal/app/hook -> internal/project":                    reasonProject,
 	"internal/app/hook -> internal/store":                      reasonStore,
 	"internal/app/install -> internal/store":                   reasonStore,
 	"internal/app/install -> plugin":                           reasonPlugin,
 	"internal/app/lead -> internal/adapter/session":            reasonSession,
+	"internal/app/lead -> internal/project":                    reasonProject,
 	"internal/app/lead -> internal/store":                      reasonStore,
 	"internal/app/learn -> internal/adapter/config":            reasonConfig,
 	"internal/app/peer -> internal/adapter/config":             reasonConfig,
@@ -376,7 +378,7 @@ func tierOf(rel string) (t tier, app string, ok bool) {
 		return tierWiring, "", true
 	case rel == "", under(rel, "cmd"), under(rel, "scripts"):
 		return tierCmd, "", true
-	case under(rel, "internal/testbin"):
+	case under(rel, "internal/testbin"), under(rel, "internal/testutil"):
 		return tierTest, "", true
 	}
 	// legacyTiers comes before the name rule, so that a package that has not

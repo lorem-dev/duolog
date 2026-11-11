@@ -239,6 +239,12 @@ type Rule struct {
 	// ReadOnly marks the MCP tools an allow rule names as tools that only
 	// read, so a worker at level plan or in a read-only role may run them.
 	ReadOnly bool `yaml:"read_only,omitempty" jsonschema_description:"For an mcp allow rule only: the tools it names only read, so a worker at level plan or in a read-only role may run them too."`
+	// Under anchors a path rule of a lead imported for a worker in another
+	// checkout; config files never set it. A relative Under is the path of
+	// the worker's project inside the lead's project, put before a target
+	// inside the work root. An absolute Under is the work root, before which
+	// a target is put for an absolute selector.
+	Under string `yaml:"-" json:"-" jsonschema:"-"`
 }
 
 type Capabilities struct {

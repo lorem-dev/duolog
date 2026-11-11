@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/bus"
+	"github.com/lorem-dev/duolog/internal/project"
 )
 
 // stopEvents is the optional hook output of an agent that can block a Stop.
@@ -25,7 +25,7 @@ type stopEvents interface {
 func leadStop(ctx context.Context, e Env) Output {
 	events, canBlock := e.Events.(stopEvents)
 	id := stoppingLead(e.Input)
-	dir := filepath.Join(e.Root, ".duolog")
+	dir := project.LeadHome(e.Root)
 	if ctx.Err() != nil || !canBlock || id == "" || !folderExists(dir) {
 		return Output{}
 	}

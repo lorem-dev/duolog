@@ -17,6 +17,7 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/bus"
+	"github.com/lorem-dev/duolog/internal/core/config"
 	corepane "github.com/lorem-dev/duolog/internal/core/pane"
 	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
 	"github.com/lorem-dev/duolog/internal/project"
@@ -263,11 +264,15 @@ func QueueAdd(ctx context.Context, role, cwd, taskPath, after string) (QueueItem
 	if os.Getenv("REX_SESSION") == "" {
 		return QueueItem{}, errors.New("queued peers open in Rex: REX_SESSION is not set; run duolog peer queue add in a Rex pane")
 	}
-	if _, ok := e.cfg.Roles[role]; !ok {
-		return QueueItem{}, fmt.Errorf("unknown role %q", role)
-	}
 	if cwd, err = checkPlace(filepath.Dir(e.dir), cwd, taskPath); err != nil {
 		return QueueItem{}, err
+	}
+	cfg, err := e.queuedConfig(cwd)
+	if err != nil {
+		return QueueItem{}, err
+	}
+	if _, ok := cfg.Roles[role]; !ok {
+		return QueueItem{}, fmt.Errorf("unknown role %q", role)
 	}
 	if after != "" {
 		entry, err := e.find(after)
@@ -282,11 +287,22 @@ func QueueAdd(ctx context.Context, role, cwd, taskPath, after string) (QueueItem
 	return item, err
 }
 
+// queuedConfig is the config of the work project that holds the queued
+// folder dir: the env's own when dir is in it, else that project's file.
+func (e *env) queuedConfig(dir string) (*config.Config, error) {
+	owned, err := e.forEntry(session.Entry{WorkRoot: project.WorkRoot(dir, filepath.Dir(e.dir))})
+	if err != nil {
+		return nil, err
+	}
+	return owned.cfg, nil
+}
+
 // checkPlace resolves cwd and its task file, symlinks followed, and checks
-// both: cwd is a folder inside the project at root or one of its linked
-// worktrees, and taskPath, relative to cwd with no .. in it, is a file inside
-// cwd's checkout. It returns the real cwd. The add checks an item with it,
-// and the run again before it opens one, since a link may change between.
+// both: cwd is a folder of a work project that shares the lead home of the
+// project at root (see queuePlace), and taskPath, relative to cwd with no ..
+// in it, is a file inside cwd's checkout. It returns the real cwd. The add
+// checks an item with it, and the run again before it opens one, since a link
+// may change between.
 func checkPlace(root, cwd, taskPath string) (string, error) {
 	abs, err := filepath.Abs(cwd)
 	if err != nil {
@@ -299,8 +315,8 @@ func checkPlace(root, cwd, taskPath string) (string, error) {
 	if info, err := os.Stat(real); err != nil || !info.IsDir() {
 		return "", fmt.Errorf("--cwd %s is not a folder", abs)
 	}
-	if !insideProject(root, real) {
-		return "", fmt.Errorf("--cwd %s is outside the project and its linked worktrees", abs)
+	if !queuePlace(root, real) {
+		return "", fmt.Errorf("--cwd %s is outside the project, its linked worktrees and its duolog submodules; submodules without .duolog/config.yaml are not supported", abs)
 	}
 	native := filepath.FromSlash(taskPath)
 	if !filepath.IsLocal(native) || slices.Contains(strings.Split(filepath.ToSlash(native), "/"), "..") {
@@ -692,7 +708,26 @@ func (e *env) runDue(ctx context.Context, items []QueueItem, free func(agent str
 	if err != nil || !ok {
 		return false, err
 	}
-	return free == nil || free(e.cfg.Roles[head.Role].Use.Agent), nil
+	if free == nil {
+		return true, nil
+	}
+	cfg, err := e.queuedConfig(head.Cwd)
+	if err != nil {
+		return false, err
+	}
+	return free(cfg.Roles[head.Role].Use.Agent), nil
+}
+
+// queuePlace reports whether dir, symlinks resolved, may hold a peer queued
+// by the lead of the project at root. In Git it is Git that links them: dir's
+// checkout must share root's lead home, as a linked worktree or a configured
+// submodule does, and a repository that only lies in root's folder does not.
+// Outside Git, dir must lie in the project or one of its linked worktrees.
+func queuePlace(root, dir string) bool {
+	if project.WorkRoot(dir, "") == "" {
+		return insideProject(root, dir)
+	}
+	return sameWorkRoot(filepath.Dir(project.LeadHome(dir)), filepath.Dir(project.LeadHome(root)))
 }
 
 // insideProject reports whether dir is the project root, one of its linked

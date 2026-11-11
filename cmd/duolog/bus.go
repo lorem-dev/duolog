@@ -8,7 +8,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/core/config"
-	"github.com/lorem-dev/duolog/internal/store"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
@@ -28,11 +28,7 @@ func openBusWire() (*bus.Bus, config.Wire, error) {
 	if err != nil {
 		return nil, config.Wire{}, err
 	}
-	s, err := store.Open(root)
-	if err != nil {
-		return nil, config.Wire{}, err
-	}
-	b, err := bus.Open(s.Dir, cfg.Wire)
+	b, err := bus.Open(project.LeadHome(root), cfg.Wire)
 	return b, cfg.Wire, err
 }
 

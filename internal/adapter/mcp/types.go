@@ -44,6 +44,9 @@ type DelegateInput struct {
 	SkipPreflight  bool     `json:"skip_preflight,omitempty"`
 	TimeoutMinutes int      `json:"timeout_minutes,omitempty"`
 	Force          bool     `json:"force,omitempty"` // start a worker for a small task too
+	// Worktree is the checkout to run in, or to find a result's task path
+	// in: a path, or a name under .worktrees, as for peer open.
+	Worktree string `json:"worktree,omitempty"`
 }
 
 // BlockedCheck is a Check command that the gate would not allow the worker to
@@ -114,6 +117,8 @@ type PeerRow struct {
 	Agent string `json:"agent"`
 	State string `json:"state"`
 	Task  string `json:"task,omitempty"`
+	// WorkRoot is the checkout that holds the peer's tasks.
+	WorkRoot string `json:"work_root,omitempty"`
 }
 
 // PeerOutput is the peer tool's result.
@@ -148,6 +153,8 @@ type Delegation struct {
 	Role       string `json:"role"`
 	State      string `json:"state"`
 	AnswerPath string `json:"answer_path"`
+	// WorkRoot is the checkout the run worked in; task_path is relative to it.
+	WorkRoot string `json:"work_root,omitempty"`
 }
 
 // StatusOutput is the status tool's result.

@@ -27,16 +27,18 @@ import (
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/run"
 	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
+	"github.com/lorem-dev/duolog/internal/project"
 )
 
 type env struct {
-	opts  Options
-	root  string
-	dir   string
-	cfg   *config.Config
-	reg   *session.Registry
-	bus   *bus.Bus
-	panes Pane
+	opts    Options
+	root    string
+	dir     string
+	workDir string
+	cfg     *config.Config
+	reg     *session.Registry
+	bus     *bus.Bus
+	panes   Pane
 	// leadSession is the backend session of the lead's own pane.
 	leadSession    string
 	leadID         string
@@ -46,6 +48,9 @@ type env struct {
 	afterAsk int64
 	// gate is the account gate, opened on first use by accounts.
 	gate *paidruns.Gate
+	// maxLiveSessions is the lead's cap from the lead home's config; it
+	// stays when forEntry selects another work project's rules.
+	maxLiveSessions int
 }
 
 type leadInfo struct {
@@ -134,7 +139,7 @@ func (e *env) reportLine(entry session.Entry) string {
 	if path == "" {
 		return ""
 	}
-	if sameWorkRoot(root, e.root) {
+	if sameWorkRoot(root, project.CurrentWorkRoot(e.root)) {
 		return policy.ReportPath(entry.ID)
 	}
 	return path
@@ -147,6 +152,11 @@ func (e *env) attempt(entry session.Entry, outcome, code string) {
 	if e.opts.ObserveAttempt == nil || entry.Task == "" {
 		return
 	}
+	owned, err := e.forEntry(entry)
+	if err != nil {
+		return
+	}
+	e = owned
 	a := delegate.Attempt{Number: 1, Role: entry.Role, Agent: entry.Agent, Run: entry.Run, Placement: "peer", Outcome: outcome, ErrorCode: code, Reason: "none"}
 	if code == run.CodeQuota {
 		a.Reason = "quota"
@@ -236,6 +246,11 @@ func (e *env) observe(ctx context.Context, entry session.Entry) (State, Screen, 
 // screen keeps the capture's styles, which tell a dim suggestion in the input
 // line from typed text.
 func (e *env) screen(ctx context.Context, entry session.Entry) (Screen, error) {
+	owned, err := e.forEntry(entry)
+	if err != nil {
+		return Screen{}, err
+	}
+	e = owned
 	raw, err := e.panes.CaptureStyled(ctx, e.paneOf(entry), e.cfg.Rex.CaptureLines)
 	if err != nil {
 		return Screen{}, err
@@ -252,106 +267,27 @@ func (e *env) pane(agent string) PaneSupport { return e.opts.Deps.Panes[agent] }
 // start_timeout_seconds. With a task sent it waits for the session to be idle
 // again, and reports text that is stuck in the input line.
 func (e *env) watch(ctx context.Context, entry session.Entry, startup bool) (Entry, error) {
+	owned, err := e.forEntry(entry)
+	if err != nil {
+		return Entry{}, err
+	}
+	e = owned
 	begin := e.opts.Deps.Clock.Now()
 	deadline := begin.Add(time.Duration(e.cfg.Rex.StartTimeoutSeconds) * time.Second)
-	last := Starting
-	var idle, stuck int
-	worked := false
+	w := peerWatch{entry: entry, begin: begin, last: Starting}
 	for {
-		if question, err := e.newQuestion(ctx, entry); err != nil {
-			return Entry{ID: entry.ID, State: Question}, err
-		} else if question != "" {
-			return Entry{ID: entry.ID, State: Question, Question: question}, nil
-		}
-		state, screen, err := e.observe(ctx, entry)
-		if err != nil {
-			return Entry{ID: entry.ID, State: last}, err
-		}
-		last = state
-		if state != Question && entry.Asked != "" {
-			entry, err = e.update(entry.ID, func(x *session.Entry) { x.Asked = "" })
-			if err != nil {
-				return Entry{ID: entry.ID, State: last}, err
-			}
-		}
-		switch state {
-		case Closed, Exited:
-			line, err := e.markEnded(entry, state)
-			return Entry{ID: entry.ID, State: state, Note: line}, err
-		case Question:
-			if err := e.ask(entry, screen.Question); err != nil {
-				return Entry{ID: entry.ID, State: state}, err
-			}
-			if e.watchQuestions {
-				if err := e.notifyStuck(ctx, entry, time.Now()); err != nil {
-					return Entry{ID: entry.ID, State: state}, err
-				}
-			}
-			entry, err = e.find(entry.ID)
-			if err != nil {
-				return Entry{}, err
-			}
-			if e.watchQuestions && e.cfg.Rex.StuckNotifyMinutes > 0 && !entry.QuestionNotified {
-				break
-			}
-			return Entry{ID: entry.ID, State: Question, Question: startupQuestion(screen, startup)}, nil
-		case Limited:
-			line, err := e.runHere(entry, entry.Task, screen.Text)
-			return Entry{ID: entry.ID, State: Limited, Note: line}, err
-		case Interrupted:
-			return Entry{ID: entry.ID, State: Interrupted, Note: interruptedNote(entry)}, nil
-		case Ready:
-			if startup || entry.Task == "" {
-				if screen.Empty {
-					idle++
-				} else {
-					idle = 0
-				}
-				if idle >= 2 {
-					return Entry{ID: entry.ID, State: Ready}, nil
-				}
-				break
-			}
-			if corescreen.StuckInput(screen, e.peerRoot(entry), entry.Task) {
-				if stuck++; stuck >= 2 {
-					return Entry{ID: entry.ID, State: Ready, Note: ErrStuck.Error()}, fmt.Errorf("peer %s: %w", entry.ID, ErrStuck)
-				}
-				break
-			}
-			stuck = 0
-			if worked || e.opts.Deps.Clock.Now().Sub(begin) >= e.opts.Deps.Pauses.WorkGrace {
-				if idle++; idle >= 2 {
-					if err := e.credit(entry); err != nil {
-						return Entry{ID: entry.ID, State: Ready}, err
-					}
-					if _, err := e.update(entry.ID, func(x *session.Entry) { x.Task, x.Base = "", nil }); err != nil {
-						return Entry{ID: entry.ID, State: Ready}, err
-					}
-					// The task ends; the pane keeps its slot.
-					note, err := e.taskEnded(ctx, entry)
-					if err != nil {
-						return Entry{ID: entry.ID, State: Ready}, err
-					}
-					e.attempt(entry, "done", run.CodeNone)
-					if note != "" {
-						note = "; " + note
-					}
-					return Entry{ID: entry.ID, State: Ready, Note: "task finished" + note}, nil
-				}
-			}
-		default:
-			idle, stuck = 0, 0
-			worked = worked || screen.Working
+		if out, done, err := e.watchStep(ctx, &w, startup); done || err != nil {
+			return out, err
 		}
 		if ctx.Err() != nil {
-			return Entry{ID: entry.ID, State: last}, ctx.Err()
+			return Entry{ID: entry.ID, State: w.last}, ctx.Err()
 		}
 		if startup && time.Now().After(deadline) {
-			note := fmt.Sprintf("timed out after %ds in state %s; the pane stays open", e.cfg.Rex.StartTimeoutSeconds, last)
-			return Entry{ID: entry.ID, State: last, Note: note}, nil
+			note := fmt.Sprintf("timed out after %ds in state %s; the pane stays open", e.cfg.Rex.StartTimeoutSeconds, w.last)
+			return Entry{ID: entry.ID, State: w.last, Note: note}, nil
 		}
 		if err := e.opts.Deps.Clock.Sleep(ctx, e.opts.Deps.Pauses.Poll); err != nil {
-			return Entry{ID: entry.ID, State: last}, err
+			return Entry{ID: entry.ID, State: w.last}, err
 		}
 	}
 }
@@ -441,7 +377,7 @@ func (e *env) changedFiles(entry session.Entry) (int, bool) {
 }
 
 func (e *env) modelPath(entry session.Entry) string {
-	return filepath.Join(e.dir, "coauthor-"+entry.ID+".model")
+	return filepath.Join(e.workState(entry), "coauthor-"+entry.ID+".model")
 }
 
 // dropPeer drops a closed peer from the registry, then deletes its model file:
@@ -468,7 +404,8 @@ func (e *env) sweepModels() error {
 	for _, x := range all {
 		held[x.ID] = true
 	}
-	files, err := os.ReadDir(e.dir)
+	dir := e.workState(session.Entry{})
+	files, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
@@ -483,7 +420,7 @@ func (e *env) sweepModels() error {
 		if !ok || !plainPeerID(id) || held[id] || !f.Type().IsRegular() {
 			continue
 		}
-		if err := os.Remove(filepath.Join(e.dir, name)); err != nil && !os.IsNotExist(err) {
+		if err := os.Remove(filepath.Join(dir, name)); err != nil && !os.IsNotExist(err) {
 			errs = append(errs, err)
 		}
 	}
@@ -506,6 +443,11 @@ func plainPeerID(id string) bool {
 }
 
 func (e *env) credit(entry session.Entry) error {
+	owned, err := e.forEntry(entry)
+	if err != nil {
+		return err
+	}
+	e = owned
 	if !e.cfg.Coauthors.Enabled {
 		return nil
 	}
@@ -521,7 +463,7 @@ func (e *env) credit(entry session.Entry) error {
 	if err != nil {
 		return err
 	}
-	return coauthor.Append(e.dir, e.cfg.Coauthors, coauthor.Record{Lead: entry.Lead, Agent: entry.Agent, Model: string(model), Files: n, Peer: creditPeer(entry)})
+	return coauthor.Append(e.workState(entry), e.cfg.Coauthors, coauthor.Record{Lead: entry.Lead, Agent: entry.Agent, Model: string(model), Files: n, Peer: creditPeer(entry)})
 }
 
 func (e *env) endLine(entry session.Entry, state State) (string, error) {
@@ -541,6 +483,11 @@ func (e *env) endLine(entry session.Entry, state State) (string, error) {
 // runHere turns a provider limit into the line the lead acts on. The pane stays
 // open and nothing is sent or opened.
 func (e *env) runHere(entry session.Entry, taskPath, screenText string) (string, error) {
+	owned, err := e.forEntry(entry)
+	if err != nil {
+		return "", err
+	}
+	e = owned
 	lead, err := e.lead(time.Now())
 	if err != nil {
 		return "", err

@@ -28,15 +28,16 @@ type Action struct {
 	Target string `json:"target"`
 	Role   string `json:"role"`
 	Shell  string `json:"shell,omitempty"`
-	// Work and Cwd resolve the paths inside a read command. They are not logged.
-	Work, Cwd string `json:"-"`
+	// Work identifies the checkout for shared decision accounting.
+	Work string `json:"work,omitempty"`
 	// WideRead says that a resolved agent skill root is too wide to read. The
 	// gate sets it; without it no skill tree is granted.
 	WideRead func(string) bool `json:"-"`
 	// State is the project root whose .duolog folder recursive reads must avoid.
-	State  string `json:"-"`
-	Search bool   `json:"-"`
-	Glob   string `json:"-"`
+	// Cwd resolves paths inside a read command. Neither is logged.
+	State, Cwd string `json:"-"`
+	Search     bool   `json:"-"`
+	Glob       string `json:"-"`
 	// MCPExact means the hook named the MCP server as configured, so Target
 	// holds its exact name rather than the folded one.
 	MCPExact bool `json:"-"`
@@ -309,7 +310,7 @@ func matches(r config.Rule, a Action) bool {
 	if r.Action != a.Kind || len(r.Roles) > 0 && !slices.Contains(r.Roles, a.Role) {
 		return false
 	}
-	fold := foldCase(r, a)
+	a, fold := anchorAction(r, a)
 	for _, pattern := range expandBraces(r.Match) {
 		if a.Kind == "read" || a.Kind == "write" {
 			pattern = strings.TrimPrefix(pathutil.Clean(pattern), "./")

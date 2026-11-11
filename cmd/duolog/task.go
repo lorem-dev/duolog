@@ -12,6 +12,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/learn"
 	"github.com/lorem-dev/duolog/internal/journal"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
@@ -45,7 +46,7 @@ func newTaskStartCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		reg, err := session.Open(s.Dir)
+		reg, err := session.Open(project.LeadHome(root))
 		if err != nil {
 			return err
 		}
@@ -106,7 +107,7 @@ func newTaskFinishCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		reg, err := session.Open(s.Dir)
+		reg, err := session.Open(project.LeadHome(root))
 		if err != nil {
 			return err
 		}

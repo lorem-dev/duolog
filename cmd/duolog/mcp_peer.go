@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,7 +20,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/peer"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/project"
-	"github.com/lorem-dev/duolog/internal/store"
 )
 
 // mcpPeerWaitUnit is one timeout_minutes of a peer wait; tests shorten it.
@@ -46,13 +46,14 @@ func (d *cmdDeps) mcpPeer(ctx context.Context, in mcp.PeerInput) (mcp.PeerOutput
 	if in.Action == "wait" {
 		timeout = mcpPeerTimeout(in.TimeoutMinutes)
 	}
-	pctx, done, err := d.peerCtx(ctx, "", false, timeout)
+	pctx, done, err := d.mcpPeerContext(ctx, in, timeout)
 	if err != nil {
 		return mcp.PeerOutput{}, err
 	}
 	defer done()
 	switch in.Action {
 	case "open":
+		in.Worktree = ""
 		return mcpPeerOpen(pctx, in)
 	case "send":
 		return mcpPeerSend(pctx, in)
@@ -73,6 +74,23 @@ func (d *cmdDeps) mcpPeer(ctx context.Context, in mcp.PeerInput) (mcp.PeerOutput
 	}
 }
 
+func (d *cmdDeps) mcpPeerContext(ctx context.Context, in mcp.PeerInput, timeout time.Duration) (context.Context, func(), error) {
+	if isWorker() {
+		return nil, nil, errors.New("workers cannot open or control peer sessions")
+	}
+	if in.Action == "open" && in.Worktree != "" {
+		work, err := mcpPeerWorktree(in.Worktree)
+		if err != nil {
+			return nil, nil, err
+		}
+		return d.peerCtxAt(ctx, "", false, timeout, work)
+	}
+	if in.ID != "" {
+		return d.peerCtxForID(ctx, "", false, timeout, in.ID)
+	}
+	return d.peerCtx(ctx, "", false, timeout)
+}
+
 // mcpPeerOpen is `duolog peer open <role>`, in the named worktree when the
 // input has one.
 func mcpPeerOpen(ctx context.Context, in mcp.PeerInput) (mcp.PeerOutput, error) {
@@ -90,21 +108,31 @@ func mcpPeerOpen(ctx context.Context, in mcp.PeerInput) (mcp.PeerOutput, error) 
 	return entryOutput(e), nil
 }
 
-// mcpPeerWorktree resolves a plain name under the server checkout's .worktrees
-// folder first, then as a path from the server's cwd. Only a checkout of this
-// repository qualifies: a linked worktree or the main checkout, at its root,
-// so a peer cannot land in a subfolder and edit the wrong tree.
+// mcpWorktreeTimeout bounds the Git calls of one worktree resolution.
+const mcpWorktreeTimeout = 30 * time.Second
+
+// mcpPeerWorktree resolves the worktree of a peer open or a delegate. A plain
+// name is .worktrees/<name> in the server's checkout or in a checkout of a
+// duolog submodule; two such checkouts are an error naming both, and with
+// none the name is a path from the server's cwd, as any other ref is. Only a
+// checkout root that Git lists qualifies: one of this repository, or of a
+// duolog submodule that shares this lead home. A peer so never lands in a
+// subfolder, where it would edit the wrong tree.
 func mcpPeerWorktree(ref string) (string, error) {
 	root, err := projectRoot()
 	if err != nil {
 		return "", err
 	}
-	dir := ref
-	if ref != "." && ref != ".." && !strings.ContainsAny(ref, `/\`) {
-		named := filepath.Join(workRoot(root), ".worktrees", ref)
-		if info, err := os.Stat(named); err == nil && info.IsDir() {
-			dir = named
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), mcpWorktreeTimeout)
+	defer cancel()
+	own, subs, err := mcpCheckouts(ctx, root)
+	if err != nil {
+		return "", err
+	}
+	checkouts := slices.Concat(own, subs)
+	dir, err := mcpNamedWorktree(ref, slices.Concat([]string{workRoot(root)}, subs), checkouts)
+	if err != nil {
+		return "", err
 	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -113,23 +141,74 @@ func mcpPeerWorktree(ref string) (string, error) {
 	if info, err := os.Stat(abs); err != nil || !info.IsDir() {
 		return "", fmt.Errorf("worktree %q is not a folder", ref)
 	}
-	if !project.SameProject(root, abs) {
-		return "", fmt.Errorf("worktree %q is outside the project and its linked worktrees", ref)
-	}
-	if !repositoryCheckout(root, abs) {
-		return "", fmt.Errorf("worktree %q is not a checkout of this repository", ref)
+	if !containsCheckout(checkouts, abs) {
+		return "", fmt.Errorf("worktree %q is not a checkout of this repository or of a duolog submodule", ref)
 	}
 	return abs, nil
 }
 
-// repositoryCheckout reports whether dir is the root of a checkout that shares
-// the state of root's repository.
-func repositoryCheckout(root, dir string) bool {
-	same := func(a, b string) bool {
-		return pathutil.Clean(pathutil.Resolved(a)) == pathutil.Clean(pathutil.Resolved(b))
+// mcpNamedWorktree returns the checkout a plain name means: .worktrees/<ref>
+// under one of bases that is a listed checkout. With no such checkout it is
+// the first such folder, which the caller then refuses, or else ref itself.
+func mcpNamedWorktree(ref string, bases, checkouts []string) (string, error) {
+	if ref == "." || ref == ".." || strings.ContainsAny(ref, `/\`) {
+		return ref, nil
 	}
-	top := project.WorkRoot(dir, "")
-	return top != "" && same(top, dir) && same(project.StateRoot(dir), project.StateRoot(root))
+	fallback, seen := ref, map[string]bool{}
+	var matches []string
+	for _, base := range bases {
+		named := filepath.Join(base, ".worktrees", ref)
+		if info, err := os.Stat(named); err != nil || !info.IsDir() {
+			continue
+		}
+		if fallback == ref {
+			fallback = named
+		}
+		key := checkoutKey(named)
+		if !seen[key] && containsCheckout(checkouts, named) {
+			seen[key] = true
+			matches = append(matches, named)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return fallback, nil
+	case 1:
+		return matches[0], nil
+	}
+	return "", fmt.Errorf("worktree %q names more than one checkout: %s; pass its path instead", ref, strings.Join(matches, ", "))
+}
+
+// mcpCheckouts lists the checkouts of root's repository and those of its
+// duolog submodules, as Git records them.
+func mcpCheckouts(ctx context.Context, root string) (own, subs []string, err error) {
+	if own, err = project.Checkouts(ctx, root); err != nil {
+		return nil, nil, err
+	}
+	if subs, err = project.DuologSubmodules(ctx, root); err != nil {
+		return nil, nil, err
+	}
+	return own, subs, nil
+}
+
+// repositoryCheckout reports whether dir is the root of a checkout of root's
+// repository or of one of its duolog submodules. Membership comes from the
+// lists of root's repository and its modules, never from what dir says about
+// its own .git; a failed Git call refuses.
+func repositoryCheckout(root, dir string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), mcpWorktreeTimeout)
+	defer cancel()
+	own, subs, err := mcpCheckouts(ctx, root)
+	return err == nil && containsCheckout(slices.Concat(own, subs), dir)
+}
+
+func containsCheckout(checkouts []string, dir string) bool {
+	key := checkoutKey(dir)
+	return slices.ContainsFunc(checkouts, func(checkout string) bool { return checkoutKey(checkout) == key })
+}
+
+func checkoutKey(dir string) string {
+	return pathutil.Clean(pathutil.Resolved(dir))
 }
 
 // mcpPeerList is `duolog peer list --json` as rows.
@@ -140,7 +219,7 @@ func mcpPeerList(ctx context.Context) (mcp.PeerOutput, error) {
 	}
 	out := mcp.PeerOutput{Peers: []mcp.PeerRow{}}
 	for _, p := range peers {
-		out.Peers = append(out.Peers, mcp.PeerRow{ID: p.ID, Role: p.Role, Agent: p.Agent, State: string(p.State), Task: p.Task})
+		out.Peers = append(out.Peers, mcp.PeerRow{ID: p.ID, Role: p.Role, Agent: p.Agent, State: string(p.State), Task: p.Task, WorkRoot: p.WorkRoot})
 	}
 	return out, nil
 }
@@ -254,16 +333,34 @@ func mcpPeerWait(ctx context.Context, id string, timeout time.Duration) (mcp.Pee
 		return out, err
 	}
 	if e.Report != "" {
-		path := e.Report
+		report, err := mcpPeerReportPath(ctx, id, e.Report, root)
+		if err != nil {
+			return out, err
+		}
+		path := report
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(workRoot(root), filepath.FromSlash(path))
 		}
 		if out.Report, err = reportHead(path); err != nil {
 			return out, err
 		}
-		out.ReportPath = e.Report
+		out.ReportPath = report
 	}
 	return out, nil
+}
+
+func mcpPeerReportPath(ctx context.Context, id, report, root string) (string, error) {
+	if filepath.IsAbs(report) {
+		return report, nil
+	}
+	work, err := peer.WorkRoot(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if pathutil.Clean(pathutil.Resolved(work)) == pathutil.Clean(pathutil.Resolved(workRoot(root))) {
+		return report, nil
+	}
+	return filepath.Join(work, filepath.FromSlash(report)), nil
 }
 
 func mcpPeerStatus(ctx context.Context, id string) (mcp.PeerOutput, error) {
@@ -292,11 +389,8 @@ func runHereField(line string) *mcp.RunHere {
 // leadAsks are the open permission asks to the lead this process runs under,
 // with the numbers `duolog allow` and `deny` take.
 func leadAsks(root string) ([]mcp.Ask, error) {
-	s, err := store.Open(root)
-	if err != nil {
-		return nil, err
-	}
-	reg, err := session.Open(s.Dir)
+	dir := project.LeadHome(root)
+	reg, err := session.Open(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +398,7 @@ func leadAsks(root string) ([]mcp.Ask, error) {
 	if err != nil {
 		return nil, err
 	}
-	msgs, err := gate.OpenAsks(s.Dir)
+	msgs, err := gate.OpenAsks(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}

@@ -19,6 +19,7 @@ type Lead struct {
 	Native         string
 	TranscriptPath string
 	PID            int
+	Root           string
 }
 
 // LeadObservation contains only fields actually read by a caller. Nil means
@@ -32,6 +33,7 @@ type LeadObservation struct {
 	// with *Native, or with empty when Native is nil.
 	Native *string
 	PID    *int
+	Root   *string
 	Ended  bool
 }
 
@@ -42,7 +44,9 @@ type Entry struct {
 	// that only exist in the agent. Doctor and peer commands join on it.
 	Block string
 	// WorkRoot keys live peers by checkout, while state is shared across worktrees.
-	WorkRoot   string
+	WorkRoot string
+	// CapGroup is the checkout group resolved once when a live pane opens.
+	CapGroup   string `json:",omitempty"`
 	RexSession string
 	Run        string // the pane's DUOLOG_RUN, a duolog run id; never a vendor id
 	PID        int

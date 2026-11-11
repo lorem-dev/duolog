@@ -15,6 +15,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/learn"
+	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/core/policy"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/run"
@@ -31,6 +32,8 @@ const delegationsFile = "delegations.ndjson"
 type learnRun struct {
 	j        *journal.Journal
 	stateDir string
+	leadDir  string
+	workRoot string
 	cfg      *config.Config
 	opts     Options
 	id, role string
@@ -323,7 +326,8 @@ func (lr *learnRun) start(root string) error {
 		return nil
 	}
 	var decisions int64
-	if info, err := os.Stat(filepath.Join(lr.stateDir, "decisions.ndjson")); err == nil {
+	lr.leadDir, lr.workRoot = project.LeadHome(filepath.Dir(lr.stateDir)), root
+	if info, err := os.Stat(filepath.Join(lr.leadDir, "decisions.ndjson")); err == nil {
 		decisions = info.Size()
 	}
 	before, err := journal.Capture(root)
@@ -497,9 +501,9 @@ func copyFile(from, to string) error {
 // appended during the run. An ask the lead or the person settled is logged
 // with the rule "ask lead" and the answer's kind: it counts as an ask, and a
 // denied one as a denial too. The gate logs no worker id, so a parallel
-// worker of the same role counts too.
+// worker of the same role and checkout counts too.
 func (lr *learnRun) gateCounts() (denials, asks int, err error) {
-	f, err := os.Open(filepath.Join(lr.stateDir, "decisions.ndjson"))
+	f, err := os.Open(filepath.Join(lr.decisionDir(), "decisions.ndjson"))
 	if os.IsNotExist(err) {
 		return 0, 0, nil
 	}
@@ -514,7 +518,7 @@ func (lr *learnRun) gateCounts() (denials, asks int, err error) {
 	scan.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	for scan.Scan() {
 		var r gate.Record
-		if json.Unmarshal(scan.Bytes(), &r) != nil || r.Action.Role != lr.role {
+		if json.Unmarshal(scan.Bytes(), &r) != nil || r.Action.Role != lr.role || !lr.matchesWork(r.Action.Work) {
 			continue
 		}
 		if r.Kind == policy.Ask || r.Rule == "ask lead" {
@@ -525,4 +529,21 @@ func (lr *learnRun) gateCounts() (denials, asks int, err error) {
 		}
 	}
 	return denials, asks, scan.Err()
+}
+
+func (lr *learnRun) decisionDir() string {
+	if lr.leadDir != "" {
+		return lr.leadDir
+	}
+	return lr.stateDir
+}
+
+func (lr *learnRun) matchesWork(work string) bool {
+	if lr.workRoot == "" {
+		return true
+	}
+	if work == "" {
+		return pathutil.Clean(pathutil.Resolved(lr.decisionDir())) == pathutil.Clean(pathutil.Resolved(filepath.Join(project.StateRoot(lr.workRoot), ".duolog")))
+	}
+	return pathutil.Clean(pathutil.Resolved(work)) == pathutil.Clean(pathutil.Resolved(lr.workRoot))
 }

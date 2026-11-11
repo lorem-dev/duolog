@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/spf13/cobra"
 )
 
@@ -19,7 +19,7 @@ func newModeCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		reg, err := session.Open(filepath.Join(root, ".duolog"))
+		reg, err := session.Open(project.LeadHome(root))
 		if err != nil {
 			return err
 		}

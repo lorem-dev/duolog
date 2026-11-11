@@ -24,6 +24,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/core/policy"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/telemetry"
 	"github.com/lorem-dev/duolog/internal/trusthome"
@@ -55,7 +56,7 @@ func newGateCommand(deps *cmdDeps) *cobra.Command {
 				data, readErr := readHookInput(cmd)
 				if readErr == nil && len(data) <= 4*1024*1024 {
 					if event == "PreToolUse" {
-						if d, ok := guardLeadCall(filepath.Join(root, ".duolog"), agent, data); ok {
+						if d, ok := guardLeadCall(project.LeadHome(root), agent, data); ok {
 							_, _ = cmd.OutOrStdout().Write(policy.RenderLead(agent, d))
 						}
 					}
@@ -67,25 +68,25 @@ func newGateCommand(deps *cmdDeps) *cobra.Command {
 		a := policy.Action{Kind: "unknown", Role: os.Getenv("DUOLOG_ROLE")}
 		d := policy.Decision{Kind: policy.Deny, Mode: mode.Ask, Rule: "gate setup"}
 		root, err := projectRoot()
-		var s *store.Store
+		var reg *session.Registry
 		if err == nil {
 			// A worker runs in a project with state. Elsewhere it denies and creates none.
 			if info, statErr := os.Stat(filepath.Join(root, ".duolog")); statErr != nil || !info.IsDir() {
 				err = fmt.Errorf("no .duolog folder in %s", root)
 			} else {
-				s, err = store.Open(root)
+				reg, err = session.Open(project.LeadHome(root))
 			}
 		}
 		if err == nil {
-			a, d, err = evaluateHook(deps, cmd, root, agent, event, started)
+			a, d, err = evaluateHook(deps, cmd, reg, root, agent, event, started)
 		}
 		if err != nil {
 			d.Kind, d.Reason, d.Rule = policy.Deny, "gate failed closed: "+err.Error(), "gate setup"
 		}
 		d.Native = os.Getenv("DUOLOG_NATIVE")
-		if s != nil {
+		if reg != nil {
 			loggedAction, loggedDecision := safeGateFields(a, d)
-			if logErr := gate.Log(s, loggedAction, loggedDecision); logErr != nil {
+			if logErr := gate.Log(&store.Store{Dir: reg.Dir}, loggedAction, loggedDecision); logErr != nil {
 				d.Kind, d.Reason, d.Rule = policy.Deny, "cannot log gate decision: "+logErr.Error(), "decision log"
 			}
 		}
@@ -100,36 +101,72 @@ func newGateCommand(deps *cmdDeps) *cobra.Command {
 	return cmd
 }
 
-func evaluateHook(deps *cmdDeps, cmd *cobra.Command, root, agent, event string, started time.Time) (policy.Action, policy.Decision, error) {
+func evaluateHook(deps *cmdDeps, cmd *cobra.Command, reg *session.Registry, root, agent, event string, started time.Time) (policy.Action, policy.Decision, error) {
 	a := policy.Action{Kind: "unknown", Role: os.Getenv("DUOLOG_ROLE")}
 	d := policy.Decision{Mode: mode.Ask}
 	if event != "PreToolUse" && event != "PermissionRequest" {
 		return a, d, fmt.Errorf("unsupported gate event %q", event)
 	}
-	data, err := readHookInput(cmd)
+	actions, envelope, err := readGateActions(cmd, root, agent)
 	if err != nil {
 		return a, d, err
 	}
+	a = actions[0]
+	cfg, err := configfile.Load(root)
+	if err != nil {
+		return a, d, err
+	}
+	lead, m, err := gate.LeadMode(reg, session.CurrentLead(os.Environ()), started)
+	if err != nil {
+		return a, d, err
+	}
+	// A delegate names its worker's level; the gate takes it only to lower.
+	m = policy.WorkerMode(m, os.Getenv("DUOLOG_MODE"))
+	d.Mode = m
+	rules, err := hookRules(cfg, reg, lead, &a, root, envelope.SessionID)
+	if err != nil {
+		return a, d, err
+	}
+	result := evaluateGateActions(cfg, rules, m, actions, a.Role, envelope.Tool)
+	a, d = result.action, result.decision
+	if d.Kind == policy.Ask {
+		// One answer covers the whole tool call, so the question names every path.
+		a.Target = strings.Join(result.asked, " ")
+		key := gate.AskKey(envelope.SessionID, envelope.ToolUseID, askQuestion(a.Kind, result.asked, envelope.Cwd), result.person)
+		resolved, err := askLead(cmd.Context(), deps.AskWait(askSeconds(cfg, result.person), result.person, deps.HookLimit(agent, event, root, a.Work, os.Environ())), cfg, root, reg.Dir, lead.ID, key, a, d, result.initial, result.person)
+		if err != nil {
+			return a, d, err
+		}
+		d = resolved
+	}
+	return a, d, nil
+}
+
+func readGateActions(cmd *cobra.Command, root, agent string) ([]policy.Action, hookEnvelope, error) {
+	var envelope hookEnvelope
+	data, err := readHookInput(cmd)
+	if err != nil {
+		return nil, envelope, err
+	}
 	if len(data) > 4*1024*1024 {
-		return a, d, fmt.Errorf("hook input exceeds 4 MiB")
+		return nil, envelope, fmt.Errorf("hook input exceeds 4 MiB")
 	}
 	actions, err := policy.NormalizeAll(agent, data)
 	if err != nil {
-		return a, d, err
+		return nil, envelope, err
 	}
-	var envelope hookEnvelope
 	if err := json.Unmarshal(data, &envelope); err != nil {
-		return a, d, err
+		return nil, envelope, err
 	}
 	// Every action carries the store roots, even when collection is off or the
 	// roots do not exist yet. Roots that cannot be placed fail closed.
 	roots, err := gateProtectedRoots()
 	if err != nil {
-		return a, d, fmt.Errorf("cannot place the private usage stores: %w", err)
+		return nil, envelope, fmt.Errorf("cannot place the private usage stores: %w", err)
 	}
 	work := workRoot(root)
 	for i := range actions {
-		actions[i].Role = a.Role
+		actions[i].Role = os.Getenv("DUOLOG_ROLE")
 		action := &actions[i]
 		action.ProtectedRoots = roots
 		action.Peer = os.Getenv("DUOLOG_PEER")
@@ -143,39 +180,24 @@ func evaluateHook(deps *cmdDeps, cmd *cobra.Command, root, agent, event string, 
 			action.State = root
 		}
 	}
-	a = actions[0]
-	cfg, err := configfile.Load(root)
+	return actions, envelope, nil
+}
+
+func hookRules(cfg *config.Config, reg *session.Registry, lead session.Lead, a *policy.Action, root, sessionID string) (policy.LeadRules, error) {
+	// The ceiling holds the settings of the lead's own checkout and the work's.
+	// root, the work's main checkout, places a lead of the same project
+	// without Git.
+	rules, err := gate.ImportLeadForWorkState(a.Work, root, gate.LeadRoot(lead, reg), lead.Agent)
 	if err != nil {
-		return a, d, err
-	}
-	reg, err := session.Open(filepath.Join(root, ".duolog"))
-	if err != nil {
-		return a, d, err
-	}
-	lead, m, err := gate.LeadMode(reg, session.CurrentLead(os.Environ()), started)
-	if err != nil {
-		return a, d, err
-	}
-	// A delegate names its worker's level; the gate takes it only to lower.
-	m = policy.WorkerMode(m, os.Getenv("DUOLOG_MODE"))
-	d.Mode = m
-	rules, err := gate.ImportLead(work, lead.Agent)
-	if err != nil {
-		return a, d, err
+		return rules, err
 	}
 	if a.Role == "" {
-		var hook struct {
-			SessionID string `json:"session_id"`
-		}
-		if err := json.Unmarshal(data, &hook); err != nil {
-			return a, d, err
-		}
 		entries, err := reg.Entries()
 		if err != nil {
-			return a, d, err
+			return rules, err
 		}
 		for _, entry := range entries {
-			if !entry.Closed && entry.Lead == lead.ID && hook.SessionID != "" && (entry.ThreadID == hook.SessionID || entry.ID == hook.SessionID) {
+			if !entry.Closed && entry.Lead == lead.ID && sessionID != "" && (entry.ThreadID == sessionID || entry.ID == sessionID) {
 				a.Role = entry.Role
 				break
 			}
@@ -186,46 +208,47 @@ func evaluateHook(deps *cmdDeps, cmd *cobra.Command, root, agent, event string, 
 	} else {
 		rules.RoleSandbox = "read-only"
 	}
+	return rules, nil
+}
+
+type gateEvaluation struct {
+	action            policy.Action
+	decision, initial policy.Decision
+	asked             []string
+	person            bool
+}
+
+func evaluateGateActions(cfg *config.Config, rules policy.LeadRules, m mode.Mode, actions []policy.Action, role, tool string) gateEvaluation {
+	r := gateEvaluation{action: actions[0], decision: policy.Decision{Kind: policy.Allow, Mode: m}}
+	r.action.Role = role
 	// Bare native-tool denies remain enforceable even for normalized tools.
 	for _, rule := range rules.Deny {
-		if rule.Action == "unknown" && rule.Match == envelope.Tool {
-			return a, policy.Decision{Kind: policy.Deny, Mode: m, Reason: "denied by lead settings", Rule: "lead tool: " + envelope.Tool}, nil
+		if rule.Action == "unknown" && rule.Match == tool {
+			r.decision = policy.Decision{Kind: policy.Deny, Mode: m, Reason: "denied by lead settings", Rule: "lead tool: " + tool}
+			return r
 		}
 	}
-	d = policy.Decision{Kind: policy.Allow, Mode: m}
-	var asked []string
-	person := false
 	// initial is the rule that asked, kept for telemetry: the person's rule
 	// when one action needs the person, since the person then answers.
-	var initial policy.Decision
 	for _, action := range actions {
-		action.Role = a.Role
+		action.Role = role
 		next := policy.Evaluate(cfg.Policy, rules, m, action)
-		person = person || policy.PersonOnly(next)
+		r.person = r.person || policy.PersonOnly(next)
 		if next.Kind == policy.Deny {
-			return action, next, nil
+			r.action, r.decision = action, next
+			return r
 		}
 		if next.Kind == policy.Ask {
-			asked = append(asked, action.Target)
-			if initial.Kind != policy.Ask || policy.PersonOnly(next) && !policy.PersonOnly(initial) {
-				initial = next
+			r.asked = append(r.asked, action.Target)
+			if r.initial.Kind != policy.Ask || policy.PersonOnly(next) && !policy.PersonOnly(r.initial) {
+				r.initial = next
 			}
 		}
-		if d.Kind != policy.Ask {
-			a, d = action, next
+		if r.decision.Kind != policy.Ask {
+			r.action, r.decision = action, next
 		}
 	}
-	if d.Kind == policy.Ask {
-		// One answer covers the whole tool call, so the question names every path.
-		a.Target = strings.Join(asked, " ")
-		key := gate.AskKey(envelope.SessionID, envelope.ToolUseID, askQuestion(a.Kind, asked, envelope.Cwd), person)
-		resolved, err := askLead(cmd.Context(), deps.AskWait(askSeconds(cfg, person), person, deps.HookLimit(agent, event, root, work, os.Environ())), cfg, root, reg.Dir, lead.ID, key, a, d, initial, person)
-		if err != nil {
-			return a, d, err
-		}
-		d = resolved
-	}
-	return a, d, nil
+	return r
 }
 
 // askSeconds is the configured wait of an ask that the lead or only the person
@@ -456,8 +479,9 @@ func newDecisionsCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		home, work := project.LeadHome(root), workRoot(root)
 		for _, name := range []string{"requests.ndjson", "decisions.ndjson"} {
-			f, err := os.Open(filepath.Join(root, ".duolog", name))
+			f, err := os.Open(filepath.Join(home, name))
 			if os.IsNotExist(err) {
 				continue
 			}
@@ -465,26 +489,40 @@ func newDecisionsCommand() *cobra.Command {
 				return err
 			}
 			defer f.Close() //nolint:gocritic // two files, both held until the report is written
-			decoder := json.NewDecoder(f)
-			for {
-				var row gate.Record
-				if err := decoder.Decode(&row); err == io.EOF {
-					break
-				} else if err != nil {
-					return err
-				}
-				label := map[string]string{policy.Allow: "Allow", policy.Deny: "Deny", policy.Ask: "Ask"}[row.Kind]
-				modeText := string(row.Mode)
-				if row.Native != "" {
-					modeText += "; native " + row.Native
-				}
-				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s (mode %s; rule %s) Reason: %s\n", label, row.Action.Kind, row.Action.Target, modeText, row.Rule, row.Reason); err != nil {
-					return err
-				}
+			if err := printDecisions(cmd.OutOrStdout(), f, work); err != nil {
+				return err
 			}
 		}
 		return nil
 	}}
+}
+
+func printDecisions(out io.Writer, in io.Reader, work string) error {
+	decoder := json.NewDecoder(in)
+	for {
+		var row gate.Record
+		if err := decoder.Decode(&row); err == io.EOF {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(out, decisionText(row, work)); err != nil {
+			return err
+		}
+	}
+}
+
+func decisionText(row gate.Record, work string) string {
+	label := map[string]string{policy.Allow: "Allow", policy.Deny: "Deny", policy.Ask: "Ask"}[row.Kind]
+	modeText := string(row.Mode)
+	if row.Native != "" {
+		modeText += "; native " + row.Native
+	}
+	where := ""
+	if row.Action.Work != "" && checkoutKey(row.Action.Work) != checkoutKey(work) {
+		where = " (work " + row.Action.Work + ")"
+	}
+	return fmt.Sprintf("%s %s %s%s (mode %s; rule %s) Reason: %s", label, row.Action.Kind, row.Action.Target, where, modeText, row.Rule, row.Reason)
 }
 
 // Recognized credential forms are removed from persistent records and ask

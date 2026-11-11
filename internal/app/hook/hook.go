@@ -14,12 +14,14 @@ import (
 
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	leadapp "github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/load"
 	"github.com/lorem-dev/duolog/internal/app/roster"
 	agentsync "github.com/lorem-dev/duolog/internal/app/sync"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -193,7 +195,7 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 	if err != nil {
 		return nil, &configError{err}
 	}
-	reg, err := session.Open(dir)
+	reg, err := session.Open(project.LeadHome(e.Root))
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +240,7 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 		o.TranscriptPath = &h.TranscriptPath
 	}
 	if !known {
-		o.PID = &lead.PID
+		observeCheckout(&o, lead, e)
 	}
 	if hasMode {
 		o.Mode = &lead.Mode
@@ -252,11 +254,19 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 	if err != nil {
 		return nil, err
 	}
-	b, err := bus.Open(dir, cfg.Wire)
+	b, err := bus.Open(reg.Dir, cfg.Wire)
 	if err != nil {
 		return nil, err
 	}
 	return &state{cfg: cfg, reg: reg, bus: b, lead: lead}, nil
+}
+
+func observeCheckout(o *session.LeadObservation, lead session.Lead, e Env) {
+	root := e.WorkRoot
+	if root == "" {
+		root = e.Root
+	}
+	o.Root, o.PID = &root, &lead.PID
 }
 
 // receive renders the lead's unread lines and names the peers of the
@@ -336,9 +346,13 @@ func SessionStart(ctx context.Context, e Env) Output {
 	return deliver(ctx, e, "SessionStart", true, true, startTime(e), func(s *state, _ []byte) string {
 		prune(e)
 		var lines []string
+		var submodules string
+		if s != nil {
+			submodules, _ = leadapp.SubmoduleLine(ctx, e.Root)
+		}
 		// The skills are refreshed before the install is checked, so the note
 		// sees them current.
-		for _, line := range []string{telemetryStart(ctx, e), syncStart(e), compactStart(ctx, e), refreshSkills(e, s), installNote(e, s), restartNote(e, s, true)} {
+		for _, line := range []string{submodules, telemetryStart(ctx, e), syncStart(e), compactStart(ctx, e), refreshSkills(e, s), installNote(e, s), restartNote(e, s, true)} {
 			if line != "" {
 				lines = append(lines, line)
 			}
@@ -484,7 +498,7 @@ func SessionEnd(ctx context.Context, e Env) Output {
 	if json.Unmarshal(e.Input, &h) != nil || h.ID == "" {
 		return Output{}
 	}
-	reg, err := session.Open(filepath.Join(e.Root, ".duolog"))
+	reg, err := session.Open(project.LeadHome(e.Root))
 	if err != nil {
 		return Output{}
 	}
@@ -507,7 +521,7 @@ func Wake(ctx context.Context, e Env) int {
 	if err != nil || s == nil {
 		return 0
 	}
-	path := filepath.Join(e.Root, ".duolog", "bus.ndjson")
+	path := filepath.Join(s.reg.Dir, "bus.ndjson")
 	size := func() int64 {
 		info, err := os.Stat(path)
 		if err != nil {

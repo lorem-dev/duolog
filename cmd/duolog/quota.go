@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	appquota "github.com/lorem-dev/duolog/internal/app/quota"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
@@ -82,8 +82,8 @@ func collectQuota(ctx context.Context, d *cmdDeps, root string) (map[string]appq
 		var reg *session.Registry
 		var regErr error
 		var unavailable map[string]bool
-		if info, statErr := os.Stat(filepath.Join(root, ".duolog")); statErr == nil && info.IsDir() {
-			reg, regErr = session.Open(filepath.Join(root, ".duolog"))
+		if info, statErr := os.Stat(project.LeadHome(root)); statErr == nil && info.IsDir() {
+			reg, regErr = session.Open(project.LeadHome(root))
 		}
 		if reg != nil && regErr == nil {
 			unavailable, regErr = reg.Unavailable()

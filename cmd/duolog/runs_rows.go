@@ -13,6 +13,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/peer"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/spf13/cobra"
 )
 
@@ -156,7 +157,7 @@ func writeRunRows(w io.Writer, rows []runRow, long, asJSON bool, now time.Time) 
 // peerKnown reports whether the registry in stateDir holds a live peer id. It
 // reads the record only: no Rex call, no lead.
 func peerKnown(stateDir, id string) bool {
-	reg, err := session.Open(stateDir)
+	reg, err := session.Open(project.LeadHome(filepath.Dir(stateDir)))
 	if err != nil {
 		return false
 	}

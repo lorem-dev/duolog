@@ -18,10 +18,14 @@ import (
 // when the default capture cuts its heading off.
 const trustCaptureLines = 200
 
-// leadRoot is the lead's own project root: the main checkout that holds the
-// shared state, whatever checkout the pane opens in. It is the root whose
-// trust and MCP decisions Claude holds for the lead.
-func (e *env) leadRoot() string { return filepath.Dir(e.dir) }
+// leadRoot is the lead's recorded checkout, whose trust and MCP decisions
+// Claude holds. Legacy leads fall back to the checkout owning shared state.
+func (e *env) leadRoot() string {
+	if lead, ok, err := e.reg.Lead(e.leadID); err == nil && ok && lead.Root != "" {
+		return lead.Root
+	}
+	return filepath.Dir(e.dir)
+}
 
 // agentQuestion handles the questions the agent's pane adapter reads itself,
 // before any text rule: a plugin offer is declined, and the folder-trust
@@ -85,7 +89,7 @@ func (e *env) answerFolderTrust(ctx context.Context, entry session.Entry, screen
 	if err := e.selectOption(ctx, entry, screen, label); err != nil {
 		return false, err
 	}
-	action := policy.Action{Kind: "answer", Role: entry.Role, Target: screen.Question + " => " + label}
+	action := policy.Action{Kind: "answer", Role: entry.Role, Work: folder, Target: screen.Question + " => " + label}
 	decision := policy.Decision{Kind: policy.Allow, Reason: "the pane's folder is the lead's own project, whose root the agent trusts", Rule: "peer.folder_trust"}
 	if err := gate.Log(&store.Store{Dir: e.dir}, action, decision); err != nil {
 		return false, err

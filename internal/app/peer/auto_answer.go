@@ -21,6 +21,11 @@ import (
 // offers before considering text rules. A missing command or option leaves the
 // question for the lead, and a plugin install question never reaches text rules.
 func (e *env) autoAnswer(ctx context.Context, entry session.Entry, screen Screen) (bool, error) {
+	owned, err := e.forEntry(entry)
+	if err != nil {
+		return false, err
+	}
+	e = owned
 	pane := e.pane(entry.Agent)
 	if answered, handled, err := e.agentQuestion(ctx, entry, screen, pane.Agent); handled {
 		return answered, err
@@ -64,7 +69,7 @@ type answerChoice struct {
 // false when the question stays for the lead.
 func (e *env) chooseAnswer(entry session.Entry, screen Screen, facts agent.PaneFacts) (answerChoice, bool, error) {
 	chosen := answerChoice{
-		action:   policy.Action{Kind: "answer", Role: entry.Role},
+		action:   policy.Action{Kind: "answer", Role: entry.Role, Work: e.peerRoot(entry)},
 		decision: policy.Decision{Kind: policy.Allow, Reason: "configured peer answer", Rule: "rex.auto_answers"},
 	}
 	if ask := facts.CommandQuestion; ask != "" && strings.Contains(screen.Text, ask) {
@@ -88,6 +93,11 @@ func (e *env) chooseAnswer(entry session.Entry, screen Screen, facts agent.PaneF
 // commandChoice asks the gate about the command of a prompt. An undecided
 // verdict is logged as a request, once per question, and left for the lead.
 func (e *env) commandChoice(entry session.Entry, screen Screen, facts agent.PaneFacts, ask string) (answerChoice, bool, error) {
+	owned, err := e.forEntry(entry)
+	if err != nil {
+		return answerChoice{}, false, err
+	}
+	e = owned
 	command := corescreen.PromptCommand(screen.Text, ask)
 	if command == "" {
 		return answerChoice{}, false, nil
@@ -98,7 +108,7 @@ func (e *env) commandChoice(entry session.Entry, screen Screen, facts agent.Pane
 	}
 	rules := policy.LeadRules{}
 	if lead.target != nil {
-		if rules, err = gate.ImportLead(e.peerRoot(entry), lead.target.Agent); err != nil {
+		if rules, err = e.leadCeiling(entry, lead.target.Agent); err != nil {
 			return answerChoice{}, false, err
 		}
 	}
@@ -107,7 +117,7 @@ func (e *env) commandChoice(entry session.Entry, screen Screen, facts agent.Pane
 		rules.RoleSandbox = role.Sandbox
 	}
 	root := e.peerRoot(entry)
-	action := policy.Action{Kind: "exec", Target: command, Role: entry.Role, Work: root, Cwd: root, State: filepath.Dir(e.dir), ProtectedRoots: e.opts.ProtectedRoots}
+	action := policy.Action{Kind: "exec", Target: command, Role: entry.Role, Work: root, Cwd: root, State: filepath.Dir(e.workState(entry)), ProtectedRoots: e.opts.ProtectedRoots}
 	level := mode.Lower(lead.mode, entry.Mode)
 	decision := policy.Evaluate(e.cfg.Policy, rules, level, action)
 	// The line is judged as the pane shows it, since an assignment can point
@@ -138,6 +148,17 @@ func (e *env) commandChoice(entry session.Entry, screen Screen, facts agent.Pane
 // optionFor is the index of the one option that choice names, or -1. A label
 // or its parenthetical/key hint counts, never the fuzzy substring or number
 // matching available to the lead; two matches count as none.
+// leadCeiling reads the settings ceiling of the peer's checkout under its
+// lead: the lead's own checkout, as the registry recorded it, and the peer's.
+// A registry error fails the answer rather than dropping the lead's denies.
+func (e *env) leadCeiling(entry session.Entry, leadAgent string) (policy.LeadRules, error) {
+	lead, _, err := e.reg.Lead(e.leadID)
+	if err != nil {
+		return policy.LeadRules{}, err
+	}
+	return gate.ImportLeadForWork(e.peerRoot(entry), gate.LeadRoot(lead, e.reg), leadAgent)
+}
+
 func optionFor(screen Screen, choice string) int {
 	target := -1
 	for i, option := range screen.Options {

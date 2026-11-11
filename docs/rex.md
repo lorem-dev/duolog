@@ -25,10 +25,11 @@ says `no live lead`. Ask that session to run this command in its own shell:
 duolog lead register [plan|ask|edits|full]
 ```
 
-A linked worktree shares the lead of its repository's main checkout, a
-submodule's included: run the command in either. A lead of another repository
-is never found. `--lead <id>` names the state folder it searched when it finds
-no live lead.
+A linked worktree shares the lead of its repository's main checkout.
+A configured duolog submodule also finds its superproject's lead.
+A lead of an unrelated repository is never found. If no live lead is found
+for a submodule, the error names its work state and the shared lead home.
+Old work-local lead files are ignored; close submodule peers before upgrading.
 
 duolog reads the session ID that the agent sets in its shell. Claude sets
 `CLAUDE_CODE_SESSION_ID`, and Codex sets `CODEX_THREAD_ID`. If the ID is
@@ -65,7 +66,10 @@ worktree reuses the peer. Opening it in another worktree starts a new peer.
 is live in that worktree, so two independent tasks of one role run side by
 side. It keeps the session limits: with `max_live_sessions` reached it is
 refused as any open is.
-For peers, `max_live_sessions` applies per lead, agent and work root.
+For peers, `max_live_sessions` applies per lead, agent and checkout group.
+Each checkout of the lead home's project has its own group. Submodule
+worktrees share the group of their top superproject checkout. A peer whose
+work root was deleted does not count against the cap.
 `duolog peer send` refuses a task file that is not under the peer's own work
 root, so a task cannot run in the wrong worktree. A relative path is read from
 the worktree you run the command in.
@@ -437,10 +441,23 @@ instead of the `duolog peer` commands. The `action` field picks the step:
 | `close` | Closes the peer |
 
 For `open`, set `worktree` to a path or a name under `.worktrees/`. A plain
-name tries `.worktrees/<name>` first. Relative paths start at the server's
-working folder. A folder that is not a checkout of this repository, such as
-a subfolder of the project, is refused. Without `worktree`, the peer opens in
-the server's checkout. For example:
+name tries `.worktrees/<name>` first, in the server's checkout and in each
+checkout of a duolog submodule. A duolog submodule is a Git submodule with
+its own `.duolog/config.yaml` whose superproject has duolog too, at any
+depth, also inside a linked checkout of the superproject. When two
+checkouts have the name, the tool refuses and names both; pass a path
+instead. With no match, the name is a path. Relative paths start at the
+server's working folder.
+
+Session start names these submodules without loading their instructions.
+The first peer or delegation into each submodule reminds the lead to read
+its `AGENTS.md` and `CLAUDE.md`. Its roles and models come from its own config.
+
+The tool accepts only the root of a checkout that Git lists: a checkout of
+this repository, or of a duolog submodule that shares the lead. It refuses
+a subfolder, a submodule that is not initialized or has no duolog config,
+and an unrelated repository nested in a folder. Without `worktree`, the peer
+opens in the server's checkout. For example:
 
 ```json
 {"action":"open","role":"implement","worktree":"feature"}
@@ -453,6 +470,25 @@ A `wait` returns after `timeout_minutes` (10 by default and at most), so the
 lead calls it again and is never blocked for good. It returns the peer's
 `state`, its `question` if one is open, the `open_asks` with their numbers, and
 the `report` field: the first lines of the peer's report file.
+
+The `delegate` tool takes the same `worktree` field, with the same lookup
+and checks. The worker then starts in that checkout, with its project's
+config, and the task file and result record stay in that project. The
+lead stays the one that runs the server, even when the checkout belongs to
+a duolog submodule. For example:
+
+```json
+{"role":"implement","worktree":"module/.worktrees/feature","task":{"goal":"Fix the parser."}}
+```
+
+The lead's registry keeps the work project of each run, also after the run
+and the lead end. So `action: result` with the run's id finds the result
+from any checkout of the lead, even after its worktree was removed. A
+relative `task_path` can name runs in more than one project; the call then
+fails and names them, and you pass the id or `worktree` instead. In
+`status`, each delegation row has its `work_root`, the checkout it ran in,
+and its `answer_path` in that project. Peer rows of `status` and of
+`peer list` also have `work_root`.
 
 `answer_ask` has the rights of `duolog allow` and `duolog deny`. Only the
 person's terminal may allow or deny a person-only ask. The lead and

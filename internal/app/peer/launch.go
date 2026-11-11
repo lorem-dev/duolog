@@ -2,6 +2,7 @@ package peer
 
 import (
 	"encoding/json"
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"os"
 	"path/filepath"
 	"strings"
@@ -93,7 +94,8 @@ func launchArgv(exe, envFile string, program []string) []string {
 // sweepEnv drops abandoned launch files while open holds the placement lock.
 // Recent files may belong to a launcher that has not read its environment yet.
 func (e *env) sweepEnv() error {
-	entries, err := os.ReadDir(e.dir)
+	dir := e.workState(session.Entry{})
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
@@ -107,7 +109,7 @@ func (e *env) sweepEnv() error {
 			return err
 		}
 		if info.Mode().IsRegular() && info.ModTime().Before(cutoff) {
-			if err := os.Remove(filepath.Join(e.dir, entry.Name())); err != nil && !os.IsNotExist(err) {
+			if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil && !os.IsNotExist(err) {
 				return err
 			}
 		}

@@ -13,19 +13,24 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
+	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/pathutil"
+	"github.com/lorem-dev/duolog/internal/project"
 )
 
 type leadObservationTimes struct {
-	Agent, Model, Effort, Mode, TranscriptPath, PID time.Time
-	EndedAt                                         time.Time
+	Agent, Model, Effort, Mode, TranscriptPath, PID, Root time.Time
+	EndedAt                                               time.Time
 }
 
 type Registry struct {
 	Dir string
 	// LeadID binds limit ownership when the caller selected a lead explicitly.
 	LeadID string
+	// Limit is the lead's max_live_sessions, set by OpenLead.
+	Limit int
 	// within, when set, bounds every wait for the registry lock: see Within.
 	within context.Context
 }
@@ -68,6 +73,9 @@ type state struct {
 	// Notices holds, per lead, the one-time notices already given, so that
 	// delegate and peer open give each one once until the lead ends.
 	Notices map[string]map[string]bool `json:"notices,omitempty"`
+	// Delegations holds the work project of each MCP delegation by run id; a
+	// lead's end keeps them, so results stay found (delegations.go).
+	Delegations map[string]DelegationLocation `json:"delegations,omitempty"`
 }
 
 // PeerRexSession is the detached Rex session shared by this project's peers.
@@ -118,6 +126,29 @@ func Open(dir string) (*Registry, error) {
 	r := &Registry{Dir: dir}
 	err := r.access(false, func(*state) error { return nil })
 	return r, err
+}
+
+// OpenLead opens the registry in the lead home dir and sets Limit to the
+// lead's max_live_sessions from the config of the checkout that holds dir: a
+// lead's sessions in its configured submodules count against that one cap.
+// work is the config the caller loaded for the work project whose main
+// checkout is workRoot; when that project holds the lead home, work is the
+// lead home's config and is used as it is. A lead home config that does not
+// load is an error.
+func OpenLead(dir string, work *config.Config, workRoot string) (*Registry, error) {
+	r, err := Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	r.Limit = work.Limits.MaxLiveSessions
+	if home := filepath.Dir(dir); !sameCheckout(home, workRoot) {
+		lead, err := configfile.Load(home)
+		if err != nil {
+			return nil, fmt.Errorf("lead home config: %w", err)
+		}
+		r.Limit = lead.Limits.MaxLiveSessions
+	}
+	return r, nil
 }
 
 func (r *Registry) access(write bool, fn func(*state) error) error {
@@ -195,6 +226,36 @@ func (r *Registry) Record(e Entry) error {
 	return r.RecordLimited(e, 0)
 }
 
+// LookupWork finds a reusable thread belonging to this exact checkout.
+// Legacy entries belong only to the checkout that owns their registry.
+func (r *Registry) LookupWork(lead, agent, role, thread, workRoot string) (*Entry, bool, error) {
+	var found *Entry
+	err := r.access(false, func(s *state) error {
+		for i := len(s.Entries) - 1; i >= 0; i-- {
+			x := s.Entries[i]
+			if x.Closed || x.Lead != lead || x.Agent != agent || x.Role != role || x.Thread != thread {
+				continue
+			}
+			root := x.WorkRoot
+			if root == "" {
+				root = filepath.Dir(r.Dir)
+			}
+			if sameCheckout(root, workRoot) {
+				found = &x
+				break
+			}
+		}
+		return nil
+	})
+	return found, found != nil, err
+}
+
+func sameCheckout(a, b string) bool {
+	x, xe := os.Stat(a)
+	y, ye := os.Stat(b)
+	return xe == nil && ye == nil && os.SameFile(x, y)
+}
+
 // Update changes one entry inside the registry lock, so that two changes to
 // different fields of an entry cannot overwrite each other.
 func (r *Registry) Update(id string, change func(*Entry)) (Entry, error) {
@@ -213,43 +274,47 @@ func (r *Registry) Update(id string, change func(*Entry)) (Entry, error) {
 	return updated, err
 }
 
-// RecordLimited retains at most limit sessions for this lead and agent (and
-// work root for live panes). A
+// ShareCap compares fixed pane groups without running Git. A deleted work
+// root shares no cap. Legacy panes without a group share only their checkout.
+func ShareCap(a, b Entry) bool {
+	if a.WorkRoot == "" && b.WorkRoot == "" {
+		return true
+	}
+	group := paneGroup(a)
+	return group != "" && group == paneGroup(b)
+}
+
+func paneGroup(e Entry) string {
+	if info, err := os.Stat(e.WorkRoot); err != nil || !info.IsDir() {
+		return ""
+	}
+	if e.CapGroup != "" {
+		return e.CapGroup
+	}
+	return pathutil.Clean(pathutil.Resolved(e.WorkRoot))
+}
+
+// RecordLimited retains at most limit sessions for this lead and agent (and,
+// for live panes, those in its fixed cap group). A
 // nonpositive limit leaves the registry unbounded. A stored thread that is over the
 // limit is closed, because it costs nothing to reopen. A pane is still running, and
 // nothing here can stop it, so a pane is never closed to make room: a new pane over
-// the limit is refused, which also settles two opens that overlap.
+// the limit is refused, which also settles two opens that overlap. A pane whose
+// cap group Git cannot work out is refused too.
 func (r *Registry) RecordLimited(e Entry, limit int) error {
+	if e.Block != "" && e.CapGroup == "" {
+		group, err := project.CapGroup(e.WorkRoot, r.Dir)
+		if err != nil {
+			return err
+		}
+		e.CapGroup = group
+	}
 	if e.UpdatedAt.IsZero() {
 		e.UpdatedAt = time.Now()
 	}
 	return r.access(true, func(s *state) error {
-		if limit > 0 {
-			var threads []int
-			panes := 0
-			for i, x := range s.Entries {
-				if x.Closed || x.ID == e.ID || x.Lead != e.Lead || x.Agent != e.Agent {
-					continue
-				}
-				if x.Block != "" {
-					if e.Block != "" && x.WorkRoot != e.WorkRoot {
-						continue
-					}
-					panes++
-				} else {
-					threads = append(threads, i)
-				}
-			}
-			if e.Block != "" && panes >= limit {
-				return fmt.Errorf("max_live_sessions is %d and %s has %d open panes", limit, e.Agent, panes)
-			}
-			sort.Slice(threads, func(i, j int) bool {
-				return s.Entries[threads[i]].UpdatedAt.Before(s.Entries[threads[j]].UpdatedAt)
-			})
-			for len(threads) > 0 && len(threads)+panes >= limit {
-				s.Entries[threads[0]].Closed = true
-				threads = threads[1:]
-			}
+		if err := s.limitEntries(e, limit); err != nil {
+			return err
 		}
 		for i, x := range s.Entries {
 			if x.ID == e.ID {
@@ -260,6 +325,38 @@ func (r *Registry) RecordLimited(e Entry, limit int) error {
 		s.Entries = append(s.Entries, e)
 		return nil
 	})
+}
+
+func (s *state) limitEntries(e Entry, limit int) error {
+	if limit <= 0 {
+		return nil
+	}
+	threads, panes := s.capEntries(e)
+	if e.Block != "" && panes >= limit {
+		return fmt.Errorf("max_live_sessions is %d and %s has %d open panes", limit, e.Agent, panes)
+	}
+	sort.Slice(threads, func(i, j int) bool {
+		return s.Entries[threads[i]].UpdatedAt.Before(s.Entries[threads[j]].UpdatedAt)
+	})
+	for len(threads) > 0 && len(threads)+panes >= limit {
+		s.Entries[threads[0]].Closed = true
+		threads = threads[1:]
+	}
+	return nil
+}
+
+func (s *state) capEntries(e Entry) (threads []int, panes int) {
+	for i, x := range s.Entries {
+		if x.Closed || x.ID == e.ID || x.Lead != e.Lead || x.Agent != e.Agent {
+			continue
+		}
+		if x.Block == "" {
+			threads = append(threads, i)
+		} else if e.Block == "" || ShareCap(x, e) {
+			panes++
+		}
+	}
+	return threads, panes
 }
 func (r *Registry) Close(id string) error {
 	started := time.Now()
@@ -336,7 +433,7 @@ func (r *Registry) MarkUnavailable(agent string, until time.Time) error {
 func (r *Registry) RegisterLead(l Lead) error {
 	_, err := r.ObserveLead(LeadObservation{
 		ID: l.ID, Agent: l.Agent, Model: &l.Model, Effort: &l.Effort,
-		Mode: &l.Mode, TranscriptPath: &l.TranscriptPath, PID: &l.PID,
+		Mode: &l.Mode, TranscriptPath: &l.TranscriptPath, PID: &l.PID, Root: &l.Root,
 	}, time.Now())
 	return err
 }
@@ -392,11 +489,7 @@ func (s *state) observeLead(o LeadObservation, started time.Time) (Lead, error) 
 	if !known {
 		current = Lead{ID: o.ID, Target: config.Target{Agent: o.Agent}, Mode: mode.Ask}
 	}
-	observeField(&current.Agent, &times.Agent, &o.Agent, started)
-	observeField(&current.Model, &times.Model, o.Model, started)
-	observeField(&current.Effort, &times.Effort, o.Effort, started)
-	observeField(&current.TranscriptPath, &times.TranscriptPath, o.TranscriptPath, started)
-	observeField(&current.PID, &times.PID, o.PID, started)
+	observeLeadFields(&current, &times, o, started)
 	if o.Mode != nil && !started.Before(times.Mode) {
 		next := *o.Mode
 		var native string
@@ -419,6 +512,15 @@ func observeField[T any](current *T, observedAt *time.Time, value *T, started ti
 	if value != nil && !started.Before(*observedAt) {
 		*current, *observedAt = *value, started
 	}
+}
+
+func observeLeadFields(current *Lead, times *leadObservationTimes, o LeadObservation, started time.Time) {
+	observeField(&current.Agent, &times.Agent, &o.Agent, started)
+	observeField(&current.Model, &times.Model, o.Model, started)
+	observeField(&current.Effort, &times.Effort, o.Effort, started)
+	observeField(&current.TranscriptPath, &times.TranscriptPath, o.TranscriptPath, started)
+	observeField(&current.PID, &times.PID, o.PID, started)
+	observeField(&current.Root, &times.Root, o.Root, started)
 }
 
 // LeadRegisteredAt returns when the registry first saw the lead's process, the

@@ -17,8 +17,10 @@ import (
 	"github.com/lorem-dev/duolog/internal/adapter/mcp"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
+	leadapp "github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/core/policy"
 	"github.com/lorem-dev/duolog/internal/core/taskspec"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -56,25 +58,37 @@ func (d *cmdDeps) mcpDelegate(ctx context.Context, in mcp.DelegateInput) (mcp.De
 }
 
 // mcpDelegateRun starts the delegation and waits for it when the call asks.
-func (d *cmdDeps) mcpDelegateRun(ctx context.Context, in mcp.DelegateInput) (mcp.DelegateOutput, error) {
+func (d *cmdDeps) mcpDelegateRun(ctx context.Context, in mcp.DelegateInput) (out mcp.DelegateOutput, err error) {
 	if in.Role == "" || in.Task == nil {
 		return mcp.DelegateOutput{}, errors.New("delegate needs role and task; for an earlier run use action=result with its task_path")
 	}
-	stateDir, _, _, err := mcpDelegateLead()
+	stateDir, work, lead, err := mcpDelegateLead(in.Worktree)
 	if err != nil {
 		return mcp.DelegateOutput{}, err
 	}
+	reminder, err := mcpSubmoduleReminder(work, lead)
+	if err != nil {
+		return out, err
+	}
+	defer func() {
+		out.Answer = strings.TrimSpace(out.Answer + " " + reminder)
+		if err != nil && reminder != "" {
+			err = fmt.Errorf("%w; %s", err, reminder)
+		}
+	}()
+	target := mcpDelegateTarget{stateDir: stateDir, work: work, lead: lead}
 	path, rel, err := func() (string, string, error) {
+		// Retries serialize in the work project they run in.
 		unlock, err := mcpDelegateLock(ctx, filepath.Join(stateDir, "mcp-delegate.lock"))
 		if err != nil {
 			return "", "", err
 		}
 		defer func() { _ = unlock() }()
-		path, rel := mcpRunningTwin(in)
+		path, rel := mcpRunningTwin(in, target)
 		if path != "" {
 			return path, rel, nil
 		}
-		return d.mcpDelegateStart(in)
+		return d.mcpDelegateStart(in, target)
 	}()
 	if err != nil {
 		return mcp.DelegateOutput{}, err
@@ -89,28 +103,33 @@ func (d *cmdDeps) mcpDelegateRun(ctx context.Context, in mcp.DelegateInput) (mcp
 	return mcpDelegateOutput(path, r), nil
 }
 
+func mcpSubmoduleReminder(work, lead string) (string, error) {
+	reg, err := session.Open(project.LeadHome(work))
+	if err != nil {
+		return "", err
+	}
+	return leadapp.ClaimSubmoduleReminder(reg, lead, work)
+}
+
 // mcpRunningTwin finds a run of this lead and role that is still running for a
 // task file with the same text as task renders to, and returns its record's
 // path and task path; path is empty when there is none. A client that gave up
 // before the reply calls again with the same task, and gets the run it has, not
 // a second worker. Any error means no twin: starting reports it.
-func mcpRunningTwin(in mcp.DelegateInput) (path, rel string) {
+func mcpRunningTwin(in mcp.DelegateInput, target mcpDelegateTarget) (path, rel string) {
 	role := in.Role
 	data, err := taskspec.Render(taskspec.Spec(*in.Task))
 	if err != nil {
 		return "", ""
 	}
-	stateDir, work, lead, err := mcpDelegateLead()
-	if err != nil {
-		return "", ""
-	}
-	dir := delegate.RecordDir(stateDir)
+	work, lead := target.work, target.lead
+	dir := delegate.RecordDir(target.stateDir)
 	records, err := delegate.ListRecords(dir, session.ProcessAlive)
 	if err != nil {
 		return "", ""
 	}
 	for _, r := range records {
-		if r.State != "running" || r.Role != role || r.Lead != lead || r.WorkRoot != work {
+		if r.State != "running" || r.Role != role || r.Lead != lead || checkoutKey(r.WorkRoot) != checkoutKey(work) {
 			continue
 		}
 		if r.Use != in.Use || r.Force != in.Force || r.SkipPreflight != in.SkipPreflight || !sameNeeds(r.AskedNeeds, in.Needs) {
@@ -131,14 +150,18 @@ func sameNeeds(a, b []string) bool {
 	return slices.Equal(a, b)
 }
 
-// mcpDelegateStart writes the task file and the running record, and starts
-// `duolog delegate` as a detached child with the lead resolved now. It
+// mcpDelegateTarget is where a delegation runs: the work project's state
+// folder, the checkout, and the lead the server resolved.
+type mcpDelegateTarget struct {
+	stateDir, work, lead string
+}
+
+// mcpDelegateStart writes the task file and the running record, records the
+// run's work project in the lead's registry, and starts `duolog delegate` as
+// a detached child in the checkout, bound to the lead resolved now. It
 // returns the record's path and the task file's path in the work root.
-func (d *cmdDeps) mcpDelegateStart(in mcp.DelegateInput) (path, rel string, err error) {
-	stateDir, work, lead, err := mcpDelegateLead()
-	if err != nil {
-		return "", "", err
-	}
+func (d *cmdDeps) mcpDelegateStart(in mcp.DelegateInput, target mcpDelegateTarget) (path, rel string, err error) {
+	work, lead := target.work, target.lead
 	exe, err := os.Executable()
 	if err != nil {
 		return "", "", err
@@ -147,12 +170,42 @@ func (d *cmdDeps) mcpDelegateStart(in mcp.DelegateInput) (path, rel string, err 
 	if rel, err = writeTaskFile(work, id, *in.Task); err != nil {
 		return "", "", err
 	}
-	dir := delegate.RecordDir(stateDir)
+	dir := delegate.RecordDir(target.stateDir)
 	path = filepath.Join(dir, id+".json")
 	base := delegate.Record{ID: id, Role: in.Role, Lead: lead, TaskPath: rel, WorkRoot: work, State: "running", Started: time.Now().UTC(), Use: in.Use, AskedNeeds: slices.Clone(in.Needs), Force: in.Force, SkipPreflight: in.SkipPreflight}
 	if err := delegate.WriteRecord(path, base); err != nil {
 		return "", "", err
 	}
+	if err := recordDelegationLocation(target, id); err != nil {
+		_ = delegate.WriteRecord(path, delegate.RecordFor(base, delegate.Outcome{}, err, time.Now().UTC()))
+		return "", "", err
+	}
+	argv := mcpDelegateArgv(exe, in, rel, lead, path)
+	// From here on only the child writes the record: its PID when it starts,
+	// and its outcome at its end. A write here could land on its final record.
+	if err := d.startDetached(argv, work, filepath.Join(dir, id+".log")); err != nil {
+		err = fmt.Errorf("cannot start duolog delegate: %w; run duolog delegate %s --task %s from the shell", err, in.Role, rel)
+		_ = delegate.WriteRecord(path, delegate.RecordFor(base, delegate.Outcome{}, err, time.Now().UTC()))
+		return "", "", err
+	}
+	return path, rel, nil
+}
+
+// recordDelegationLocation stores the work project of run id in the lead's
+// registry, so result and status find the run from any checkout of the lead.
+func recordDelegationLocation(target mcpDelegateTarget, id string) error {
+	reg, err := session.Open(project.LeadHome(target.work))
+	if err != nil {
+		return err
+	}
+	if checkoutKey(filepath.Dir(target.stateDir)) == checkoutKey(filepath.Dir(reg.Dir)) {
+		return nil
+	}
+	return reg.RecordDelegation(session.DelegationLocation{ID: id, Lead: target.lead, WorkRoot: filepath.Dir(target.stateDir)})
+}
+
+// mcpDelegateArgv is the detached `duolog delegate` command of a run.
+func mcpDelegateArgv(exe string, in mcp.DelegateInput, rel, lead, path string) []string {
 	argv := []string{exe, "delegate", in.Role, "--task", rel, "--lead", lead, "--result-file", path}
 	if in.Use != "" {
 		argv = append(argv, "--use", in.Use)
@@ -166,37 +219,39 @@ func (d *cmdDeps) mcpDelegateStart(in mcp.DelegateInput) (path, rel string, err 
 	if len(in.Needs) > 0 {
 		argv = append(argv, "--needs", strings.Join(in.Needs, ","))
 	}
-	// From here on only the child writes the record: its PID when it starts,
-	// and its outcome at its end. A write here could land on its final record.
-	if err := d.startDetached(argv, work, filepath.Join(dir, id+".log")); err != nil {
-		err = fmt.Errorf("cannot start duolog delegate: %w; run duolog delegate %s --task %s from the shell", err, in.Role, rel)
-		_ = delegate.WriteRecord(path, delegate.RecordFor(base, delegate.Outcome{}, err, time.Now().UTC()))
-		return "", "", err
-	}
-	return path, rel, nil
+	return argv
 }
 
-// mcpDelegateLead resolves the project's state dir, the work root and the
-// lead's ID as duolog delegate would. The server is the lead's child, so the
-// ancestor walk finds the lead.
-func mcpDelegateLead() (stateDir, work, lead string, err error) {
+// mcpDelegateLead resolves where a delegation runs: the checkout worktree
+// names (with the peer tool's rules), or the server's own; the state folder of
+// that checkout's work project; and the server's lead in its lead home, as
+// duolog delegate would find it. The server is the lead's child, so the
+// ancestor walk finds the lead, whichever checkout the run takes.
+func mcpDelegateLead(worktree string) (stateDir, work, lead string, err error) {
 	root, err := projectRoot()
 	if err != nil {
 		return "", "", "", err
 	}
-	s, err := store.Open(root)
+	work, workProject := workRoot(root), root
+	if worktree != "" {
+		if work, err = mcpPeerWorktree(worktree); err != nil {
+			return "", "", "", err
+		}
+		workProject = project.StateRoot(work)
+	}
+	s, err := store.Open(workProject)
 	if err != nil {
 		return "", "", "", err
 	}
-	reg, err := session.Open(s.Dir)
+	reg, err := session.Open(project.LeadHome(root))
 	if err != nil {
 		return "", "", "", err
 	}
 	l, err := reg.ResolveLead("")
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", leadapp.SubmoduleLookupError(err, work)
 	}
-	return s.Dir, workRoot(root), l.ID, nil
+	return s.Dir, work, l.ID, nil
 }
 
 // mcpDelegateWait reads the record at path until it is no longer running,
@@ -228,38 +283,32 @@ func mcpDelegateTimeout(minutes int) time.Duration {
 	return time.Duration(min(minutes, mcp.MaxWaitMinutes)) * mcpDelegateMinute
 }
 
-// mcpDelegateResult returns the newest record whose task file or id is key,
-// waiting for it first when it is running and the call does not say wait false.
+// mcpDelegateResult returns the run whose id or task file is task_path, in
+// the work project that ran it, waiting for it first when it is running and
+// the call does not say wait false.
 func mcpDelegateResult(ctx context.Context, in mcp.DelegateInput) (mcp.DelegateOutput, error) {
-	key := in.TaskPath
-	if key == "" {
+	if in.TaskPath == "" {
 		return mcp.DelegateOutput{}, errors.New("delegate result needs task_path; status lists them")
 	}
 	root, err := projectRoot()
 	if err != nil {
 		return mcp.DelegateOutput{}, err
 	}
-	s, err := store.Open(root)
+	reg, err := session.Open(project.LeadHome(root))
 	if err != nil {
 		return mcp.DelegateOutput{}, err
 	}
-	dir := delegate.RecordDir(s.Dir)
-	records, err := delegate.ListRecords(dir, session.ProcessAlive)
+	found, err := mcpFindResult(reg, root, in)
 	if err != nil {
 		return mcp.DelegateOutput{}, err
 	}
-	for _, r := range records {
-		if r.ID == key || r.TaskPath == key || filepath.Join(r.WorkRoot, filepath.FromSlash(r.TaskPath)) == filepath.Clean(key) {
-			path := filepath.Join(dir, r.ID+".json")
-			if r.State == "running" && in.Waits() {
-				if r, err = mcpDelegateWait(ctx, path, in.TimeoutMinutes); err != nil {
-					return mcp.DelegateOutput{}, err
-				}
-			}
-			return mcpDelegateOutput(path, r), nil
+	r := found.Record
+	if r.State == "running" && in.Waits() {
+		if r, err = mcpDelegateWait(ctx, found.Path, in.TimeoutMinutes); err != nil {
+			return mcp.DelegateOutput{}, err
 		}
 	}
-	return mcp.DelegateOutput{}, fmt.Errorf("no delegation with task_path %s; status lists them", key)
+	return mcpDelegateOutput(found.Path, r), nil
 }
 
 // mcpDelegateOutput is record r, read from path, as the tool's result.

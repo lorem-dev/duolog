@@ -38,7 +38,7 @@ func newDoctorCommand(d *cmdDeps) *cobra.Command {
 		if err != nil {
 			return doctorConfigError(cmd, err)
 		}
-		reg, err := session.Open(filepath.Join(root, ".duolog"))
+		reg, err := session.Open(project.LeadHome(root))
 		if err != nil {
 			return err
 		}

@@ -145,7 +145,7 @@ func (e *env) admitPane(ctx context.Context, route coreroute.Route, lead leadInf
 // it read-only: it opens only where that gate is shown to run.
 func (e *env) paneTrust(route coreroute.Route, lead leadInfo, env []string) error {
 	if adopt := e.opts.Deps.AdoptWorktree; adopt != nil {
-		if err := adopt(route.Agent, project.LeadRoot(filepath.Dir(e.dir), e.root), e.root, env); err != nil {
+		if err := adopt(route.Agent, e.adoptionRoot(), e.root, env); err != nil {
 			return err
 		}
 	}
@@ -153,6 +153,15 @@ func (e *env) paneTrust(route coreroute.Route, lead leadInfo, env []string) erro
 		return e.opts.Deps.HeldGate(route.Agent, e.root, env)
 	}
 	return nil
+}
+
+func (e *env) adoptionRoot() string {
+	main := project.StateRoot(e.root)
+	from := project.LeadRoot(main, e.root)
+	if !sameWorkRoot(project.StateRoot(from), main) {
+		return main
+	}
+	return from
 }
 
 // ErrRefused marks an open that admission refused: a session limit, the
@@ -181,7 +190,7 @@ func (e *env) paneInput(root string, route coreroute.Route, m mode.Mode, auto bo
 	if pane := e.pane(route.Agent); pane.Agent != nil {
 		settings = pane.Agent.Settings(agent.PaneStart{LeadRoot: e.leadRoot(), Folder: root, Environ: os.Environ()})
 	}
-	in := peerInput(e.cfg, route, m, auto, settings, variant, leadID, role, id, run, filepath.Dir(e.dir), e.opts.ProtectedRoots, os.Environ())
+	in := peerInput(e.cfg, route, m, auto, settings, variant, leadID, role, id, run, filepath.Dir(e.workState(session.Entry{})), e.opts.ProtectedRoots, os.Environ())
 	free := in
 	free.Variant = corelaunch.Free
 	built, err := agentEnv(e.opts.Deps.Build, free)
@@ -272,7 +281,7 @@ func (e *env) taskEnded(ctx context.Context, entry session.Entry) (string, error
 	}); err != nil || gen == "" {
 		return "", err
 	}
-	g, err := e.accounts()
+	g, err := e.entryAccounts(entry)
 	if err == nil {
 		var task paidrules.Reservation
 		if err = g.Store.Update(ctx, func(st *paidruns.State) error { task = st.Reservations[gen]; return nil }); err == nil {
@@ -303,13 +312,21 @@ func (e *env) sessionEnded(ctx context.Context, entry session.Entry) error {
 	if entry.AccountSessionID == "" {
 		return nil
 	}
-	g, err := e.accounts()
+	g, err := e.entryAccounts(entry)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), accountTimeout)
 	defer cancel()
 	return g.CloseSession(ctx, entry.AccountSessionID)
+}
+
+func (e *env) entryAccounts(entry session.Entry) (*paidruns.Gate, error) {
+	owned, err := e.forEntry(entry)
+	if err != nil {
+		return nil, err
+	}
+	return owned.accounts()
 }
 
 // Release ends the account holds of a peer pane that no entry records, or

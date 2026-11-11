@@ -24,7 +24,7 @@ func WorkRoot(ctx context.Context, id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	e, err := openRecords(opts, true)
+	e, err := openRecords(opts, false)
 	if err != nil {
 		return "", err
 	}
@@ -96,17 +96,22 @@ func openRecords(opts Options, requireLead bool) (*env, error) {
 	if err != nil {
 		return nil, err
 	}
+	work := project.CurrentWorkRoot(root)
+	if opts.WorkDir != "" {
+		work = project.WorkRoot(opts.WorkDir, root)
+	}
+	stateRoot := project.StateRoot(work)
 	cfg := opts.Config
-	if cfg == nil {
-		if cfg, err = configfile.Load(root); err != nil {
+	if cfg == nil || !sameWorkRoot(project.StateRoot(root), stateRoot) {
+		if cfg, err = configfile.Load(stateRoot); err != nil {
 			return nil, err
 		}
 	}
-	s, err := store.Open(root)
+	s, err := store.Open(stateRoot)
 	if err != nil {
 		return nil, err
 	}
-	reg, err := session.Open(s.Dir)
+	reg, err := session.OpenLead(project.LeadHome(work), cfg, stateRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -118,10 +123,31 @@ func openRecords(opts Options, requireLead bool) (*env, error) {
 		}
 		leadID = lead.ID
 	}
-	if opts.WorkDir != "" {
-		root = project.WorkRoot(opts.WorkDir, root)
-	} else {
-		root = project.CurrentWorkRoot(root)
+	return &env{opts: opts, root: work, dir: reg.Dir, workDir: s.Dir, cfg: cfg, reg: reg, leadID: leadID, maxLiveSessions: reg.Limit}, nil
+}
+
+// forEntry keeps shared lead resources while selecting the peer's work rules.
+func (e *env) forEntry(entry session.Entry) (*env, error) {
+	copy := *e
+	copy.root = e.peerRoot(entry)
+	copy.workDir = e.workState(entry)
+	if !sameWorkRoot(copy.workDir, e.workState(session.Entry{})) {
+		cfg, err := configfile.Load(filepath.Dir(copy.workDir))
+		if err != nil {
+			return nil, err
+		}
+		copy.cfg, copy.gate = cfg, nil
 	}
-	return &env{opts: opts, root: root, dir: s.Dir, cfg: cfg, reg: reg, leadID: leadID}, nil
+	return &copy, nil
+}
+
+// workState falls back to the caller's work project for legacy entries.
+func (e *env) workState(entry session.Entry) string {
+	if e.workDir != "" && (entry.WorkRoot == "" || sameWorkRoot(entry.WorkRoot, e.root)) {
+		return e.workDir
+	}
+	if entry.WorkRoot != "" {
+		return filepath.Join(project.StateRoot(entry.WorkRoot), ".duolog")
+	}
+	return e.dir
 }

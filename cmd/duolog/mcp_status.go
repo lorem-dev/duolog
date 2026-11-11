@@ -4,15 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"runtime"
 
 	"github.com/lorem-dev/duolog/internal/adapter/mcp"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
-	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/gate"
 	"github.com/lorem-dev/duolog/internal/app/hook"
 	"github.com/lorem-dev/duolog/internal/app/peer"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/spf13/cobra"
 )
 
@@ -29,8 +28,8 @@ func (d *cmdDeps) mcpStatus(ctx context.Context) (mcp.StatusOutput, error) {
 	if err != nil {
 		return out, err
 	}
-	stateDir := filepath.Join(root, ".duolog")
-	reg, err := session.Open(stateDir)
+	leadDir := project.LeadHome(root)
+	reg, err := session.Open(leadDir)
 	if err != nil {
 		return out, err
 	}
@@ -43,8 +42,8 @@ func (d *cmdDeps) mcpStatus(ctx context.Context) (mcp.StatusOutput, error) {
 	cmd.SetContext(ctx)
 
 	out.Peers = statusPeers(d, cmd, lead.ID)
-	out.OpenAsks = statusAsks(stateDir, address)
-	out.Delegations = statusDelegationRows(stateDir, lead.ID, address)
+	out.OpenAsks = statusAsks(leadDir, address)
+	out.Delegations = statusDelegationRows(reg, root, lead.ID, address)
 
 	input, _ := json.Marshal(map[string]string{"session_id": lead.ID})
 	env := hook.Env{Root: root, Agent: lead.Agent, Input: input, Environ: os.Environ(), Load: leadLoad(d, cmd)}
@@ -74,7 +73,7 @@ func statusPeers(d *cmdDeps, cmd *cobra.Command, leadID string) []mcp.PeerRow {
 		return rows
 	}
 	for _, p := range listed {
-		rows = append(rows, mcp.PeerRow{ID: p.ID, Role: p.Role, Agent: p.Agent, State: p.Display(), Task: p.Task})
+		rows = append(rows, mcp.PeerRow{ID: p.ID, Role: p.Role, Agent: p.Agent, State: p.Display(), Task: p.Task, WorkRoot: p.WorkRoot})
 	}
 	return rows
 }
@@ -94,12 +93,12 @@ func statusAsks(stateDir, address string) []mcp.Ask {
 	return rows
 }
 
-// statusDelegationRows lists the lead's newest delegations; a running one
-// whose process is gone reads as lost.
-func statusDelegationRows(stateDir, leadID, address string) []mcp.Delegation {
+// statusDelegationRows lists the lead's newest delegations across the work
+// projects of its lead home, each with the checkout it ran in and its record
+// in that project; a running one whose process is gone reads as lost.
+func statusDelegationRows(reg *session.Registry, root, leadID, address string) []mcp.Delegation {
 	rows := []mcp.Delegation{}
-	recordDir := delegate.RecordDir(stateDir)
-	records, err := delegate.ListRecords(recordDir, session.ProcessAlive)
+	records, err := leadDelegationRecords(reg, root, "")
 	if err != nil {
 		return rows
 	}
@@ -109,7 +108,7 @@ func statusDelegationRows(stateDir, leadID, address string) []mcp.Delegation {
 		}
 		if r.Lead == leadID || r.Lead == address {
 			rows = append(rows, mcp.Delegation{TaskPath: r.TaskPath, Role: r.Role, State: r.State,
-				AnswerPath: filepath.Join(recordDir, r.ID+".json")})
+				AnswerPath: r.Path, WorkRoot: r.WorkRoot})
 		}
 	}
 	return rows

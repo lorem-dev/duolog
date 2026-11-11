@@ -80,7 +80,7 @@ func Send(ctx context.Context, id, taskRef string) (err error) {
 			return errors.New("slash commands are never sent to a peer: /model and /effort change the user's settings")
 		}
 	}
-	path, err := e.peerTaskFile(entry, ref)
+	e, path, err := e.sendTask(entry, ref)
 	if err != nil {
 		return err
 	}
@@ -145,6 +145,15 @@ func Send(ctx context.Context, id, taskRef string) (err error) {
 	}
 	_, err = e.bus.Send(bus.Message{From: lead.address, To: entry.Agent + "/" + entry.Role, K: "task", Ref: entry.ID, S: "role " + entry.Role + " task=" + filepath.ToSlash(path)})
 	return err
+}
+
+func (e *env) sendTask(entry session.Entry, ref string) (*env, string, error) {
+	path, err := e.peerTaskFile(entry, ref)
+	if err != nil {
+		return nil, "", err
+	}
+	owned, err := e.forEntry(entry)
+	return owned, path, err
 }
 
 // settle requires the empty prompt on two samples in a row: ready, or

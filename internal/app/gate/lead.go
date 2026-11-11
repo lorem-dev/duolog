@@ -6,12 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	"github.com/lorem-dev/duolog/internal/core/pathutil"
 	"github.com/lorem-dev/duolog/internal/core/policy"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/trust"
 	"github.com/lorem-dev/duolog/internal/trusthome"
 	"github.com/pelletier/go-toml/v2"
@@ -116,6 +119,239 @@ func ImportLead(root, agent string) (policy.LeadRules, error) {
 		}
 	}
 	return rules, nil
+}
+
+// ImportLeadForWork reads the ceiling of a worker in workRoot under a lead
+// whose own checkout is leadRoot: the settings of both roots, so a worker in
+// a duolog submodule never exceeds the lead in its superproject. Denies are
+// united, the lower mode wins, and a path selector of the lead is read where
+// the lead wrote it (leadDenyForWork). Either root's unreadable settings
+// fail the import, and so does a Git failure while placing the work root
+// against the lead's.
+func ImportLeadForWork(workRoot, leadRoot, agent string) (policy.LeadRules, error) {
+	return ImportLeadForWorkState(workRoot, "", leadRoot, agent)
+}
+
+// ImportLeadForWorkState is ImportLeadForWork for a caller that knows the
+// main checkout of the work root, workState ("" when it does not), as the
+// gate does: a work root and a lead root of one project are then placed
+// without Git when the lead's is a main checkout.
+func ImportLeadForWorkState(workRoot, workState, leadRoot, agent string) (policy.LeadRules, error) {
+	rules, err := ImportLead(workRoot, agent)
+	if err != nil {
+		return policy.LeadRules{}, err
+	}
+	if leadRoot == "" || sameRoot(workRoot, leadRoot) {
+		return rules, nil
+	}
+	lead, err := ImportLead(leadRoot, agent)
+	if err != nil {
+		return policy.LeadRules{}, fmt.Errorf("lead root %s: %w", leadRoot, err)
+	}
+	place, err := placeOfWork(leadRoot, workRoot, workState)
+	if err != nil {
+		return policy.LeadRules{}, fmt.Errorf("cannot place work root %s against lead root %s: %w", workRoot, leadRoot, err)
+	}
+	for _, rule := range lead.Deny {
+		for _, r := range leadDenyForWork(rule, leadRoot, workRoot, place) {
+			if !slices.ContainsFunc(rules.Deny, func(have config.Rule) bool { return sameRule(have, r) }) {
+				rules.Deny = append(rules.Deny, r)
+			}
+		}
+	}
+	if rules.Mode == "" {
+		rules.Mode = lead.Mode
+	} else if lead.Mode != "" {
+		rules.Mode = mode.Lower(rules.Mode, lead.Mode)
+	}
+	return rules, nil
+}
+
+// LeadRoot is the checkout a lead was recorded in. A lead recorded before
+// roots were stored falls back to the main checkout above the registry.
+func LeadRoot(lead session.Lead, reg *session.Registry) string {
+	if lead.Root != "" {
+		return lead.Root
+	}
+	return filepath.Dir(reg.Dir)
+}
+
+func sameRoot(a, b string) bool {
+	return pathutil.Clean(pathutil.Resolved(a)) == pathutil.Clean(pathutil.Resolved(b))
+}
+
+func sameRule(a, b config.Rule) bool {
+	return a.Action == b.Action && a.Match == b.Match && a.Decision == b.Decision &&
+		a.ReadOnly == b.ReadOnly && a.Under == b.Under && slices.Equal(a.Roles, b.Roles)
+}
+
+// leadPlace is where a worker's project lies against its lead's: by Git
+// relations (placeOfWork) and by the paths of the two roots (lexicalPlace).
+type leadPlace struct {
+	// anchor is the path of the work project inside the lead's project, "."
+	// for the lead's project itself; found says that Git showed it.
+	anchor string
+	found  bool
+	// above says that the lead's project lies inside the work project.
+	above bool
+	// inside is the path of the work root inside the lead root, "" when it
+	// lies elsewhere; leadInside says that the lead root lies inside the work
+	// root. Both compare the paths alone.
+	inside     string
+	leadInside bool
+}
+
+// maxSubmoduleDepth bounds the walk up through superprojects.
+const maxSubmoduleDepth = 16
+
+// placeOfWork places the work root against the lead root. workState is the
+// work root's main checkout when the caller knows it, else "". A Git failure
+// is an error, never taken for no relation.
+func placeOfWork(leadRoot, workRoot, workState string) (leadPlace, error) {
+	place := lexicalPlace(leadRoot, workRoot)
+	leadState, err := project.CheckedStateRoot(leadRoot)
+	if err == nil && workState == "" {
+		workState, err = project.CheckedStateRoot(workRoot)
+	}
+	if err != nil {
+		return place, err
+	}
+	if sameRoot(leadState, workState) {
+		place.anchor, place.found = ".", true
+		return place, nil
+	}
+	if place.anchor, place.found, err = submodulePath(workRoot, leadState); err != nil || place.found {
+		return place, err
+	}
+	_, place.above, err = submodulePath(leadRoot, workState)
+	return place, err
+}
+
+// lexicalPlace is where the work root and the lead root lie in each other by
+// their paths alone, with no Git.
+func lexicalPlace(leadRoot, workRoot string) leadPlace {
+	var place leadPlace
+	place.inside, _ = insidePath(leadRoot, workRoot)
+	_, place.leadInside = insidePath(workRoot, leadRoot)
+	return place
+}
+
+// insidePath is the slash path of inner below outer, when inner lies inside
+// outer and is not outer itself; symlinks are resolved first.
+func insidePath(outer, inner string) (string, bool) {
+	rel, err := pathutil.Relative(pathutil.Resolved(outer), pathutil.Resolved(inner))
+	if err != nil {
+		return "", false
+	}
+	rel = pathutil.Clean(rel)
+	if rel == "." || pathutil.Outside(rel) {
+		return "", false
+	}
+	return pathutil.Slashes(rel), true
+}
+
+// submodulePath is the path of inner's project inside the project whose main
+// checkout is top, found from inner's checkout up through the checkout that
+// includes each project as a submodule (project.Superproject), until one is a
+// checkout of top's project. Each step adds the submodule's path inside that
+// checkout, so a submodule of a sibling linked checkout of top's project, and
+// a linked worktree of a submodule, answer with the path a main checkout has.
+// "." is top's project itself. A Git failure is an error.
+func submodulePath(inner, top string) (string, bool, error) {
+	var path []string
+	checkout := inner
+	for range maxSubmoduleDepth {
+		main, err := project.CheckedStateRoot(checkout)
+		if err != nil {
+			return "", false, err
+		}
+		if sameRoot(main, top) {
+			slices.Reverse(path)
+			return pathutil.Clean(strings.Join(append([]string{"."}, path...), "/")), true, nil
+		}
+		parent, err := project.CheckedSuperproject(checkout)
+		if err != nil || parent == "" {
+			return "", false, err
+		}
+		rel, ok := insidePath(parent, main)
+		if !ok {
+			return "", false, nil
+		}
+		path = append(path, rel)
+		checkout = parent
+	}
+	return "", false, nil
+}
+
+// leadDenyForWork gives the rules by which a read or write selector that
+// ImportLead wrote relative to from bounds a worker in to. A whole-tool deny
+// (**) holds everywhere and stays as it is. An absolute selector compares the
+// absolute target, so it carries to as its Under.
+//
+// A relative selector whose place Git showed keeps its Match and carries the
+// work project's path in the lead's project as its Under, so the policy reads
+// it where the lead wrote it, with globs, braces and case as for any deny; its
+// moved forms (movedDeny) are kept for the lead's files outside to, and all of
+// them when from lies inside to, where they name the lead's files in the
+// work. When the lead's project lies inside the work project, the moved forms
+// name the lead's files. Otherwise the place is unknown, and the rule both
+// stays as it is and gives every moved form. A work root inside the lead root
+// also gets the rule anchored at its path there, Git relation or not.
+func leadDenyForWork(rule config.Rule, from, to string, place leadPlace) []config.Rule {
+	if rule.Action != "read" && rule.Action != "write" || rule.Match == "**" {
+		return []config.Rule{rule}
+	}
+	if pathutil.IsAbs(rule.Match) {
+		rule.Under = pathutil.Clean(to)
+		return []config.Rule{rule}
+	}
+	rules := anchoredDeny(rule, place)
+	for _, moved := range movedDeny(rule, from, to) {
+		if !place.found || place.leadInside || pathutil.Outside(moved.Match) {
+			rules = append(rules, moved)
+		}
+	}
+	return rules
+}
+
+// anchoredDeny gives a relative selector read where the lead wrote it: at the
+// work project's path that Git showed, as it is when the place is unknown,
+// and at the work root's path inside the lead root.
+func anchoredDeny(rule config.Rule, place leadPlace) []config.Rule {
+	var rules []config.Rule
+	if place.found {
+		anchored := rule
+		if place.anchor != "." {
+			anchored.Under = place.anchor
+		}
+		rules = append(rules, anchored)
+	} else if !place.above {
+		rules = append(rules, rule)
+	}
+	if place.inside != "" {
+		anchored := rule
+		anchored.Under = place.inside
+		rules = append(rules, anchored)
+	}
+	return rules
+}
+
+// movedDeny moves each brace alternative of a relative selector from from to
+// to as a path: ../ for a file outside to, or, on another volume, the
+// absolute path, which compares the absolute target.
+func movedDeny(rule config.Rule, from, to string) []config.Rule {
+	var rules []config.Rule
+	for _, alternative := range policy.ExpandBraces(rule.Match) {
+		moved := rule
+		target := filepath.Join(from, filepath.FromSlash(alternative))
+		if relative, err := pathutil.Relative(pathutil.Resolved(to), pathutil.Resolved(target)); err != nil {
+			moved.Match, moved.Under = pathutil.Clean(target), pathutil.Clean(to)
+		} else {
+			moved.Match = pathutil.Clean(relative)
+		}
+		rules = append(rules, moved)
+	}
+	return rules
 }
 
 // Claude anchors // at the filesystem root, ~/ at home and / at the settings

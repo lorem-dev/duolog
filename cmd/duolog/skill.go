@@ -27,6 +27,7 @@ import (
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	corerun "github.com/lorem-dev/duolog/internal/core/run"
 	"github.com/lorem-dev/duolog/internal/core/usage"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/lorem-dev/duolog/internal/workerenv"
@@ -92,7 +93,7 @@ func newSkillCommand(d *cmdDeps) *cobra.Command {
 			_, err = fmt.Fprintln(cmd.OutOrStdout(), "Skipped: skill_tests is never. Use --remember ask to change it.")
 			return err
 		}
-		reg, err := session.Open(filepath.Join(stateRoot, ".duolog"))
+		reg, err := session.Open(project.LeadHome(stateRoot))
 		if err != nil {
 			return err
 		}

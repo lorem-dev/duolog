@@ -13,11 +13,15 @@ import (
 
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
+	"github.com/lorem-dev/duolog/internal/app/lead"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	corelead "github.com/lorem-dev/duolog/internal/core/lead"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 	corepane "github.com/lorem-dev/duolog/internal/core/pane"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
+	"github.com/lorem-dev/duolog/internal/core/run"
+	corescreen "github.com/lorem-dev/duolog/internal/core/screen"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -69,13 +73,13 @@ func (e *env) route(ctx context.Context, role string, lead leadInfo) (coreroute.
 // right after rex split, then waits until the session is ready, asks a
 // question, has ended or the start time is over. The pane is never closed here.
 func Open(ctx context.Context, role string) (opened Entry, err error) {
-	started, agent, run := time.Now(), "", ""
-	defer func() { observeOperation(ctx, "open", agent, run, started, opened.State, err) }()
+	started, agent, run, reminder := time.Now(), "", "", ""
+	defer endOpen(ctx, started, &agent, &run, &reminder, &opened, &err)
 	e, err := setup(ctx)
 	if err != nil {
-		return Entry{}, err
+		return Entry{}, submoduleOpenError(ctx, err)
 	}
-	lead, err := e.lead(time.Now())
+	lead, err := leadClaiming(e, &reminder)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -95,7 +99,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 		return Entry{}, err
 	}
 	defer func() { _ = unlock() }()
-	peers, err := e.livePeers(ctx, lead.id, route.Agent)
+	peers, group, err := e.capPeers(ctx, lead.id, route.Agent)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -106,13 +110,14 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 		}
 		return e.watch(ctx, p, true)
 	}
-	var here []session.Entry
+	// The group was resolved with the peers (capPeers).
+	here := []session.Entry{}
 	for _, p := range peers {
-		if sameWorkRoot(p.WorkRoot, e.root) {
+		if session.ShareCap(p, session.Entry{WorkRoot: e.root, CapGroup: group}) {
 			here = append(here, p)
 		}
 	}
-	if limit := e.cfg.Limits.MaxLiveSessions; limit > 0 && len(here) >= limit {
+	if limit := e.maxLiveSessions; limit > 0 && len(here) >= limit {
 		return Entry{}, admissionRefused(fmt.Sprintf("max_live_sessions is %d and %s session %s is still open; close it with duolog peer close %s first", limit, route.Agent, here[0].ID, here[0].ID))
 	}
 	agentPane := e.pane(route.Agent)
@@ -123,7 +128,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	if !ok {
 		return Entry{}, fmt.Errorf("unknown agent %q", route.Agent)
 	}
-	model, err := resolver.Resolve(ctx, e.cfg, filepath.Join(e.dir, "cache"), route.Target)
+	model, err := resolver.Resolve(ctx, e.cfg, filepath.Join(e.workDir, "cache"), route.Target)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -150,7 +155,7 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 	if err != nil {
 		return noted(Entry{}, err)
 	}
-	envFile, err := writeEnvFile(e.dir, pane.permit.Process.Env)
+	envFile, err := writeEnvFile(e.workDir, pane.permit.Process.Env)
 	if err != nil {
 		return noted(Entry{}, errors.Join(err, pane.release(ctx)))
 	}
@@ -170,11 +175,11 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 		}
 		return noted(Entry{}, err)
 	}
-	entry := session.Entry{ID: id, Lead: lead.id, Agent: route.Agent, Role: role, Thread: peerThread, Block: block, WorkRoot: e.root, RexSession: rexSession, Run: run, Mode: lead.mode, UpdatedAt: time.Now(),
+	entry := session.Entry{ID: id, Lead: lead.id, Agent: route.Agent, Role: role, Thread: peerThread, Block: block, WorkRoot: e.root, CapGroup: group, RexSession: rexSession, Run: run, Mode: lead.mode, UpdatedAt: time.Now(),
 		AccountSessionID: pane.id(), AdmissionID: pane.id()}
 	attachErr := pane.attach(ctx, block, rexSession)
 	if attachErr == nil {
-		attachErr = e.opts.Deps.RecordPeer(e.reg, entry, e.cfg.Limits.MaxLiveSessions)
+		attachErr = e.opts.Deps.RecordPeer(e.reg, entry, e.maxLiveSessions)
 	}
 	if attachErr != nil {
 		// The pane exists but nothing records it: do not leave it unowned. Its
@@ -197,6 +202,48 @@ func Open(ctx context.Context, role string) (opened Entry, err error) {
 		return noted(Entry{}, err)
 	}
 	return noted(e.watch(ctx, entry, true))
+}
+
+// capPeers is livePeers with the cap group of a new pane in e.root, resolved
+// before the registry is written, so that its lock never runs Git. A group
+// that Git cannot work out refuses the open.
+func (e *env) capPeers(ctx context.Context, leadID, agent string) ([]session.Entry, string, error) {
+	peers, err := e.livePeers(ctx, leadID, agent)
+	if err != nil {
+		return nil, "", err
+	}
+	group, err := project.CapGroup(e.root, e.dir)
+	return peers, group, err
+}
+
+// leadClaiming is the lead of Open, and claims into reminder the one-time
+// reminder of a submodule's own rules for this checkout.
+func leadClaiming(e *env, reminder *string) (leadInfo, error) {
+	l, err := e.lead(time.Now())
+	if err != nil {
+		return l, err
+	}
+	*reminder, err = lead.ClaimSubmoduleReminder(e.reg, l.id, e.root)
+	return l, err
+}
+
+// endOpen ends Open: it adds the submodule reminder to what Open returns,
+// then reports the operation with its final state.
+func endOpen(ctx context.Context, started time.Time, agent, run, reminder *string, opened *Entry, err *error) {
+	*opened, *err = withNotice(*reminder)(*opened, *err)
+	observeOperation(ctx, "open", *agent, *run, started, opened.State, *err)
+}
+
+func submoduleOpenError(ctx context.Context, err error) error {
+	opts, _ := callerOptions(ctx)
+	if opts.Root == "" {
+		return err
+	}
+	work := project.CurrentWorkRoot(opts.Root)
+	if opts.WorkDir != "" {
+		work = project.WorkRoot(opts.WorkDir, opts.Root)
+	}
+	return lead.SubmoduleLookupError(err, work)
 }
 
 // OpenNew is Open that never returns the role's live peer: it starts another
@@ -289,4 +336,120 @@ func (e *env) alive(ctx context.Context, entry session.Entry) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+type peerWatch struct {
+	entry       session.Entry
+	begin       time.Time
+	last        State
+	idle, stuck int
+	worked      bool
+}
+
+func (e *env) watchStep(ctx context.Context, w *peerWatch, startup bool) (Entry, bool, error) {
+	entry := w.entry
+	if question, err := e.newQuestion(ctx, entry); err != nil || question != "" {
+		return Entry{ID: entry.ID, State: Question, Question: question}, true, err
+	}
+	state, screen, err := e.observe(ctx, entry)
+	if err != nil {
+		return Entry{ID: entry.ID, State: w.last}, true, err
+	}
+	w.last = state
+	if state != Question && entry.Asked != "" {
+		entry, err = e.update(entry.ID, func(x *session.Entry) { x.Asked = "" })
+		if err != nil {
+			return Entry{ID: w.entry.ID, State: state}, true, err
+		}
+		w.entry = entry
+	}
+	switch state {
+	case Closed, Exited:
+		line, err := e.markEnded(entry, state)
+		return Entry{ID: entry.ID, State: state, Note: line}, true, err
+	case Question:
+		return e.watchQuestion(ctx, w, screen, startup)
+	case Limited:
+		line, err := e.runHere(entry, entry.Task, screen.Text)
+		return Entry{ID: entry.ID, State: Limited, Note: line}, true, err
+	case Interrupted:
+		return Entry{ID: entry.ID, State: Interrupted, Note: interruptedNote(entry)}, true, nil
+	case Ready:
+		return e.watchReady(ctx, w, screen, startup)
+	default:
+		w.idle, w.stuck = 0, 0
+		w.worked = w.worked || screen.Working
+		return Entry{}, false, nil
+	}
+}
+
+func (e *env) watchQuestion(ctx context.Context, w *peerWatch, screen Screen, startup bool) (Entry, bool, error) {
+	entry := w.entry
+	if err := e.ask(entry, screen.Question); err != nil {
+		return Entry{ID: entry.ID, State: Question}, true, err
+	}
+	if e.watchQuestions {
+		if err := e.notifyStuck(ctx, entry, time.Now()); err != nil {
+			return Entry{ID: entry.ID, State: Question}, true, err
+		}
+	}
+	entry, err := e.find(entry.ID)
+	if err != nil {
+		return Entry{}, true, err
+	}
+	w.entry = entry
+	if e.watchQuestions && e.cfg.Rex.StuckNotifyMinutes > 0 && !entry.QuestionNotified {
+		return Entry{}, false, nil
+	}
+	return Entry{ID: entry.ID, State: Question, Question: startupQuestion(screen, startup)}, true, nil
+}
+
+func (e *env) watchReady(ctx context.Context, w *peerWatch, screen Screen, startup bool) (Entry, bool, error) {
+	entry := w.entry
+	if startup || entry.Task == "" {
+		if screen.Empty {
+			w.idle++
+		} else {
+			w.idle = 0
+		}
+		return Entry{ID: entry.ID, State: Ready}, w.idle >= 2, nil
+	}
+	if corescreen.StuckInput(screen, e.peerRoot(entry), entry.Task) {
+		w.stuck++
+		if w.stuck >= 2 {
+			return Entry{ID: entry.ID, State: Ready, Note: ErrStuck.Error()}, true, fmt.Errorf("peer %s: %w", entry.ID, ErrStuck)
+		}
+		return Entry{}, false, nil
+	}
+	w.stuck = 0
+	if !w.worked && e.opts.Deps.Clock.Now().Sub(w.begin) < e.opts.Deps.Pauses.WorkGrace {
+		return Entry{}, false, nil
+	}
+	w.idle++
+	if w.idle < 2 {
+		return Entry{}, false, nil
+	}
+	out, err := e.finishTask(ctx, entry)
+	return out, true, err
+}
+
+func (e *env) finishTask(ctx context.Context, entry session.Entry) (Entry, error) {
+	out := Entry{ID: entry.ID, State: Ready}
+	if err := e.credit(entry); err != nil {
+		return out, err
+	}
+	if _, err := e.update(entry.ID, func(x *session.Entry) { x.Task, x.Base = "", nil }); err != nil {
+		return out, err
+	}
+	// The task ends; the pane keeps its slot.
+	note, err := e.taskEnded(ctx, entry)
+	if err != nil {
+		return out, err
+	}
+	e.attempt(entry, "done", run.CodeNone)
+	if note != "" {
+		note = "; " + note
+	}
+	out.Note = "task finished" + note
+	return out, nil
 }

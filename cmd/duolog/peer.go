@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	configfile "github.com/lorem-dev/duolog/internal/adapter/config"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/peer"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/lorem-dev/duolog/internal/workerenv"
 	"github.com/spf13/cobra"
@@ -32,6 +34,11 @@ func peerContext(d *cmdDeps, cmd *cobra.Command, lead string, allowManual bool, 
 // terminal. It returns parent with the peer options of this project, which
 // the CLI and the MCP server's peer tool both use.
 func (d *cmdDeps) peerCtx(parent context.Context, lead string, allowManual bool, timeout time.Duration) (context.Context, func(), error) {
+	return d.peerCtxAt(parent, lead, allowManual, timeout, "")
+}
+
+// peerCtxAt binds work rules and telemetry after the target checkout is known.
+func (d *cmdDeps) peerCtxAt(parent context.Context, lead string, allowManual bool, timeout time.Duration, work string) (context.Context, func(), error) {
 	if isWorker() {
 		return nil, nil, errors.New("workers cannot open or control peer sessions")
 	}
@@ -39,11 +46,15 @@ func (d *cmdDeps) peerCtx(parent context.Context, lead string, allowManual bool,
 	if err != nil {
 		return nil, nil, err
 	}
+	if work == "" {
+		work = project.CurrentWorkRoot(root)
+	}
+	root = project.StateRoot(work)
 	cfg, err := configfile.Load(root, wiring.ConfigOptions())
 	if err != nil {
 		return nil, nil, err
 	}
-	opts := peer.Options{Deps: d.peerDeps(), Root: root, Config: cfg, Lead: lead, AllowManualModel: allowManual, ProtectedRoots: launchProtectedRoots()}
+	opts := peer.Options{Deps: d.peerDeps(), Root: root, WorkDir: work, Config: cfg, Lead: lead, AllowManualModel: allowManual, ProtectedRoots: launchProtectedRoots()}
 	// Peer opens, sends and closes, and each task a peer ends, reach
 	// telemetry through these observers; a store that cannot open records none.
 	done := func() {}
@@ -57,6 +68,40 @@ func (d *cmdDeps) peerCtx(parent context.Context, lead string, allowManual bool,
 		return ctx, func() { cancel(); done() }, nil
 	}
 	return ctx, done, nil
+}
+
+func (d *cmdDeps) peerCtxForID(parent context.Context, lead string, allowManual bool, timeout time.Duration, id string) (context.Context, func(), error) {
+	if isWorker() {
+		return nil, nil, errors.New("workers cannot open or control peer sessions")
+	}
+	root, err := projectRoot()
+	if err != nil {
+		return nil, nil, err
+	}
+	opts := peer.Options{Root: root, Lead: lead}
+	work, err := peer.WorkRoot(peer.WithOptions(parent, opts), id)
+	if err != nil {
+		return d.peerCtx(parent, lead, allowManual, timeout)
+	}
+	return d.peerCtxAt(parent, lead, allowManual, timeout, work)
+}
+
+func (d *cmdDeps) peerCommandContext(cmd *cobra.Command, lead string, allowManual bool, use string, args []string) (context.Context, func(), error) {
+	switch strings.Fields(use)[0] {
+	case "send", "status", "answer", "close":
+		return d.peerCtxForID(cmd.Context(), lead, allowManual, 0, args[0])
+	default:
+		return d.peerCtx(cmd.Context(), lead, allowManual, 0)
+	}
+}
+
+// sendPeerTask places a CLI ref in the caller's checkout before work binding.
+func sendPeerTask(ctx context.Context, id, ref string) error {
+	path, err := filepath.Abs(strings.TrimSpace(ref))
+	if err != nil {
+		return err
+	}
+	return peer.Send(ctx, id, path)
 }
 
 // launchProtectedRoots names the telemetry and balance roots for a worker's or
@@ -142,7 +187,7 @@ func newPeerCommand(d *cmdDeps) *cobra.Command {
 	root.PersistentFlags().StringVar(&lead, "lead", "", "Registered lead session ID (defaults to DUOLOG_LEAD)")
 	run := func(use, short string, args cobra.PositionalArgs, call func(ctx context.Context, cmd *cobra.Command, args []string) (string, error)) *cobra.Command {
 		return &cobra.Command{Use: use, Short: short, Args: args, RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, cancel, err := peerContext(d, cmd, lead, allowManual, 0)
+			ctx, cancel, err := d.peerCommandContext(cmd, lead, allowManual, use, args)
 			if err != nil {
 				return err
 			}
@@ -162,7 +207,7 @@ func newPeerCommand(d *cmdDeps) *cobra.Command {
 	open.Flags().BoolVar(&allowManual, "allow-manual-model", false, "Allow models reserved for manual selection")
 	open.Flags().BoolVar(&openNew, "new", false, "Open another session of the role even when one is live in this checkout")
 	wait := &cobra.Command{Use: "wait <id>", Short: "Keep waiting for a session after an answer or a task", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		ctx, cancel, err := peerContext(d, cmd, lead, allowManual, waitFlags.timeout)
+		ctx, cancel, err := d.peerCtxForID(cmd.Context(), lead, allowManual, waitFlags.timeout, args[0])
 		if err != nil {
 			return err
 		}
@@ -180,7 +225,7 @@ func newPeerCommand(d *cmdDeps) *cobra.Command {
 	}}
 	waitFlags.bind(wait)
 	send := run("send <id> <task>", "Send a one-line reference to a task file to a ready session", cobra.ExactArgs(2), func(ctx context.Context, _ *cobra.Command, args []string) (string, error) {
-		err := peer.Send(ctx, args[0], args[1])
+		err := sendPeerTask(ctx, args[0], args[1])
 		var here *peer.RunHereError
 		if errors.As(err, &here) {
 			return here.Line, nil

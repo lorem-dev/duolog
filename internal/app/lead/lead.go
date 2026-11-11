@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/launch"
 	corelead "github.com/lorem-dev/duolog/internal/core/lead"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 )
 
@@ -100,7 +100,7 @@ func Register(ctx context.Context, d Deps, r RegisterRequest) (RegisterResult, e
 	if _, err := store.Open(r.Root); err != nil {
 		return res, err
 	}
-	reg, err := d.Registry(filepath.Join(r.Root, ".duolog"))
+	reg, err := d.Registry(project.LeadHome(r.Root))
 	if err != nil {
 		return res, err
 	}
@@ -119,7 +119,7 @@ func Register(ctx context.Context, d Deps, r RegisterRequest) (RegisterResult, e
 	}
 	// Taken after reg.Lead, which ends a record whose process is gone, so
 	// that this observation resumes the session rather than predating its end.
-	registered, err := reg.ObserveLead(s.observation(), d.Now())
+	registered, err := reg.ObserveLead(s.observationAt(r.Root), d.Now())
 	if err != nil {
 		return res, err
 	}
@@ -140,6 +140,13 @@ type found struct {
 	name, id, transcript string
 	pid                  int
 	observed             corelead.LeadState
+}
+
+func (s found) observationAt(root string) corelead.LeadObservation {
+	o := s.observation()
+	root = project.CurrentWorkRoot(root)
+	o.Root = &root
+	return o
 }
 
 // find reads who the session is: its agent and id, whether its shell can be

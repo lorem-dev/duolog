@@ -33,7 +33,7 @@ func newPeerQueueCommand(d *cmdDeps, lead *string) *cobra.Command {
 			return err
 		})
 	}}
-	add.Flags().StringVar(&cwd, "cwd", ".", "Folder the peer works in: the project or one of its linked worktrees")
+	add.Flags().StringVar(&cwd, "cwd", ".", "Folder the peer works in: the project, a duolog submodule of it, or a linked worktree of either")
 	add.Flags().StringVar(&taskPath, "task", "", "Task file, relative to --cwd")
 	add.Flags().StringVar(&after, "after", "", "Wait until this peer is idle or closed")
 	_ = add.MarkFlagRequired("task")

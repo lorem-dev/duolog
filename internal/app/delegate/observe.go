@@ -12,6 +12,7 @@ import (
 	corerecord "github.com/lorem-dev/duolog/internal/core/record"
 	coreroute "github.com/lorem-dev/duolog/internal/core/route"
 	"github.com/lorem-dev/duolog/internal/core/run"
+	"github.com/lorem-dev/duolog/internal/project"
 )
 
 // Attempt and Observer live in core/record. These names keep delegate.go and
@@ -29,12 +30,13 @@ type (
 type attempts struct {
 	observe                    Observer
 	stateDir, role, class, run string
+	workRoot                   string
 	escalated                  bool
 	n                          int
 }
 
 func newAttempts(opts Options, stateDir, role string, lr *learnRun) *attempts {
-	a := &attempts{observe: opts.Observe, stateDir: stateDir, role: role, class: opts.Class, escalated: opts.EscalateFrom != "", run: NewRunID()}
+	a := &attempts{observe: opts.Observe, stateDir: stateDir, workRoot: opts.WorkRoot, role: role, class: opts.Class, escalated: opts.EscalateFrom != "", run: NewRunID()}
 	if lr != nil {
 		a.class = lr.rec.Class
 	}
@@ -52,16 +54,21 @@ func NewRunID() string {
 // workerRun is one runWorker call: when it started and how much of the gate
 // log was there before it.
 type workerRun struct {
-	started   time.Time
-	decisions int64
+	started           time.Time
+	decisions         int64
+	leadDir, workRoot string
 }
 
 func (a *attempts) begin() workerRun {
 	if a.observe == nil {
 		return workerRun{}
 	}
-	w := workerRun{started: time.Now()}
-	if info, err := os.Stat(filepath.Join(a.stateDir, "decisions.ndjson")); err == nil {
+	root := project.CurrentWorkRoot(filepath.Dir(a.stateDir))
+	if a.workRoot != "" {
+		root = a.workRoot
+	}
+	w := workerRun{started: time.Now(), leadDir: project.LeadHome(filepath.Dir(a.stateDir)), workRoot: root}
+	if info, err := os.Stat(filepath.Join(w.leadDir, "decisions.ndjson")); err == nil {
 		w.decisions = info.Size()
 	}
 	return w
@@ -76,7 +83,7 @@ func (a *attempts) worker(w workerRun, route coreroute.Route, retry bool, r run.
 	a.n++
 	// The gate counts of learning, from this run's part of the gate log. A log
 	// that cannot be read counts nothing.
-	denials, asks, _ := (&learnRun{stateDir: a.stateDir, role: a.role, decisions: w.decisions}).gateCounts()
+	denials, asks, _ := (&learnRun{leadDir: w.leadDir, workRoot: w.workRoot, role: a.role, decisions: w.decisions}).gateCounts()
 	outcome, code := workerOutcome(r, err)
 	if code == run.CodeNone && !r.Done && denials > 0 {
 		code = run.CodeGate

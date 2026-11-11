@@ -27,7 +27,7 @@ func (e *env) openProjectPeer(ctx context.Context, label string, argv []string) 
 		created, err := e.panes.Open(ctx, open)
 		if err == nil {
 			// A session from before roots were recorded joins its root's numbering.
-			_ = e.reg.SetPeerSessionRoot(id, canonicalRoot(e.opts.Root))
+			_ = e.reg.SetPeerSessionRoot(id, canonicalRoot(filepath.Dir(e.dir)))
 			return created.Block, id, nil
 		}
 		if !e.panes.Gone(err) {
@@ -46,7 +46,7 @@ func (e *env) openProjectPeer(ctx context.Context, label string, argv []string) 
 		return "", "", errors.Join(err, e.panes.CloseSession(ctx, created.Session))
 	}
 	// Best effort: without the record, the session is only left unnumbered.
-	_ = e.reg.SetPeerSessionRoot(created.Session, canonicalRoot(e.opts.Root))
+	_ = e.reg.SetPeerSessionRoot(created.Session, canonicalRoot(filepath.Dir(e.dir)))
 	e.renameProjectSessions(ctx)
 	return created.Block, created.Session, nil
 }
@@ -54,7 +54,7 @@ func (e *env) openProjectPeer(ctx context.Context, label string, argv []string) 
 // sessionLabel is the visible name of the project's peer session: the folder's
 // base name, as the person knows the project.
 func (e *env) sessionLabel() string {
-	return "duolog | " + filepath.Base(filepath.Clean(e.opts.Root))
+	return "duolog | " + filepath.Base(filepath.Dir(e.dir))
 }
 
 // canonicalRoot is the project's full root with links resolved and cleaned. It,
@@ -82,7 +82,7 @@ func (e *env) renameProjectSessions(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	root := canonicalRoot(e.opts.Root)
+	root := canonicalRoot(filepath.Dir(e.dir))
 	label := e.sessionLabel()
 	match := regexp.MustCompile("^" + regexp.QuoteMeta(label) + `(?: \([0-9]+\))?$`)
 	var peers []corepane.Session
