@@ -37,7 +37,7 @@ func newDelegateCommand(d *cmdDeps) *cobra.Command {
 		}
 		// The MCP server wrote and indexed the record; the run adds the task folder.
 		run := withBegun(d.runDelegateRecording(f.resultFile), recordBegun(f.resultFile, cmd.ErrOrStderr(), false))
-		return runRecorded(cmd.ErrOrStderr(), f.resultFile, args[0], f.taskPath, run, func(run delegateFunc) error {
+		return runRecorded(cmd.ErrOrStderr(), f.resultFile, args[0], f.taskPath, d.Notify, run, func(run delegateFunc) error {
 			return f.run(cmd, args[0], run)
 		})
 	}}
@@ -111,8 +111,9 @@ func (f *delegateFlags) run(cmd *cobra.Command, role string, runDelegate delegat
 // runRecorded runs body, the command with --result-file, and then writes the
 // MCP server's record at path: the delegation's outcome when body ran it, else
 // the refusal that came before it. It returns body's error, so the output and
-// exit code stay the CLI's.
-func runRecorded(stderr io.Writer, path, role, taskPath string, runDelegate delegateFunc, body func(delegateFunc) error) error {
+// exit code stay the CLI's. notify alerts the person of a run that ended
+// needing them; nil alerts none.
+func runRecorded(stderr io.Writer, path, role, taskPath string, notify func(title, message string), runDelegate delegateFunc, body func(delegateFunc) error) error {
 	markStarted(stderr, path)
 	var out delegate.Outcome
 	var runErr error
@@ -126,7 +127,7 @@ func runRecorded(stderr io.Writer, path, role, taskPath string, runDelegate dele
 	if ran {
 		recorded = runErr
 	}
-	writeDelegateResult(stderr, path, role, taskPath, out, recorded)
+	writeDelegateResult(stderr, path, role, taskPath, out, recorded, notify)
 	return err
 }
 
@@ -149,13 +150,51 @@ func markStarted(stderr io.Writer, path string) {
 // writeDelegateResult ends a detached run: it writes the record for out and
 // err over the running record at path, keeping that record's fields. A record
 // it cannot write is told on stderr, the run's log; the exit code stays the
-// CLI's.
-func writeDelegateResult(stderr io.Writer, path, role, taskPath string, out delegate.Outcome, err error) {
+// CLI's. Then it alerts the person through notify, when it is not nil, of a
+// run that ended needing them (runEndNotice).
+func writeDelegateResult(stderr io.Writer, path, role, taskPath string, out delegate.Outcome, err error, notify func(title, message string)) {
 	base, readErr := delegate.ReadRecord(path, nil)
 	if readErr != nil {
 		base = delegate.Record{ID: strings.TrimSuffix(filepath.Base(path), ".json"), Role: role, TaskPath: taskPath}
 	}
-	if writeErr := delegate.WriteRecord(path, delegate.RecordFor(base, out, err, time.Now().UTC())); writeErr != nil {
+	r := delegate.RecordFor(base, out, err, time.Now().UTC())
+	if writeErr := delegate.WriteRecord(path, r); writeErr != nil {
 		_, _ = fmt.Fprintf(stderr, "duolog delegate: cannot write the result record %s: %v\n", path, writeErr)
 	}
+	runEndNotice(r, notify)
+}
+
+// runEndNotice shows the person a desktop notice for a detached run that ended
+// failed, needing input or handed back to the lead: the lead may have ended
+// its turn while the run went on. A done run is told by the lead's notice and
+// its Stop alert. lead.notify false, a config that cannot be read and a panic
+// give none; nothing here changes the run's record or exit.
+func runEndNotice(r delegate.Record, notify func(title, message string)) {
+	if notify == nil {
+		return
+	}
+	words := map[string]string{"failed": "failed", "needs": "needs input", "run_here": "run here"}
+	word, ok := words[r.State]
+	if !ok {
+		return
+	}
+	defer func() { _ = recover() }()
+	root := r.WorkRoot
+	if root == "" {
+		var err error
+		if root, err = projectRoot(); err != nil {
+			return
+		}
+	}
+	cfg, err := configfile.Load(root, wiring.ConfigOptions())
+	if err != nil || !cfg.Lead.Notifies() {
+		return
+	}
+	name := "run " + r.ID
+	if r.Role != "" {
+		name += " (" + r.Role + ")"
+	}
+	// Synchronous: the detached run exits next, and would lose a notice still
+	// shown from a goroutine.
+	notify("duolog", name+" "+word)
 }

@@ -91,7 +91,12 @@ type Lead struct {
 	// FreshSessionHint is the context size from which a Claude lead is
 	// reminded to offer a fresh lead session; 0 turns the reminder off.
 	FreshSessionHint int `yaml:"fresh_session_hint" jsonschema_description:"Context size in tokens from which a Claude lead between pieces of work is reminded to offer the person a fresh lead session, and again each further 100000 tokens; 0 turns it off, defaults to 200000. duolog only reminds: it never starts or closes a session. Only the user config and a local config of your own may set it; the shared project config may not." jsonschema:"minimum=0"`
+	// Notify turns on the alerts that call the person back; nil is true.
+	Notify *bool `yaml:"notify,omitempty" jsonschema_description:"Alert the person when something waits for them: a desktop notice when an ask only they can answer is filed and when a run started from the MCP delegate tool ends failed, needing input or handed back, and a terminal notice when a Claude lead's turn ends with news. The notice line in the lead stays either way. Defaults to true. Only the user config and a local config of your own may set it; the shared project config may not."`
 }
+
+// Notifies says whether lead.notify leaves the alerts on.
+func (l Lead) Notifies() bool { return l.Notify == nil || *l.Notify }
 
 // Coauthors holds the commit co-author settings. In YAML the templates sit
 // beside enabled, one key per agent: "one key per agent: claude, codex, ...".

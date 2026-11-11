@@ -6,8 +6,12 @@ import (
 	"os"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/hook"
 	"github.com/lorem-dev/duolog/internal/app/peer"
+	runsnapapp "github.com/lorem-dev/duolog/internal/app/runsnap"
+	"github.com/lorem-dev/duolog/internal/core/runsnap"
+	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/wiring"
 	"github.com/spf13/cobra"
 )
@@ -44,7 +48,8 @@ func newHookCommand(d *cmdDeps) *cobra.Command {
 		loads := leadLoad(d, cmd)
 		startQueue := queueStarter(d, cmd, loads)
 		env := wiring.HookEnv(hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ(), Stderr: cmd.ErrOrStderr(), Peers: peerLines(d, cmd), Models: d.Delegate.Agents["codex"].Models, Sync: d.SyncFormats, Load: loads,
-			QueueRun: startQueue, PeerIdle: func(ctx context.Context, leadID, _ string) { startQueue(ctx, leadID) }})
+			QueueRun: startQueue, PeerIdle: func(ctx context.Context, leadID, _ string) { startQueue(ctx, leadID) },
+			Snapshot: hookSnapshot(d, root)})
 		var out hook.Output
 		switch args[0] {
 		case "SessionStart", "session-start":
@@ -110,4 +115,16 @@ func exitCode(err error) int {
 		return 3
 	}
 	return 1
+}
+
+// hookSnapshot reads the fast snapshot of the lead whose session is leadID,
+// for the project at root, for the notice a hook shows the person. It creates
+// no state, as the status line does not.
+func hookSnapshot(d *cmdDeps, root string) func(ctx context.Context, leadID string) (runsnap.Snapshot, error) {
+	return func(ctx context.Context, leadID string) (runsnap.Snapshot, error) {
+		stateRoot := project.StateRoot(root)
+		return d.runsSnapshot(ctx, stateRoot, leadID, true, time.Now(), func(reg *session.Registry) runsnapapp.Deps {
+			return d.snapDepsAt(reg, stateRoot)
+		})
+	}
 }

@@ -340,7 +340,8 @@ func TestInstructionBlockIsInfoOnly(t *testing.T) {
 		for _, path := range testDeps.instructionPaths(opts.Root) {
 			text := tc.text
 			if tc.state == "current" {
-				text += coreagent.BlockFor(filepath.Base(path) == "CLAUDE.md")
+				// Both leads get the duolog MCP server.
+				text += coreagent.BlockFor(true)
 			}
 			if err := os.WriteFile(path, []byte(text), 0644); err != nil {
 				t.Fatal(err)

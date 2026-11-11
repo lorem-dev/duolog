@@ -50,6 +50,10 @@ type Deps struct {
 	// compact window, or the person's own value; "" for none. A window that
 	// is missing is one of InstallCheck's lines. Nil reports none.
 	LeadCompact func(root, home string) string
+	// StatusLineLine says what the project install at root leaves to the
+	// person about the Claude status line: that it is theirs, or that they
+	// turned duolog's off; "" for none. Nil reports none.
+	StatusLineLine func(root, home string) string
 }
 
 // Trust reads what an agent's settings and approvals say about duolog's
@@ -79,6 +83,14 @@ type Caps interface {
 // would ask about when a session starts in root. Only Claude has it.
 type pendingServers interface {
 	PendingProjectServers(root string, environ []string) []string
+}
+
+// turnNotifications is a Caps that can say whether its agent's own settings
+// alert the person when a turn ends, and in which file to turn that on. Only
+// Codex has it: Claude's alert comes from duolog's Stop hook.
+type turnNotifications interface {
+	TUINotifications(environ []string) bool
+	ConfigFile(environ []string) string
 }
 
 // Agent holds what doctor asks of one registered agent. A nil port fails

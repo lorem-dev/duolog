@@ -3,11 +3,14 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
+	"github.com/pelletier/go-toml/v2"
 )
 
 func TestInstallCommandProject(t *testing.T) {
@@ -28,9 +31,19 @@ func TestInstallCommandProject(t *testing.T) {
 	if !strings.Contains(out.String(), "/hooks") {
 		t.Fatalf("output: %q", out.String())
 	}
-	// The skills are the one thing a Codex install writes at user scope.
-	if entries, _ := os.ReadDir(home); len(entries) != 1 || entries[0].Name() != ".agents" {
-		t.Fatalf("home changed: %v", entries)
+	// The skills, the MCP server table in Codex's config.toml and its stamp
+	// are what a Codex install writes at user scope.
+	var names []string
+	entries, _ := os.ReadDir(home)
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if strings.Join(names, " ") != ".agents .codex .duolog" {
+		t.Fatalf("home changed: %v", names)
+	}
+	config := filepath.Join(home, ".codex", "config.toml")
+	if data, err := os.ReadFile(config); err != nil || !strings.Contains(string(data), "[mcp_servers.duolog]\n") {
+		t.Fatalf("%s: %s, %v", config, data, err)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "duolog", "SKILL.md")); err != nil {
 		t.Fatal(err)
@@ -45,8 +58,76 @@ func TestInstallCommandProject(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "duolog")); !os.IsNotExist(err) {
 		t.Fatalf("uninstall left the user skill: %v", err)
 	}
-	if !strings.Contains(out.String(), "duolog skills removed for all projects") {
+	if !strings.Contains(out.String(), "duolog skills removed for all projects") || !strings.Contains(out.String(), "duolog MCP server removed for all projects") {
 		t.Fatalf("output: %q", out.String())
+	}
+	if data, err := os.ReadFile(config); err != nil || strings.Contains(string(data), "mcp_servers") {
+		t.Fatalf("%s after uninstall: %s, %v", config, data, err)
+	}
+}
+
+// codexHead is the start of duolog's MCP server table in Codex's
+// config.toml; its env_vars line follows.
+const codexHead = "[mcp_servers.duolog]\ncommand = \"duolog\"\nargs = [\"mcp\"]\ntool_timeout_sec = 660\nenv_vars = ["
+
+// withCodexTable reports whether after is text with duolog's table added
+// at its end, after a blank line, and returns the env_vars names.
+func withCodexTable(t *testing.T, after, text string) ([]string, bool) {
+	t.Helper()
+	if text != "" {
+		text += "\n"
+	}
+	rest, ok := strings.CutPrefix(after, text+codexHead)
+	if !ok || !strings.HasSuffix(rest, "]\n") || strings.Count(rest, "\n") != 1 {
+		return nil, false
+	}
+	var doc struct {
+		Servers map[string]struct {
+			EnvVars []string `toml:"env_vars"`
+		} `toml:"mcp_servers"`
+	}
+	if err := toml.Unmarshal([]byte(after), &doc); err != nil {
+		t.Fatal(err)
+	}
+	return doc.Servers["duolog"].EnvVars, true
+}
+
+// The table forwards, besides duolog's own names, the env_passthrough and
+// paid_runs env names of the config at install time, so that a delegate run
+// the lead's server starts gets them; a later install adds new ones and
+// keeps the old.
+func TestInstallCodexMCPForwardsConfiguredEnv(t *testing.T) {
+	isolatedRouteConfig(t)
+	home, root := os.Getenv("HOME"), t.TempDir()
+	chdir(t, root)
+	putWorktreeFile(t, filepath.Join(root, ".duolog", "config.yaml"), "version: 1\nenv_passthrough: [PATH, HOME, MY_TOOL_TOKEN]\n")
+	install := func() []string {
+		t.Helper()
+		cmd := newRootCommand(testDeps(t))
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetArgs([]string{"install", "--scope", "project", "--agent", "codex"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		names, ok := withCodexTable(t, string(data), "")
+		if !ok {
+			t.Fatalf("config.toml:\n%s", data)
+		}
+		return names
+	}
+	names := install()
+	for _, want := range []string{"MY_TOOL_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DUOLOG_DEPTH", "DUOLOG_PEER", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "REX_SESSION"} {
+		if !slices.Contains(names, want) {
+			t.Errorf("env_vars %q lacks %s", names, want)
+		}
+	}
+	putWorktreeFile(t, filepath.Join(root, ".duolog", "config.yaml"), "version: 1\nenv_passthrough: [PATH, HOME, OTHER_TOKEN]\n")
+	if names = install(); !slices.Contains(names, "MY_TOOL_TOKEN") || !slices.Contains(names, "OTHER_TOKEN") {
+		t.Fatalf("env_vars after a second install %q", names)
 	}
 }
 
@@ -140,9 +221,13 @@ func TestInstallEndsWithCodexSetup(t *testing.T) {
 			if tc.want && (!strings.Contains(last, root) || !strings.Contains(last, "open codex") || !strings.Contains(last, "approve the hooks in /hooks")) {
 				t.Fatalf("last line: %s", last)
 			}
+			// Install adds only duolog's MCP server table, after a blank line.
 			after, err := os.ReadFile(path)
-			if err != nil || string(after) != text {
-				t.Fatalf("trust changed: %s, %v", after, err)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, added := withCodexTable(t, string(after), text); tc.agent == "claude" && string(after) != text || tc.agent != "claude" && !added {
+				t.Fatalf("trust changed: %s", after)
 			}
 		})
 	}

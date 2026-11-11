@@ -171,6 +171,7 @@ func DoctorDeps(d delegate.Deps) doctor.Deps {
 		Available:       func(agent string) bool { _, err := exec.LookPath(agent); return err == nil },
 		InstallCheck:    installCheck,
 		LeadCompact:     leadCompact,
+		StatusLineLine:  statusLineLine,
 	}
 }
 

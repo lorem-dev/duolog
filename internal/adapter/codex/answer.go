@@ -43,9 +43,12 @@ func codexArgv(s runSpec) []string {
 			args = append(args, "-c", "skills.include_instructions=false")
 		}
 	}
+	var bridged []string
 	if s.MCP != nil {
-		args = append(args, s.MCP.CodexArgs...)
+		bridged = s.MCP.CodexArgs
+		args = append(args, bridged...)
 	}
+	args = append(args, serverOff(s.Cwd, s.Process.Env, bridged)...)
 	if s.ThreadID == "" && !s.Persistent {
 		args = append(args, "--ephemeral")
 	}

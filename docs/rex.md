@@ -182,6 +182,62 @@ Verify the integrated result before reporting completion. On conflicts,
 preserve the person's work and report the blocker. Report the result's
 path, branch and commit status; idle does not mean delivered.
 
+## What the person is told between turns
+
+When a worker finishes while the person looks elsewhere, the lead's hooks put
+one line in the terminal. It is the hook's `systemMessage`, which Claude Code
+and Codex show to the person and do not pass to the model, so it costs no
+tokens and starts no turn. It appears with `SessionStart`, with
+`UserPromptSubmit` and when the lead's `Stop` hook runs:
+
+- `duolog: run r2 (review) failed`: a delegate run ended. Its state is `done`,
+  `failed`, `needs input`, `run here` or `lost`.
+- `duolog: peer p1 is idle`: a peer ended a turn, as its `Stop` hook
+  recorded. The fast snapshot cannot see a working pane, so a running peer
+  without a recorded turn end is not called idle.
+- `duolog: run r1 ended`: a run left the snapshot's newest finished runs
+  before the lead saw its end, so only its id is known.
+- `duolog: 2 asks wait for an answer`: asks are open to the lead.
+
+Each hook names what is new since the last line it showed the same lead, at
+most three items and then `and N more`, in 200 bytes. A lead's first look shows
+open asks only. The last line shown is recorded in
+`<lead home>/notices/<lead>.json`. A worker, a peer, a subagent and a session
+that is no registered lead show none. The line is best effort: a snapshot that
+fails or takes more than 2 seconds shows nothing and leaves the hook's normal
+output as it was. A Claude `Stop` line carries no context, so it does not keep
+the turn going.
+
+### How the person is called back
+
+Some news needs the person's eyes when they have left the terminal. With
+`lead.notify: true`, the default, duolog alerts them:
+
+- When a Claude lead's `Stop` hook shows a line, it also sets the hook's
+  `terminalSequence` to an OSC 9 notice with the same text. Claude Code
+  writes it to the terminal in an interactive session, and a terminal that
+  supports OSC 9 shows a notice. `SessionStart` and `UserPromptSubmit` lines
+  have none, as the person is at the terminal then.
+- A Codex hook has no terminal sequence. Set `tui.notifications = true` in
+  Codex's `config.toml` for an alert when a Codex lead's turn ends;
+  `duolog doctor` names the file while it is off.
+- An ask that only you can answer shows a desktop notice once it is filed:
+  `ask 7 waits for you: exec rm x`.
+- A run started from the MCP `delegate` tool that ends failed, needing input
+  or handed back shows a desktop notice: `run d-abc123 (review) failed`. A
+  `done` run gets the line and the `Stop` alert only. A `duolog delegate` run
+  from your own command shows none, as the command prints its outcome.
+
+An alert never changes a hook's output, the gate's answer or a run's record:
+any error gives no alert. `lead.notify: false` keeps the lines and drops the
+alerts; only the user config and a local config of your own may set it, so a
+shared project config cannot turn your alerts off. Rex has no way to post a
+notice into a pane, so duolog does not send alerts through Rex.
+
+On Windows the desktop notice may not show: the toast has no registered app
+id, and a cold PowerShell may take longer than the 3 second limit. Nothing
+else breaks; the hook, the gate and the run go on as before.
+
 ## What the lead is told when a peer stops
 
 Keep each `duolog peer wait <id>` in its own background command with a
@@ -265,6 +321,50 @@ duolog peers: claude 3 running (1 idle) of 12; codex 0 of 3; 5h 41%
 | Delivery | Every UserPromptSubmit; on PostToolUse only with bus mail, at most once in five minutes unless counts change. Registered leads only |
 | Time budget | Two seconds; failure prints nothing |
 | `peer list` | Same line at the end, except with `--json` |
+
+## How the lead shows its workers in the status line
+
+`duolog statusline` is a command for Claude Code's `statusLine` setting.
+Claude Code runs it, pipes a JSON object on stdin and shows the first line
+of its output under the prompt. duolog reads `session_id` and the project
+folder from `workspace.project_dir`, else `workspace.current_dir`, else
+`cwd`. It prints the lead's workers in one line, for example:
+
+```text
+duolog 2 peers 1 run 1 ask 3 queued
+```
+
+It counts live peers, running runs, open asks and queued items, and leaves
+out each count that is zero. A project folder in a submodule shows the same
+line as its superproject.
+
+It prints nothing, writes nothing to stderr and exits 0 when:
+
+- the input is not JSON, is over 1 MiB or has no `session_id`;
+- the session is not a live lead of this project, or it has no workers;
+- the process is a worker or a peer (`DUOLOG_DEPTH` or `DUOLOG_PEER`);
+- it takes more than one second.
+
+It reads the lead's state and creates none, and reads no peer screen. It
+prints no color codes.
+
+`duolog install` sets the `statusLine` entry (`"command": "duolog
+statusline"`, `"refreshInterval": 10`) when no settings file has one, and
+`duolog doctor` reports it. If you have your own status line, install leaves
+it and says so; doctor shows that as an info line, not a warning. If you
+remove the entry duolog wrote, install does not add it again until you run
+`duolog install --status-line`. This holds at project scope only; at user
+scope there is no such record, so install adds the line again each run. An
+entry whose command is `duolog statusline` counts as duolog's. To keep your
+own and add duolog's part, run `duolog statusline` from your script with the
+same stdin, and print its line next to yours:
+
+```sh
+input=$(cat)
+mine=$(printf '%s' "$input" | ~/my-statusline.sh)
+ours=$(printf '%s' "$input" | duolog statusline)
+printf '%s %s\n' "$mine" "$ours"
+```
 
 ## How to run several peers at once
 
@@ -465,7 +565,7 @@ tab ends with the run. Closing a project's last peer also closes a
 
 ## How to drive peers with the MCP tool
 
-A Claude lead drives peers with the `peer` tool of the
+A Claude or Codex lead drives peers with the `peer` tool of the
 [duolog MCP server](getting-started.md#how-the-lead-uses-the-duolog-mcp-server)
 instead of the `duolog peer` commands. The `action` field picks the step:
 

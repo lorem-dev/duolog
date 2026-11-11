@@ -140,6 +140,17 @@ worker gate. See [Permissions](permissions.md#where-the-checks-run).
 | `AGENTS.md` | A marked block: offer to install on a machine without duolog, and work through duolog |
 | `.claude/CLAUDE.md` or `CLAUDE.md` | The same block, with one more line about the MCP tools; uses the nested file if it exists |
 
+Install also sets Claude's `statusLine` to `duolog statusline` when you have
+none: in `.claude/settings.local.json` at project scope, which Git ignores,
+and in `~/.claude/settings.json` at user scope. It does this also when the
+duolog plugin supplies the hooks. A status line of your own stays, and
+uninstall removes only duolog's. An entry whose command is
+`duolog statusline` counts as duolog's. If you remove the entry duolog
+wrote, install leaves it off and `doctor` says how to get it back: run
+`duolog install --status-line`. At user scope there is no such record, so
+install adds the line again each run. See the
+[status line](rex.md#how-the-lead-shows-its-workers-in-the-status-line).
+
 Use `--agent claude` or `--agent codex` to install for one agent. Use
 `--scope user` to install in your home folder for all projects. SessionStart
 then creates `.duolog/` in a new project and registers its lead.
@@ -258,9 +269,9 @@ and free Claude workers start with fast mode off. Key-only logins need
 
 ## How the lead uses the duolog MCP server
 
-A Claude lead gets `duolog mcp`, an MCP server with four tools. Each tool
-calls the same code as the CLI command it stands for, so it can do no more
-than the lead's shell can. Codex leads keep the skill and the CLI.
+A Claude or Codex lead gets `duolog mcp`, an MCP server with four tools.
+Each tool calls the same code as the CLI command it stands for, so it can do
+no more than the lead's shell can.
 
 | Tool | What it does |
 |---|---|
@@ -292,8 +303,51 @@ Install adds the server as one entry at Claude's user scope, from either
 `mcp__duolog__status` to `permissions.allow` of the install scope, so the first
 call does not ask. It never adds `mcp__duolog__answer_ask`: the lead's guard or
 you decide that call, as for `duolog allow`. The marked block in `CLAUDE.md`
-tells the lead to use the tools, one waiting `delegate` call per hand-over, and
-the CLI only where a tool is missing.
+and `AGENTS.md` tells the lead to use the tools, one waiting `delegate` call
+per hand-over, and the CLI only where a tool is missing.
+
+For Codex, install adds a `[mcp_servers.duolog]` table at the end of
+`config.toml` in `CODEX_HOME` (`~/.codex` by default), from either `--scope`:
+
+```toml
+[mcp_servers.duolog]
+command = "duolog"
+args = ["mcp"]
+tool_timeout_sec = 660
+env_vars = ["ANTHROPIC_API_KEY", "APPDATA", "CLAUDE_CONFIG_DIR", "CODEX_HOME", ...]
+```
+
+`tool_timeout_sec` covers the 10-minute wait cap with a minute to spare;
+Codex's default is 60 seconds. Codex starts a stdio server with a short
+default environment, such as `HOME`, `PATH` and `USER`, so `env_vars`
+forwards the rest that duolog needs from the lead: the `DUOLOG_DEPTH` and
+`DUOLOG_PEER` markers, the agents' homes, duolog's config and state folders,
+Rex's session, and the `env_passthrough` and `paid_runs.<agent>.env` names of
+your config. A `delegate` run that the server starts gets these. Run
+`duolog install` again after you change `env_passthrough` or a
+`paid_runs` env list. The table is one for all projects, so `env_vars`
+collects the names of every project that ran install: install adds new
+names and keeps the ones already there until `duolog uninstall` removes the
+table.
+
+Install changes no other line of the file. It keeps a copy of the file as it
+was before duolog's first change, `config.toml.duolog.bak`, and writes under
+the lock duolog holds when it copies Codex trust to a linked worktree
+(`config.toml.duolog.lock`). It refuses, with nothing
+changed, a `mcp_servers.duolog` written as an inline table or dotted keys. A
+`config.toml` that does not parse stays as it is: install goes on without
+the table and says so. Codex's `hooks.json` has no allow list, so Codex
+approves the tool calls by its own approval settings; a
+`[mcp_servers.duolog.tools.<tool>]` table with `approval_mode` changes that for
+one tool. The lead's guard decides `answer_ask` as for `duolog allow`: a Codex
+lead's answer to an ask only you may answer is denied.
+
+A Codex worker or peer starts with `-c mcp_servers.<name>.enabled=false`
+for each server its user config or the trusted project's
+`.codex/config.toml` defines as `duolog`, or as `duolog mcp` under any name,
+so it never runs the server. Codex's system and managed config layers are
+not read for this; a server defined only there still starts, and sees the
+worker's or peer's marker through `env_vars`, so it lists no tools.
 
 Only the lead gets the tools. Outside a folder with `.duolog/config.yaml`, and
 in a worker or a peer, the server lists no tools, so they cost nothing there.
@@ -305,8 +359,9 @@ tool per turn, and about 155 tokens once per tool when its schema loads. With
 `duolog doctor` says so when the setting is off.
 
 To remove the server by hand, delete `mcpServers.duolog` from
-`~/.claude.json`. `duolog install --check` and `duolog doctor` report a
-missing or different entry and missing allow entries.
+`~/.claude.json` and the `[mcp_servers.duolog]` table from Codex's
+`config.toml`. `duolog install --check` and `duolog doctor` report a missing
+or different entry and missing allow entries.
 
 ## How to install the plugins from the duolog marketplace
 

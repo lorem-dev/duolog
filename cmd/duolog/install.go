@@ -26,22 +26,24 @@ func installOptions(scope, agent string) (install.Options, error) {
 }
 
 // configuredInstall returns the install deps with the project skills folder
-// that the config sets. User scope has none. When the config does not load, it
-// returns the plain deps and the error.
+// that the config sets, and the names the Codex MCP server table forwards
+// (wiring.ServerEnvNames). User scope has no skills folder. When the config
+// does not load, it returns the plain deps and the error.
 func configuredInstall(d *cmdDeps, o install.Options) (install.Deps, error) {
+	deps := wiring.WithServerEnv(d.Install, wiring.ServerEnvNames(o.Root))
 	if o.Scope == "user" {
-		return d.Install, nil
+		return deps, nil
 	}
 	dirs, err := configfile.ProjectSkillsDirs(o.Root, wiring.Descriptors())
 	if err != nil {
 		return d.Install, err
 	}
-	return wiring.ConfiguredInstall(d.Install, dirs), nil
+	return wiring.ConfiguredInstall(deps, dirs), nil
 }
 
 func newInstallCommand(d *cmdDeps) *cobra.Command {
 	var scope, agent string
-	var check, hooksOnly bool
+	var check, hooksOnly, statusLine bool
 	cmd := &cobra.Command{Use: "install", Short: "Install duolog hooks and skill for Claude Code and Codex", Args: cobra.NoArgs, PreRunE: refuseWorkerCommand, RunE: func(cmd *cobra.Command, args []string) error {
 		if hooksOnly && !check {
 			return errors.New("--hooks-only works only with --check")
@@ -58,6 +60,7 @@ func newInstallCommand(d *cmdDeps) *cobra.Command {
 			o.HooksOnly = hooksOnly
 			return installCheck(cmd, deps, o)
 		}
+		o.StatusLine = statusLine
 		report, err := deps.Run(o)
 		if err != nil {
 			return err
@@ -80,6 +83,7 @@ func newInstallCommand(d *cmdDeps) *cobra.Command {
 	cmd.Flags().StringVar(&agent, "agent", "both", agentFlagHelp("both"))
 	cmd.Flags().BoolVar(&check, "check", false, "Write nothing; exit 1 when install would change the installed hooks or skills, or they cannot be checked")
 	cmd.Flags().BoolVar(&hooksOnly, "hooks-only", false, "With --check: compare duolog's hooks and leave the skills out")
+	cmd.Flags().BoolVar(&statusLine, "status-line", false, "Add duolog's Claude status line again after you removed it")
 	return cmd
 }
 
@@ -119,6 +123,9 @@ func installCheck(cmd *cobra.Command, d install.Deps, o install.Options) error {
 			lines = append(lines, settledLine(s))
 		}
 		if line := s.LeadLine(o.Root); line != "" {
+			lines = append(lines, line)
+		}
+		if line := s.StatusLineLine(o.Root); line != "" {
 			lines = append(lines, line)
 		}
 		for _, line := range lines {

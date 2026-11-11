@@ -5,9 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/app/paidruns/paidrunstest"
 	"github.com/lorem-dev/duolog/internal/core/account"
@@ -173,5 +175,38 @@ func TestPeerInputLocations(t *testing.T) {
 	loc := in.Locations
 	if loc.Home != os.Getenv("HOME") || loc.Root != r.root || loc.GOOS != runtime.GOOS || len(loc.Environ) == 0 {
 		t.Fatalf("pane locations: %+v", loc)
+	}
+}
+
+// A Codex peer's pane gets the project root it opens in, so its argv turns
+// off a duolog MCP server that only the trusted project's .codex/config.toml
+// defines: the peer must not get the lead's tools.
+func TestCodexPeerTurnsOffProjectServer(t *testing.T) {
+	r := newRig(t, baseScript())
+	e, err := setup(r.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	abs, err := filepath.Abs(r.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(os.Getenv("HOME"), ".codex", "config.toml"), "[projects.\""+filepath.ToSlash(abs)+"\"]\ntrust_level = \"trusted\"\n")
+	writeFile(t, filepath.Join(r.root, ".codex", "config.toml"), "[mcp_servers.duolog]\ncommand = \"duolog\"\nargs = [\"mcp\"]\n")
+	route := coreroute.Route{Target: config.Target{Agent: "codex", Model: "sol"}}
+	in, err := e.paneInput(e.root, route, mode.Ask, false, corelaunch.Free, "lead-1", "plan", "peer-x", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := agentEnv(launchtest.Build, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Root != r.root {
+		t.Fatalf("process root %q, want %q", p.Root, r.root)
+	}
+	args := argvFor(route, mode.Ask, p)
+	if i := slices.Index(args, "mcp_servers.duolog.enabled=false"); i < 1 || args[i-1] != "-c" {
+		t.Fatalf("peer argv keeps the project's duolog server: %q", args)
 	}
 }

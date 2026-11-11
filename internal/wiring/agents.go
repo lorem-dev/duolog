@@ -4,6 +4,7 @@ package wiring
 import (
 	"context"
 	"os"
+	"runtime"
 	"slices"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/agentfile"
 	"github.com/lorem-dev/duolog/internal/core/caps"
+	"github.com/lorem-dev/duolog/internal/core/config"
 )
 
 // doctorAgents gives doctor the ports of each registered agent by name.
@@ -160,6 +162,36 @@ func ConfiguredInstall(d install.Deps, dirs map[string]string) install.Deps {
 	return d
 }
 
+// ServerEnvNames are the variables, beside duolog's own, that the lead's MCP
+// server forwards to a delegate run it starts: env_passthrough and every
+// agent's paid_runs env names of the config at root. A config that does not
+// load gives the default env_passthrough.
+func ServerEnvNames(root string) []string {
+	cfg, err := configfile.Load(root, ConfigOptions())
+	if err != nil {
+		return config.DefaultEnvPassthrough(runtime.GOOS)
+	}
+	names := slices.Clone(cfg.EnvPassthrough)
+	for _, paid := range cfg.PaidRuns.Agents {
+		names = append(names, paid.Env...)
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
+// WithServerEnv returns d with names forwarded by the MCP server table of
+// each agent that writes such a list (see ServerEnvNames).
+func WithServerEnv(d install.Deps, names []string) install.Deps {
+	agents := slices.Clone(d.Agents)
+	for i, a := range agents {
+		if c, ok := a.Installer.(codex.Installer); ok {
+			agents[i].Installer = c.WithEnvVars(names)
+		}
+	}
+	d.Agents = agents
+	return d
+}
+
 // HookEnv fills the Events and Lead of env.Agent, and the names and Caps of
 // every registered agent. An agent that is not registered gets no Events or Lead,
 // and every hook of it does nothing.
@@ -204,7 +236,7 @@ func projectInstall(root string) (install.Deps, bool) {
 	if err != nil {
 		return InstallDeps(), false
 	}
-	return ConfiguredInstall(InstallDeps(), dirs), true
+	return WithServerEnv(ConfiguredInstall(InstallDeps(), dirs), ServerEnvNames(root)), true
 }
 
 // installCheck is doctor's InstallCheck: the project and user installs,
@@ -219,6 +251,13 @@ func installCheck(root, home string) []string {
 func leadCompact(root, home string) string {
 	d, _ := projectInstall(root)
 	return d.LeadLine(root, home)
+}
+
+// statusLineLine is doctor's StatusLineLine: the Claude status line in the
+// project at root, when it is the person's or they turned duolog's off.
+func statusLineLine(root, home string) string {
+	d, _ := projectInstall(root)
+	return d.StatusLineLine(root, home)
 }
 
 // RosterCaps gives each registered agent's Caps by name, as roster takes them.

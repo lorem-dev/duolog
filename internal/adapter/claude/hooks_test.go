@@ -43,3 +43,38 @@ func TestEventsModeReadsThePayload(t *testing.T) {
 		})
 	}
 }
+
+func TestEventsShowAddsASystemMessage(t *testing.T) {
+	var got map[string]any
+	if err := json.Unmarshal((Events{}).Show(nil, "duolog: x", false), &got); err != nil || got["systemMessage"] != "duolog: x" || len(got) != 1 {
+		t.Fatalf("%v %v", got, err)
+	}
+	withReason := (Events{}).Show((Events{}).BlockStop("r"), "duolog: x", false)
+	if err := json.Unmarshal(withReason, &got); err != nil || got["decision"] != "block" || got["reason"] != "r" || got["systemMessage"] != "duolog: x" {
+		t.Fatalf("%s %v", withReason, err)
+	}
+}
+
+// An alert adds an OSC 9 terminalSequence, which Claude Code writes to the
+// person's terminal; the text in it has no control characters left.
+func TestShowAlert(t *testing.T) {
+	show := func(text string, alert bool) map[string]any {
+		t.Helper()
+		var got map[string]any
+		if err := json.Unmarshal((Events{}).Show(nil, text, alert), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	got := show("duolog: run r2 done", true)
+	if got["terminalSequence"] != "\x1b]9;duolog: run r2 done\a" || got["systemMessage"] != "duolog: run r2 done" {
+		t.Fatalf("alert: %q", got)
+	}
+	if _, ok := show("duolog: run r2 done", false)["terminalSequence"]; ok {
+		t.Fatal("no alert asked, but a terminal sequence came")
+	}
+	got = show("duolog: \x1b]0;title\a run\u009b r2\n done", true)
+	if got["terminalSequence"] != "\x1b]9;duolog: ]0;title run r2 done\a" {
+		t.Fatalf("not cleaned: %q", got["terminalSequence"])
+	}
+}

@@ -61,7 +61,7 @@ func Build(in ProcessInput) (Process, error) {
 	if goos == "" {
 		goos = runtime.GOOS
 	}
-	p := Process{Agent: in.Agent, Shape: in.Shape, Variant: in.Variant, ProviderEnvKey: in.ProviderEnvKey}
+	p := Process{Agent: in.Agent, Shape: in.Shape, Variant: in.Variant, ProviderEnvKey: in.ProviderEnvKey, Root: in.Locations.Root}
 	prefix := slices.Clone(in.Prefix)
 	if len(prefix) == 0 {
 		prefix = []string{in.Agent}

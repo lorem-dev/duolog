@@ -39,6 +39,11 @@ func loadSummary(ctx context.Context, d *cmdDeps, peers []peer.ListedPeer) load.
 	if err != nil {
 		return load.Summary{}
 	}
+	return loadSummaryAt(ctx, d, root, peers)
+}
+
+// loadSummaryAt is loadSummary for the project whose state root is root.
+func loadSummaryAt(ctx context.Context, d *cmdDeps, root string, peers []peer.ListedPeer) load.Summary {
 	cfg, err := configfile.Load(root)
 	if err != nil {
 		return load.Summary{}

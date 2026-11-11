@@ -212,6 +212,48 @@ func (c Caps) HasDuolog(root string, environ []string) bool {
 	return ok && (plugin.Enabled == nil || *plugin.Enabled)
 }
 
+// ConfigFile is the user config.toml of Codex for a process whose environment
+// is environ: the one under its CODEX_HOME. "" when environ names no home.
+func (c Caps) ConfigFile(environ []string) string {
+	f, err := kit.FoldersIn(c.Home, environ)
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(f.Codex(), "config.toml")
+}
+
+// TUINotifications reports whether Codex's own tui.notifications alerts the
+// person when a turn ends, for a process whose environment is environ: true,
+// or a list that names agent-turn-complete. Codex hooks have no terminal
+// sequence, so this is how a Codex lead calls the person back. A config that
+// is missing or cannot be read reads as off. Only the user config.toml is
+// read: a profile or a project .codex/config.toml that sets it is not seen.
+func (c Caps) TUINotifications(environ []string) bool {
+	path := c.ConfigFile(environ)
+	if path == "" {
+		return false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var config struct {
+		TUI struct {
+			Notifications any `toml:"notifications"`
+		} `toml:"tui"`
+	}
+	if toml.Unmarshal(data, &config) != nil {
+		return false
+	}
+	switch v := config.TUI.Notifications.(type) {
+	case bool:
+		return v
+	case []any:
+		return slices.Contains(v, any("agent-turn-complete"))
+	}
+	return false
+}
+
 // Servers reads the MCP servers Codex defines in its config files for the
 // project at root, with Codex's own precedence, for a process whose
 // environment is environ: the config files are those under its home folder and

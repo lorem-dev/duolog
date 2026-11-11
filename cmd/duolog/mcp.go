@@ -9,12 +9,12 @@ import (
 )
 
 // newMCPCommand serves the duolog MCP server on stdin and stdout. Claude Code
-// starts it in every session (user scope); it lists tools only for a lead
-// in a duolog project.
+// and Codex start it in every session (user scope); it lists tools only for
+// a lead in a duolog project.
 func newMCPCommand(d *cmdDeps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "mcp",
-		Short: "Serve the duolog MCP tools on stdio for a Claude lead",
+		Short: "Serve the duolog MCP tools on stdio for a Claude or Codex lead",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, err := os.Getwd()

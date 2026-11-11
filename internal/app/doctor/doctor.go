@@ -148,7 +148,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 		}
 	}
 	add("info", bridgeLine(d, cfg, root, available))
-	out = append(append(append(out, installFindings(d, root)...), workerModeFindings(d, cfg, root)...), d.paidRouteFindings(os.Environ())...)
+	out = append(append(append(append(out, turnAlertFindings(d, available)...), installFindings(d, root)...), workerModeFindings(d, cfg, root)...), d.paidRouteFindings(os.Environ())...)
 	out = append(out, billing(ctx, d, cfg, root, available, opts.Lead)...)
 	// Said every time while the person sets or lists a key that paid runs do
 	// not let through, so the change is never silent. Names only, never
@@ -250,6 +250,36 @@ func claudeFolderFindings(d Deps, root string) []Finding {
 	return out
 }
 
+// turnAlertFindings says where to turn on Codex's own alert at the end of a
+// turn while it is off: a Codex lead's Stop hook can show a line but not call
+// the person back. None when Codex is missing or alerts already.
+func turnAlertFindings(d Deps, available map[string]bool) []Finding {
+	n, ok := d.Agents["codex"].Caps.(turnNotifications)
+	if !ok || !available["codex"] {
+		return nil
+	}
+	environ := os.Environ()
+	path := n.ConfigFile(environ)
+	if path == "" || n.TUINotifications(environ) {
+		return nil
+	}
+	return []Finding{{"info", "codex: set tui.notifications = true in " + homeShort(path) + " for an alert when a Codex lead's turn ends"}}
+}
+
+// homeShort writes path under the home folder as ~/..., so that a line a model
+// may read does not name the home folder.
+func homeShort(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	rel, err := filepath.Rel(home, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return path
+	}
+	return "~/" + filepath.ToSlash(rel)
+}
+
 // installFindings warns of each install that is out of date: a binary upgrade
 // leaves the installed hooks and skills as they were. It also says what the
 // lead's compact window is.
@@ -263,6 +293,11 @@ func installFindings(d Deps, root string) []Finding {
 	}
 	if d.LeadCompact != nil {
 		if line := d.LeadCompact(root, home); line != "" {
+			out = append(out, Finding{"info", line})
+		}
+	}
+	if d.StatusLineLine != nil {
+		if line := d.StatusLineLine(root, home); line != "" {
 			out = append(out, Finding{"info", line})
 		}
 	}

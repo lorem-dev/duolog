@@ -21,6 +21,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	"github.com/lorem-dev/duolog/internal/core/mode"
+	"github.com/lorem-dev/duolog/internal/core/runsnap"
 	"github.com/lorem-dev/duolog/internal/project"
 	"github.com/lorem-dev/duolog/internal/store"
 )
@@ -102,6 +103,11 @@ type Env struct {
 	// wrote the user skills or the MCP server entry after since, the start of
 	// its process, or nothing. It only stats local files. Nil means no note.
 	RestartNote func(since time.Time) string
+	// Snapshot reads the workers of the lead with this session id, fast, for
+	// the notice a hook shows the person when a run ended, a peer went idle
+	// or an ask waits. It may fail; the hook then shows none. Nil means no
+	// notice; the command sets it.
+	Snapshot func(ctx context.Context, leadID string) (runsnap.Snapshot, error)
 }
 
 // loadConfig loads the config of the project at e.Root, through e.Config
@@ -343,6 +349,10 @@ func deliver(ctx context.Context, e Env, event string, register, includeRoster b
 	return render(e, event, data)
 }
 func SessionStart(ctx context.Context, e Env) Output {
+	return withNotice(ctx, e, sessionStart(ctx, e), false)
+}
+
+func sessionStart(ctx context.Context, e Env) Output {
 	return deliver(ctx, e, "SessionStart", true, true, startTime(e), func(s *state, _ []byte) string {
 		prune(e)
 		var lines []string
@@ -458,9 +468,14 @@ func prune(e Env) {
 	if info, err := os.Stat(dir); err == nil && info.IsDir() {
 		store.Prune(dir, time.Now())
 	}
+	pruneNotices(project.LeadHome(e.Root), time.Now())
 }
 func Prompt(ctx context.Context, e Env) Output {
 	countTurn(ctx, e)
+	return withNotice(ctx, e, promptDelivery(ctx, e), false)
+}
+
+func promptDelivery(ctx context.Context, e Env) Output {
 	return deliver(ctx, e, "UserPromptSubmit", e.Agent == "codex", false, startTime(e), func(s *state, _ []byte) string {
 		startQueue(ctx, e, s)
 		return strings.Join(slices.DeleteFunc([]string{loadLine(ctx, e, s, false), freshHint(ctx, e, s), peerReportNote(e), restartNote(e, s, false)}, func(l string) bool { return l == "" }), "\n")

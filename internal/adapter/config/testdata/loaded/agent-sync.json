@@ -767,7 +767,8 @@
   },
   "Lead": {
     "CompactNotes": true,
-    "FreshSessionHint": 200000
+    "FreshSessionHint": 200000,
+    "Notify": null
   },
   "Rex": {
     "StuckNotifyMinutes": 5,

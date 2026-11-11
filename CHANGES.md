@@ -46,6 +46,19 @@
 
 - `duolog runs` and `duolog watch` show `duolog delegate` runs from the CLI
   too, and MCP `status` lists them.
+- `duolog statusline` prints the lead's worker line (peers, runs, asks,
+  queued) for Claude Code's `statusLine` setting.
+- `duolog install` sets Claude's `statusLine` when you have none and keeps
+  your own; `uninstall` removes only duolog's.
+- The lead's hooks tell the person in one line when a run ended, a peer went
+  idle or an ask waits (`systemMessage`, no tokens spent).
+- A Claude lead's `Stop` line also sends an OSC 9 terminal notice;
+  `lead.notify: false` turns this and the desktop notices off.
+- A desktop notice tells the person of an ask only they can answer, and of an
+  MCP `delegate` run that ends failed, needing input or handed back.
+- `duolog doctor` says where to set Codex's `tui.notifications` for an alert.
+- Codex leads get the duolog MCP server: `duolog install` adds
+  `[mcp_servers.duolog]` to Codex's `config.toml`, keeping every other line.
 - `duolog runs --snapshot [--fast]` prints this lead's peers, runs, asks and
   load as one JSON line; `--fast` reads no pane screen.
 

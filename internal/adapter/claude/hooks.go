@@ -2,7 +2,11 @@ package claude
 
 import (
 	"encoding/json"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 
+	"github.com/lorem-dev/duolog/internal/adapter/kit"
 	"github.com/lorem-dev/duolog/internal/core/mode"
 )
 
@@ -16,6 +20,35 @@ func (Events) BlockStop(reason string) []byte {
 	}
 	encoded, _ := json.Marshal(map[string]string{"decision": "block", "reason": reason})
 	return append(encoded, '\n')
+}
+
+// Show adds text to out as systemMessage, the warning line Claude Code shows
+// the person. It adds no context, so a Stop that carries it does not keep the
+// turn going. With alert it also adds terminalSequence, an OSC 9 notice that
+// Claude Code writes to the person's terminal in an interactive session.
+func (Events) Show(out []byte, text string, alert bool) []byte {
+	fields := map[string]string{"systemMessage": text}
+	if alert {
+		fields["terminalSequence"] = alertSequence(text)
+	}
+	return kit.AddFields(out, fields)
+}
+
+// alertSequence is the OSC 9 notice of text. Only OSC 9 goes out: a BEL
+// fallback after it would ring twice in a terminal that shows OSC 9.
+func alertSequence(text string) string {
+	return "\x1b]9;" + clean(text) + "\a"
+}
+
+// clean drops every control character of text, C1 controls and line breaks
+// included, so that the text cannot end the sequence or start another.
+func clean(text string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == utf8.RuneError {
+			return -1
+		}
+		return r
+	}, text)
 }
 
 // Render wraps text in the hookSpecificOutput envelope that Claude Code reads

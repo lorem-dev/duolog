@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -27,7 +28,7 @@ func (d *cmdDeps) writeRunsSnapshot(cmd *cobra.Command, lead string, fast bool) 
 	if err != nil {
 		return err
 	}
-	s, err := d.runsSnapshot(cmd.Context(), root, lead, fast, time.Now())
+	s, err := d.runsSnapshot(cmd.Context(), root, lead, fast, time.Now(), d.snapDeps)
 	if err != nil {
 		return err
 	}
@@ -44,7 +45,8 @@ func (d *cmdDeps) writeRunsSnapshot(cmd *cobra.Command, lead string, fast bool) 
 // no lead it shows no peer and no run, never another lead's; a lead that was
 // asked for (lead, else DUOLOG_LEAD) and does not resolve is named in its
 // error. The load is from the cache only. With fast, no pane screen is read.
-func (d *cmdDeps) runsSnapshot(ctx context.Context, root, lead string, fast bool, now time.Time) (corerunsnap.Snapshot, error) {
+// depsOf builds the ports for the lead home's registry.
+func (d *cmdDeps) runsSnapshot(ctx context.Context, root, lead string, fast bool, now time.Time, depsOf func(*session.Registry) runsnap.Deps) (corerunsnap.Snapshot, error) {
 	asked := lead
 	if asked == "" {
 		asked = session.CurrentLead(os.Environ())
@@ -60,7 +62,7 @@ func (d *cmdDeps) runsSnapshot(ctx context.Context, root, lead string, fast bool
 	if err != nil {
 		return corerunsnap.Snapshot{}, err
 	}
-	s, err := runsnap.Build(ctx, d.snapDeps(reg), runsnap.Options{LeadID: lead, Fast: fast, Now: now})
+	s, err := runsnap.Build(ctx, depsOf(reg), runsnap.Options{LeadID: lead, Fast: fast, Now: now})
 	if err != nil || s.Lead != nil {
 		return s, err
 	}
@@ -94,23 +96,56 @@ func snapshotLeadMiss(asked string, reg *session.Registry) string {
 // records across the lead home, and the load line's counts. A caller that
 // shows no load sets Load to nil, so that none is computed.
 func (d *cmdDeps) snapDeps(reg *session.Registry) runsnap.Deps {
-	return runsnap.Deps{
-		Registry: reg,
-		Peers:    d.snapPeers,
-		Records: func(leadID, address string) ([]delegate.LocatedRecord, error) {
-			return snapRecords(reg, leadID, address)
-		},
-		Load: d.snapLoad,
-	}
+	return d.snapDepsFor(reg, "")
 }
 
-// snapPeers lists the lead's live peers. Peers need Rex and do not exist on
+// snapDepsAt is snapDeps for the work project at work, not the working
+// directory's. Its peers and load are read only when that project has a
+// .duolog folder, so that nothing creates one there or elsewhere.
+func (d *cmdDeps) snapDepsAt(reg *session.Registry, work string) runsnap.Deps {
+	return d.snapDepsFor(reg, project.StateRoot(work))
+}
+
+// snapDepsFor builds the ports for the state root at root, or for the working
+// directory's project when root is "".
+func (d *cmdDeps) snapDepsFor(reg *session.Registry, root string) runsnap.Deps {
+	hasState := root == "" || isFolder(filepath.Join(root, ".duolog"))
+	deps := runsnap.Deps{
+		Registry: reg,
+		Peers: func(ctx context.Context, leadID string, fast bool) ([]peer.ListedPeer, error) {
+			if !hasState {
+				return nil, peer.ErrNoRex
+			}
+			return d.snapPeers(ctx, leadID, fast, root)
+		},
+		Records: func(leadID, address string) ([]delegate.LocatedRecord, error) {
+			at := root
+			if at == "" {
+				var err error
+				if at, err = projectRoot(); err != nil {
+					return nil, err
+				}
+			}
+			return listRuns(reg, at, leadID, address)
+		},
+		Load: func(ctx context.Context, leadID string, peers []peer.ListedPeer) load.Summary {
+			if !hasState {
+				return load.Summary{}
+			}
+			return d.snapLoad(ctx, leadID, peers, root)
+		},
+	}
+	return deps
+}
+
+// snapPeers lists the lead's live peers of the project at root, or of the
+// working directory's when root is "". Peers need Rex and do not exist on
 // Windows: there it is peer.ErrNoRex.
-func (d *cmdDeps) snapPeers(ctx context.Context, leadID string, fast bool) ([]peer.ListedPeer, error) {
+func (d *cmdDeps) snapPeers(ctx context.Context, leadID string, fast bool, root string) ([]peer.ListedPeer, error) {
 	if runtime.GOOS == "windows" || os.Getenv("REX_SESSION") == "" {
 		return nil, peer.ErrNoRex
 	}
-	pctx, cancel, err := d.peerCtx(ctx, leadID, false, 0)
+	pctx, cancel, err := d.peerCtxAt(ctx, leadID, false, 0, root)
 	if err != nil {
 		return nil, err
 	}
@@ -121,30 +156,23 @@ func (d *cmdDeps) snapPeers(ctx context.Context, leadID string, fast bool) ([]pe
 	return peer.List(pctx)
 }
 
-// snapRecords is listRuns from this work project: the records across the
-// lead home whose lead is leadID or address, or every one when both are "".
-func snapRecords(reg *session.Registry, leadID, address string) ([]delegate.LocatedRecord, error) {
-	root, err := projectRoot()
-	if err != nil {
-		return nil, err
-	}
-	return listRuns(reg, root, leadID, address)
-}
-
 // snapLoad counts the listed peers against the session limits, within
 // loadWait; a failure gives an empty summary. A panic does too: the MCP
 // server runs the status tool with no recover of its own, and a panic there
 // would end the server, as hook.computeLoad keeps it from ending a hook.
-func (d *cmdDeps) snapLoad(ctx context.Context, leadID string, peers []peer.ListedPeer) (s load.Summary) {
+func (d *cmdDeps) snapLoad(ctx context.Context, leadID string, peers []peer.ListedPeer, root string) (s load.Summary) {
 	defer func() {
 		if recover() != nil {
 			s = load.Summary{}
 		}
 	}()
-	pctx, cancel, err := d.peerCtx(ctx, leadID, false, loadWait)
+	pctx, cancel, err := d.peerCtxAt(ctx, leadID, false, loadWait, root)
 	if err != nil {
 		return load.Summary{}
 	}
 	defer cancel()
+	if root != "" {
+		return loadSummaryAt(pctx, d, root, peers)
+	}
 	return loadSummary(pctx, d, peers)
 }

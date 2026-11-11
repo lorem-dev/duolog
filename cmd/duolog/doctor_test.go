@@ -269,9 +269,13 @@ func TestCommandsCheckCurrentCheckoutTrust(t *testing.T) {
 						t.Fatalf("missing worktree warning: %s", out)
 					}
 				}
+				// Install adds only duolog's MCP server table.
 				after, err := os.ReadFile(path)
-				if err != nil || string(after) != config {
-					t.Fatalf("trust changed: %s, %v", after, err)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, added := withCodexTable(t, string(after), config); command == "install" && !added || command != "install" && string(after) != config {
+					t.Fatalf("trust changed: %s", after)
 				}
 			})
 		}

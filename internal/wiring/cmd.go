@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/lorem-dev/duolog/internal/adapter/kit"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
 	"github.com/lorem-dev/duolog/internal/app/delegate"
 	"github.com/lorem-dev/duolog/internal/app/doctor"
@@ -72,6 +73,10 @@ type CmdDeps struct {
 	// sink, so only Calibration reads through them; they must never read an
 	// account.
 	Quota quota.Deps
+	// Notify shows the person a desktop notice: an ask only they can answer,
+	// and a detached run that ended needing them. It must not block or fail
+	// its caller.
+	Notify func(title, message string)
 }
 
 // Cmd fills every field of CmdDeps with the real function.
@@ -98,6 +103,7 @@ func Cmd() CmdDeps {
 		GOOS:            runtime.GOOS,
 		SyncFormats:     SyncFormats(),
 		Quota:           QuotaDeps(nil),
+		Notify:          kit.Notify,
 	}
 }
 

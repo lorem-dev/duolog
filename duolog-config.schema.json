@@ -481,6 +481,10 @@
           "type": "integer",
           "minimum": 0,
           "description": "Context size in tokens from which a Claude lead between pieces of work is reminded to offer the person a fresh lead session, and again each further 100000 tokens; 0 turns it off, defaults to 200000. duolog only reminds: it never starts or closes a session. Only the user config and a local config of your own may set it; the shared project config may not."
+        },
+        "notify": {
+          "type": "boolean",
+          "description": "Alert the person when something waits for them: a desktop notice when an ask only they can answer is filed and when a run started from the MCP delegate tool ends failed, needing input or handed back, and a terminal notice when a Claude lead's turn ends with news. The notice line in the lead stays either way. Defaults to true. Only the user config and a local config of your own may set it; the shared project config may not."
         }
       },
       "additionalProperties": false,

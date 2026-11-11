@@ -62,6 +62,10 @@ type Status struct {
 	// under duolog's name there runs something else. Run leaves it, so the
 	// person renames it; until then the lead has no duolog tools.
 	ForeignServer string
+	// UnreadableServer is the agent's MCP server file when it does not parse
+	// (agent.ErrServerFileUnreadable). Run leaves it without duolog's entry,
+	// so the person fixes it; it does not make the install stale.
+	UnreadableServer string
 	// HookFile is the agent's hooks or settings file at the scope.
 	HookFile string
 	// PluginHooks says the agent's plugin is enabled and duolog's hooks are in
@@ -79,6 +83,9 @@ type Status struct {
 	// Lead is the lead's compact window, for an agent whose project install
 	// sets one; nil for any other.
 	Lead *LeadStatus
+	// StatusLine is the agent's status line, for an agent whose install sets
+	// one; nil for any other.
+	StatusLine *StatusLineState
 	// Err is why the install could not be compared.
 	Err error
 }
@@ -87,10 +94,14 @@ type Status struct {
 // missing or has other content, or a file it removes is there, or the lead's
 // compact window of an install is not set.
 func (s Status) Stale() bool {
-	return s.Err == nil && (len(s.Changed) > 0 || s.leadMissing())
+	return s.Err == nil && (len(s.Changed) > 0 || s.leadMissing() || s.statusLineMissing())
 }
 
 func (s Status) leadMissing() bool { return s.Installed && s.Lead != nil && s.Lead.Missing }
+
+func (s Status) statusLineMissing() bool {
+	return s.Installed && s.StatusLine != nil && (s.StatusLine.Missing || s.StatusLine.Hides)
+}
 
 // LeadLine is what install --check says of the lead's compact window: the
 // value that applies and who set it. It is empty when none is checked, or
@@ -131,6 +142,9 @@ func (s Status) Lines(root string) []string {
 	if s.ForeignServer != "" {
 		lines = append(lines, s.Agent+": mcpServers.duolog in "+shown(root, []string{s.ForeignServer})+" runs something else, so duolog leaves it and the lead has no duolog tools; rename it and run duolog install")
 	}
+	if s.UnreadableServer != "" {
+		lines = append(lines, s.Agent+": "+shown(root, []string{s.UnreadableServer})+" does not parse, so duolog's MCP server is not in it and the lead has no duolog tools; fix the file and run duolog install")
+	}
 	return lines
 }
 
@@ -160,6 +174,13 @@ func (s Status) Line(root string) string {
 	}
 	if s.leadMissing() {
 		parts = append(parts, "lead compact window not set in "+shown(root, []string{s.Lead.File}))
+	}
+	if s.statusLineMissing() {
+		if s.StatusLine.Hides {
+			parts = append(parts, "duolog's status line in "+shown(root, []string{s.StatusLine.File})+" hides yours in "+shown(root, []string{s.StatusLine.Own}))
+		} else {
+			parts = append(parts, "status line not set in "+shown(root, []string{s.StatusLine.File}))
+		}
 	}
 	parts = append(parts, "run duolog install --scope "+s.Scope+" --agent "+s.Agent)
 	return head + "is out of date: " + strings.Join(parts, "; ")
@@ -200,6 +221,7 @@ func (d Deps) Check(o Options) ([]Status, error) {
 		checkMCP(&s, a, o)
 		checkInstruction(&s, a, o, base, mcp)
 		d.addLead(&s, a, o)
+		d.addStatusLine(&s, a, o)
 		out = append(out, s)
 	}
 	return out, nil

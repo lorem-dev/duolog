@@ -92,12 +92,13 @@ func run(t *testing.T, o Options) Report {
 func TestProjectScopeWritesProjectFilesOnly(t *testing.T) {
 	home, root := setup(t)
 	run(t, Options{Scope: "project", Agent: "both", Home: home, Root: root})
-	// The MCP server entry, its stamp and the skills are the files at user
-	// scope: Claude lists servers there, and the skills serve every project.
+	// The MCP server entries, their stamp and the skills are the files at
+	// user scope: Claude and Codex list servers there, and the skills serve
+	// every project.
 	for path := range snapshot(t, home) {
 		rel, _ := filepath.Rel(home, path)
 		rel = filepath.ToSlash(rel)
-		if rel != ".claude.json" && rel != ".duolog/mcp-server-written" && !strings.HasPrefix(rel, ".claude/skills/duolog") && !strings.HasPrefix(rel, ".agents/skills/duolog") {
+		if rel != ".claude.json" && rel != ".codex/config.toml" && rel != ".codex/config.toml.duolog.lock" && rel != ".duolog/mcp-server-written" && !strings.HasPrefix(rel, ".claude/skills/duolog") && !strings.HasPrefix(rel, ".agents/skills/duolog") {
 			t.Errorf("home changed: %s", rel)
 		}
 	}
@@ -185,7 +186,8 @@ func TestPreservesTomlComments(t *testing.T) {
 	path := filepath.Join(home, ".codex/config.toml")
 	write(t, path, toml)
 	run(t, Options{Scope: "user", Agent: "codex", Home: home, Root: root})
-	if got := read(t, path); got != toml {
+	// Install adds only duolog's MCP server table, at the end.
+	if got := read(t, path); got != toml+"\n"+codexTable {
 		t.Fatalf("config.toml changed:\n%s", got)
 	}
 	if err := Remove(Options{Scope: "user", Agent: "codex", Home: home, Root: root}); err != nil {

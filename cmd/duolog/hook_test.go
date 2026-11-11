@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -152,5 +153,16 @@ func TestLeadCommandsCaptureTimeBeforeStdin(t *testing.T) {
 				t.Fatal("lost observation during stdin read", lead, ok, err)
 			}
 		})
+	}
+}
+
+func TestHookSnapshotCreatesNoState(t *testing.T) {
+	root := t.TempDir()
+	s, err := hookSnapshot(&cmdDeps{}, root)(context.Background(), "lead-1")
+	if err != nil || s.Lead != nil {
+		t.Fatalf("snapshot %+v, err %v", s, err)
+	}
+	if entries, _ := os.ReadDir(root); len(entries) != 0 {
+		t.Fatalf("the snapshot created %d entries", len(entries))
 	}
 }

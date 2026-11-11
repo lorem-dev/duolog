@@ -35,7 +35,8 @@ func (d *cmdDeps) runDelegateRecorded(stderr io.Writer, role, taskPath, lead str
 		}
 		r.Options.Begun = recordBegun(path, stderr, true)
 		out, err := d.runDelegateRecording(path)(ctx, r)
-		writeDelegateResult(stderr, path, role, base.TaskPath, out, err)
+		// The command's own caller reads the outcome when it ends, so no alert.
+		writeDelegateResult(stderr, path, role, base.TaskPath, out, err, nil)
 		return out, err
 	}
 }

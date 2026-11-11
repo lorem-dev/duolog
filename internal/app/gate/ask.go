@@ -53,6 +53,39 @@ func observeAsk(ctx context.Context, r AskResult) {
 	}
 }
 
+type askFiledKey struct{}
+
+// WithAskFiled returns a context whose Escalate calls tell f of each ask they
+// put on the bus: its number, whether only the person can answer it, and its
+// summary. f runs in a goroutine of its own, so a slow f never holds the ask,
+// and a panic in it is dropped.
+func WithAskFiled(ctx context.Context, f func(n int64, person bool, summary string)) context.Context {
+	if f == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, askFiledKey{}, f)
+}
+
+// filedSummary is the longest summary the filed callback gets.
+const filedSummary = 120
+
+// fileAsk sends the ask m with summary on b and, once it is on the bus, tells
+// the filed callback of ctx.
+func fileAsk(ctx context.Context, b *bus.Bus, m bus.Message, summary string) (int64, error) {
+	n, err := sendCut(b, m, "", summary)
+	if err != nil {
+		return n, err
+	}
+	if f, ok := ctx.Value(askFiledKey{}).(func(int64, bool, string)); ok {
+		summary = askSummary(summary, filedSummary)
+		go func() {
+			defer func() { _ = recover() }()
+			f(n, m.P, summary)
+		}()
+	}
+	return n, nil
+}
+
 // AskPoll is how often Escalate reads its inbox for the lead's reply. Tests
 // shorten it; the hook keeps the default.
 var AskPoll = 500 * time.Millisecond
@@ -110,7 +143,7 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a policy.Action, tim
 	peer := os.Getenv("DUOLOG_PEER")
 	// The wait, rounded up, tells readers when this hook has given up.
 	wait := int((timeout + time.Second - 1) / time.Second)
-	n, err := sendCut(b.Within(waitCtx), bus.Message{From: from, To: address, K: policy.Ask, Ref: peer, P: person, W: wait}, "", fullSummary)
+	n, err := fileAsk(ctx, b.Within(waitCtx), bus.Message{From: from, To: address, K: policy.Ask, Ref: peer, P: person, W: wait}, fullSummary)
 	if err != nil {
 		return deny("cannot send ask: " + err.Error())
 	}

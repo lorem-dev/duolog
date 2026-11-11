@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lorem-dev/duolog/internal/app/hook/hooktest"
@@ -19,5 +20,15 @@ func TestEventsModeReadsTheTranscript(t *testing.T) {
 	}
 	if got, ok := (Events{}).Mode(payload, ""); ok || got != "" {
 		t.Errorf("Mode without a transcript = %q, %v; want none", got, ok)
+	}
+}
+
+func TestEventsShowAddsASystemMessage(t *testing.T) {
+	if got := string((Events{}).Show(nil, "duolog: x", false)); got != "{\"systemMessage\":\"duolog: x\"}\n" {
+		t.Fatalf("%q", got)
+	}
+	out := (Events{}).Show((Events{}).Render("Stop", []byte("c")), "duolog: x", false)
+	if !strings.Contains(string(out), "\"hookSpecificOutput\"") || !strings.Contains(string(out), "\"systemMessage\":\"duolog: x\"") {
+		t.Fatalf("%q", out)
 	}
 }

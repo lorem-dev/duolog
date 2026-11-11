@@ -144,8 +144,9 @@ func TestLeadWindowFollowsAPlanChange(t *testing.T) {
 	// Window 0, Claude's own default, takes duolog's value out again.
 	d, _ = leadDeps(t, home, LeadWindow{Window: 0, Plan: "team"})
 	r := leadRun(t, d, o)
-	if _, err := os.Stat(localSettings(root)); !os.IsNotExist(err) {
-		t.Fatalf("local settings left after window 0: %v", err)
+	// Only the status line is left in the file.
+	if doc, env := localEnv(t, root); env != nil || len(doc) != 1 || doc["statusLine"] == nil {
+		t.Fatalf("local settings after window 0: %v", doc)
 	}
 	if !hasNote(r, "Claude's own default", "plan team") {
 		t.Fatalf("notes %q", r.Notes)
@@ -283,8 +284,8 @@ func TestLeadWindowErrorIsANote(t *testing.T) {
 	if !hasNote(r, "compact window not set: config broken") {
 		t.Fatalf("notes %q", r.Notes)
 	}
-	if _, err := os.Stat(localSettings(root)); !os.IsNotExist(err) {
-		t.Fatal("local settings written")
+	if _, env := localEnv(t, root); env != nil {
+		t.Fatalf("lead window written: %v", env)
 	}
 }
 

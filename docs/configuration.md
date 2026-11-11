@@ -285,11 +285,12 @@ gate preflight; see
 | `policy` | The rules for worker actions. See [Permissions](permissions.md) |
 | `capabilities` | What to do when the other agent lacks a skill, plugin or server |
 | `sync` | How agents and skills are generated. `sync.agents.model_map` maps a Claude alias to a Codex alias; `sync.agents.model_rows` lists the aliases that stand for one another, one row per model with a key per agent, such as `{claude: opus, codex: sol}`. A pair that `model_map` and `model_rows` map differently is an error. See [Sync](sync.md) |
-| `env_passthrough` | The only variables a worker inherits. A free run still drops names that bill per token |
+| `env_passthrough` | The only variables a worker inherits. A free run still drops names that bill per token. A Codex lead's MCP server forwards these names to the runs it starts; run `duolog install` again after you change them. See [Getting started](getting-started.md#how-the-lead-uses-the-duolog-mcp-server) |
 | `workers.inherit_plugins` | `false` (default): a Claude worker or peer turns off every plugin your user and project settings enable, except duolog's own. `true`: it loads them all, as your own sessions do. See [below](#what-workers-inherit) |
 | `workers.compact_window` | `auto` (default): Claude workers, peers and the lead compact at the size `workers.compact_ladder` gives for your plan. `0`: Claude's own default. `100000` to `1000000`: the context size in tokens at which they compact. See [below](#what-workers-inherit) |
 | `lead.compact_notes` | `true` (default): the lead's compaction keeps the open peers, asks, branches and pull requests, and lists the live peers again afterwards. `false` turns both off. See [below](#how-the-lead-keeps-its-state-through-compaction) |
 | `lead.fresh_session_hint` | `200000` (default): the context size in tokens from which a Claude lead is reminded to offer you a fresh lead session. `0` turns this off. See [below](#how-the-lead-offers-a-fresh-session) |
+| `lead.notify` | `true` (default): duolog alerts you when something waits for you: a terminal notice when a Claude lead's turn ends with news, and a desktop notice for an ask only you can answer and for an MCP `delegate` run that ends failed, needing input or handed back. `false` keeps the notice lines and drops the alerts. Only the user config and a local config of your own may set it. See [Rex](rex.md#how-the-person-is-called-back) |
 | `rex` | Timeouts and capture settings for live sessions. See [Rex](rex.md) |
 | `rex.stuck_notify_minutes` | Minutes before `peer wait` sends one reminder for an unanswered question. Default: `5`; `0` disables reminders |
 | `rex.auto_answers` | Ordered `{match, answer}` rules for safe peer questions. Defaults to answering `Hooks need review` with `Continue without trusting`. A project list replaces the defaults; `[]` disables it. Trust and persistent approval grants are refused; a pane's startup folder-trust question is a [built-in answer](rex.md) for the lead's own project only |
@@ -759,6 +760,10 @@ capabilities:
 Bridging is off by default because it gives the server's credentials to the
 other vendor's agent. Turn it on only for servers you would also configure in
 that agent yourself.
+
+duolog's own MCP server, which install adds for Claude and Codex leads, is not
+one to name: in a worker or a peer it lists no tools, and a Codex worker or
+peer starts with it turned off.
 
 A worker never installs a plugin. When Claude Code in a peer pane offers one,
 such as its LSP plugin recommendation, duolog selects `No, not now` and never

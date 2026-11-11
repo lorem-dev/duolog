@@ -28,7 +28,12 @@ const Block = InstructionBegin + "\n" + InstallOffer + "\n" + UsageNote + "\n" +
 
 // MCPNote is the block line for an agent whose lead gets the duolog MCP
 // server. It follows UsageNote.
-const MCPNote = "A Claude lead uses the duolog MCP tools (`delegate`, `peer`, `answer_ask`, `status`) for every hand-over, wait and ask (one waiting `delegate` call returns the whole result), and the CLI only where a tool is missing or fails; workers and peers never get these tools."
+const MCPNote = "A lead uses the duolog MCP tools (`delegate`, `peer`, `answer_ask`, `status`) for every hand-over, wait and ask (one waiting `delegate` call returns the whole result), and the CLI only where a tool is missing or fails; workers and peers never get these tools."
+
+// ErrServerFileUnreadable is the error of an agent's MCP server file that
+// does not parse: duolog neither adds nor removes its entry there, and
+// install goes on without it.
+var ErrServerFileUnreadable = errors.New("the file does not parse, so duolog leaves it alone")
 
 // BlockFor is the block for an agent: Block, with MCPNote when mcp is true.
 func BlockFor(mcp bool) string {

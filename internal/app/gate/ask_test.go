@@ -132,6 +132,56 @@ func TestAskSendsOneLine(t *testing.T) {
 	}
 }
 
+// Once the ask is on the bus, Escalate tells the filed callback its number,
+// whether only the person can answer it, and its summary. The callback runs
+// on its own, so a slow one never holds the ask.
+func TestEscalateReportsFiled(t *testing.T) {
+	type filed struct {
+		n       int64
+		person  bool
+		summary string
+	}
+	for _, person := range []bool{true, false} {
+		t.Run(strconv.FormatBool(person), func(t *testing.T) {
+			b, _, dir := askSetup(t)
+			calls := make(chan filed, 4)
+			release := make(chan struct{})
+			ctx := WithAskFiled(context.Background(), func(n int64, person bool, summary string) {
+				calls <- filed{n, person, summary}
+				<-release // a notifier that hangs until the ask has ended
+			})
+			defer close(release)
+			Escalate(ctx, b, "first-123456", Action{Kind: "exec", Target: "rm x"}, askSendWait, person)
+			var got filed
+			select {
+			case got = <-calls:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the filed callback was not called")
+			}
+			ms := asksOnly(askMessages(t, dir))
+			if len(ms) != 1 || got != (filed{ms[0].N, person, "exec rm x"}) {
+				t.Fatalf("filed %+v, asks %+v", got, ms)
+			}
+			select {
+			case again := <-calls:
+				t.Fatalf("called twice: %+v", again)
+			case <-time.After(50 * time.Millisecond):
+			}
+		})
+	}
+	// An ask that is never sent files nothing.
+	b, _, _ := askSetup(t)
+	t.Setenv("DUOLOG_LEAD", "")
+	denied := make(chan int64, 1)
+	ctx := WithAskFiled(context.Background(), func(n int64, _ bool, _ string) { denied <- n })
+	Escalate(ctx, b, "first-123456", Action{Kind: "exec", Target: "rm x"}, askSendWait, true)
+	select {
+	case n := <-denied:
+		t.Fatalf("a denied ask was filed as %d", n)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func TestOutsideAskIsPersonOnly(t *testing.T) {
 	p := testPolicy(t)
 	d := Evaluate(p, LeadRules{}, mode.Edits, Action{Kind: "read", Target: "/elsewhere/notes.txt", Role: "implement"})

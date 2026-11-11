@@ -133,7 +133,8 @@ func evaluateHook(deps *cmdDeps, cmd *cobra.Command, reg *session.Registry, root
 		// One answer covers the whole tool call, so the question names every path.
 		a.Target = strings.Join(result.asked, " ")
 		key := gate.AskKey(envelope.SessionID, envelope.ToolUseID, askQuestion(a.Kind, result.asked, envelope.Cwd), result.person)
-		resolved, err := askLead(cmd.Context(), deps.AskWait(askSeconds(cfg, result.person), result.person, deps.HookLimit(agent, event, root, a.Work, os.Environ())), cfg, root, reg.Dir, lead.ID, key, a, d, result.initial, result.person)
+		ctx := gate.WithAskFiled(cmd.Context(), personAskNotice(cfg, deps.Notify))
+		resolved, err := askLead(ctx, deps.AskWait(askSeconds(cfg, result.person), result.person, deps.HookLimit(agent, event, root, a.Work, os.Environ())), cfg, root, reg.Dir, lead.ID, key, a, d, result.initial, result.person)
 		if err != nil {
 			return a, d, err
 		}
@@ -270,6 +271,20 @@ func askQuestion(kind string, asked []string, cwd string) string {
 		b.WriteString(" " + strconv.Itoa(len(path)) + ":" + path)
 	}
 	return b.String() + " " + cwd
+}
+
+// personAskNotice is the filed callback of a gate's ask: a desktop notice for
+// an ask that only the person can answer, as the lead cannot. A lead ask, a
+// nil notify and lead.notify false give none.
+func personAskNotice(cfg *config.Config, notify func(title, message string)) func(int64, bool, string) {
+	if notify == nil || cfg == nil || !cfg.Lead.Notifies() {
+		return nil
+	}
+	return func(n int64, person bool, summary string) {
+		if person {
+			notify("duolog", fmt.Sprintf("ask %d waits for you: %s", n, summary))
+		}
+	}
 }
 
 // askLead sends the ask of one tool call to the lead. PreToolUse and

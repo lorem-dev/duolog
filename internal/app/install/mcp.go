@@ -3,10 +3,13 @@ package install
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+
+	"github.com/lorem-dev/duolog/internal/core/agent"
 )
 
 // MCPServers is implemented by the Installer of an agent whose lead gets the
@@ -22,6 +25,29 @@ type MCPServers interface {
 	// Allow adds or removes entries in permissions.allow of a settings file,
 	// keeping every other setting.
 	Allow(existing []byte, entries []string, add bool) ([]byte, error)
+}
+
+// ServerWriter is implemented by the MCPServers of an agent whose server
+// file has its own way to be written, such as Codex's config.toml, which
+// gets a backup and a lock. WriteServer replaces the file at path, whose
+// bytes were old (nil for none), with data, and reports whether it wrote.
+type ServerWriter interface {
+	WriteServer(path string, old, data []byte) (bool, error)
+}
+
+// unreadableNote is what install and uninstall say of a server file that
+// does not parse (agent.ErrServerFileUnreadable): they go on without it.
+func unreadableNote(path string, err error) string {
+	return fmt.Sprintf("%s: %v; duolog's MCP server is not in it: fix the file and run duolog install", path, err)
+}
+
+// serverEdit is the write of the server file at path from old to data.
+func serverEdit(servers MCPServers, path string, old, data []byte) edit {
+	e := edit{path: path, data: data, state: true, source: &old}
+	if w, ok := servers.(ServerWriter); ok {
+		e.writer = w.WriteServer
+	}
+	return e
 }
 
 // DeferredLoading is implemented by the MCPServers of an agent that can load
@@ -60,13 +86,19 @@ func planMCP(p *agentPlan, a Agent, o Options, base string) error {
 			return err
 		}
 		data, note, err := servers.Server(old, true)
-		if err != nil {
+		switch {
+		case errors.Is(err, agent.ErrServerFileUnreadable):
+			p.notes = append(p.notes, unreadableNote(path, err))
+		case err != nil:
 			return fmt.Errorf("%s: %w", path, err)
+		default:
+			if note != "" {
+				p.notes = append(p.notes, path+": "+note)
+			}
+			e := serverEdit(servers, path, old, data)
+			e.restart = true
+			p.mcp = []edit{e}
 		}
-		if note != "" {
-			p.notes = append(p.notes, path+": "+note)
-		}
-		p.mcp = []edit{{path: path, data: data, state: true, source: &old, restart: true}}
 	}
 	// Without a hook edit the file is missing: Run writes one for the plugin
 	// whenever the file is there.
@@ -206,6 +238,8 @@ func serverRemoval(a Agent, o Options) ([]edit, []string, error) {
 	}
 	data, note, err := servers.Server(old, false)
 	switch {
+	case errors.Is(err, agent.ErrServerFileUnreadable):
+		return nil, []string{unreadableNote(path, err)}, nil
 	case err != nil:
 		return nil, nil, fmt.Errorf("%s: %w", path, err)
 	case note != "":
@@ -213,7 +247,7 @@ func serverRemoval(a Agent, o Options) ([]edit, []string, error) {
 	case bytes.Equal(data, old):
 		return nil, nil, nil
 	}
-	return []edit{{path: path, data: data, state: true, source: &old}}, []string{ServerRemovedNote}, nil
+	return []edit{serverEdit(servers, path, old, data)}, []string{ServerRemovedNote}, nil
 }
 
 // checkMCP adds to s the MCP files that Run would change for agent a: the
@@ -244,11 +278,18 @@ func checkMCP(s *Status, a Agent, o Options) {
 	if !bytes.Equal(added, settings) && !slices.Contains(s.Changed, s.HookFile) {
 		s.Changed = append(s.Changed, s.HookFile)
 	}
-	path, ok := mcpServerFile(servers, o.Home)
-	if !ok {
-		return
+	if path, ok := mcpServerFile(servers, o.Home); ok {
+		checkServer(s, servers, path)
 	}
+}
+
+// checkServer adds to s what Run would do with duolog's entry in the server
+// file at path: change it, leave the person's entry, or skip a file that
+// does not parse.
+func checkServer(s *Status, servers MCPServers, path string) {
 	switch changed, foreign, err := serverChanged(servers, path); {
+	case errors.Is(err, agent.ErrServerFileUnreadable):
+		s.UnreadableServer = path
 	case err != nil:
 		s.Err = fmt.Errorf("%s: %w", path, err)
 	case foreign:
@@ -302,6 +343,13 @@ func (d Deps) deferredLines(root, home string) []string {
 // write writes e: through a backup as apply does, or, for an agent's state
 // file, in place.
 func (e edit) write() (bool, error) {
+	if e.writer != nil {
+		var old []byte
+		if e.source != nil {
+			old = *e.source
+		}
+		return e.writer(e.path, old, e.data)
+	}
 	if e.state {
 		return writeState(e.path, e.data, e.source)
 	}

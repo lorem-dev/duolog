@@ -34,7 +34,7 @@ import (
 // would leave a line that got its lock late no time to send.
 func Stop(ctx context.Context, e Env) Output {
 	if !worker(e) {
-		return leadStop(ctx, e)
+		return withNotice(ctx, e, leadStop(ctx, e), true)
 	}
 	peer := value(environment(e), "DUOLOG_PEER")
 	if ctx.Err() != nil || peer == "" || !worker(e) || !served(e) {

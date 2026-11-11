@@ -101,11 +101,15 @@ func shownName(leadID string) string {
 // store.NoticeWait, and on Windows a write and its rename are slow enough
 // that hooks of many leads queued on one lock ran out of it and lost marks.
 func shownLock(dir, leadID string) string {
-	return filepath.Join(dir, shownDir, shownName(leadID)+".lock")
+	return recordLock(dir, shownDir, leadID)
 }
 
-func shownPath(dir, leadID string) string {
-	return filepath.Join(dir, shownDir, shownName(leadID)+".json")
+func recordLock(dir, sub, leadID string) string {
+	return filepath.Join(dir, sub, shownName(leadID)+".lock")
+}
+
+func recordPath(dir, sub, leadID string) string {
+	return filepath.Join(dir, sub, shownName(leadID)+".json")
 }
 
 // withShown changes the lead's record of its shown load line under the
@@ -113,18 +117,26 @@ func shownPath(dir, leadID string) string {
 // rename. It waits for the lock at most store.NoticeWait and reports whether
 // change ran.
 func withShown(dir, leadID string, change func(seen *shownLine) bool) bool {
-	if err := os.MkdirAll(filepath.Join(dir, shownDir), 0o700); err != nil {
+	return withLeadRecord(dir, shownDir, leadID, change)
+}
+
+// withLeadRecord changes the lead's JSON record in the folder sub of dir
+// under the lead's lock and, when change reports a change, writes it back in
+// one rename. A record that is missing or unreadable reads as the zero T. It
+// waits for the lock at most store.NoticeWait and reports whether change ran.
+func withLeadRecord[T any](dir, sub, leadID string, change func(*T) bool) bool {
+	if err := os.MkdirAll(filepath.Join(dir, sub), 0o700); err != nil {
 		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), store.NoticeWait)
 	defer cancel()
-	unlock, err := store.LockFileContext(ctx, shownLock(dir, leadID), 5*time.Millisecond)
+	unlock, err := store.LockFileContext(ctx, recordLock(dir, sub, leadID), 5*time.Millisecond)
 	if err != nil {
 		return false
 	}
 	defer func() { _ = unlock() }()
-	var seen shownLine
-	if data, err := store.ReadFile(shownPath(dir, leadID)); err == nil {
+	var seen T
+	if data, err := store.ReadFile(recordPath(dir, sub, leadID)); err == nil {
 		_ = json.Unmarshal(data, &seen)
 	}
 	if !change(&seen) {
@@ -134,7 +146,7 @@ func withShown(dir, leadID string, change func(seen *shownLine) bool) bool {
 	if err != nil {
 		return true
 	}
-	tmp, err := os.CreateTemp(filepath.Join(dir, shownDir), "*.tmp")
+	tmp, err := os.CreateTemp(filepath.Join(dir, sub), "*.tmp")
 	if err != nil {
 		return true
 	}
@@ -143,7 +155,7 @@ func withShown(dir, leadID string, change func(seen *shownLine) bool) bool {
 		err = cerr
 	}
 	if err == nil {
-		err = store.Rename(tmp.Name(), shownPath(dir, leadID))
+		err = store.Rename(tmp.Name(), recordPath(dir, sub, leadID))
 	}
 	if err != nil {
 		_ = os.Remove(tmp.Name())

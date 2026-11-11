@@ -41,6 +41,37 @@ func (fakeStopAgent) BlockStop(reason string) []byte {
 	return append(encoded, '\n')
 }
 
+func (fakeAgent) Show(out []byte, text string, _ bool) []byte {
+	return addFields(out, map[string]string{"systemMessage": text})
+}
+
+// addFields sets string fields in the JSON object out, as kit.AddFields does
+// for the adapters; an app test may not import an adapter.
+func addFields(out []byte, fields map[string]string) []byte {
+	object := map[string]any{}
+	if len(out) > 0 && json.Unmarshal(out, &object) != nil {
+		return out
+	}
+	for k, v := range fields {
+		object[k] = v
+	}
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return out
+	}
+	return append(encoded, '\n')
+}
+
+// Show of the "claude" fake adds the OSC 9 terminalSequence on an alert, as
+// Claude's Events do; Codex hooks have none.
+func (fakeStopAgent) Show(out []byte, text string, alert bool) []byte {
+	fields := map[string]string{"systemMessage": text}
+	if alert {
+		fields["terminalSequence"] = "\x1b]9;" + text + "\a"
+	}
+	return addFields(out, fields)
+}
+
 func (fakeAgent) Render(event string, text []byte) []byte {
 	if len(text) == 0 {
 		return nil

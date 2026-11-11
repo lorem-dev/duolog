@@ -230,3 +230,32 @@ func TestCodexPluginFailureKeepsOtherKindsKnown(t *testing.T) {
 		t.Fatalf("items = %s, want mcp:codegraph", got)
 	}
 }
+
+// Codex alerts the person when its turn ends only with tui.notifications set:
+// true, or a list that names the turn end. ConfigFile names the file to set it
+// in, the one CODEX_HOME in environ selects.
+func TestCodexTUINotifications(t *testing.T) {
+	c, home, _ := capsEnv(t)
+	environ := []string{"HOME=" + home}
+	config := filepath.Join(home, ".codex", "config.toml")
+	if c.TUINotifications(environ) {
+		t.Fatal("no config, but notifications are on")
+	}
+	if got := c.ConfigFile(environ); got != config {
+		t.Fatalf("config file %q, want %q", got, config)
+	}
+	for body, want := range map[string]bool{
+		"[tui]\nnotifications = true\n":                                true,
+		"[tui]\nnotifications = false\n":                               false,
+		"[tui]\nnotifications = [\"agent-turn-complete\"]\n":           true,
+		"[tui]\nnotifications = [\"approval-requested\"]\n":            false,
+		"model = \"gpt-6.1-sol\"\n":                                    false,
+		"[tui\nnotifications = true\n":                                 false,
+		"[tui]\nnotifications = true\nnotification_method = \"bel\"\n": true,
+	} {
+		putFile(t, config, body)
+		if got := c.TUINotifications(environ); got != want {
+			t.Errorf("%q: %v, want %v", body, got, want)
+		}
+	}
+}

@@ -161,6 +161,47 @@ func TestGuardLeavesOtherMCPToolsAlone(t *testing.T) {
 	}
 }
 
+// A Codex lead's answer_ask call for a person-only ask is not allowed: the
+// guard denies it as it denies duolog allow 7 in Bash, here and through the
+// installed hook. Codex's PreToolUse payload names the tool
+// mcp__<server>__<tool> and carries no permission mode.
+func TestCodexLeadAnswerAskGuarded(t *testing.T) {
+	stateDir, root := leadTrustProject(t, "codex", "")
+	for range 5 {
+		ordinaryAsk(t, stateDir)
+	}
+	b, err := bus.Open(stateDir, config.Wire{MaxLineBytes: 512, MaxSummaryBytes: 200})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lead := session.Lead{ID: "lead-codex", Target: config.Target{Agent: "codex"}}
+	n, err := b.Send(bus.Message{From: "duolog/ask.person", To: session.Address(lead), K: policy.Ask, S: "read ../secret.txt", P: true, T: time.Now().UTC().Format(time.RFC3339Nano)})
+	if err != nil || n != 7 {
+		t.Fatalf("ask %d, %v; want ask 7", n, err)
+	}
+	call, _ := json.Marshal(map[string]any{"session_id": "lead-codex", "cwd": root, "hook_event_name": "PreToolUse", "tool_name": "mcp__duolog__answer_ask", "tool_input": map[string]any{"ask": 7, "decision": "allow"}})
+	bashCall, _ := json.Marshal(map[string]any{"session_id": "lead-codex", "cwd": root, "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": map[string]string{"command": "duolog allow 7"}})
+	want, wantOK := guardLeadCall(stateDir, "codex", bashCall)
+	got, ok := guardLeadCall(stateDir, "codex", call)
+	if !ok || got.Kind != policy.Deny || got.Rule != "person-only ask" {
+		t.Fatalf("tool call: %+v, %v; want a person-only deny", got, ok)
+	}
+	if got != want || ok != wantOK {
+		t.Fatalf("tool %+v, %v; Bash %+v, %v", got, ok, want, wantOK)
+	}
+	t.Run("hook", func(t *testing.T) {
+		isolatedRouteConfig(t)
+		chdir(t, root)
+		out, err := gateCommand(t, string(call), "gate", "--agent", "codex", "--event", "PreToolUse")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out, `"permissionDecision":"deny"`) {
+			t.Fatalf("hook did not deny: %s", out)
+		}
+	})
+}
+
 // The tool call and the Bash line it stands for get the same decision from
 // the guard, for every kind of ask and every lead mode.
 func TestMCPAnswerInputMatchesBashDecision(t *testing.T) {

@@ -315,26 +315,136 @@ func TestCheckReportsMissingAllow(t *testing.T) {
 	}
 }
 
-func TestCodexGetsNoServer(t *testing.T) {
+// codexTable is duolog's MCP server table in Codex's config.toml, as the
+// Codex installer without configured names writes it: env_vars forwards
+// what duolog needs from the lead past Codex's short server environment.
+const codexTable = "[mcp_servers.duolog]\ncommand = \"duolog\"\nargs = [\"mcp\"]\ntool_timeout_sec = 660\n" +
+	`env_vars = ["APPDATA", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "DUOLOG_DEPTH", "DUOLOG_PEER", "DUOLOG_TELEMETRY", "LOCALAPPDATA", "REX_BIN_DIR", "REX_BLOCK", "REX_SESSION", "SYSTEMROOT", "USERPROFILE", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"]` + "\n"
+
+// A Codex install adds duolog's server table to config.toml under
+// CODEX_HOME, keeping the person's settings, and writes no allow list into
+// hooks.json; uninstall takes the table out again.
+func TestInstallCodexMCP(t *testing.T) {
+	for _, scope := range []string{"project", "user"} {
+		t.Run(scope, func(t *testing.T) {
+			home, root := setup(t)
+			codexHome := filepath.Join(home, "codex-home")
+			t.Setenv("CODEX_HOME", codexHome)
+			config := filepath.Join(codexHome, "config.toml")
+			theirs := "model = \"x\"\n[tui]\nnotifications = true\n"
+			write(t, config, theirs)
+			o := Options{Scope: scope, Agent: "codex", Home: home, Root: root}
+			report := run(t, o)
+			if got := read(t, config); got != theirs+"\n"+codexTable {
+				t.Fatalf("config.toml:\n%s", got)
+			}
+			if !slices.Contains(report.Files, config) || !slices.Contains(report.Notes, RestartNote) {
+				t.Fatalf("report %+v", report)
+			}
+			// The person's file is kept as it was before duolog's first change,
+			// as AdoptWorktree keeps it.
+			if got := read(t, config+".duolog.bak"); got != theirs {
+				t.Fatalf("backup:\n%s", got)
+			}
+			if _, err := os.Stat(serverFile(home)); !os.IsNotExist(err) {
+				t.Fatalf("codex install wrote %s: %v", serverFile(home), err)
+			}
+			hooks := testDeps().Agents[1].Installer.HookFile(scope, map[string]string{"project": root, "user": home}[scope], home)
+			if got := read(t, hooks); strings.Contains(got, "permissions") || strings.Contains(got, "mcp__duolog") {
+				t.Fatalf("%s:\n%s", hooks, got)
+			}
+			current(t, check(t, o)["codex"])
+			if again := run(t, o); len(again.Files) != 0 || slices.Contains(again.Notes, RestartNote) {
+				t.Fatalf("second run %+v", again)
+			}
+			// The person's table under duolog's name stays, and Check names it.
+			uninstall, err := testDeps().Uninstall(o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := read(t, config); got != theirs {
+				t.Fatalf("after uninstall:\n%s", got)
+			}
+			if !slices.Contains(uninstall.Notes, ServerRemovedNote) {
+				t.Fatalf("notes %q", uninstall.Notes)
+			}
+		})
+	}
+}
+
+// An mcp_servers.duolog of Codex that runs something else is the person's:
+// install leaves it with a note and Check names it. An inline table of
+// duolog's own is refused with nothing changed.
+func TestInstallCodexMCPLeavesPersonsEntry(t *testing.T) {
 	home, root := setup(t)
 	codexHome := filepath.Join(home, "codex-home")
 	t.Setenv("CODEX_HOME", codexHome)
-	for _, scope := range []string{"project", "user"} {
-		run(t, Options{Scope: scope, Agent: "codex", Home: home, Root: root})
+	config := filepath.Join(codexHome, "config.toml")
+	theirs := "[mcp_servers.duolog]\ncommand = \"other\"\n"
+	write(t, config, theirs)
+	o := Options{Scope: "project", Agent: "codex", Home: home, Root: root}
+	report := run(t, o)
+	if read(t, config) != theirs || !slices.Contains(report.Notes, config+": mcp_servers.duolog runs something else; rename it") {
+		t.Fatalf("notes %q, config:\n%s", report.Notes, read(t, config))
 	}
-	if _, err := os.Stat(serverFile(home)); !os.IsNotExist(err) {
-		t.Fatalf("codex install wrote %s: %v", serverFile(home), err)
+	if s := check(t, o)["codex"]; s.Stale() || s.ForeignServer != config {
+		t.Fatalf("status %+v", s)
 	}
-	for _, dir := range []string{codexHome, filepath.Join(root, ".codex")} {
-		_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-			if err == nil && !info.IsDir() && strings.Contains(read(t, path), "mcp") {
-				t.Errorf("%s mentions mcp:\n%s", path, read(t, path))
-			}
-			return nil
+	inline := "mcp_servers.duolog = { command = \"duolog\", args = [\"mcp\"] }\n"
+	freshHome, freshRoot := setup(t)
+	t.Setenv("CODEX_HOME", filepath.Join(freshHome, "codex-home"))
+	config = filepath.Join(freshHome, "codex-home", "config.toml")
+	write(t, config, inline)
+	beforeRoot, beforeHome := snapshot(t, freshRoot), snapshot(t, freshHome)
+	o = Options{Scope: "project", Agent: "codex", Home: freshHome, Root: freshRoot}
+	if _, err := Run(o); err == nil || !strings.Contains(err.Error(), "mcp_servers.duolog is not a [table]; nothing changed") {
+		t.Fatalf("err %v", err)
+	}
+	// Nothing at all is written: not the hooks, the skills or the config.
+	if !equal(beforeRoot, snapshot(t, freshRoot)) || !equal(beforeHome, snapshot(t, freshHome)) {
+		t.Fatalf("a refused install wrote files: root %v, home %v", snapshot(t, freshRoot), snapshot(t, freshHome))
+	}
+}
+
+// A config.toml go-toml cannot read is the person's to fix: install, of
+// both agents, goes on without duolog's table and says so, and so does
+// uninstall.
+func TestInstallSkipsUnreadableCodexConfig(t *testing.T) {
+	home, root := setup(t)
+	codexHome := filepath.Join(home, "codex-home")
+	t.Setenv("CODEX_HOME", codexHome)
+	config := filepath.Join(codexHome, "config.toml")
+	broken := "model = \n"
+	write(t, config, broken)
+	o := Options{Scope: "project", Agent: "both", Home: home, Root: root}
+	report, err := Run(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read(t, config) != broken || !hasServer(t, home) {
+		t.Fatalf("config.toml %q, Claude's server %v", read(t, config), hasServer(t, home))
+	}
+	note := func(notes []string) bool {
+		return slices.ContainsFunc(notes, func(n string) bool {
+			return strings.HasPrefix(n, config+": ") && strings.Contains(n, "duolog's MCP server is not in it")
 		})
 	}
-	if err := Remove(Options{Scope: "project", Agent: "codex", Home: home, Root: root}); err != nil {
-		t.Fatal(err)
+	if !note(report.Notes) {
+		t.Fatalf("notes %q", report.Notes)
+	}
+	// install --check and doctor say so too, as a note: no error, and not a
+	// stale install.
+	s := check(t, o)["codex"]
+	line := "codex: " + config + " does not parse, so duolog's MCP server is not in it and the lead has no duolog tools; fix the file and run duolog install"
+	if s.Err != nil || s.Stale() || s.UnreadableServer != config || !slices.Contains(s.Lines(root), line) {
+		t.Fatalf("status %+v, lines %q", s, s.Lines(root))
+	}
+	if lines := testDeps().StaleLines(root, home); !slices.Contains(lines, line) {
+		t.Fatalf("doctor lines %q", lines)
+	}
+	report, err = testDeps().Uninstall(o)
+	if err != nil || read(t, config) != broken || !note(report.Notes) {
+		t.Fatalf("uninstall: %v, %q, notes %q", err, read(t, config), report.Notes)
 	}
 }
 

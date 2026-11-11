@@ -27,6 +27,7 @@ func newRootCommand(d *cmdDeps) *cobra.Command {
 	cmd.AddCommand(newCoauthorsCommand())
 	cmd.AddCommand(newQuotaCommand(d))
 	cmd.AddCommand(newSkillCommand(d))
+	cmd.AddCommand(newStatuslineCommand(d))
 	cmd.AddCommand(&cobra.Command{Use: "version", Short: "Print the duolog version", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		_, err := fmt.Fprintln(cmd.OutOrStdout(), version)
 		return err

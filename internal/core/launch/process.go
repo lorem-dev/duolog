@@ -87,6 +87,9 @@ type Process struct {
 	FastPinned               bool
 	ProviderEnvKey           string
 	CacheKey                 string
+	// Root is the project root the process was built for (Locations.Root),
+	// whose project settings layers it loads; "" when none was given.
+	Root string `json:"-"`
 }
 
 // Argv is the command line of an operation: the prefix with its global

@@ -15,6 +15,9 @@ type Installer struct {
 	// SkillsDir is agents.codex.skills_dir: the project skills folder, with
 	// slashes, below the project root. "" means DefaultSkillsDir.
 	SkillsDir string
+	// EnvVars are the names, beside duolog's own, that the MCP server table
+	// forwards from the lead (see WithEnvVars).
+	EnvVars []string
 }
 
 // HookFile is the hooks file whose hooks scope selects: user scope is the
@@ -96,6 +99,10 @@ func (Installer) OurHooks(data []byte) (map[string][]string, error) { return ins
 // duolog checkout at root.
 func (Installer) DevHooks(data []byte, root string) bool { return install.RunsDevLauncher(data, root) }
 
+// ServesMCP says Codex's lead gets the duolog MCP server, so its instruction
+// block carries the MCP line.
+func (Installer) ServesMCP() bool { return true }
+
 // InstructionFiles names the instruction file Codex reads in the project at
 // root, AGENTS.md, and every place one could have been written.
 func (Installer) InstructionFiles(root string) (current string, all []string) {
@@ -149,7 +156,7 @@ func eventsWith(timeout int, cmd func(goos, args string, gate bool) string) []in
 		{Name: "SessionEnd", Groups: []install.Group{hook("SessionEnd")}},
 		{Name: "UserPromptSubmit", Groups: []install.Group{hook("UserPromptSubmit")}},
 		{Name: "PostToolUse", Groups: []install.Group{hook("PostToolUse")}},
-		// A peer's turn end; a lead's Stop does nothing.
+		// A peer's turn end; a lead's Stop shows the person a notice, if any.
 		{Name: "Stop", Groups: []install.Group{hook("Stop")}},
 		{Name: "PreToolUse", Groups: []install.Group{gate("PreToolUse")}},
 		{Name: "PermissionRequest", Groups: []install.Group{gate("PermissionRequest")}},

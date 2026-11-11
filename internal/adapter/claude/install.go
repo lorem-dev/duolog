@@ -1,6 +1,9 @@
 package claude
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -75,6 +78,69 @@ func (Installer) InstructionFiles(root string) (current string, all []string) {
 // and project settings. Install writes the lead's compact window there.
 func (Installer) LocalSettings(root string) string {
 	return filepath.Join(root, ".claude", "settings.local.json")
+}
+
+// statusLineCommand is the command of the status line duolog sets, which
+// Claude Code runs with the session's JSON on stdin.
+const statusLineCommand = "duolog statusline"
+
+// statusLineRefresh is the seconds between runs of the status line while a
+// session is idle.
+const statusLineRefresh = 10
+
+// StatusLine adds duolog's status line to the settings file whose bytes are
+// existing (nil for none), or with add false removes it. A status line of the
+// person, whatever its command, is never replaced or removed: existing comes
+// back as it is, as it does when nothing changes.
+func (Installer) StatusLine(existing []byte, add bool) ([]byte, error) {
+	doc := map[string]json.RawMessage{}
+	if len(bytes.TrimSpace(existing)) > 0 {
+		if err := json.Unmarshal(existing, &doc); err != nil || doc == nil {
+			return nil, errors.New("not a JSON object, nothing changed")
+		}
+	}
+	raw, has := doc["statusLine"]
+	switch {
+	case add && has, !add && !has:
+		return existing, nil
+	case !add:
+		if !ourStatusLine(raw) {
+			return existing, nil
+		}
+		delete(doc, "statusLine")
+	default:
+		entry, err := json.Marshal(map[string]any{"type": "command", "command": statusLineCommand, "refreshInterval": statusLineRefresh})
+		if err != nil {
+			return nil, err
+		}
+		doc["statusLine"] = entry
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// OurStatusLine reports whether the settings file whose bytes are data holds
+// duolog's status line (ours), and whether it holds any status line (has).
+func (Installer) OurStatusLine(data []byte) (ours, has bool) {
+	var doc map[string]json.RawMessage
+	if json.Unmarshal(data, &doc) != nil {
+		return false, false
+	}
+	raw, has := doc["statusLine"]
+	return has && ourStatusLine(raw), has
+}
+
+func ourStatusLine(raw json.RawMessage) bool {
+	var line struct {
+		Command string `json:"command"`
+	}
+	return json.Unmarshal(raw, &line) == nil && line.Command == statusLineCommand
 }
 
 // OtherSettings lists every other settings file a Claude lead at root reads,

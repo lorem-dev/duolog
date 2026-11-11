@@ -58,22 +58,38 @@ var personLimits = []accountLimit{
 		func(c *config.Config) float64 { return float64(c.Lead.FreshSessionHint) }},
 }
 
+// personFlags are the switches that only the person's own layers may set,
+// removed from a shared layer as the person limits are. They need no bound.
+var personFlags = []string{
+	// A project must not silence the alerts that call each person back.
+	"lead.notify",
+}
+
+// personKeys are the keys of the person limits and the person flags.
+func personKeys() []string {
+	keys := slices.Clone(personFlags)
+	for _, l := range personLimits {
+		keys = append(keys, l.key)
+	}
+	return keys
+}
+
 // checkedLimits are the limits that are checked for a bound.
 func checkedLimits() []accountLimit {
 	return append(slices.Clone(accountLimits), personLimits...)
 }
 
-// restrictProjectPersonLimits removes each person-only limit from a shared
-// layer and names it. The nodes are resolved mappings.
+// restrictProjectPersonLimits removes each person-only limit and flag from a
+// shared layer and names it. The nodes are resolved mappings.
 func restrictProjectPersonLimits(_, layer *yaml.Node, projectFile string) ([]config.ConfigNotice, error) {
 	var notices []config.ConfigNotice
-	for _, l := range personLimits {
-		cut := strings.LastIndex(l.key, ".")
-		parent, err := limitNode(layer, l.key[:cut])
+	for _, key := range personKeys() {
+		cut := strings.LastIndex(key, ".")
+		parent, err := limitNode(layer, key[:cut])
 		if err != nil {
 			return nil, err
 		}
-		name := l.key[cut+1:]
+		name := key[cut+1:]
 		value := mappingValue(parent, name)
 		if value == nil {
 			continue
@@ -81,7 +97,7 @@ func restrictProjectPersonLimits(_, layer *yaml.Node, projectFile string) ([]con
 		parent.Content, _ = keepEntries(parent.Content, func(key string, _ *yaml.Node) (bool, error) {
 			return key != name, nil
 		})
-		notices = append(notices, config.ConfigNotice{Key: l.key, Reason: fmt.Sprintf(
+		notices = append(notices, config.ConfigNotice{Key: key, Reason: fmt.Sprintf(
 			"%s in %s is ignored: only the user config or a local config of your own may set this", value.Value, projectFile)})
 	}
 	return notices, nil

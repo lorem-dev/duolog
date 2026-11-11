@@ -24,7 +24,10 @@ func (Pane) Argv(r route.Route, _ mode.Mode, p corelaunch.Process, _ string) []s
 	if r.Context == "minimal" {
 		args = append(args, "-c", "project_doc_max_bytes=0")
 	}
-	return args
+	// The peer reads its user config and the config of the project its
+	// process runs for; the server's env_vars pass DUOLOG_PEER as a second
+	// guard.
+	return append(args, serverOff(p.Root, p.Env, nil)...)
 }
 
 // Settings are the extra settings of a pane's process: none, as Codex's

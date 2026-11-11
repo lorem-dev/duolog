@@ -10,6 +10,10 @@ import (
 	"github.com/lorem-dev/duolog/plugin"
 )
 
+// mcpBlock is the block of an agent whose lead gets the duolog MCP server,
+// as both Claude and Codex leads do.
+var mcpBlock = agent.BlockFor(true)
+
 func TestInstructionLifecycle(t *testing.T) {
 	for _, original := range []string{"", "plain text\nwithout heading", "intro\r\n# Heading\r\n\r\nkeep  \r\n", "# Heading", "Heading\n=======\nbody", "#", "# Heading\n<!-- duolog --> old offer\nbody\n", "```md\n# example\n```\n# Real\nbody\n"} {
 		t.Run(original, func(t *testing.T) {
@@ -19,13 +23,13 @@ func TestInstructionLifecycle(t *testing.T) {
 			write(t, path, original)
 			run(t, o)
 			got := read(t, path)
-			if strings.Count(got, agent.InstructionBegin) != 1 || strings.Count(got, agent.InstructionEnd) != 1 || !strings.Contains(got, Block) {
+			if strings.Count(got, agent.InstructionBegin) != 1 || strings.Count(got, agent.InstructionEnd) != 1 || !strings.Contains(got, mcpBlock) {
 				t.Fatal(got)
 			}
-			if strings.Contains(original, "# Heading\r\n") && !strings.HasPrefix(got, "intro\r\n# Heading\r\n"+Block) {
+			if strings.Contains(original, "# Heading\r\n") && !strings.HasPrefix(got, "intro\r\n# Heading\r\n"+mcpBlock) {
 				t.Fatal(got)
 			}
-			if original == "plain text\nwithout heading" && got != Block+original {
+			if original == "plain text\nwithout heading" && got != mcpBlock+original {
 				t.Fatal(got)
 			}
 			run(t, o)
@@ -52,7 +56,7 @@ func TestInstructionBlockHoldsOfferThenUsage(t *testing.T) {
 	path := filepath.Join(root, "AGENTS.md")
 	write(t, path, "# Rules\nkeep\n")
 	run(t, o)
-	want := "# Rules\n" + agent.InstructionBegin + "\n" + InstallOffer + "\n" + UsageNote + "\n" + agent.InstructionEnd + "\nkeep\n"
+	want := "# Rules\n" + agent.InstructionBegin + "\n" + InstallOffer + "\n" + UsageNote + "\n" + agent.MCPNote + "\n" + agent.InstructionEnd + "\nkeep\n"
 	if got := read(t, path); got != want {
 		t.Fatalf("want %q got %q", want, got)
 	}
@@ -69,7 +73,7 @@ func TestInstructionBlockIsReplacedInPlace(t *testing.T) {
 	old := "mine above\n" + agent.InstructionBegin + "\nold offer\nold usage\n" + agent.InstructionEnd + "\nmine below\n"
 	write(t, path, old)
 	run(t, o)
-	if want := "mine above\n" + Block + "mine below\n"; read(t, path) != want {
+	if want := "mine above\n" + mcpBlock + "mine below\n"; read(t, path) != want {
 		t.Fatalf("want %q got %q", want, read(t, path))
 	}
 	if err := Remove(o); err != nil {
@@ -86,7 +90,7 @@ func TestInstructionLegacyOfferBecomesBlock(t *testing.T) {
 	path := filepath.Join(root, "AGENTS.md")
 	write(t, path, "# Rules\n"+agent.LegacyOfferMarker+" "+InstallOffer+"\nkeep\n")
 	run(t, o)
-	if want := "# Rules\n" + Block + "keep\n"; read(t, path) != want {
+	if want := "# Rules\n" + mcpBlock + "keep\n"; read(t, path) != want {
 		t.Fatalf("want %q got %q", want, read(t, path))
 	}
 	// Uninstall removes a legacy line that install never replaced, too.
@@ -129,15 +133,17 @@ func TestInstructionUnpairedMarkersLeaveFilesAlone(t *testing.T) {
 	}
 }
 
-func TestInstallWritesMCPLineInClaudeFileOnly(t *testing.T) {
+// Both leads get the duolog MCP server, so both instruction files carry the
+// MCP line.
+func TestCodexInstructionHasMCPNote(t *testing.T) {
 	home, root := setup(t)
 	o := Options{Home: home, Root: root, Scope: "project"}
 	run(t, o)
 	if got := read(t, filepath.Join(root, "CLAUDE.md")); !strings.Contains(got, agent.MCPNote) {
 		t.Fatalf("CLAUDE.md has no MCP line: %q", got)
 	}
-	if got := read(t, filepath.Join(root, "AGENTS.md")); strings.Contains(got, agent.MCPNote) || !strings.Contains(got, Block) {
-		t.Fatalf("AGENTS.md changed: %q", got)
+	if got := read(t, filepath.Join(root, "AGENTS.md")); !strings.Contains(got, agent.BlockFor(true)) {
+		t.Fatalf("AGENTS.md has no MCP line: %q", got)
 	}
 	statuses, err := testDeps().Check(o)
 	if err != nil {

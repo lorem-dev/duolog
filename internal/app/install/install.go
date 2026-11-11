@@ -91,11 +91,13 @@ type Deps struct {
 // Options selects what to install and where. Scope is "project" (default) or
 // "user"; Agent is an agent's name or "both" (default). HooksOnly makes Check
 // compare duolog's hooks alone, for a repository that commits the hooks and
-// ignores the skills; Run and Remove do not read it.
+// ignores the skills; Run and Remove do not read it. StatusLine makes Run add
+// duolog's status line again after the person removed it.
 type Options struct {
 	Scope, Agent string
 	Home, Root   string
 	HooksOnly    bool
+	StatusLine   bool
 }
 
 // Report lists the files written and the steps the user still has to do.
@@ -123,6 +125,9 @@ type edit struct {
 	// restart marks the MCP server entry and the user skills: a session that
 	// is already running does not load them until it restarts.
 	restart bool
+	// writer writes a server file its agent's own way (ServerWriter); nil
+	// means as state says.
+	writer func(path string, old, data []byte) (bool, error)
 }
 
 // RestartNote is the line install prints when it added or changed the MCP
@@ -194,6 +199,14 @@ func (d Deps) Run(o Options) (Report, error) {
 	restart := restartNeeded(edits, report)
 	if wroteEdit(edits, report, func(e edit) bool { return e.restart && e.state }) {
 		stampServer(o.Home)
+	}
+	// The status line follows the hooks, so that a user settings file is read
+	// as they left it.
+	statusFiles, statusNotes, err := d.installStatusLine(agents, o)
+	report.Files = append(report.Files, statusFiles...)
+	report.Notes = append(report.Notes, statusNotes...)
+	if err != nil {
+		return report, err
 	}
 	if o.Scope == "user" {
 		if restart {
@@ -467,7 +480,9 @@ func (d Deps) Uninstall(o Options) (Report, error) {
 		report.Notes = append(report.Notes, SkillsRemovedNote)
 	}
 	if o.Scope == "user" {
-		return report, nil
+		files, err := d.removeStatusLine(agents, o, false)
+		report.Files = append(report.Files, files...)
+		return report, err
 	}
 	// An earlier install may have put copies into the project.
 	notes, err = dropProjectCopies(agents, o)
@@ -475,14 +490,25 @@ func (d Deps) Uninstall(o Options) (Report, error) {
 	if err != nil {
 		return report, err
 	}
-	return report, d.removeProject(agents, o.Root)
+	return report, d.removeProject(agents, o)
 }
 
 // removeProject removes what a project install added beside the hooks, the
 // skills and the MCP server: the lead's compact window that install wrote,
 // and the instruction blocks.
-func (d Deps) removeProject(agents []Agent, root string) error {
+func (d Deps) removeProject(agents []Agent, o Options) error {
+	root := o.Root
+	// An older install recorded in the lead marker that it created the local
+	// settings file, before the status line had a marker of its own.
+	leadCreated := false
+	if m := readMarker(root); m != nil {
+		leadCreated = m.Created
+	}
 	if err := removeLead(agents, root); err != nil {
+		return err
+	}
+	// After the lead: the file the status line created goes once both are out.
+	if _, err := d.removeStatusLine(agents, o, leadCreated); err != nil {
 		return err
 	}
 	return d.removeInstructions(root)
