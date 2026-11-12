@@ -97,6 +97,9 @@ func (d *cmdDeps) mcpDelegateRun(ctx context.Context, in mcp.DelegateInput) (out
 	if err != nil {
 		return mcp.DelegateOutput{}, err
 	}
+	if in.Waits() {
+		defer mcpWaitMark(work, lead, path)()
+	}
 	r, err := mcpDelegateAwait(ctx, path, in.TimeoutMinutes, !in.Waits())
 	if err != nil {
 		return mcp.DelegateOutput{}, err
@@ -242,6 +245,27 @@ func mcpDelegateLead(worktree string, hints []string) (stateDir, work, lead stri
 	return s.Dir, work, l.ID, nil
 }
 
+// mcpWaitMark marks lead, in the registry of the work project work, as
+// waiting on a foreground delegate while a delegate call blocks it on the run
+// whose record is at path, and returns what clears the mark. The detached run
+// marks nothing itself: a call with wait false leaves the lead free, and a
+// worker's ask then reaches it. The mark carries this server's PID, so a
+// server that dies leaves no wait behind. Any error marks nothing.
+func mcpWaitMark(work, lead, path string) func() {
+	if work == "" || lead == "" {
+		return func() {}
+	}
+	reg, err := session.Open(project.LeadHome(work))
+	if err != nil {
+		return func() {}
+	}
+	token := "mcp-" + strings.TrimSuffix(filepath.Base(path), ".json")
+	if reg.SetWaiting(lead, token, os.Getpid()) != nil {
+		return func() {}
+	}
+	return func() { _ = reg.SetWaiting(lead, token, 0) }
+}
+
 // mcpDelegateWait reads the record at path until it is no longer running,
 // the timeout passes or ctx ends, and returns the last one it read.
 func mcpDelegateWait(ctx context.Context, path string, minutes int) (delegate.Record, error) {
@@ -301,6 +325,7 @@ func mcpDelegateResult(ctx context.Context, in mcp.DelegateInput) (mcp.DelegateO
 	}
 	r := found.Record
 	if r.State == "running" && in.Waits() {
+		defer mcpWaitMark(r.WorkRoot, r.Lead, found.Path)()
 		if r, err = mcpDelegateWait(ctx, found.Path, in.TimeoutMinutes); err != nil {
 			return mcp.DelegateOutput{}, err
 		}

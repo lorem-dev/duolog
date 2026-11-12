@@ -928,7 +928,7 @@ with `codex exec` (OBSERVED, Codex 0.165.0 on macOS):
 | What fails | Why | What to do |
 |---|---|---|
 | Tests that use a local database or Redis | The sandbox blocks the network, even localhost | Give the role `network: true` in [`worker_modes`](#which-layers-may-change-worker-modes) in your user config. duolog sets `network_access` and `writable_roots` on every worker's command line, so `.codex/config.toml` does not change them for workers |
-| `uv run` | Its cache lock is outside the project | Run `.venv/bin/python -m pytest` |
+| `uv run` | Its cache lock is outside the project | duolog sets `UV_CACHE_DIR` for workers; see below |
 | `npx` | Its cache in `~/.npm` is outside the project | Run `node_modules/.bin/<tool>` |
 | `git status` with Git LFS | LFS writes to `.git/lfs/tmp` | Name the check in the task instead |
 
@@ -987,12 +987,13 @@ Without it, workers get duolog's default flags: Claude `acceptEdits`, or
 Codex `workspace-write` at most. Peers ignore the section and start with the
 same default, without network or extra writable roots.
 
-Go needs no writable root. Codex's `workspace-write` cannot write Go's
-default cache, so duolog starts every Codex `workspace-write` worker and peer
-with `GOCACHE` and `GOLANGCI_LINT_CACHE` set to folders under the temp folder
-(`duolog-go-cache/go-build` and `duolog-go-cache/golangci-lint`), which that
-sandbox already lets it write. Worktrees share them. A value you pass on
-through `env_passthrough` stays. duolog also sets them in Codex's
+Go and uv need no writable root. Codex's `workspace-write` cannot write their
+default caches, so duolog starts every Codex `workspace-write` worker and peer
+with `GOCACHE`, `GOLANGCI_LINT_CACHE` and `UV_CACHE_DIR` set to folders under
+the temp folder (`duolog-go-cache/go-build`, `duolog-go-cache/golangci-lint`
+and `duolog-go-cache/uv`), which that sandbox already lets it write. A first
+`uv run` there downloads the packages again. Worktrees share them. A value you
+pass on through `env_passthrough` stays. duolog also sets them in Codex's
 `shell_environment_policy.set`, so a policy that clears the environment does
 not drop them.
 

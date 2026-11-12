@@ -959,11 +959,14 @@ An agent treats a hook it kills as a failed hook, and the tool call can go on:
 - Codex has no such setting. The gate's own earlier deny is the only guard.
 
 The lead's hooks repeat open asks until answered or expired; see
-[Bus](bus.md#when-the-hooks-show-a-message). A foreground delegate denies
-asks immediately; the worker retries one plainer command, then returns
-`done: false` with `needs`. The lead can adjust the task or permitted rules
-and retry; denies still apply. Claude workers and peers are told to batch
-read-only Bash commands with `;` and avoid `node -e` and `python -c`.
+[Bus](bus.md#when-the-hooks-show-a-message). While the lead waits on a
+delegate, a `duolog delegate` command or a `delegate` tool call that waits,
+the gate denies asks immediately; the worker retries one plainer command,
+then returns `done: false` with `needs`. A run the lead started with
+`wait: false` leaves it free, so its worker's asks reach the lead. The lead
+can adjust the task or permitted rules and retry; denies still apply. Claude
+workers and peers are told to batch read-only Bash commands with `;` and
+avoid `node -e` and `python -c`.
 
 A free lead answers ordinary asks with `duolog allow N` or `duolog deny N`;
 only the person answers `p: true` asks. `peer wait` stops for its own peer's

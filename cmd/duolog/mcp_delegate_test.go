@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -331,6 +332,63 @@ func TestMCPDelegateResultWaitsForARunningRun(t *testing.T) {
 	out, err := d.mcpDelegate(context.Background(), mcp.DelegateInput{Action: "result", TaskPath: "d-wwwwww", Wait: nil})
 	if err != nil || out.State != "done" || out.Summary != "Now." {
 		t.Fatalf("%+v %v", out, err)
+	}
+}
+
+// The detached run never marks the lead as waiting; the server does, only
+// while a call blocks on the result. A worker's ask during a wait false run
+// then reaches the lead, which goes on working, instead of being denied.
+func TestMCPDelegateMarksTheLeadOnlyWhileACallWaits(t *testing.T) {
+	d, _, stateDir := mcpDelegateProject(t)
+	shortWait(t, time.Minute)
+	reg, err := session.Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting := func() bool {
+		t.Helper()
+		w, err := reg.IsWaiting("lead-mcp")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return w
+	}
+	// The child runs in this process, in the background, as the detached run
+	// would: the server is already waiting on its record when it runs.
+	run := func(waitCall bool) (detached, markedDuringRun bool) {
+		startInProcess(t, d)
+		start := d.startDetached
+		done := make(chan struct{})
+		d.startDetached = func(argv []string, dir, logPath string) error {
+			go func() {
+				defer close(done)
+				time.Sleep(20 * time.Millisecond)
+				_ = start(argv, dir, logPath)
+			}()
+			return nil
+		}
+		d.RunDelegate = func(_ context.Context, r delegate.Request) (delegate.Outcome, error) {
+			detached, markedDuringRun = r.Options.Detached, waiting()
+			return delegate.Outcome{Line: "done=true summary=Fixed.", Result: corerun.Result{Done: true, Summary: "Fixed."}}, nil
+		}
+		in := mcp.DelegateInput{Role: "implement", Task: &mcp.Task{Goal: "Fix it " + strconv.FormatBool(waitCall) + ".", Read: testTask.Read, Write: testTask.Write, Limits: testTask.Limits, Check: testTask.Check}}
+		if !waitCall {
+			in.Wait = &no
+		}
+		if _, err := d.mcpDelegate(context.Background(), in); err != nil {
+			t.Fatal(err)
+		}
+		<-done
+		return detached, markedDuringRun
+	}
+	if detached, marked := run(true); !detached || !marked {
+		t.Fatalf("wait true: detached=%v marked=%v, want both", detached, marked)
+	}
+	if waiting() {
+		t.Fatal("the wait mark outlived the call")
+	}
+	if detached, marked := run(false); !detached || marked {
+		t.Fatalf("wait false: detached=%v marked=%v, want a detached run and no mark", detached, marked)
 	}
 }
 

@@ -367,10 +367,10 @@ func pathWith(parent string) (string, error) {
 }
 
 // GoCacheNames are the variables duolog adds to a Codex workspace-write
-// process for Go's caches (TMPDIR is the folder they are under). They say
-// nothing of the route, and a send does not carry the launch words that add
-// them, so a route key leaves them out.
-var GoCacheNames = []string{"GOCACHE", "GOLANGCI_LINT_CACHE", "TMPDIR"}
+// process for the caches of Go and uv (TMPDIR is the folder they are under).
+// They say nothing of the route, and a send does not carry the launch words
+// that add them, so a route key leaves them out.
+var GoCacheNames = []string{"GOCACHE", "GOLANGCI_LINT_CACHE", "UV_CACHE_DIR", "TMPDIR"}
 
 // codexWorkspaceWrite reports whether the launch words run Codex in its
 // workspace-write sandbox.
@@ -384,8 +384,9 @@ func codexWorkspaceWrite(launch []string) bool {
 }
 
 // withGoCaches gives a Codex workspace-write process the Go build and lint caches
-// under the temp folder, which that sandbox already lets it write; Go's default
-// cache is outside the sandbox, so go test and make fail there. The folders are
+// and uv's cache under the temp folder, which that sandbox already lets it
+// write; their default caches are outside the sandbox, so go test, make and
+// uv run fail there. The folders are
 // shared between worktrees. A name the process already has, set by the person
 // and passed on, stays as it is. The -c words set the same values in Codex's
 // shell_environment_policy, which applies after its include_only filter, so a
@@ -405,13 +406,14 @@ func goCacheEnv(have, environ []string, lead, goos string) (env, args []string) 
 		tmp = v
 	}
 	base := filepath.Join(tmp, "duolog-go-cache", goCacheHash(lead))
-	if err := prepareCacheDirs(base, "go-build", "golangci-lint"); err != nil {
-		_, _ = fmt.Fprintf(cacheWarnings, "duolog: Go caches not set for the worker: %v\n", err)
+	if err := prepareCacheDirs(base, "go-build", "golangci-lint", "uv"); err != nil {
+		_, _ = fmt.Fprintf(cacheWarnings, "duolog: Go and uv caches not set for the worker: %v\n", err)
 		return nil, nil
 	}
 	for _, c := range []struct{ name, value string }{
 		{"GOCACHE", filepath.Join(base, "go-build")},
 		{"GOLANGCI_LINT_CACHE", filepath.Join(base, "golangci-lint")},
+		{"UV_CACHE_DIR", filepath.Join(base, "uv")},
 		{"TMPDIR", tmp},
 	} {
 		if _, set := lookupName(have, c.name, goos); set {

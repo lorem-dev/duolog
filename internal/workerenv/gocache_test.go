@@ -52,17 +52,21 @@ func TestCodexWorkspaceWriteGetsGoCaches(t *testing.T) {
 			if v, _ := envValue(p.Env, "GOLANGCI_LINT_CACHE"); v != filepath.Join(base, "golangci-lint") {
 				t.Errorf("%s %s: GOLANGCI_LINT_CACHE=%q", shape, variant, v)
 			}
+			// uv run takes a lock in its cache, which the sandbox refuses in ~/.cache/uv.
+			if v, _ := envValue(p.Env, "UV_CACHE_DIR"); v != filepath.Join(base, "uv") {
+				t.Errorf("%s %s: UV_CACHE_DIR=%q", shape, variant, v)
+			}
 			if v, _ := envValue(p.Env, "TMPDIR"); v != tmp || envCount(p.Env, "TMPDIR") != 1 {
 				t.Errorf("%s %s: TMPDIR=%q, want %q once", shape, variant, v, tmp)
 			}
 			// Codex's own environment policy must keep them for its commands.
-			for _, name := range []string{"GOCACHE", "TMPDIR"} {
+			for _, name := range []string{"GOCACHE", "UV_CACHE_DIR", "TMPDIR"} {
 				if !slices.ContainsFunc(p.Prefix, func(a string) bool { return strings.HasPrefix(a, "shell_environment_policy.set."+name+"=") }) {
 					t.Errorf("%s %s: no shell_environment_policy.set.%s in %v", shape, variant, name, p.Prefix)
 				}
 			}
 			if runtime.GOOS != "windows" {
-				for _, dir := range []string{base, filepath.Join(base, "go-build"), filepath.Join(base, "golangci-lint")} {
+				for _, dir := range []string{base, filepath.Join(base, "go-build"), filepath.Join(base, "golangci-lint"), filepath.Join(base, "uv")} {
 					if st, err := os.Stat(dir); err != nil || st.Mode().Perm() != 0o700 {
 						t.Errorf("%s %s: %s: %v %v, want a folder with mode 0700", shape, variant, dir, st, err)
 					}

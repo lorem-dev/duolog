@@ -62,7 +62,9 @@ func newDelegateCommand(d *cmdDeps) *cobra.Command {
 // run is duolog delegate <role> with these flags, the delegation run by
 // runDelegate.
 func (f *delegateFlags) run(cmd *cobra.Command, role string, runDelegate delegateFunc) error {
-	opts := delegate.Options{Lead: f.lead, AllowManualModel: f.allowManual, SkipPreflight: f.skipPreflight, Force: f.force, Needs: f.needs, Class: f.class, EscalateFrom: f.escalateFrom, EscalateReason: f.reason, Stderr: cmd.ErrOrStderr()}
+	opts := delegate.Options{Lead: f.lead, AllowManualModel: f.allowManual, SkipPreflight: f.skipPreflight, Force: f.force, Needs: f.needs, Class: f.class, EscalateFrom: f.escalateFrom, EscalateReason: f.reason, Stderr: cmd.ErrOrStderr(),
+		// A run with a result file is the MCP server's detached child.
+		Detached: f.resultFile != ""}
 	parsed, err := learn.ParseFeatures(f.features)
 	if err == nil && (f.escalateFrom == "") != (f.reason == "") {
 		err = errors.New("--escalate-from and --reason go together: name the delegation you leave and why")

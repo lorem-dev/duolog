@@ -42,6 +42,13 @@
 
 ## Development
 
+### Fixed
+
+- A worker's ask during a `delegate` run with `wait: false` reaches the lead;
+  the gate denied it as if the lead were waiting on the run.
+- Codex workers can run `uv run`: duolog sets `UV_CACHE_DIR` under the temp
+  folder, as it does for Go's caches.
+
 ## 1.9.2
 
 ### Fixed

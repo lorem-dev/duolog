@@ -112,8 +112,8 @@ type Options struct {
 	AdmissionWait func(string)
 	// Force starts a worker even for a task that routing.small_task_files would
 	// keep in the lead. SkipPreflight starts the worker without judging the
-	// task's Check commands with the gate first.
-	Force, SkipPreflight bool
+	// task's Check commands with the gate first. Detached: see waitMark.
+	Force, SkipPreflight, Detached bool
 	// Observe receives every worker run, failed ones included, with learning
 	// on or off; nil observes nothing.
 	Observe Observer
@@ -632,8 +632,8 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 			if err = lr.start(root); err != nil {
 				return out, errors.Join(err, current.release(ctx))
 			}
-			token := filepath.Base(dir)
-			if err = reg.SetWaiting(leadID, token, os.Getpid()); err != nil {
+			setWaiting := waitMark(reg, leadID, filepath.Base(dir), opts.Detached)
+			if err = setWaiting(os.Getpid()); err != nil {
 				return out, errors.Join(err, current.release(ctx))
 			}
 			creditBefore := before
@@ -644,7 +644,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 				if retry {
 					// A retry is a new run: a new permit, under the cap as it is now.
 					if current, retryRefusal, err = acquire(); err != nil || retryRefusal != nil {
-						_ = reg.SetWaiting(leadID, token, 0)
+						_ = setWaiting(0)
 						if err != nil {
 							return out, err
 						}
@@ -652,13 +652,13 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 					}
 				}
 				if err = current.launch(ctx, &spec); err != nil {
-					_ = reg.SetWaiting(leadID, token, 0)
+					_ = setWaiting(0)
 					return out, errors.Join(err, current.release(ctx))
 				}
 				started := att.begin()
 				workerStarted = true
 				out.Result, err = func() (run.Result, error) {
-					defer func() { _ = reg.SetWaiting(leadID, token, 0) }() // best effort: the entry is only a wait marker
+					defer func() { _ = setWaiting(0) }() // best effort: the entry is only a wait marker
 					return runs.run(ctx, spec, d.Agents[route.Agent].Worker.Run)
 				}()
 				att.worker(started, route, retry, out.Result, err)
@@ -703,7 +703,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 					out.Result = run.Result{}
 					return out, authErr
 				}
-				if err = reg.SetWaiting(leadID, token, os.Getpid()); err != nil {
+				if err = setWaiting(os.Getpid()); err != nil {
 					return out, err
 				}
 			}

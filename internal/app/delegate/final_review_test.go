@@ -93,6 +93,23 @@ func TestWorkerWaitMarkerExistsOnlyDuringRun(t *testing.T) {
 	}
 }
 
+// A detached run, which the MCP server started, does not mark the lead as
+// waiting: a call with wait false leaves the lead free, and a worker's ask
+// must reach it instead of being denied as asked during a foreground wait.
+func TestDetachedRunLeavesLeadNotWaiting(t *testing.T) {
+	h := newHarness(t)
+	previous := h.worker()
+	h.setWorker(func(ctx context.Context, s run.Spec) (run.Result, error) {
+		if waiting, err := h.reg.IsWaiting("lead-123456"); err != nil || waiting {
+			t.Fatal("a detached run marked the lead as waiting", err)
+		}
+		return previous(ctx, s)
+	})
+	if _, err := h.runWith("implement", Options{Detached: true}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestImportFailureStopsBeforeWorker(t *testing.T) {
 	h := newHarness(t)
 	h.lead("claude", mode.Full, "high")

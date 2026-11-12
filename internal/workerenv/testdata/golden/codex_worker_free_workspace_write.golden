@@ -11,6 +11,7 @@ env (in order; a value only where it is fixed):
   DUOLOG_ROLE=implement
   GOCACHE
   GOLANGCI_LINT_CACHE
+  UV_CACHE_DIR
   TMPDIR
 
 argv prefix:
@@ -21,6 +22,8 @@ argv prefix:
   shell_environment_policy.set.GOCACHE='<TMP>/duolog-go-cache/<HASH>/go-build'
   -c
   shell_environment_policy.set.GOLANGCI_LINT_CACHE='<TMP>/duolog-go-cache/<HASH>/golangci-lint'
+  -c
+  shell_environment_policy.set.UV_CACHE_DIR='<TMP>/duolog-go-cache/<HASH>/uv'
   -c
   shell_environment_policy.set.TMPDIR='<TMP>'
 
@@ -41,6 +44,8 @@ launch argv with run flags [--run-flag value]:
   shell_environment_policy.set.GOCACHE='<TMP>/duolog-go-cache/<HASH>/go-build'
   -c
   shell_environment_policy.set.GOLANGCI_LINT_CACHE='<TMP>/duolog-go-cache/<HASH>/golangci-lint'
+  -c
+  shell_environment_policy.set.UV_CACHE_DIR='<TMP>/duolog-go-cache/<HASH>/uv'
   -c
   shell_environment_policy.set.TMPDIR='<TMP>'
   exec
