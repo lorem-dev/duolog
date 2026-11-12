@@ -12,6 +12,15 @@ import (
 // before it comes again.
 const hintStep = 100000
 
+// freshHintText is the reminder, with the context size in thousands of
+// tokens. It is a note for the person, never a question the lead waits on: a
+// lead in bypass mode sat for hours on such an offer. Without an answer the
+// lead goes on, and Claude Code compacts the session as usual.
+const freshHintText = "Context is about %dk tokens. When this wave of cards is finished and written in the plan, " +
+	"tell the person in one line that a fresh lead session can take over, with the plan file and the next card as the hand-over. " +
+	"It is a note, not a question: do not ask in a question dialog, do not stop or wait for an answer, and go on with the next card. " +
+	"Without an answer this session goes on and compacts as usual. Start or close a session only when the person asks."
+
 // freshHint is the reminder that a Claude lead whose context has grown large
 // may offer the person a fresh lead session, or "". It is said while no peer
 // or foreground worker of the lead runs, once, and again each further
@@ -44,9 +53,7 @@ func freshHint(ctx context.Context, e Env, s *state) (line string) {
 	if !said {
 		return ""
 	}
-	return fmt.Sprintf("Context is about %dk tokens. When this wave of cards is finished and written in the plan, "+
-		"offer the person a fresh lead session, with the plan file and the next card as the hand-over. "+
-		"Do not start it or close this session without their answer.", tokens/1000)
+	return fmt.Sprintf(freshHintText, tokens/1000)
 }
 
 // leadIdle reports that no peer and no foreground worker of the lead runs.

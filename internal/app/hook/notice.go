@@ -76,7 +76,9 @@ func changes(s runsnap.Snapshot, m *noticeMark, idle turns) (text string, next n
 			continue
 		}
 		next.Ended = append(next.Ended, r.ID)
-		if m != nil && !slices.Contains(m.Ended, r.ID) {
+		// A run here started no worker: the lead got the answer from its own
+		// call and does the work, so the person needs no line for it.
+		if m != nil && !slices.Contains(m.Ended, r.ID) && r.State != "run_here" {
 			items = append(items, runItem(r))
 		}
 	}
@@ -145,11 +147,8 @@ func runItem(r runsnap.Run) string {
 
 // runWord is how a notice says that a run in state ended.
 func runWord(state string) string {
-	switch state {
-	case "needs":
+	if state == "needs" {
 		return "needs input"
-	case "run_here":
-		return "run here"
 	}
 	return state
 }

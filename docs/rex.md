@@ -198,7 +198,8 @@ tokens and starts no turn. It appears with `SessionStart`, with
 `UserPromptSubmit` and when the lead's `Stop` hook runs:
 
 - `duolog: run r2 (review) failed`: a delegate run ended. Its state is `done`,
-  `failed`, `needs input`, `run here` or `lost`.
+  `failed`, `needs input` or `lost`. A `run here` answer gets no line: it
+  started no worker, and the lead already has it.
 - `duolog: peer p1 is idle`: a peer ended a turn, as its `Stop` hook
   recorded. The fast snapshot cannot see a working pane, so a running peer
   without a recorded turn end is not called idle.

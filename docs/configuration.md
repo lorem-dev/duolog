@@ -359,10 +359,15 @@ costs several times a short one. When a Claude lead's prompt hook finds that
 the context of the last assistant turn (input, cache read and cache creation
 tokens in the session transcript) is at least `lead.fresh_session_hint`
 tokens, and no peer or foreground worker of the lead runs, it adds one line
-that reminds the lead to offer you a fresh lead session once the current wave
-of cards is finished and written in the plan, with the plan file and the next
-card as the hand-over. duolog only reminds: it never starts a session or
-closes one, and the lead waits for your answer.
+that reminds the lead to tell you that a fresh lead session can take over once
+the current wave of cards is finished and written in the plan, with the plan
+file and the next card as the hand-over.
+
+The offer is a note, not a question. The lead does not ask in a dialog or wait
+for your answer: it goes on with the next card. If you do not answer, the
+session goes on and Claude Code compacts it as usual, when the context reaches
+the compact window or after about an hour idle (idle compaction). duolog never
+starts a session or closes one; the lead does that only when you ask.
 
 The line comes once per lead session, and again each further 100000 tokens.
 `0` turns it off. Only your user file and a local file of your own may set the

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -17,10 +18,16 @@ import (
 	"github.com/lorem-dev/duolog/internal/core/route"
 )
 
+// shortCheckBudget shortens each check's budget. A probe spends part of it on
+// a temporary folder and the account lock before its model call; on a hosted
+// Windows runner that took more than 200ms, so Windows gets a longer one.
 func shortCheckBudget(t *testing.T) {
 	t.Helper()
 	old := checkTimeout
 	checkTimeout = 200 * time.Millisecond
+	if runtime.GOOS == "windows" {
+		checkTimeout = 2 * time.Second
+	}
 	t.Cleanup(func() { checkTimeout = old })
 }
 

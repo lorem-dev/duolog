@@ -52,9 +52,18 @@ func TestPromptOffersAFreshSessionOnceAndAgainEvery100kTokens(t *testing.T) {
 		t.Fatalf("below the limit: %q", got)
 	}
 	growTo(t, e, 212345)
-	want := "Context is about 212k tokens. When this wave of cards is finished and written in the plan, offer the person a fresh lead session, with the plan file and the next card as the hand-over. Do not start it or close this session without their answer."
-	if got := prompt(t, e); !strings.Contains(got, want) {
-		t.Fatalf("got %q, want %q", got, want)
+	got := prompt(t, e)
+	if !strings.Contains(got, "Context is about 212k tokens.") {
+		t.Fatalf("got %q, want the size", got)
+	}
+	// A lead in bypass mode sat for hours on the offer: it must keep working.
+	for _, part := range []string{"do not stop or wait for an answer", "go on with the next card", "not a question"} {
+		if !strings.Contains(got, part) {
+			t.Fatalf("got %q, want %q", got, part)
+		}
+	}
+	if strings.Contains(got, "without their answer") {
+		t.Fatalf("the hint makes the lead wait: %q", got)
 	}
 	if got := prompt(t, e); strings.Contains(got, hintStart) {
 		t.Fatalf("said twice: %q", got)

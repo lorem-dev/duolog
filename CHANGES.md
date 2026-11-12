@@ -42,6 +42,13 @@
 
 ## Development
 
+### Fixed
+
+- A lead whose context is large tells you once that a fresh session can take
+  over, then goes on working; it no longer stops to wait for your answer.
+- The lead's notice line no longer names `run here` answers, which started no
+  worker and which the lead already has.
+
 ## 1.9.1
 
 ### Fixed

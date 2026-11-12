@@ -58,8 +58,11 @@ func TestChanges(t *testing.T) {
 		{"new failed run", runsnap.Snapshot{Runs: []runsnap.Run{run("r1", "review", "done"), run("r2", "review", "failed")}},
 			&noticeMark{Ended: []string{"r1"}}, nil, "duolog: run r2 (review) failed", mk([]string{"r1", "r2"}, nil, nil, 0)},
 		{"run needs input", runsnap.Snapshot{Runs: []runsnap.Run{run("r2", "", "needs")}}, &noticeMark{}, nil, "duolog: run r2 needs input", mk([]string{"r2"}, nil, nil, 0)},
-		{"run here and lost", runsnap.Snapshot{Runs: []runsnap.Run{run("a", "x", "run_here"), run("b", "x", "lost")}}, &noticeMark{}, nil,
-			"duolog: run a (x) run here, run b (x) lost", mk([]string{"a", "b"}, nil, nil, 0)},
+		// A run here started no worker; the lead already has its answer.
+		{"run here is quiet, lost is told", runsnap.Snapshot{Runs: []runsnap.Run{run("a", "x", "run_here"), run("b", "x", "lost")}}, &noticeMark{}, nil,
+			"duolog: run b (x) lost", mk([]string{"a", "b"}, nil, nil, 0)},
+		{"run here alone is quiet", runsnap.Snapshot{Runs: []runsnap.Run{run("a", "plan", "run_here")}}, &noticeMark{}, nil,
+			"", mk([]string{"a"}, nil, nil, 0)},
 		// The fast snapshot reports every running pane as unknown and not
 		// working: that is not idle. Only a recorded end of turn is.
 		{"fast peer is not idle", runsnap.Snapshot{Peers: []runsnap.Peer{fastPeer("p1")}}, &noticeMark{}, nil, "", mk(nil, nil, nil, 0)},
