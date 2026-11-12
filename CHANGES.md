@@ -42,6 +42,8 @@
 
 ## Development
 
+## 1.9.1
+
 ### Fixed
 
 - `duolog install` keeps duolog's hooks in a project's `.claude/settings.json`
