@@ -4,7 +4,7 @@ description: >-
   Use when the person asks to update duolog on this computer or in the
   current project.
 metadata:
-  duolog-version: "1.9.1"
+  duolog-version: "1.9.2"
 ---
 
 # Update duolog

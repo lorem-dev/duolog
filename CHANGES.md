@@ -42,6 +42,8 @@
 
 ## Development
 
+## 1.9.2
+
 ### Fixed
 
 - A lead whose context is large tells you once that a fresh session can take
