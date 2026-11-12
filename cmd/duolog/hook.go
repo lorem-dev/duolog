@@ -26,6 +26,26 @@ type needsExit struct{}
 
 func (e *needsExit) Error() string { return "needs lead" }
 
+// hookEvent is the Claude event a hook subcommand runs for: wake runs at
+// SessionStart, and the other names are the event's own.
+func hookEvent(name string) string {
+	if name == "wake" || name == "Wake" {
+		return "SessionStart"
+	}
+	return name
+}
+
+// hookRoot is the project root of hook name, and false when the hook does
+// nothing: outside a project, or as the plugin's copy of a hook the settings
+// run as well.
+func hookRoot(name string) (string, bool) {
+	if pluginStepsAside(hookEvent(name), "hook "+name) {
+		return "", false
+	}
+	root, err := projectRoot()
+	return root, err == nil
+}
+
 func newHookCommand(d *cmdDeps) *cobra.Command {
 	var agent string
 	cmd := &cobra.Command{Use: "hook <event>", Short: "Deliver messages to a lead hook", SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
@@ -35,8 +55,8 @@ func newHookCommand(d *cmdDeps) *cobra.Command {
 		if len(args) != 1 {
 			return nil
 		}
-		root, err := projectRoot()
-		if err != nil {
+		root, ok := hookRoot(args[0])
+		if !ok {
 			return nil
 		}
 		data, err := readHookInput(cmd)

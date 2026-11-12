@@ -2,6 +2,7 @@ package delegate
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/lorem-dev/duolog/internal/core/config"
@@ -17,6 +18,7 @@ type runAttempts struct {
 	reported    float64
 	hasReported bool
 	base, last  string
+	unsettled   bool
 }
 
 func newRunAttempts(opts Options) *runAttempts {
@@ -48,13 +50,28 @@ func (a *runAttempts) run(ctx context.Context, spec run.Spec, worker func(contex
 }
 
 func (a *runAttempts) settle(ctx context.Context, permit *permitRun, cfg *config.Config, route coreroute.Route, result run.Result) error {
+	a.unsettled = false
 	if err := permit.finish(ctx, cfg, route, result); err != nil {
+		a.unsettled = true
 		return err
 	}
 	if a.opts.Budget != nil {
 		a.opts.Budget.USDRemaining = max(0, a.opts.Budget.USDRemaining-permit.chargedUSD)
 	}
 	return nil
+}
+
+func (a *runAttempts) stopUnsettled(err error, result run.Result) (bool, error) {
+	if !a.unsettled {
+		return false, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	if result.QuotaEnded {
+		return true, fmt.Errorf("quota ended")
+	}
+	return false, nil
 }
 
 // complete runs in the existing finalizer, after the result line is built.

@@ -141,30 +141,38 @@ func hooksAt(path string, s codexSettings, stale map[string]string) (agent.Trust
 			if hook.Type != "command" || !group.IsGate(j) {
 				continue
 			}
-			for approved, state := range s.Hooks.State {
-				approvedPath, suffix, ok := install.ApprovalPath(approved)
-				if !ok || suffix != fmt.Sprintf("%d:%d", i, j) || !activeCodexApproval(state.TrustedHash, state.Enabled) ||
-					pathutil.Clean(pathutil.Resolved(approvedPath)) != pathutil.Clean(pathutil.Resolved(path)) {
-					continue
-				}
-				problem := codexApprovalProblem(path, state.TrustedHash, stale[approved])
-				var reason string
-				switch {
-				case !ownCommands("PreToolUse", hook.Command, hook.CommandWindows, dev) || len(hook.Args) != 0:
-					reason = "the approved Codex gate hook in " + path +
-						" is not duolog's gate command, and Codex skips a hook changed after approval; run duolog install and approve it in /hooks"
-				case problem != "":
-					reason = problem
-				default:
-					return agent.TrustState{Trusted: true, Installed: true}, nil
-				}
-				if unproven.Unproven == "" {
-					unproven = agent.TrustState{Trusted: true, Installed: true, Unproven: reason}
-				}
+			state := approvedGateState(path, s, stale, group, i, j, dev)
+			if state.Trusted && state.Unproven == "" {
+				return state, nil
+			}
+			if unproven.Unproven == "" {
+				unproven = state
 			}
 		}
 	}
 	return unproven, nil
+}
+
+func approvedGateState(path string, s codexSettings, stale map[string]string, group install.HookGroup, i, j int, dev bool) agent.TrustState {
+	for approved, state := range s.Hooks.State {
+		approvedPath, suffix, ok := install.ApprovalPath(approved)
+		if !ok || suffix != fmt.Sprintf("%d:%d", i, j) || !activeCodexApproval(state.TrustedHash, state.Enabled) ||
+			pathutil.Clean(pathutil.Resolved(approvedPath)) != pathutil.Clean(pathutil.Resolved(path)) {
+			continue
+		}
+		reason := codexApprovalProblem(path, state.TrustedHash, stale[approved])
+		if !knownGateHook(group, j, dev) {
+			reason = "the approved Codex gate hook in " + path +
+				" is not duolog's gate command, and Codex skips a hook changed after approval; run duolog install and approve it in /hooks"
+		}
+		return agent.TrustState{Trusted: true, Installed: true, Unproven: reason}
+	}
+	return agent.TrustState{}
+}
+
+func knownGateHook(group install.HookGroup, j int, dev bool) bool {
+	h := group.Hooks[j]
+	return ownCodexHandler("PreToolUse", h.Command, h.CommandWindows, h.Args, dev)
 }
 
 func activeCodexApproval(hash string, enabled *bool) bool {
@@ -175,7 +183,7 @@ func codexApprovalProblem(path, hash, staleHash string) string {
 	if staleHash == hash {
 		return "duolog install changed the Codex gate hook in " + path + " after Codex approved it, and Codex skips a hook changed after approval; approve it again in /hooks"
 	}
-	// duolog does not compute Codex's approval hash: its form may change
-	// between Codex versions, and a wrong hash would refuse every worker.
+	// Reading trust preserves Codex's opaque approvals. Only worktree adoption
+	// computes a target identity when carrying approval to a different form.
 	return ""
 }

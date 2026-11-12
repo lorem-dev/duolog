@@ -461,11 +461,14 @@ such a layer adds may not go above the smallest value of the layers below it,
 which that plan got before.
 
 The lead gets the same window. `duolog install` (project scope, Claude) reads
-your plan with the same quota read, takes the window by the same rule, and
+your plan from `claude auth status`, takes the window by the same rule, and
 writes `CLAUDE_CODE_AUTO_COMPACT_WINDOW` into the `env` block of
 `.claude/settings.local.json`, the project's local settings that Claude keeps
-out of Git. When the read fails, the lead gets the smallest ladder value. Run
-install again after you change plan. A window of `0` writes nothing. duolog
+out of Git. Install and `duolog doctor` name the fields the plan came from,
+such as `subscriptionType max, planTier max_20x` for Ultra. When the read
+fails, install keeps the window it wrote before; with none, the lead gets the
+smallest ladder value. Run install again after you change plan. A window of
+`0` writes nothing. duolog
 records the value it wrote in `.duolog/lead-compact.json`, and
 `duolog uninstall` removes only that value: one you set or changed stays.
 

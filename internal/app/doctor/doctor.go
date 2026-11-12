@@ -77,9 +77,6 @@ func askWaitWarnings(cfg *config.Config) []string {
 }
 
 func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Finding {
-	// Bound metadata and probe calls even when the caller has no deadline.
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
 	var out []Finding
 	add := func(level, message string) { out = append(out, Finding{level, message}) }
 	for _, message := range askWaitWarnings(cfg) {
@@ -212,7 +209,7 @@ func Run(ctx context.Context, d Deps, cfg *config.Config, opts Options) []Findin
 				continue
 			}
 			if err := probe(ctx, d, agent, cfg, entries); err != nil {
-				add("warning", agent+" probe failed: "+err.Error())
+				add("warning", agent+" probe failed: "+checkError(err))
 				continue
 			}
 			if opts.Registry != nil {
@@ -349,9 +346,9 @@ func claudePaneLine(plugged bool) string {
 // nothing. A lead without an observation is unknown.
 func billing(ctx context.Context, d Deps, cfg *config.Config, root string, available map[string]bool, leads map[string]session.LeadRoute) []Finding {
 	out := []Finding{{"info", "managed policy outside files is not checked: duolog reads managed settings files only, not device management profiles or the Windows registry"}}
-	g, err := d.PaidGate(cfg)
+	g, err := billingGate(ctx, d, cfg)
 	if err != nil {
-		return append(out, Finding{"warning", "billing: " + err.Error()})
+		return append(out, Finding{"warning", "billing: " + checkError(err)})
 	}
 	home, _ := os.UserHomeDir()
 	environ := os.Environ()
@@ -374,9 +371,9 @@ func billing(ctx context.Context, d Deps, cfg *config.Config, root string, avail
 		for _, shape := range []corelaunch.Shape{corelaunch.Worker, corelaunch.Peer} {
 			in := corelaunch.ProcessInput{Agent: agent, Shape: shape, Variant: corelaunch.Free, Config: cfg, Environ: environ,
 				Locations: corelaunch.Locations{Home: home, Root: root, GOOS: runtime.GOOS, Environ: environ}}
-			r, err := g.Report(ctx, in)
-			if r.Assessment.Agent == "" {
-				out = append(out, Finding{"warning", fmt.Sprintf("%s %s billing: %v", agent, shape, err)})
+			r, err := billingReport(ctx, g, in)
+			if reportUnavailable(r, err) {
+				out = append(out, Finding{"warning", fmt.Sprintf("%s %s billing: %s", agent, shape, checkError(err))})
 				continue
 			}
 			report(r)
@@ -392,9 +389,9 @@ func billing(ctx context.Context, d Deps, cfg *config.Config, root string, avail
 			out = append(out, Finding{"info", agent + " lead: unknown (no observation of the lead's command and environment)"})
 			continue
 		}
-		lead, err := g.Report(ctx, in)
-		if lead.Assessment.Agent == "" {
-			out = append(out, Finding{"warning", agent + " lead billing: " + err.Error()})
+		lead, err := billingReport(ctx, g, in)
+		if reportUnavailable(lead, err) {
+			out = append(out, Finding{"warning", agent + " lead billing: " + checkError(err)})
 			continue
 		}
 		report(lead)
@@ -464,6 +461,8 @@ func (d Deps) lendable(agent, root string) []string {
 
 // metadata runs agent's own metadata command through its Probe.
 func (d Deps) metadata(ctx context.Context, agent string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
+	defer cancel()
 	pr, ok := d.Probes[agent]
 	if !ok {
 		return nil, fmt.Errorf("no probe for %s", agent)

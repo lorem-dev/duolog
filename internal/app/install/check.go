@@ -289,7 +289,7 @@ func checkAgent(a Agent, all []Agent, o Options, base, scope string, hooksOnly b
 		s.Dev = true
 		return s
 	}
-	s.PluginHooks = p.plugin && len(have) > 0
+	s.PluginHooks = p.runsTwice(have)
 	if s.Changed, s.Err = changedFiles(parts, p, have, hooksOnly); s.Err == nil && !hooksOnly {
 		s.Err = checkSkills(&s, a, all, o, p.plugin)
 	}
@@ -407,6 +407,12 @@ func readPlan(a Agent, o Options, base string) (agentPlan, map[string][]string, 
 	return p, have, nil
 }
 
+// runsTwice says duolog's hooks, have, are in the hooks file beside the
+// enabled plugin and do not make the plugin's copies step aside.
+func (p agentPlan) runsTwice(have map[string][]string) bool {
+	return p.plugin && !p.sharedHooks && len(have) > 0
+}
+
 // changedFiles lists the files of plan p that differ from what is there: the
 // hooks file when duolog's hooks in it, have, are not the planned ones, and
 // unless hooksOnly, each skill file that is missing or has other text. With
@@ -414,7 +420,7 @@ func readPlan(a Agent, o Options, base string) (agentPlan, map[string][]string, 
 // what is wrong there.
 func changedFiles(parts HookParts, p agentPlan, have map[string][]string, hooksOnly bool) ([]string, error) {
 	var changed []string
-	if p.hook != nil && !p.plugin {
+	if p.hook != nil && (!p.plugin || p.sharedHooks) {
 		want, err := parts.OurHooks(p.hook.data)
 		if err != nil {
 			return nil, err

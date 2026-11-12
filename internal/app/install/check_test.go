@@ -395,15 +395,13 @@ func TestCheckClaudePluginEnabledIsCurrent(t *testing.T) {
 	// install still writes the MCP allow entries beside the plugin.
 	write(t, path, `{"enabledPlugins":{"duolog@duolog":true},"permissions":{"allow":["mcp__duolog__delegate","mcp__duolog__peer","mcp__duolog__status"]}}`)
 	current(t, check(t, o)["claude"])
-	// Committed hooks beside the plugin run twice. install would delete them
-	// from a shared file, so this is a line for the person, not a stale
-	// install.
+	// Committed hooks beside the plugin stay: the plugin's copies step
+	// aside, so nothing runs twice and nothing needs the person.
 	write(t, path, withHooks)
 	s := check(t, o)["claude"]
 	current(t, s)
-	want := []string{"claude: duolog hooks are in " + filepath.Join(".claude", "settings.json") + " and the duolog plugin is enabled; they run twice"}
-	if lines := s.Lines(root); !slices.Equal(lines, want) {
-		t.Fatalf("lines %q, want %q", lines, want)
+	if lines := s.Lines(root); len(lines) != 0 {
+		t.Fatalf("lines %q, want none", lines)
 	}
 	if note := testDeps().ProjectNote(root, o.Home); note != "" {
 		t.Fatalf("note %q", note)

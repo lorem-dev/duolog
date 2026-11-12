@@ -51,6 +51,8 @@ const probeSettleTimeout = 10 * time.Second
 // call. The probe runs in the process the gate built, its environment and
 // settings included, and settles once with the usage and cost it reported.
 func probe(ctx context.Context, d Deps, agent string, cfg *config.Config, entries []catalogEntry) (err error) {
+	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
+	defer cancel()
 	pr, ok := d.Probes[agent]
 	if !ok {
 		return fmt.Errorf("no probe for %s", agent)

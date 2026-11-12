@@ -93,6 +93,7 @@ type permitRun struct {
 	gate       *paidruns.Gate
 	permit     paidruns.Permit
 	started    bool
+	attached   bool
 	chargedUSD float64
 }
 
@@ -100,9 +101,19 @@ type permitRun struct {
 // comes back as such, with no error.
 func admit(ctx context.Context, g *paidruns.Gate, cfg *config.Config, in corelaunch.ProcessInput, route coreroute.Route,
 	role, class string, records []journal.Delegation, opts Options) (*permitRun, *paidruns.Refusal, error) {
+	clear := opts.admissionWait("waiting for " + route.Agent + " quota")
+	defer clear()
+	waiting := func(on bool) {
+		if opts.Waiting != nil {
+			opts.Waiting(on)
+		}
+		if on {
+			opts.admissionWait("waiting for a " + route.Agent + " session slot")
+		}
+	}
 	req := paidruns.Request{Input: in, Family: coreroute.Normalize(route.Agent, route.Model), Role: role, Class: class,
 		Records: records, Owner: paidruns.ProcessOwner(os.Getpid()), Calibration: opts.Calibration,
-		Wait: paidruns.SessionWait(cfg), Budget: opts.Budget, Waiting: opts.Waiting}
+		Wait: paidruns.SessionWait(cfg), Budget: opts.Budget, Waiting: waiting}
 	permit, err := g.Acquire(ctx, req)
 	var refusal *paidruns.Refusal
 	if errors.As(err, &refusal) {
@@ -129,7 +140,9 @@ func (a *permitRun) launch(ctx context.Context, spec *run.Spec) error {
 		// cancelled.
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), settleTimeout)
 		defer cancel()
-		return a.gate.Store.Attach(ctx, a.permit.Reservation.ID, paidruns.ProcessOwner(pid))
+		err := a.gate.Store.Attach(ctx, a.permit.Reservation.ID, paidruns.ProcessOwner(pid))
+		a.attached = err == nil
+		return err
 	}
 	return nil
 }
@@ -169,6 +182,7 @@ func (a *permitRun) finish(ctx context.Context, cfg *config.Config, route corero
 	defer cancel()
 	s := paidrules.Settlement{Input: r.Usage.Input, Cached: r.Usage.Cached, Output: r.Usage.Output,
 		ReportedUSD: r.ReportedUSD, Evidence: r.Billing, Started: a.started, CompleteUsage: a.started && r.UsageComplete}
+	s.ID, s.Agent, s.Ended = a.permit.Reservation.ID, route.Agent, time.Now()
 	if cfg != nil {
 		// The run's own usage, so Claude's cache writes cost their premium.
 		if priced, ok := usage.Cost(cfg, route.Agent, route.Model, r.Usage); ok && priced >= 0 {
@@ -176,6 +190,13 @@ func (a *permitRun) finish(ctx context.Context, cfg *config.Config, route corero
 		}
 	}
 	if err := a.gate.Finish(ctx, a.permit, s); err != nil {
+		if a.attached {
+			if saveErr := a.gate.Store.DeferSettlement(s); saveErr != nil {
+				err = errors.Join(err, fmt.Errorf("save settlement for retry: %w", saveErr))
+			} else {
+				err = fmt.Errorf("%w; settlement saved for the next admission", err)
+			}
+		}
 		return fmt.Errorf("paid runs: settle the %s run: %w", route.Agent, err)
 	}
 

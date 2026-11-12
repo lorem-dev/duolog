@@ -63,8 +63,9 @@ var pendingAgentNames = map[string]string{
 	"internal/adapter/config/agents.go":      reasonPending,
 	"internal/adapter/config/workermodes.go": reasonPending,
 	"internal/adapter/kit/caps.go":           reasonPending,
-	"internal/app/delegate/run.go":           reasonPending,
 	"internal/app/delegate/snapshot.go":      reasonPending,
+	// run.go's trust check moved here as it was, names and all.
+	"internal/app/delegate/trust_refusal.go": reasonPending,
 	"internal/app/delegate/workermode.go":    reasonPending,
 	"internal/app/doctor/catalog.go":         reasonPending,
 	"internal/app/doctor/doctor.go":          reasonPending,

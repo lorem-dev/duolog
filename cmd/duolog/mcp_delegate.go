@@ -81,7 +81,7 @@ func (d *cmdDeps) mcpDelegateRun(ctx context.Context, in mcp.DelegateInput) (out
 		}
 	}()
 	target := mcpDelegateTarget{stateDir: stateDir, work: work, lead: lead}
-	path, rel, err := func() (string, string, error) {
+	path, _, err := func() (string, string, error) {
 		// Retries serialize in the work project they run in.
 		unlock, err := mcpDelegateLock(ctx, filepath.Join(stateDir, "mcp-delegate.lock"))
 		if err != nil {
@@ -97,10 +97,7 @@ func (d *cmdDeps) mcpDelegateRun(ctx context.Context, in mcp.DelegateInput) (out
 	if err != nil {
 		return mcp.DelegateOutput{}, err
 	}
-	if !in.Waits() {
-		return mcp.DelegateOutput{State: "running", ID: strings.TrimSuffix(filepath.Base(path), ".json"), TaskPath: rel, AnswerPath: path}, nil
-	}
-	r, err := mcpDelegateWait(ctx, path, in.TimeoutMinutes)
+	r, err := mcpDelegateAwait(ctx, path, in.TimeoutMinutes, !in.Waits())
 	if err != nil {
 		return mcp.DelegateOutput{}, err
 	}
@@ -248,12 +245,21 @@ func mcpDelegateLead(worktree string, hints []string) (stateDir, work, lead stri
 // mcpDelegateWait reads the record at path until it is no longer running,
 // the timeout passes or ctx ends, and returns the last one it read.
 func mcpDelegateWait(ctx context.Context, path string, minutes int) (delegate.Record, error) {
+	return mcpDelegateAwait(ctx, path, minutes, false)
+}
+
+// mcpDelegateAwait waits for an outcome or, with admissionOnly, a real wait
+// or worker start. Merely launching the supervisor is not admission.
+func mcpDelegateAwait(ctx context.Context, path string, minutes int, admissionOnly bool) (delegate.Record, error) {
 	deadline := time.NewTimer(mcpDelegateTimeout(minutes))
 	defer deadline.Stop()
 	for {
 		r, err := delegate.ReadRecord(path, session.ProcessAlive)
 		if err != nil || r.State != "running" {
 			return r, err
+		}
+		if admissionOnly && (r.Agent != "" || r.WaitReason != "") {
+			return r, nil
 		}
 		select {
 		case <-ctx.Done():
@@ -289,7 +295,7 @@ func mcpDelegateResult(ctx context.Context, in mcp.DelegateInput) (mcp.DelegateO
 	if err != nil {
 		return mcp.DelegateOutput{}, err
 	}
-	found, err := mcpFindResult(reg, root, in)
+	found, err := mcpFindResult(ctx, reg, root, in)
 	if err != nil {
 		return mcp.DelegateOutput{}, err
 	}
@@ -305,6 +311,7 @@ func mcpDelegateResult(ctx context.Context, in mcp.DelegateInput) (mcp.DelegateO
 // mcpDelegateOutput is record r, read from path, as the tool's result.
 func mcpDelegateOutput(path string, r delegate.Record) mcp.DelegateOutput {
 	out := mcp.DelegateOutput{State: r.State, ID: r.ID, TaskPath: r.TaskPath, Answer: r.Line, AnswerPath: path, Needs: slices.Clone(r.Needs)}
+	out.WaitReason = r.WaitReason
 	for _, b := range r.Blocked {
 		c := mcp.BlockedCheck{Command: b.Command, Decision: b.Decision, Reason: b.Reason}
 		if b.Decision == policy.Ask {

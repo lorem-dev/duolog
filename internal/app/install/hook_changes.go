@@ -8,7 +8,7 @@ type hookChangeReporter interface {
 
 func hookChangeNotes(a Agent, p agentPlan) []string {
 	reporter, ok := a.Installer.(hookChangeReporter)
-	if !ok || p.plugin || p.hook == nil {
+	if !ok || p.plugin && !p.sharedHooks || p.hook == nil {
 		return p.notes
 	}
 	return append(p.notes, reporter.HookChanges(p.old, p.hook.data, p.hook.path)...)

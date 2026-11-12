@@ -567,8 +567,13 @@ func TestWatchTabForAPeerDoesWhatPeerViewDoes(t *testing.T) {
 // fakeWorker is a delegate.Worker that counts its runs.
 type fakeWorker struct{ ran int }
 
-func (w *fakeWorker) Run(context.Context, corerun.Spec) (corerun.Result, error) {
+func (w *fakeWorker) Run(_ context.Context, s corerun.Spec) (corerun.Result, error) {
 	w.ran++
+	if s.Started != nil {
+		if err := s.Started(os.Getpid()); err != nil {
+			return corerun.Result{}, err
+		}
+	}
 	return corerun.Result{Done: true}, nil
 }
 

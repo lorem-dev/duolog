@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,8 +34,8 @@ import (
 // variable, lists dir as a linked worktree of the repository whose top is
 // lead, and dir's common Git folder is lead's; Codex trusts the source root
 // and has approved duolog's PreToolUse gate there; and each approval it
-// copies is of a hook that duolog install writes, at the same place and the
-// same in both hooks files, and not one that install made stale. It changes
+// copies is of a hook running bare duolog from PATH for the same event in
+// both hooks files, and not one that install made stale. It changes
 // nothing else in config.toml: the new tables go at its end, the result must
 // read as the old config plus exactly them, the first change keeps a backup
 // and the file is replaced in one rename. It never touches a sandbox or an
@@ -291,6 +292,7 @@ func splitApproval(key string) (path, event, position string, ok bool) {
 type hooksDoc struct {
 	groups map[string][]install.HookGroup
 	raw    map[string][]any
+	data   []byte
 }
 
 func readHooksDoc(path string) (hooksDoc, bool) {
@@ -307,23 +309,22 @@ func readHooksDoc(path string) (hooksDoc, bool) {
 	if json.Unmarshal(data, &typed) != nil || json.Unmarshal(data, &raw) != nil {
 		return hooksDoc{}, false
 	}
-	return hooksDoc{groups: typed.Hooks, raw: raw.Hooks}, true
+	return hooksDoc{groups: typed.Hooks, raw: raw.Hooks, data: data}, true
 }
 
-// ownHandler reports whether handler j of group g of event is exactly one
-// that duolog install writes for Codex, or its dev launcher form in duolog's
-// own repository: its command, with no args, run in the foreground, in a
-// group that covers every tool. adopt checks that a dev launcher it copies
-// trust for is the same in both checkouts.
+// ownHandler accepts foreground hooks that duolog install writes for Codex
+// (ownCodexHandler): bare duolog from PATH through a complete generated
+// guard, or the dev launcher form, which adopt checks is the same in both
+// checkouts. Other paths never authorise another folder.
 func ownHandler(event string, g install.HookGroup, j int) bool {
 	if j >= len(g.Hooks) || !g.CoversEveryTool() {
 		return false
 	}
 	h := g.Hooks[j]
-	if h.Type != "command" || len(h.Args) != 0 || h.Async || h.AsyncRewake {
+	if h.Type != "command" || h.Async || h.AsyncRewake {
 		return false
 	}
-	return ownCommands(event, h.Command, h.CommandWindows, true)
+	return ownCodexHandler(event, h.Command, h.CommandWindows, h.Args, true)
 }
 
 // devLaunchers are the dev launcher files a dev form hook runs, below the
@@ -465,44 +466,83 @@ func copyApprovals(cfg adoptConfig, root, dir string, target hooksDoc, stale map
 	}
 	slices.Sort(keys)
 	var copies []approvalCopy
+	seen := map[string]bool{}
 	gate := false
 	for _, key := range keys {
-		c, isGate, ok := copyApproval(cfg, key, root, dir, source, target, stale)
-		if !ok {
+		event, sourceGate := sourceApproval(cfg, key, root, source, stale)
+		if event == "" {
 			continue
 		}
-		gate = gate || isGate
-		if c.key != "" {
-			copies = append(copies, c)
+		added, ready := eventApprovals(cfg, key, dir, event, source, target, seen)
+		copies = append(copies, added...)
+		gate = gate || (ready && sourceGate)
+	}
+	return copies, gate
+}
+
+func sourceApproval(cfg adoptConfig, key, root string, source hooksDoc, stale map[string]string) (string, bool) {
+	path, spelled, position, ok := splitApproval(key)
+	event := codexEvents()[spelled]
+	g, h := positionOf(position)
+	_, hash, approved := approvalEntry(cfg.Hooks.State[key])
+	if !ok || event == "" || !samePath(path, filepath.Join(root, ".codex", "hooks.json")) || !approved || stale[key] == hash || !hasHandler(source, event, g, h) || !ownHandler(event, source.groups[event][g], h) {
+		return "", false
+	}
+	return event, event == "PreToolUse" && source.groups[event][g].IsGate(h)
+}
+
+func eventApprovals(cfg adoptConfig, key, dir, event string, source, target hooksDoc, seen map[string]bool) ([]approvalCopy, bool) {
+	var copies []approvalCopy
+	gate := false
+	_, _, pos, _ := splitApproval(key)
+	sg, sh := positionOf(pos)
+	for g, group := range target.groups[event] {
+		for h := range group.Hooks {
+			// One approval covers the handler at its own place, or one the
+			// same as the handler it approved: never a hook the person
+			// disabled elsewhere in the event.
+			if !ownHandler(event, group, h) || (g != sg || h != sh) && !sameHook(event, sg, sh, g, h, source, target) {
+				continue
+			}
+			c, ready := copyApproval(cfg, key, dir, event, g, h, source, target)
+			gate = gate || ready
+			if c.key != "" && !seen[c.key] {
+				copies = append(copies, c)
+				seen[c.key] = true
+			}
 		}
 	}
 	return copies, gate
 }
 
-// copyApproval reads the approval key of root's hooks file. ok is true when it
-// approves a duolog hook that dir's hooks file has the same at the same place;
-// c is then the approval to write for dir, with an empty key when dir has that
-// approval already. isGate says it approves duolog's PreToolUse gate.
-func copyApproval(cfg adoptConfig, key, root, dir string, source, target hooksDoc, stale map[string]string) (c approvalCopy, isGate, ok bool) {
-	path, spelled, position, ok := splitApproval(key)
-	event := codexEvents()[spelled]
-	if !ok || event == "" || !samePath(path, filepath.Join(root, ".codex", "hooks.json")) {
-		return approvalCopy{}, false, false
+// copyApproval preserves explicit target approvals, including disabled ones.
+// Different hook forms need the target hash, or Codex silently skips them.
+func copyApproval(cfg adoptConfig, key, dir, event string, g, h int, source, target hooksDoc) (approvalCopy, bool) {
+	path, spelled, pos, _ := splitApproval(key)
+	sg, sh := positionOf(pos)
+	entry, hash, _ := approvalEntry(cfg.Hooks.State[key])
+	if !sameHook(event, sg, sh, g, h, source, target) {
+		var err error
+		hash, err = hookHash(target.data, event, g, h)
+		if err != nil {
+			return approvalCopy{}, false
+		}
 	}
-	entry, hash, ok := approvalEntry(cfg.Hooks.State[key])
-	if !ok || stale[key] == hash {
-		return approvalCopy{}, false, false
-	}
-	group, handler := positionOf(position)
-	if !sameOwnHandler(event, group, handler, source, target) {
-		return approvalCopy{}, false, false
-	}
-	isGate = event == "PreToolUse" && source.groups[event][group].IsGate(handler)
+	position := fmt.Sprintf("%d:%d", g, h)
 	newKey := copyKey(path, spelled, position, dir)
+	isGate := event == "PreToolUse" && target.groups[event][g].IsGate(h)
 	if have, ok := existing(cfg.Hooks.State, newKey); ok {
-		return approvalCopy{}, isGate, have["trusted_hash"] == hash
+		_, haveHash, enabled := approvalEntry(have)
+		return approvalCopy{}, isGate && enabled && haveHash == hash
 	}
-	return approvalCopy{key: newKey, event: event, position: position, hash: hash, entry: entry}, isGate, plainPath(newKey)
+	if !plainPath(newKey) {
+		return approvalCopy{}, false
+	}
+	copied := map[string]any{"trusted_hash": hash}
+	if _, ok := entry["enabled"]; ok {
+		copied["enabled"] = true
+	}
+	return approvalCopy{key: newKey, event: event, position: position, hash: hash, entry: copied}, isGate
 }
 
 // copyKey is the approval key that AdoptWorktree writes for dir from the
@@ -519,13 +559,12 @@ func positionOf(position string) (group, handler int) {
 	return group, handler
 }
 
-// sameOwnHandler reports whether handler h of group g of event is duolog's
-// own in the source hooks file, and that group is the same in the target.
-func sameOwnHandler(event string, g, h int, source, target hooksDoc) bool {
-	if g >= len(source.groups[event]) || g >= len(target.groups[event]) || g >= len(source.raw[event]) || g >= len(target.raw[event]) {
-		return false
-	}
-	return ownHandler(event, source.groups[event][g], h) && reflect.DeepEqual(source.raw[event][g], target.raw[event][g])
+func sameHook(event string, sg, sh, tg, th int, source, target hooksDoc) bool {
+	a, aok := source.raw[event][sg].(map[string]any)
+	b, bok := target.raw[event][tg].(map[string]any)
+	ah, _ := a["hooks"].([]any)
+	bh, _ := b["hooks"].([]any)
+	return aok && bok && sh < len(ah) && th < len(bh) && reflect.DeepEqual(a["matcher"], b["matcher"]) && reflect.DeepEqual(ah[sh], bh[th])
 }
 
 // existing returns the approval that state holds for the hooks file and
@@ -534,7 +573,7 @@ func existing(state map[string]map[string]any, key string) (map[string]any, bool
 	path, event, position, _ := splitApproval(key)
 	for k, v := range state {
 		p, e, pos, ok := splitApproval(k)
-		if ok && e == event && pos == position && samePath(p, path) {
+		if ok && codexEvents()[e] == codexEvents()[event] && pos == position && samePath(p, path) {
 			return v, true
 		}
 	}

@@ -68,13 +68,23 @@ var ErrTimedOut error = account.TransientError("read timed out or canceled")
 // workerenv.Build makes from duolog's environment and the default
 // env_passthrough. Callers that know the launch read with ReadProcess.
 func (r Reader) Read(ctx context.Context, agent string) (Snapshot, error) {
+	p, err := freeProcess(agent)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	return r.ReadProcess(ctx, p)
+}
+
+// freeProcess is the process of a free worker of agent that workerenv.Build
+// makes from duolog's environment and the default env_passthrough.
+func freeProcess(agent string) (workerenv.Process, error) {
 	cfg := &config.Config{EnvPassthrough: config.DefaultEnvPassthrough(runtime.GOOS)}
 	p, err := workerenv.Build(workerenv.ProcessInput{Agent: agent, Shape: workerenv.Worker, Variant: workerenv.Free,
 		Config: cfg, Environ: os.Environ()})
 	if err != nil {
-		return Snapshot{}, errors.New("unknown agent")
+		return p, errors.New("unknown agent")
 	}
-	return r.ReadProcess(ctx, p)
+	return p, nil
 }
 
 const (
@@ -158,7 +168,7 @@ func (r Reader) readOnce(ctx context.Context, p workerenv.Process, timeout, auth
 	default:
 		err = errors.New("unknown agent")
 	}
-	if ctx.Err() != nil {
+	if ctx.Err() != nil && !errors.Is(err, account.ErrStateBusy) {
 		return Snapshot{}, ErrTimedOut
 	}
 	if err != nil {
@@ -209,10 +219,24 @@ func (r runner) identify(account, org []byte) error {
 	if r.identity == nil {
 		return nil
 	}
-	if r.identity(IdentityAccount, account) != nil || r.identity(IdentityOrg, org) != nil {
-		return errIdentity
+	for _, field := range []struct {
+		kind string
+		raw  []byte
+	}{{IdentityAccount, account}, {IdentityOrg, org}} {
+		if err := r.identity(field.kind, field.raw); err != nil {
+			return identityError(err)
+		}
 	}
 	return nil
+}
+
+// identityError keeps only the known lock condition, never a sink's text:
+// other errors may quote the raw identity passed to it.
+func identityError(err error) error {
+	if errors.Is(err, account.ErrStateBusy) {
+		return errors.Join(errIdentity, account.ErrStateBusy)
+	}
+	return errIdentity
 }
 
 // command runs the process's argv with args, and exactly its environment.
@@ -243,9 +267,10 @@ func plan(value string) string {
 }
 
 // claudePlan is the plan of a Claude auth status. Claude names the $200 plan
-// "max", as the $100 one, and tells them apart only by planTier "max_20x".
+// "max", as the $100 one, and tells them apart only by planTier "max_20x";
+// a tier such as "default_claude_max_20x" names the same plan.
 func claudePlan(subscription, tier string) string {
-	if subscription == "max" && tier == "max_20x" {
+	if subscription == "max" && strings.HasSuffix(tier, "max_20x") {
 		return "ultra"
 	}
 	return plan(subscription)

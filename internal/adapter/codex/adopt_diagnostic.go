@@ -89,7 +89,7 @@ func (a adopter) rootProblem(cfg adoptConfig, settings codexSettings, root strin
 		return reason
 	}
 	c := copyCheck{cfg: cfg, hooksPath: hooksPath, source: source, gateApproved: reason == "cause is unknown"}
-	c.target, c.haveTarget = readHooksDoc(filepath.Join(a.dir, ".codex", "hooks.json"))
+	c.target, _ = readHooksDoc(filepath.Join(a.dir, ".codex", "hooks.json"))
 	keys := make([]string, 0, len(cfg.Hooks.State))
 	for key := range cfg.Hooks.State {
 		keys = append(keys, key)
@@ -111,7 +111,6 @@ type copyCheck struct {
 	hooksPath    string
 	source       hooksDoc
 	target       hooksDoc
-	haveTarget   bool
 	gateApproved bool
 }
 
@@ -136,14 +135,29 @@ func (a adopter) keyProblem(c copyCheck, key string) string {
 	}
 	// With the gate approval missing, that is the blocker, and a difference
 	// in another hook would only hide it.
-	if c.gateApproved && (!c.haveTarget || !sameOwnHandler(event, g, h, c.source, c.target)) {
-		return ".codex/hooks.json is not the same in " + a.dir
+	if c.gateApproved && !hasOwnEvent(c.target, event) {
+		return "worktree has no duolog hook for " + event + " in .codex/hooks.json in " + a.dir
 	}
 	if event != "PreToolUse" || !c.source.groups[event][g].IsGate(h) {
 		return ""
 	}
-	if entry, exists := existing(c.cfg.Hooks.State, copyKey(path, spelled, position, a.dir)); exists && entry["trusted_hash"] != hash {
-		return "target checkout already has a different gate approval in " + a.dir
+	return a.targetGateProblem(c, key, event)
+}
+
+func (a adopter) targetGateProblem(c copyCheck, key, event string) string {
+	path, spelled, _, _ := splitApproval(key)
+	for g, group := range c.target.groups[event] {
+		for h := range group.Hooks {
+			if !ownHandler(event, group, h) || !group.IsGate(h) {
+				continue
+			}
+			position := fmt.Sprintf("%d:%d", g, h)
+			_, exists := existing(c.cfg.Hooks.State, copyKey(path, spelled, position, a.dir))
+			_, ready := copyApproval(c.cfg, key, a.dir, event, g, h, c.source, c.target)
+			if exists && !ready {
+				return "target checkout already has a different gate approval in " + a.dir
+			}
+		}
 	}
 	return ""
 }
@@ -151,4 +165,15 @@ func (a adopter) keyProblem(c copyCheck, key string) string {
 // hasHandler reports whether doc has handler h in group g of event.
 func hasHandler(doc hooksDoc, event string, g, h int) bool {
 	return g < len(doc.groups[event]) && h < len(doc.groups[event][g].Hooks)
+}
+
+func hasOwnEvent(doc hooksDoc, event string) bool {
+	for _, group := range doc.groups[event] {
+		for h := range group.Hooks {
+			if ownHandler(event, group, h) {
+				return true
+			}
+		}
+	}
+	return false
 }

@@ -2,6 +2,10 @@ package account
 
 import "errors"
 
+// ErrStateBusy means another duolog process holds the account state lock.
+// It says nothing about the account's login, quota or billing route.
+var ErrStateBusy = errors.New("another duolog process holds the account state")
+
 // TransientError is the error of a read that failed and found nothing about
 // the account or its route: it ran out of time, or the agent's CLI ended
 // without a report and the login it could read still names a subscription.

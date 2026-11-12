@@ -200,10 +200,15 @@ Bash is needed for Claude hooks. PowerShell tool calls use the same gate as
 Bash tool calls.
 
 An enabled Claude plugin supplies the hooks and skill on every OS. The
-installer skips those copies and removes older native hooks to avoid running
-each gate twice. Codex still needs `duolog install`: its marketplace plugin
-supplies the skill, but does not install hooks. The next section has the
-marketplace commands.
+installer skips those copies and removes older native hooks from your user
+settings to avoid running each gate twice. A project's `.claude/settings.json`
+may be committed and shared, so install keeps and updates duolog's hooks
+there. While they are there, the plugin's own hooks step aside: Claude starts
+a plugin hook with `CLAUDE_PLUGIN_ROOT` set, and such a duolog hook does
+nothing when a settings file runs the same hook, so each runs once. A
+worker's hooks never step aside. Codex still needs `duolog install`: its
+marketplace plugin supplies the skill, but does not install hooks. The next
+section has the marketplace commands.
 
 A marketplace plugin's skill checks `duolog version` and offers the binary
 install if it is missing. In a project someone else set up, the marked block
@@ -268,7 +273,11 @@ duolog install --check --hooks-only
 
 Codex needs project trust and hook approval: start Codex in the project and
 press `t` in `/hooks`. Without both, hooks are silently skipped. duolog can
-copy this approval to linked worktrees; see
+carry this approval to linked worktrees, hook by hook, including hooks of
+an older duolog install committed on their branches. Other hooks still need
+your approval. If trust cannot carry over, delegation skips Codex for that run
+and tries the next candidate. Its line gives the reason and how to fix
+trust once. See
 [Permissions](permissions.md#how-a-linked-worktree-gets-codex-trust).
 
 Sign in to the agents before sending a task. Free workers get no API key,
@@ -296,12 +305,22 @@ defaults to true) and returns the result in its response: `state`, `done`,
 `answer_path` of the result record. The lead needs no background start, no
 notice and no output file. A worker's asks behave as for a foreground
 `duolog delegate`: the gate denies them and the worker lists the commands in
-`needs`. `wait` false starts the run and returns at once.
+`needs`. With `wait: false`, duolog first resolves admission. A known lead
+placement returns `run_here` before any quota read or session wait. Otherwise,
+the call returns when a worker starts or admission waits. A `running` reply
+includes `wait_reason` while waiting for quota or a session slot. The `status`
+tool and `action: result` show the same reason. The lead can then choose to
+do the task itself. A wait can still end in `run_here` if admission refuses
+every candidate.
 
 A waiting call defaults to, and is capped at, 10 minutes; the MCP client's
 own timeout may be shorter. A timed-out call leaves the run running. To
 wait again, call `delegate` with `action: result` and `task_path` set to the
-returned id. If the client lost the reply, find the id with `status`, or
+returned id. A task path relative to the server project also works, including
+paths inside a configured Git submodule. Results by id include those
+submodules even when an older run has no location entry. If a relative task
+path matches several runs, pass the id or name its `worktree`.
+If the client lost the reply, find the id with `status`, or
 resubmit the same running task: duolog returns its existing run instead of
 starting another. For CLI delegation, use a background command and wait
 for its notice. CLI `peer wait` defaults to 30 minutes; the MCP `peer` wait
@@ -452,6 +471,15 @@ block as out of date; doctor reports it for information. Doctor makes no
 model call unless you pass `--probe` or Claude's plan has no quota windows
 in `/usage`, when it may call Haiku once per route.
 
+Each version, billing, catalog and probe check gets its own 60-second budget.
+A slow check does not use up the next check's time. A caller's cancellation
+or earlier deadline still stops the checks.
+
+Before billing reads quota, doctor waits up to one second for the account
+state lock. If another duolog process holds it, doctor warns that the check
+is unavailable and that this is not an account fault. Retry when that
+process is idle. Doctor keeps checking the catalog and other local state.
+
 ## How to send your first task
 
 A task is a Markdown file with five required sections: Goal, Read,
@@ -547,6 +575,12 @@ done=true summary=<one line> files=<comma separated paths>
 
 The worker must write `answer.json`. duolog takes the result only from that
 file. An exit code of 0 from the agent does not mean success.
+
+An accounting failure after the worker exits adds a warning to the result
+line and keeps the worker's outcome. A failed settlement saves its measured
+usage for the next admission to retry. Until then, its reservation still
+holds budget and a session slot. If saving also fails, the warning says so;
+the existing hold remains for reconciliation to recover conservatively.
 
 The line can also carry two fields:
 

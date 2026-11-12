@@ -33,7 +33,7 @@ func leadWindowConfig(t *testing.T, text, plan string) (root string, reads *int)
 	n := 0
 	saved := leadPlan
 	t.Cleanup(func() { leadPlan = saved })
-	leadPlan = func() string { n++; return plan }
+	leadPlan = func() (string, string, bool) { n++; return plan, "test source", plan != "" }
 	return root, &n
 }
 
@@ -47,7 +47,7 @@ func TestLeadWindowFollowsThePlanRead(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if w.Window != c.want || w.Plan != c.plan || *reads != 1 {
+		if w.Window != c.want || w.Plan != c.plan || w.Source != "test source" || w.Fallback != (c.plan == "") || *reads != 1 {
 			t.Fatalf("plan %q: got %+v after %d reads, want %d", c.plan, w, *reads, c.want)
 		}
 	}

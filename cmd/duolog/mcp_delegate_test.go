@@ -91,7 +91,7 @@ func TestMCPDelegateWritesTaskAndStartsDetached(t *testing.T) {
 	var dir, logPath string
 	d.startDetached = func(a []string, wd, log string) error {
 		argv, dir, logPath = a, wd, log
-		return nil
+		return fakeMCPWorkerStart(a)
 	}
 	out, err := d.mcpDelegate(context.Background(), mcp.DelegateInput{Role: "implement", Task: testTask, Use: "codex/sol/high", Needs: []string{"skill:a", "mcp:b"}, Wait: &no})
 	if err != nil {
@@ -207,7 +207,7 @@ func TestMCPDelegateRunningCallContinuesByID(t *testing.T) {
 func TestMCPDelegateSameTaskWhileRunningReturnsThatRun(t *testing.T) {
 	d, _, _ := mcpDelegateProject(t)
 	starts := 0
-	d.startDetached = func([]string, string, string) error { starts++; return nil }
+	d.startDetached = func(argv []string, _, _ string) error { starts++; return fakeMCPWorkerStart(argv) }
 	first, err := d.mcpDelegate(context.Background(), mcp.DelegateInput{Role: "implement", Task: testTask, Wait: &no})
 	if err != nil || first.State != "running" || first.ID == "" {
 		t.Fatalf("%+v %v", first, err)
@@ -237,7 +237,7 @@ func TestMCPDelegateSameTaskWhileRunningReturnsThatRun(t *testing.T) {
 func TestMCPDelegateSameTaskWithOtherOptionsIsAnotherRun(t *testing.T) {
 	d, _, _ := mcpDelegateProject(t)
 	starts := 0
-	d.startDetached = func([]string, string, string) error { starts++; return nil }
+	d.startDetached = func(argv []string, _, _ string) error { starts++; return fakeMCPWorkerStart(argv) }
 	base := mcp.DelegateInput{Role: "implement", Task: testTask, Wait: &no, Use: "codex/sol/medium", Needs: []string{"mcp:a", "skill:b"}}
 	first, err := d.mcpDelegate(context.Background(), base)
 	if err != nil {
@@ -270,7 +270,7 @@ func TestMCPDelegateSameTaskWithOtherOptionsIsAnotherRun(t *testing.T) {
 func TestMCPDelegateSameTaskAfterTheRunEndedStartsAgain(t *testing.T) {
 	d, _, stateDir := mcpDelegateProject(t)
 	starts := 0
-	d.startDetached = func([]string, string, string) error { starts++; return nil }
+	d.startDetached = func(argv []string, _, _ string) error { starts++; return fakeMCPWorkerStart(argv) }
 	first, err := d.mcpDelegate(context.Background(), mcp.DelegateInput{Role: "implement", Task: testTask, Wait: &no})
 	if err != nil {
 		t.Fatal(err)
@@ -336,7 +336,7 @@ func TestMCPDelegateResultWaitsForARunningRun(t *testing.T) {
 
 func TestMCPDelegateWaitFalseReturnsAtOnce(t *testing.T) {
 	d, _, _ := mcpDelegateProject(t)
-	d.startDetached = func([]string, string, string) error { return nil }
+	d.startDetached = func(argv []string, _, _ string) error { return fakeMCPWorkerStart(argv) }
 	start := time.Now()
 	out, err := d.mcpDelegate(context.Background(), mcp.DelegateInput{Role: "implement", Task: testTask, Wait: &no})
 	if err != nil || out.State != "running" || out.ID == "" || time.Since(start) > 5*time.Second {
@@ -489,7 +489,7 @@ func TestMCPDelegateSerializesTwinLookupAndLaunch(t *testing.T) {
 	}
 	defer func() { _ = unlock() }()
 	starts := make(chan struct{}, 2)
-	d.startDetached = func([]string, string, string) error { starts <- struct{}{}; return nil }
+	d.startDetached = func(argv []string, _, _ string) error { starts <- struct{}{}; return fakeMCPWorkerStart(argv) }
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	_, err = d.mcpDelegate(ctx, mcp.DelegateInput{Role: "implement", Task: testTask, Wait: &no})

@@ -789,7 +789,7 @@ func TestLearningErrorKeepsAnswer(t *testing.T) {
 		return inner(ctx, s)
 	})
 	out, err := h.run("implement")
-	if err == nil || !strings.HasPrefix(out.Line, "done=true") || !strings.Contains(err.Error(), "learning") {
+	if err != nil || !strings.HasPrefix(out.Line, "done=true") || !strings.Contains(out.Line, "learning accounting failed") {
 		t.Fatal(out, err)
 	}
 }

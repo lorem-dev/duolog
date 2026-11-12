@@ -356,7 +356,8 @@ func TestInlineNeverReachesBusOrOutput(t *testing.T) {
 func TestWriteRoleRefusedWithoutHookTrust(t *testing.T) {
 	h := newHarness(t)
 	h.trust(false)
-	o, e := h.run("implement")
+	entry := config.Target{Agent: "codex", Model: "sol", Effort: "medium"}
+	o, e := h.runWith("implement", Options{Entry: &entry, Person: true})
 	h.requireCalls(0)
 	want := fmt.Sprintf("Codex hooks untrusted for write role implement in %s; run codex in that folder, accept the trust question, and approve the hooks in /hooks", h.root)
 	if e == nil || !strings.Contains(o.Line, want) || e.Error() != want {
@@ -1130,7 +1131,8 @@ func TestMissingHookRefusesWriteDespiteStoredApproval(t *testing.T) {
 	if err := os.Remove(filepath.Join(h.root, ".codex", "hooks.json")); err != nil {
 		t.Fatal(err)
 	}
-	out, err := h.run("implement")
+	entry := config.Target{Agent: "codex", Model: "sol", Effort: "medium"}
+	out, err := h.runWith("implement", Options{Entry: &entry, Person: true})
 	h.requireCalls(0)
 	if err == nil || !strings.Contains(out.Line, "/hooks") {
 		t.Fatal(out, err)
@@ -1490,7 +1492,8 @@ func TestWriteRefusalIncludesAdoptionProblem(t *testing.T) {
 	diagnostic := &diagnosticTrust{Trust: a.Trust}
 	a.Trust = diagnostic
 	h.deps.Agents["codex"] = a
-	_, err := h.run("implement")
+	entry := config.Target{Agent: "codex", Model: "sol", Effort: "medium"}
+	_, err := h.runWith("implement", Options{Entry: &entry, Person: true})
 	h.requireCalls(0)
 	if err == nil || !strings.Contains(err.Error(), "source checkout lacks gate approval") || diagnostic.dir != h.root || diagnostic.lead != h.root {
 		t.Fatalf("err=%v, lead=%q, dir=%q", err, diagnostic.lead, diagnostic.dir)

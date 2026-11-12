@@ -40,7 +40,7 @@ type DelegateInput struct {
 	TaskPath       string   `json:"task_path,omitempty"` // for result
 	Use            string   `json:"use,omitempty"`
 	Needs          []string `json:"needs,omitempty"`
-	Wait           *bool    `json:"wait,omitempty"` // nil waits; false starts and returns at once
+	Wait           *bool    `json:"wait,omitempty"` // nil waits; false returns after admission resolves or waits
 	SkipPreflight  bool     `json:"skip_preflight,omitempty"`
 	TimeoutMinutes int      `json:"timeout_minutes,omitempty"`
 	Force          bool     `json:"force,omitempty"` // start a worker for a small task too
@@ -73,7 +73,8 @@ type RunHere struct {
 // DelegateOutput.State is running, done, needs, run_here, failed or lost.
 type DelegateOutput struct {
 	State      string   `json:"state"`
-	ID         string   `json:"id,omitempty"` // the run's id, to call again while it runs
+	WaitReason string   `json:"wait_reason,omitempty"` // admission wait; no worker has started yet
+	ID         string   `json:"id,omitempty"`          // the run's id, to call again while it runs
 	TaskPath   string   `json:"task_path"`
 	Done       *bool    `json:"done,omitempty"` // the worker's own word; set once it answered
 	Summary    string   `json:"summary,omitempty"`
@@ -152,6 +153,7 @@ type Delegation struct {
 	TaskPath   string `json:"task_path"`
 	Role       string `json:"role"`
 	State      string `json:"state"`
+	WaitReason string `json:"wait_reason,omitempty"`
 	AnswerPath string `json:"answer_path"`
 	// WorkRoot is the checkout the run worked in; task_path is relative to it.
 	WorkRoot string `json:"work_root,omitempty"`

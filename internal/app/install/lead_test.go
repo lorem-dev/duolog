@@ -156,6 +156,39 @@ func TestLeadWindowFollowsAPlanChange(t *testing.T) {
 	}
 }
 
+// A plan read that fails keeps the window an earlier install wrote for the
+// plan it read then, instead of dropping to the smallest ladder value, and
+// the note says why. Without an earlier read, the fallback applies.
+func TestLeadWindowKeptWhenThePlanIsNotRead(t *testing.T) {
+	home, root := setup(t)
+	o := Options{Scope: "project", Agent: "claude", Root: root, Home: home}
+	d, _ := leadDeps(t, home, LeadWindow{Window: 700000, Plan: "ultra", Source: "claude auth status: subscriptionType max, planTier max_20x"})
+	leadRun(t, d, o)
+	failed := LeadWindow{Window: 300000, Source: "claude auth status: read timed out or canceled", Fallback: true}
+	d, _ = leadDeps(t, home, failed)
+	r := leadRun(t, d, o)
+	if _, env := localEnv(t, root); env[CompactVar] != "700000" {
+		t.Fatalf("env %v", env)
+	}
+	if !hasNote(r, "700000 tokens for plan ultra, kept from the last install", "read timed out") {
+		t.Fatalf("notes %q", r.Notes)
+	}
+	if line := d.LeadLine(root, home); !strings.Contains(line, "plan ultra (claude auth status: subscriptionType max, planTier max_20x)") {
+		t.Fatalf("doctor line %q", line)
+	}
+
+	home, root = setup(t)
+	o = Options{Scope: "project", Agent: "claude", Root: root, Home: home}
+	d, _ = leadDeps(t, home, failed)
+	r = leadRun(t, d, o)
+	if _, env := localEnv(t, root); env[CompactVar] != "300000" {
+		t.Fatalf("env %v", env)
+	}
+	if !hasNote(r, "the smallest ladder value: plan not read (claude auth status: read timed out") {
+		t.Fatalf("notes %q", r.Notes)
+	}
+}
+
 // A value the person set stays, wherever it is: the local file, another
 // settings file, or the environment when no settings file sets one. The
 // window is not read, and a value install wrote earlier goes, since the

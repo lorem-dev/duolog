@@ -415,6 +415,7 @@ func (d *cmdDeps) watchTab(cmd *cobra.Command, id, client string) error {
 // run writes its worker, model and log into the record when the worker starts.
 func (d *cmdDeps) runDelegateRecording(path string) delegateFunc {
 	return func(ctx context.Context, r delegate.Request) (delegate.Outcome, error) {
+		r.Options.AdmissionWait = recordAdmissionWait(path, r.Options.AdmissionWait)
 		if d.RunDelegate != nil {
 			return d.RunDelegate(ctx, r)
 		}
@@ -444,7 +445,16 @@ type recordingWorker struct {
 }
 
 func (w recordingWorker) Run(ctx context.Context, s corerun.Spec) (corerun.Result, error) {
-	recordStart(w.path, s)
+	started := s.Started
+	s.Started = func(pid int) error {
+		if started != nil {
+			if err := started(pid); err != nil {
+				return err
+			}
+		}
+		recordStart(w.path, s)
+		return nil
+	}
 	return w.Worker.Run(ctx, s)
 }
 
@@ -464,5 +474,6 @@ func recordStart(path string, s corerun.Spec) {
 		log = filepath.ToSlash(rel)
 	}
 	rec.Agent, rec.Model, rec.Log = s.Route.Agent, s.Route.Model, log
+	rec.WaitReason = ""
 	_ = delegate.WriteRecord(path, rec)
 }

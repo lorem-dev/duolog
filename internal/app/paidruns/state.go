@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
+	"github.com/lorem-dev/duolog/internal/core/account"
 	"github.com/lorem-dev/duolog/internal/core/paidrules"
 	"github.com/lorem-dev/duolog/internal/store"
 )
@@ -126,15 +127,21 @@ func (s *Store) View(ctx context.Context, fn func(State) error) error {
 }
 
 func (s *Store) lock(ctx context.Context) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	l := flock.New(filepath.Join(s.Dir, lockFile))
 	locked, err := l.TryLockContext(ctx, 10*time.Millisecond)
 	if err != nil {
 		_ = l.Close()
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return nil, fmt.Errorf("paid runs: lock account state: %w", errors.Join(account.ErrStateBusy, err))
+		}
 		return nil, fmt.Errorf("paid runs: lock account state: %w", err)
 	}
 	if !locked {
 		_ = l.Close()
-		return nil, errors.New("paid runs: account state is locked")
+		return nil, account.ErrStateBusy
 	}
 	return func() { _ = l.Close() }, nil
 }

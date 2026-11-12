@@ -40,14 +40,17 @@ type Record struct {
 	TaskDir string `json:"task_dir,omitempty"`
 	// Use, AskedNeeds, Force and SkipPreflight are the options the MCP call
 	// started the run with; a second call that differs in one is another run.
-	Use           string     `json:"use,omitempty"`
-	AskedNeeds    []string   `json:"asked_needs,omitempty"`
-	Force         bool       `json:"force,omitempty"`
-	SkipPreflight bool       `json:"skip_preflight,omitempty"`
-	State         string     `json:"state"` // running, done, needs, run_here, failed
-	Line          string     `json:"line,omitempty"`
-	RunHere       *Placement `json:"run_here,omitempty"`
-	Needs         []string   `json:"needs,omitempty"`
+	Use           string   `json:"use,omitempty"`
+	AskedNeeds    []string `json:"asked_needs,omitempty"`
+	Force         bool     `json:"force,omitempty"`
+	SkipPreflight bool     `json:"skip_preflight,omitempty"`
+	State         string   `json:"state"` // running, done, needs, run_here, failed
+	// WaitReason names the admission wait while State is running. An empty
+	// reason and no Agent mean the child is still preparing its delegation.
+	WaitReason string     `json:"wait_reason,omitempty"`
+	Line       string     `json:"line,omitempty"`
+	RunHere    *Placement `json:"run_here,omitempty"`
+	Needs      []string   `json:"needs,omitempty"`
 	// Blocked is set when a preflight refused the run: the Check commands the
 	// gate would not allow. Skipped holds the Check lines not read as a command,
 	// on a refusal and on every run that judged them.
@@ -205,10 +208,12 @@ func ListRecords(dir string, alive func(pid int) bool) ([]Record, error) {
 func RecordFor(base Record, out Outcome, err error, now time.Time) Record {
 	r := base
 	r.Ended = now
+	r.WaitReason = ""
 	r.Line = out.Line
 	switch {
 	case err != nil:
 		r.State, r.Line = "failed", err.Error()
+		r.Line += joinNotices(out.warnings)
 		var pe *PreflightError
 		if errors.As(err, &pe) {
 			r.Blocked, r.Skipped = slices.Clone(pe.Blocked), slices.Clone(pe.Skipped)

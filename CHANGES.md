@@ -42,6 +42,21 @@
 
 ## Development
 
+### Fixed
+
+- `duolog install` keeps duolog's hooks in a project's `.claude/settings.json`
+  when the plugin is on; the plugin's own hooks step aside, so each runs once.
+- Install reads the Claude plan from `claude auth status` and names its fields;
+  a failed read keeps the lead's window instead of dropping to the smallest.
+- `duolog doctor` gives each check its own time, and says when another duolog
+  process holds the account state instead of a bare deadline error.
+- MCP `delegate` with `wait: false` answers `run_here` before any quota read,
+  and `running` answers and `status` name the admission wait.
+- A new worktree gets Codex's approval of duolog's own hooks from the main
+  checkout; a run that still cannot use Codex there falls back to Claude.
+- A failed accounting step after the worker exits no longer marks a done run
+  failed; MCP `action: result` finds runs in a nested project's submodule.
+
 ## 1.9.0
 
 ### Added

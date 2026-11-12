@@ -62,7 +62,7 @@ func Tools() []Tool {
 	return []Tool{
 		{
 			Name:        ToolDelegate,
-			Description: "Hand a task to a worker; waits and returns the result (wait=false: at once); if running, call action=result with id as task_path; run_here: do it yourself.",
+			Description: "Delegate a task; waits for result (wait=false: admission only); running names wait_reason; action=result with id as task_path; run_here: do it yourself.",
 			InputSchema: json.RawMessage(delegateSchema),
 		},
 		{

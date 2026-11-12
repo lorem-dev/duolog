@@ -58,6 +58,15 @@ type Plugins interface {
 	Enabled(root, home string, environ []string) (bool, error)
 }
 
+// PluginStepsAside is implemented by the Installer of an agent whose plugin
+// hooks do nothing while a settings file the agent applies runs the same
+// duolog hooks. A project install then keeps and updates duolog's hooks in
+// the project's hooks file, which the project may commit and share, rather
+// than deleting them because one person has the plugin enabled.
+type PluginStepsAside interface {
+	PluginHooksStepAside() bool
+}
+
 // Approvals is implemented by the Installer of an agent that approves each
 // hook by its command: GateChanged says the gate command differs between two
 // bytes of a hooks file, and MarkStale records the approvals that the change
@@ -255,7 +264,7 @@ func planAgents(agents []Agent, o Options, base string) ([]edit, []regate, []str
 			edits = append(edits, *p.hook)
 		}
 		notes = append(notes, hookChangeNotes(a, p)...)
-		if approvals, ok := a.Installer.(Approvals); ok && !p.plugin {
+		if approvals, ok := a.Installer.(Approvals); ok && (!p.plugin || p.sharedHooks) {
 			// The agent skips a hook whose command changed after approval, and its
 			// trusted_hash stays; trust must not count that hash for the new
 			// command.
@@ -359,8 +368,12 @@ type agentPlan struct {
 	// skills: Run then only drops a copy an earlier install left, and writes
 	// no skill.
 	plugin bool
-	skills []edit
-	notes  []string
+	// sharedHooks says the plugin is enabled, but the project's hooks file
+	// keeps duolog's hooks, which hook then plans to update: the plugin's
+	// hooks step aside for them (see PluginStepsAside).
+	sharedHooks bool
+	skills      []edit
+	notes       []string
 	// mcp is the write of the agent's MCP server entry, for an agent that
 	// has one (see MCPServers); its allow entries are in hook.
 	mcp []edit
@@ -386,6 +399,9 @@ func planHooks(a Agent, o Options, base string) (agentPlan, error) {
 	}
 	if enabled {
 		p.plugin, p.notes = true, []string{note}
+		if keep, err := keepSharedHooks(&p, a, o); keep || err != nil {
+			return p, err
+		}
 		if len(dropped) > 0 {
 			p.hook = &dropped[0]
 			p.old, _ = os.ReadFile(p.hookFile)
@@ -404,6 +420,34 @@ func planHooks(a Agent, o Options, base string) (agentPlan, error) {
 	skills, more, err := userSkillEdits(a, o.Home)
 	p.skills, p.notes = skills, append(p.notes, more...)
 	return p, err
+}
+
+// keepSharedHooks plans, for a project install with the plugin enabled, the
+// update of duolog's hooks that the project's hooks file already holds,
+// when the agent's plugin hooks step aside for them. It reports false, and
+// plans nothing, at user scope, for another agent, or when the file holds
+// none of duolog's hooks.
+func keepSharedHooks(p *agentPlan, a Agent, o Options) (bool, error) {
+	steps, ok := a.Installer.(PluginStepsAside)
+	parts, partsOK := a.Installer.(HookParts)
+	if !ok || !partsOK || !steps.PluginHooksStepAside() || o.Scope == "user" {
+		return false, nil
+	}
+	old, err := readIfExists(p.hookFile)
+	if err != nil || old == nil {
+		return false, err
+	}
+	if have, err := parts.OurHooks(old); err != nil || len(have) == 0 {
+		return false, nil //nolint:nilerr // a file whose hooks cannot be read is left to the plugin path
+	}
+	data, _, err := a.Installer.Hooks(old, GateTimeout)
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", p.hookFile, err)
+	}
+	p.old, p.hook, p.sharedHooks = old, &edit{path: p.hookFile, data: data}, true
+	p.notes = []string{strings.ToUpper(a.Name[:1]) + a.Name[1:] + ": duolog's hooks stay in " + shown(o.Root, []string{p.hookFile}) +
+		", which the project may share; the " + pluginKey + " plugin's hooks step aside while they are there, so each runs once."}
+	return true, nil
 }
 
 // regate is a hooks file whose gate command changed, with the agent's way to

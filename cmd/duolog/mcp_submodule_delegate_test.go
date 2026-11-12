@@ -83,7 +83,7 @@ func submoduleDelegateProject(t *testing.T) (*cmdDeps, submodule.Fixture, string
 		}
 		start.argv, start.dir = argv, dir
 		start.starts++
-		return nil
+		return fakeMCPWorkerStart(argv)
 	}
 	return d, f, feature, start
 }

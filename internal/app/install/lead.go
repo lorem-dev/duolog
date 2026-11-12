@@ -27,11 +27,16 @@ type LeadEnv interface {
 }
 
 // LeadWindow is the compact window of a lead: Window tokens, 0 for Claude's
-// own default, for Plan, the Claude plan the quota read named ("" when it
-// named none and Window is the fallback).
+// own default, for Plan, the Claude plan the plan read named ("" when it
+// named none and Window is the fallback). Source says where the plan came
+// from, or why it was not read; it is "" when no plan was read, for a fixed
+// workers.compact_window. Fallback says the plan was to be read and was not:
+// install then keeps the window it wrote before, if any.
 type LeadWindow struct {
-	Window int
-	Plan   string
+	Window   int
+	Plan     string
+	Source   string
+	Fallback bool
 }
 
 // leadMarker is what install records of the value it wrote, in
@@ -41,6 +46,7 @@ type LeadWindow struct {
 type leadMarker struct {
 	Window  int    `json:"window"`
 	Plan    string `json:"plan,omitempty"`
+	Source  string `json:"source,omitempty"`
 	Created bool   `json:"created,omitempty"`
 }
 
@@ -63,9 +69,12 @@ type leadState struct {
 // is the value that applies; Missing says install has not set the window
 // (or the person's own value) here yet, which Run would fix.
 type LeadStatus struct {
-	File, Own, Value, Plan string
-	Window                 int
-	Missing                bool
+	File, Own, Value, Plan, Source string
+	Window                         int
+	Missing                        bool
+	// Kept says the plan was not read this time, so install kept the
+	// window it wrote before.
+	Kept bool
 }
 
 // line is what install --check and doctor say of the lead, with paths under
@@ -78,16 +87,33 @@ func (l LeadStatus) line(agent, root string) string {
 	case l.Missing:
 		return ""
 	case l.Window == 0:
-		return head + "compacts at Claude's own default: workers.compact_window gives 0" + planText(l.Plan)
+		return head + "compacts at Claude's own default: workers.compact_window gives 0" + l.planText()
 	}
-	return head + "compacts at " + strconv.Itoa(l.Window) + " tokens" + planText(l.Plan) + ", set by duolog in " + shown(root, []string{l.File})
+	return head + "compacts at " + strconv.Itoa(l.Window) + " tokens" + l.planText() + ", set by duolog in " + shown(root, []string{l.File})
 }
 
-func planText(plan string) string {
-	if plan == "" {
-		return " (plan not read: the smallest ladder value)"
+// planText says which plan gave the window and where the plan came from.
+func (l LeadStatus) planText() string {
+	source := ""
+	if l.Source != "" {
+		source = " (" + l.Source + ")"
 	}
-	return " for plan " + plan
+	switch {
+	case l.Kept:
+		return " for plan " + orNone(l.Plan) + ", kept from the last install: the plan was not read now" + source
+	case l.Plan == "" && l.Source == "":
+		return ""
+	case l.Plan == "":
+		return ", the smallest ladder value: plan not read" + source
+	}
+	return " for plan " + l.Plan + source
+}
+
+func orNone(v string) string {
+	if v == "" {
+		return "none"
+	}
+	return v
 }
 
 func markerPath(root string) string { return filepath.Join(root, ".duolog", "lead-compact.json") }
@@ -270,12 +296,22 @@ func (d Deps) installLead(agents []Agent, o Options) ([]string, []string, error)
 				continue
 			}
 		}
+		failed := ""
+		if w.Fallback && st.marker != nil && st.marker.Plan != "" {
+			// The plan read failed now, but an earlier install read one:
+			// keep its window rather than drop to the smallest one.
+			failed = w.Source
+			w = LeadWindow{Window: st.marker.Window, Plan: st.marker.Plan, Source: st.marker.Source}
+		}
 		changed, err := writeLead(st, o.Root, w)
 		if err != nil {
 			return files, notes, err
 		}
 		files = append(files, changed...)
-		status := LeadStatus{File: st.local, Own: st.own, Value: st.ownValue, Window: w.Window, Plan: w.Plan}
+		status := LeadStatus{File: st.local, Own: st.own, Value: st.ownValue, Window: w.Window, Plan: w.Plan, Source: w.Source}
+		if failed != "" {
+			status.Kept, status.Source = true, failed
+		}
 		notes = append(notes, status.line(a.Name, o.Root))
 	}
 	return files, notes, nil
@@ -309,7 +345,7 @@ func writeLead(st leadState, root string, w LeadWindow) ([]string, error) {
 		}
 		return files, nil
 	}
-	data, err := json.Marshal(leadMarker{Window: w.Window, Plan: w.Plan, Created: created && value != ""})
+	data, err := json.Marshal(leadMarker{Window: w.Window, Plan: w.Plan, Source: w.Source, Created: created && value != ""})
 	if err != nil {
 		return files, err
 	}
@@ -384,7 +420,7 @@ func (d Deps) checkLead(a Agent, o Options) (*LeadStatus, error) {
 	m := st.marker
 	l.Missing = m == nil || m.Window > 0 && !st.ours || m.Window == 0 && st.set
 	if m != nil {
-		l.Window, l.Plan = m.Window, m.Plan
+		l.Window, l.Plan, l.Source = m.Window, m.Plan, m.Source
 	}
 	return l, nil
 }

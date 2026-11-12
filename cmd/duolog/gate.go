@@ -43,6 +43,51 @@ func readHookInput(cmd *cobra.Command) ([]byte, error) {
 	return bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")), err
 }
 
+// leadGate is the gate of a lead: it records the live mode and keeps
+// person-only approvals for the person. The plugin's copy does nothing while
+// the project's own settings run the same gate, so there is one decision.
+func leadGate(cmd *cobra.Command, agent, event string, started time.Time) {
+	defer func() { _ = recover() }()
+	if pluginStepsAside(event, "gate") {
+		return
+	}
+	root, err := projectRoot()
+	if err != nil {
+		return
+	}
+	data, err := readHookInput(cmd)
+	if err != nil || len(data) > 4*1024*1024 {
+		return
+	}
+	if event == "PreToolUse" {
+		if d, ok := guardLeadCall(project.LeadHome(root), agent, data); ok {
+			_, _ = cmd.OutOrStdout().Write(policy.RenderLead(agent, d))
+		}
+	}
+	hook.Observe(cmd.Context(), wiring.HookEnv(hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ()}))
+}
+
+// pluginStepsAside reports whether this lead hook, started by the duolog
+// plugin, does nothing because a settings file runs the same duolog hook.
+// A worker's hooks never step aside.
+func pluginStepsAside(event, verb string) bool {
+	return !isWorker() && wiring.PluginHookDuplicate(os.Environ(), event, verb)
+}
+
+// workerRegistry opens the session registry of a worker's project. A worker
+// runs in a project with state; elsewhere the gate denies and creates none.
+func workerRegistry() (string, *session.Registry, error) {
+	root, err := projectRoot()
+	if err != nil {
+		return root, nil, err
+	}
+	if info, statErr := os.Stat(filepath.Join(root, ".duolog")); statErr != nil || !info.IsDir() {
+		return root, nil, fmt.Errorf("no .duolog folder in %s", root)
+	}
+	reg, err := session.Open(project.LeadHome(root))
+	return root, reg, err
+}
+
 func newGateCommand(deps *cmdDeps) *cobra.Command {
 	var agent, event string
 	cmd := &cobra.Command{Use: "gate", Short: "Decide a worker hook request", SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
@@ -50,33 +95,12 @@ func newGateCommand(deps *cmdDeps) *cobra.Command {
 		// A lead records its live mode and keeps person-only approvals for the
 		// person, unless it runs in bypass or auto (guardLeadCall).
 		if !isWorker() {
-			defer func() { _ = recover() }()
-			root, err := projectRoot()
-			if err == nil {
-				data, readErr := readHookInput(cmd)
-				if readErr == nil && len(data) <= 4*1024*1024 {
-					if event == "PreToolUse" {
-						if d, ok := guardLeadCall(project.LeadHome(root), agent, data); ok {
-							_, _ = cmd.OutOrStdout().Write(policy.RenderLead(agent, d))
-						}
-					}
-					hook.Observe(cmd.Context(), wiring.HookEnv(hook.Env{StartedAt: started, Root: root, WorkRoot: workRoot(root), Agent: agent, Input: data, Environ: os.Environ()}))
-				}
-			}
+			leadGate(cmd, agent, event, started)
 			return nil
 		}
 		a := policy.Action{Kind: "unknown", Role: os.Getenv("DUOLOG_ROLE")}
 		d := policy.Decision{Kind: policy.Deny, Mode: mode.Ask, Rule: "gate setup"}
-		root, err := projectRoot()
-		var reg *session.Registry
-		if err == nil {
-			// A worker runs in a project with state. Elsewhere it denies and creates none.
-			if info, statErr := os.Stat(filepath.Join(root, ".duolog")); statErr != nil || !info.IsDir() {
-				err = fmt.Errorf("no .duolog folder in %s", root)
-			} else {
-				reg, err = session.Open(project.LeadHome(root))
-			}
-		}
+		root, reg, err := workerRegistry()
 		if err == nil {
 			a, d, err = evaluateHook(deps, cmd, reg, root, agent, event, started)
 		}

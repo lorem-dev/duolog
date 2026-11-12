@@ -118,6 +118,9 @@ type conclusion struct {
 // concurrent attach or settlement is never undone. Run Reconcile before an
 // admission: it takes the lock twice and never across a probe.
 func (s *Store) Reconcile(ctx context.Context, in ReconcileInput) error {
+	if err := s.replaySettlements(ctx); err != nil {
+		return err
+	}
 	if in.Process == nil {
 		in.Process = ProbeProcess
 	}

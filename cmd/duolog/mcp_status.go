@@ -66,7 +66,7 @@ func statusFrom(g runsnap.Gathered) mcp.StatusOutput {
 			break
 		}
 		out.Delegations = append(out.Delegations, mcp.Delegation{TaskPath: r.TaskPath, Role: r.Role, State: r.State,
-			AnswerPath: r.Path, WorkRoot: r.WorkRoot})
+			AnswerPath: r.Path, WorkRoot: r.WorkRoot, WaitReason: r.WaitReason})
 	}
 	if os.Getenv("DUOLOG_PEER") == "" && !isWorker() {
 		out.Load = g.Load.Line()

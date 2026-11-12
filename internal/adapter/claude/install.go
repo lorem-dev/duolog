@@ -169,6 +169,12 @@ func (Installer) Enabled(root, home string, environ []string) (bool, error) {
 	return install.PluginEnabledIn(root, home, environ), nil
 }
 
+// PluginHooksStepAside says the duolog plugin's hooks do nothing while a
+// settings file Claude applies runs the same duolog hooks: Claude gives a
+// plugin's hook processes CLAUDE_PLUGIN_ROOT, and duolog gate and duolog hook
+// check it (wiring.PluginHookDuplicate).
+func (Installer) PluginHooksStepAside() bool { return true }
+
 // Installed reports whether Claude's plugin registry holds a duolog plugin
 // with gate hooks for root, independently of whether it is enabled.
 func (Installer) Installed(root, home string, environ []string) bool {

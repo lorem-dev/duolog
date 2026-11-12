@@ -191,8 +191,10 @@ enabled for the project and either step is missing, even with
 `--agent claude`. These checks only read trust and approvals. They do not
 write them or change the gate's rules.
 
-A write role refused for missing Codex trust or hook approval names the
-worker's folder. In a linked worktree, the refusal also explains why duolog
+When Codex lacks trust or hook approval for a write role, duolog skips it
+for that run and tries the next routing candidate. It fails only when no
+candidate remains. The skip line names the worker's folder and the command
+to fix its trust once. In a linked worktree, it also explains why duolog
 could not carry over the source checkout's trust, when its checks can tell.
 The source may lack folder trust or gate
 approval. A stale source gate approval needs renewal in `/hooks` in the
@@ -218,9 +220,16 @@ inside the worktree; from inside, the main checkout is the source of trust.
   count.
 - Codex trusts the lead's checkout, or the main checkout, and has approved
   duolog's `PreToolUse` gate hook there.
-- Each approval that duolog copies is of a hook that `duolog install` writes.
-  The hook stands at the same place in both `.codex/hooks.json` files, and
-  is the same in both. An approval that install made stale is not copied.
+- Each approved source hook and target hook is one that `duolog install`
+  writes for the same event: the current guard, which runs bare `duolog`
+  from PATH, or the dev launcher form, whose launcher must be the same in
+  both checkouts. Older guards count for hooks other than the gate. Each of
+  `command` and `commandWindows` must hold its own OS's form, since Codex
+  runs only that one. A handler with `args`, which Codex does not pass, a
+  program path such as `./tools/duolog`, extra shell syntax, and foreign
+  hooks do not count. Their approvals stay untouched. An approval covers the
+  target hook at its own place, or one that is the same at another place.
+  An approval that install made stale is not copied.
 - Before it writes trust, the worktree's `.codex/` folder holds the same as
   the `.codex/` folder of the checkout whose trust is copied, apart from
   `hooks.json`. Both have the same names, and each file is the same, byte for
@@ -232,8 +241,9 @@ inside the worktree; from inside, the main checkout is the source of trust.
   first path that differs.
 
 Then duolog appends the missing tables to `config.toml`: the worktree's
-`trust_level = "trusted"`, and the same `trusted_hash` for each copied
-approval. It changes nothing else in the file and keeps its comments and its
+`trust_level = "trusted"`, and an approval hash for each eligible target
+hook. An identical hook keeps the source hash; a different form gets its
+own hash. It changes nothing else in the file and keeps its comments and its
 line endings. It never changes a sandbox or an approval policy. Before the
 first change it saves `config.toml.duolog.bak`; an empty backup counts as
 none. It replaces the file in one rename. It holds the lock file
@@ -250,8 +260,9 @@ differ, duolog takes its own tables for that worktree out of `config.toml`:
 the trust and the copied approvals, under the same lock and backup rules.
 It takes only the tables between its two comments that still hold what it
 wrote, and stops at the first one that differs. A trust or approval that you
-or Codex added later stays. It prints why, and the run or pane does not
-start. Codex runs in that worktree again once you have checked it and
+or Codex added later stays. It prints why, and Codex does not start there.
+A delegation tries its next candidate; a peer pane does not open.
+Codex runs in that worktree again once you have checked it and
 trusted the folder yourself in `/hooks`. duolog never removes a trust that
 it did not write.
 
@@ -262,12 +273,12 @@ holds for a new folder made at the path of a removed worktree. Check
 `.codex/` before you run Codex there by hand, or remove the worktree's
 tables between the two `# duolog:` comments yourself.
 
-If a check fails, duolog writes nothing. A write-role refusal names the
-worktree and explains the failed trust or hook check when it can. Run
+If a check fails, duolog writes nothing. A delegation skips Codex for the
+run and tries the next candidate. Its line names the worktree and explains
+the failed trust or hook check when it can. Run
 `codex` in that worktree, accept the trust question, and approve the hooks
 in `/hooks`. duolog also writes nothing when you set another trust level
-for the worktree. Hooks that are not
-`duolog install`'s own, such as the dev hooks in duolog's own checkout, need
+for the worktree. Hooks that are not `duolog install`'s own need
 `/hooks` in each worktree. Claude needs no hook approval, so duolog writes
 nothing for Claude.
 
@@ -1047,8 +1058,8 @@ These come from the research page and are OBSERVED, not VERIFIED:
 
 - `PermissionRequest` did not fire under `codex exec`.
 - `codex exec` skipped a hook that was not trusted, with no warning.
-  `duolog delegate` refuses a Codex write role if it cannot see trust, and it
-  warns for a read-only role.
+  `duolog delegate` skips Codex for a write role if it cannot see trust and
+  tries the next candidate. It warns for a read-only role.
 - A `PreToolUse` deny still blocked a tool under `bypassPermissions` in
   Claude.
 - Whether hooks fire for tools inside a Codex `spawn_agent` child is NOT

@@ -86,3 +86,19 @@ func withBegun(run delegateFunc, begun func(lead, taskDir string)) delegateFunc 
 		return run(ctx, r)
 	}
 }
+
+// recordAdmissionWait mirrors the run's admission wait in its durable record.
+// Only the supervisor writes it, just like the worker start and final result.
+func recordAdmissionWait(path string, previous func(string)) func(string) {
+	return func(reason string) {
+		if previous != nil {
+			previous(reason)
+		}
+		r, err := delegate.ReadRecord(path, nil)
+		if err != nil || r.State != "running" {
+			return
+		}
+		r.WaitReason = reason
+		_ = delegate.WriteRecord(path, r)
+	}
+}

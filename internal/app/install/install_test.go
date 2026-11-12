@@ -607,14 +607,39 @@ func TestClaudePluginEnabledSkipsHooks(t *testing.T) {
 	}
 }
 
-func TestClaudePluginEnabledInTargetRemovesOldHooks(t *testing.T) {
+// A project's settings.json may be committed and shared: with the plugin
+// enabled, install keeps duolog's hooks there, whose plugin copies step
+// aside, and a second install changes nothing. A user settings file is the
+// person's own, so install still drops the copy there.
+func TestClaudePluginEnabledKeepsSharedHooks(t *testing.T) {
 	home, root := setup(t)
-	run(t, Options{Scope: "project", Agent: "claude", Home: home, Root: root})
+	o := Options{Scope: "project", Agent: "claude", Home: home, Root: root}
+	run(t, o)
 	path := filepath.Join(root, ".claude/settings.json")
 	write(t, path, strings.Replace(read(t, path), "{", `{"enabledPlugins":{"duolog@duolog":true},`, 1))
-	run(t, Options{Scope: "project", Agent: "claude", Home: home, Root: root})
-	if s := read(t, path); strings.Contains(s, `"command": "duolog"`) || !strings.Contains(s, "enabledPlugins") {
-		t.Errorf("old hooks should go and foreign keys stay:\n%s", s)
+	r, err := testDeps().Run(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := read(t, path)
+	if !strings.Contains(kept, `"gate"`) || !strings.Contains(kept, "enabledPlugins") {
+		t.Fatalf("shared hooks should stay:\n%s", kept)
+	}
+	if !hasNote(r, "duolog's hooks stay in "+filepath.Join(".claude", "settings.json"), "step aside") {
+		t.Fatalf("notes %q", r.Notes)
+	}
+	run(t, o)
+	if read(t, path) != kept {
+		t.Fatal("a second install changed the file")
+	}
+
+	user := Options{Scope: "user", Agent: "claude", Home: home, Root: root}
+	run(t, user)
+	userPath := filepath.Join(home, ".claude", "settings.json")
+	write(t, userPath, strings.Replace(read(t, userPath), "{", `{"enabledPlugins":{"duolog@duolog":true},`, 1))
+	run(t, user)
+	if s := read(t, userPath); strings.Contains(s, `"gate"`) || !strings.Contains(s, "enabledPlugins") {
+		t.Errorf("user hooks should go and foreign keys stay:\n%s", s)
 	}
 }
 

@@ -22,7 +22,6 @@ import (
 	"github.com/lorem-dev/duolog/internal/app/paidruns"
 	"github.com/lorem-dev/duolog/internal/bus"
 	"github.com/lorem-dev/duolog/internal/coauthor"
-	coreagent "github.com/lorem-dev/duolog/internal/core/agent"
 	"github.com/lorem-dev/duolog/internal/core/caps"
 	"github.com/lorem-dev/duolog/internal/core/config"
 	corelaunch "github.com/lorem-dev/duolog/internal/core/launch"
@@ -47,6 +46,8 @@ type Outcome struct {
 	// SkippedChecks are the Check lines the preflight did not read as a
 	// command, for a run that started a worker in a write role.
 	SkippedChecks []string
+	// warnings report bookkeeping failures without changing the worker's error.
+	warnings []string
 }
 
 // NotStartedError is a delegation refused before any worker started: by the
@@ -106,6 +107,9 @@ type Options struct {
 	// starts and stops waiting for a session slot.
 	Budget  *paidrules.StepBudget
 	Waiting func(bool)
+	// AdmissionWait reports why admission is waiting; empty clears the wait.
+	// It reports quota reads and session queues, before a worker starts.
+	AdmissionWait func(string)
 	// Force starts a worker even for a task that routing.small_task_files would
 	// keep in the lead. SkipPreflight starts the worker without judging the
 	// task's Check commands with the gate first.
@@ -210,9 +214,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 	att := newAttempts(opts, s.Dir, role, lr)
 	// Runs last, after the line is final: a journal error never hides the answer.
 	defer func() {
-		if learnErr := lr.finish(root, dir, copyPath, out); learnErr != nil {
-			err = errors.Join(err, fmt.Errorf("learning: %w", learnErr))
-		}
+		out.finishLearning(lr.finish(root, dir, copyPath, out), workerStarted, dir, &err)
 	}()
 	leadRules, err := gate.ImportLeadForWork(root, gate.LeadRoot(lead, reg), lead.Agent)
 	if err != nil {
@@ -238,13 +240,13 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		return e
 	}
 	defer func() {
-		if err != nil && firstFailure != nil {
+		if err != nil && firstFailure != nil && !errors.Is(err, firstFailure) {
 			err = errors.Join(firstFailure, fmt.Errorf("%s: %w", worker, err))
 		}
 		if out.Line == "" && err != nil {
 			out.Line = oneLine(fmt.Sprintf("role %s: %v", role, err))
 		}
-		out.Line = finalLine(out.Line, notices, dir)
+		out.Line = finalLine(out.Line, append(notices, out.warnings...), dir)
 	}()
 	if line := smallTaskLine(cfg, role, root, taskPath, writes, plan.folders, opts, leadMode); line != "" {
 		out.RunHere, out.Line = &Placement{Where: "self", Task: taskPath}, line
@@ -254,15 +256,11 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 	if err != nil {
 		return out, err
 	}
-	// Every worker run is admitted by the account gate, one permit per run.
-	accounts, err := d.PaidGate(cfg)
-	if err != nil {
-		return out, err
-	}
 	// Every free candidate of the role, use then fallback, comes before any
 	// paid one: a free pass, then a paid pass over the agents that allow it.
 	passes, paidAgents := variants(d, cfg, role, opts)
 	pass, variant := 0, passes[0]
+	trustSkipped := map[string]bool{}
 	nextPass := func() bool {
 		if pass+1 >= len(passes) {
 			return false
@@ -271,7 +269,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		variant = passes[pass]
 		unavailable = map[string]bool{}
 		for _, agent := range d.Names {
-			unavailable[agent] = !paidAgents[agent]
+			unavailable[agent] = !paidAgents[agent] || trustSkipped[agent]
 		}
 		return true
 	}
@@ -290,12 +288,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 	cacheDir := filepath.Join(s.Dir, "cache")
 	loginTried := false
 	var capNotes string
-	// Pace balancing reads the quota once per task; a pinned target is never
-	// balanced, and the paid pass is never balanced either.
-	var balance *coreroute.Balance
-	if opts.Entry == nil {
-		balance = paidruns.DefaultPaceBalance(ctx, cfg)
-	}
+	admission := admissionState{}
 	for attempt := 0; ; attempt++ {
 		// Use and fallback make one pass; then the paid pass, if any.
 		if attempt == 2 {
@@ -305,8 +298,8 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 			priorAgent, attempt = "", 0
 		}
 		ro := coreroute.Options{Lead: &lead.Target, AllowManualModel: opts.AllowManualModel}
-		if pass == 0 {
-			ro.Balance = balance
+		if opts.Entry != nil && trustSkipped[opts.Entry.Agent] {
+			return out, firstFailure
 		}
 		if opts.Entry != nil {
 			if unavailable[opts.Entry.Agent] {
@@ -320,12 +313,15 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		} else if err := lr.route(cfg, role, unavailable, &ro); err != nil {
 			return out, err
 		}
-		route, routeErr := coreroute.Resolve(cfg, role, unavailable, ro)
+		route, routeErr := admission.resolve(ctx, cfg, role, unavailable, ro, opts, pass == 0)
 		if routeErr != nil {
 			// No candidate is left in this pass.
 			if (attempt > 0 || pass > 0) && later() {
 				attempt = 1
 				continue
+			}
+			if firstFailure != nil && len(trustSkipped) > 0 {
+				return out, firstFailure
 			}
 			return out, plan.refusal(routeErr)
 		}
@@ -468,6 +464,10 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		if bridged != nil {
 			extra = append(slices.Clone(runEnv), bridged.Env...)
 		}
+		accounts, err := admission.gate(d, cfg)
+		if err != nil {
+			return out, err
+		}
 		in := admittedInput(d, accounts, workerInput(cfg, route, variant, leadID, role, root, opts.ProtectedRoots, extra, opts.Needs), route, wm)
 		if accounts.Layers != nil {
 			if in.Layers, err = accounts.Layers(ctx, in); err != nil {
@@ -482,44 +482,19 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 		// own environment selects, not duolog's.
 		protected := append(slices.Clone(opts.ProtectedRoots), filepath.Join(root, ".duolog"), s.Dir)
 		agentTrust := d.Agents[route.Agent].Trust
-		state, folder, trustErr := workerGateState(d, s.Dir, route.Agent, root, pre.Env, opts)
-		noHome := errors.Is(trustErr, coreagent.ErrNoHome)
-		switch {
-		case noHome && wm.needsPreflight():
-			// Nothing the worker's agent loads can be read, so nothing shows
-			// its gate.
-			return out, wm.gatePreflight(d, route.Agent, root, pre.Env, protected)
-		case noHome:
-			// The worker runs as one without duolog's hooks would, and the lead
-			// learns why. Claude needs no hook approval or folder trust.
-			claude := route.Agent == "claude"
-			state, folder, trustErr = coreagent.TrustState{Trusted: claude}, claude, nil
-		}
-		if trustErr != nil {
-			return out, trustErr
-		}
-		// A calibration cell's promise is that none runs without the gate.
-		if opts.Calibration {
-			if err = calibrationGate(agentTrust, route.Agent, root, pre.Env); err != nil {
-				return out, trustGap{route.Agent == "codex", agentTrust, state, folder, root, s.Dir, pre.Env}.refusal(err)
+		warning, err = workerTrustCheck(d, s.Dir, role, root, pre.Env, protected, opts, route, wm)
+		if err != nil {
+			var skipped skippedTrust
+			if !errors.As(err, &skipped) {
+				return out, err
 			}
-		}
-		if warning, err = trustWarning(route, role, root, state, folder); err != nil {
-			if noHome {
-				err = fmt.Errorf("%w; %s", err, noHomeProblem())
+			if firstFailure == nil {
+				firstFailure = err
 			}
-			return out, trustGap{route.Agent == "codex", agentTrust, state, folder, root, s.Dir, pre.Env}.refusal(err)
-		}
-		if noHome {
-			warning += "; " + noHomeProblem()
-		}
-		// A looser worker, or one that only the gate keeps read-only, whose gate
-		// cannot be shown to run does not start, and the other agent does not
-		// run in its place.
-		if wm.needsPreflight() {
-			if err = wm.gatePreflight(d, route.Agent, root, pre.Env, protected); err != nil {
-				return out, trustGap{route.Agent == "codex", agentTrust, state, folder, root, s.Dir, pre.Env}.refusal(err)
-			}
+			notices = append(notices, trustSkipLine(err, root, opts.Stderr))
+			priorAgent = route.Agent
+			unavailable[route.Agent], trustSkipped[route.Agent] = true, true
+			continue
 		}
 		warning += wm.line()
 		if bridged != nil {
@@ -689,9 +664,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 				att.worker(started, route, retry, out.Result, err)
 				// Settled once, with what this run measured, before a retry
 				// replaces the result.
-				if settleErr := runs.settle(ctx, current, cfg, route, out.Result); settleErr != nil {
-					return out, errors.Join(err, settleErr)
-				}
+				out.warn("settlement", runs.settle(ctx, current, cfg, route, out.Result))
 				// A run admitted as free that spent paid overage: the ledger
 				// charged it, admission now sees subscription_overage, and
 				// every line that ends this delegation says so.
@@ -713,17 +686,14 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 					files[name] = true
 				}
 				creditErr := coauthor.Append(s.Dir, cfg.Coauthors, coauthor.Record{Lead: leadID, Agent: route.Agent, Model: route.Model, Files: len(files)})
-				if snapErr != nil || creditErr != nil {
-					return out, errors.Join(err, snapErr, creditErr)
-				}
+				out.warn("file snapshot", snapErr)
+				out.warn("coauthor", creditErr)
 				// A login retry is a new run with its own work-tree baseline.
 				creditBefore = after
 				lr.add(out.Result)
-				if usageErr := appendUsage(s.Dir, role, route, out.Result, wm.Native); usageErr != nil {
-					return out, errors.Join(err, usageErr)
-				}
+				out.warn("usage", appendUsage(s.Dir, role, route, out.Result, wm.Native))
 				problems := d.runProblems(route.Agent, leadAgent, root, out.Result, bridged, opts.Needs, current.permit.Process.Env)
-				if len(problems) == 0 || out.Result.Interrupted || out.Result.QuotaEnded {
+				if len(problems) == 0 || out.Result.Interrupted || out.Result.QuotaEnded || runs.unsettled {
 					break
 				}
 				// A login that works lets the worker run once more; settleAuth
@@ -754,6 +724,12 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 				}
 				return out, err
 			}
+			// Do not launch another worker with an unsettled budget. Keep the
+			// worker's own failure and leave recovery to the next admission.
+			if stop, ownErr := runs.stopUnsettled(err, out.Result); stop {
+				out.quotaEndedUnsettled(reg, route.Agent, entry)
+				return out, ownErr
+			}
 			if !out.Result.QuotaEnded && err == nil {
 				sessionID := out.Result.SessionID
 				if sessionID == "" && entry != nil {
@@ -765,9 +741,7 @@ func Run(ctx context.Context, d Deps, r Request) (out Outcome, err error) {
 						e.ID = entry.ID
 						e.Input += entry.Input
 					}
-					if err = reg.RecordLimited(e, reg.Limit); err != nil {
-						return out, err
-					}
+					out.warn("session", reg.RecordLimited(e, reg.Limit))
 				}
 				needs := ""
 				if len(out.Result.Needs) > 0 {
