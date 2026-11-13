@@ -121,14 +121,14 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a policy.Action, tim
 	}
 	reg, err := session.OpenWithin(waitCtx, b.Directory())
 	if err != nil {
-		return deny("cannot read ask lead: " + err.Error())
+		return unread(waitCtx, deny, timedOut, "cannot read ask lead: "+err.Error())
 	}
 	l, alive, err := reg.Lead(lead)
 	if err != nil || !alive {
-		return deny("ask lead is unavailable or has ended")
+		return unread(waitCtx, deny, timedOut, "ask lead is unavailable or has ended")
 	}
 	if waiting, err := reg.IsWaiting(lead); err != nil {
-		return deny("cannot read lead wait state")
+		return unread(waitCtx, deny, timedOut, "cannot read lead wait state")
 	} else if waiting {
 		// Name the command, so the lead can allow it or rewrite the task without reading the log.
 		if a.Kind == "mcp" {
@@ -172,6 +172,16 @@ func Escalate(ctx context.Context, b *bus.Bus, lead string, a policy.Action, tim
 			return settle(decision(answer, fmt.Sprintf("lead %s answered %s for ask %d", lead, answer, n)), answer, asked)
 		}
 	}
+}
+
+// unread is Escalate's answer when it cannot read the lead before it asks: a
+// timeout when the ask's wait ran out while it read, since a lock it waited
+// for no longer than the ask is the wait, and the deny with reason otherwise.
+func unread(wait context.Context, deny func(string) policy.Decision, timedOut func() policy.Decision, reason string) policy.Decision {
+	if wait.Err() != nil {
+		return timedOut()
+	}
+	return deny(reason)
 }
 
 // errLeadGone is a poll that found the ask's lead unavailable or ended.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -78,7 +79,29 @@ func TestDoctorTestsRefuseMachineRex(t *testing.T) {
 	})()
 }
 
+// packageTimeout is the least time this package's tests get. They run one
+// after another and take about two minutes on a hosted runner, so a limit of
+// two minutes for every package, as the release workflow sets, stops them on
+// a slow runner. It stays under go test's own kill, a minute after the
+// -timeout it was given, so a hang still ends in this binary's panic with
+// every goroutine's stack.
+const packageTimeout = 175 * time.Second
+
+// raiseTimeout lifts a -test.timeout below packageTimeout to it. Go reads the
+// flag when m.Run starts, so TestMain sets it before. No limit (0) stays.
+func raiseTimeout() {
+	flag.Parse()
+	f := flag.Lookup("test.timeout")
+	if f == nil {
+		return
+	}
+	if given, err := time.ParseDuration(f.Value.String()); err == nil && given > 0 && given < packageTimeout {
+		_ = f.Value.Set(packageTimeout.String())
+	}
+}
+
 func TestMain(m *testing.M) {
+	raiseTimeout()
 	launchtest.ClearPaidEnvironment()
 	// Each test process starts as an independent lead; tests set worker roles explicitly.
 	for _, key := range []string{"DUOLOG_DEPTH", "DUOLOG_LEAD", "DUOLOG_ROLE"} {

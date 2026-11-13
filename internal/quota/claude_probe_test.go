@@ -20,7 +20,7 @@ func TestClaudeProbeKeepsWindowsOnFailure(t *testing.T) {
 		freeClaude("auth status --json"): {Stdout: claudeSignedIn},
 		freeClaude("-p ok"):              {Stdout: event + "\n", Exit: 1},
 	}})
-	s, err := (Reader{Once: true, Timeout: 3 * time.Second}).Read(context.Background(), "claude")
+	s, err := (Reader{Once: true, Timeout: 30 * time.Second}).Read(context.Background(), "claude")
 	if err != nil || !s.Rejected || len(s.Windows) != 1 || s.Windows[0].Kind != "weekly_all" || s.Windows[0].UsedPercent != 100 || !s.Windows[0].Rejected() || s.Source != "rate_limit_event (haiku probe)" {
 		t.Fatalf("snapshot %+v, err %v", s, err)
 	}
@@ -44,7 +44,9 @@ func TestClaudeWeeklyProbe(t *testing.T) {
 				freeClaude("auth status --json"): {Stdout: `{"loggedIn":true,"authMethod":"` + methodName + `","apiProvider":"` + provider + `","subscriptionType":"max"}`},
 				freeClaude("-p ok"):              {Stdout: event + "\n"},
 			}})
-			s, err := (Reader{Once: true, Timeout: 3 * time.Second}).Read(context.Background(), "claude")
+			// The bound only stops a hung read; a windows-latest runner took
+			// more than 3 s to start the fake claude.exe here.
+			s, err := (Reader{Once: true, Timeout: 30 * time.Second}).Read(context.Background(), "claude")
 			calls := recordedCalls(t, bin)
 			if method != "claude.ai" {
 				if err == nil || len(calls) != 2 {
@@ -70,7 +72,7 @@ func TestClaudeProbeRunsOnceAcrossRetry(t *testing.T) {
 		freeClaude("auth status --json"): {Stdout: claudeSignedIn},
 		freeClaude("-p ok"):              {},
 	}})
-	_, err := (Reader{Timeout: 3 * time.Second}).Read(context.Background(), "claude")
+	_, err := (Reader{Timeout: 30 * time.Second}).Read(context.Background(), "claude")
 	if err == nil || countCalls(t, bin, "/usage") != 2 || countCalls(t, bin, "ok") != 1 {
 		t.Fatalf("err %v calls %v", err, recordedCalls(t, bin))
 	}
@@ -84,7 +86,7 @@ func TestClaudeProbeFailureKeepsOverage(t *testing.T) {
 		freeClaude("auth status --json"): {Stdout: claudeSignedIn},
 		freeClaude("-p ok"):              {Stdout: `{"type":"rate_limit_event","rate_limit_info":{"isUsingOverage":true}}` + "\n"},
 	}})
-	s, err := (Reader{Once: true, Timeout: 3 * time.Second}).Read(context.Background(), "claude")
+	s, err := (Reader{Once: true, Timeout: 30 * time.Second}).Read(context.Background(), "claude")
 	if err == nil || !s.Billing.OverageEnabled || account.IsTransient(err) {
 		t.Fatalf("snapshot %+v err %v", s, err)
 	}
@@ -99,7 +101,7 @@ func TestClaudeProbeSkipsPaidProcess(t *testing.T) {
 		"-p ok":              {},
 	}})
 	p := workerenv.Process{Agent: "claude", Shape: workerenv.Worker, Variant: workerenv.Free, Prefix: []string{bin}, Env: []string{}, Signals: []workerenv.Signal{{Name: "apiKeyHelper", Layer: "user"}}}
-	_, err := (Reader{Once: true, Timeout: 3 * time.Second}).ReadProcess(context.Background(), p)
+	_, err := (Reader{Once: true, Timeout: 30 * time.Second}).ReadProcess(context.Background(), p)
 	if err == nil || len(recordedCalls(t, bin)) != 2 {
 		t.Fatalf("err %v calls %v", err, recordedCalls(t, bin))
 	}
