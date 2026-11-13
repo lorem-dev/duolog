@@ -42,6 +42,8 @@
 
 ## Development
 
+## 1.9.5
+
 ### Changed
 
 - A Claude lead in bypass and its subagents get no duolog prompt at all. In

@@ -2,7 +2,7 @@
 name: duolog-skill-check
 description: Use only in a project that has .duolog/config.yaml. Test a changed SKILL.md or a file it loads across models. Applies to changes by the lead or workers; the lead runs the tests.
 metadata:
-  duolog-version: "1.9.4"
+  duolog-version: "1.9.5"
 ---
 
 Stop unless this project has `.duolog/config.yaml`.
