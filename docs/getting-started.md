@@ -160,8 +160,10 @@ install adds the line again each run. See the
 [status line](rex.md#how-the-lead-shows-its-workers-in-the-status-line).
 
 Use `--agent claude` or `--agent codex` to install for one agent. Use
-`--scope user` to install in your home folder for all projects. SessionStart
-then creates `.duolog/` in a new project and registers its lead.
+`--scope user` to install in your home folder for all projects. The hooks
+then run in every folder, but they act only in a project that has
+`.duolog/config.yaml`: run `duolog install --scope project` there once. In
+any other folder they write nothing and print nothing.
 
 User scope honors `CODEX_HOME` and `CLAUDE_CONFIG_DIR`. If they are unset,
 Go's native home lookup supplies `.codex` and `.claude` under your home.

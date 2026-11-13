@@ -42,6 +42,11 @@
 
 ## Development
 
+### Changed
+
+- With the plugin or `--scope user`, a project without `.duolog/config.yaml`
+  is left alone: the hooks no longer create `.duolog/` there or register a lead.
+
 ## 1.9.3
 
 ### Fixed

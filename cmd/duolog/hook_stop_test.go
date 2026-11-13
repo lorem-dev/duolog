@@ -17,6 +17,7 @@ func TestHookCLIStopTellsTheLead(t *testing.T) {
 	isolatedRouteConfig(t)
 	root := t.TempDir()
 	t.Chdir(root)
+	installHere(t, root)
 	r, err := session.Open(filepath.Join(root, ".duolog"))
 	if err != nil {
 		t.Fatal(err)

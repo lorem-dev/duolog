@@ -26,7 +26,7 @@ type configCheck struct {
 // current reports whether every config file that decided r is as it was.
 func (r leadHomeResult) current() bool {
 	for _, check := range r.checks {
-		if hasLeadConfig(check.root) != check.had {
+		if Installed(check.root) != check.had {
 			return false
 		}
 	}
@@ -69,7 +69,7 @@ func leadHome(ctx context.Context, cwd string) string {
 func resolveLeadHome(ctx context.Context, cwd string) (leadHomeResult, error) {
 	var r leadHomeResult
 	configured := func(root string) bool {
-		had := hasLeadConfig(root)
+		had := Installed(root)
 		r.checks = append(r.checks, configCheck{root: root, had: had})
 		return had
 	}
@@ -94,7 +94,10 @@ func resolveLeadHome(ctx context.Context, cwd string) (leadHomeResult, error) {
 	return r, err
 }
 
-func hasLeadConfig(root string) bool {
+// Installed reports whether duolog was installed in the project at root: its
+// .duolog/config.yaml is a file. A project without one is none of duolog's,
+// even where the plugin runs for every folder or a .duolog folder is left.
+func Installed(root string) bool {
 	info, err := os.Stat(filepath.Join(root, ".duolog", "config.yaml"))
 	return err == nil && info.Mode().IsRegular()
 }

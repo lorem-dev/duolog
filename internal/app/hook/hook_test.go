@@ -63,6 +63,10 @@ func setup(t *testing.T, agent string) (Env, *session.Registry, *bus.Bus) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// duolog install wrote a config.yaml; without one the hooks do nothing.
+	if _, err := os.Stat(filepath.Join(reg.Dir, "config.yaml")); err != nil {
+		write(t, filepath.Join(reg.Dir, "config.yaml"), "# defaults\n")
+	}
 	path := filepath.Join(root, "transcript.jsonl")
 	name := "claude-assistant.trimmed.jsonl"
 	if agent == "codex" {

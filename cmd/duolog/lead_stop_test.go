@@ -17,6 +17,7 @@ import (
 func TestHookCLIStopRequiresPeerWait(t *testing.T) {
 	ready := startupFixture(t, "codex-ready.txt")
 	root, _ := peerProject(t, sequence("• Working (3s • esc to interrupt)\n"+ready, ready, ready))
+	installHere(t, root)
 	reg, err := session.Open(filepath.Join(root, ".duolog"))
 	if err != nil {
 		t.Fatal(err)

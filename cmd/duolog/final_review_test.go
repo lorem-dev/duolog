@@ -66,10 +66,12 @@ func TestGeneratedHooksAndDocumentedDelegate(t *testing.T) {
 			root := t.TempDir()
 			t.Chdir(root)
 			home := os.Getenv("HOME")
-			// User scope must initialize a project that has no .duolog yet.
+			// The user scope hooks serve a project whose config.yaml holds the
+			// defaults; one without config.yaml is none of duolog's.
 			if _, err := runInstall(install.Options{Scope: "user", Agent: "both", Root: root, Home: home}); err != nil {
 				t.Fatal(err)
 			}
+			installHere(t, root)
 			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 			transcript := filepath.Join(root, "lead.jsonl")
 			text := "{\"type\":\"assistant\",\"message\":{\"model\":\"haiku\"},\"effort\":\"low\"}\n"

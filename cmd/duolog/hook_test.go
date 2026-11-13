@@ -22,6 +22,7 @@ func TestHookCLIRegistersAndEndsSilently(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
 	root := t.TempDir()
 	t.Chdir(root)
+	installHere(t, root)
 	r, err := session.Open(filepath.Join(root, ".duolog"))
 	if err != nil {
 		t.Fatal(err)
@@ -72,12 +73,73 @@ func TestHookCLISilentOnBadInputOrUninitialized(t *testing.T) {
 	}
 }
 
+// A project that no one installed duolog in is none of duolog's: with the
+// plugin on for every folder, no hook writes or prints anything there, even
+// where a .duolog folder without config.yaml is left over.
+func TestHookCLIIgnoresProjectWithoutConfig(t *testing.T) {
+	isolatedRouteConfig(t)
+	t.Setenv("DUOLOG_DEPTH", "")
+	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+	for _, leftover := range []bool{false, true} {
+		root := t.TempDir()
+		t.Chdir(root)
+		if leftover {
+			if err := os.Mkdir(".duolog", 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		input := `{"session_id":"11111111-2222-3333-4444-555555555555","permission_mode":"default","prompt":"hi"}`
+		for _, agent := range []string{"claude", "codex"} {
+			for _, event := range []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "PreCompact", "Stop", "SessionEnd"} {
+				var out bytes.Buffer
+				cmd := newRootCommand(testDeps(t))
+				cmd.SetOut(&out)
+				cmd.SetErr(&out)
+				cmd.SetIn(strings.NewReader(input))
+				cmd.SetArgs([]string{"hook", event, "--agent", agent})
+				if err := cmd.Execute(); err != nil || out.Len() != 0 {
+					t.Fatal(agent, event, out.String(), err)
+				}
+			}
+		}
+		entries, _ := os.ReadDir(".duolog")
+		if _, err := os.Stat(".duolog"); leftover == os.IsNotExist(err) || len(entries) != 0 {
+			t.Fatal(leftover, err, entries)
+		}
+	}
+}
+
+// installHere makes root a duolog project, as duolog install does: a
+// .duolog/config.yaml with the defaults.
+func installHere(t *testing.T, root string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, ".duolog"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".duolog", "config.yaml"), []byte("# defaults\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHookRootNeedsConfig(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	if _, ok := hookRoot("SessionStart"); ok {
+		t.Fatal("a folder without .duolog/config.yaml is served")
+	}
+	installHere(t, root)
+	if _, ok := hookRoot("SessionStart"); !ok {
+		t.Fatal("a folder with .duolog/config.yaml is not served")
+	}
+}
+
 func TestHookCLIWakeExitTwoAndStderr(t *testing.T) {
 	isolatedRouteConfig(t)
 	t.Setenv("DUOLOG_DEPTH", "")
 	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
 	root := t.TempDir()
 	t.Chdir(root)
+	installHere(t, root)
 	r, err := session.Open(filepath.Join(root, ".duolog"))
 	if err != nil {
 		t.Fatal(err)
@@ -126,6 +188,7 @@ func TestLeadCommandsCaptureTimeBeforeStdin(t *testing.T) {
 			t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
 			root := t.TempDir()
 			t.Chdir(root)
+			installHere(t, root)
 			reg, err := session.Open(filepath.Join(root, ".duolog"))
 			if err != nil {
 				t.Fatal(err)

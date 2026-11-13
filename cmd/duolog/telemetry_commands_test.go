@@ -596,6 +596,7 @@ func TestTelemetryModelOutputIsCoarse(t *testing.T) {
 		if _, err := store.Open(root); err != nil {
 			t.Fatal(err)
 		}
+		installHere(t, root)
 		var err error
 		if telemetryRoot, err = telemetry.ResolveRoot(telemetryLocation()); err != nil {
 			t.Fatal(err)

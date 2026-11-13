@@ -36,14 +36,15 @@ func hookEvent(name string) string {
 }
 
 // hookRoot is the project root of hook name, and false when the hook does
-// nothing: outside a project, or as the plugin's copy of a hook the settings
-// run as well.
+// nothing: outside a project, in a project with no .duolog/config.yaml (the
+// plugin runs in every folder, and only duolog install makes one a duolog
+// project), or as the plugin's copy of a hook the settings run as well.
 func hookRoot(name string) (string, bool) {
 	if pluginStepsAside(hookEvent(name), "hook "+name) {
 		return "", false
 	}
 	root, err := projectRoot()
-	return root, err == nil
+	return root, err == nil && project.Installed(root)
 }
 
 func newHookCommand(d *cmdDeps) *cobra.Command {

@@ -134,7 +134,7 @@ func (w *submoduleWalk) module(dir string) error {
 // (its own checkout root, whose superproject is checkout) with the walk's
 // lead home. An uninitialized module is an empty folder of checkout.
 func (w *submoduleWalk) duologModule(checkout, dir string) bool {
-	if !hasLeadConfig(dir) {
+	if !Installed(dir) {
 		return false
 	}
 	info, err := os.Lstat(dir)

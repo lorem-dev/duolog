@@ -19,6 +19,7 @@ import (
 func compactProject(t *testing.T) string {
 	t.Helper()
 	root, _ := peerProject(t, testbin.Scenario{Stdout: claudeIdleScreen()})
+	installHere(t, root)
 	reg, err := session.Open(filepath.Join(root, ".duolog"))
 	if err != nil {
 		t.Fatal(err)

@@ -194,16 +194,10 @@ func prepare(e Env, register bool, started time.Time) (*state, error) {
 	if json.Unmarshal(e.Input, &h) != nil || h.ID == "" {
 		return nil, nil //nolint:nilerr // an event without a readable id is none of ours, so it is skipped
 	}
-	dir := filepath.Join(e.Root, ".duolog")
-	info, err := os.Stat(dir)
-	if err != nil || !info.IsDir() {
-		// Only a session that will register may create state in a new folder.
-		if !register || !interactiveLead(e, h) || !roster.HasDuolog(e.Caps, e.Agent, e.Root) {
-			return nil, nil
-		}
-		if _, err := store.Open(e.Root); err != nil {
-			return nil, err
-		}
+	// Only duolog install makes a project duolog's; the plugin's hooks run in
+	// every folder and leave the others as they are.
+	if !project.Installed(e.Root) {
+		return nil, nil
 	}
 	cfg, err := configfile.Load(e.Root)
 	if err != nil {
