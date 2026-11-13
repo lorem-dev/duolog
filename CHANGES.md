@@ -42,6 +42,8 @@
 
 ## Development
 
+## 1.9.4
+
 ### Changed
 
 - With the plugin or `--scope user`, a project without `.duolog/config.yaml`

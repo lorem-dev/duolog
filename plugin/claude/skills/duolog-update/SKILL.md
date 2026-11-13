@@ -5,7 +5,7 @@ description: >-
   current project.
 allowed-tools: Bash(duolog version), Bash(duolog doctor)
 metadata:
-  duolog-version: "1.9.3"
+  duolog-version: "1.9.4"
 ---
 
 # Update duolog
