@@ -42,6 +42,8 @@
 
 ## Development
 
+## 1.9.3
+
 ### Fixed
 
 - A worker's ask during a `delegate` run with `wait: false` reaches the lead;
