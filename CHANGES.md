@@ -48,6 +48,14 @@
   the gate denied it as if the lead were waiting on the run.
 - Codex workers can run `uv run`: duolog sets `UV_CACHE_DIR` under the temp
   folder, as it does for Go's caches.
+- A quoted `rg` or `grep` pattern with `[ ]`, `?`, `{ }` or a kept backslash
+  is read as data, and `sed -n 'N,Mp'` reads a pipe: such reads no longer ask.
+- A worker in a linked worktree may read the main checkout, where ignored
+  plans live; denies such as `.duolog`, `.env` and keys still apply.
+- A Check that starts with `cd` into its own worktree is judged by the rest of
+  the line, in preflight and in `duolog remember`.
+- Codex trust reaches a worktree whose `.codex/` differs only in synced skills
+  or in agent files that hold instructions alone.
 
 ## 1.9.2
 

@@ -8,7 +8,8 @@ import (
 
 // Re-review 5, P-1: at plan, a line the parser cannot read for sure is
 // denied, since the lead's allow would run it. A line whose every part is a
-// known read-only command, such as an rg pattern with a backslash, asks the
+// known read-only command, such as an rg pattern with a backslash that double
+// quotes escape, asks the
 // lead instead, as it did before plan denied first. Any other uncertain line
 // stays denied, and a line read for sure keeps its answer.
 func TestPlanAsksAboutAnUncertainReadLine(t *testing.T) {
@@ -16,20 +17,20 @@ func TestPlanAsksAboutAnUncertainReadLine(t *testing.T) {
 	for _, c := range []struct {
 		command, want string
 	}{
-		{`rg -n "a\b" internal`, Ask},
+		{`rg -n "a\$b" internal`, Ask},
 		{`grep -n "$PATTERN" a.go`, Ask},
-		{`rg -n "a\b" internal | head -5`, Ask},
-		{`rg -n "a\b" internal && touch marker.txt`, Deny},
-		{`rg -n "a\b" . ; rm -f a.go`, Deny},
+		{`rg -n "a\$b" internal | head -5`, Ask},
+		{`rg -n "a\$b" internal && touch marker.txt`, Deny},
+		{`rg -n "a\$b" . ; rm -f a.go`, Deny},
 		{`env TASK_FLAG=1 touch marker.txt`, Deny},
 		{`touch "a\b"`, Deny},
 		{`rg x $(touch marker.txt)`, Deny},
 		{`cat "$(rm -f a.go)"`, Deny},
 		{"rg x `touch marker.txt`", Deny},
 		{`rg x <(touch marker.txt)`, Deny},
-		{`rg -n "a\b" . > out.txt`, Deny},
-		{`rg -n "a\b" . >> out.txt`, Deny},
-		{`rg -n "a\b" . 2>err.txt`, Deny},
+		{`rg -n "a\$b" . > out.txt`, Deny},
+		{`rg -n "a\$b" . >> out.txt`, Deny},
+		{`rg -n "a\$b" . 2>err.txt`, Deny},
 		{`rg -n Lead internal`, Allow},
 		// A backslash before a ( in a double-quoted rg pattern is read for sure.
 		{`rg -n "Lead\(" internal`, Allow},
@@ -52,7 +53,7 @@ func TestPlanDeniesAnUncertainReadLineWithAParenthesis(t *testing.T) {
 			`ls **/*(.)`,
 			`cat *.go(N)`,
 			`ls @(a|b)`,
-			`rg -n "a\b(" internal`,
+			`rg -n "a\$b(" internal`,
 		} {
 			check(t, p, LeadRules{}, mode.Plan, Action{Kind: "exec", Target: command, Role: "implement", Shell: shell}, Deny)
 		}

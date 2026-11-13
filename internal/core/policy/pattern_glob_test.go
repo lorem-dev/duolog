@@ -99,11 +99,12 @@ func TestPatternGlobThatStaysKeepsItsDecision(t *testing.T) {
 		command string
 		want    string
 	}{
-		{`grep '/elsewhere/pa*' f`, Ask},
-		{`grep "/elsewhere/pa*" f`, Ask},
 		{`grep \/elsewhere/pa\* f`, Ask},
-		{`grep -n '../pa*' f`, Ask},
-		// The quoted search pattern of rg is data, as a plain pattern is.
+		// The quoted search pattern of rg and grep is data, as a plain
+		// pattern is.
+		{`grep '/elsewhere/pa*' f`, Allow},
+		{`grep "/elsewhere/pa*" f`, Allow},
+		{`grep -n '../pa*' f`, Allow},
 		{`rg '/elsewhere/pa*' f`, Allow},
 		{`git log -G '/elsewhere/pa*' x`, Ask},
 		{`git log -S "/elsewhere/pa*" x`, Ask},

@@ -31,6 +31,21 @@ func TestQuotedRgPatternIsData(t *testing.T) {
 		{`rg -n "a\|b\;c\&d\(e\)\*" internal`, `rg -n plain internal`, Allow},
 		{`rg -- 'a*' internal`, `rg -- plain internal`, Allow},
 		{`rg -n 'a*b' internal | head -5`, `rg -n plain internal | head -5`, Allow},
+		// In quotes the shell expands no glob, brace or tilde, and keeps a
+		// backslash that it does not escape, so a pattern may hold them.
+		{`rg -n -F "[d-128]:" docs/a.md`, `rg -n -F plain docs/a.md`, Allow},
+		{`rg -n "Q-17[5-7]|Q-103" mkdocs.yml docs/index.md`, `rg -n plain mkdocs.yml docs/index.md`, Allow},
+		{`rg -n -i "status|disabled\[|not read until" docs/a.md`, `rg -n -i plain docs/a.md`, Allow},
+		{`rg 'a?b' src`, `rg plain src`, Allow},
+		{`rg 'a[b]c*' src`, `rg plain src`, Allow},
+		{`rg 'a{b,c}*~' src`, `rg plain src`, Allow},
+		{`rg "a\bc" src`, `rg plain src`, Allow},
+		{`rg 'a\(b' src`, `rg plain src`, Allow},
+		{`rg -n "a\b(" internal`, `rg -n plain internal`, Allow},
+		// grep's quoted pattern is data in the same way.
+		{`grep -n "q-171\|Q-171" docs/index.md mkdocs.yml`, `grep -n plain docs/index.md mkdocs.yml`, Allow},
+		{`grep 'a*' src/a.go`, `grep plain src/a.go`, Allow},
+		{`grep "a\(" src/a.go`, `grep plain src/a.go`, Allow},
 	} {
 		for _, readOnly := range []bool{false, true} {
 			got, plain := quotedDataEval(t, tc.command, readOnly), quotedDataEval(t, tc.plain, readOnly)
@@ -105,20 +120,17 @@ func TestQuotedRgStaysRefused(t *testing.T) {
 		{`rg --regexp='a*' src`, Ask, Deny},
 		{`rg x -r 'a*' src`, Ask, Deny},
 		{`rg --files 'a*'`, Ask, Deny},
-		// What the list does not name stays unverified.
+		// An empty pattern, and a backslash that double quotes escape, stay
+		// unverified.
 		{`rg '' src`, Ask, Deny},
-		{`rg 'a?b' src`, Ask, Deny},
-		{`rg 'a[b]c*' src`, Ask, Deny},
-		{`rg 'a{b}*' src`, Ask, Deny},
-		{`rg "a\bc" src`, Ask, Deny},
-		{`rg 'a\(b' src`, Ask, Deny},
 		{`rg "a\$b" src`, Ask, Deny},
 		{`rg "a\"b*" src`, Ask, Deny},
 		{`rg "a\\(b" src`, Ask, Deny},
+		{"rg \"a\\`b\" src", Ask, Deny},
 		{"rg 'a\tb*' src", Ask, Deny},
+		// A quoted grep pattern that names a denied name keeps its reading.
+		{`grep '.env*' src/a.go`, Ask, Deny},
 		// Other programs keep their reading.
-		{`grep 'a*' src/a.go`, Ask, Deny},
-		{`grep "a\(" src/a.go`, Ask, Deny},
 		{`cat 'a*'`, Ask, Deny},
 		{`find . -name 'a*' -delete`, Ask, Deny},
 	} {

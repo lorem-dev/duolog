@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -194,16 +195,12 @@ func codexTree(root string) (entries map[string]treeEntry, failed string, err er
 			return err
 		case name == ".codex/hooks.json":
 		case d.Type().IsDir():
-			if path == base {
+			if path == base || instructionFolder(name) {
 				break
 			}
 			entries[name] = treeEntry{dir: true}
 		case d.Type().IsRegular() && path != base:
-			data, err := readPlain(path)
-			if err != nil {
-				return err
-			}
-			entries[name] = treeEntry{data: data}
+			return addTreeFile(entries, name, path)
 		default:
 			return fmt.Errorf("%s is not a plain file or folder", path)
 		}
@@ -213,6 +210,73 @@ func codexTree(root string) (entries map[string]treeEntry, failed string, err er
 		return nil, failed, err
 	}
 	return entries, "", nil
+}
+
+// addTreeFile adds the plain file at path, named name relative to the root,
+// to entries, unless it gives an agent only instructions (instructionsOnlyAgent,
+// skillText).
+func addTreeFile(entries map[string]treeEntry, name, path string) error {
+	data, err := readPlain(path)
+	if err != nil {
+		return err
+	}
+	if !instructionsOnlyAgent(name, data) && !skillText(name) {
+		entries[name] = treeEntry{data: data}
+	}
+	return nil
+}
+
+// instructionFolder reports whether the folder name, relative to the root,
+// is the agents folder or a folder of skills: they only hold files, each
+// judged by addTreeFile.
+func instructionFolder(name string) bool {
+	return name == codexAgentsDir || skillText(name+"/")
+}
+
+// codexAgentsDir is the folder of a project's Codex agent files, and
+// codexSkillsDir, with its slash, that of its skills.
+const (
+	codexAgentsDir = ".codex/agents"
+	codexSkillsDir = ".codex/skills/"
+)
+
+// skillText reports whether the file name, relative to the root, belongs to
+// a skill, such as the SKILL.md that duolog sync writes. Codex reads a
+// skill's text as instructions, as it reads AGENTS.md, and runs a script of
+// it only through its shell, under the sandbox and duolog's gate, as it runs
+// any other file of the worktree; neither changes a setting, and trust
+// compares neither for the rest of the worktree.
+func skillText(name string) bool {
+	return strings.HasPrefix(name, codexSkillsDir)
+}
+
+// instructionKeys are the keys an agent file may hold and still give its
+// agent nothing but instructions and a model: what duolog sync writes.
+var instructionKeys = []string{"name", "description", "model", "model_reasoning_effort", "developer_instructions"}
+
+// instructionsOnlyAgent reports whether the file name, relative to the root,
+// with data, is an agent file of the agents folder that holds only
+// instructionKeys, each a string, as duolog sync writes them. Such a file
+// cannot change Codex's sandbox, approvals, servers or hooks; it says what a
+// subagent is told, as AGENTS.md in the worktree does, which trust does not
+// compare either. So a worktree on a branch that added or changed one keeps
+// the trust of its source root. Any other key, a nested table and a file
+// that does not parse count as the file is and are compared.
+func instructionsOnlyAgent(name string, data []byte) bool {
+	dir, file := path.Split(name)
+	if dir != codexAgentsDir+"/" || path.Ext(file) != ".toml" {
+		return false
+	}
+	var doc map[string]any
+	if toml.Unmarshal(data, &doc) != nil {
+		return false
+	}
+	for key, value := range doc {
+		if _, text := value.(string); !text || !slices.Contains(instructionKeys, key) {
+			return false
+		}
+	}
+	return true
 }
 
 // readPlain reads the plain file at path without following a link or

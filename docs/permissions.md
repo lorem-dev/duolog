@@ -238,7 +238,12 @@ inside the worktree; from inside, the main checkout is the source of trust.
   is absent in both is the same. Codex loads this folder only where it trusts
   the project, its `config.toml` can name any file in it, and another branch
   may change it. When the folders differ, duolog writes nothing and names the
-  first path that differs.
+  first path that differs. Two kinds of file give an agent only instructions,
+  as the worktree's `AGENTS.md` does, so they are not compared: an agent file
+  in `.codex/agents/` that holds only the string keys `duolog sync` writes
+  (`name`, `description`, `model`, `model_reasoning_effort` and
+  `developer_instructions`), and the files of `.codex/skills/`. An agent
+  file with any other key is compared.
 
 Then duolog appends the missing tables to `config.toml`: the worktree's
 `trust_level = "trusted"`, and an approval hash for each eligible target
@@ -390,18 +395,20 @@ expand such text, so the gate cannot read the words it passes on. A read-only
 role may be denied instead of asked. A brace anywhere in a command asks for the
 same reason. Quoted `rg` glob options follow the glob check above.
 
-The quoted search pattern of `rg`, the first operand when no option gives the
-pattern, is data, and gets the decision of the same `rg` with a plain pattern.
-So it may hold a `*`, as in `rg -F 'func (r *Registry)' a.go`, and, in double
-quotes, a backslash before one of `|`, `(`, `)`, `*`, `;` or `&`, as in
-`rg "Root\(|Dir" a.go`. A `$` or a backtick in double quotes still asks. The
-pattern of `-e`, a quoted path and any other word follow the rules above, and
-so does a quoted pattern that names `.duolog`, `.env`, `.pem`, `.key` or
-`secrets`.
+The quoted search pattern of `rg` or `grep`, the first operand when no option
+gives the pattern, is data, and gets the decision of the same command with a
+plain pattern. In quotes the shell expands no glob, brace or tilde, so the
+pattern may hold `*`, `?`, `[ ]`, `{ }` and `~`, as in
+`rg -F 'func (r *Registry)' a.go` or `rg -n "Q-17[5-7]|Q-103" a.md`, and a
+backslash that the shell keeps, as in `rg "Root\(|Dir" a.go` or
+`grep -n "a\|b" a.md`. A `$` or a backtick in double quotes, and a backslash
+before `"`, `$`, a backtick or another backslash, still ask. The pattern of
+`-e`, a quoted path and any other word follow the rules above, and so does a
+quoted pattern that names `.duolog`, `.env`, `.pem`, `.key` or `secrets`.
 
 | Command form | Gate decision |
 |---|---|
-| `sed -n 'N,Mp' file` | Read; other scripts ask |
+| `sed -n 'N,Mp' file`, or in a pipe without a file | Read; other scripts ask |
 | sed `r`, `R`, `w`, `W`, `s///w` | Judge file paths, with or without a blank before the name |
 | sed `e`, `s///e`, an unreadable script, or sed/awk code from stdin | Person; the gate cannot determine the target |
 | sed `-i`, bracket expressions and backup suffixes | Judge BSD and GNU interpretations; both must parse when both can run. Backups write each input path plus the suffix; a suffix with `/` or `*` needs the person |
@@ -435,7 +442,10 @@ A deny also holds inside any other command. `uv run git push` is denied like
 `git push`, and `sed -n p .env` is denied like `cat .env`. A directory change
 before another command, a shell glob, a program path with `..` and `git -c`
 ask in every mode, because the gate reads the command text and cannot see what
-they do. A path can match a deny
+they do. A `cd DIR &&` at the start of a line, where `DIR` is the folder the
+line already runs in, changes nothing: the gate judges the rest of the line,
+as a task's Check that names its own worktree, and `duolog remember` does the
+same from the folder it runs in. A path can match a deny
 by accident: `go test ./secrets/...` is denied by the `secrets/` rule.
 
 A shell glob that can leave the work root needs the person. A segment that
@@ -618,6 +628,11 @@ roots: a volume root, the home folder or a parent of it, or a path that holds
 or lies in a folder of credentials or agent settings, such as `~/.ssh`. The
 gate checks each entry again after it resolves its symlinks. Reads of such a
 path still ask.
+
+A worker in a linked worktree may also read the project's main checkout, as
+if its task listed it: plans and notes that Git ignores live only there. The
+same denies apply, so `.duolog`, `.env` and keys stay closed, and a search of
+the whole checkout asks, since it reaches hidden names.
 
 The gate resolves symlinks first, so a listed name that leads elsewhere still
 asks. A path written with `..`, and a folder with a symlink below it that

@@ -86,9 +86,7 @@ func PersonOnly(d Decision) bool { return d.Kind == Ask && d.Rule == RuleOutside
 // A POSIX line that plainExec reads is judged as written and then as the plain
 // line it is; see plainDecision.
 func Evaluate(p config.Policy, lead LeadRules, m mode.Mode, a Action) Decision {
-	if lead.Mode != "" {
-		m = mode.Lower(m, lead.Mode)
-	}
+	m, a = leadMode(m, lead), withoutCdIntoCwd(a)
 	decision := func(kind, reason, rule string) Decision {
 		if kind == Ask && a.Kind == "exec" && ExecOutside(a) {
 			rule = RuleOutside
@@ -870,10 +868,11 @@ func readOnlyCommand(command string) bool {
 
 var sedPrintRange = regexp.MustCompile(`^([0-9]+|\$)(,([0-9]+|\$))?p$`)
 
-// safeSed accepts only sed -n 'N,Mp' FILE...: it prints a line range and can
-// neither write a file nor run a command.
+// safeSed accepts only sed -n 'N,Mp' [FILE...]: it prints a line range, of the
+// files or of its input in a pipe, and can neither write a file nor run a
+// command.
 func safeSed(words []string) bool {
-	if len(words) < 4 || words[1] != "-n" || !sedPrintRange.MatchString(words[2]) {
+	if len(words) < 3 || words[1] != "-n" || !sedPrintRange.MatchString(words[2]) {
 		return false
 	}
 	for _, word := range words[3:] {

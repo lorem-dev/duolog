@@ -69,28 +69,21 @@ var (
 	}
 )
 
-// patternEscapable are the characters before which a backslash in a double
-// quoted rg pattern is allowed. The shell keeps such a backslash, so rg gets it.
-const patternEscapable = "|()*;&"
-
 // deniedInPattern are the names of the default read denies and of duolog state.
 // A quoted pattern that names one is left to the plain quote rules.
 var deniedInPattern = []string{".duolog", ".env", ".pem", ".key", "secrets"}
 
-// rgPatternEscapes turns each allowed escape of patternEscapable into its
-// character, so that quotedRunUnsafe finds only a backslash that is not allowed.
-var rgPatternEscapes = strings.NewReplacer(`\|`, "|", `\(`, "(", `\)`, ")", `\*`, "*", `\;`, ";", `\&`, "&")
-
 // shellEscape reports whether the backslash at command[i], inside the quote
 // quote or none, escapes the next character: never in single quotes, and in
-// double quotes not before one of patternEscapable, where the shell keeps it.
-// A part that holds such a backslash stays uncertain unless rgQuotedPattern
-// reads it, since literalQuotes refuses every backslash.
+// double quotes only before ", $, a backtick, a backslash or a newline;
+// before any other character the shell keeps it. A part that holds such a
+// backslash stays uncertain unless rgQuotedPattern reads it, since
+// literalQuotes refuses every backslash.
 func shellEscape(command string, i int, quote byte) bool {
 	if quote == '\'' {
 		return false
 	}
-	return quote != '"' || i+1 == len(command) || strings.IndexByte(patternEscapable, command[i+1]) < 0
+	return quote != '"' || i+1 == len(command) || strings.IndexByte("\"$`\\\n", command[i+1]) >= 0
 }
 
 // readQuotes reports whether a read command's quotes only group literal text,
@@ -99,20 +92,28 @@ func readQuotes(part string) bool {
 	return literalQuotes(part, true) || rgQuotedPattern(part)
 }
 
-// rgQuotedPattern reports whether an rg command's quotes only group literal
-// text once a * is allowed in the quoted text of its search pattern, and a
-// backslash before one of patternEscapable in double quotes. Nothing else is
-// widened: a pattern given by an option, a path and any other word keep the
-// rules of literalQuotes, since the checks after this one read such a word as
-// a glob. A $ or backtick in double quotes still counts, and so does a pattern
-// that names a denied name.
+// rgQuotedPattern reports whether an rg or grep command's quotes only group
+// literal text once its quoted search pattern is read as data (quotedRunData).
+// Nothing else is widened: a pattern given by an option, a path and any other
+// word keep the rules of literalQuotes, since the checks after this one read
+// such a word as a glob. A $ or backtick in double quotes still counts, and so
+// does a pattern that names a denied name.
 func rgQuotedPattern(part string) bool {
 	words := quotedWords(part)
-	if len(words) < 2 || words[0] != "rg" {
+	if len(words) < 2 {
 		return false
 	}
-	// Without the pattern options, only the pattern operand is marked.
-	syntax := rgSyntax
+	var syntax searchSyntax
+	switch words[0] {
+	case "rg":
+		syntax = rgSyntax
+	case "grep", "egrep", "fgrep":
+		syntax = grepSyntax
+	default:
+		return false
+	}
+	// Without the pattern options, only the pattern operand is marked: the
+	// read checks take an option's value, such as that of -e, for a glob.
 	syntax.patternShorts, syntax.patternLong = "", nil
 	patterns, _ := syntax.patterns(words, 1)
 	wordIndex, inWord := -1, false
@@ -153,10 +154,29 @@ func quotedRunData(run string, quote byte, pattern bool) bool {
 	if !pattern {
 		return !quotedRunUnsafe(run, unsafe)
 	}
+	// In quotes the shell expands no glob, brace or tilde, so a pattern may
+	// hold any of them. A backslash stays in the word, as rg and grep read it,
+	// except before what double quotes escape: there the shell drops it.
+	unsafe = "\t\n\r\v\f'\"\\"
 	if quote == '"' {
-		run = rgPatternEscapes.Replace(run)
+		unsafe += "$`"
 	}
-	return !quotedRunUnsafe(run, strings.Replace(unsafe, "*", "", 1))
+	return !quotedRunUnsafe(patternBackslashes(run, quote), unsafe)
+}
+
+// patternBackslashes drops each backslash of a quoted pattern run that the
+// shell passes on as it is: every one in single quotes, and in double quotes
+// one before any character but ", $, `, \ and a newline, which double quotes
+// escape. A backslash left over is one the shell reads, which asks.
+func patternBackslashes(run string, quote byte) string {
+	var b strings.Builder
+	for i := 0; i < len(run); i++ {
+		if run[i] == '\\' && (quote == '\'' || i+1 < len(run) && !strings.ContainsRune("\"$`\\\n", rune(run[i+1]))) {
+			continue
+		}
+		b.WriteByte(run[i])
+	}
+	return b.String()
 }
 
 // namesDenied reports whether text names one of deniedInPattern, in any case.

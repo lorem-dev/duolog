@@ -239,3 +239,35 @@ func TestWorkerReadsTaskReadPaths(t *testing.T) {
 		}
 	}
 }
+
+// A worker in a linked worktree reads the main checkout as a Read entry; a
+// worker in the main checkout itself, and a read tool that wrote .., get none.
+func TestMainCheckoutReadsOnlyFromAnotherCheckout(t *testing.T) {
+	main := pathutil.Resolved(t.TempDir())
+	work := filepath.Join(main, ".worktrees", "w")
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	listed := func() *policy.Action {
+		return &policy.Action{Reads: []string{"/elsewhere/doc.md"}, WideRead: wideSkillRoot}
+	}
+	a := listed()
+	mainCheckoutReads(a, main, work)
+	if strings.Join(a.Reads, " ") != "/elsewhere/doc.md "+main {
+		t.Fatalf("from a worktree: %q", a.Reads)
+	}
+	mainCheckoutReads(a, main, work)
+	if len(a.Reads) != 2 {
+		t.Fatalf("added twice: %q", a.Reads)
+	}
+	a = listed()
+	mainCheckoutReads(a, main, main)
+	if len(a.Reads) != 1 {
+		t.Fatalf("in the main checkout: %q", a.Reads)
+	}
+	dotted := &policy.Action{}
+	mainCheckoutReads(dotted, main, work)
+	if dotted.Reads != nil {
+		t.Fatalf("a read with ..: %q", dotted.Reads)
+	}
+}

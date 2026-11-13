@@ -197,6 +197,7 @@ func readGateActions(cmd *cobra.Command, root, agent string) ([]policy.Action, h
 		action.Peer = os.Getenv("DUOLOG_PEER")
 		action.Work = work
 		workerFileAction(action, i, agent, work, envelope)
+		mainCheckoutReads(action, root, work)
 		if (action.Kind == "read" || action.Kind == "write") && action.Target != "" {
 			action.Target = policy.RelativeTarget(work, envelope.Cwd, action.Target)
 		}
@@ -435,6 +436,25 @@ func gateReads(value string) []string {
 	return slices.DeleteFunc(policy.TaskReads(value), func(entry string) bool {
 		return configfile.RefuseRead(pathutil.Resolved(policy.ReadEntryFolder(pathutil.Native(entry)))) != ""
 	})
+}
+
+// mainCheckoutReads lets a worker in a linked worktree read the project's
+// main checkout, root, as a path its task lists under Read: plans and notes
+// that Git ignores live only there. Every read deny, the state rule and the
+// protected stores still apply, and a search there must pass the Read list's
+// folder check, which refuses hidden names such as .duolog and .env. A worker
+// in root itself, or a read tool that wrote .., which gets no Read list, gains
+// nothing; nor does a root that is too wide to read.
+func mainCheckoutReads(action *policy.Action, root, work string) {
+	// workerFiles sets WideRead with the Read list; a read tool with .. has neither.
+	if action.WideRead == nil || root == "" || work == "" {
+		return
+	}
+	main := pathutil.Resolved(root)
+	if main == pathutil.Resolved(work) || configfile.RefuseRead(main) != "" || slices.Contains(action.Reads, main) {
+		return
+	}
+	action.Reads = append(action.Reads, main)
 }
 
 // dotDot reports whether a path names a .. segment, with either separator.

@@ -110,6 +110,11 @@ func rememberCommand(cmd *cobra.Command, args []string) (string, error) {
 	if command == "" {
 		return "", fmt.Errorf("name the command to remember")
 	}
+	// A cd into the folder the person runs this in, as a task's Check that
+	// names its own worktree, changes nothing: the rule is for the rest.
+	if cwd, err := os.Getwd(); err == nil {
+		command = corepolicy.DropCdIntoCwd(command, cwd, "")
+	}
 	return command, nil
 }
 
