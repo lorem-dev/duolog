@@ -42,6 +42,16 @@
 
 ## Development
 
+### Changed
+
+- A Claude lead in bypass and its subagents get no duolog prompt at all. In
+  auto, duolog's person-only guards ask again, as in default.
+
+### Fixed
+
+- Code text such as a `/**` comment no longer asks a lead or its subagents
+  about telemetry data.
+
 ## 1.9.4
 
 ### Changed

@@ -800,17 +800,23 @@ The hook also guards `duolog remember` when the rule names a path outside the
 project. A Claude lead asks the person. A Codex lead is denied, and the
 person saves such a rule in their own terminal.
 
-### A lead in bypass or auto decides by itself
+### A lead in bypass decides by itself
 
-When you run the Claude lead in `bypassPermissions` or `auto`, you let the
-lead model decide, and none of the lead's guards asks you: not for
-`duolog allow N` on a person-only ask, not for `duolog remember` with an
-outside rule, not for `duolog peer show`, and not for telemetry or balance
-data. `duolog allow` itself still refuses a person-only ask from the lead,
-as below, so that ask waits for you. A command that may allow an ask sent
-to another lead asks you, with `--lead` or without, since `--lead` names a
-lead and does not prove who runs the command. In `default`, `acceptEdits`,
-`plan` or any other mode, every guard asks you as above.
+When you run the Claude lead in `bypassPermissions`, you let the lead model
+decide everything, and duolog asks you nothing: no guard of the lead or of
+its subagents asks, whatever the call names and wherever it runs, not for
+`duolog allow N`, not for `duolog remember` with an outside rule, not for
+`duolog peer show`, and not for telemetry or balance data. `duolog allow`
+itself still checks who runs it and refuses a person-only ask, or an ask
+sent to another lead, from the lead's session, as below. That check is best
+effort: a call that detaches from the lead's process gets past it, and in
+bypass nothing asks you about such a call first.
+
+In `auto`, Claude Code still asks you about risky calls, and the guards
+above count as risky: each one asks you, as in `default`, `acceptEdits`,
+`plan` or any other mode. They fire only on these person-only calls, and
+on a recursive search that walks the folders that hold the stores, such as
+`grep -r x ~`.
 
 `duolog allow` and `duolog deny` also check who runs them, whatever the
 hook saw. They look for the lead among their own parent processes: a lead
@@ -834,32 +840,21 @@ its parent, with `nohup`, `setsid`, `tmux new -d` or a Rex pane, and drops
 `CLAUDECODE`, looks like your own terminal and is not stopped. No check
 within one user can tell the two apart.
 
-The lead decides by itself only a plain call that stays in the hook's own
-project, whose bus the guard reads. A guarded call asks you when it may run
-duolog in another project: a `cd`, `pushd` or other change of folder or
-environment, also after `builtin`, `noglob` or `nocorrect`, a wrapper such
-as `env` or `sh -c` around duolog, a subshell, a
-`-C`, `--project` or state-folder flag, or anything duolog cannot read for
-sure, such as `duolog allow "$N"`, a backslash or an open quote. A word in
-single quotes, or in double quotes without `$`, a backtick or a backslash,
-is read as the literal word the shell passes on: the rule in
-`duolog remember 'Bash(go test *)'` goes ahead, and a quoted `'cd'` or
-`'--project'` still counts as a `cd` or a flag. An allow or deny then names
-only ask numbers and `--lead`.
-
-duolog reads the mode from the lead's own hook input, which Claude Code
-writes, and from the mode it recorded for that registered lead from earlier
-hook input. Both must say `bypassPermissions` or `auto`; a lead that has
-just left bypass is asked again. A Claude subagent shares its lead's
-session id, but its hook input carries an `agent_id` and may carry the mode
-of its own definition. duolog records the lead's mode only from input
-without an `agent_id`, and a call with one is always asked, so a subagent
-set to `bypassPermissions` cannot turn the guards off for a lead in
-`default`. No environment variable or file can turn
-this on. A worker or a peer cannot use it: its session is not a registered
-lead, and its hook takes the worker path. A Codex lead keeps the deny in
-every mode, `danger-full-access` included, because duolog reads its mode
-from a transcript file and not from the hook input.
+This holds only for a registered Claude lead of the project. duolog reads
+the mode of the lead's own call from its hook input, which Claude Code
+writes: a lead that has just entered bypass is not asked, and one that has
+just left it is asked again. A session that is no registered lead, such as
+a headless `claude -p` that a lead starts, keeps every guard. A Claude
+subagent shares its lead's session id, and its hook input carries an
+`agent_id` and may carry the mode of its own definition. duolog records
+the lead's mode only from input without an `agent_id`. A subagent's call
+goes ahead when its own input and the lead's recorded mode both say
+`bypassPermissions`, so a subagent set to `bypassPermissions` cannot turn
+the guards off for a lead in `default`. No environment variable or file
+can turn this on. A worker or a peer cannot use it: its hook takes the
+worker path. A Codex
+lead keeps the deny in every mode, `danger-full-access` included, because
+duolog reads its mode from a transcript file and not from the hook input.
 
 ## What the gate cannot see
 

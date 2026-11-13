@@ -55,6 +55,13 @@ func modeInput(id, root, native, command string) []byte {
 	return data
 }
 
+// subagentInput is a lead's hook payload for one Bash call that a Claude
+// subagent of the lead makes: the lead's session id, the subagent's own id.
+func subagentInput(id, root, native, command string) []byte {
+	data, _ := json.Marshal(map[string]any{"session_id": id, "agent_id": "child-example", "agent_type": "general-purpose", "cwd": root, "tool_name": "Bash", "permission_mode": native, "tool_input": map[string]string{"command": command}})
+	return data
+}
+
 // personGuarded is one command for each guard that asks the person today.
 var personGuarded = map[string]string{
 	"person-only allow":     "duolog allow 1",
@@ -64,94 +71,50 @@ var personGuarded = map[string]string{
 	"telemetry and balance": "duolog telemetry show",
 }
 
-// uncertainGuarded are the personGuarded commands the lead guard cannot read
-// for sure: a lead that decides by itself is still asked about them, since
-// such a command may run in another project (staysInProject). A quoted rule
-// is a literal word and does not count.
-var uncertainGuarded = map[string]bool{"allow without number": true}
-
-// A quote changes no word into a plain one: a quoted cd, flag or expansion
-// that is a real word of the command is still asked, and a quoted rule of
-// duolog remember is one literal word.
-func TestSelfDecidingLeadReadsQuotedWords(t *testing.T) {
-	stateDir, root := leadTrustProject(t, "claude", "bypassPermissions")
-	// A folder outside the project on every system: on Windows, /elsewhere
-	// alone has no volume and is not an absolute path.
-	elsewhere := filepath.ToSlash(filepath.VolumeName(root)) + "/elsewhere"
-	for _, tc := range []struct {
-		command string
-		asked   bool
-	}{
-		{`duolog remember 'cat ` + elsewhere + `/notes.txt'`, false},
-		{`duolog remember "cat ` + elsewhere + `/notes.txt"`, false},
-		{`duolog remember 'Bash(cat ` + elsewhere + `/*)'`, false},
-		{`duolog remember 'cd ` + elsewhere + ` && cat notes.txt'`, false},
-		{`duolog allow '1'`, false},
-		{`'cd' ` + elsewhere + ` && duolog allow 1`, true},
-		{`"cd" ` + elsewhere + `; duolog allow 1`, true},
-		{`duolog allow 1 '--project' ` + elsewhere, true},
-		{`duolog allow 1 '--project=` + elsewhere + `'`, true},
-		{`du'olog' allow 1 '-C' ` + elsewhere, true},
-		{`'env' X=1 duolog allow 1`, true},
-		{`duolog allow "$N"`, true},
-		{`duolog allow 1 "$X"`, true},
-		{"duolog allow 1 \"`pwd`\"", true},
-		{`duolog allow 1 "a\b"`, true},
-		{`duolog allow 1 'x`, true},
-		{`duolog remember 'cat ` + elsewhere + `/notes.txt`, true},
-	} {
-		d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, "bypassPermissions", tc.command))
-		if ok != tc.asked {
-			t.Errorf("%s: %+v, asked %v, want %v", tc.command, d, ok, tc.asked)
-		}
+// bypassCalls are guarded calls that the person-only guards ask about in
+// other modes, in the forms a lead or its subagent writes them: after a cd,
+// for another lead's ask, behind a wrapper or inside a script.
+func bypassCalls(other string) []string {
+	return []string{
+		"cd sub && duolog allow 1",
+		"builtin cd /elsewhere && duolog allow 1 --lead lead-a",
+		"duolog allow " + other + " --lead lead-a",
+		`duolog allow "$N"`,
+		"env X=1 duolog allow " + other,
+		`python3 -c 'import subprocess; subprocess.run(["duolog","allow","` + other + `"])'`,
+		`cd /tmp && duolog remember 'cp ~/.ssh/id_rsa k'`,
+		"cd sub; duolog telemetry show",
+		"duolog peer show peer-x",
 	}
 }
 
-// Re-review 5, N4: builtin, and zsh's noglob and nocorrect, run the word
-// after them, so the lead guard judges that word: a builtin cd or export
-// leaves the folder as a bare one does, and noglob duolog allow is still
-// duolog's own allow.
-func TestSelfDecidingLeadSeesThroughBuiltin(t *testing.T) {
-	stateDir, root := leadTrustProject(t, "claude", "bypassPermissions")
-	elsewhere := filepath.ToSlash(filepath.VolumeName(root)) + "/elsewhere"
-	for _, tc := range []struct {
-		command string
-		asked   bool
-	}{
-		{`builtin cd ` + elsewhere + ` && duolog allow 1 --lead lead-a`, true},
-		{`builtin export GIT_DIR=` + elsewhere + `/.git && duolog allow 1 --lead lead-a`, true},
-		{`BUILTIN cd ` + elsewhere + `; duolog allow 1`, true},
-		{`noglob cd ` + elsewhere + ` && duolog allow 1`, true},
-		{`nocorrect builtin pushd ` + elsewhere + ` && duolog allow 1`, true},
-		{`noglob env X=1 duolog allow 1`, true},
-		{`noglob duolog allow 1`, false},
-		{`nocorrect duolog allow 1`, false},
-	} {
-		d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, "bypassPermissions", tc.command))
-		if ok != tc.asked {
-			t.Errorf("%s: %+v, asked %v, want %v", tc.command, d, ok, tc.asked)
-		}
-	}
-}
-
-// A Claude lead in bypassPermissions or auto decides by itself: no guard asks
-// the person about a plain call, and duolog allow for a person-only ask goes
-// ahead.
-func TestSelfDecidingLeadIsNotAsked(t *testing.T) {
-	for _, native := range []string{"bypassPermissions", "auto"} {
+// A Claude lead in bypassPermissions decides by itself: no guard asks the
+// person, whatever the call names or where it runs. A lead in any other
+// mode is asked about the same calls.
+func TestBypassLeadIsNeverAsked(t *testing.T) {
+	for _, native := range []string{"bypassPermissions"} {
 		stateDir, root := leadTrustProject(t, "claude", native)
+		other := strconv.FormatInt(otherLeadAsk(t, stateDir, "default"), 10)
 		for guard, command := range personGuarded {
-			d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, native, command))
-			if ok != uncertainGuarded[guard] {
-				t.Errorf("%s lead, %s (%s): %+v, asked %v", native, guard, command, d, ok)
+			if d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, native, command)); ok {
+				t.Errorf("%s lead, %s (%s): %+v", native, guard, command, d)
+			}
+		}
+		for _, command := range bypassCalls(other) {
+			if d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, native, command)); ok {
+				t.Errorf("%s lead, %s: %+v", native, command, d)
+			}
+			if d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, "default", command)); !ok || d.Kind != policy.Ask {
+				t.Errorf("default payload, %s: %+v, %v", command, d, ok)
 			}
 		}
 	}
 }
 
-// A Claude lead in any other mode is asked by every guard exactly as before.
+// A Claude lead in any other mode, auto included, is asked by every guard:
+// auto lets Claude Code ask about risky calls, and these are.
 func TestOtherLeadModesAreStillAsked(t *testing.T) {
-	for _, native := range []string{"default", "acceptEdits", "plan", "dontAsk", "", "unknown"} {
+	for _, native := range []string{"auto", "default", "acceptEdits", "plan", "dontAsk", "", "unknown"} {
 		stateDir, root := leadTrustProject(t, "claude", native)
 		for guard, command := range personGuarded {
 			d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, native, command))
@@ -162,34 +125,42 @@ func TestOtherLeadModesAreStillAsked(t *testing.T) {
 	}
 }
 
-// The payload and duolog's record of the lead must both say bypass or auto:
-// a lead that has just left bypass, or whose record says otherwise, is asked.
-func TestPayloadAndRecordMustAgree(t *testing.T) {
-	for _, c := range []struct{ record, payload string }{
-		{"bypassPermissions", "default"},
-		{"auto", "acceptEdits"},
-		{"default", "bypassPermissions"},
-		{"plan", "auto"},
-		{"bypassPermissions", ""},
+// The lead's own call follows the mode its payload states, which Claude Code
+// writes: a lead that has just entered bypass is not asked, one that has just
+// left it is.
+func TestLeadCallFollowsItsPayload(t *testing.T) {
+	for _, c := range []struct {
+		record, payload string
+		asked           bool
+	}{
+		{"bypassPermissions", "default", true},
+		{"bypassPermissions", "auto", true},
+		{"bypassPermissions", "", true},
+		{"default", "bypassPermissions", false},
+		{"plan", "bypassPermissions", false},
 	} {
 		stateDir, root := leadTrustProject(t, "claude", c.record)
 		for guard, command := range personGuarded {
-			if d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, c.payload, command)); !ok || d.Kind != policy.Ask {
-				t.Errorf("record %q payload %q, %s: %+v, %v", c.record, c.payload, guard, d, ok)
+			if d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, c.payload, command)); ok != c.asked {
+				t.Errorf("record %q payload %q, %s: %+v, asked %v", c.record, c.payload, guard, d, ok)
 			}
 		}
 	}
 }
 
-// A worker or a peer cannot use the lead's mode: a session that is not a
-// registered lead, a worker or peer environment, or a payload that names
-// the lead from a project without its record is still asked.
+// A worker or a peer cannot use the lead's mode: its process takes the
+// worker path or carries DUOLOG_PEER, so it is still asked. Nor can a
+// session that is no registered lead, such as a headless claude -p that a
+// lead starts with its permissions skipped, or any session in a project
+// without a record.
 func TestWorkerAndPeerCannotUseLeadMode(t *testing.T) {
 	stateDir, root := leadTrustProject(t, "claude", "bypassPermissions")
 	for guard, command := range personGuarded {
-		// A peer's or worker's own session is not a registered lead.
-		if d, ok := guardLeadCall(stateDir, "claude", modeInput("peer-session", root, "bypassPermissions", command)); !ok || d.Kind != policy.Ask {
+		if d, ok := guardLeadCall(stateDir, "claude", modeInput("nested-headless", root, "bypassPermissions", command)); !ok || d.Kind != policy.Ask {
 			t.Errorf("unregistered session, %s: %+v, %v", guard, d, ok)
+		}
+		if d, ok := guardLeadCall(t.TempDir(), "claude", modeInput("lead-claude", root, "bypassPermissions", command)); !ok || d.Kind != policy.Ask {
+			t.Errorf("no record, %s: %+v, %v", guard, d, ok)
 		}
 	}
 	for _, env := range []struct{ name, value string }{{"DUOLOG_DEPTH", "1"}, {"DUOLOG_PEER", "peer-x"}} {
@@ -201,11 +172,6 @@ func TestWorkerAndPeerCannotUseLeadMode(t *testing.T) {
 				}
 			}
 		})
-	}
-	// No record at all: a state folder without the lead.
-	other := t.TempDir()
-	if d, ok := guardLeadCall(other, "claude", modeInput("lead-claude", root, "bypassPermissions", "duolog peer show peer-x")); !ok || d.Kind != policy.Ask {
-		t.Errorf("no record: %+v, %v", d, ok)
 	}
 }
 
@@ -233,50 +199,25 @@ func otherLeadAsk(t *testing.T, stateDir, native string) int64 {
 	return n
 }
 
-// A bypass lead decides only its own asks: allowing another lead's
-// person-only ask, by number with --lead, with no number, or next to one of
-// its own, still asks the person.
-func TestSelfDecidingLeadCannotAllowAnotherLeadsAsk(t *testing.T) {
-	stateDir, root := leadTrustProject(t, "claude", "bypassPermissions")
-	n := otherLeadAsk(t, stateDir, "default")
-	other := strconv.FormatInt(n, 10)
-	for _, command := range []string{
-		"duolog allow " + other + " --lead lead-a",
-		"duolog --lead lead-a allow " + other,
-		"duolog allow " + other,
-		`duolog allow "$N" --lead lead-a`,
-		`duolog allow "$N"`,
-		"duolog allow 1 && duolog allow " + other + " --lead lead-a",
-		"duolog peer show peer-x; duolog allow " + other + " --lead lead-a",
-		`duolog remember 'cp ~/.ssh/id_rsa k'; duolog allow ` + other + " --lead lead-a",
-		`env X=1 duolog allow ` + other + ` --lead lead-a`,
-	} {
-		d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, "bypassPermissions", command))
-		if !ok || d.Kind != policy.Ask {
-			t.Errorf("%s: %+v, %v", command, d, ok)
-		}
-	}
-	// Its own ask still goes ahead with the other lead's ask pending.
-	if d, ok := guardLeadCall(stateDir, "claude", modeInput("lead-claude", root, "bypassPermissions", "duolog allow 1")); ok {
-		t.Errorf("own ask: %+v", d)
-	}
-}
-
-// subagentInput is a lead's hook payload for one Bash call that a Claude
-// subagent of the lead makes: the lead's session id, the subagent's own id.
-func subagentInput(id, root, native, command string) []byte {
-	data, _ := json.Marshal(map[string]any{"session_id": id, "agent_id": "child-example", "agent_type": "general-purpose", "cwd": root, "tool_name": "Bash", "permission_mode": native, "tool_input": map[string]string{"command": command}})
-	return data
-}
-
-// A subagent shares its lead's session id, but its call never uses the
-// lead's bypass or auto: every guard asks.
-func TestSubagentOfSelfDecidingLeadIsAsked(t *testing.T) {
-	for _, native := range []string{"bypassPermissions", "auto"} {
+// A subagent shares its lead's session id: under a lead in bypass, with its
+// own payload in bypass, it is not asked either. A subagent payload in
+// another mode is asked, and so is a subagent whose lead has no record in
+// this project.
+func TestSubagentOfBypassLeadIsNotAsked(t *testing.T) {
+	for _, native := range []string{"bypassPermissions"} {
 		stateDir, root := leadTrustProject(t, "claude", native)
+		other := strconv.FormatInt(otherLeadAsk(t, stateDir, "default"), 10)
+		for _, command := range append(bypassCalls(other), "cd sub && cat <<'EOF' > a.h\n/** x */\nEOF") {
+			if d, ok := guardLeadCall(stateDir, "claude", subagentInput("lead-claude", root, native, command)); ok {
+				t.Errorf("%s lead, subagent %s: %+v", native, command, d)
+			}
+		}
 		for guard, command := range personGuarded {
-			if d, ok := guardLeadCall(stateDir, "claude", subagentInput("lead-claude", root, native, command)); !ok || d.Kind != policy.Ask {
-				t.Errorf("%s lead, subagent %s: %+v, %v", native, guard, d, ok)
+			if d, ok := guardLeadCall(stateDir, "claude", subagentInput("lead-claude", root, "default", command)); !ok || d.Kind != policy.Ask {
+				t.Errorf("%s lead, default subagent %s: %+v, %v", native, guard, d, ok)
+			}
+			if d, ok := guardLeadCall(t.TempDir(), "claude", subagentInput("lead-claude", root, native, command)); !ok || d.Kind != policy.Ask {
+				t.Errorf("no record, subagent %s: %+v, %v", guard, d, ok)
 			}
 		}
 	}
@@ -320,12 +261,13 @@ func TestCodexLeadInFullAccessIsStillDenied(t *testing.T) {
 }
 
 // Through the installed lead hook: a bypass lead's duolog allow for a
-// person-only ask gets no decision from duolog, and a default lead's is asked.
-func TestLeadGateLetsSelfDecidingLeadAllow(t *testing.T) {
+// person-only ask gets no decision from duolog, and an auto or default
+// lead's is asked.
+func TestLeadGateLetsBypassLeadAllow(t *testing.T) {
 	for _, c := range []struct {
 		native string
 		asked  bool
-	}{{"bypassPermissions", false}, {"auto", false}, {"default", true}} {
+	}{{"bypassPermissions", false}, {"auto", true}, {"default", true}} {
 		t.Run(c.native, func(t *testing.T) {
 			isolatedRouteConfig(t)
 			_, root := leadTrustProject(t, "claude", c.native)

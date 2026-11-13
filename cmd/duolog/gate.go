@@ -93,7 +93,7 @@ func newGateCommand(deps *cmdDeps) *cobra.Command {
 	cmd := &cobra.Command{Use: "gate", Short: "Decide a worker hook request", SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
 		started := time.Now()
 		// A lead records its live mode and keeps person-only approvals for the
-		// person, unless it runs in bypass or auto (guardLeadCall).
+		// person, unless it runs in bypass (guardLeadCall).
 		if !isWorker() {
 			leadGate(cmd, agent, event, started)
 			return nil

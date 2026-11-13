@@ -9,10 +9,10 @@ The table covers all operating systems and architectures in `.goreleaser.yaml`.
 | Package | Version | License |
 |---|---|---|
 | github.com/bmatcuk/doublestar/v4 | v4.10.4 | MIT |
-| github.com/gofrs/flock | v0.13.1 | BSD-3-Clause |
+| github.com/gofrs/flock | v0.13.2 | BSD-3-Clause |
 | github.com/inconshreveable/mousetrap | v1.1.0 | Apache-2.0 |
 | github.com/pelletier/go-toml/v2 | v2.4.3 | MIT |
 | github.com/spf13/cobra | v1.10.2 | Apache-2.0 |
-| github.com/spf13/pflag | v1.0.10 | BSD-3-Clause |
+| github.com/spf13/pflag | v1.1.0 | BSD-3-Clause |
 | go.yaml.in/yaml/v3 | v3.0.6 | MIT AND Apache-2.0 |
-| golang.org/x/sys | v0.49.0 | BSD-3-Clause |
+| golang.org/x/sys | v0.50.0 | BSD-3-Clause |

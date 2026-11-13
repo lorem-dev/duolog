@@ -245,6 +245,56 @@ func TestProtectedRepositorySearch(t *testing.T) {
 	}
 }
 
+// A worker's deny reads every ** as recursive, so /** reaches the stores.
+// With ShallowStar, as the lead guard asks, the /** that opens a code comment
+// is /*, which reaches nothing, while a glob in or below a store's own name,
+// and any other ** (globstar reads a trailing ** and **x recursively), still
+// reaches them.
+func TestProtectedShallowStar(t *testing.T) {
+	h := newProtectedHome(t)
+	slash := filepath.ToSlash
+	base := slash(filepath.Dir(h.telemetry))
+	for _, tc := range []struct {
+		command       string
+		worker, ahead bool
+	}{
+		{"echo '/** x */'", true, false},
+		{"echo /**", true, false},
+		{"ls **/*.go", false, false},
+		{"cat '" + slash(filepath.Join(h.telemetry, "v1")) + "/*'", true, true},
+		{"cat " + slash(filepath.Join(h.telemetry, "salt")), true, true},
+		{"grep -r x '" + base + "'", true, true},
+		{"cat '" + base + "'/tel*/salt", true, true},
+		{"cat '" + base + "'/telemetr?/salt", true, true},
+		{"grep -h . '" + base + "'/*/salt", true, true},
+		{"cat ~/state/*/telemetry/salt", true, true},
+		{"cat /**/salt", true, true},
+		{"cat /***", true, true},
+		{"shopt -s globstar; cat ~/**", true, true},
+		{"setopt globstarshort; cat ~/**salt", true, true},
+		{"setopt globstarshort; cat /**salt", true, true},
+		{"cat ~/state/**", true, true},
+	} {
+		a := Action{Kind: "exec", Target: tc.command, Work: h.work, Cwd: h.work, ProtectedRoots: h.roots()}
+		if _, ok := protectedDecision(a, mode.Full); ok != tc.worker {
+			t.Errorf("worker %s: denied %v, want %v", tc.command, ok, tc.worker)
+		}
+		a.ShallowStar = true
+		if _, ok := protectedDecision(a, mode.Full); ok != tc.ahead {
+			t.Errorf("lead %s: guarded %v, want %v", tc.command, ok, tc.ahead)
+		}
+	}
+	// A quoted comment with leading spaces in a heredoc, read as Windows
+	// reads it, where a path drops those spaces.
+	comment := "python - <<'EOF'\ns = s.replace(old, '''  /** The mail ids */\n''')\nEOF"
+	for _, shell := range []string{"", "windows"} {
+		a := Action{Kind: "exec", Target: comment, Work: h.work, Cwd: h.work, ProtectedRoots: h.roots(), ShallowStar: true, Shell: shell}
+		if d, ok := protectedDecision(a, mode.Full); ok {
+			t.Errorf("lead, shell %q, comment in a heredoc: %+v", shell, d)
+		}
+	}
+}
+
 // Under eval or sh -c the outer shell removes the backslash, so an escaped
 // separator is a real one by the time the command runs. Both readings count.
 func TestEscapedSeparatorsStayDenied(t *testing.T) {

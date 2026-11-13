@@ -502,7 +502,7 @@ model turn and the lines it prints.
 
 `peer show` refuses workers, non-terminal output, Claude/Codex marker
 variables and Claude/Codex ancestor processes. The lead hook also guards
-wrapped calls: Claude asks, except in `auto` or `bypassPermissions`; Codex
+wrapped calls: Claude asks, except in `bypassPermissions`; Codex
 denies. These checks prevent accidents, but a deliberate workaround can
 bypass them.
 
@@ -629,7 +629,7 @@ model and a worker. The Claude pane runs it with `DUOLOG_VIEWER=claude-mod`,
 and it passes only when Claude Code is its direct parent process, so the
 variable alone does not pass a model's shell command. The lead hook guards a
 command that runs `duolog runs tail` as it guards `peer show`, behind any
-wrapper: Claude asks except in `auto` or `bypassPermissions`; Codex denies.
+wrapper: Claude asks except in `bypassPermissions`; Codex denies.
 The pane's own call is no tool call of the lead, so the hook does not see it.
 
 Without an id, `watch` follows the newest running run. It starts at the
@@ -645,7 +645,7 @@ reading `stdout.log`. It uses the same caller checks as
 without `--tab`, including assignments and wrappers. Merely mentioning it
 in a search or commit message does not count. A `--tab` used as the value
 of `--lead` or `--client` does not count either. Claude asks except in
-`auto` or `bypassPermissions`; Codex denies. The command's own refusal
+`bypassPermissions`; Codex denies. The command's own refusal
 still applies.
 
 `watch --tab` opens the tab in duolog's own Rex session, the one that holds

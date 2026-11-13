@@ -69,7 +69,7 @@ func protectedDecision(a Action, m mode.Mode) (Decision, bool) {
 		roots[i] = placeRoot(root)
 	}
 	reaches := func(target string, search bool) bool {
-		placed := placeTarget(base, target, a.Shell)
+		placed := placeTarget(base, a.placeable(target), a.Shell)
 		chain := ancestry(placed)
 		for _, root := range roots {
 			if root.reaches(placed, chain, search) {
@@ -97,6 +97,25 @@ func protectedDecision(a Action, m mode.Mode) (Decision, bool) {
 		}
 	}
 	return Decision{}, false
+}
+
+// placeable is the target that a places against the stores. With ShallowStar
+// a word that is /** alone, or /** and a space, as a code comment opens,
+// starts with /* instead: one level below /, which holds no store. Every
+// other ** stays recursive, since bash's globstar and zsh's globstarshort
+// read a trailing ** and **x that way. What it gives up is a globstar read
+// of the whole disk, such as cat /**, which the lead guard then leaves to
+// the lead. Leading spaces, which a quoted word may hold and a Windows path
+// drops, do not count.
+func (a Action) placeable(target string) string {
+	word := strings.TrimLeftFunc(target, unicode.IsSpace)
+	if !a.ShallowStar || len(word) < 3 || word[0] != '/' && word[0] != '\\' || word[1:3] != "**" {
+		return target
+	}
+	if rest := word[3:]; rest != "" && !unicode.IsSpace(rune(rest[0])) {
+		return target
+	}
+	return word[:2] + word[3:]
 }
 
 // protectedCommand reports whether a command line runs duolog telemetry or

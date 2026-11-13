@@ -15,7 +15,7 @@ import (
 
 // leadToolInput is a lead's hook input for one tool call.
 func leadToolInput(agent, root, tool string, input map[string]string) []byte {
-	data, _ := json.Marshal(map[string]any{"session_id": "lead-" + agent, "cwd": root, "tool_name": tool, "tool_input": input, "permission_mode": "bypassPermissions"})
+	data, _ := json.Marshal(map[string]any{"session_id": "lead-" + agent, "cwd": root, "tool_name": tool, "tool_input": input, "permission_mode": "default"})
 	return data
 }
 
@@ -48,6 +48,9 @@ func TestTelemetryLeadAccess(t *testing.T) {
 		shell(`grep -rn '"sol"\|sol:' ` + quote(telemetryRoot) + ` 2>/dev/null | sort -u`),
 		shell(`grep -rn '"sol"\|sol:' ` + quote(balanceRoot) + ` 2>/dev/null | sort -u`),
 		shell("cat " + quote(filepath.Join(balanceRoot, "samples.ndjson"))),
+		// A glob below a store, or in its own name, reaches it.
+		shell("cat " + quote(filepath.Join(telemetryRoot, "v1")+"/*")),
+		shell("cat " + quote(filepath.Dir(telemetryRoot)) + "/" + filepath.Base(telemetryRoot)[:3] + "*/salt"),
 		{"Read", map[string]string{"file_path": filepath.Join(telemetryRoot, "salt")}},
 		{"Read", map[string]string{"file_path": filepath.Join(balanceRoot, "state.json")}},
 		{"Grep", map[string]string{"pattern": "claude", "path": telemetryRoot}},
@@ -60,6 +63,11 @@ func TestTelemetryLeadAccess(t *testing.T) {
 		shell("duolog doctor"), shell("go test ./..."), shell("cat notes.txt"), shell("duolog delegate implement --task telemetry.md"),
 		{"Read", map[string]string{"file_path": filepath.Join(root, "README.md")}},
 		{"Grep", map[string]string{"pattern": "telemetry", "path": root}},
+		// Code text with the /** that opens a comment is no path (a Bash call
+		// that a subagent sent to the person in bypass mode).
+		shell("cd sub && uv run --no-project python - <<'EOF'\ns = s.replace(old, '''  /** The mail ids */\n    static constexpr int32 Max = 256;\n''' + old)\nEOF\ncd .. && git add -A && git status --short"),
+		shell("echo '/** x */'"), shell("echo /**"), shell("printf '%s\\n' '**/*.go'"),
+		{"Glob", map[string]string{"pattern": "src/**/*.h"}},
 	}
 	for _, agent := range []string{"claude", "codex"} {
 		for _, c := range guarded {

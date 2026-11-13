@@ -163,13 +163,15 @@ without global flags such as `--lead`.
 
 A lead model is not the person, and what it reads leaves the machine with its
 context. When a Claude lead runs a `duolog telemetry` command, or reads the
-folder, you confirm the call, unless the lead runs in `bypassPermissions` or
-`auto` (see [Permissions](permissions.md)). A Codex lead is told to have you
-run it in your terminal. Besides the first notice, a session start says at most
-`telemetry: unhealthy`. A `doctor` that a model runs, or whose output goes
-to a pipe, says only `telemetry: on, healthy`, `off` or `unhealthy`: no path,
-id, size or day. `doctor` in your own terminal shows the full line and the
-warnings.
+folder, you confirm the call, unless the lead runs in `bypassPermissions`
+(see [Permissions](permissions.md)). A word that is `/**` alone or
+before a space, as a code comment opens, counts as `/*`, so it is no read
+of the folder; any other glob, such as `tel*`, `/**x` or `~/**`, still
+counts. A Codex lead is told to have you run it in your terminal. Besides
+the first notice, a session start says at most `telemetry: unhealthy`. A
+`doctor` that a model runs, or whose output goes to a pipe, says only
+`telemetry: on, healthy`, `off` or `unhealthy`: no path, id, size or day.
+`doctor` in your own terminal shows the full line and the warnings.
 
 ## What the protection does not cover
 

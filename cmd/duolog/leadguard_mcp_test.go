@@ -69,10 +69,10 @@ func TestGuardAsksPersonForPersonOnlyAskViaMCP(t *testing.T) {
 	})
 }
 
-// A bypass or auto lead that owns the person-only ask answers it through the
-// tool as it would with duolog allow.
+// A bypass lead that owns the person-only ask answers it through the tool as
+// it would with duolog allow.
 func TestGuardLetsBypassLeadAnswerOwnAskViaMCP(t *testing.T) {
-	for _, native := range []string{"bypassPermissions", "auto"} {
+	for _, native := range []string{"bypassPermissions"} {
 		stateDir, root := leadTrustProject(t, "claude", native)
 		for _, decision := range []string{"allow", "deny"} {
 			if d, ok := guardLeadCall(stateDir, "claude", mcpAnswerCall("lead-claude", root, native, 1, decision)); ok {
@@ -83,13 +83,17 @@ func TestGuardLetsBypassLeadAnswerOwnAskViaMCP(t *testing.T) {
 }
 
 // A bypass lead's allow of another lead's person-only ask through the tool
-// still asks the person.
-func TestGuardAsksBypassLeadForOtherLeadsAskViaMCP(t *testing.T) {
+// gets no decision from the guard either; answer_ask itself refuses it
+// (checkCaller). A default lead's is asked.
+func TestGuardLeavesOtherLeadsAskViaMCPToBypassLead(t *testing.T) {
 	stateDir, root := leadTrustProject(t, "claude", "bypassPermissions")
 	n := otherLeadAsk(t, stateDir, "default")
-	d, ok := guardLeadCall(stateDir, "claude", mcpAnswerCall("lead-claude", root, "bypassPermissions", n, "allow"))
+	if d, ok := guardLeadCall(stateDir, "claude", mcpAnswerCall("lead-claude", root, "bypassPermissions", n, "allow")); ok {
+		t.Fatalf("bypass, other lead's ask %d: %+v", n, d)
+	}
+	d, ok := guardLeadCall(stateDir, "claude", mcpAnswerCall("lead-claude", root, "default", n, "allow"))
 	if !ok || d.Kind != policy.Ask || d.Rule != "person-only ask" {
-		t.Fatalf("other lead's ask %d: %+v, %v", n, d, ok)
+		t.Fatalf("default, other lead's ask %d: %+v, %v", n, d, ok)
 	}
 }
 

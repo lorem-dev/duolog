@@ -36,8 +36,11 @@ type Action struct {
 	// State is the project root whose .duolog folder recursive reads must avoid.
 	// Cwd resolves paths inside a read command. Neither is logged.
 	State, Cwd string `json:"-"`
-	Search     bool   `json:"-"`
-	Glob       string `json:"-"`
+	// Search marks a search tool's read. ShallowStar reads the /** that opens
+	// a code comment as /*, which reaches no store (placeable); the lead
+	// guard sets it, a worker's deny keeps ** recursive everywhere.
+	Search, ShallowStar bool   `json:"-"`
+	Glob                string `json:"-"`
 	// MCPExact means the hook named the MCP server as configured, so Target
 	// holds its exact name rather than the folded one.
 	MCPExact bool `json:"-"`

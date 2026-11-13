@@ -224,13 +224,13 @@ func TestLeadGuardWritesBeforeObservation(t *testing.T) {
 	cmd := newRootCommand(testDeps(t))
 	cmd.SetOut(w)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetIn(strings.NewReader(`{"session_id":"lead-123456","permission_mode":"bypassPermissions","tool_name":"Bash","tool_input":{"command":"duolog allow 1"}}`))
+	cmd.SetIn(strings.NewReader(`{"session_id":"lead-123456","permission_mode":"acceptEdits","tool_name":"Bash","tool_input":{"command":"duolog allow 1"}}`))
 	cmd.SetArgs([]string{"gate", "--agent", "claude", "--event", "PreToolUse"})
 	if err := cmd.Execute(); err != nil || w.Len() == 0 {
 		t.Fatal(err, w.String())
 	}
 	lead, _, err := r.Lead("lead-123456")
-	if err != nil || lead.Mode != mode.Full {
+	if err != nil || lead.Mode != mode.Parse("claude", "acceptEdits") {
 		t.Fatal("observation must still run", lead.Mode, err)
 	}
 }
