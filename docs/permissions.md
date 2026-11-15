@@ -209,9 +209,13 @@ goes on.
 
 When the gate changed, install records each gate approval of the file that
 it did not renew as stale, so that trust does not count it for the new
-command. An approval that was not of duolog's own hook as duolog wrote it,
-such as a hook of another tool or an older gate guard, is also recorded as
-one that duolog never renews. Both lists live next to `config.toml`:
+command. An approval whose hash matches the new hook is not stale, as when
+install writes back a form you approved earlier: Codex runs that hook as it
+is. Trust and adoption read a recorded approval that matches the hook again
+the same way, and the sweep drops its record. An approval that was not of
+duolog's own hook as duolog wrote it, such as a hook of another tool or an
+older gate guard, is also recorded as one that duolog never renews. Both
+lists live next to `config.toml`:
 `duolog-stale-approvals.json` and `duolog-stale-unrenewable.json`.
 
 When Codex lacks trust or hook approval for a write role, duolog skips it
@@ -321,8 +325,9 @@ while the folder above the worktree and the source checkout exist, so a
 worktree on a volume that is not mounted keeps its trust. Each table must
 spell the worktree's path exactly as duolog's comment does. It never takes
 out tables for a folder that exists, or a table that duolog did not write.
-Then it renews stale gate approvals, as described above. It
-uses the same lock, backup and single rename, and it stops after a few
+Before it adopts any worktree, it settles stale gate approvals, as
+described above, so that adoption copies those that approve their hook
+again. It uses the same lock, backup and single rename, and it stops after a few
 seconds. A session start prints one line only when the sweep changed
 something, and says nothing when it fails. `duolog doctor --fix` prints a
 line for each change, or a warning that says what failed. Until a sweep

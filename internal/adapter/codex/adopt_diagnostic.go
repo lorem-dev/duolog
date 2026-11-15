@@ -121,7 +121,7 @@ func (a adopter) keyProblem(c copyCheck, key string) string {
 		return ""
 	}
 	_, hash, approved := approvalEntry(c.cfg.Hooks.State[key])
-	if !approved || a.stale[key] == hash {
+	if !approved || staleApproval(a.stale, key, hash, c.source, event, position) {
 		return ""
 	}
 	g, h := positionOf(position)

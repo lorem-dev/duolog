@@ -102,14 +102,16 @@ func MarkStaleApprovals(home, hooksPath string) error {
 // MarkStaleApprovalsFor records, for each Codex approval of a gate position
 // in hooksPath, the trusted_hash Codex holds now, after duolog changed the
 // gate command there: every such approval, whatever hook it approved, so that
-// trust never counts it for the new command. fresh names the approvals that
-// duolog renewed for the new command, with their new hash; they are not
-// stale. renewable reports whether an approval with its hash approved
+// trust never counts it for the new command. live reports whether an approval
+// with its hash approves the hook now at its place: one duolog renewed for the
+// new command, or one whose hash already matches the new hook, such as an
+// approval of a form that install wrote earlier and now writes again. Those
+// are not stale; nil means none is. renewable reports whether an approval with its hash approved
 // duolog's own hook as duolog wrote it, in the hooks file before the change;
 // those that do not, and all of them when renewable is nil, are also recorded
 // as never to be renewed (unrenewableApprovalsFile). Entries Codex has
 // approved again since are dropped from both files.
-func MarkStaleApprovalsFor(home, hooksPath string, fresh map[string]string, renewable func(key, hash string) bool) error {
+func MarkStaleApprovalsFor(home, hooksPath string, live, renewable func(key, hash string) bool) error {
 	codexHome := trusthome.Codex(home)
 	unlock, err := lockApprovals(codexHome)
 	if err != nil {
@@ -125,7 +127,7 @@ func MarkStaleApprovalsFor(home, hooksPath string, fresh map[string]string, rene
 	target := pathutil.Clean(pathutil.Resolved(hooksPath))
 	for key, hash := range current {
 		path, _, ok := ApprovalPath(key)
-		if renewed, isFresh := fresh[key]; isFresh && renewed == hash {
+		if live != nil && live(key, hash) {
 			delete(stale, key)
 			delete(unrenewable, key)
 			continue

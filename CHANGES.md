@@ -42,6 +42,13 @@
 
 ## Development
 
+## 1.10.1
+
+### Fixed
+
+- A Codex gate approval that install recorded as stale counts again once the
+  hook matches it, and `duolog doctor --fix` drops the record.
+
 ## 1.10.0
 
 ### Added

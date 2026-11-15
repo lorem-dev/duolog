@@ -74,11 +74,16 @@ func TestAdoptionProblem(t *testing.T) {
 				writeFile(t, filepath.Join(dir, ".codex", "config.toml"), "model = 'b'\n")
 				writeFile(t, filepath.Join(dir, ".codex", "z.rules"), "different\n")
 			}
+			if tc.name == "stale approval" {
+				// The person approved an older gate, which install then changed:
+				// the approval no longer matches the hook at its place.
+				data = strings.ReplaceAll(data, fixtureApprovalHash("PreToolUse"), "sha256:older-gate")
+			}
 			path := filepath.Join(home, "config.toml")
 			writeFile(t, path, data)
 			a := adopter{path: path, dir: dir, roots: []string{root}, userHooks: filepath.Join(home, "hooks.json")}
 			if tc.name == "stale approval" {
-				a.stale = map[string]string{filepath.Join(root, ".codex", "hooks.json") + ":pre_tool_use:0:0": fixtureApprovalHash("PreToolUse")}
+				a.stale = map[string]string{filepath.Join(root, ".codex", "hooks.json") + ":pre_tool_use:0:0": "sha256:older-gate"}
 			}
 			got := a.adoptionProblem([]byte(data))
 			if tc.want == "" {

@@ -217,8 +217,11 @@ func TestAdoptWorktreeWritesNothingWhenACheckFails(t *testing.T) {
 			return f.lead, f.worktree
 		}},
 		{"stale gate approval", func(t *testing.T, f *adoptFixture) (string, string) {
+			// The lead's gate approval is of an older gate that install then
+			// changed: it does not match the hook at its place.
 			key := filepath.Join(f.lead, ".codex", "hooks.json") + ":pre_tool_use:0:0"
-			writeFile(t, filepath.Join(f.codexHome, "duolog-stale-approvals.json"), fmt.Sprintf(`{%q: %q}`, key, fixtureApprovalHash("PreToolUse")))
+			writeFile(t, f.config, strings.ReplaceAll(mustRead(t, f.config), fixtureApprovalHash("PreToolUse"), "sha256:older-gate"))
+			writeFile(t, filepath.Join(f.codexHome, "duolog-stale-approvals.json"), fmt.Sprintf(`{%q: %q}`, key, "sha256:older-gate"))
 			return f.lead, f.worktree
 		}},
 		{"worktree trust set otherwise", func(t *testing.T, f *adoptFixture) (string, string) {

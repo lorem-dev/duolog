@@ -141,7 +141,7 @@ func hooksAt(path string, s codexSettings, stale map[string]string) (agent.Trust
 			if hook.Type != "command" || !group.IsGate(j) {
 				continue
 			}
-			state := approvedGateState(path, s, stale, group, i, j, dev)
+			state := approvedGateState(path, data, s, stale, group, i, j, dev)
 			if state.Trusted && state.Unproven == "" {
 				return state, nil
 			}
@@ -153,14 +153,24 @@ func hooksAt(path string, s codexSettings, stale map[string]string) (agent.Trust
 	return unproven, nil
 }
 
-func approvedGateState(path string, s codexSettings, stale map[string]string, group install.HookGroup, i, j int, dev bool) agent.TrustState {
+// approvedGateState reads the approval of the gate at group i, handler j of
+// the hooks file at path, whose bytes are data.
+func approvedGateState(path string, data []byte, s codexSettings, stale map[string]string, group install.HookGroup, i, j int, dev bool) agent.TrustState {
 	for approved, state := range s.Hooks.State {
 		approvedPath, suffix, ok := install.ApprovalPath(approved)
 		if !ok || suffix != fmt.Sprintf("%d:%d", i, j) || !activeCodexApproval(state.TrustedHash, state.Enabled) ||
 			pathutil.Clean(pathutil.Resolved(approvedPath)) != pathutil.Clean(pathutil.Resolved(path)) {
 			continue
 		}
-		reason := codexApprovalProblem(path, state.TrustedHash, stale[approved])
+		staleHash := stale[approved]
+		if staleHash == state.TrustedHash {
+			// A later install may have written the approved form again: then
+			// the approval matches the hook as it is, and Codex runs it.
+			if now, err := hookHash(data, "PreToolUse", i, j); err == nil && now == state.TrustedHash {
+				staleHash = ""
+			}
+		}
+		reason := codexApprovalProblem(path, state.TrustedHash, staleHash)
 		if !knownGateHook(group, j, dev) {
 			reason = "the approved Codex gate hook in " + path +
 				" is not duolog's gate command, and Codex skips a hook changed after approval; run duolog install and approve it in /hooks"

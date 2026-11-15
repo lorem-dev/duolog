@@ -564,12 +564,20 @@ func copyApprovals(cfg adoptConfig, root, dir string, target hooksDoc, stale map
 	return copies, gate
 }
 
+// staleApproval reports whether the approval key with hash is one that
+// duolog's install made stale (stale) and that does not match the hook now
+// at its place in doc (matchesHook): a later install may have written the
+// approved form again.
+func staleApproval(stale map[string]string, key, hash string, doc hooksDoc, event, place string) bool {
+	return stale[key] == hash && !matchesHook(doc, event, place, hash)
+}
+
 func sourceApproval(cfg adoptConfig, key, root string, source hooksDoc, stale map[string]string) (string, bool) {
 	path, spelled, position, ok := splitApproval(key)
 	event := codexEvents()[spelled]
 	g, h := positionOf(position)
 	_, hash, approved := approvalEntry(cfg.Hooks.State[key])
-	if !ok || event == "" || !samePath(path, filepath.Join(root, ".codex", "hooks.json")) || !approved || stale[key] == hash || !hasHandler(source, event, g, h) || !ownHandler(event, source.groups[event][g], h) {
+	if !ok || event == "" || !samePath(path, filepath.Join(root, ".codex", "hooks.json")) || !approved || staleApproval(stale, key, hash, source, event, position) || !hasHandler(source, event, g, h) || !ownHandler(event, source.groups[event][g], h) {
 		return "", false
 	}
 	return event, event == "PreToolUse" && source.groups[event][g].IsGate(h)

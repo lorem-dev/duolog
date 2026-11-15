@@ -25,15 +25,16 @@ const sweepTimeout = 4 * time.Second
 // process whose environment is environ. A worktree made with plain git
 // worktree add then gets trust before duolog delegates into it.
 //
+// First it settles the approvals that duolog's install made stale: it drops
+// those that match the hook at their place again, and approves again the
+// hooks where the person had approved the hook at their place (renewStale).
 // The repositories are the main checkouts at or below root that Codex
 // trusts in config.toml; each costs one git command, and only a worktree
 // that still needs adoption (needsAdoption) goes through AdoptWorktree's
-// checks. Then it takes out every block of tables that AdoptWorktree wrote,
+// checks. Last it takes out every block of tables that AdoptWorktree wrote,
 // anywhere in config.toml, whose worktree folder no longer exists while the
 // folder above it and its source root do (prunable); a block whose folder
-// exists, and any table duolog did not write, stays. Last it
-// approves again the hooks that duolog's install made stale where the
-// person had approved the hook at their place (renewStale). Every write keeps
+// exists, and any table duolog did not write, stays. Every write keeps
 // AdoptWorktree's lock, backup and single-rename rules. The whole call is
 // bounded by sweepTimeout. The lines say what it wrote; none means nothing
 // changed. Failures say nothing but the error.
@@ -55,10 +56,15 @@ func (Trust) AdoptWorktrees(root string, environ []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	lines, errs := adoptBelow(ctx, filepath.Clean(root), data, environ)
+	// Stale approvals are settled first, so that adoption copies those that
+	// approve their hook again.
+	lines, err := renewStale(ctx, config, home, environ)
+	errs := []error{err}
+	more, adoptErrs := adoptBelow(ctx, filepath.Clean(root), data, environ)
+	lines = append(lines, more...)
+	errs = append(errs, adoptErrs...)
 	for _, step := range []func() ([]string, error){
 		func() ([]string, error) { return pruneRemoved(ctx, config) },
-		func() ([]string, error) { return renewStale(ctx, config, home, environ) },
 	} {
 		if ctx.Err() != nil {
 			errs = append(errs, ctx.Err())

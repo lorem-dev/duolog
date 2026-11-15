@@ -11,6 +11,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/lorem-dev/duolog/internal/install"
+	"github.com/lorem-dev/duolog/internal/store"
 	"github.com/lorem-dev/duolog/internal/trusthome"
 )
 
@@ -52,12 +53,34 @@ func (i Installer) RenewApprovals(home, path string, old, updated []byte) ([]str
 	for _, c := range renewed {
 		fresh[c.key] = c.hash
 	}
+	live := func(key, hash string) bool {
+		if renewed, ok := fresh[key]; ok && renewed == hash {
+			return true
+		}
+		approvalPath, spelled, place, ok := splitApproval(key)
+		return okNew && ok && samePath(approvalPath, path) && matchesHook(after, codexEvents()[spelled], place, hash)
+	}
 	renewable := func(key, hash string) bool {
 		_, spelled, place, ok := splitApproval(key)
 		event := codexEvents()[spelled]
 		return okOld && ok && event != "" && ownApproval(before, event, place, hash)
 	}
-	return lines, install.MarkStaleApprovalsFor(home, path, fresh, renewable)
+	return lines, install.MarkStaleApprovalsFor(home, path, live, renewable)
+}
+
+// matchesHook reports whether hash is the approval hash of the handler at
+// place of event in doc, whatever its form: Codex then runs that handler as
+// it is, so its approval is not stale. It approves nothing new.
+func matchesHook(doc hooksDoc, event, place, hash string) bool {
+	if event == "" || hash == "" {
+		return false
+	}
+	g, h := positionOf(place)
+	if g < 0 || h < 0 || !hasHandler(doc, event, g, h) {
+		return false
+	}
+	now, err := hookHash(doc.data, event, g, h)
+	return err == nil && now == hash
 }
 
 // reapprove writes the new hashes RenewApprovals describes to the config file
@@ -254,12 +277,27 @@ func hashLine(line, hash string) bool {
 // replaced it. A key that install recorded as never to be renewed
 // (install.UnrenewableApprovalsIn), because its approval was not of duolog's
 // own hook as duolog wrote it, stays stale. It then drops the renewed keys
-// from the stale file. config is the config file, home and environ select the
+// from the stale file. First it drops, without writing the config, each
+// record whose hash matches the hook now at its place (currentStale). config is the config file, home and environ select the
 // Codex home.
 func renewStale(ctx context.Context, config, home string, environ []string) ([]string, error) {
 	stale := install.StaleApprovalsIn(home, environ)
 	for key, hash := range install.UnrenewableApprovalsIn(home, environ) {
 		if stale[key] == hash {
+			delete(stale, key)
+		}
+	}
+	if len(stale) == 0 {
+		return nil, nil
+	}
+	// A stale approval whose hash matches the hook now at its place, as when
+	// a later install wrote the approved form again, approves that hook as
+	// it is: it is no longer stale, and nothing is written to the config.
+	if current := currentStale(config, stale); len(current) > 0 {
+		if err := install.DropStaleApprovals(home, environ, current); err != nil {
+			return nil, err
+		}
+		for key := range current {
 			delete(stale, key)
 		}
 	}
@@ -292,6 +330,29 @@ func renewStale(ctx context.Context, config, home string, environ []string) ([]s
 		renewed[c.key] = c.old
 	}
 	return lines, install.DropStaleApprovals(home, environ, renewed)
+}
+
+// currentStale returns the stale approvals that the config file at config
+// still holds with the recorded hash and that match the hook now at their
+// place (matchesHook), with that hash.
+func currentStale(config string, stale map[string]string) map[string]string {
+	data, err := store.ReadFile(config)
+	var cfg adoptConfig
+	if err != nil || toml.Unmarshal(data, &cfg) != nil {
+		return nil
+	}
+	current := map[string]string{}
+	for key, recorded := range stale {
+		hash, _ := cfg.Hooks.State[key]["trusted_hash"].(string)
+		path, spelled, place, ok := splitApproval(key)
+		if !ok || hash != recorded || !plainPath(path) || !filepath.IsAbs(path) {
+			continue
+		}
+		if doc, read := readHooksDoc(path); read && matchesHook(doc, codexEvents()[spelled], place, hash) {
+			current[key] = hash
+		}
+	}
+	return current
 }
 
 // staleRenewals lists the stale approvals in the config data that renewStale

@@ -196,7 +196,13 @@ func TestInstallEndsWithCodexSetup(t *testing.T) {
 				text += fmt.Sprintf("[projects.%q]\ntrust_level = \"trusted\"\n", root)
 			}
 			if tc.hooks {
-				text += fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = %q\n", filepath.Join(root, ".codex", "hooks.json")+":PreToolUse:0:0", fixtureCodexApproval(t, 630))
+				approval := fixtureCodexApproval(t, 630)
+				if tc.name == "changed hooks" {
+					// The person approved the older hook that install replaces;
+					// an approval of the hook install writes would stay current.
+					approval = "sha256:older-hook"
+				}
+				text += fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = %q\n", filepath.Join(root, ".codex", "hooks.json")+":PreToolUse:0:0", approval)
 			}
 			if err := os.MkdirAll(os.Getenv("CODEX_HOME"), 0700); err != nil {
 				t.Fatal(err)
