@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,14 +22,11 @@ func (Trust) WorktreeTrustProblem(lead, dir string, environ []string) string {
 	if !ok {
 		return ""
 	}
-	main, ok := linkedWorktree(lead, dir)
+	roots, ok := sourceRoots(context.Background(), filepath.Clean(lead), filepath.Clean(dir))
 	if !ok {
 		return ""
 	}
-	a := adopter{path: filepath.Join(codexHome, "config.toml"), dir: dir, roots: []string{lead}, userHooks: filepath.Join(codexHome, "hooks.json"), stale: install.StaleApprovalsIn(home, environ)}
-	if main != "" && !samePath(main, lead) {
-		a.roots = append(a.roots, main)
-	}
+	a := adopter{path: filepath.Join(codexHome, "config.toml"), dir: dir, roots: roots, userHooks: filepath.Join(codexHome, "hooks.json"), stale: install.StaleApprovalsIn(home, environ)}
 	data, err := os.ReadFile(a.path)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Sprintf("could not read source trust: %v", err)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -28,7 +29,7 @@ import (
 )
 
 func newDoctorCommand(d *cmdDeps) *cobra.Command {
-	var probe bool
+	var probe, fix bool
 	cmd := &cobra.Command{Use: "doctor", Short: "Report agent health, trust and availability", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		root, err := projectRoot()
 		if err != nil {
@@ -37,6 +38,11 @@ func newDoctorCommand(d *cmdDeps) *cobra.Command {
 		cfg, err := configfile.Load(root, wiring.ConfigOptions())
 		if err != nil {
 			return doctorConfigError(cmd, err)
+		}
+		if fix {
+			if err := doctorFix(cmd.OutOrStdout(), root, cfg); err != nil {
+				return err
+			}
 		}
 		reg, err := session.Open(project.LeadHome(root))
 		if err != nil {
@@ -59,7 +65,30 @@ func newDoctorCommand(d *cmdDeps) *cobra.Command {
 		return err
 	}}
 	cmd.Flags().BoolVar(&probe, "probe", false, "Make a minimal model call from an empty temporary folder")
+	cmd.Flags().BoolVar(&fix, "fix", false, "Give linked worktrees the Codex trust of their main checkout and tidy up after removed ones, then report")
 	return cmd
+}
+
+// doctorFix runs the worktree trust sweep for the project at root before the
+// checks, so that they read the result, and prints a fixed: line for each
+// change, a warning when the sweep failed, or that nothing needed a change.
+// Without --fix doctor writes nothing.
+func doctorFix(w io.Writer, root string, cfg *config.Config) error {
+	lines, sweepErr := wiring.SweepWorktreeTrust(root, cfg, os.Environ())
+	for _, line := range lines {
+		if _, err := fmt.Fprintf(w, "fixed: %s\n", line); err != nil {
+			return err
+		}
+	}
+	if sweepErr != nil {
+		_, err := fmt.Fprintf(w, "warning: worktree trust: %v\n", sweepErr)
+		return err
+	}
+	if len(lines) == 0 {
+		_, err := fmt.Fprintln(w, "info: worktree trust: nothing to fix")
+		return err
+	}
+	return nil
 }
 
 // doctorRexPanes sets the Rex binary and the pane inventory in opts when Rex is

@@ -3,6 +3,8 @@ package wiring
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"runtime"
 	"slices"
@@ -220,6 +222,10 @@ func HookEnv(env hook.Env) hook.Env {
 		line, _ := InstallDeps().RefreshSkills(root, home)
 		return line
 	}
+	env.TrustSweep = func(root string, cfg *config.Config, environ []string) string {
+		lines, _ := SweepWorktreeTrust(root, cfg, environ)
+		return SweepLine(lines)
+	}
 	env.RestartNote = func(since time.Time) string {
 		home, err := os.UserHomeDir()
 		if err != nil || !InstallDeps().NewerThan(home, since) {
@@ -228,6 +234,45 @@ func HookEnv(env hook.Env) hook.Env {
 		return install.RestartNote
 	}
 	return env
+}
+
+// worktreeSweeper is the Trust of an agent that can give every linked
+// worktree below a project root the trust of its main checkout: Codex's.
+type worktreeSweeper interface {
+	AdoptWorktrees(root string, environ []string) ([]string, error)
+}
+
+// SweepWorktreeTrust runs the worktree trust sweep of each agent that cfg
+// enables and that has one, for the project at root and a process whose
+// environment is environ. The lines say what changed; none means nothing did.
+func SweepWorktreeTrust(root string, cfg *config.Config, environ []string) ([]string, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+	var lines []string
+	var errs []error
+	for _, a := range Agents() {
+		s, ok := a.Trust.(worktreeSweeper)
+		if !ok || !cfg.AgentEnabled(a.Facts.Name) {
+			continue
+		}
+		more, err := s.AdoptWorktrees(root, environ)
+		lines = append(lines, more...)
+		errs = append(errs, err)
+	}
+	return lines, errors.Join(errs...)
+}
+
+// SweepLine is the one line a lead's session start prints for the lines of
+// SweepWorktreeTrust: the first, and how many more; "" for none.
+func SweepLine(lines []string) string {
+	switch len(lines) {
+	case 0:
+		return ""
+	case 1:
+		return "duolog: " + lines[0]
+	}
+	return fmt.Sprintf("duolog: %s; and %d more changes to Codex trust", lines[0], len(lines)-1)
 }
 
 // projectInstall returns the install deps with the project skills folders

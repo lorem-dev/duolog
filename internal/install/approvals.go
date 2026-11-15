@@ -18,6 +18,8 @@ import (
 // may not reach. It maps a Codex hook approval key to the trusted_hash Codex
 // held for it when duolog install last changed the gate command in that
 // key's hooks file: that hash approves the older command, not the new one.
+// It holds every such gate approval, whatever hook it approved; which of them
+// duolog may renew is unrenewableApprovalsFile's business.
 const staleApprovalsFile = "duolog-stale-approvals.json"
 
 // StaleApprovals returns the approvals duolog install made stale under home:
@@ -31,15 +33,7 @@ func StaleApprovals(home string) map[string]string {
 // StaleApprovalsIn is StaleApprovals in the Codex home that a process whose
 // environment is environ uses.
 func StaleApprovalsIn(home string, environ []string) map[string]string {
-	data, err := os.ReadFile(filepath.Join(trusthome.CodexIn(home, environ), staleApprovalsFile))
-	if err != nil {
-		return nil
-	}
-	var stale map[string]string
-	if json.Unmarshal(data, &stale) != nil {
-		return nil
-	}
-	return stale
+	return readApprovals(filepath.Join(trusthome.CodexIn(home, environ), staleApprovalsFile))
 }
 
 // ApprovalPath splits a Codex PreToolUse approval key into its hooks file and
@@ -79,16 +73,81 @@ func GateCommands(data []byte) string {
 	return b.String()
 }
 
+// unrenewableApprovalsFile lives next to staleApprovalsFile and has the same
+// form. It holds the stale entries that duolog must never approve again by
+// itself: when install marked them, their hash did not approve duolog's own
+// hook as duolog wrote it at that place, such as a hook of another tool or
+// an older gate guard. They stay in staleApprovalsFile too, so that trust
+// never counts their hash for the new command, and an older duolog that does
+// not know this file still reads them as stale. An entry of
+// staleApprovalsFile that is not here, as an older duolog wrote them all, may
+// be renewed, and only ever for a hook in the form duolog install writes.
+const unrenewableApprovalsFile = "duolog-stale-unrenewable.json"
+
+// UnrenewableApprovalsIn returns the stale approvals that duolog must not
+// renew (unrenewableApprovalsFile) in the Codex home that home and environ
+// select. A missing or broken file has none.
+func UnrenewableApprovalsIn(home string, environ []string) map[string]string {
+	return readApprovals(filepath.Join(trusthome.CodexIn(home, environ), unrenewableApprovalsFile))
+}
+
 // MarkStaleApprovals records, for each Codex approval of a gate position in
 // hooksPath, the trusted_hash Codex holds now, after duolog changed the gate
-// command there. Entries Codex has approved again since are dropped.
+// command there, none of them as renewable. Entries Codex has approved again
+// since are dropped.
 func MarkStaleApprovals(home, hooksPath string) error {
+	return MarkStaleApprovalsFor(home, hooksPath, nil, nil)
+}
+
+// MarkStaleApprovalsFor records, for each Codex approval of a gate position
+// in hooksPath, the trusted_hash Codex holds now, after duolog changed the
+// gate command there: every such approval, whatever hook it approved, so that
+// trust never counts it for the new command. fresh names the approvals that
+// duolog renewed for the new command, with their new hash; they are not
+// stale. renewable reports whether an approval with its hash approved
+// duolog's own hook as duolog wrote it, in the hooks file before the change;
+// those that do not, and all of them when renewable is nil, are also recorded
+// as never to be renewed (unrenewableApprovalsFile). Entries Codex has
+// approved again since are dropped from both files.
+func MarkStaleApprovalsFor(home, hooksPath string, fresh map[string]string, renewable func(key, hash string) bool) error {
 	codexHome := trusthome.Codex(home)
 	unlock, err := lockApprovals(codexHome)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = unlock() }()
+	current, err := configApprovals(codexHome)
+	if err != nil {
+		return err
+	}
+	stale := held(StaleApprovals(home), current)
+	unrenewable := held(readApprovals(filepath.Join(codexHome, unrenewableApprovalsFile)), stale)
+	target := pathutil.Clean(pathutil.Resolved(hooksPath))
+	for key, hash := range current {
+		path, _, ok := ApprovalPath(key)
+		if renewed, isFresh := fresh[key]; isFresh && renewed == hash {
+			delete(stale, key)
+			delete(unrenewable, key)
+			continue
+		}
+		if !ok || hash == "" || pathutil.Clean(pathutil.Resolved(path)) != target {
+			continue
+		}
+		stale[key] = hash
+		delete(unrenewable, key)
+		if renewable == nil || !renewable(key, hash) {
+			unrenewable[key] = hash
+		}
+	}
+	if err := writeApprovals(codexHome, staleApprovalsFile, stale); err != nil {
+		return err
+	}
+	return writeApprovals(codexHome, unrenewableApprovalsFile, unrenewable)
+}
+
+// configApprovals reads the trusted_hash of each hook approval in
+// config.toml of codexHome; a missing file has none.
+func configApprovals(codexHome string) (map[string]string, error) {
 	var cfg struct {
 		Hooks struct {
 			State map[string]struct {
@@ -96,29 +155,82 @@ func MarkStaleApprovals(home, hooksPath string) error {
 			} `toml:"state"`
 		} `toml:"hooks"`
 	}
-	data, err := os.ReadFile(filepath.Join(codexHome, "config.toml"))
-	if err != nil && !os.IsNotExist(err) {
+	path := filepath.Join(codexHome, "config.toml")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return map[string]string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := toml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	current := map[string]string{}
+	for key, state := range cfg.Hooks.State {
+		current[key] = state.TrustedHash
+	}
+	return current, nil
+}
+
+// held returns the entries of recorded whose hash have still holds for the
+// same key.
+func held(recorded, have map[string]string) map[string]string {
+	out := map[string]string{}
+	for key, hash := range recorded {
+		if current, ok := have[key]; ok && current == hash {
+			out[key] = hash
+		}
+	}
+	return out
+}
+
+// readApprovals reads a map of approval key to hash; a missing or broken file
+// has none.
+func readApprovals(path string) map[string]string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var m map[string]string
+	if json.Unmarshal(data, &m) != nil {
+		return nil
+	}
+	return m
+}
+
+// DropStaleApprovals takes out of the stale approvals of the Codex home that
+// home and environ select each key that renewed maps to the hash recorded
+// for it: duolog has approved the hook at its place again.
+func DropStaleApprovals(home string, environ []string, renewed map[string]string) error {
+	codexHome := trusthome.CodexIn(home, environ)
+	if _, err := os.Stat(filepath.Join(codexHome, staleApprovalsFile)); os.IsNotExist(err) {
+		return nil
+	}
+	unlock, err := lockApprovals(codexHome)
+	if err != nil {
 		return err
 	}
-	if err == nil {
-		if err := toml.Unmarshal(data, &cfg); err != nil {
-			return fmt.Errorf("%s: %w", filepath.Join(codexHome, "config.toml"), err)
+	defer func() { _ = unlock() }()
+	stale := StaleApprovalsIn(home, environ)
+	dropped := false
+	for key, hash := range renewed {
+		if recorded, ok := stale[key]; ok && recorded == hash {
+			delete(stale, key)
+			dropped = true
 		}
 	}
-	stale := map[string]string{}
-	for key, hash := range StaleApprovals(home) {
-		if current, ok := cfg.Hooks.State[key]; ok && current.TrustedHash == hash {
-			stale[key] = hash
-		}
+	if !dropped {
+		return nil
 	}
-	target := pathutil.Clean(pathutil.Resolved(hooksPath))
-	for key, state := range cfg.Hooks.State {
-		path, _, ok := ApprovalPath(key)
-		if ok && state.TrustedHash != "" && pathutil.Clean(pathutil.Resolved(path)) == target {
-			stale[key] = state.TrustedHash
-		}
-	}
-	file := filepath.Join(codexHome, staleApprovalsFile)
+	return writeApprovals(codexHome, staleApprovalsFile, stale)
+}
+
+// writeApprovals replaces the file name in codexHome with stale in one
+// rename, or removes it when stale is empty. The caller holds the lock of
+// the stale approvals.
+func writeApprovals(codexHome, name string, stale map[string]string) error {
+	file := filepath.Join(codexHome, name)
 	if len(stale) == 0 {
 		if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
 			return err
@@ -129,7 +241,7 @@ func MarkStaleApprovals(home, hooksPath string) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(codexHome, "."+staleApprovalsFile+".*.tmp")
+	tmp, err := os.CreateTemp(codexHome, "."+name+".*.tmp")
 	if err != nil {
 		return err
 	}

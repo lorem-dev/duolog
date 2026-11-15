@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/lorem-dev/duolog/internal/adapter/session"
+	"github.com/lorem-dev/duolog/internal/app/install"
 	"github.com/lorem-dev/duolog/internal/app/launch/launchtest"
 	"github.com/lorem-dev/duolog/internal/testbin"
 	"os"
@@ -269,12 +270,17 @@ func TestCommandsCheckCurrentCheckoutTrust(t *testing.T) {
 						t.Fatalf("missing worktree warning: %s", out)
 					}
 				}
-				// Install adds only duolog's MCP server table.
+				// Install adds only duolog's MCP server table, and renews the
+				// approval of the gate it rewrote in the project's hooks file,
+				// which the person approved as duolog wrote it.
 				after, err := os.ReadFile(path)
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, added := withCodexTable(t, string(after), config); command == "install" && !added || command != "install" && string(after) != config {
+				mainKey := filepath.Join(main, ".codex", "hooks.json") + ":PreToolUse:0:0"
+				renewed := strings.Replace(config, fmt.Sprintf("%q]\ntrusted_hash = %q", mainKey, fixtureCodexApproval(t, 30)),
+					fmt.Sprintf("%q]\ntrusted_hash = %q", mainKey, fixtureCodexApproval(t, install.GateTimeout)), 1)
+				if _, added := withCodexTable(t, string(after), renewed); command == "install" && !added || command != "install" && string(after) != config {
 					t.Fatalf("trust changed: %s", after)
 				}
 			})

@@ -107,6 +107,13 @@ type Env struct {
 	// returns a line that says so, or nothing. It never fails the hook. Nil
 	// means no refresh.
 	RefreshSkills func(root string) string
+	// TrustSweep gives the linked worktrees of the repositories below root
+	// the trust their agent holds for the main checkout, and takes out what
+	// duolog wrote for removed ones, for a lead's session start in the
+	// project at root whose config is cfg, with the lead's environment
+	// environ. It returns one line when it changed anything, or nothing; it
+	// never fails the hook and is bounded in time. Nil means no sweep.
+	TrustSweep func(root string, cfg *config.Config, environ []string) string
 	// RestartNote returns the line that tells a lead to restart when install
 	// wrote the user skills or the MCP server entry after since, the start of
 	// its process, or nothing. It only stats local files. Nil means no note.
@@ -374,7 +381,7 @@ func sessionStart(ctx context.Context, e Env) Output {
 		}
 		// The skills are refreshed before the install is checked, so the note
 		// sees them current.
-		for _, line := range []string{submodules, telemetryStart(ctx, e), syncStart(e), compactStart(ctx, e), refreshSkills(e, s), installNote(e, s), restartNote(e, s, true)} {
+		for _, line := range []string{submodules, telemetryStart(ctx, e), syncStart(e), compactStart(ctx, e), refreshSkills(e, s), trustSweep(e, s), installNote(e, s), restartNote(e, s, true)} {
 			if line != "" {
 				lines = append(lines, line)
 			}
@@ -396,6 +403,21 @@ func refreshSkills(e Env, s *state) (line string) {
 		}
 	}()
 	return e.RefreshSkills(e.Root)
+}
+
+// trustSweep runs the trust sweep of a registered lead's session start
+// (Env.TrustSweep). A worker and an unregistered session leave trust alone,
+// and a panic is no line.
+func trustSweep(e Env, s *state) (line string) {
+	if s == nil || e.TrustSweep == nil {
+		return ""
+	}
+	defer func() {
+		if recover() != nil {
+			line = ""
+		}
+	}()
+	return e.TrustSweep(e.Root, s.cfg, environment(e))
 }
 
 // installNote is the note of a registered lead's session start when the

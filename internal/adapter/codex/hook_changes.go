@@ -11,7 +11,7 @@ import (
 	"github.com/lorem-dev/duolog/internal/install"
 )
 
-const changedHookApproval = "Codex skips the changed hook until you approve it in /hooks; duolog cannot approve it for you."
+const changedHookApproval = "Codex skips the changed hook until it is approved again; duolog approves it only where you had approved the hook it replaced, so check /hooks."
 
 // HookChanges describes changes to duolog's entries in the already validated
 // old and merged hooks documents. A first install keeps the usual setup note.

@@ -68,12 +68,13 @@ type PluginStepsAside interface {
 }
 
 // Approvals is implemented by the Installer of an agent that approves each
-// hook by its command: GateChanged says the gate command differs between two
-// bytes of a hooks file, and MarkStale records the approvals that the change
-// made stale.
+// hook by its command. RenewApprovals runs after install replaced old with
+// updated in the hooks file at path: it approves again each of duolog's own
+// hooks that changed where the person had approved exactly the hook it
+// replaced, and records the approvals the change made stale. The lines say
+// what it approved again.
 type Approvals interface {
-	GateChanged(old, updated []byte) bool
-	MarkStale(home, path string) error
+	RenewApprovals(home, path string, old, updated []byte) ([]string, error)
 }
 
 // Agent holds what install asks of one registered agent.
@@ -214,10 +215,8 @@ func (d Deps) Run(o Options) (Report, error) {
 	if err := writeEdits(edits, &report); err != nil {
 		return report, err
 	}
-	for _, r := range regated {
-		if err := r.approvals.MarkStale(o.Home, r.path); err != nil {
-			return report, err
-		}
+	if err := renewApprovals(regated, o.Home, &report); err != nil {
+		return report, err
 	}
 	restart := restartNeeded(edits, report)
 	if wroteEdit(edits, report, func(e edit) bool { return e.restart && e.state }) {
@@ -266,10 +265,10 @@ func planAgents(agents []Agent, o Options, base string) ([]edit, []regate, []str
 		notes = append(notes, hookChangeNotes(a, p)...)
 		if approvals, ok := a.Installer.(Approvals); ok && (!p.plugin || p.sharedHooks) {
 			// The agent skips a hook whose command changed after approval, and its
-			// trusted_hash stays; trust must not count that hash for the new
-			// command.
-			if p.old != nil && approvals.GateChanged(p.old, p.hook.data) {
-				regated = append(regated, regate{approvals, p.hook.path})
+			// trusted_hash stays; duolog approves its own changed hooks again
+			// where it can, and trust must not count the old hash for the rest.
+			if p.old != nil && p.hook != nil && !bytes.Equal(p.old, p.hook.data) {
+				regated = append(regated, regate{approvals, p.hook.path, p.old, p.hook.data})
 			}
 		}
 		edits = append(edits, p.skills...)
@@ -450,11 +449,29 @@ func keepSharedHooks(p *agentPlan, a Agent, o Options) (bool, error) {
 	return true, nil
 }
 
-// regate is a hooks file whose gate command changed, with the agent's way to
-// mark the approvals of the old command stale.
+// regate is a hooks file that install changes from old to data, with the
+// agent's way to approve its own changed hooks again and mark the rest stale.
 type regate struct {
 	approvals Approvals
 	path      string
+	old, data []byte
+}
+
+// renewApprovals lets each agent of regated approve its own changed hooks
+// again in a hooks file that install wrote, under home, and adds what it
+// renewed to report's notes.
+func renewApprovals(regated []regate, home string, report *Report) error {
+	for _, r := range regated {
+		if !slices.Contains(report.Files, r.path) {
+			continue
+		}
+		lines, err := r.approvals.RenewApprovals(home, r.path, r.old, r.data)
+		report.Notes = append(report.Notes, lines...)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // readIfExists returns the bytes of the file at path, nil when there is none.

@@ -27,7 +27,7 @@ requirements.
 Pin a release or choose another directory:
 
 ```sh
-curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.9.5
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.10.0
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | DUOLOG_INSTALL_DIR="$HOME/bin" sh
 ```
 
@@ -54,7 +54,7 @@ binary unchanged.
 To pin a Windows release or choose a directory:
 
 ```powershell
-$env:DUOLOG_VERSION = 'v1.9.5'
+$env:DUOLOG_VERSION = 'v1.10.0'
 $env:DUOLOG_INSTALL_DIR = "$env:LOCALAPPDATA\Programs\duolog"
 irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
 ```
@@ -101,7 +101,7 @@ duolog is not on a package registry; use the installers or Go. Single-line
 
 | Need | Why |
 |---|---|
-| Go 1.26.11 | Only to build from source |
+| Go 1.27.4 | Only to build from source |
 | Git | duolog stores its state in `.duolog/` at the root of the main worktree |
 | Claude Code, Codex, or both | duolog starts them; it does not replace them |
 | Rex | Only for live second sessions. See [Rex](rex.md) |
@@ -471,7 +471,10 @@ folder ignores project `permissions.allow`: start Claude there and accept
 the dialog. `install --check` counts a missing or outdated instruction
 block as out of date; doctor reports it for information. Doctor makes no
 model call unless you pass `--probe` or Claude's plan has no quota windows
-in `/usage`, when it may call Haiku once per route.
+in `/usage`, when it may call Haiku once per route. Doctor changes no trust
+unless you pass `--fix`: then it first gives linked worktrees the Codex trust
+of their main checkout and prints a `fixed:` line for each change (see
+[Permissions](permissions.md#how-a-linked-worktree-gets-codex-trust)).
 
 Each version, billing, catalog and probe check gets its own 60-second budget.
 A slow check does not use up the next check's time. A caller's cancellation

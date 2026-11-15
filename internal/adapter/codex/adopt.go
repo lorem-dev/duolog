@@ -32,7 +32,10 @@ import (
 //
 // It writes only when every check passes: git, run without any GIT_
 // variable, lists dir as a linked worktree of the repository whose top is
-// lead, and dir's common Git folder is lead's; Codex trusts the source root
+// lead, and dir's common Git folder is lead's, or, for a worktree of another
+// repository such as a submodule of the lead's superproject, the same holds
+// for that repository's main checkout, which is then the only source root
+// (sourceRoots); Codex trusts the source root
 // and has approved duolog's PreToolUse gate there; and each approval it
 // copies is of a hook running bare duolog from PATH for the same event in
 // both hooks files, and not one that install made stale. It changes
@@ -49,6 +52,11 @@ import (
 // agent.ErrWorktreeChanged: Codex is not to run there until the person
 // trusts the folder. A trust that duolog did not write is never removed.
 func (Trust) AdoptWorktree(lead, dir string, environ []string) ([]string, error) {
+	return adoptWorktree(context.Background(), lead, dir, environ)
+}
+
+// adoptWorktree is AdoptWorktree, with git and the config lock bounded by ctx.
+func adoptWorktree(ctx context.Context, lead, dir string, environ []string) ([]string, error) {
 	if !plainPath(lead) || !plainPath(dir) || !filepath.IsAbs(lead) || !filepath.IsAbs(dir) || samePath(lead, dir) {
 		return nil, nil
 	}
@@ -58,16 +66,11 @@ func (Trust) AdoptWorktree(lead, dir string, environ []string) ([]string, error)
 		return nil, nil
 	}
 	a := adopter{
-		path:      filepath.Join(codexHome, "config.toml"),
+		ctx:       ctx,
+		path:      configPath(codexHome),
 		dir:       dir,
-		roots:     []string{lead},
 		userHooks: filepath.Join(codexHome, "hooks.json"),
 		stale:     install.StaleApprovalsIn(home, environ),
-	}
-	// A link at the config path is followed: the file it names is the one
-	// locked and replaced.
-	if target, err := filepath.EvalSymlinks(a.path); err == nil {
-		a.path = target
 	}
 	if lines, done, err := a.recheck(); done {
 		return lines, err
@@ -75,14 +78,89 @@ func (Trust) AdoptWorktree(lead, dir string, environ []string) ([]string, error)
 	if !needsAdoption(dir, environ) {
 		return nil, nil
 	}
-	main, ok := linkedWorktree(lead, dir)
-	if !ok {
+	if a.roots, ok = sourceRoots(ctx, lead, dir); !ok {
 		return nil, nil
 	}
-	if main != "" && !samePath(main, lead) {
-		a.roots = append(a.roots, main)
-	}
 	return a.adopt()
+}
+
+// configPath is the path of config.toml in codexHome. A link there is
+// followed: the file it names is the one locked and replaced.
+func configPath(codexHome string) string {
+	path := filepath.Join(codexHome, "config.toml")
+	if target, err := filepath.EvalSymlinks(path); err == nil {
+		return target
+	}
+	return path
+}
+
+// sourceRoots proves that dir is a linked worktree and returns the roots
+// whose trust it may get, in order. When dir is a linked worktree of the
+// repository whose top is lead, they are lead and that repository's main
+// checkout. Otherwise dir may be a worktree of another repository below the
+// lead, such as a submodule of a superproject lead (lead /super, dir
+// /super/sub/.worktrees/x): when dir and its own repository's main checkout
+// both lie at or below lead, that main checkout is the only root, once the
+// same checks prove dir a linked worktree of it. ok is false when neither
+// holds.
+func sourceRoots(ctx context.Context, lead, dir string) (roots []string, ok bool) {
+	if main, ok := linkedWorktreeCtx(ctx, lead, dir); ok {
+		roots = []string{lead}
+		if main != "" && !samePath(main, lead) {
+			roots = append(roots, main)
+		}
+		return roots, true
+	}
+	if !atOrBelow(lead, dir) {
+		return nil, false
+	}
+	own, _, found := mainCheckout(ctx, dir)
+	if !found || samePath(own, dir) || samePath(own, lead) || !atOrBelow(lead, own) {
+		return nil, false
+	}
+	if _, ok := linkedWorktreeCtx(ctx, own, dir); !ok {
+		return nil, false
+	}
+	return []string{own}, true
+}
+
+// mainCheckout returns the main checkout of the repository dir belongs to,
+// from the first entry of git worktree list, run in dir without any GIT_
+// variable, with the entries. A submodule lists its Git folder there, such
+// as /super/.git/modules/sub; git run in it names the checkout that its
+// core.worktree sets, /super/sub, as it names a plain main checkout itself.
+// ok is false for a bare repository or when git fails. A first entry that is
+// dir itself is a main checkout already, which saves a git command.
+func mainCheckout(ctx context.Context, dir string) (string, []worktreeEntry, bool) {
+	env := gitEnv()
+	entries, ok := listWorktrees(ctx, env, dir)
+	if !ok || len(entries) == 0 {
+		return "", nil, false
+	}
+	first := entries[0]
+	if first.bare || !plainPath(first.path) || !filepath.IsAbs(first.path) {
+		return "", nil, false
+	}
+	if samePath(first.path, dir) {
+		return filepath.Clean(first.path), entries, true
+	}
+	top, ok := gitPath(ctx, env, first.path, "rev-parse", "--show-toplevel")
+	if !ok {
+		return "", nil, false
+	}
+	return top, entries, true
+}
+
+// listWorktrees runs git worktree list --porcelain -z in dir with env.
+func listWorktrees(ctx context.Context, env []string, dir string) ([]worktreeEntry, bool) {
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "worktree", "list", "--porcelain", "-z")
+	cmd.Env = env
+	cmd.Stdin = strings.NewReader("")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, false
+	}
+	return parseWorktrees(out), true
 }
 
 // needsAdoption reports whether Codex does not yet both trust dir and run
@@ -197,21 +275,19 @@ func listedLinked(entries []worktreeEntry, dir string) bool {
 // top, and dir's common Git folder is lead's. main is the repository's main
 // checkout, "" for a bare repository.
 func linkedWorktree(lead, dir string) (main string, ok bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	return linkedWorktreeCtx(context.Background(), lead, dir)
+}
+
+// linkedWorktreeCtx is linkedWorktree with git bounded by ctx as well.
+func linkedWorktreeCtx(ctx context.Context, lead, dir string) (main string, ok bool) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	env := gitEnv()
 	if top, ok := gitPath(ctx, env, lead, "rev-parse", "--show-toplevel"); !ok || !samePath(top, lead) {
 		return "", false
 	}
-	cmd := exec.CommandContext(ctx, "git", "-C", lead, "worktree", "list", "--porcelain", "-z")
-	cmd.Env = env
-	cmd.Stdin = strings.NewReader("")
-	out, err := cmd.Output()
-	if err != nil {
-		return "", false
-	}
-	entries := parseWorktrees(out)
-	if !listedLinked(entries, dir) {
+	entries, ok := listWorktrees(ctx, env, lead)
+	if !ok || !listedLinked(entries, dir) {
 		return "", false
 	}
 	if top, ok := gitPath(ctx, env, dir, "rev-parse", "--show-toplevel"); !ok || !samePath(top, dir) {
@@ -224,8 +300,11 @@ func linkedWorktree(lead, dir string) (main string, ok bool) {
 	if common, ok := gitPath(ctx, env, dir, "rev-parse", "--git-common-dir"); !ok || !samePath(common, leadCommon) {
 		return "", false
 	}
+	// A submodule lists its Git folder first (mainCheckout).
 	if first := entries[0]; !first.bare && plainPath(first.path) && filepath.IsAbs(first.path) {
-		main = first.path
+		if top, ok := gitPath(ctx, env, first.path, "rev-parse", "--show-toplevel"); ok {
+			main = top
+		}
 	}
 	return main, true
 }
@@ -300,6 +379,11 @@ func readHooksDoc(path string) (hooksDoc, bool) {
 	if err != nil {
 		return hooksDoc{}, false
 	}
+	return parseHooksDoc(data)
+}
+
+// parseHooksDoc reads the bytes of a Codex hooks file.
+func parseHooksDoc(data []byte) (hooksDoc, bool) {
 	var typed struct {
 		Hooks map[string][]install.HookGroup `json:"hooks"`
 	}

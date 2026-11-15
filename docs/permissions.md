@@ -188,8 +188,31 @@ trust question, and approve the hooks in `/hooks`.
 
 A project-scope `duolog install` ends with the same note when Codex is
 enabled for the project and either step is missing, even with
-`--agent claude`. These checks only read trust and approvals. They do not
-write them or change the gate's rules.
+`--agent claude`. These checks only read trust and approvals, and they
+never change the gate's rules. `duolog doctor --fix` writes the trust that
+duolog can give itself: it gives linked worktrees the trust of their main
+checkout, as described below. When the sweep can fix the worktree that
+doctor runs in, its warning names `duolog doctor --fix`.
+
+When `duolog install` changes one of its own Codex hooks, Codex skips the
+new hook until it is approved, because its approval hash no longer matches.
+For each changed hook, duolog writes the new hash itself when three things
+hold. The old hook at that place was in the form that `duolog install`
+writes, which runs bare `duolog` from PATH. You had approved exactly that
+hook. The new hook at the same place is in that form for the same event.
+Renewal never covers the dev launcher form of duolog's own repository:
+Codex hashes only the command, not the script it runs. The install note
+then has one line for each renewed approval. A hook that duolog did not
+write is never approved, and its approval stays as it is. Any other changed
+hook still needs `/hooks`. When renewal fails, install prints a warning and
+goes on.
+
+When the gate changed, install records each gate approval of the file that
+it did not renew as stale, so that trust does not count it for the new
+command. An approval that was not of duolog's own hook as duolog wrote it,
+such as a hook of another tool or an older gate guard, is also recorded as
+one that duolog never renews. Both lists live next to `config.toml`:
+`duolog-stale-approvals.json` and `duolog-stale-unrenewable.json`.
 
 When Codex lacks trust or hook approval for a write role, duolog skips it
 for that run and tries the next routing candidate. It fails only when no
@@ -197,10 +220,15 @@ candidate remains. The skip line names the worker's folder and the command
 to fix its trust once. In a linked worktree, it also explains why duolog
 could not carry over the source checkout's trust, when its checks can tell.
 The source may lack folder trust or gate
-approval. A stale source gate approval needs renewal in `/hooks` in the
-source checkout. The `.codex` folders may differ; the message names the
-first path. Hooks to copy may also be outside those that `duolog install`
-writes.
+approval. A source gate approval can be stale: an older install changed the
+gate after you approved it. duolog renews it at the next session start of a
+lead, or with `duolog doctor --fix`, when three things hold. The config
+still holds the hash you approved. The hook at that place is in the form
+`duolog install` writes, never the dev launcher form. Install did not record
+the approval as one it never renews. Renew any other stale approval in
+`/hooks` in the source checkout. The `.codex` folders may differ;
+the message names the first path. Hooks to copy may also be outside those
+that `duolog install` writes.
 
 ### How a linked worktree gets Codex trust
 
@@ -217,7 +245,11 @@ inside the worktree; from inside, the main checkout is the source of trust.
   `git` without any `GIT_` variable, and `git worktree list` of the lead's
   checkout names the worktree, not as prunable or bare. The worktree's common
   Git folder is the lead's. A folder with a copied `.git` file does not
-  count.
+  count. A worktree of another repository below the lead, such as
+  `/super/sub/.worktrees/x` of the submodule `/super/sub` under a lead in
+  `/super`, counts too. Both the worktree and its repository's main checkout
+  must lie at or below the lead's checkout. That main checkout is then the
+  only source, and the same checks prove the worktree linked to it.
 - Codex trusts the lead's checkout, or the main checkout, and has approved
   duolog's `PreToolUse` gate hook there.
 - Each approved source hook and target hook is one that `duolog install`
@@ -273,10 +305,28 @@ it did not write.
 
 duolog checks the folders again only when it uses that worktree. Until then
 the trust stays in `config.toml`. If you run `codex` in the worktree
-yourself after its `.codex/` folder changed, Codex still trusts it. The same
-holds for a new folder made at the path of a removed worktree. Check
+yourself after its `.codex/` folder changed, Codex still trusts it. Check
 `.codex/` before you run Codex there by hand, or remove the worktree's
 tables between the two `# duolog:` comments yourself.
+
+A worktree made with plain `git worktree add` gets trust before duolog
+delegates into it. The session start of a lead, when Codex is enabled for
+the project, and `duolog doctor --fix` both run a sweep. It looks at each
+main checkout at or below the project root that Codex trusts, and runs the
+checks above for each of its linked worktrees that still lacks trust or
+gate approval. Most of the time this costs one `git worktree list` for each
+repository. The sweep also takes out duolog's tables for every worktree
+folder that no longer exists, anywhere in `config.toml`. It does so only
+while the folder above the worktree and the source checkout exist, so a
+worktree on a volume that is not mounted keeps its trust. Each table must
+spell the worktree's path exactly as duolog's comment does. It never takes
+out tables for a folder that exists, or a table that duolog did not write.
+Then it renews stale gate approvals, as described above. It
+uses the same lock, backup and single rename, and it stops after a few
+seconds. A session start prints one line only when the sweep changed
+something, and says nothing when it fails. `duolog doctor --fix` prints a
+line for each change, or a warning that says what failed. Until a sweep
+runs, a new folder at the path of a removed worktree keeps that trust.
 
 If a check fails, duolog writes nothing. A delegation skips Codex for the
 run and tries the next candidate. Its line names the worktree and explains
@@ -955,9 +1005,11 @@ timeout of 150. Run `duolog install` to get the full wait; `duolog install
 --check` reports the old value. Codex then needs the hook approved again in
 `/hooks`, because its approval covers the timeout.
 
-An upgrade that changes Codex hook text or timeouts needs new approval in
-`/hooks`; duolog cannot approve hooks for you. The install note names the file,
-each changed event and field with old and new values, and any new events.
+An upgrade that changes Codex hook text or timeouts needs new approval.
+duolog renews it itself where you had approved exactly the hook that install
+replaced, as "How to check Codex trust before a worker starts" describes.
+Approve the rest in `/hooks`. The install note names the file, each changed
+event and field with old and new values, and any new events.
 
 An agent treats a hook it kills as a failed hook, and the tool call can go on:
 

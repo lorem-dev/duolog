@@ -42,6 +42,25 @@
 
 ## Development
 
+## 1.10.0
+
+### Added
+
+- `duolog doctor --fix` and a lead's session start give linked worktrees the
+  Codex trust of their main checkout, and drop it for removed worktrees.
+
+### Changed
+
+- `duolog install` renews Codex approvals of own hooks it changes; a lead's
+  session start and `duolog doctor --fix` renew stale ones.
+- Release binaries are built with Go 1.27.4. Building from source needs Go
+  1.27.4 or newer.
+
+### Fixed
+
+- A worktree of a submodule gets the Codex trust of the submodule's main
+  checkout when the lead runs in the superproject.
+
 ## 1.9.5
 
 ### Changed

@@ -35,8 +35,10 @@ const configLockWait = 10 * time.Second
 
 // adopter holds what AdoptWorktree reads its plan from: the config file, the
 // worktree, the roots whose trust it may copy, the user hooks file and the
-// approvals duolog install made stale.
+// approvals duolog install made stale. ctx bounds the wait for the config's
+// lock; nil means only configLockWait does.
 type adopter struct {
+	ctx       context.Context
 	path, dir string
 	roots     []string
 	userHooks string
@@ -96,7 +98,11 @@ func (a adopter) change(plan configPlan) ([]string, error) {
 	if _, _, ok, err := look(); !ok || err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), configLockWait)
+	base := a.ctx
+	if base == nil {
+		base = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(base, configLockWait)
 	defer cancel()
 	unlock, err := store.LockFileContext(ctx, a.path+configLockSuffix, 20*time.Millisecond)
 	if err != nil {

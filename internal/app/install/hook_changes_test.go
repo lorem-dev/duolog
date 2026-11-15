@@ -42,7 +42,7 @@ func TestCodexHookUpgradeNotes(t *testing.T) {
 			}
 			r := run(t, Options{Scope: scope, Agent: "codex", Home: home, Root: root})
 			text := strings.Join(r.Notes, "\n")
-			suffix := "Codex skips the changed hook until you approve it in /hooks; duolog cannot approve it for you."
+			suffix := "Codex skips the changed hook until it is approved again; duolog approves it only where you had approved the hook it replaced, so check /hooks."
 			for _, event := range []string{"PreToolUse", "PermissionRequest"} {
 				want := "duolog changed " + event + " in " + path + ": timeout 150 -> 630. " + suffix
 				if !strings.Contains(text, want) {

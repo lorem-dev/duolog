@@ -61,5 +61,15 @@ func codexTrustFindings(d Deps, cfg *config.Config, workRoot, root string) []Fin
 	if hooks.Unproven != "" {
 		note += "; " + hooks.Unproven
 	}
+	if s, ok := d.Agents[codexName].Trust.(worktreeSweep); ok && s.SweepCovers(root, workRoot, os.Environ()) {
+		note += "; or run duolog doctor --fix, which gives this linked worktree the trust of its main checkout"
+	}
 	return append(out, Finding{"warning", note})
+}
+
+// worktreeSweep is a Trust whose sweep (duolog doctor --fix) can give a
+// linked worktree the trust of its main checkout: SweepCovers reports
+// whether it would for dir, a folder of the project at root.
+type worktreeSweep interface {
+	SweepCovers(root, dir string, environ []string) bool
 }

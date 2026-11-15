@@ -3,6 +3,7 @@ package paidstore
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -124,7 +125,11 @@ const weeklyClaudeAuth = `{"loggedIn":true,"authMethod":"claude.ai","apiProvider
 
 func installWeeklyClaude(t *testing.T, auth testbin.Scenario) string {
 	t.Helper()
-	const event = `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1794744000,"rateLimitType":"seven_day","overageStatus":"allowed","overageResetsAt":1796083200,"isUsingOverage":false,"unifiedWindows":{"seven_day":{"utilization":0.09,"resetsAt":1794744000,"status":"allowed"}}}}`
+	// The resets lie ahead of the real clock, which the cache reads, so the
+	// window stays current whenever the test runs.
+	resets := time.Now().Add(72 * time.Hour).Unix()
+	overage := time.Now().Add(16 * 24 * time.Hour).Unix()
+	event := fmt.Sprintf(`{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":%d,"rateLimitType":"seven_day","overageStatus":"allowed","overageResetsAt":%d,"isUsingOverage":false,"unifiedWindows":{"seven_day":{"utilization":0.09,"resetsAt":%d,"status":"allowed"}}}}`, resets, overage, resets)
 	return testbin.Install(t, "claude", testbin.Scenario{Responses: map[string]testbin.Scenario{
 		"-p /usage":          {Stdout: `{"type":"result","result":"What's contributing to your usage?"}` + "\n"},
 		"auth status --json": auth,
