@@ -42,6 +42,19 @@
 
 ## Development
 
+## 1.10.2
+
+### Changed
+
+- `duolog delegate <role> <task file>` takes the task file as an argument, as
+  well as with `--task`.
+
+### Fixed
+
+- A wrong `duolog delegate` call, such as one with no task file, says what is
+  wrong; before, it exited 1 with no output.
+- A Read item with words after its path says it was read as one path.
+
 ## 1.10.1
 
 ### Fixed

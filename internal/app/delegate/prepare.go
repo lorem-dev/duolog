@@ -104,9 +104,15 @@ func stateReads(entries []string, check bool) error {
 	}
 	var refused []string
 	for _, entry := range entries {
-		if policy.StateRead(pathutil.Clean(entry)) {
-			refused = append(refused, entry)
+		if !policy.StateRead(pathutil.Clean(entry)) {
+			continue
 		}
+		// A quoted item, as the MCP delegate tool writes each Read item, is
+		// one path even with words after it.
+		if strings.ContainsAny(entry, " \t") {
+			return fmt.Errorf("task Read item %q is read as one path; give the path alone and put the rest in the goal or limits", entry)
+		}
+		refused = append(refused, entry)
 	}
 	if len(refused) == 0 {
 		return nil

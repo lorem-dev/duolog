@@ -31,7 +31,7 @@ type delegateFunc func(context.Context, delegate.Request) (delegate.Outcome, err
 
 func newDelegateCommand(d *cmdDeps) *cobra.Command {
 	var f delegateFlags
-	cmd := &cobra.Command{Use: "delegate <role>", Short: "Delegate a task and print its answer", Long: "Delegate a task and print its answer.\n\nThe task file needs the sections ## Goal, ## Read, ## Write, ## Limits and ## Check.", Args: cobra.ExactArgs(1), SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "delegate <role> [task file]", Short: "Delegate a task and print its answer", Long: "Delegate a task and print its answer.\n\nName the task file as the second argument or with --task. It needs the\nsections ## Goal, ## Read, ## Write, ## Limits and ## Check.", Args: delegateArgs(&f), SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
 		if f.resultFile == "" {
 			return f.run(cmd, args[0], d.runDelegateRecorded(cmd.ErrOrStderr(), args[0], f.taskPath, f.lead))
 		}
@@ -55,8 +55,38 @@ func newDelegateCommand(d *cmdDeps) *cobra.Command {
 	cmd.Flags().BoolVar(&f.force, "force", false, "Start a worker even for a task that routing.small_task_files keeps in the lead")
 	cmd.Flags().StringVar(&f.resultFile, "result-file", "", "Delegation record to write the result to, for duolog mcp")
 	_ = cmd.Flags().MarkHidden("result-file")
-	_ = cmd.MarkFlagRequired("task")
+	cmd.SetFlagErrorFunc(printedErr)
 	return cmd
+}
+
+// delegateArgs takes the role and the task file, which comes as the second
+// argument or with --task. The command silences cobra's errors, because a
+// delegation prints its own line, so these errors print themselves.
+func delegateArgs(f *delegateFlags) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		var err error
+		switch {
+		case len(args) == 0:
+			err = errors.New("name the role: duolog delegate <role> <task file>")
+		case len(args) > 2:
+			err = fmt.Errorf("give a role and one task file, not %d arguments: duolog delegate <role> <task file>", len(args))
+		case len(args) == 2 && f.taskPath != "" && f.taskPath != args[1]:
+			err = fmt.Errorf("the task file is given twice, as %s and as --task %s; give it once", args[1], f.taskPath)
+		case len(args) == 2:
+			f.taskPath = args[1]
+		case f.taskPath == "":
+			err = errors.New("name the task file: duolog delegate <role> <task file>, or --task <file>")
+		}
+		return printedErr(cmd, err)
+	}
+}
+
+// printedErr writes err, if any, to stderr and returns it.
+func printedErr(cmd *cobra.Command, err error) error {
+	if err != nil {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "duolog delegate:", err)
+	}
+	return err
 }
 
 // run is duolog delegate <role> with these flags, the delegation run by

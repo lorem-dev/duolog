@@ -13,7 +13,7 @@ Definitions for duolog and the
 | <a id="worker"></a>Worker | A session that the lead started for one task. It works alone and returns a summary and a diff |
 | <a id="role"></a>Role | A kind of work, such as `implement` or `review_final`. Each role has its own agent and model |
 | <a id="route"></a>Route | The agent, model and effort that do a role |
-| <a id="delegate"></a>Delegate | `duolog delegate <role>`: start a worker for a task and wait for its answer |
+| <a id="delegate"></a>Delegate | `duolog delegate <role> <task file>`: start a worker for a task and wait for its answer |
 | <a id="planner"></a>Planner | The role for a whole feature. It reads the code, implements, runs the checks and lists the risks. It runs on Codex by default |
 | <a id="peer"></a>Peer | A second live session in a Rex pane, opened with `duolog peer open <role>` when you ask for one |
 | <a id="subagent"></a>Subagent | A helper that the lead's own agent starts, without duolog |

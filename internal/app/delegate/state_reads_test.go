@@ -21,3 +21,12 @@ func TestStateReadsRefusesUnreadableState(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A quoted Read item with words after its path is read as one path; the
+// refusal says so rather than asking for a Markdown file it already names.
+func TestStateReadsNamesAProseItem(t *testing.T) {
+	err := stateReads([]string{".duolog/cards/plan.md and every file it lists"}, true)
+	if err == nil || !strings.Contains(err.Error(), "read as one path") || strings.Contains(err.Error(), "save it as a .md file") {
+		t.Fatal(err)
+	}
+}

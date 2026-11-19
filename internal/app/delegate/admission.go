@@ -35,7 +35,7 @@ func (a *admissionState) resolve(ctx context.Context, cfg *config.Config, role s
 	if !a.balanced {
 		a.balanced = true
 		if cfg.Routing.Balance == "pace" {
-			clear := opts.admissionWait("waiting for quota to balance routes")
+			clear := opts.admissionWait("reading quota pace to pick the route; the run may move to another agent")
 			a.balance = paidruns.DefaultPaceBalance(ctx, cfg)
 			clear()
 		}

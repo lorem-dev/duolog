@@ -71,6 +71,49 @@ func TestDelegateCommandRefusalIsOneLine(t *testing.T) {
 	}
 }
 
+// The task file comes as the second argument or with --task, and a wrong
+// call says what is wrong instead of exiting with no output.
+func TestDelegateTaskFileArgument(t *testing.T) {
+	isolatedRouteConfig(t)
+	t.Chdir(t.TempDir())
+	t.Setenv("DUOLOG_DEPTH", "")
+	var got []string
+	testDeps(t).RunDelegate = func(_ context.Context, r delegate.Request) (delegate.Outcome, error) {
+		got = append(got, r.TaskPath)
+		return delegate.Outcome{Line: "ok"}, nil
+	}
+	for _, args := range [][]string{
+		{"delegate", "plan", ".duolog/plan.md"},
+		{"delegate", "plan", "--task", ".duolog/plan.md"},
+		{"delegate", "plan", ".duolog/plan.md", "--task", ".duolog/plan.md"},
+	} {
+		if out, e := executeBusCommand(t, args...); e != nil || out != "ok\n" {
+			t.Fatal(args, out, e)
+		}
+	}
+	if !slices.Equal(got, []string{".duolog/plan.md", ".duolog/plan.md", ".duolog/plan.md"}) {
+		t.Fatal(got)
+	}
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"delegate"}, "name the role"},
+		{[]string{"delegate", "plan"}, "name the task file"},
+		{[]string{"delegate", "plan", "a.md", "b.md"}, "not 3 arguments"},
+		{[]string{"delegate", "plan", "a.md", "--task", "b.md"}, "given twice"},
+		{[]string{"delegate", "plan", "a.md", "--no-such-flag"}, "unknown flag"},
+	} {
+		out, e := executeBusCommand(t, c.args...)
+		if e == nil || !strings.HasPrefix(out, "duolog delegate: ") || !strings.Contains(out, c.want) {
+			t.Fatal(c.args, out, e)
+		}
+	}
+	if len(got) != 3 {
+		t.Fatal(got)
+	}
+}
+
 func TestDelegateRejectsBadFeatures(t *testing.T) {
 	isolatedRouteConfig(t)
 	t.Chdir(t.TempDir())
