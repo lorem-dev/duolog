@@ -40,15 +40,17 @@ func TestAskWaitFollowsTheAskAndItsHook(t *testing.T) {
 func TestLaterHookAsksWithTheTimeLeft(t *testing.T) {
 	dir := t.TempDir()
 	key := AskKey("session", "toolu_1", "exec ls", true)
-	// A pending ask whose asker is gone: it stops counting within one poll.
-	writeMemo(t, dir, key, askMemo{Start: time.Now().UTC().Add(-askGrace + 100*time.Millisecond), Wait: 0})
+	// A pending ask whose asker is gone: it stops counting within one poll,
+	// 400 ms after the memo's start. The hook starts its own clock a little
+	// later, after the memo is written, so the check leaves it 200 ms of that.
+	writeMemo(t, dir, key, askMemo{Start: time.Now().UTC().Add(-askGrace + 400*time.Millisecond), Wait: 0})
 	const wait = 1500 * time.Millisecond
 	var left time.Duration
 	d := EscalateOnce(context.Background(), dir, key, wait, func(l time.Duration) (Decision, bool) {
 		left = l
 		return Decision{Kind: Deny, Reason: "asked"}, true
 	})
-	if d.Reason != "asked" || left <= 0 || left > wait-100*time.Millisecond {
+	if d.Reason != "asked" || left <= 0 || left > wait-200*time.Millisecond {
 		t.Fatalf("decision %+v, asked with %s of %s", d, left, wait)
 	}
 }
