@@ -537,7 +537,9 @@ func TestCodexNullablePermissionAndSpend(t *testing.T) {
 		}
 	})
 	t.Run("workspace plan", func(t *testing.T) {
-		for _, plan := range []string{"team", "business", "enterprise", "edu", "Enterprise"} {
+		// A workspace word inside a longer plan name counts too, such as a
+		// self-serve Business plan; a word that only contains one does not.
+		for _, plan := range []string{"team", "business", "enterprise", "edu", "Enterprise", "self_serve_business_prolite", "enterprise-cbp"} {
 			f := loadCodexBilling(t)
 			f.account()["planType"] = plan
 			if b := codexMatrixFacts(t, f, ""); !slices.Equal(b.WorkspaceReasons, []string{"workspace_plan"}) || !b.RouteKnown {
@@ -549,7 +551,7 @@ func TestCodexNullablePermissionAndSpend(t *testing.T) {
 				t.Fatalf("limit plan %q: %+v", plan, b)
 			}
 		}
-		for _, plan := range []string{"free", "plus", "pro", "go", ""} {
+		for _, plan := range []string{"free", "plus", "pro", "go", "", "prolite", "steam", "education_free"} {
 			f := loadCodexBilling(t)
 			f.account()["planType"], f.limit()["planType"] = plan, plan
 			if b := codexMatrixFacts(t, f, ""); len(b.WorkspaceReasons) != 0 {

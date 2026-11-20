@@ -26,6 +26,10 @@ type Admission struct {
 	TotalLimit  int
 	AgentLimit  int
 	ReadAt      time.Time
+	// WorkspaceTasks is how many tasks of the agent may run at once when the
+	// request or a running task is on a workspace account; below 1 means 1.
+	// A paid run still runs alone.
+	WorkspaceTasks int
 	// accountKey, when set, is the account key the estimate and tier were
 	// made for; admission refuses when the state now holds another.
 	accountKey *string
@@ -157,13 +161,10 @@ func (st *State) admit(in Admission, r paidrules.Reservation) paidrules.Decision
 		} else if !st.windowsFit(r, a.UsableShare, in.ReadAt) {
 			return refuse(ReasonWindow)
 		}
-		for _, held := range st.Reservations {
-			// A pane's open holds its first task until a send takes it; an idle
-			// pane runs nothing, so it keeps no other task waiting.
-			idle := held.Shape == launch.Peer && held.Session
-			if held.Agent == r.Agent && held.Task && !idle && (r.Paid && held.Paid || r.Workspace || held.Workspace) {
-				return refuse(ReasonOneTask)
-			}
+		if full, tasks := st.tasksFull(in, r); full {
+			d := refuse(ReasonOneTask)
+			d.Tasks = tasks
+			return d
 		}
 	}
 	if !r.Session {
@@ -178,6 +179,35 @@ func (st *State) admit(in Admission, r paidrules.Reservation) paidrules.Decision
 		return d
 	}
 	return paidrules.Decision{Admitted: true, Reservation: r, Live: agentLive + 1, Limit: in.AgentLimit}
+}
+
+// tasksFull reports whether task r must wait for the running tasks of its
+// agent. A paid run waits for another paid one. When r or a running task is
+// on a workspace account, r waits while in.WorkspaceTasks of them run, or
+// while any runs when one of them is paid: a paid run still runs alone.
+// tasks is the workspace limit that applied, 0 when a paid run decided.
+func (st *State) tasksFull(in Admission, r paidrules.Reservation) (full bool, tasks int) {
+	busy, workspace, paid := 0, r.Workspace, r.Paid
+	for _, held := range st.Reservations {
+		// A pane's open holds its first task until a send takes it; an idle
+		// pane runs nothing, so it keeps no other task waiting.
+		idle := held.Shape == launch.Peer && held.Session
+		if held.Agent != r.Agent || !held.Task || idle {
+			continue
+		}
+		if r.Paid && held.Paid {
+			return true, 0
+		}
+		busy++
+		workspace, paid = workspace || held.Workspace, paid || held.Paid
+	}
+	switch {
+	case !workspace || busy == 0:
+		return false, 0
+	case paid:
+		return true, 0
+	}
+	return busy >= in.workspaceTasks(), in.workspaceTasks()
 }
 
 // sessions counts the live sessions of agent and of all agents.
@@ -247,6 +277,11 @@ func (st *State) windowsFit(r paidrules.Reservation, u float64, readAt time.Time
 
 func sameWindowKey(a, b paidrules.WindowKey) bool {
 	return a.Kind == b.Kind && a.Family == b.Family && a.Reset.Equal(b.Reset)
+}
+
+// workspaceTasks is in.WorkspaceTasks, at least 1.
+func (in Admission) workspaceTasks() int {
+	return max(in.WorkspaceTasks, 1)
 }
 
 // validate refuses a request that no state could admit, before the lock.

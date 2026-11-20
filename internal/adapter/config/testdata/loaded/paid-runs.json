@@ -1259,6 +1259,7 @@
           "ANTHROPIC_API_KEY"
         ],
         "Account": "workspace",
+        "WorkspaceTasks": 0,
         "SubscriptionEndpoints": {
           "gateway": "https://gateway.example.invalid"
         }
@@ -1271,6 +1272,7 @@
           "OPENAI_API_KEY"
         ],
         "Account": "auto",
+        "WorkspaceTasks": 0,
         "SubscriptionEndpoints": null
       }
     }

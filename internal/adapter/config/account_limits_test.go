@@ -137,6 +137,31 @@ balance: {max_age_seconds: 600, min_interval_share: 0.02, margin: 0.1}
 		t.Errorf("local total = %v, %v; want 2 without notices", cfg, err)
 	}
 
+	// workspace_tasks: only the user config may raise it above 1; the project
+	// and local files are capped at the default even over the user's value,
+	// as the tiers are, and no setting is 1.
+	root = isolatedRoot(t)
+	if cfg, err = Load(root); err != nil || cfg.PaidRuns.WorkspaceTasks("codex") != 1 {
+		t.Errorf("default workspace tasks = %v, %v; want 1", cfg, err)
+	}
+	writeConfig(t, userConfigPath(t), "paid_runs: {codex: {workspace_tasks: 4}}\n")
+	if cfg, err = Load(root); err != nil || cfg.PaidRuns.WorkspaceTasks("codex") != 4 || cfg.PaidRuns.WorkspaceTasks("claude") != 1 || len(cfg.Notices) != 0 {
+		t.Errorf("user workspace tasks = %v, %v; want codex 4, claude 1, no notices", cfg, err)
+	}
+	for _, file := range []string{"config.yaml", "config.local.yaml"} {
+		root = isolatedRoot(t)
+		writeConfig(t, filepath.Join(root, ".duolog", file), "paid_runs: {codex: {workspace_tasks: 5}}\n")
+		if cfg, err = Load(root); err != nil {
+			t.Fatal(err)
+		}
+		if got := cfg.PaidRuns.WorkspaceTasks("codex"); got != 1 {
+			t.Errorf("%s raised workspace tasks to %d", file, got)
+		}
+		if got := noticeKeys(cfg.Notices); !slices.Equal(got, []string{"paid_runs.codex.workspace_tasks"}) {
+			t.Errorf("%s notices = %v", file, got)
+		}
+	}
+
 	// Aliases and merge keys are expanded before the comparison.
 	root = isolatedRoot(t)
 	writeConfig(t, filepath.Join(root, ".duolog", "config.yaml"), `limits:
@@ -186,6 +211,10 @@ balance: {max_age_seconds: 600, min_interval_share: 0.02, margin: 0.1}
 		"limits: {sessions_by_tier: {small: null}}":    "limits.sessions_by_tier.small",
 		"balance: {max_age_seconds: 1, margin: -.inf}": "balance.margin",
 		"limits: {sessions_by_tier: [3, 5, 10]}":       "limits.sessions_by_tier",
+		"paid_runs: {codex: {workspace_tasks: 0}}":     "paid_runs.codex.workspace_tasks",
+		"paid_runs: {codex: {workspace_tasks: -1}}":    "paid_runs.codex.workspace_tasks",
+		"paid_runs: {codex: {workspace_tasks: 1.5}}":   "paid_runs.codex.workspace_tasks",
+		"paid_runs: {codex: {workspace_tasks: many}}":  "paid_runs.codex.workspace_tasks",
 	}
 	for text, want := range cases {
 		for _, file := range []string{"config.local.yaml", "config.yaml"} {
@@ -211,6 +240,7 @@ balance: {max_age_seconds: 600, min_interval_share: 0.02, margin: 0.1}
 		"balance: {margin: 1}",
 		"balance: {margin: -0.1}",
 		"balance: {window: weekly}",
+		"paid_runs: {codex: {workspace_tasks: 0}}",
 	} {
 		if err := schemaValidates(t, s, text); err == nil {
 			t.Errorf("schema accepted %s", text)
@@ -218,6 +248,7 @@ balance: {max_age_seconds: 600, min_interval_share: 0.02, margin: 0.1}
 	}
 	for _, text := range []string{
 		string(config.DefaultYAML()),
+		"paid_runs: {codex: {workspace_tasks: 3}}",
 		"limits: {max_total_sessions: 4, sessions_by_tier: {medium: 3, large: 3}}",
 		"limits: {max_total_sessions: 20, session_wait_seconds: 0}",
 		"balance: {max_age_seconds: 30, min_interval_share: 1, margin: 0}",

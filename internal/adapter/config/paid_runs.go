@@ -147,6 +147,65 @@ func restrictProjectPaid(base, layer *yaml.Node, projectFile string) ([]config.C
 	return notices, nil
 }
 
+// checkWorkspaceTasks checks each paid_runs.<agent>.workspace_tasks that one
+// resolved layer sets: a whole number, 1 or more.
+func checkWorkspaceTasks(root *yaml.Node) error {
+	return eachWorkspaceTasks(root, func(key string, value *yaml.Node) error {
+		var v float64
+		if err := value.Decode(&v); err != nil {
+			return fmt.Errorf("%s: %w", key, err)
+		}
+		if !(v >= 1 && v == math.Trunc(v) && v < 1<<31) {
+			return fmt.Errorf("%s: must be a whole number, 1 or more", key)
+		}
+		return nil
+	})
+}
+
+// capLayerWorkspaceTasks lowers to its default each workspace_tasks that a
+// layer other than the person's user config sets above it, and names it.
+// More tasks at once on a workspace account spend a budget the workspace may
+// share, so only the person may raise it, as with the session tiers. The
+// node is a resolved mapping; file names the layer in notices.
+func capLayerWorkspaceTasks(layer *yaml.Node, file string) ([]config.ConfigNotice, error) {
+	var notices []config.ConfigNotice
+	err := eachWorkspaceTasks(layer, func(key string, value *yaml.Node) error {
+		var number float64
+		if err := decodeOptional(value, &number); err != nil {
+			return err
+		}
+		if number <= config.DefaultWorkspaceTasks {
+			return nil
+		}
+		value.Kind, value.Tag, value.Value, value.Style = yaml.ScalarNode, "!!int", fmt.Sprint(config.DefaultWorkspaceTasks), 0
+		value.Content, value.Alias = nil, nil
+		notices = append(notices, config.ConfigNotice{Key: key, Reason: fmt.Sprintf(
+			"%s in %s is ignored: only the user config may raise this above its default; %d applies",
+			formatNumber(number), file, config.DefaultWorkspaceTasks)})
+		return nil
+	})
+	return notices, err
+}
+
+// eachWorkspaceTasks calls f with the full key and the value of each
+// paid_runs.<agent>.workspace_tasks that a resolved layer sets.
+func eachWorkspaceTasks(root *yaml.Node, f func(key string, value *yaml.Node) error) error {
+	paid := mappingValue(root, "paid_runs")
+	if paid == nil || paid.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(paid.Content); i += 2 {
+		value := mappingValue(paid.Content[i+1], "workspace_tasks")
+		if value == nil {
+			continue
+		}
+		if err := f("paid_runs."+paid.Content[i].Value+".workspace_tasks", value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // keepEntries keeps the mapping entries for which keep returns true.
 func keepEntries(content []*yaml.Node, keep func(string, *yaml.Node) (bool, error)) ([]*yaml.Node, error) {
 	var kept []*yaml.Node

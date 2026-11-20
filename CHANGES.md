@@ -42,6 +42,20 @@
 
 ## Development
 
+## 1.11.0
+
+### Added
+
+- `paid_runs.<agent>.workspace_tasks` in the user config lets a workspace
+  account run more than one task at a time, within its sessions.
+- `duolog delegate <role> -` reads the task from stdin and keeps it under
+  `.duolog/tasks/`; the skills use it, so no task files pile up in `.duolog/`.
+
+### Fixed
+
+- A Codex plan type with a workspace word in a longer name, such as a
+  self-serve Business plan, counts as workspace evidence.
+
 ## 1.10.2
 
 ### Changed

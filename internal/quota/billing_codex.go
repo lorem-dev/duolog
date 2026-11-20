@@ -21,14 +21,17 @@ const (
 	codexAuthLayer    = "getAuthStatus"
 )
 
-// codexWorkspacePlans are the Codex plan types that belong to a workspace.
-// A plan type is workspace evidence only; it never decides the verdict.
+// codexWorkspacePlans are the words of the Codex plan types that belong to a
+// workspace, such as team or self_serve_business_prolite. A plan type is
+// workspace evidence only; it never decides the verdict.
 var codexWorkspacePlans = []string{"team", "business", "enterprise", "edu"}
 
-// workspacePlan reports a plan type of a workspace under any spelling of f.
+// workspacePlan reports a plan type of a workspace under any spelling of f:
+// one with a workspace word between its _ or - separators.
 func (f fields) workspacePlan() bool {
 	kind, _ := f.text("planType", "plan_type")
-	return slices.Contains(codexWorkspacePlans, strings.ToLower(kind))
+	words := strings.FieldsFunc(strings.ToLower(kind), func(r rune) bool { return r == '_' || r == '-' || r == ' ' })
+	return slices.ContainsFunc(words, func(w string) bool { return slices.Contains(codexWorkspacePlans, w) })
 }
 
 // fields keeps a reply object's members raw, so that a property can be told

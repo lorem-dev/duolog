@@ -584,6 +584,7 @@ its layer, never its value.
 | `paid_runs.<agent>.env` | the agent's API key | Optional. Variables that only a paid run of the agent gets |
 | `paid_runs.<agent>.calibrate` | `false` | Lets calibration use a paid route. Needs `allow` too |
 | `paid_runs.<agent>.account` | `auto` | `workspace` uses only `usable_share` of each window. Workspace evidence in the quota read always wins |
+| `paid_runs.<agent>.workspace_tasks` | `1` | How many tasks of that agent run at once on a workspace account, still within the session limits. Only the user config may raise it |
 | `paid_runs.usable_share` | `0.5` | The share of each window duolog uses on a workspace account, above 0 and at most 1 |
 | `paid_runs.claude.subscription_endpoints` | none | Named base URLs that count as your subscription, such as a company gateway in front of the claude.ai login |
 
@@ -715,10 +716,14 @@ runs. A small tier is about a personal plan of 20 USD a month, medium a window
 about 5 times larger and large about 20 times larger. An agent with no
 measured rate yet is `small`, and so is one with a `paid` verdict or a
 workspace account. A paid run or a workspace account runs one task at a time
-per agent, even when the tier allows more sessions. An idle peer pane runs no
-task, so it keeps no delegation waiting; its next send waits its turn
-instead. A tier steps down at once
-and steps up only past its cut by `balance.margin`.
+per agent, even when the tier allows more sessions. When your workspace seat
+has its own windows, such as a self-serve Business plan, set
+`paid_runs.<agent>.workspace_tasks` in your user config to run more tasks at
+once, up to the tier's sessions; a paid run still runs alone. Raise
+`paid_runs.usable_share` with it to use more of each window. An idle peer
+pane runs no task, so it keeps no delegation waiting; its next send waits its
+turn instead. A tier steps down at once and steps up only past its cut by
+`balance.margin`.
 
 `limits.max_live_sessions` still applies: it limits the resumable threads and
 panes per lead and agent. When both limits apply, the lower limit wins.

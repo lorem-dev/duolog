@@ -169,7 +169,10 @@ type Refusal struct {
 	Tier                  string
 	Live, Limit           int
 	TotalLive, TotalLimit int
-	Waited                time.Duration
+	// Tasks is how many tasks of the agent a workspace account runs at once,
+	// on a one-task refusal that no paid run caused; 0 otherwise.
+	Tasks  int
+	Waited time.Duration
 	// OptedIn says the agent already has paid_runs allow with a cap, so the
 	// advice to set it does not apply.
 	OptedIn bool
@@ -451,6 +454,8 @@ func (g *Gate) attemptOnce(ctx context.Context, req Request, id string, l *line,
 		AgentLimit: tier.Limit,
 		ReadAt:     s.ReadAt,
 		accountKey: &accountKey,
+
+		WorkspaceTasks: g.Config.PaidRuns.WorkspaceTasks(agent),
 	}
 	if p.Variant == launch.Paid {
 		in.DailyCapUSD = paid.DailyCapUSD
@@ -464,10 +469,18 @@ func (g *Gate) attemptOnce(ctx context.Context, req Request, id string, l *line,
 			calibration: req.Calibration}, in, nil, nil
 	}
 	r := refuse(a, e.Reason, windowDetail(e.Reason, agent, est, a))
-	r.EstimateUSD, r.EstimateSource = est.USD, est.Source
-	r.Tier, r.Live, r.Limit = tier.Tier, e.agentLive, in.AgentLimit
-	r.TotalLive, r.TotalLimit = e.totalLive, in.TotalLimit
+	r.counts(e, in, tier.Tier, est)
 	return Permit{}, in, r, nil
+}
+
+// counts fills in the numbers of a refused admission: the estimate, the
+// agent's sessions, limit and tier, the sessions of all agents and the
+// workspace task limit behind a one-task refusal.
+func (r *Refusal) counts(e entry, in Admission, tier string, est paidrules.Estimate) {
+	r.EstimateUSD, r.EstimateSource = est.USD, est.Source
+	r.Tier, r.Live, r.Limit = tier, e.agentLive, in.AgentLimit
+	r.TotalLive, r.TotalLimit = e.totalLive, in.TotalLimit
+	r.Tasks = e.Tasks
 }
 
 // windowDetail names the window that left no headroom when reason is

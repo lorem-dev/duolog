@@ -31,7 +31,16 @@ type delegateFunc func(context.Context, delegate.Request) (delegate.Outcome, err
 
 func newDelegateCommand(d *cmdDeps) *cobra.Command {
 	var f delegateFlags
-	cmd := &cobra.Command{Use: "delegate <role> [task file]", Short: "Delegate a task and print its answer", Long: "Delegate a task and print its answer.\n\nName the task file as the second argument or with --task. It needs the\nsections ## Goal, ## Read, ## Write, ## Limits and ## Check.", Args: delegateArgs(&f), SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "delegate <role> [task file | -]", Short: "Delegate a task and print its answer", Long: "Delegate a task and print its answer.\n\nName the task file as the second argument or with --task. Give - to pipe\nthe task text in instead: duolog keeps it under .duolog/tasks/, so no task\nfile of your own is left behind. The task needs the sections ## Goal,\n## Read, ## Write, ## Limits and ## Check.", Args: delegateArgs(&f), SilenceErrors: true, RunE: func(cmd *cobra.Command, args []string) error {
+		if f.taskPath == stdinTask {
+			root, err := projectRoot()
+			if err != nil {
+				return printedErr(cmd, err)
+			}
+			if f.taskPath, err = stdinTaskFile(cmd.InOrStdin(), workRoot(root)); err != nil {
+				return printedErr(cmd, err)
+			}
+		}
 		if f.resultFile == "" {
 			return f.run(cmd, args[0], d.runDelegateRecorded(cmd.ErrOrStderr(), args[0], f.taskPath, f.lead))
 		}
@@ -42,7 +51,7 @@ func newDelegateCommand(d *cmdDeps) *cobra.Command {
 		})
 	}}
 	cmd.Flags().StringSliceVar(&f.needs, "needs", nil, "Capabilities the task relies on, as kind:name with kind skill, plugin or mcp")
-	cmd.Flags().StringVar(&f.taskPath, "task", "", "Task file to delegate")
+	cmd.Flags().StringVar(&f.taskPath, "task", "", "Task file to delegate; - reads the task from standard input")
 	cmd.Flags().StringVar(&f.thread, "thread", "", "Conversation thread to reuse")
 	cmd.Flags().StringVar(&f.lead, "lead", "", "Registered lead session ID (defaults to DUOLOG_LEAD)")
 	cmd.Flags().StringVar(&f.features, "features", "", "Task features for learning mode, as name=value pairs separated by commas")
@@ -75,7 +84,7 @@ func delegateArgs(f *delegateFlags) cobra.PositionalArgs {
 		case len(args) == 2:
 			f.taskPath = args[1]
 		case f.taskPath == "":
-			err = errors.New("name the task file: duolog delegate <role> <task file>, or --task <file>")
+			err = errors.New("name the task file: duolog delegate <role> <task file>, or --task <file>, or - to pipe the task in")
 		}
 		return printedErr(cmd, err)
 	}

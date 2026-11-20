@@ -5,7 +5,7 @@ description: >-
   tasks to Claude or Codex for short answers or second opinions.
 allowed-tools: Bash(duolog version), Bash(duolog doctor), Bash(duolog roster), Bash(duolog route *), Bash(duolog caps), Bash(duolog caps *), Bash(duolog stats), Bash(duolog inbox *), Bash(duolog peer status *), Bash(duolog peer wait *)
 metadata:
-  duolog-version: "1.10.2"
+  duolog-version: "1.11.0"
 ---
 
 Stop unless this project has `.duolog/config.yaml`.
@@ -20,13 +20,13 @@ Stop unless this project has `.duolog/config.yaml`.
    macOS/Linux:
 
    ```sh
-   curl -fsSL https://github.com/lorem-dev/duolog/releases/download/v1.10.2/install.sh | sh -s -- --version v1.10.2 && duolog install --scope project
+   curl -fsSL https://github.com/lorem-dev/duolog/releases/download/v1.11.0/install.sh | sh -s -- --version v1.11.0 && duolog install --scope project
    ```
 
    PowerShell:
 
    ```powershell
-   $env:DUOLOG_VERSION = 'v1.10.2'; irm https://github.com/lorem-dev/duolog/releases/download/v1.10.2/install.ps1 | iex
+   $env:DUOLOG_VERSION = 'v1.11.0'; irm https://github.com/lorem-dev/duolog/releases/download/v1.11.0/install.ps1 | iex
    ```
 
    Windows: add the printed directory to PATH; run
@@ -44,14 +44,14 @@ Use CLI only for missing or failed tools.
 
 1. Give whole features to `planner`; small fixes: yourself.
 2. First record the starting checkout, branch and existing edits.
-   Write `.duolog/task.md`: Goal, Read, Write (ranges, edited docs),
+   Write task.md text: Goal, Read, Write (ranges, edited docs),
    Limits, Run (optional), Check.
 3. Call `delegate`. If `running`, call `result`
    with the id as task_path (`status` lists runs).
-   CLI: background `duolog delegate <role> --task .duolog/task.md`; await notice.
+   CLI: background `duolog delegate <role> -` (stdin); await notice.
 4. Read only summary, `git diff --stat`, marked hunks and `answer.json`'s
    `decisions=`; skip full suites.
-   Batch nameable reads in parallel.
+   Parallelize nameable reads.
 5. Keep hard parts. Finish with `review_final` (`review_cross` for big
    batches) without asking; check worker results first. Return findings
    to the worker or fix them.

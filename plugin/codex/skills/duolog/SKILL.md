@@ -4,7 +4,7 @@ description: >-
   Use only in a project that has .duolog/config.yaml. Delegate bounded
   tasks to Claude or Codex for short answers or second opinions.
 metadata:
-  duolog-version: "1.10.2"
+  duolog-version: "1.11.0"
 ---
 
 Stop unless this project has `.duolog/config.yaml`.
@@ -19,13 +19,13 @@ Stop unless this project has `.duolog/config.yaml`.
    macOS/Linux:
 
    ```sh
-   curl -fsSL https://github.com/lorem-dev/duolog/releases/download/v1.10.2/install.sh | sh -s -- --version v1.10.2 && duolog install --scope project
+   curl -fsSL https://github.com/lorem-dev/duolog/releases/download/v1.11.0/install.sh | sh -s -- --version v1.11.0 && duolog install --scope project
    ```
 
    PowerShell:
 
    ```powershell
-   $env:DUOLOG_VERSION = 'v1.10.2'; irm https://github.com/lorem-dev/duolog/releases/download/v1.10.2/install.ps1 | iex
+   $env:DUOLOG_VERSION = 'v1.11.0'; irm https://github.com/lorem-dev/duolog/releases/download/v1.11.0/install.ps1 | iex
    ```
 
    Windows: add the printed directory to PATH; run
@@ -40,9 +40,9 @@ If a PR is requested or required, batch small changes into one.
 
 1. Give whole features to `planner`; small fixes: yourself.
 2. First record the starting checkout, branch and existing edits.
-   Write `.duolog/task.md`: Goal, Read, Write (ranges, edited docs),
+   Write task.md text: Goal, Read, Write (ranges, edited docs),
    Limits, Run (optional), Check.
-3. Background `duolog delegate <role> --task .duolog/task.md`; await notice.
+3. Background `duolog delegate <role> -` (stdin); await notice.
 4. Read only summary, `git diff --stat`, marked hunks and `answer.json`'s
    `decisions=`; skip full suites.
    Batch nameable reads in parallel.
@@ -70,7 +70,7 @@ Run `duolog delegate` outside the sandbox, or workers cannot start. Old
 
 ## Asks
 
-For `"p":true` bus asks, tell the person to answer; rewrite the task if needed,
+For `"p":true` asks, tell the person to answer; rewrite the task if needed,
 but never answer yourself.
 
 Foreground delegates deny asks; workers list commands in `needs`.

@@ -442,6 +442,58 @@ func TestAdmissionCrossProcessLastCapAndSlot(t *testing.T) {
 		})
 	}
 
+	// workspace_tasks lets a workspace account run more tasks at once, still
+	// within its sessions; a paid run keeps running alone.
+	t.Run("workspace tasks", func(t *testing.T) {
+		st := testStore(t, &now)
+		task := func(id string) Admission {
+			in := freeTask(id, "codex", "workspace", now)
+			in.AgentLimit, in.WorkspaceTasks = 5, 3
+			return in
+		}
+		for i := range 3 {
+			mustAdmit(t, st, task(fmt.Sprintf("ws-%d", i)))
+		}
+		if d := mustRefuse(t, st, task("ws-3"), ReasonOneTask); d.Tasks != 3 {
+			t.Fatalf("refusal names %d tasks, want 3", d.Tasks)
+		}
+		// A personal task beside running workspace tasks counts them too.
+		personal := freeTask("personal", "codex", "personal", now)
+		personal.AgentLimit, personal.WorkspaceTasks = 5, 3
+		mustRefuse(t, st, personal, ReasonOneTask)
+		// The session tier still bounds the tasks.
+		small := task("ws-small")
+		small.WorkspaceTasks = 10
+		small.AgentLimit = 3
+		mustRefuse(t, st, small, ReasonAgentSessions)
+		// Another agent is not counted.
+		other := freeTask("claude-ws", "claude", "workspace", now)
+		other.AgentLimit, other.WorkspaceTasks = 5, 1
+		mustAdmit(t, st, other)
+
+		// A paid run still runs alone: beside another paid run, beside a
+		// workspace task, and with a workspace task beside it. Its refusal
+		// names no workspace limit.
+		paid := func(id string) Admission {
+			in := paidTask(id, "codex", 0.5)
+			in.AgentLimit, in.WorkspaceTasks = 5, 3
+			return in
+		}
+		paidSt := testStore(t, &now)
+		mustAdmit(t, paidSt, paid("paid-0"))
+		if d := mustRefuse(t, paidSt, paid("paid-1"), ReasonOneTask); d.Tasks != 0 {
+			t.Fatalf("paid refusal names %d tasks", d.Tasks)
+		}
+		if d := mustRefuse(t, paidSt, task("ws-beside-paid"), ReasonOneTask); d.Tasks != 0 {
+			t.Fatalf("refusal beside a paid run names %d tasks", d.Tasks)
+		}
+		wsSt := testStore(t, &now)
+		mustAdmit(t, wsSt, task("ws-first"))
+		if d := mustRefuse(t, wsSt, paid("paid-beside-ws"), ReasonOneTask); d.Tasks != 0 {
+			t.Fatalf("paid refusal beside a workspace task names %d tasks", d.Tasks)
+		}
+	})
+
 	t.Run("opt-in, verdict and windows", func(t *testing.T) {
 		st := testStore(t, &now)
 		// A paid verdict never runs in the free variant, and the paid

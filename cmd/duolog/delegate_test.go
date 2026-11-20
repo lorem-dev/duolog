@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -111,6 +112,74 @@ func TestDelegateTaskFileArgument(t *testing.T) {
 	}
 	if len(got) != 3 {
 		t.Fatal(got)
+	}
+}
+
+// A task piped in with - is kept under .duolog/tasks/<id>/task.md, where the
+// run reads it, and leaves no file in .duolog itself. An empty input or an
+// oversized one runs nothing.
+func TestDelegateTaskFromStdin(t *testing.T) {
+	isolatedRouteConfig(t)
+	root := t.TempDir()
+	t.Chdir(root)
+	t.Setenv("DUOLOG_DEPTH", "")
+	var got []string
+	testDeps(t).RunDelegate = func(_ context.Context, r delegate.Request) (delegate.Outcome, error) {
+		got = append(got, r.TaskPath)
+		return delegate.Outcome{Line: "ok"}, nil
+	}
+	run := func(input string, args ...string) (string, error) {
+		cmd := newRootCommand(testDeps(t))
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		cmd.SetIn(strings.NewReader(input))
+		cmd.SetArgs(args)
+		err := cmd.Execute()
+		return out.String(), err
+	}
+	const task = "## Goal\nFix it.\n## Read\n## Write\n## Limits\n## Check\n"
+	for _, args := range [][]string{{"delegate", "plan", "-"}, {"delegate", "plan", "--task", "-"}} {
+		if out, err := run(task, args...); err != nil || out != "ok\n" {
+			t.Fatal(args, out, err)
+		}
+	}
+	if len(got) != 2 || got[0] == got[1] {
+		t.Fatalf("each piped task gets its own file: %v", got)
+	}
+	for _, p := range got {
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		if len(parts) != 4 || parts[0] != ".duolog" || parts[1] != "tasks" || parts[3] != "task.md" {
+			t.Fatalf("piped task at %s, want .duolog/tasks/<id>/task.md", rel)
+		}
+		if data, err := os.ReadFile(p); err != nil || string(data) != task {
+			t.Fatalf("piped task file: %q, %v", data, err)
+		}
+	}
+	entries, err := os.ReadDir(filepath.Join(root, ".duolog"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+			t.Fatalf("a piped task left %s in .duolog", e.Name())
+		}
+	}
+	for _, c := range []struct{ input, want string }{
+		{" \n\t\n", "holds no task"},
+		{strings.Repeat("x", maxStdinTask+1), "over"},
+	} {
+		out, err := run(c.input, "delegate", "plan", "-")
+		if err == nil || !strings.HasPrefix(out, "duolog delegate: ") || !strings.Contains(out, c.want) {
+			t.Fatal(out, err)
+		}
+	}
+	if len(got) != 2 {
+		t.Fatalf("a refused input ran: %v", got)
 	}
 }
 

@@ -17,6 +17,8 @@ type PaidAgent struct {
 	Calibrate   bool     `yaml:"calibrate" jsonschema_description:"Allow calibration on a paid route; defaults to false and needs allow."`
 	Env         []string `yaml:"env" jsonschema_description:"Variables passed to this agent's processes only when paid runs are allowed; defaults to the agent's API key."`
 	Account     string   `yaml:"account" jsonschema_description:"Account kind: workspace uses usable_share of each window; auto and personal use whole windows only while the quota read and the runs show no workspace evidence, which always wins; defaults to auto." jsonschema:"enum=auto,enum=personal,enum=workspace"`
+	// WorkspaceTasks is read through Tasks, which turns 0 into the default.
+	WorkspaceTasks int `yaml:"workspace_tasks,omitempty" jsonschema_description:"How many tasks of this agent may run at once on a workspace account, still within the session limits; defaults to 1. Only the user config may raise it." jsonschema:"minimum=1"`
 	// SubscriptionEndpoints is read for the agents whose descriptor says they
 	// have endpoints (agent.ConfigFacts.SubscriptionEndpoints); the schema
 	// lists it only there.
@@ -44,6 +46,19 @@ type ConfigNotice struct {
 // nothing, for a name that has none.
 func (p PaidRuns) Agent(agent string) PaidAgent {
 	return p.Agents[agent]
+}
+
+// DefaultWorkspaceTasks is how many tasks of one agent run at once on a
+// workspace account when the config sets no workspace_tasks.
+const DefaultWorkspaceTasks = 1
+
+// WorkspaceTasks returns how many tasks of an agent may run at once on a
+// workspace account: its workspace_tasks, or the default when it has none.
+func (p PaidRuns) WorkspaceTasks(agent string) int {
+	if n := p.Agents[agent].WorkspaceTasks; n > 0 {
+		return n
+	}
+	return DefaultWorkspaceTasks
 }
 
 // Set stores an agent's settings.

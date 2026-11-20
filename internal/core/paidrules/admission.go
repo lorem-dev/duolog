@@ -15,6 +15,9 @@ type Decision struct {
 	Reservation Reservation
 	Reason      string
 	Live, Limit int
+	// Tasks is the workspace task limit behind a one-task refusal; 0 when a
+	// paid run caused it, and for any other decision.
+	Tasks int
 }
 
 // usdEpsilon absorbs float rounding, so a request that lands exactly on the

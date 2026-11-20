@@ -206,6 +206,18 @@ func (a *permitRun) finish(ctx context.Context, cfg *config.Config, route corero
 	})
 }
 
+// oneTaskLine words a one-task refusal. On a workspace account it names the
+// task limit and the setting that raises it.
+func oneTaskLine(r *paidruns.Refusal) string {
+	switch {
+	case r.Tasks > 1:
+		return fmt.Sprintf("%s runs %d tasks at a time on its workspace account", r.Agent, r.Tasks)
+	case r.Tasks == 1:
+		return fmt.Sprintf("%s runs one task at a time on its workspace account; paid_runs.%s.workspace_tasks in the user config allows more", r.Agent, r.Agent)
+	}
+	return r.Agent + " runs one task at a time"
+}
+
 // RefusalLine says why the gate refused a candidate, for the lead. Peer
 // commands word their refusals with it too, so it names the shape. The
 // advice to allow paid runs goes only to an agent that has not opted in.
@@ -216,7 +228,7 @@ func RefusalLine(r *paidruns.Refusal) string {
 	case paidruns.ReasonAgentSessions, paidruns.ReasonOneTask, paidruns.ReasonQueue:
 		line := fmt.Sprintf("%s sessions %d of %d (tier %s)", r.Agent, r.Live, r.Limit, r.Tier)
 		if r.Reason == paidruns.ReasonOneTask {
-			line = r.Agent + " runs one task at a time"
+			line = oneTaskLine(r)
 		}
 		if r.Waited > 0 {
 			line += fmt.Sprintf("; waited %d s", int(r.Waited.Round(time.Second)/time.Second))

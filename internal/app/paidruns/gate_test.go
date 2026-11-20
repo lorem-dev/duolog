@@ -363,7 +363,19 @@ func TestGateCountsProcessesAndPanes(t *testing.T) {
 		w.wantLive("claude", 3, 0)
 		busy := w.acquire(w.peerSend("claude", workerenv.Free, 320, sessions[0]))
 		w.refused(w.peerSend("claude", workerenv.Free, 321, sessions[1]), ReasonOneTask)
-		w.refused(w.request("claude", workerenv.Worker, workerenv.Free, 322), ReasonOneTask)
+		if r := w.refusal(w.request("claude", workerenv.Worker, workerenv.Free, 322), ReasonOneTask); r.Tasks != 1 {
+			t.Fatalf("one-task refusal names %d tasks, want 1: %+v", r.Tasks, r)
+		}
+		// workspace_tasks lets a second send run beside the first.
+		pa.WorkspaceTasks = 2
+		w.cfg.PaidRuns.Set("claude", pa)
+		second := w.acquire(w.peerSend("claude", workerenv.Free, 324, sessions[1]))
+		if r := w.refusal(w.peerSend("claude", workerenv.Free, 325, sessions[2]), ReasonOneTask); r.Tasks != 2 {
+			t.Fatalf("one-task refusal names %d tasks, want 2: %+v", r.Tasks, r)
+		}
+		w.finish(second, paidrules.Settlement{Started: true, CompleteUsage: true})
+		pa.WorkspaceTasks = 0
+		w.cfg.PaidRuns.Set("claude", pa)
 		w.finish(busy, paidrules.Settlement{Started: true, CompleteUsage: true})
 		// A workspace account is tier small: a fourth pane has no slot.
 		r := w.refusal(w.peerOpenRequest("claude", workerenv.Free, 323), ReasonAgentSessions)

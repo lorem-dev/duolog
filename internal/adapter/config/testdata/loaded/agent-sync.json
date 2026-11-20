@@ -1260,6 +1260,7 @@
           "ANTHROPIC_API_KEY"
         ],
         "Account": "auto",
+        "WorkspaceTasks": 0,
         "SubscriptionEndpoints": {}
       },
       "codex": {
@@ -1270,6 +1271,7 @@
           "OPENAI_API_KEY"
         ],
         "Account": "auto",
+        "WorkspaceTasks": 0,
         "SubscriptionEndpoints": null
       }
     }

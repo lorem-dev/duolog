@@ -27,7 +27,7 @@ requirements.
 Pin a release or choose another directory:
 
 ```sh
-curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.10.2
+curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | sh -s -- --version v1.11.0
 curl -fsSL https://github.com/lorem-dev/duolog/releases/latest/download/install.sh | DUOLOG_INSTALL_DIR="$HOME/bin" sh
 ```
 
@@ -54,7 +54,7 @@ binary unchanged.
 To pin a Windows release or choose a directory:
 
 ```powershell
-$env:DUOLOG_VERSION = 'v1.10.2'
+$env:DUOLOG_VERSION = 'v1.11.0'
 $env:DUOLOG_INSTALL_DIR = "$env:LOCALAPPDATA\Programs\duolog"
 irm https://github.com/lorem-dev/duolog/releases/latest/download/install.ps1 | iex
 ```
@@ -496,7 +496,9 @@ Read may not name a file under `.duolog/` other than Markdown and the
 configs, because workers may not read duolog's state; `duolog delegate`
 refuses such a task before a worker starts.
 Save it inside the project. `.duolog/task.md` is a good place, because Git
-ignores `.duolog/`.
+ignores `.duolog/`. Or pipe the task text into `duolog delegate <role> -`:
+duolog keeps it as `.duolog/tasks/<id>/task.md`, so tasks that run side by
+side need no file names of their own and leave no files behind.
 
 ```markdown
 ## Goal
@@ -543,6 +545,16 @@ Send the task to a role:
 
 ```bash
 duolog delegate review_intermediate --task .duolog/task.md
+```
+
+Or with the task piped in:
+
+```bash
+duolog delegate review_intermediate - <<'EOF'
+## Goal
+Review the function in the listed lines for bugs.
+...
+EOF
 ```
 
 The command finds its lead in this order:

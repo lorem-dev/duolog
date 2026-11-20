@@ -694,6 +694,11 @@
             "workspace"
           ],
           "description": "Account kind: workspace uses usable_share of each window; auto and personal use whole windows only while the quota read and the runs show no workspace evidence, which always wins; defaults to auto."
+        },
+        "workspace_tasks": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "How many tasks of this agent may run at once on a workspace account, still within the session limits; defaults to 1. Only the user config may raise it."
         }
       },
       "additionalProperties": false,
@@ -751,6 +756,11 @@
             "workspace"
           ],
           "description": "Account kind: workspace uses usable_share of each window; auto and personal use whole windows only while the quota read and the runs show no workspace evidence, which always wins; defaults to auto."
+        },
+        "workspace_tasks": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "How many tasks of this agent may run at once on a workspace account, still within the session limits; defaults to 1. Only the user config may raise it."
         },
         "subscription_endpoints": {
           "additionalProperties": {

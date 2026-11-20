@@ -105,3 +105,21 @@ func TestNotAllowedRefusalGivesAdviceOnce(t *testing.T) {
 		t.Fatalf("advice not given exactly once: %q", got)
 	}
 }
+
+// A one-task refusal on a workspace account names its task limit, and at the
+// default names the setting that raises it; a paid run's names neither.
+func TestOneTaskRefusalNamesWorkspaceTasks(t *testing.T) {
+	for _, tc := range []struct {
+		tasks int
+		want  string
+	}{
+		{0, "codex runs one task at a time"},
+		{1, "codex runs one task at a time on its workspace account; paid_runs.codex.workspace_tasks in the user config allows more"},
+		{3, "codex runs 3 tasks at a time on its workspace account"},
+	} {
+		r := &paidruns.Refusal{Agent: "codex", Shape: corelaunch.Worker, Reason: paidruns.ReasonOneTask, Tasks: tc.tasks}
+		if got := RefusalLine(r); got != tc.want {
+			t.Errorf("tasks %d: %q, want %q", tc.tasks, got, tc.want)
+		}
+	}
+}

@@ -53,6 +53,11 @@ func restrictLayer(i int, root string, base, node *yaml.Node) (notices []config.
 		}
 	}
 	found, err := capLayerSessionLimits(node, file)
+	if err != nil {
+		return nil, "", err
+	}
+	notices = append(notices, found...)
+	found, err = capLayerWorkspaceTasks(node, file)
 	return append(notices, found...), shared, err
 }
 
@@ -273,6 +278,9 @@ func parseLayer(data []byte, source string, agents []agent.Descriptor) (*yaml.No
 		return nil, fileError(source, err)
 	}
 	if err := checkAccountLimitNodes(effective); err != nil {
+		return nil, fileError(source, err)
+	}
+	if err := checkWorkspaceTasks(effective); err != nil {
 		return nil, fileError(source, err)
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
