@@ -24,8 +24,9 @@ import (
 // The project layer is committed: it may only tighten paid runs, prices, the
 // account session limits and what Claude workers send per request. So may a local layer that Git tracks, since it
 // reaches everyone who clones the repository, and one outside a Git checkout,
-// which nothing proves the person's. Every layer but the user config is also
-// capped at the default total and tiers, whether Git ignores it or not.
+// which nothing proves the person's. Every layer but the user config also may
+// not raise the total, the tiers or workspace_tasks above both the default
+// and the layers below, whether Git ignores it or not.
 func restrictLayer(i int, root string, base, node *yaml.Node) (notices []config.ConfigNotice, shared string, err error) {
 	if i == 0 {
 		return nil, "", userSkillsDirError(node)
@@ -52,12 +53,12 @@ func restrictLayer(i int, root string, base, node *yaml.Node) (notices []config.
 			notices = append(notices, outsideNotice)
 		}
 	}
-	found, err := capLayerSessionLimits(node, file)
+	found, err := capLayerSessionLimits(base, node, file)
 	if err != nil {
 		return nil, "", err
 	}
 	notices = append(notices, found...)
-	found, err = capLayerWorkspaceTasks(node, file)
+	found, err = capLayerWorkspaceTasks(base, node, file)
 	return append(notices, found...), shared, err
 }
 

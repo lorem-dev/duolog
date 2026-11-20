@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -53,10 +54,24 @@ func TestSessionLimitsDefaultsRestrictiveLayers(t *testing.T) {
 		t.Errorf("user layer got notices %v", got)
 	}
 
-	// Every other layer may only lower them: a local file that Git ignores,
-	// or that sits in no checkout at all, is capped at the default, even when
-	// the user config raised the values.
-	for _, user := range []string{"", "limits: {max_total_sessions: 16, sessions_by_tier: {large: 12}}\n"} {
+	// Every other layer may not raise them: a local file that Git ignores, or
+	// that sits in no checkout at all, keeps a value only up to the default or
+	// the user config's raise. An ignored value is dropped, so it never hides
+	// the user config's raise behind the default.
+	for _, c := range []struct {
+		user  string
+		total int
+		tiers config.SessionTiers
+		want  []string
+	}{
+		{"", 10, config.SessionTiers{Small: 3, Medium: 5, Large: 10},
+			[]string{"limits.max_total_sessions", "limits.sessions_by_tier.small", "limits.sessions_by_tier.large"}},
+		{"limits: {max_total_sessions: 16, sessions_by_tier: {large: 12}}\n", 16, config.SessionTiers{Small: 3, Medium: 5, Large: 12},
+			[]string{"limits.sessions_by_tier.small"}},
+		{"limits: {max_total_sessions: 20, sessions_by_tier: {small: 2, large: 11}}\n", 16, config.SessionTiers{Small: 2, Medium: 5, Large: 11},
+			[]string{"limits.sessions_by_tier.small", "limits.sessions_by_tier.large"}},
+	} {
+		user := c.user
 		root = isolatedRoot(t)
 		if user != "" {
 			writeConfig(t, userConfigPath(t), user)
@@ -66,12 +81,11 @@ func TestSessionLimitsDefaultsRestrictiveLayers(t *testing.T) {
 			t.Fatal(err)
 		}
 		l = cfg.Limits
-		if l.MaxTotalSessions != 10 || l.SessionsByTier != (config.SessionTiers{Small: 3, Medium: 5, Large: 10}) {
-			t.Errorf("local layer (user %q) raised: total %d, tiers %+v; want 10, 3/5/10", user, l.MaxTotalSessions, l.SessionsByTier)
+		if l.MaxTotalSessions != c.total || l.SessionsByTier != c.tiers {
+			t.Errorf("local layer (user %q): total %d, tiers %+v; want %d, %+v", user, l.MaxTotalSessions, l.SessionsByTier, c.total, c.tiers)
 		}
-		want := []string{"limits.max_total_sessions", "limits.sessions_by_tier.small", "limits.sessions_by_tier.large"}
-		if got := noticeKeys(cfg.Notices); !slices.Equal(got, want) {
-			t.Errorf("local layer notices (user %q) = %v, want %v", user, got, want)
+		if got := noticeKeys(cfg.Notices); !slices.Equal(got, c.want) {
+			t.Errorf("local layer notices (user %q) = %v, want %v", user, got, c.want)
 		}
 		for _, n := range cfg.Notices {
 			if !strings.Contains(n.Reason, "default") {
@@ -137,9 +151,8 @@ balance: {max_age_seconds: 600, min_interval_share: 0.02, margin: 0.1}
 		t.Errorf("local total = %v, %v; want 2 without notices", cfg, err)
 	}
 
-	// workspace_tasks: only the user config may raise it above 1; the project
-	// and local files are capped at the default even over the user's value,
-	// as the tiers are, and no setting is 1.
+	// workspace_tasks: only the user config may raise it above 1, as with the
+	// tiers, and no setting is 1.
 	root = isolatedRoot(t)
 	if cfg, err = Load(root); err != nil || cfg.PaidRuns.WorkspaceTasks("codex") != 1 {
 		t.Errorf("default workspace tasks = %v, %v; want 1", cfg, err)
@@ -159,6 +172,31 @@ balance: {max_age_seconds: 600, min_interval_share: 0.02, margin: 0.1}
 		}
 		if got := noticeKeys(cfg.Notices); !slices.Equal(got, []string{"paid_runs.codex.workspace_tasks"}) {
 			t.Errorf("%s notices = %v", file, got)
+		}
+	}
+
+	// A project or local value the cap ignores must not hide the user
+	// config's raise; one at or below it applies.
+	for _, file := range []string{"config.yaml", "config.local.yaml"} {
+		for _, c := range []struct {
+			layer, want int
+			applies     string
+		}{{5, 5, ""}, {7, 5, "5 applies"}, {3, 3, ""}} {
+			root = isolatedRoot(t)
+			writeConfig(t, userConfigPath(t), "paid_runs: {codex: {workspace_tasks: 5}}\n")
+			writeConfig(t, filepath.Join(root, ".duolog", file), fmt.Sprintf("paid_runs: {codex: {workspace_tasks: %d}}\n", c.layer))
+			if cfg, err = Load(root); err != nil {
+				t.Fatal(err)
+			}
+			if got := cfg.PaidRuns.WorkspaceTasks("codex"); got != c.want {
+				t.Errorf("%s %d over user 5: workspace tasks %d, want %d", file, c.layer, got, c.want)
+			}
+			switch {
+			case c.applies == "" && len(cfg.Notices) != 0:
+				t.Errorf("%s %d over user 5: notices %v, want none", file, c.layer, cfg.Notices)
+			case c.applies != "" && (len(cfg.Notices) != 1 || !strings.Contains(cfg.Notices[0].Reason, c.applies)):
+				t.Errorf("%s %d over user 5: notices %v, want one naming %q", file, c.layer, cfg.Notices, c.applies)
+			}
 		}
 	}
 

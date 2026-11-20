@@ -162,29 +162,32 @@ func checkWorkspaceTasks(root *yaml.Node) error {
 	})
 }
 
-// capLayerWorkspaceTasks lowers to its default each workspace_tasks that a
-// layer other than the person's user config sets above it, and names it.
-// More tasks at once on a workspace account spend a budget the workspace may
-// share, so only the person may raise it, as with the session tiers. The
-// node is a resolved mapping; file names the layer in notices.
-func capLayerWorkspaceTasks(layer *yaml.Node, file string) ([]config.ConfigNotice, error) {
-	var notices []config.ConfigNotice
-	err := eachWorkspaceTasks(layer, func(key string, value *yaml.Node) error {
-		var number float64
-		if err := decodeOptional(value, &number); err != nil {
-			return err
-		}
-		if number <= config.DefaultWorkspaceTasks {
-			return nil
-		}
-		value.Kind, value.Tag, value.Value, value.Style = yaml.ScalarNode, "!!int", fmt.Sprint(config.DefaultWorkspaceTasks), 0
-		value.Content, value.Alias = nil, nil
-		notices = append(notices, config.ConfigNotice{Key: key, Reason: fmt.Sprintf(
-			"%s in %s is ignored: only the user config may raise this above its default; %d applies",
-			formatNumber(number), file, config.DefaultWorkspaceTasks)})
+// capLayerWorkspaceTasks drops each workspace_tasks that a layer other than
+// the person's user config sets above both its default and the value below,
+// and names it. More tasks at once on a workspace account spend a budget the
+// workspace may share, so only the person may raise it, as with the session
+// tiers; the dropped value no longer hides the user config's. Both nodes are
+// resolved mappings; base holds the layers below and file names the layer in
+// notices.
+func capLayerWorkspaceTasks(base, layer *yaml.Node, file string) ([]config.ConfigNotice, error) {
+	var keys []string
+	if err := eachWorkspaceTasks(layer, func(key string, _ *yaml.Node) error {
+		keys = append(keys, key)
 		return nil
-	})
-	return notices, err
+	}); err != nil {
+		return nil, err
+	}
+	var notices []config.ConfigNotice
+	for _, key := range keys {
+		notice, err := capLayerCount(base, layer, key, config.DefaultWorkspaceTasks, file)
+		if err != nil {
+			return nil, err
+		}
+		if notice != nil {
+			notices = append(notices, *notice)
+		}
+	}
+	return notices, nil
 }
 
 // eachWorkspaceTasks calls f with the full key and the value of each

@@ -744,8 +744,10 @@ Only your user config may raise `max_total_sessions` or a tier above its
 default, for example when your plan allows more parallel work than duolog has
 measured yet. Every other layer, the shared `.duolog/config.yaml` and
 `.duolog/config.local.yaml`, whether Git ignores the local file or not, may
-only lower these keys. A value above the default there is capped at the
-default, and `duolog doctor` says so. Small, medium and large are separate
+only lower these keys. A value there above both the default and your user
+config's value is ignored, and `duolog doctor` says so; the value from your
+user config, or the default, applies. The same holds for
+`paid_runs.<agent>.workspace_tasks`. Small, medium and large are separate
 limits: raising one tier does not raise the next. This example in your user
 config runs at most 4 sessions, and each agent at most 3:
 

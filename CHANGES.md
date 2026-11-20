@@ -42,6 +42,13 @@
 
 ## Development
 
+## 1.11.1
+
+### Fixed
+
+- A project or local `workspace_tasks`, session total or tier that duolog
+  ignores no longer hides the user config's higher value behind the default.
+
 ## 1.11.0
 
 ### Added

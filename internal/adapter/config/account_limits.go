@@ -163,13 +163,15 @@ func validateAccountLimits(cfg *config.Config) error {
 	return validateCompact(cfg.Workers)
 }
 
-// capLayerSessionLimits lowers to its default each session count that a layer
-// other than the person's user config sets above it, and names it. Only the
-// user config may raise the total or a tier: a shared file, or a local one
-// that Git ignores but that may sit in any checkout or unpacked archive, does
-// not prove that the person wrote it. Raising one tier does not raise the
-// next. The node is a resolved mapping; file names the layer in notices.
-func capLayerSessionLimits(layer *yaml.Node, file string) ([]config.ConfigNotice, error) {
+// capLayerSessionLimits drops each session count that a layer other than the
+// person's user config sets above both its default and the value below, and
+// names it. Only the user config may raise the total or a tier: a shared file,
+// or a local one that Git ignores but that may sit in any checkout or
+// unpacked archive, does not prove that the person wrote it. The dropped
+// value no longer hides the one below, so a raise in the user config stays.
+// Raising one tier does not raise the next. Both nodes are resolved mappings;
+// base holds the layers below and file names the layer in notices.
+func capLayerSessionLimits(base, layer *yaml.Node, file string) ([]config.ConfigNotice, error) {
 	tiers := config.DefaultSessionTiers()
 	var total struct {
 		Limits struct {
@@ -189,27 +191,58 @@ func capLayerSessionLimits(layer *yaml.Node, file string) ([]config.ConfigNotice
 		{"limits.sessions_by_tier.medium", tiers.Medium},
 		{"limits.sessions_by_tier.large", tiers.Large},
 	} {
-		value, err := limitNode(layer, l.key)
+		notice, err := capLayerCount(base, layer, l.key, float64(l.max), file)
 		if err != nil {
 			return nil, err
 		}
-		if value == nil {
-			continue
+		if notice != nil {
+			notices = append(notices, *notice)
 		}
-		var number float64
-		if err := decodeOptional(value, &number); err != nil {
-			return nil, err
-		}
-		if number <= float64(l.max) {
-			continue
-		}
-		value.Kind, value.Tag, value.Value, value.Style = yaml.ScalarNode, "!!int", fmt.Sprint(l.max), 0
-		value.Content, value.Alias = nil, nil
-		notices = append(notices, config.ConfigNotice{Key: l.key, Reason: fmt.Sprintf(
-			"%s in %s is ignored: only the user config may raise this above its default; %s applies",
-			formatNumber(number), file, formatNumber(float64(l.max)))})
 	}
 	return notices, nil
+}
+
+// capLayerCount drops key from layer when the layer sets it above both def
+// and the value in base, the layers below, and returns the notice. The
+// value below then applies, or def when no layer below sets it: an ignored
+// value must not hide a raise in the user config.
+func capLayerCount(base, layer *yaml.Node, key string, def float64, file string) (*config.ConfigNotice, error) {
+	cut := strings.LastIndex(key, ".")
+	parent, err := limitNode(layer, key[:cut])
+	if err != nil || parent == nil {
+		return nil, err
+	}
+	name := key[cut+1:]
+	value := mappingValue(parent, name)
+	if value == nil {
+		return nil, nil
+	}
+	var number float64
+	if err := decodeOptional(value, &number); err != nil {
+		return nil, err
+	}
+	below := def
+	baseValue, err := limitNode(base, key)
+	if err != nil {
+		return nil, err
+	}
+	if baseValue != nil {
+		if err := decodeOptional(baseValue, &below); err != nil {
+			return nil, err
+		}
+	}
+	if number <= max(def, below) {
+		return nil, nil
+	}
+	parent.Content, err = keepEntries(parent.Content, func(k string, _ *yaml.Node) (bool, error) {
+		return k != name, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &config.ConfigNotice{Key: key, Reason: fmt.Sprintf(
+		"%s in %s is ignored: only the user config may raise this above its default; %s applies",
+		formatNumber(number), file, formatNumber(below))}, nil
 }
 
 // restrictProjectSessionLimits removes from the project layer each account
