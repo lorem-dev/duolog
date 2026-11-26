@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -30,10 +31,19 @@ type Store struct {
 }
 
 // Open creates the project state directory. It writes the .gitignore only when
-// the file is missing, so that a project's own changes to it stay.
+// the file is missing, so that a project's own changes to it stay. The root
+// must exist: a hook or a sweep that still names a removed worktree must not
+// bring its folder back with only .duolog/.gitignore in it.
 func Open(root string) (*Store, error) {
+	info, err := os.Stat(root)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, &fs.PathError{Op: "open", Path: root, Err: syscall.ENOTDIR}
+	}
 	dir := filepath.Join(root, ".duolog")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.Mkdir(dir, 0755); err != nil && !errors.Is(err, fs.ErrExist) {
 		return nil, err
 	}
 	f, err := os.OpenFile(filepath.Join(dir, ".gitignore"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)

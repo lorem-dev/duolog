@@ -37,6 +37,25 @@ func TestOpenCreatesStoreAndIsIdempotent(t *testing.T) {
 	}
 }
 
+// A removed worktree stays removed: Open does not create the root again just
+// to put .duolog/.gitignore in it.
+func TestOpenLeavesARemovedRootAlone(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "removed-worktree")
+	if _, err := Open(root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Open of a missing root = %v, want not exist", err)
+	}
+	if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Open created the missing root: %v", err)
+	}
+	file := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(file, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(file); err == nil {
+		t.Fatal("Open of a file as the root succeeded")
+	}
+}
+
 func TestOpenKeepsAProjectsGitIgnore(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".duolog"), 0755); err != nil {

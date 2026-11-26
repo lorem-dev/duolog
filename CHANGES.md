@@ -42,6 +42,11 @@
 
 ## Development
 
+### Fixed
+
+- duolog no longer brings back a removed worktree's folder with only
+  `.duolog/.gitignore` in it.
+
 ## 1.11.1
 
 ### Fixed
