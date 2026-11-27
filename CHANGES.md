@@ -42,6 +42,8 @@
 
 ## Development
 
+## 1.11.2
+
 ### Fixed
 
 - duolog no longer brings back a removed worktree's folder with only
